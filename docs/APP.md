@@ -29,7 +29,9 @@ One binary, two modes:
   state.
 - `connect(_ id:, given: [CredentialField: String]) async throws`:
   1. read profile; check `Secrets.has` for keychain password / TOTP secret → precise error if missing
-  2. TOTP: if fewer than 8 s remain in the window, wait for the next one
+  2. TOTP: if fewer than 8 s remain in the window, or this window's code was already sent (by the app
+     or the CLI, `profiles/<id>/.last-otp`), wait for the next one ("Waiting for a fresh code…",
+     at most one window, not counted against the timeout; `disconnect` ends the wait at once)
   3. `OTPComposer.compose` → helper `startOpenVPN` / `startForti`
   4. wait until connected (timeout 60 s OpenVPN, 120 s Forti); on auth failure read the log tail and throw
      `PTError.authFailed(details)`; on timeout stop the process.
@@ -158,7 +160,7 @@ The app and the CLI share the files and the Keychain. The app never acts on a ca
 connect, copy code, copy password + code and auto-type re-read the stored profile and Keychain item
 first, and single-field changes (pin, order, remembered user name) go through `ProfileStore.update`
 (read-modify-write). It reloads on `ProfilesWatcher` (FSEvents on the support directory, debounced;
-`vpn.log`, the management socket and temp files are ignored), on `ProfileChangeSignal` (posted by the
+`vpn.log`, the management socket, markers and temp files are ignored), on `ProfileChangeSignal` (posted by the
 CLI after commands that change profiles or secrets), when it becomes active, and every 5 s.
 
 ## Localization

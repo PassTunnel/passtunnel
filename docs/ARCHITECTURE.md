@@ -40,7 +40,8 @@ public enum PT {
 - Support dir: `~/Library/Application Support/PassTunnel/` — override with env `PASSTUNNEL_HOME` (tests).
   - `config.json` – preferences (`Preferences`), incl. `defaultProfile`
   - `profiles/<id>/profile.json`, `profiles/<id>/config.ovpn`, `profiles/<id>/vpn.log`,
-    `profiles/<id>/mgmt.sock` (OpenVPN management socket, exists only while connected)
+    `profiles/<id>/mgmt.sock` (OpenVPN management socket, exists only while connected),
+    `profiles/<id>/.last-otp` (TOTP window of the last code sent, so app and CLI never reuse a code)
 - Keychain: generic password, service `PT.keychainService` (env `PASSTUNNEL_KEYCHAIN_SERVICE` overrides
   for tests), account `"<profileID>/password"` and `"<profileID>/totp"`. Use the Security framework
   (`SecItemAdd/CopyMatching/Update/Delete`), never the `security` CLI. App and CLI are the same binary,
@@ -210,7 +211,8 @@ credentials (Keychain / TOTP / caller-supplied for `.ask`), builds what is sent 
 - `.combined`: `otpTemplate` with `{password}` / `{otp}` substituted (no other placeholders; literal text kept)
   → OpenVPN auth-file password, or Forti `password` (Forti `otp` then omitted)
 - `.separate`: OpenVPN → `SCRV1:b64(password):b64(code)` (static-challenge), Forti → `password` + `otp` fields
-waits for the next TOTP window if fewer than 8 s remain, and publishes `ConnectionState` changes:
+waits for the next TOTP window if fewer than 8 s remain or the current window's code was already sent
+(servers reject a reused code; recorded in `.last-otp` once the helper started the tool), and publishes `ConnectionState` changes:
 
 ```swift
 public enum ConnectionState: Equatable { case disconnected, connecting(String), connected(ip: String, since: Date?) }

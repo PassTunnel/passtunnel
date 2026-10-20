@@ -135,6 +135,15 @@ public final class ConnectionManager: ObservableObject {
     }
 
     static let userStoppedMarker = ".user-stopped"
+    /// TOTP window whose code was last sent (`UsedOTPWindow`), shared by the app and the CLI.
+    static let usedOTPFile = ".last-otp"
+
+    /// Servers usually accept a TOTP code only once, so the window of the last code sent is kept
+    /// per profile and the next connect within that window waits for a new code.
+    struct UsedOTPWindow: Codable, Equatable {
+        var counter: UInt64
+        var period: Int
+    }
 
     @Published public private(set) var states: [String: ConnectionState] = [:]
     @Published public private(set) var lastError: [String: String] = [:]
@@ -164,6 +173,7 @@ public final class ConnectionManager: ObservableObject {
     private var connectedAt: [String: Date] = [:]
     private var reconnectGen: [String: Int] = [:]
     private var reconnectTasks: [String: Task<Void, Never>] = [:]
+    private var codeWaits: [String: Task<Void, Error>] = [:]   // waiting for a fresh code; disconnect cancels
     private var healthFailures: [String: Int] = [:]
     private var outage: Set<String> = []
     private var forcedReconnectDone: Set<String> = []
@@ -353,6 +363,7 @@ public final class ConnectionManager: ObservableObject {
     public func disconnect(_ id: String) async throws {
         cancelReconnect(id)
         actionToken[id, default: 0] += 1
+        codeWaits.removeValue(forKey: id)?.cancel()
         userStopped.insert(id)
         setUserStoppedMarker(id, true)
         sessionActive.remove(id)
@@ -404,9 +415,12 @@ public final class ConnectionManager: ObservableObject {
             let creds = try resolveCredentials(p, given: given)
 
             var otp = creds.otp
+            var codeTime: Date?
             if let secret = creds.totpSecret {
                 try await waitForFreshCode(p, token: token)
-                otp = TOTP.code(secret: secret, params: p.totp, at: clock.now())
+                let now = clock.now()
+                codeTime = now
+                otp = TOTP.code(secret: secret, params: p.totp, at: now)
             }
             try checkToken(id, token)
             setState(id, .connecting(Phase.starting))
@@ -428,6 +442,7 @@ public final class ConnectionManager: ObservableObject {
             }
             let response = try await helper.perform(request, timeout: timing.helperTimeout)
             guard response.ok else { throw PTError.helperFailed(response.error ?? "") }
+            if let codeTime { rememberUsedCode(p, at: codeTime) }   // the tool has it now, whatever happens next
             if actionToken[id] != token {
                 // Disconnected while the helper was starting the tool; its stop may have come first.
                 await stopQuietly(id)
@@ -507,15 +522,45 @@ public final class ConnectionManager: ObservableObject {
         return c
     }
 
-    /// Waits for the next TOTP window when fewer than `minCodeSeconds` remain in the current one.
+    /// Waits for the next TOTP window when the code of the current one was already sent (by this or
+    /// another process: servers reject a reused code), or when fewer than `minCodeSeconds` remain in
+    /// it. The wait is at most one window, is not counted against the connect timeout, and ends
+    /// at once on `disconnect`.
     private func waitForFreshCode(_ p: Profile, token: Int) async throws {
         let period = Double(max(1, p.totp.period))
-        guard period > timing.minCodeSeconds else { return }
-        let left = period - clock.now().timeIntervalSince1970.truncatingRemainder(dividingBy: period)
-        guard left < timing.minCodeSeconds else { return }
+        let now = clock.now()
+        let left = period - (now.timeIntervalSince1970 - Double(TOTP.counter(params: p.totp, at: now)) * period)
+        let reused = usedCode(p.id) == UsedOTPWindow(counter: TOTP.counter(params: p.totp, at: now), period: Int(period))
+        guard reused || (period > timing.minCodeSeconds && left < timing.minCodeSeconds) else { return }
         setState(p.id, .connecting(Phase.waitingForCode))
-        do { try await clock.sleep(left + 0.25) } catch { throw PTError.connectCancelled }
+        try await waitCancellably(p.id, max(0, left) + 0.25)
         try checkToken(p.id, token)
+    }
+
+    /// `clock.sleep` that `disconnect` (or cancelling the calling task) ends early with `connectCancelled`,
+    /// so a cancelled connect does not keep the profile busy until its wait is over.
+    private func waitCancellably(_ id: String, _ seconds: TimeInterval) async throws {
+        let clock = self.clock
+        let wait = Task { try await clock.sleep(seconds) }
+        codeWaits[id] = wait
+        defer { if codeWaits[id] == wait { codeWaits[id] = nil } }
+        do {
+            try await withTaskCancellationHandler { try await wait.value } onCancel: { wait.cancel() }
+        } catch {
+            throw PTError.connectCancelled
+        }
+    }
+
+    private func usedCodeURL(_ id: String) -> URL { store.dir(id).appendingPathComponent(Self.usedOTPFile) }
+
+    func usedCode(_ id: String) -> UsedOTPWindow? {
+        try? JSONCoding.read(UsedOTPWindow.self, from: usedCodeURL(id))
+    }
+
+    private func rememberUsedCode(_ p: Profile, at date: Date) {
+        guard FileManager.default.fileExists(atPath: store.dir(p.id).path) else { return }
+        let used = UsedOTPWindow(counter: TOTP.counter(params: p.totp, at: date), period: max(1, p.totp.period))
+        try? JSONCoding.write(used, to: usedCodeURL(p.id), mode: 0o600)
     }
 
     private func waitUntilConnected(_ p: Profile, token: Int, socketPath: String) async throws -> (ip: String, since: Date?) {

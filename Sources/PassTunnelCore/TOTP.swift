@@ -6,9 +6,7 @@ public enum TOTP {
     public static func code(secret: Data, params: TOTPParams, at date: Date = Date()) -> String {
         let period = max(1, params.period)
         let digits = min(8, max(6, params.digits))
-        let t = date.timeIntervalSince1970
-        let counter = UInt64(max(0, (t / Double(period)).rounded(.down)))
-        var big = counter.bigEndian
+        var big = counter(params: TOTPParams(period: period), at: date).bigEndian
         let message = Data(bytes: &big, count: 8)
         let key = SymmetricKey(data: secret)
 
@@ -27,11 +25,21 @@ public enum TOTP {
         return String(repeating: "0", count: digits - value.count) + value
     }
 
+    /// RFC 6238 time step of `date` (0 before 1970; saturates instead of trapping on absurd dates).
+    public static func counter(params: TOTPParams, at date: Date = Date()) -> UInt64 {
+        let steps = (date.timeIntervalSince1970 / Double(max(1, params.period))).rounded(.down)
+        guard steps.isFinite, steps > 0 else { return 0 }
+        return steps >= Double(UInt64.max) ? UInt64.max : UInt64(steps)
+    }
+
     /// Seconds left in the current time window (1...period).
     public static func remaining(params: TOTPParams, at date: Date = Date()) -> Int {
         let period = max(1, params.period)
-        let elapsed = Int(date.timeIntervalSince1970.rounded(.down)) % period
-        return period - elapsed
+        let t = date.timeIntervalSince1970.rounded(.down)
+        guard t.isFinite else { return period }
+        var elapsed = t.truncatingRemainder(dividingBy: Double(period))
+        if elapsed < 0 { elapsed += Double(period) }   // before 1970
+        return period - Int(elapsed)
     }
 
     /// Decodes a secret given as Base32 (any case, spaces/dashes/padding ignored) or hex

@@ -95,6 +95,8 @@ final class FakeHelper: HelperClienting, @unchecked Sendable {
     var statusDelays: [TimeInterval] = []
     /// Runs when a start request arrives, before the tool "starts" (e.g. to edit files meanwhile).
     var onStart: ((HelperRequest) -> Void)?
+    /// When set, `status` calls fail with this error (helper unreachable).
+    var statusError: Error?
 
     func locked<T>(_ body: () -> T) -> T { lock.lock(); defer { lock.unlock() }; return body() }
 
@@ -118,6 +120,7 @@ final class FakeHelper: HelperClienting, @unchecked Sendable {
         locked { _requests.append(request) }
         switch request {
         case .status:
+            if let error = locked({ statusError }) { throw error }
             let (snapshot, delay) = locked { () -> ([String: Int32], TimeInterval) in
                 (_running, _statusDelayPop())
             }
