@@ -1,0 +1,420 @@
+<div align="center">
+
+# PassTunnel
+
+**Connect your VPN without ever typing a one-time code again.**
+
+PassTunnel is an open-source macOS app for OpenVPN and FortiGate SSL VPN. It keeps your TOTP
+secret in the Keychain and fills in the current code (and your password) every time you connect.
+
+[![macOS 13+](https://img.shields.io/badge/macOS-13%2B-blue)](#install)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Swift 5.10](https://img.shields.io/badge/Swift-5.10-orange)](Package.swift)
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/main-dark.png">
+  <img src="docs/images/main-light.png" width="680" alt="PassTunnel main window: one row per VPN profile with its live one-time code, a countdown ring and a Connect button">
+</picture>
+
+[Features](#features) ·
+[Install](#install) ·
+[Quick start](#quick-start) ·
+[Code format](#configuring-the-code-format) ·
+[CLI](#command-line) ·
+[FAQ](#faq) ·
+[Security](SECURITY.md) ·
+[Türkçe](#türkçe)
+
+</div>
+
+---
+
+## Features
+
+**One-time codes, handled**
+
+- **No more typing codes.** The TOTP secret lives in the macOS Keychain; PassTunnel generates the
+  code and sends it with your password when you click Connect. If fewer than 8 seconds are left in
+  the current window, it waits for a fresh code instead of racing the clock.
+- **Any format your server expects.** Append, prepend, `password:code`, `password,code`, or a custom
+  template with any literal text, or send the code separately (OpenVPN static challenge, FortiGate
+  OTP field). See [Configuring the code format](#configuring-the-code-format).
+- **Authenticator-style main window.** Every profile shows its live code in large digits with a
+  countdown ring. Click to copy. Codes can be hidden until copied.
+- **QR import.** Drop a screenshot of your provider's QR code, choose an image or paste from the
+  clipboard. Digits, period and algorithm (SHA-1/256/512) are read from the `otpauth://` link.
+  Pasting a Base32 secret or an `otpauth://` link works too.
+- **Auto-type (optional, off by default).** With global shortcuts on, ⌃⌥C types the current code into
+  the focused field (also in the menu bar menu), for web portals and other places that still ask for it. Needs Accessibility
+  permission, which is only requested when you turn the feature on.
+
+**VPN client**
+
+- **OpenVPN and FortiGate SSL VPN**, using bundled, signed copies of `openvpn` and `openfortivpn`.
+  Nothing else to install.
+- **Menu bar badges.** One colored badge per pinned or active profile (letter, icon or both), five
+  color palettes, and an alert when a connection drops unexpectedly.
+- **Stays connected.** Optional auto-reconnect with backoff, a health check host inside the VPN,
+  reconnect after wake, and a reminder before a server-side session limit runs out.
+- **Several VPNs at once**, each with its own status, log and settings.
+- **Shareable profiles.** Export a `.passtunnel` file for your team. It never contains passwords,
+  TOTP secrets or user names.
+- **Command-line tool.** `passtunnel connect`, `passtunnel code -c`, `--json` output and shell
+  completions: the same features as the app.
+- **No sudoers rule, no admin password at every connect.** A small privileged helper, registered
+  through macOS's own `SMAppService` and approved once, runs only the VPN tools signed and shipped
+  inside the app, with sanitized configurations. See [SECURITY.md](SECURITY.md).
+- **English and Turkish** user interface (follows your macOS language).
+
+## How it works
+
+```
+PassTunnel.app ──XPC──▶ PassTunnelHelper (root) ──▶ bundled openvpn / openfortivpn
+  │  (code-signature checked)                             │
+  ├─ Keychain: password + TOTP secret                     └─ management socket (OpenVPN),
+  └─ ~/Library/Application Support/PassTunnel                log file, status ──▶ back to the app
+```
+
+1. You click **Connect**. The app reads your password and TOTP secret from the Keychain, computes
+   the current code and builds what the server expects (for example `secret123456`).
+2. The app hands the request to the privileged helper over XPC. The helper accepts only the signed
+   PassTunnel app, checks that the profile folder belongs to you, sanitizes the OpenVPN config (or
+   writes the openfortivpn config itself from typed fields) and starts the bundled tool, whose
+   signature it verifies first.
+3. The app follows the connection state (OpenVPN through a management socket that only your user
+   can open, FortiGate through the log) and shows it in the window and the menu bar.
+
+The full security model, including what is *not* protected, is in [SECURITY.md](SECURITY.md). The
+code layout is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Install
+
+Requires **macOS 13 Ventura or later**.
+
+### Download (coming soon)
+
+A signed and notarized `.dmg` will be published on
+[GitHub Releases](https://github.com/Furkanprlk/passtunnel/releases). Open it, drag PassTunnel to
+**Applications** and launch it from there (the helper can only be installed from the Applications
+folder).
+
+### Homebrew (coming soon)
+
+A cask in the project's own Homebrew tap is planned. Once it is published:
+
+```sh
+brew tap furkanprlk/tap
+brew install --cask passtunnel
+```
+
+### Build from source (works today)
+
+You need Xcode 15.3 or later (Swift 5.10, plus `xcstringstool` for the Turkish strings) and
+[Homebrew](https://brew.sh), which provides the VPN tools that get bundled into the app:
+
+```sh
+brew install openvpn openfortivpn
+git clone https://github.com/Furkanprlk/passtunnel.git
+cd passtunnel
+scripts/build-app.sh                  # → build/PassTunnel.app (ad-hoc signed)
+```
+
+`build-app.sh` builds a release binary, assembles the bundle, copies `openvpn`, `openfortivpn` and
+their libraries in (`scripts/bundle-tools.sh`, with their license files) and signs everything
+inside-out with the hardened runtime.
+
+> [!IMPORTANT]
+> The helper only talks to an app, and only runs tools, signed with the project's Developer ID Team ID.
+> An **ad-hoc build is fine for the window, codes, QR import, profiles and the CLI, but cannot
+> connect**. To connect with your own build, set `teamID` in
+> [`Sources/PassTunnelShared/Identifiers.swift`](Sources/PassTunnelShared/Identifiers.swift) to your
+> Team ID and sign with your certificate:
+>
+> ```sh
+> scripts/build-app.sh --sign "Developer ID Application: Your Name (TEAMID)"
+> ```
+>
+> Then move `build/PassTunnel.app` to `/Applications` before installing the helper.
+
+## Quick start
+
+On first launch PassTunnel walks you through three steps:
+
+1. **Welcome.**
+2. **Install the helper.** Click *Install Helper*, then turn PassTunnel on in **System Settings →
+   General → Login Items** (macOS asks once). You can also do this later from **Settings → Helper**.
+3. **Add your first VPN.**
+
+<p align="center">
+  <img src="docs/images/onboarding-helper.png" width="460" alt="Onboarding step: Install the helper">
+</p>
+
+### Add a profile
+
+Use the **+** button in the toolbar, or drop a file onto the window:
+
+| You have… | Do this |
+|---|---|
+| An OpenVPN file (`.ovpn` / `.conf`) | **+ → Import .ovpn…** Files it references (`ca ca.crt`, `tls-auth ta.key 1`, …) are embedded automatically. |
+| A FortiGate gateway | **+ → New FortiGate…** Enter host and port, then **Fetch fingerprint** to pin the gateway certificate (SHA-256). |
+| A `.passtunnel` file from a colleague | **+ → Import shared profile…** Then add your own user name, password and TOTP secret. |
+| A QR code for your authenticator | **+ → Add code from QR…**, or drop the screenshot onto the window or the editor. |
+
+Then open the profile editor (**⋯ → Edit…**):
+
+- **Sign-in:** user name (leave empty to be asked each time) and password: saved in the Keychain,
+  asked each time, or none (certificate-only OpenVPN).
+- **One-time code:** *Generate* (TOTP), *Ask each time*, or *None*. With *Generate*, scan the QR code
+  or paste the secret, and compare the live code with your phone before saving.
+
+<p align="center">
+  <img src="docs/images/editor-one-time-code.png" width="580" alt="Profile editor, One-time code section: QR drop zone, live code, advanced TOTP settings, delivery and format">
+</p>
+
+Secrets are written to the Keychain only when you press **Save**.
+
+### Connect
+
+Click **Connect**. If the profile needs something that is not stored (for example, a password set to
+*Ask each time*), a small sheet asks for just that, with the code already filled in.
+
+The menu bar shows a badge for each pinned or active profile, colored by state, and offers
+Connect/Disconnect and Copy Code per profile:
+
+<p align="center">
+  <img src="docs/images/menubar-light.png" height="30" alt="Menu bar badges, light">
+  &nbsp;
+  <img src="docs/images/menubar-dark.png" height="30" alt="Menu bar badges, dark">
+</p>
+
+Optional global shortcuts (**Settings → Shortcuts**, off by default): **⌃⌥V** connects or
+disconnects the default profile, **⌃⌥C** copies the current code, or types it when auto-type is on.
+
+<p align="center">
+  <img src="docs/images/settings-general.png" width="460" alt="Settings, General tab: launch at login, appearance, menu bar badge colors, hide codes, command-line tool">
+</p>
+
+## Configuring the code format
+
+Servers disagree on how the one-time code should arrive. Choose it per profile under **One-time
+code → Send the code**.
+
+**With the password** (combined): the code and password are joined into one password using a
+template. `{password}` and `{otp}` are replaced; any other text is sent as typed. The template must
+contain `{otp}`; `{password}` is optional.
+
+With the password `secret` and the code `123456`:
+
+| Format | Template | Sent as password |
+|---|---|---|
+| Append (default) | `{password}{otp}` | `secret123456` |
+| Prepend | `{otp}{password}` | `123456secret` |
+| Password:code | `{password}:{otp}` | `secret:123456` |
+| Password,code | `{password},{otp}` | `secret,123456` |
+| Custom | `{password}#{otp}` | `secret#123456` |
+| Custom (code only) | `{otp}` | `123456` |
+
+**Separately**: the password and the code are sent on their own:
+
+- **OpenVPN:** as a static-challenge response (`SCRV1:…`). PassTunnel selects this automatically
+  when the imported `.ovpn` contains `static-challenge`.
+- **FortiGate:** in openfortivpn's separate OTP field. This is the default for new FortiGate
+  profiles.
+
+The editor shows a live example of the result as you change the format.
+
+## Command line
+
+Install the `passtunnel` command from **Settings → General → Command-line tool**. It is a symlink to
+the app binary in `/usr/local/bin`, or in `~/.local/bin` if that folder is not writable. Profile IDs
+are derived from the profile name (`Work` → `work`).
+
+```sh
+passtunnel                          # status of all profiles
+passtunnel connect                  # connect the default profile
+passtunnel connect work             # connect a specific profile
+passtunnel code work -c             # print the live code and seconds left, copy it
+passtunnel status work --json       # exit code 3 when not connected
+passtunnel disconnect --all
+
+passtunnel import ~/Downloads/work.ovpn --name Work
+passtunnel secret work password     # prompts without echo
+pbpaste | passtunnel secret work totp      # Base32 secret or otpauth:// link from stdin
+passtunnel set work otp_mode=totp otp_template=prepend
+passtunnel set work otp_template='{password}:{otp}'
+passtunnel set work auto_reconnect=true health_host=10.0.0.1
+
+passtunnel add Lab --type forti
+passtunnel set lab host=203.0.113.10 port=443 username=sam
+
+passtunnel log work -f
+passtunnel helper status
+passtunnel completion zsh > ~/.zfunc/_passtunnel
+```
+
+`passtunnel set ID key=value…` accepts the same settings as the editor; `passtunnel help set` lists
+the keys and `passtunnel help` lists all commands. Exit codes: `0` ok, `1` error, `2` usage,
+`3` not connected.
+
+## Sharing profiles
+
+**⋯ → Share…** (or `passtunnel export work -o work.passtunnel`) writes a `.passtunnel` file with
+the connection settings, appearance, code format and, for OpenVPN, the configuration file.
+
+It never contains your password, your TOTP secret or your user name. The recipient imports it and
+adds their own. The embedded OpenVPN configuration can contain certificates and keys, so the file is
+written with `0600` permissions; share it the way you would share the `.ovpn` itself.
+
+## FAQ
+
+<details>
+<summary><b>Why does PassTunnel need a privileged helper?</b></summary>
+
+Creating a tunnel interface and changing routes and DNS requires root. Instead of asking for your
+admin password at every connect or adding a sudoers rule, PassTunnel registers a small launchd
+daemon with `SMAppService`, which you approve once in System Settings → General → Login Items. The
+helper accepts requests only from the signed PassTunnel app, only runs the `openvpn` and
+`openfortivpn` copies inside the app bundle after verifying their signature, and rejects dangerous
+OpenVPN directives. Details in [SECURITY.md](SECURITY.md).
+</details>
+
+<details>
+<summary><b>Where are my password and TOTP secret stored?</b></summary>
+
+In your login Keychain, as generic passwords with the service name `PassTunnel` (accounts
+`<profile-id>/password` and `<profile-id>/totp`), marked *this device only*, so they do not sync to
+iCloud. Profile settings and OpenVPN configurations are in
+`~/Library/Application Support/PassTunnel/`, readable only by your user. Nothing is sent anywhere
+except to your VPN server.
+</details>
+
+<details>
+<summary><b>Which VPN types are supported?</b></summary>
+
+OpenVPN (OpenVPN 2.x client configurations: user/password, certificate-only and static-challenge
+setups) and FortiGate SSL VPN (through openfortivpn). Other types can be added
+as new backends; see [Contributing](#contributing).
+</details>
+
+<details>
+<summary><b>My .ovpn file is rejected. Why?</b></summary>
+
+The helper runs OpenVPN as root, so it refuses directives that would run scripts, load plugins, or
+read and write arbitrary files: for example `up`, `down`, `plugin`, `script-security 2`, `log`,
+`management` or a `ca` that points at an external file. Files referenced at import time are embedded
+automatically. The error lists every offending line. The complete list is in
+[SECURITY.md](SECURITY.md#openvpn-configuration-sanitizer).
+</details>
+
+<details>
+<summary><b>Does it work without a TOTP code?</b></summary>
+
+Yes. Set the one-time code to *None* for a plain user/password or certificate-only VPN, or to *Ask
+each time* if you use a hardware token or SMS.
+</details>
+
+<details>
+<summary><b>How do I uninstall PassTunnel completely?</b></summary>
+
+1. **Disconnect** all profiles.
+2. **Remove the helper:** Settings → Helper → *Remove Helper…*, or `passtunnel helper uninstall`.
+   Do this *before* deleting the app.
+3. **Turn off launch at login:** Settings → General → *Launch at login*. Check that nothing is left
+   under System Settings → General → Login Items.
+4. **Quit** PassTunnel and move `PassTunnel.app` to the Trash.
+5. **Delete your data:**
+
+   ```sh
+   rm -rf ~/Library/Application\ Support/PassTunnel     # profiles, configs, logs, preferences
+   defaults delete com.furkanprlk.passtunnel 2>/dev/null # onboarding flag
+   rm -f /usr/local/bin/passtunnel ~/.local/bin/passtunnel   # CLI symlink, if installed
+   ```
+
+6. **Delete the Keychain items:** open Keychain Access and search for `PassTunnel`, or run
+
+   ```sh
+   while security delete-generic-password -s PassTunnel >/dev/null 2>&1; do :; done
+   ```
+
+   (Deleting a profile inside the app also removes its Keychain items.)
+
+The helper's runtime folder `/var/run/passtunnel` is root-owned and cleared at restart.
+</details>
+
+## Building and testing
+
+```sh
+swift build                 # debug build of the app, CLI and helper
+swift test                  # unit tests
+scripts/build-app.sh        # full app bundle in build/PassTunnel.app
+```
+
+Tests never touch your real data: they point `PASSTUNNEL_HOME` at a temporary folder and use a
+throwaway Keychain service via `PASSTUNNEL_KEYCHAIN_SERVICE`.
+
+**Screenshots.** The app can render its main screens to PNG files offscreen, with sample profiles,
+a temporary support folder and a temporary Keychain service. Nothing is shown on screen and no VPN,
+helper or system setting is touched:
+
+```sh
+swift build
+PASSTUNNEL_RENDER=/tmp/passtunnel-shots "$(swift build --show-bin-path)/PassTunnel"
+```
+
+This writes the main window (light/dark, empty state, hidden codes), the credential sheet, menu bar
+badges for every palette, every Settings tab, the onboarding steps and the profile editor states.
+The images in [`docs/images`](docs/images) come from it.
+
+## Contributing
+
+Issues and pull requests are welcome. Please open an issue first for larger changes.
+
+- Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (targets, storage, helper protocol, security
+  rules) and [docs/APP.md](docs/APP.md) (app and CLI behavior).
+- **Adding a VPN type means adding a backend:** a new `VPNType` case, the profile fields it needs,
+  a helper request whose configuration is rendered from typed fields or strictly validated, a tool
+  bundled and signature-checked like `openvpn`/`openfortivpn`, and state tracking in
+  `ConnectionManager`. Never let the helper run a client-supplied path or raw config.
+- User-facing strings go through `String(localized:)` with a Turkish translation in
+  `Sources/PassTunnel/Resources/Localizable.xcstrings`.
+- No third-party Swift dependencies. Run `swift test` before sending a PR.
+
+## License
+
+PassTunnel is released under the [MIT License](LICENSE). Copyright © 2026 Furkanprlk.
+
+The app bundles `openvpn` (GPL-2.0), `openfortivpn` (GPL-3.0) and their libraries (OpenSSL, LZO,
+LZ4, pkcs11-helper). They are separate programs distributed alongside PassTunnel under their own
+licenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Their full license texts are inside
+the app in `Contents/Resources/licenses` and under **Settings → Helper → Show Licenses…**.
+
+PassTunnel is not affiliated with OpenVPN Inc. or Fortinet. OpenVPN and FortiGate are trademarks
+of their respective owners.
+
+---
+
+## Türkçe
+
+**PassTunnel**, macOS 13 ve üzeri için açık kaynaklı bir VPN uygulamasıdır. OpenVPN ve FortiGate SSL
+VPN bağlantılarını tek tıkla açar. TOTP anahtarınız Anahtar Zinciri'nde (Keychain) durur; PassTunnel
+bağlanırken o anki tek kullanımlık kodu ve parolanızı sizin yerinize gönderir. Telefondan kod bakıp
+yazmanız gerekmez.
+
+Kodun nasıl gönderileceğini profil başına seçebilirsiniz: parolanın sonuna veya başına eklenmiş,
+`parola:kod` gibi ayraçlı, kendi şablonunuzla ya da ayrı bir alan olarak. Ana pencere bir
+authenticator uygulaması gibi canlı kodları gösterir. Menü çubuğunda her profil için renkli bir rozet
+vardır. QR kodu ekran görüntüsünden okunur. Profilleri kimlik bilgisi içermeyen `.passtunnel`
+dosyalarıyla ekibinizle paylaşabilir, aynı işlemleri `passtunnel` komut satırı aracıyla da
+yapabilirsiniz. Arayüz Türkçe ve İngilizcedir ve macOS dilinizi izler.
+
+**Kurulum:** İmzalı ve notarize edilmiş `.dmg` dosyası ile Homebrew cask'i yakında
+[GitHub Releases](https://github.com/Furkanprlk/passtunnel/releases) üzerinden yayımlanacak. Şimdilik
+kaynaktan derleyebilirsiniz: `brew install openvpn openfortivpn`, ardından depo klasöründe
+`scripts/build-app.sh`. Ayrıntılar yukarıdaki [Build from source](#build-from-source-works-today)
+bölümünde.
+
+İlk açılışta, VPN araçlarını yönetici yetkisiyle çalıştıran küçük yardımcıyı (helper) kurmanız
+istenir. Bunu Sistem Ayarları → Genel → Giriş Öğeleri'nden bir kez onaylarsınız. Yardımcı yalnızca
+uygulamanın içindeki imzalı `openvpn` ve `openfortivpn` kopyalarını çalıştırır; sudoers kuralı
+gerekmez. Güvenlik modeli için [SECURITY.md](SECURITY.md), diğer her şey için bu belgenin İngilizce
+bölümlerine bakın.
