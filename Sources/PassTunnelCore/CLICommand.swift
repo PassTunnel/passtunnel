@@ -86,6 +86,14 @@ public enum CLICommand: Equatable {
         return out
     }
 
+    /// Piped input (e.g. a secret) without its final line breaks: "\n", "\r\n" or "\r". Works on
+    /// scalars because Swift treats "\r\n" as one Character that `hasSuffix("\n")` does not match.
+    public static func trimmingFinalLineBreaks(_ text: String) -> String {
+        var scalars = text.unicodeScalars
+        while let last = scalars.last, last == "\n" || last == "\r" { scalars.removeLast() }
+        return String(scalars)
+    }
+
     /// Parses the arguments after the program name. No arguments means `status`.
     public static func parse(_ args: [String]) throws -> CLICommand {
         guard let first = args.first else { return .status(id: nil, json: false) }

@@ -68,9 +68,7 @@ enum CLITerminal {
     /// Everything on stdin (for piped secrets), without the final line break.
     static func readAllStdin() -> String {
         let data = FileHandle.standardInput.readDataToEndOfFile()
-        var text = String(decoding: data, as: UTF8.self)
-        while text.hasSuffix("\n") || text.hasSuffix("\r") { text.removeLast() }
-        return text
+        return CLICommand.trimmingFinalLineBreaks(String(decoding: data, as: UTF8.self))
     }
 
     /// y/N question on the terminal.

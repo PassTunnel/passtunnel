@@ -89,11 +89,15 @@ public struct ProfileStore {
     }
 
     /// Removes the profile directory, both Keychain items, and the default if it pointed here.
+    /// Locked like `update`, so an update running in another process cannot write the profile back.
     public func delete(_ id: String) throws {
         try checkID(id)
         let d = dir(id)
         guard FileManager.default.fileExists(atPath: d.path) else { throw PTError.profileNotFound(id) }
-        do { try FileManager.default.removeItem(at: d) } catch { throw PTError.fileError(d.path) }
+        try withLock {
+            guard FileManager.default.fileExists(atPath: d.path) else { throw PTError.profileNotFound(id) }
+            do { try FileManager.default.removeItem(at: d) } catch { throw PTError.fileError(d.path) }
+        }
         for kind in SecretKind.allCases { Secrets.delete(id, kind) }
         var prefs = Preferences.load(paths: paths)
         if prefs.defaultProfile == id {
@@ -259,7 +263,7 @@ public struct ProfileStore {
         return n.isEmpty ? fallback : n
     }
 
-    /// Serialises create() and update() across processes (app and CLI share the directory).
+    /// Serialises create(), update() and delete() across processes (app and CLI share the directory).
     private func withLock<T>(_ body: () throws -> T) throws -> T {
         let lockPath = paths.profilesDir.appendingPathComponent(".lock").path
         let fd = open(lockPath, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
