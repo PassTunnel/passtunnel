@@ -54,7 +54,8 @@ public enum ConnectionEvent: Equatable, Sendable {
 /// The helper calls the manager needs; `HelperClient` in production, a fake in tests.
 public protocol HelperClienting: AnyObject {
     func perform(_ request: HelperRequest, timeout: TimeInterval?) async throws -> HelperResponse
-    /// Throws `HelperClientError.versionMismatch` unless the running helper speaks our protocol.
+    /// Throws `HelperClientError.versionMismatch` / `.buildMismatch` unless the running helper speaks our
+    /// protocol and is the build shipped with this app.
     func ensureCompatible() async throws
 }
 

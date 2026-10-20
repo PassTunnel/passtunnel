@@ -121,11 +121,15 @@ final class FakeHelper: HelperClienting, @unchecked Sendable {
         requests.compactMap { if case .stop(let id) = $0 { return id }; return nil }
     }
 
+    /// False: the fake helper is another build than the app ships (same protocol).
+    var sameBuild = true
+
     func ensureCompatible() async throws {
         let v = locked { protocolVersion }
         guard v == PT.helperProtocolVersion else {
             throw HelperClientError.versionMismatch(helper: v, app: PT.helperProtocolVersion)
         }
+        guard locked({ sameBuild }) else { throw HelperClientError.buildMismatch }
     }
 
     func perform(_ request: HelperRequest, timeout: TimeInterval?) async throws -> HelperResponse {
@@ -762,6 +766,19 @@ final class ConnectionManagerTests: XCTestCase {
         helper.protocolVersion = PT.helperProtocolVersion
         try await m.connect(p.id)
         XCTAssertTrue(m.state(p.id).isConnected)
+    }
+
+    func testHelperFromAnotherBuildFailsBeforeAnyStart() async throws {
+        let p = try makeOpenVPN()
+        helper.sameBuild = false
+        let m = makeManager()
+        do {
+            try await m.connect(p.id)
+            XCTFail("connected through another helper build")
+        } catch {
+            XCTAssertEqual(error as? HelperClientError, .buildMismatch)
+        }
+        XCTAssertTrue(helper.starts.isEmpty)
     }
 
     // MARK: health

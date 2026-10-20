@@ -4,5 +4,8 @@ import Foundation
 /// so the Objective-C surface stays tiny and versionable.
 @objc public protocol PassTunnelHelperProtocol {
     func version(reply: @escaping (Int) -> Void)
+    /// Build identity (`HelperBuild`) of the running helper. Protocol 3 and later; ask only after
+    /// `version` matched, an older helper does not implement it.
+    func build(reply: @escaping (String) -> Void)
     func perform(_ request: Data, reply: @escaping (Data) -> Void)
 }

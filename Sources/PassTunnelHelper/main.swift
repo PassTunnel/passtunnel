@@ -10,6 +10,9 @@ if geteuid() != 0 {
 }
 umask(0o077)
 
+// Hashed now: after an app update replaces the binary on disk, this process still reports its own build.
+let buildID = HelperBuild.digest(ofFile: HelperBundle.executablePath) ?? "unknown"
+
 let core = HelperCore(runRoot: PT.helperRunRoot, dnsUpdownSource: HelperBundle.dnsUpdownPath)
 let supervisor = Supervisor(core: core)
 supervisor.adoptOrphans()
@@ -29,9 +32,9 @@ for sig in [SIGTERM, SIGINT, SIGHUP] {
 }
 signal(SIGPIPE, SIG_IGN)
 
-let delegate = ListenerDelegate(supervisor: supervisor)
+let delegate = ListenerDelegate(supervisor: supervisor, buildID: buildID)
 let listener = NSXPCListener(machServiceName: PT.helperLabel)
 listener.delegate = delegate
 listener.resume()
-log.info("listening on \(PT.helperLabel, privacy: .public), version \(PT.helperProtocolVersion)")
+log.info("listening on \(PT.helperLabel, privacy: .public), version \(PT.helperProtocolVersion), build \(buildID, privacy: .public)")
 dispatchMain()

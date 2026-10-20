@@ -5398,6 +5398,16 @@
           }
         }
       }
+    },
+    "The PassTunnel helper is from another build of PassTunnel. Update it in Settings → Helper." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel yardımcısı başka bir PassTunnel derlemesine ait. Ayarlar → Yardımcı bölümünden güncelleyin."
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

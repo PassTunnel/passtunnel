@@ -9,7 +9,16 @@ public enum HelperClientError: Error, Equatable, LocalizedError {
     case unavailable(String)
     case timeout(TimeInterval)
     case versionMismatch(helper: Int, app: Int)
+    case buildMismatch
     case badResponse
+
+    /// The running helper is from another protocol version or build and must be updated.
+    public var meansOutdatedHelper: Bool {
+        switch self {
+        case .versionMismatch, .buildMismatch: return true
+        default: return false
+        }
+    }
 
     public var errorDescription: String? {
         switch self {
@@ -25,6 +34,8 @@ public enum HelperClientError: Error, Equatable, LocalizedError {
             return String(localized: "The PassTunnel helper did not answer within \(Int(s)) seconds.")
         case .versionMismatch(let helper, let app):
             return String(localized: "The PassTunnel helper belongs to another version of PassTunnel (version \(helper), expected \(app)). Update it in Settings → Helper.")
+        case .buildMismatch:
+            return String(localized: "The PassTunnel helper is from another build of PassTunnel. Update it in Settings → Helper.")
         case .badResponse:
             return String(localized: "The PassTunnel helper sent an invalid response.")
         }
@@ -54,10 +65,30 @@ public final class HelperClient: @unchecked Sendable {
         }
     }
 
-    /// Throws `.versionMismatch` unless the helper speaks `PT.helperProtocolVersion`.
+    /// Build identity of the running helper (`HelperBuild`); protocol 3 and later.
+    public func build() async throws -> String {
+        try await call(timeout: timeout) { proxy, done in
+            proxy.build { done(.success($0)) }
+        }
+    }
+
+    /// Throws `.versionMismatch` unless the helper speaks `PT.helperProtocolVersion`, and
+    /// `.buildMismatch` unless it is the helper shipped with this app (`HelperBuild.bundled`).
     public func ensureCompatible() async throws {
         let v = try await version()
         guard v == PT.helperProtocolVersion else { throw HelperClientError.versionMismatch(helper: v, app: PT.helperProtocolVersion) }
+        guard let expected = HelperBuild.bundled else { return }
+        guard HelperBuild.matches(helper: try await build(), expected: expected) else { throw HelperClientError.buildMismatch }
+    }
+
+    /// True when the running helper must be replaced (other protocol or other build).
+    public func isOutdated() async throws -> Bool {
+        do {
+            try await ensureCompatible()
+            return false
+        } catch let e as HelperClientError where e.meansOutdatedHelper {
+            return true
+        }
     }
 
     /// Sends a request. A response with `ok == false` is returned, not thrown; transport problems throw.

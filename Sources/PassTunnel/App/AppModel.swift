@@ -221,15 +221,15 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Asks the running helper for its protocol version; a mismatch means it must be updated
+    /// Asks the running helper for its protocol version and build; a mismatch means it must be updated
     /// (Settings → Helper → Update Helper re-registers it from this copy of the app).
     func checkHelperVersion() {
         guard previewHelperStatus == nil, !checkingHelperVersion else { return }
         checkingHelperVersion = true
         Task {
-            let version = try? await HelperClient.shared.version()
+            let outdated = try? await HelperClient.shared.isOutdated()
             checkingHelperVersion = false
-            if let version { helperOutdated = version != PT.helperProtocolVersion }
+            if let outdated { helperOutdated = outdated }
         }
     }
 
@@ -379,8 +379,8 @@ final class AppModel: ObservableObject {
     private func handleConnectError(_ error: Error, profile p: Profile) {
         if let h = error as? HelperClientError {
             switch h {
-            case .notInstalled, .requiresApproval, .notFound, .versionMismatch:
-                if case .versionMismatch = h { helperOutdated = true }
+            case .notInstalled, .requiresApproval, .notFound, .versionMismatch, .buildMismatch:
+                if h.meansOutdatedHelper { helperOutdated = true }
                 alert = AppAlert(title: String(localized: "The helper is not ready"),
                                  message: h.localizedDescription, opensHelperSettings: true)
                 return

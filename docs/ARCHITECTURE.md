@@ -168,6 +168,7 @@ stays tiny and versionable:
 ```swift
 @objc public protocol PassTunnelHelperProtocol {
     func version(reply: @escaping (Int) -> Void)
+    func build(reply: @escaping (String) -> Void)                    // HelperBuild digest, protocol ≥ 3
     func perform(_ request: Data, reply: @escaping (Data) -> Void)    // HelperRequest → HelperResponse
 }
 public enum HelperRequest: Codable {
@@ -185,9 +186,15 @@ public struct HelperResponse: Codable { ok: Bool; error: String?; pid: Int32?; r
 Requests carry `"protocol_version"`; the helper decodes them with `HelperCore.decodeRequest`, which
 rejects, in this order: more than 64 KiB, anything but a JSON object, a version other than its own
 (a missing version counts as 2), a missing or unknown `type`, then missing/mistyped fields (errors name
-the field, never its value). `ConnectionManager` calls `ensureCompatible()` (the `version` XPC call)
-before every start, so a helper left running from another app version fails with
-`HelperClientError.versionMismatch`; the app then shows Settings → Helper as "Needs an update", whose
+the field, never its value). `ConnectionManager` calls `ensureCompatible()` (the `version` XPC call, then
+`build` when the protocol matches) before every start, so a helper left running from another app version
+fails with `HelperClientError.versionMismatch`, and one from another build of the same protocol with
+`.buildMismatch`. The build identity (`HelperBuild`) is the SHA-256 of the helper executable: the helper
+hashes itself once at launch (a running helper keeps reporting the build it was started from after the
+app bundle is replaced), the app/CLI hash `Contents/MacOS/PassTunnelHelper` next to their own executable
+(no stamping in `build-app.sh` needed; skipped when there is no bundled helper, e.g. tests). `build` is a
+separate call rather than a second `version` reply value so a protocol-2 helper is still recognized as
+outdated. The app then shows Settings → Helper as "Needs an update", whose
 **Update Helper** button unregisters the daemon (launchd stops it, which stops its tunnels) and
 registers it again from the running app bundle.
 
