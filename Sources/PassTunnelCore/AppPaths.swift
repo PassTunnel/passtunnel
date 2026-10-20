@@ -50,10 +50,4 @@ enum Env {
     static var keychainService: String {
         string("PASSTUNNEL_KEYCHAIN_SERVICE") ?? PT.keychainService
     }
-
-    /// First management port handed out to OpenVPN profiles.
-    static var mgmtBase: Int {
-        if let v = int("PASSTUNNEL_MGMT_BASE"), (1...65535).contains(v) { return v }
-        return 17505
-    }
 }

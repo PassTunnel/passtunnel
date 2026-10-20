@@ -50,6 +50,24 @@ public enum TOTP {
         throw PTError.invalidSecret
     }
 
+    /// RFC 4648 Base32 without padding (the form authenticator apps show).
+    public static func base32Encode(_ data: Data) -> String {
+        let alphabet = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ234567")
+        var out = ""
+        var buffer: UInt32 = 0
+        var bits = 0
+        for byte in data {
+            buffer = (buffer << 8) | UInt32(byte)
+            bits += 8
+            while bits >= 5 {
+                bits -= 5
+                out.append(alphabet[Int((buffer >> UInt32(bits)) & 0x1f)])
+            }
+        }
+        if bits > 0 { out.append(alphabet[Int((buffer << UInt32(5 - bits)) & 0x1f)]) }
+        return out
+    }
+
     static func base32(_ s: String) -> Data? {
         var out = Data()
         var buffer: UInt32 = 0

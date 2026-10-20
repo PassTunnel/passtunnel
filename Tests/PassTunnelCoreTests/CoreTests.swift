@@ -13,7 +13,6 @@ final class PathsAndSlugTests: CoreTestCase {
         setenv("PASSTUNNEL_HOME", home.path, 1)
         XCTAssertEqual(Env.keychainService, service)
         XCTAssertNotEqual(Env.keychainService, PT.keychainService)
-        XCTAssertEqual(Env.mgmtBase, 27505)
     }
 
     func testSlug() {
@@ -24,7 +23,11 @@ final class PathsAndSlugTests: CoreTestCase {
         XCTAssertEqual(Slug.make("Café Zoë"), "cafe-zoe")
         XCTAssertEqual(Slug.make("../../etc/passwd"), "etc-passwd")
         XCTAssertEqual(Slug.make("!!!"), "")
-        XCTAssertEqual(Slug.make(String(repeating: "a", count: 100)).count, 48)
+        XCTAssertEqual(Slug.make(String(repeating: "a", count: 100)).count, Slug.maxIDLength)
+        XCTAssertEqual(Slug.make("Acme Office VPN With A Long Name"), "acme-office-vpn-with-a-l")
+        XCTAssertEqual(Slug.suffixed(String(repeating: "a", count: 24), 2), String(repeating: "a", count: 22) + "-2")
+        XCTAssertEqual(Slug.suffixed("acme-office-vpn-with-a-l", 12), "acme-office-vpn-with-12")
+        XCTAssertTrue(Slug.isValid(String(repeating: "a", count: 40)))   // older, longer ids still load
         XCTAssertTrue(Slug.isValid("acme-2"))
         for bad in ["", "-a", "a-", "a--b", "A", "a/b", "..", "a b", "ş"] { XCTAssertFalse(Slug.isValid(bad), bad) }
     }
@@ -114,7 +117,10 @@ final class ModelTests: CoreTestCase {
         let all: [PTError] = [.profileNotFound("acme"), .invalidProfileID("x"), .emptyName, .invalidField("port"),
                               .wrongProfileType("acme"), .fileError("/x"), .fileTooLarge("x"), .invalidFile("x"),
                               .keychain(-25300), .invalidSecret, .invalidOTPAuthURI("x"), .hotpNotSupported,
-                              .invalidTemplate("x"), .unsupportedShareFile, .noFreePort]
+                              .invalidTemplate("x"), .unsupportedShareFile,
+                              .missingPassword("a"), .missingTOTPSecret("a"), .missingCredential(.otp),
+                              .missingConfig("a"), .missingHost("a"), .helperFailed("x"), .authFailed("x"),
+                              .connectFailed("x"), .connectTimeout(60), .connectCancelled]
         for e in all {
             XCTAssertFalse((e.errorDescription ?? "").isEmpty)
             XCTAssertFalse(e.localizedDescription.contains("PassTunnelCore.PTError"))
@@ -153,16 +159,61 @@ final class JSONAndPreferencesTests: CoreTestCase {
         var p = Preferences.load()
         XCTAssertEqual(p.defaultProfile, "acme")
         XCTAssertEqual(p.sessionWarnMin, 45)
-        XCTAssertEqual(p.theme, .system)
+        XCTAssertEqual(p.appearance, .system)
         XCTAssertTrue(p.hotkeys)
         XCTAssertTrue(p.launchAtLogin)
-        p.theme = .dark
+        p.appearance = .dark
         p.autoType = true
         try p.save()
         XCTAssertEqual(Preferences.load(), p)
         let text = try String(contentsOf: AppPaths.default.configURL)
         XCTAssertTrue(text.contains("\"launch_at_login\""))
         XCTAssertTrue(text.contains("\"session_notify_min\""))
+    }
+
+    func testPreferencesNewFieldsAndLegacyTheme() throws {
+        let d = Preferences()
+        XCTAssertEqual(d.badgePalette, .pastel)
+        XCTAssertEqual(d.appearance, .system)
+        XCTAssertTrue(d.showLock)
+        XCTAssertFalse(d.hideCodes)
+        XCTAssertFalse(d.showInDock)
+        XCTAssertTrue(d.notifyOnDrop)
+        XCTAssertTrue(d.notifyHealth)
+        XCTAssertEqual(d.sessionNotifyMin, 10)
+
+        try Data(#"{"theme":"dark","badge_palette":"earth","hide_codes":true,"notify_health":false,"session_notify_min":-4}"#.utf8)
+            .write(to: AppPaths.default.configURL)
+        var p = Preferences.load()
+        XCTAssertEqual(p.appearance, .dark)
+        XCTAssertEqual(p.badgePalette, .earth)
+        XCTAssertTrue(p.hideCodes)
+        XCTAssertFalse(p.notifyHealth)
+        XCTAssertEqual(p.sessionNotifyMin, 0)
+
+        // "appearance" wins over the legacy key; unknown palettes fall back.
+        try Data(#"{"theme":"dark","appearance":"light","badge_palette":"neon","show_in_dock":true}"#.utf8)
+            .write(to: AppPaths.default.configURL)
+        p = Preferences.load()
+        XCTAssertEqual(p.appearance, .light)
+        XCTAssertEqual(p.badgePalette, .pastel)
+        XCTAssertTrue(p.showInDock)
+        try p.save()
+        let text = try String(contentsOf: AppPaths.default.configURL)
+        XCTAssertTrue(text.contains(#""appearance" : "light""#))
+        XCTAssertFalse(text.contains("theme"))
+        XCTAssertEqual(Preferences.load(), p)
+    }
+
+    func testBadgePalettes() {
+        XCTAssertEqual(BadgePalette.allCases.map(\.rawValue), ["pastel", "vivid", "soft", "candy", "earth"])
+        for palette in BadgePalette.allCases {
+            let colors = BadgeTone.allCases.map(palette.color)
+            XCTAssertEqual(Set(colors).count, 3, "\(palette)")
+            XCTAssertFalse(palette.displayName.isEmpty)
+        }
+        XCTAssertEqual(RGBColor(52, 199, 89).hex, "#34C759")
+        XCTAssertEqual(RGBColor(255, 0, 0).components.red, 1)
     }
 
     func testCorruptPreferencesFallBackToDefaults() throws {
@@ -256,13 +307,13 @@ final class OVPNAnalyzerTests: CoreTestCase {
 }
 
 final class ProfileStoreTests: CoreTestCase {
-    func testCreateAssignsUniqueIDsAndPorts() throws {
+    func testCreateAssignsUniqueIDs() throws {
         let a = try store.create(name: "Acme", type: .openvpn)
         let b = try store.create(name: "acme", type: .openvpn)
         let f = try store.create(name: "ACME", type: .forti)
         let c = try store.create(name: "Şirket İç", type: .openvpn)
         XCTAssertEqual([a.id, b.id, f.id, c.id], ["acme", "acme-2", "acme-3", "sirket-ic"])
-        XCTAssertEqual([a.mgmtPort, b.mgmtPort, f.mgmtPort, c.mgmtPort], [27505, 27506, 0, 27507])
+        XCTAssertEqual([a.mgmtPort, b.mgmtPort, f.mgmtPort, c.mgmtPort], [0, 0, 0, 0])
         XCTAssertEqual(a.otpDelivery, .combined)
         XCTAssertEqual(f.otpDelivery, .separate)
         XCTAssertEqual([a.order, b.order, f.order, c.order], [0, 1, 2, 3])
@@ -270,18 +321,23 @@ final class ProfileStoreTests: CoreTestCase {
         XCTAssertEqual(try store.create(name: "%%%", type: .forti).id, "profile")
     }
 
-    func testMgmtPortReusesGaps() throws {
-        _ = try store.create(name: "One", type: .openvpn)
-        _ = try store.create(name: "Two", type: .openvpn)
-        try store.delete("one")
-        XCTAssertEqual(try store.create(name: "Three", type: .openvpn).mgmtPort, 27505)
-        XCTAssertEqual(try store.create(name: "Four", type: .openvpn).mgmtPort, 27507)
+    func testLongNamesGiveShortUniqueIDs() throws {
+        let name = "Acme Corporation Headquarters Office VPN"
+        var ids: [String] = []
+        for _ in 0..<12 { ids.append(try store.create(name: name, type: .openvpn).id) }
+        XCTAssertEqual(Set(ids).count, ids.count)
+        XCTAssertTrue(ids.allSatisfy { $0.count <= Slug.maxIDLength && Slug.isValid($0) }, "\(ids)")
+        XCTAssertEqual(ids[0], "acme-corporation-headqua")
+        XCTAssertEqual(ids[1], "acme-corporation-headq-2")
+        XCTAssertEqual(ids[11], "acme-corporation-head-12")
     }
 
-    func testMgmtBaseReadAtCallTime() throws {
-        setenv("PASSTUNNEL_MGMT_BASE", "28000", 1)
-        defer { setenv("PASSTUNNEL_MGMT_BASE", "27505", 1) }
-        XCTAssertEqual(try store.create(name: "Acme", type: .openvpn).mgmtPort, 28000)
+    func testLegacyMgmtPortStillDecodes() throws {
+        var p = try store.create(name: "Acme", type: .openvpn)
+        XCTAssertEqual(p.mgmtPort, 0)
+        p.mgmtPort = 17505
+        try store.save(p)
+        XCTAssertEqual(try store.get("acme").mgmtPort, 17505)
     }
 
     func testListSortedByOrderThenName() throws {
@@ -387,7 +443,7 @@ final class ProfileStoreTests: CoreTestCase {
         let q = try store.importOVPN(cert, name: "Cert Only")
         XCTAssertEqual(q.id, "cert-only")
         XCTAssertEqual(q.passwordMode, .none)
-        XCTAssertEqual(q.mgmtPort, 27506)
+        XCTAssertEqual(q.mgmtPort, 0)
     }
 
     func testShareRoundTrip() throws {
@@ -415,7 +471,7 @@ final class ProfileStoreTests: CoreTestCase {
         XCTAssertEqual(q.name, "Acme")
         XCTAssertEqual(q.username, "")
         XCTAssertFalse(q.pinned)
-        XCTAssertEqual(q.mgmtPort, 27506)
+        XCTAssertEqual(q.mgmtPort, 0)
         XCTAssertEqual(q.totp, p.totp)
         XCTAssertEqual(q.otpTemplate, "{password}:{otp}")
         XCTAssertEqual(q.healthHost, "10.0.0.5")
@@ -437,7 +493,7 @@ final class ProfileStoreTests: CoreTestCase {
         let url = try write(json, name: "evil.passtunnel")
         let p = try store.importShare(url, name: nil)
         XCTAssertEqual(p.id, "evil")
-        XCTAssertEqual(p.mgmtPort, 27505)
+        XCTAssertEqual(p.mgmtPort, 0)
         XCTAssertEqual(p.username, "")
         let files = try FileManager.default.contentsOfDirectory(atPath: store.dir(p.id).path).sorted()
         XCTAssertEqual(files, ["config.ovpn", "profile.json"])

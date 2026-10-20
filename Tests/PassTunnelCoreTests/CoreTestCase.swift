@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import PassTunnelCore
 
-/// Isolates every test: temp support dir, private Keychain service, test management port base.
+/// Isolates every test: temp support dir and a private Keychain service.
 class CoreTestCase: XCTestCase {
     var home: URL!
     var service: String!
@@ -15,7 +15,6 @@ class CoreTestCase: XCTestCase {
         service = "PassTunnelTests-\(UUID().uuidString)"
         setenv("PASSTUNNEL_HOME", home.path, 1)
         setenv("PASSTUNNEL_KEYCHAIN_SERVICE", service, 1)
-        setenv("PASSTUNNEL_MGMT_BASE", "27505", 1)
         XCTAssertEqual(AppPaths.default.root.path, home.standardizedFileURL.path)
     }
 

@@ -40,9 +40,8 @@ public struct ProfileStore {
 
     // MARK: create / save / delete
 
-    /// New profile with a unique slug id ("acme", "acme-2", …). OpenVPN profiles get the first
-    /// management port ≥ `$PASSTUNNEL_MGMT_BASE` (17505) not used by another OpenVPN profile.
-    /// Forti profiles default to `.separate` OTP delivery.
+    /// New profile with a unique slug id ("acme", "acme-2", …) of at most `Slug.maxIDLength`
+    /// characters. Forti profiles default to `.separate` OTP delivery.
     public func create(name: String, type: VPNType) throws -> Profile {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw PTError.emptyName }
@@ -51,13 +50,7 @@ public struct ProfileStore {
             let existing = list()
             var p = Profile(id: try uniqueID(for: trimmed), name: trimmed, type: type)
             p.order = (existing.map(\.order).max() ?? -1) + 1
-            switch type {
-            case .openvpn:
-                p.otpDelivery = .combined
-                p.mgmtPort = try freeMgmtPort(existing)
-            case .forti:
-                p.otpDelivery = .separate
-            }
+            p.otpDelivery = type == .forti ? .separate : .combined
             try save(p)
             return p
         }
@@ -158,7 +151,7 @@ public struct ProfileStore {
         try ShareFile(profile: p, files: files).write(to: url)
     }
 
-    /// Creates a profile from a share file. A new id and management port are assigned; only
+    /// Creates a profile from a share file. A new id is assigned; only
     /// `ShareFile.knownFiles` are written, under fixed names (never a path taken from the file).
     public func importShare(_ url: URL, name: String?) throws -> Profile {
         let share = try ShareFile.read(from: url)
@@ -225,18 +218,10 @@ public struct ProfileStore {
         var candidate = base
         var n = 2
         while fm.fileExists(atPath: dir(candidate).path) {
-            candidate = "\(base)-\(n)"
+            candidate = Slug.suffixed(base, n)
             n += 1
         }
         return candidate
-    }
-
-    private func freeMgmtPort(_ existing: [Profile]) throws -> Int {
-        let used = Set(existing.filter { $0.type == .openvpn }.map(\.mgmtPort))
-        var port = Env.mgmtBase
-        while used.contains(port) { port += 1 }
-        guard port <= 65535 else { throw PTError.noFreePort }
-        return port
     }
 
     private static func pick(_ name: String?, _ fallback: String) -> String {

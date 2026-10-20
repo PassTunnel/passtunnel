@@ -1,0 +1,75 @@
+import CoreImage
+import Foundation
+import ImageIO
+import UniformTypeIdentifiers
+import XCTest
+@testable import PassTunnelCore
+
+final class QRDecoderTests: XCTestCase {
+    let uri = "otpauth://totp/Acme:alice?secret=JBSWY3DPEHPK3PXP&issuer=Acme&digits=8&period=60&algorithm=SHA256"
+
+    /// QR code rendered by CoreImage, scaled up so every module is several pixels wide.
+    func makeQR(_ text: String, scale: CGFloat = 8) throws -> CGImage {
+        let filter = try XCTUnwrap(CIFilter(name: "CIQRCodeGenerator"))
+        filter.setValue(Data(text.utf8), forKey: "inputMessage")
+        filter.setValue("M", forKey: "inputCorrectionLevel")
+        let output = try XCTUnwrap(filter.outputImage).transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        let context = CIContext(options: [.useSoftwareRenderer: true])
+        return try XCTUnwrap(context.createCGImage(output, from: output.extent))
+    }
+
+    func png(_ image: CGImage) throws -> Data {
+        let data = NSMutableData()
+        let dest = try XCTUnwrap(CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(dest, image, nil)
+        XCTAssertTrue(CGImageDestinationFinalize(dest))
+        return data as Data
+    }
+
+    func testDecodesOTPAuthFromGeneratedQR() throws {
+        let parsed = try QRDecoder.otpAuth(in: makeQR(uri))
+        XCTAssertEqual(parsed.issuer, "Acme")
+        XCTAssertEqual(parsed.account, "alice")
+        XCTAssertEqual(parsed.secret, try TOTP.decodeSecret("JBSWY3DPEHPK3PXP"))
+        XCTAssertEqual(parsed.params, TOTPParams(digits: 8, period: 60, algorithm: .sha256))
+    }
+
+    func testDecodesFromPNGDataAndFile() throws {
+        let data = try png(makeQR(uri))
+        XCTAssertEqual(try QRDecoder.payloads(inImageData: data), [uri])
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("qr-\(UUID().uuidString).png")
+        try data.write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        XCTAssertEqual(try QRDecoder.otpAuth(inFile: url).account, "alice")
+    }
+
+    func testNonOTPPayload() throws {
+        XCTAssertThrowsError(try QRDecoder.otpAuth(in: makeQR("https://vpn.example.com"))) {
+            XCTAssertEqual($0 as? QRDecoder.Failure, .notOTPAuth)
+        }
+        XCTAssertThrowsError(try QRDecoder.otpAuth(from: ["otpauth-migration://offline?data=AAAA"])) {
+            XCTAssertEqual($0 as? QRDecoder.Failure, .migrationExport)
+        }
+        XCTAssertThrowsError(try QRDecoder.otpAuth(from: ["otpauth://hotp/Acme:alice?secret=JBSWY3DPEHPK3PXP"])) {
+            XCTAssertEqual($0 as? PTError, .hotpNotSupported)
+        }
+    }
+
+    func testImageWithoutCode() throws {
+        let context = try XCTUnwrap(CGContext(data: nil, width: 64, height: 64, bitsPerComponent: 8, bytesPerRow: 0,
+                                              space: CGColorSpaceCreateDeviceRGB(),
+                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
+        let blank = try XCTUnwrap(context.makeImage())
+        XCTAssertThrowsError(try QRDecoder.payloads(in: blank)) {
+            XCTAssertEqual($0 as? QRDecoder.Failure, .noCode)
+        }
+    }
+
+    func testUnreadableData() {
+        XCTAssertThrowsError(try QRDecoder.payloads(inImageData: Data("not an image".utf8))) {
+            XCTAssertEqual($0 as? QRDecoder.Failure, .unreadableImage)
+        }
+    }
+}
