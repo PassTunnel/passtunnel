@@ -3,7 +3,10 @@ import os
 import PassTunnelShared
 
 /// Starts, tracks and stops the VPN tool processes. All state is confined to `queue`.
+/// Jobs are keyed by (owner uid, profile ID); see `SessionPolicy`.
 final class Supervisor {
+    typealias Key = SessionPolicy.Key
+
     struct Job {
         let profileID: String
         let ownerUID: uid_t
@@ -11,10 +14,13 @@ final class Supervisor {
         let executable: String
         let runDir: String
         let isChild: Bool
-        /// Open profile directory; used to remove the management socket when the tool exits.
-        let profileDir: ProfileDirectory?
+        /// Open root-owned session directory (holds the management socket).
+        let sessionDir: SessionDirectory?
+        let mgmtSocket: String?
         var source: DispatchSourceProcess?
         var waiters: [() -> Void] = []
+
+        var key: Key { Key(uid: ownerUID, profileID: profileID) }
     }
 
     static let stopGrace: TimeInterval = 5
@@ -22,10 +28,12 @@ final class Supervisor {
     let queue = DispatchQueue(label: "com.furkanprlk.passtunnel.helper.supervisor")
     private let core: HelperCore
     private let log = Logger(subsystem: PT.helperLabel, category: "supervisor")
-    private var jobs: [String: Job] = [:]
+    private var jobs: [Key: Job] = [:]
 
     private var sessions: [SessionPolicy.Session] {
-        jobs.values.map { SessionPolicy.Session(profileID: $0.profileID, ownerUID: $0.ownerUID, pid: $0.pid) }
+        jobs.values.map {
+            SessionPolicy.Session(profileID: $0.profileID, ownerUID: $0.ownerUID, pid: $0.pid, mgmtSocket: $0.mgmtSocket)
+        }
     }
 
     init(core: HelperCore) {
@@ -44,7 +52,8 @@ final class Supervisor {
             case .stop(let id):
                 self.stop(profileID: id, uid: uid, reply: reply)
             case .status:
-                reply(.success(running: SessionPolicy.visible(to: uid, sessions: self.sessions)))
+                reply(.success(running: SessionPolicy.visible(to: uid, sessions: self.sessions),
+                               mgmtSockets: SessionPolicy.sockets(visibleTo: uid, sessions: self.sessions)))
             }
         }
     }
@@ -74,13 +83,14 @@ final class Supervisor {
                                         environment: HelperCore.fixedEnvironment,
                                         workingDirectory: plan.runDir, outputFD: plan.logFD)
             writeState(plan: plan, pid: pid, executable: executable)
-            track(Job(profileID: plan.profileID, ownerUID: plan.ownerUID, pid: pid, executable: executable,
-                      runDir: plan.runDir, isChild: true, profileDir: plan.profileDir))
-            if plan.mgmtSocket != nil { restrictSocketWhenReady(profileID: plan.profileID, pid: pid, attempt: 0) }
-            log.info("started \(plan.tool.rawValue, privacy: .public) for \(profileID, privacy: .public), pid \(pid)")
+            let job = Job(profileID: plan.profileID, ownerUID: plan.ownerUID, pid: pid, executable: executable,
+                          runDir: plan.runDir, isChild: true, sessionDir: plan.sessionDir, mgmtSocket: plan.mgmtSocket)
+            track(job)
+            if plan.mgmtSocket != nil { restrictSocketWhenReady(job.key, pid: pid, attempt: 0) }
+            log.info("started \(plan.tool.rawValue, privacy: .public) for \(profileID, privacy: .public), uid \(uid), pid \(pid)")
             return .success(pid: pid, mgmtSocket: plan.mgmtSocket)
         } catch {
-            core.removeRunDir(profileID: profileID)
+            core.removeRunDir(profileID: profileID, uid: uid)
             let line = "PassTunnel: \(error)\n"
             _ = line.withCString { write(plan.logFD, $0, strlen($0)) }
             log.error("start \(profileID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
@@ -88,26 +98,23 @@ final class Supervisor {
         }
     }
 
-    /// OpenVPN creates the socket world-connectable (it relies on --management-client-user); once it
-    /// exists, hand it to the user with mode 0600 as a second barrier.
-    private func restrictSocketWhenReady(profileID: String, pid: pid_t, attempt: Int) {
-        guard let job = jobs[profileID], job.pid == pid, let dir = job.profileDir, attempt < 100 else { return }
+    /// OpenVPN binds the socket with umask 0 (it relies on --management-client-user); once it exists,
+    /// hand it to the user with mode 0600 as a second barrier. The session directory is root-owned,
+    /// so nobody else can swap the entry between the check and the chown.
+    private func restrictSocketWhenReady(_ key: Key, pid: pid_t, attempt: Int) {
+        guard let job = jobs[key], job.pid == pid, let dir = job.sessionDir, attempt < 100 else { return }
         if dir.restrictSocket(PT.mgmtSocketName) { return }
         queue.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.restrictSocketWhenReady(profileID: profileID, pid: pid, attempt: attempt + 1)
+            self?.restrictSocketWhenReady(key, pid: pid, attempt: attempt + 1)
         }
     }
 
     private func stop(profileID: String, uid: uid_t, reply: @escaping (HelperResponse) -> Void) {
         dispatchPrecondition(condition: .onQueue(queue))
-        let decision: SessionPolicy.StopDecision
-        do {
-            decision = try SessionPolicy.stopDecision(profileID: profileID, uid: uid, sessions: sessions)
-        } catch {
-            return reply(.failure(String(describing: error)))
-        }
-        guard case .terminate = decision, let job = jobs[profileID] else { return reply(.success()) }
-        jobs[profileID]?.waiters.append { reply(.success(pid: job.pid)) }
+        let key = Key(uid: uid, profileID: profileID)
+        guard case .terminate = SessionPolicy.stopDecision(profileID: profileID, uid: uid, sessions: sessions),
+              let job = jobs[key] else { return reply(.success()) }
+        jobs[key]?.waiters.append { reply(.success(pid: job.pid)) }
         terminate(job)
     }
 
@@ -115,12 +122,12 @@ final class Supervisor {
     private func terminate(_ job: Job) {
         kill(job.pid, SIGTERM)
         queue.asyncAfter(deadline: .now() + Self.stopGrace) { [weak self] in
-            guard let self, let current = self.jobs[job.profileID], current.pid == job.pid else { return }
+            guard let self, let current = self.jobs[job.key], current.pid == job.pid else { return }
             self.log.notice("pid \(job.pid) ignored SIGTERM, killing")
             kill(-job.pid, SIGKILL)
             kill(job.pid, SIGKILL)
             // Adopted processes are not our children, so no exit event may follow quickly; check again.
-            self.queue.asyncAfter(deadline: .now() + 1) { self.reapIfGone(job.profileID, pid: job.pid) }
+            self.queue.asyncAfter(deadline: .now() + 1) { self.reapIfGone(job.key, pid: job.pid) }
         }
     }
 
@@ -130,7 +137,7 @@ final class Supervisor {
         queue.sync {
             for job in jobs.values {
                 group.enter()
-                jobs[job.profileID]?.waiters.append { group.leave() }
+                jobs[job.key]?.waiters.append { group.leave() }
                 terminate(job)
             }
         }
@@ -138,8 +145,7 @@ final class Supervisor {
         queue.sync {
             for job in jobs.values {
                 kill(-job.pid, SIGKILL)
-                core.removeRunDir(profileID: job.profileID)
-                try? job.profileDir?.removeSocket(PT.mgmtSocketName)
+                core.removeRunDir(profileID: job.profileID, uid: job.ownerUID)
             }
         }
     }
@@ -148,17 +154,18 @@ final class Supervisor {
 
     private func track(_ job: Job) {
         var job = job
+        let key = job.key
         let source = DispatchSource.makeProcessSource(identifier: job.pid, eventMask: .exit, queue: queue)
-        source.setEventHandler { [weak self] in self?.exited(job.profileID, pid: job.pid) }
+        source.setEventHandler { [weak self] in self?.exited(key, pid: job.pid) }
         job.source = source
-        jobs[job.profileID] = job
+        jobs[key] = job
         source.resume()
         // The process may have exited before the source was armed.
-        queue.async { [weak self] in self?.reapIfGone(job.profileID, pid: job.pid) }
+        queue.async { [weak self] in self?.reapIfGone(key, pid: job.pid) }
     }
 
-    private func reapIfGone(_ profileID: String, pid: pid_t) {
-        guard let job = jobs[profileID], job.pid == pid else { return }
+    private func reapIfGone(_ key: Key, pid: pid_t) {
+        guard let job = jobs[key], job.pid == pid else { return }
         if job.isChild {
             var status: Int32 = 0
             if waitpid(pid, &status, WNOHANG) == pid { finish(job, status: status) }
@@ -167,8 +174,8 @@ final class Supervisor {
         }
     }
 
-    private func exited(_ profileID: String, pid: pid_t) {
-        guard let job = jobs[profileID], job.pid == pid else { return }
+    private func exited(_ key: Key, pid: pid_t) {
+        guard let job = jobs[key], job.pid == pid else { return }
         var status: Int32 = 0
         if job.isChild { _ = waitpid(pid, &status, 0) }
         finish(job, status: status)
@@ -176,46 +183,86 @@ final class Supervisor {
 
     private func finish(_ job: Job, status: Int32) {
         job.source?.cancel()
-        jobs[job.profileID] = nil
+        jobs[job.key] = nil
         kill(-job.pid, SIGTERM)          // leftovers in the group (pppd)
-        core.removeRunDir(profileID: job.profileID)
-        try? job.profileDir?.removeSocket(PT.mgmtSocketName)
-        log.info("\(job.profileID, privacy: .public) exited (pid \(job.pid), status \(status))")
+        core.removeRunDir(profileID: job.profileID, uid: job.ownerUID)   // config, auth file and socket
+        log.info("\(job.profileID, privacy: .public) of uid \(job.ownerUID) exited (pid \(job.pid), status \(status))")
         job.waiters.forEach { $0() }
     }
 
     // MARK: - Crash recovery
 
-    /// Records pid, owner, executable and profile directory so a restarted helper can adopt
-    /// still-running tools.
+    /// Records pid, owner, executable, profile directory and management socket so a restarted
+    /// helper can adopt still-running tools.
     private func writeState(plan: HelperCore.LaunchPlan, pid: pid_t, executable: String) {
-        let text = "\(pid)\n\(plan.ownerUID)\n\(executable)\n\(plan.profileDir.path)\n"
+        let text = "\(pid)\n\(plan.ownerUID)\n\(executable)\n\(plan.profileDir.path)\n\(plan.mgmtSocket ?? "")\n"
         try? HelperCore.writeNewFile(plan.runDir + "/state", Data(text.utf8), mode: 0o600)
     }
 
-    /// Adopts tools left running by a previous helper instance and removes stale run directories.
+    /// Adopts tools left running by a previous helper instance (`<root>/<uid>/<id>/state`) and removes
+    /// stale run directories. Tools started by a protocol-2 helper (`<root>/<id>/state`) are stopped:
+    /// their management socket is in the profile directory, where this version never looks.
     func adoptOrphans() {
         queue.sync {
             let root = core.runRoot
             var st = stat()
             guard lstat(root, &st) == 0, (st.st_mode & S_IFMT) == S_IFDIR, st.st_uid == geteuid() else { return }
-            let entries = (try? FileManager.default.contentsOfDirectory(atPath: root)) ?? []
-            for id in entries where HelperCore.isValidProfileID(id) {
-                let dir = root + "/" + id
-                guard let text = try? String(contentsOfFile: dir + "/state", encoding: .utf8) else {
-                    core.removeRunDir(profileID: id); continue
+            for entry in Self.entries(root) {
+                let path = root + "/" + entry
+                if let legacy = Self.readState(path + "/state") {
+                    if Self.isAlive(legacy) {
+                        log.notice("stopping \(entry, privacy: .public) (pid \(legacy.pid)) left by an older helper")
+                        kill(legacy.pid, SIGTERM)
+                    }
+                    HelperCore.removeEntry(path)
+                    continue
                 }
-                let parts = text.split(separator: "\n").map(String.init)
-                guard parts.count >= 3, let pid = pid_t(parts[0]), let uid = uid_t(parts[1]), pid > 1,
-                      kill(pid, 0) == 0, Self.executablePath(of: pid) == parts[2] else {
-                    core.removeRunDir(profileID: id); continue
+                guard let uid = uid_t(entry), String(uid) == entry, Self.isRealDirectory(path) else {
+                    HelperCore.removeEntry(path); continue
                 }
-                log.notice("adopting \(id, privacy: .public) (pid \(pid))")
-                let profileDir = parts.count >= 4 ? try? core.openProfileDir(parts[3], profileID: id, uid: uid) : nil
-                track(Job(profileID: id, ownerUID: uid, pid: pid, executable: parts[2], runDir: dir, isChild: false,
-                          profileDir: profileDir))
+                for id in Self.entries(path) {
+                    guard HelperCore.isValidProfileID(id), let state = Self.readState(path + "/" + id + "/state"),
+                          state.uid == uid, Self.isAlive(state),
+                          let dir = try? core.openRunDir(profileID: id, uid: uid) else {
+                        HelperCore.removeEntry(path + "/" + id); continue
+                    }
+                    log.notice("adopting \(id, privacy: .public) of uid \(uid) (pid \(state.pid))")
+                    let socket = state.mgmtSocket == PT.mgmtSocketPath(uid: uid, profileID: id, runRoot: root)
+                        ? state.mgmtSocket : nil
+                    track(Job(profileID: id, ownerUID: uid, pid: state.pid, executable: state.executable,
+                              runDir: dir.path, isChild: false, sessionDir: dir, mgmtSocket: socket))
+                }
             }
         }
+    }
+
+    struct State {
+        let pid: pid_t
+        let uid: uid_t
+        let executable: String
+        let mgmtSocket: String?
+    }
+
+    static func readState(_ path: String) -> State? {
+        guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
+        let parts = text.components(separatedBy: "\n")
+        guard parts.count >= 3, let pid = pid_t(parts[0]), let uid = uid_t(parts[1]), pid > 1 else { return nil }
+        let socket = parts.count >= 5 && !parts[4].isEmpty ? parts[4] : nil
+        return State(pid: pid, uid: uid, executable: parts[2], mgmtSocket: socket)
+    }
+
+    /// The recorded process still runs the recorded executable (not a recycled pid).
+    static func isAlive(_ s: State) -> Bool {
+        kill(s.pid, 0) == 0 && executablePath(of: s.pid) == s.executable
+    }
+
+    static func entries(_ dir: String) -> [String] {
+        (try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []
+    }
+
+    static func isRealDirectory(_ path: String) -> Bool {
+        var st = stat()
+        return lstat(path, &st) == 0 && (st.st_mode & S_IFMT) == S_IFDIR && st.st_uid == geteuid()
     }
 
     static func executablePath(of pid: pid_t) -> String? {

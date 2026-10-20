@@ -8,7 +8,9 @@ public enum PT {
     public static let teamID = "YH4NUPFH74"
     public static let keychainService = "PassTunnel"
     /// 2: OpenVPN management moved from TCP 127.0.0.1:mgmtPort to a per-profile unix socket.
-    public static let helperProtocolVersion = 2
+    /// 3: sessions keyed by (uid, profile ID); the socket moved to the root-owned session directory
+    ///    (`mgmtSocketPath`), `status` also returns socket paths, requests must carry the version.
+    public static let helperProtocolVersion = 3
 
     /// Code-signing requirement the helper enforces on its XPC clients.
     public static let clientRequirement =
@@ -27,11 +29,22 @@ public enum PT {
     public static let openfortivpnIdentifier = "com.furkanprlk.passtunnel.openfortivpn"
     public static let dnsUpdownIdentifier = "com.furkanprlk.passtunnel.dns-updown"
 
-    /// Root-only directory where the helper keeps per-profile runtime files.
+    /// Root-owned directory where the helper keeps per-session runtime files:
+    /// `<root>/<uid>/<profileID>/` (all 0711, so users can reach their socket but list nothing).
     public static let helperRunRoot = "/var/run/passtunnel"
 
-    /// OpenVPN management socket inside the profile directory (only the calling user may connect).
+    /// OpenVPN management socket inside the session directory (owned by the user, 0600).
     public static let mgmtSocketName = "mgmt.sock"
+
+    /// Session directory of `profileID` for user `uid`.
+    public static func sessionDir(uid: uid_t, profileID: String, runRoot: String = helperRunRoot) -> String {
+        "\(runRoot)/\(uid)/\(profileID)"
+    }
+
+    /// Where the helper puts the OpenVPN management socket of `profileID` for user `uid`.
+    public static func mgmtSocketPath(uid: uid_t, profileID: String, runRoot: String = helperRunRoot) -> String {
+        sessionDir(uid: uid, profileID: profileID, runRoot: runRoot) + "/" + mgmtSocketName
+    }
 
     /// Location of profile directories relative to the user's home.
     public static let profilesSubpath = "Library/Application Support/PassTunnel/profiles"

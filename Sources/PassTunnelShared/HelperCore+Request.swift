@@ -3,6 +3,8 @@ import Foundation
 extension HelperCore {
     /// Largest request the helper accepts. Real requests are well under 8 KiB.
     public static let maxRequestBytes = 1 << 16
+    /// Protocol of clients that did not send `protocol_version` yet.
+    public static let unversionedProtocol = 2
 
     public enum RequestError: Error, Equatable, LocalizedError, CustomStringConvertible {
         case tooLarge(Int)
@@ -32,8 +34,8 @@ extension HelperCore {
         enum CodingKeys: String, CodingKey { case type, protocolVersion = "protocol_version" }
     }
 
-    /// Decodes a request as received over XPC: size cap, JSON object, protocol version (a missing
-    /// version is accepted for clients that predate the field), known type, then the typed payload.
+    /// Decodes a request as received over XPC: size cap, JSON object, protocol version (required; a
+    /// request without one comes from a protocol-2 or older client), known type, then the typed payload.
     /// Error messages name fields only, never values (requests carry passwords).
     public static func decodeRequest(_ data: Data) throws -> HelperRequest {
         guard data.count <= maxRequestBytes else { throw RequestError.tooLarge(data.count) }
@@ -44,8 +46,9 @@ extension HelperCore {
         } catch {
             throw RequestError.invalidField(fieldName(error) ?? "type")
         }
-        if let v = envelope.protocolVersion, v != PT.helperProtocolVersion {
-            throw RequestError.versionMismatch(client: v, helper: PT.helperProtocolVersion)
+        let version = envelope.protocolVersion ?? Self.unversionedProtocol
+        guard version == PT.helperProtocolVersion else {
+            throw RequestError.versionMismatch(client: version, helper: PT.helperProtocolVersion)
         }
         guard let type = envelope.type else { throw RequestError.missingType }
         guard HelperRequest.Kind(rawValue: type) != nil else { throw RequestError.unknownType(printable(type)) }

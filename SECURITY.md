@@ -59,13 +59,13 @@ FortiGate, stop, and status. It enforces the following rules on every request.
 
 - **Profile directory checks.** The profile folder in a request must resolve, with symlinks
   resolved, to exactly `<your home>/Library/Application Support/PassTunnel/profiles/<profile-id>`.
-  It must be a real directory owned by the calling user and not world-writable. The resolved path
+  It must be a real directory owned by the calling user and not group- or world-writable. The resolved path
   is checked again on the open descriptor, and all further file access goes through that
   descriptor, so the folder cannot be swapped between check and use.
-- Profile IDs are limited to letters, digits, `-`, `_` and `.` (no leading dot or dash, at most 64
-  characters).
-- `config.ovpn` must be a regular, single-link file owned by you, at most 1 MB, valid UTF-8, and is
-  opened without following symlinks.
+- Profile IDs are limited to letters, digits, `-`, `_` and `.` (no leading dot or dash, no trailing
+  dot, at most 64 characters).
+- `config.ovpn` must be a regular, single-link file owned by you, not group- or world-writable, at
+  most 1 MB, valid UTF-8, and is opened without following symlinks.
 
 ### Which programs it runs
 
@@ -89,18 +89,19 @@ FortiGate, stop, and status. It enforces the following rules on every request.
 
 - The user's `config.ovpn` is passed through the [sanitizer](#openvpn-configuration-sanitizer).
   The sanitized copy and the credentials file (user name plus password/code, single lines only) are
-  written as new `0600` files into a **root-only run directory**, `/var/run/passtunnel/<profile-id>`
-  (`0700`; the parent must be a real, root-owned directory). The run directory is deleted when the
-  tunnel stops.
+  written as new `0600` files into a **root-owned run directory**, `/var/run/passtunnel/<uid>/<profile-id>`
+  (`0711` like its parents, which must be real, root-owned directories: you can reach a file in it by
+  name, but cannot list, rename or replace anything). The run directory is deleted when the tunnel stops.
 - OpenVPN gets fixed flags after `--config`, so they override anything left in the file:
-  `--management <profile dir>/mgmt.sock unix`, `--management-client-user <your user name>`,
+  `--management <run directory>/mgmt.sock unix`, `--management-client-user <your user name>`,
   `--auth-nocache`, `--remap-usr1 SIGTERM`, `--connect-retry-max 3`, and explicit
   `--script-security`/`--dns-updown` settings.
-- **Management over a per-user unix socket.** The management interface is a unix socket in your
-  profile folder, not a TCP port. OpenVPN only serves the user named in
+- **Management over a per-user unix socket.** The management interface is a unix socket in the
+  session's root-owned run directory, not a TCP port. OpenVPN only serves the user named in
   `--management-client-user` (peer credential check). Once the socket exists, the helper also
-  hands it to you with mode `0600`. A stale socket is removed before launch, and the helper refuses
-  if it is a symlink or not a socket. The socket is removed when OpenVPN exits.
+  hands it to you with mode `0600`; because nobody but root can change entries in that directory,
+  this cannot be redirected to another file (the helper still checks it is a socket and never
+  follows links). The socket is removed with the run directory when OpenVPN exits.
 
 ### How FortiGate is started
 
@@ -175,8 +176,8 @@ script-security N            (when N > 1)
   connection, and are written only into the root-only run directory, which is removed when the
   tunnel stops. OpenVPN runs with `--auth-nocache`.
 - **Support folder.** `~/Library/Application Support/PassTunnel` (`0700`) holds `config.json`
-  (preferences) and one folder per profile with `profile.json`, `config.ovpn`, `vpn.log` and,
-  while connected, `mgmt.sock`. Files are written with `0600`. These files contain no passwords or
+  (preferences) and one folder per profile with `profile.json`, `config.ovpn` and `vpn.log`.
+  Files are written with `0600`. These files contain no passwords or
   TOTP secrets, but `config.ovpn` may contain certificates and private keys from your VPN provider.
 - **Share files (`.passtunnel`) never contain credentials.** No password, no TOTP secret, no user
   name. They do contain the connection settings and, for OpenVPN, the configuration file with any

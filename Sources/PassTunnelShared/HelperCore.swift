@@ -66,13 +66,15 @@ public struct HelperCore {
         public let ownerUID: uid_t
         public let tool: Tool
         public let arguments: [String]
+        /// `<runRoot>/<uid>/<profileID>`: root-owned, holds the tool's config, auth file and socket.
         public let runDir: String
+        public let sessionDir: SessionDirectory
         public let logFD: Int32
         /// Copy of the bundled DNS script inside `runDir`; its signature must be checked before launch.
         public let dnsUpdownPath: String?
-        /// The validated profile directory (kept open to clean up the management socket later).
+        /// The validated profile directory.
         public let profileDir: ProfileDirectory
-        /// Full path of the OpenVPN management socket (OpenVPN only).
+        /// Full path of the OpenVPN management socket inside `runDir` (OpenVPN only).
         public let mgmtSocket: String?
     }
 
@@ -80,6 +82,8 @@ public struct HelperCore {
     public static let maxConfigBytes = 1 << 20
     /// sun_path is 104 bytes on macOS, including the terminating NUL.
     public static let maxSocketPathBytes = 103
+    /// Run root, per-user and per-session directories: root-owned, searchable but not listable.
+    public static let runDirMode: mode_t = 0o711
     public static let fixedEnvironment = ["PATH=/usr/bin:/bin:/usr/sbin:/sbin", "LC_ALL=C"]
 
     public var runRoot: String
@@ -198,11 +202,11 @@ public struct HelperCore {
         let data = try dir.readFile(Self.configFileName, maxBytes: Self.maxConfigBytes)
         guard let text = String(data: data, encoding: .utf8) else { throw Failure.invalidText(Self.configFileName) }
         let sanitized = try OVPNSanitizer.sanitize(text)
-        let socketPath = dir.path + "/" + PT.mgmtSocketName
+        let socketPath = PT.mgmtSocketPath(uid: uid, profileID: s.profileID, runRoot: runRoot)
         guard socketPath.utf8.count <= Self.maxSocketPathBytes else { throw Failure.socketPathTooLong(socketPath) }
-        try dir.removeSocket(PT.mgmtSocketName)
 
-        let runDir = try makeRunDir(profileID: s.profileID)
+        let session = try makeRunDir(profileID: s.profileID, uid: uid)
+        let runDir = session.path
         do {
             let configPath = runDir + "/" + Self.configFileName
             try Self.writeNewFile(configPath, Data(sanitized.utf8), mode: 0o600)
@@ -216,10 +220,10 @@ public struct HelperCore {
                                              authFile: authPath, dnsUpdown: dnsPath)
             let logFD = try dir.createLogFile(logName)
             return LaunchPlan(profileID: s.profileID, ownerUID: uid, tool: .openvpn, arguments: args,
-                              runDir: runDir, logFD: logFD, dnsUpdownPath: dnsPath, profileDir: dir,
-                              mgmtSocket: socketPath)
+                              runDir: runDir, sessionDir: session, logFD: logFD, dnsUpdownPath: dnsPath,
+                              profileDir: dir, mgmtSocket: socketPath)
         } catch {
-            removeRunDir(profileID: s.profileID)
+            removeRunDir(profileID: s.profileID, uid: uid)
             throw error
         }
     }
@@ -228,16 +232,18 @@ public struct HelperCore {
         let text = try FortiConfig(s).render()
         let dir = try openProfileDir(s.profileDir, profileID: s.profileID, uid: uid)
         let logName = try logFileName(s.logPath, in: dir)
-        let runDir = try makeRunDir(profileID: s.profileID)
+        let session = try makeRunDir(profileID: s.profileID, uid: uid)
+        let runDir = session.path
         do {
             let configPath = runDir + "/openfortivpn.conf"
             try Self.writeNewFile(configPath, Data(text.utf8), mode: 0o600)
             let logFD = try dir.createLogFile(logName)
             return LaunchPlan(profileID: s.profileID, ownerUID: uid, tool: .openfortivpn,
                               arguments: Self.fortiArguments(configPath: configPath),
-                              runDir: runDir, logFD: logFD, dnsUpdownPath: nil, profileDir: dir, mgmtSocket: nil)
+                              runDir: runDir, sessionDir: session, logFD: logFD, dnsUpdownPath: nil,
+                              profileDir: dir, mgmtSocket: nil)
         } catch {
-            removeRunDir(profileID: s.profileID)
+            removeRunDir(profileID: s.profileID, uid: uid)
             throw error
         }
     }
@@ -277,40 +283,71 @@ public struct HelperCore {
         }
     }
 
-    // MARK: - Run directory (root-only)
+    // MARK: - Run directory (root-owned)
 
-    /// Creates a fresh `<runRoot>/<profileID>` (0700), replacing a stale one.
-    public func makeRunDir(profileID: String) throws -> String {
+    /// `<runRoot>/<uid>`.
+    public func userRunDir(uid: uid_t) -> String { runRoot + "/\(uid)" }
+
+    /// Creates a fresh session directory `<runRoot>/<uid>/<profileID>` (root-owned, 0711), replacing
+    /// a stale one. Users can reach files inside by name but cannot list, rename or replace them, so
+    /// the management socket can be handed to the user without a race.
+    public func makeRunDir(profileID: String, uid: uid_t) throws -> SessionDirectory {
         guard Self.isValidProfileID(profileID) else { throw Failure.invalidProfileID(profileID) }
-        try ensureRunRoot()
-        let dir = runRoot + "/" + profileID
-        removeRunDir(profileID: profileID)
+        try Self.ensureRootOwnedDir(runRoot)
+        try Self.ensureRootOwnedDir(userRunDir(uid: uid))
+        let dir = PT.sessionDir(uid: uid, profileID: profileID, runRoot: runRoot)
+        removeRunDir(profileID: profileID, uid: uid)
         guard mkdir(dir, 0o700) == 0 else { throw Failure.system("mkdir \(dir)", errno) }
-        _ = chmod(dir, 0o700)
-        return dir
+        guard chmod(dir, Self.runDirMode) == 0 else { throw Failure.system("chmod \(dir)", errno) }
+        return try openRunDir(profileID: profileID, uid: uid)
     }
 
-    public func removeRunDir(profileID: String) {
-        guard Self.isValidProfileID(profileID) else { return }
-        let dir = runRoot + "/" + profileID
-        var st = stat()
-        guard lstat(dir, &st) == 0 else { return }
-        if (st.st_mode & S_IFMT) == S_IFLNK { unlink(dir); return }
-        try? FileManager.default.removeItem(atPath: dir)
-    }
-
-    /// The run root must be a real directory owned by us and closed to everyone else.
-    func ensureRunRoot() throws {
-        var st = stat()
-        if lstat(runRoot, &st) != 0 {
-            guard errno == ENOENT else { throw Failure.system("stat \(runRoot)", errno) }
-            guard mkdir(runRoot, 0o700) == 0 || errno == EEXIST else { throw Failure.system("mkdir \(runRoot)", errno) }
-            guard lstat(runRoot, &st) == 0 else { throw Failure.system("stat \(runRoot)", errno) }
+    /// Opens an existing session directory after checking it is a real directory we own.
+    public func openRunDir(profileID: String, uid: uid_t) throws -> SessionDirectory {
+        guard Self.isValidProfileID(profileID) else { throw Failure.invalidProfileID(profileID) }
+        let dir = PT.sessionDir(uid: uid, profileID: profileID, runRoot: runRoot)
+        let fd = open(dir, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        guard fd >= 0 else {
+            if errno == ELOOP { throw Failure.symlinkNotAllowed(dir) }
+            throw Failure.system("open \(dir)", errno)
         }
-        guard (st.st_mode & S_IFMT) != S_IFLNK else { throw Failure.symlinkNotAllowed(runRoot) }
-        guard (st.st_mode & S_IFMT) == S_IFDIR else { throw Failure.notADirectory(runRoot) }
-        guard st.st_uid == geteuid() else { throw Failure.wrongOwner(path: runRoot, expected: geteuid(), actual: st.st_uid) }
-        if st.st_mode & 0o077 != 0 { _ = chmod(runRoot, 0o700) }
+        var st = stat()
+        guard fstat(fd, &st) == 0 else { let e = errno; close(fd); throw Failure.system("stat \(dir)", e) }
+        guard (st.st_mode & S_IFMT) == S_IFDIR else { close(fd); throw Failure.notADirectory(dir) }
+        guard st.st_uid == geteuid() else {
+            close(fd)
+            throw Failure.wrongOwner(path: dir, expected: geteuid(), actual: st.st_uid)
+        }
+        return SessionDirectory(fd: fd, path: dir, ownerUID: uid)
+    }
+
+    public func removeRunDir(profileID: String, uid: uid_t) {
+        guard Self.isValidProfileID(profileID) else { return }
+        Self.removeEntry(PT.sessionDir(uid: uid, profileID: profileID, runRoot: runRoot))
+    }
+
+    /// Removes a directory tree, or just the link if `path` is a symlink.
+    public static func removeEntry(_ path: String) {
+        var st = stat()
+        guard lstat(path, &st) == 0 else { return }
+        if (st.st_mode & S_IFMT) == S_IFLNK { unlink(path); return }
+        try? FileManager.default.removeItem(atPath: path)
+    }
+
+    /// `path` must be a real directory owned by us with mode exactly `runDirMode`; created if missing.
+    static func ensureRootOwnedDir(_ path: String) throws {
+        var st = stat()
+        if lstat(path, &st) != 0 {
+            guard errno == ENOENT else { throw Failure.system("stat \(path)", errno) }
+            guard mkdir(path, 0o700) == 0 || errno == EEXIST else { throw Failure.system("mkdir \(path)", errno) }
+            guard lstat(path, &st) == 0 else { throw Failure.system("stat \(path)", errno) }
+        }
+        guard (st.st_mode & S_IFMT) != S_IFLNK else { throw Failure.symlinkNotAllowed(path) }
+        guard (st.st_mode & S_IFMT) == S_IFDIR else { throw Failure.notADirectory(path) }
+        guard st.st_uid == geteuid() else { throw Failure.wrongOwner(path: path, expected: geteuid(), actual: st.st_uid) }
+        if st.st_mode & 0o7777 != runDirMode, chmod(path, runDirMode) != 0 {
+            throw Failure.system("chmod \(path)", errno)
+        }
     }
 
     /// Copies the bundled DNS script (with its extended-attribute signature) into the run directory.
@@ -426,31 +463,6 @@ public final class ProfileDirectory {
         return data
     }
 
-    /// Removes a stale socket. Missing is fine; a symlink or any other file type is refused.
-    public func removeSocket(_ name: String) throws {
-        guard Self.isPlainName(name) else { throw HelperCore.Failure.notASocket(name) }
-        let full = path + "/" + name
-        var st = stat()
-        if fstatat(fd, name, &st, AT_SYMLINK_NOFOLLOW) != 0 {
-            if errno == ENOENT { return }
-            throw HelperCore.Failure.system("stat \(full)", errno)
-        }
-        if (st.st_mode & S_IFMT) == S_IFLNK { throw HelperCore.Failure.symlinkNotAllowed(full) }
-        guard (st.st_mode & S_IFMT) == S_IFSOCK else { throw HelperCore.Failure.notASocket(full) }
-        if unlinkat(fd, name, 0) != 0, errno != ENOENT { throw HelperCore.Failure.system("remove \(full)", errno) }
-    }
-
-    /// Hands a socket created by root to the user (0600). No-op unless it is a socket.
-    @discardableResult
-    public func restrictSocket(_ name: String) -> Bool {
-        guard Self.isPlainName(name) else { return false }
-        var st = stat()
-        guard fstatat(fd, name, &st, AT_SYMLINK_NOFOLLOW) == 0, (st.st_mode & S_IFMT) == S_IFSOCK else { return false }
-        if st.st_uid != uid { _ = fchownat(fd, name, uid, gid, AT_SYMLINK_NOFOLLOW) }
-        _ = fchmodat(fd, name, 0o600, AT_SYMLINK_NOFOLLOW)
-        return true
-    }
-
     /// Replaces `name` with a fresh file owned by the user (0600) and returns a write descriptor.
     /// Whatever was there before (symlink, hard link) is unlinked, never followed or truncated.
     public func createLogFile(_ name: String) throws -> Int32 {
@@ -468,5 +480,50 @@ public final class ProfileDirectory {
         }
         _ = fchmod(f, 0o600)
         return f
+    }
+}
+
+/// An open session directory `<runRoot>/<uid>/<profileID>` (root-owned). Socket operations go
+/// through the descriptor and never follow links.
+public final class SessionDirectory {
+    public let fd: Int32
+    public let path: String
+    /// The user the session belongs to.
+    public let ownerUID: uid_t
+
+    init(fd: Int32, path: String, ownerUID: uid_t) {
+        self.fd = fd
+        self.path = path
+        self.ownerUID = ownerUID
+    }
+
+    deinit { close(fd) }
+
+    /// Removes a stale socket. Missing is fine; a symlink or any other file type is refused.
+    public func removeSocket(_ name: String) throws {
+        guard ProfileDirectory.isPlainName(name) else { throw HelperCore.Failure.notASocket(name) }
+        let full = path + "/" + name
+        var st = stat()
+        if fstatat(fd, name, &st, AT_SYMLINK_NOFOLLOW) != 0 {
+            if errno == ENOENT { return }
+            throw HelperCore.Failure.system("stat \(full)", errno)
+        }
+        if (st.st_mode & S_IFMT) == S_IFLNK { throw HelperCore.Failure.symlinkNotAllowed(full) }
+        guard (st.st_mode & S_IFMT) == S_IFSOCK else { throw HelperCore.Failure.notASocket(full) }
+        if unlinkat(fd, name, 0) != 0, errno != ENOENT { throw HelperCore.Failure.system("remove \(full)", errno) }
+    }
+
+    /// Hands a socket created by root to the session's user (0600). False unless `name` is a socket
+    /// that ends up owned by the user with mode 0600. Race-free because only root can change entries
+    /// in this directory; the checks still never follow a link.
+    @discardableResult
+    public func restrictSocket(_ name: String) -> Bool {
+        guard ProfileDirectory.isPlainName(name) else { return false }
+        var st = stat()
+        guard fstatat(fd, name, &st, AT_SYMLINK_NOFOLLOW) == 0, (st.st_mode & S_IFMT) == S_IFSOCK else { return false }
+        if st.st_uid != ownerUID { _ = fchownat(fd, name, ownerUID, gid_t.max, AT_SYMLINK_NOFOLLOW) }
+        _ = fchmodat(fd, name, 0o600, AT_SYMLINK_NOFOLLOW)
+        guard fstatat(fd, name, &st, AT_SYMLINK_NOFOLLOW) == 0 else { return false }
+        return (st.st_mode & S_IFMT) == S_IFSOCK && st.st_uid == ownerUID && st.st_mode & 0o777 == 0o600
     }
 }

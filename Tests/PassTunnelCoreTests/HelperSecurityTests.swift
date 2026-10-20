@@ -32,15 +32,14 @@ final class HelperRequestDecodingTests: XCTestCase {
         for r in requests {
             XCTAssertEqual(try HelperCore.decodeRequest(try r.jsonData()), r)
         }
-        // Clients that predate the version field are still accepted.
-        XCTAssertEqual(try HelperCore.decodeRequest(Data(#"{"type":"status"}"#.utf8)), .status)
+        XCTAssertEqual(try HelperCore.decodeRequest(Data(#"{"type":"status","protocol_version":3}"#.utf8)), .status)
     }
 
     func testOversizeRequestIsRejected() throws {
         let limit = HelperCore.maxRequestBytes
         XCTAssertEqual(limit, 65536)
         // Exactly at the limit is fine (padding with JSON whitespace).
-        var json = #"{"type":"status"}"#
+        var json = #"{"type":"status","protocol_version":3}"#
         json += String(repeating: " ", count: limit - json.utf8.count)
         XCTAssertEqual(try HelperCore.decodeRequest(Data(json.utf8)), .status)
         XCTAssertEqual(decodeError(json + " "), .tooLarge(limit + 1))
@@ -57,39 +56,43 @@ final class HelperRequestDecodingTests: XCTestCase {
     }
 
     func testMissingOrUnknownTypeIsRejected() {
-        XCTAssertEqual(decodeError("{}"), .missingType)
-        XCTAssertEqual(decodeError(#"{"profile_id":"acme"}"#), .missingType)
-        XCTAssertEqual(decodeError(#"{"type":5}"#), .invalidField("type"))
+        XCTAssertEqual(decodeError(#"{"protocol_version":3}"#), .missingType)
+        XCTAssertEqual(decodeError(#"{"profile_id":"acme","protocol_version":3}"#), .missingType)
+        XCTAssertEqual(decodeError(#"{"type":5,"protocol_version":3}"#), .invalidField("type"))
         for t in ["reboot", "Stop", "STATUS", "start_shell", ""] {
-            XCTAssertEqual(decodeError(#"{"type":"\#(t)","protocol_version":2}"#), .unknownType(t), t)
+            XCTAssertEqual(decodeError(#"{"type":"\#(t)","protocol_version":3}"#), .unknownType(t), t)
         }
         // Client-supplied text is made printable and shortened before it is echoed.
         let long = String(repeating: "x", count: 100)
-        XCTAssertEqual(decodeError(#"{"type":"\#(long)"}"#), .unknownType(String(repeating: "x", count: 32)))
-        XCTAssertEqual(decodeError(#"{"type":"a\nb\u001b"}"#), .unknownType("a?b?"))
+        XCTAssertEqual(decodeError(#"{"type":"\#(long)","protocol_version":3}"#), .unknownType(String(repeating: "x", count: 32)))
+        XCTAssertEqual(decodeError(#"{"type":"a\nb\u001b","protocol_version":3}"#), .unknownType("a?b?"))
         XCTAssertEqual(HelperCore.RequestError.unknownType("reboot").description, "Unknown request type “reboot”.")
     }
 
     func testProtocolVersionMismatchIsRejected() {
-        XCTAssertEqual(PT.helperProtocolVersion, 2)
-        for v in [0, 1, 3, 99, -1] {
+        XCTAssertEqual(PT.helperProtocolVersion, 3)
+        for v in [0, 1, 2, 4, 99, -1] {
             XCTAssertEqual(decodeError(#"{"type":"status","protocol_version":\#(v)}"#),
-                           .versionMismatch(client: v, helper: 2), "\(v)")
+                           .versionMismatch(client: v, helper: 3), "\(v)")
         }
+        // Clients from before the field speak protocol 2 at most.
+        XCTAssertEqual(decodeError(#"{"type":"status"}"#), .versionMismatch(client: 2, helper: 3))
+        XCTAssertEqual(decodeError(#"{"type":"start_openvpn","profile_id":"a","profile_dir":"/d","log_path":"/l"}"#),
+                       .versionMismatch(client: 2, helper: 3))
         // Version is checked before the type, so a newer client gets the clear message.
-        XCTAssertEqual(decodeError(#"{"type":"start_wireguard","protocol_version":3}"#),
-                       .versionMismatch(client: 3, helper: 2))
+        XCTAssertEqual(decodeError(#"{"type":"start_wireguard","protocol_version":4}"#),
+                       .versionMismatch(client: 4, helper: 3))
         XCTAssertEqual(decodeError(#"{"type":"status","protocol_version":"2"}"#), .invalidField("protocol_version"))
         XCTAssertEqual(decodeError(#"{"type":"status","protocol_version":true}"#), .invalidField("protocol_version"))
-        let msg = HelperCore.RequestError.versionMismatch(client: 3, helper: 2).description
-        XCTAssertTrue(msg.contains("version") && msg.contains("3") && msg.contains("2"), msg)
+        let msg = HelperCore.RequestError.versionMismatch(client: 4, helper: 3).description
+        XCTAssertTrue(msg.contains("version") && msg.contains("4") && msg.contains("3"), msg)
     }
 
     func testMissingOrMistypedFieldsAreNamed() {
-        XCTAssertEqual(decodeError(#"{"type":"stop"}"#), .invalidField("profile_id"))
-        XCTAssertEqual(decodeError(#"{"type":"start_openvpn","profile_id":"a","log_path":"/l"}"#),
+        XCTAssertEqual(decodeError(#"{"type":"stop","protocol_version":3}"#), .invalidField("profile_id"))
+        XCTAssertEqual(decodeError(#"{"type":"start_openvpn","protocol_version":3,"profile_id":"a","log_path":"/l"}"#),
                        .invalidField("profile_dir"))
-        let forti = #"{"type":"start_forti","profile_id":"f","profile_dir":"/d","host":"vpn.example.com","username":"u","password":"p","trusted_cert":"","set_dns":false,"set_routes":true,"log_path":"/d/vpn.log","port":"#
+        let forti = #"{"type":"start_forti","protocol_version":3,"profile_id":"f","profile_dir":"/d","host":"vpn.example.com","username":"u","password":"p","trusted_cert":"","set_dns":false,"set_routes":true,"log_path":"/d/vpn.log","port":"#
         XCTAssertEqual(decodeError(forti + #""443"}"#), .invalidField("port"))
         // Not representable: rejected by the JSON layer before a field is known; the value is not echoed.
         XCTAssertEqual(decodeError(forti + "1e30}"), .invalidField("request"))
@@ -98,9 +101,9 @@ final class HelperRequestDecodingTests: XCTestCase {
 
     func testErrorsNeverEchoFieldValues() {
         let payloads = [
-            #"{"type":"start_forti","profile_id":"f","password":["TOPSECRET"]}"#,
-            #"{"type":"start_openvpn","profile_id":"a","profile_dir":"/d","log_path":"/l","secret":{"x":"TOPSECRET"}}"#,
-            #"{"type":"start_openvpn","profile_id":"a","profile_dir":"/d","log_path":"/l","username":7,"secret":"TOPSECRET"}"#,
+            #"{"type":"start_forti","protocol_version":3,"profile_id":"f","password":["TOPSECRET"]}"#,
+            #"{"type":"start_openvpn","protocol_version":3,"profile_id":"a","profile_dir":"/d","log_path":"/l","secret":{"x":"TOPSECRET"}}"#,
+            #"{"type":"start_openvpn","protocol_version":3,"profile_id":"a","profile_dir":"/d","log_path":"/l","username":7,"secret":"TOPSECRET"}"#,
         ]
         for p in payloads {
             guard let e = decodeError(p) else { continue }
@@ -129,7 +132,7 @@ extension HelperCoreTests {
             XCTAssertFalse(HelperCore.isValidProfileID(id), id.debugDescription)
             assertFails(try self.core().openProfileDir(self.profiles.appendingPathComponent(id).path, profileID: id,
                                                        uid: self.me)) { $0 == .invalidProfileID(id) }
-            assertFails(try self.core().makeRunDir(profileID: id)) { $0 == .invalidProfileID(id) }
+            assertFails(try self.core().makeRunDir(profileID: id, uid: self.me)) { $0 == .invalidProfileID(id) }
         }
         for id in ["a", "acme", "acme.vpn", "Acme_2", "a-b", String(repeating: "a", count: 64)] {
             XCTAssertTrue(HelperCore.isValidProfileID(id), id)
@@ -162,7 +165,7 @@ extension HelperCoreTests {
         assertFails(try self.core().prepareOpenVPN(self.openVPNStart(), uid: self.me)) {
             if case .notARegularFile = $0 { return true }; return false
         }
-        XCTAssertFalse(FileManager.default.fileExists(atPath: runRoot.path + "/acme"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: acmeRunDir))
     }
 
     func testGroupOrWorldWritableConfigIsRejected() throws {
@@ -173,7 +176,7 @@ extension HelperCoreTests {
                 if case .insecurePermissions = $0 { return true }; return false
             }
         }
-        XCTAssertFalse(FileManager.default.fileExists(atPath: runRoot.path + "/acme"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: acmeRunDir))
         for mode: mode_t in [0o600, 0o644, 0o400] {
             XCTAssertEqual(chmod(cfg, mode), 0)
             let plan = try core().prepareOpenVPN(openVPNStart(), uid: me)
@@ -202,7 +205,7 @@ extension HelperCoreTests {
             XCTAssertThrowsError(try core().prepareOpenVPN(openVPNStart(), uid: me), line) { error in
                 XCTAssertEqual((error as? OVPNSanitizer.Failure)?.violations.map(\.line), [3], line)
             }
-            XCTAssertFalse(FileManager.default.fileExists(atPath: runRoot.path + "/acme"), line)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: acmeRunDir), line)
         }
         try writeConfig("client\n<plugin>\n/tmp/evil.so\n</plugin>\n")
         XCTAssertThrowsError(try core().prepareOpenVPN(openVPNStart(), uid: me)) { error in
@@ -216,7 +219,7 @@ extension HelperCoreTests {
         try writeConfig(text)
         // Extra keys in the request (a config or arguments of the client's choosing) are ignored.
         let start = openVPNStart()
-        let json = #"{"type":"start_openvpn","protocol_version":2,"profile_id":"acme","profile_dir":"\#(start.profileDir)","#
+        let json = #"{"type":"start_openvpn","protocol_version":3,"profile_id":"acme","profile_dir":"\#(start.profileDir)","#
             + #""username":"alice","secret":"pw","log_path":"\#(start.logPath)","#
             + #""config":"up /tmp/evil.sh","arguments":["--up","/tmp/evil.sh"],"executable":"/bin/sh"}"#
         guard case .startOpenVPN(let decoded) = try HelperCore.decodeRequest(Data(json.utf8)) else {
@@ -307,40 +310,52 @@ final class SessionPolicyTests: XCTestCase {
     let alice: uid_t = 501, bob: uid_t = 502
 
     var sessions: [S] {
-        [S(profileID: "acme", ownerUID: alice, pid: 100), S(profileID: "acme-forti", ownerUID: alice, pid: 101),
-         S(profileID: "lab", ownerUID: bob, pid: 200)]
+        [S(profileID: "acme", ownerUID: alice, pid: 100, mgmtSocket: PT.mgmtSocketPath(uid: 501, profileID: "acme")),
+         S(profileID: "acme-forti", ownerUID: alice, pid: 101),
+         S(profileID: "lab", ownerUID: bob, pid: 200, mgmtSocket: PT.mgmtSocketPath(uid: 502, profileID: "lab"))]
     }
 
     func testStartForRunningIDIsRejected() {
         XCTAssertThrowsError(try SessionPolicy.checkStart(profileID: "acme", uid: alice, sessions: sessions)) {
             XCTAssertEqual($0 as? SessionPolicy.Denial, .alreadyRunning("acme", pid: 100))
         }
-        XCTAssertThrowsError(try SessionPolicy.checkStart(profileID: "acme", uid: bob, sessions: sessions)) {
-            XCTAssertEqual($0 as? SessionPolicy.Denial, .inUseByAnotherUser("acme"))
-        }
         XCTAssertNoThrow(try SessionPolicy.checkStart(profileID: "other", uid: alice, sessions: sessions))
+    }
+
+    func testSameIDForTwoUsersDoesNotCollide() throws {
+        XCTAssertNoThrow(try SessionPolicy.checkStart(profileID: "acme", uid: bob, sessions: sessions))
+        let both = sessions + [S(profileID: "acme", ownerUID: bob, pid: 300,
+                                 mgmtSocket: PT.mgmtSocketPath(uid: 502, profileID: "acme"))]
+        XCTAssertEqual(SessionPolicy.visible(to: alice, sessions: both)["acme"], 100)
+        XCTAssertEqual(SessionPolicy.visible(to: bob, sessions: both)["acme"], 300)
+        XCTAssertEqual(SessionPolicy.stopDecision(profileID: "acme", uid: alice, sessions: both), .terminate(pid: 100))
+        XCTAssertEqual(SessionPolicy.stopDecision(profileID: "acme", uid: bob, sessions: both), .terminate(pid: 300))
+        XCTAssertEqual(SessionPolicy.sockets(visibleTo: bob, sessions: both)["acme"], "/var/run/passtunnel/502/acme/mgmt.sock")
+        XCTAssertNotEqual(Set(both.map(\.key)).count, Set(both.map(\.profileID)).count)
     }
 
     func testStatusIsScopedToCaller() {
         XCTAssertEqual(SessionPolicy.visible(to: alice, sessions: sessions), ["acme": 100, "acme-forti": 101])
         XCTAssertEqual(SessionPolicy.visible(to: bob, sessions: sessions), ["lab": 200])
         XCTAssertEqual(SessionPolicy.visible(to: 503, sessions: sessions), [:])
-        XCTAssertEqual(SessionPolicy.visible(to: 0, sessions: sessions).count, 3)
+        XCTAssertEqual(SessionPolicy.visible(to: 0, sessions: sessions), [:], "root only sees its own sessions")
+        XCTAssertEqual(SessionPolicy.sockets(visibleTo: alice, sessions: sessions),
+                       ["acme": "/var/run/passtunnel/501/acme/mgmt.sock"])
+        XCTAssertEqual(SessionPolicy.sockets(visibleTo: 503, sessions: sessions), [:])
     }
 
-    func testStopIsScopedToCaller() throws {
-        XCTAssertThrowsError(try SessionPolicy.stopDecision(profileID: "lab", uid: alice, sessions: sessions)) {
-            XCTAssertEqual($0 as? SessionPolicy.Denial, .belongsToAnotherUser("lab"))
-        }
-        XCTAssertEqual(try SessionPolicy.stopDecision(profileID: "lab", uid: bob, sessions: sessions), .terminate(pid: 200))
-        XCTAssertEqual(try SessionPolicy.stopDecision(profileID: "lab", uid: 0, sessions: sessions), .terminate(pid: 200))
+    /// Another user's session is invisible: `stop` of it is the same no-op as an unknown ID.
+    func testStopIsScopedToCaller() {
+        XCTAssertEqual(SessionPolicy.stopDecision(profileID: "lab", uid: alice, sessions: sessions), .notRunning)
+        XCTAssertEqual(SessionPolicy.stopDecision(profileID: "lab", uid: 0, sessions: sessions), .notRunning)
+        XCTAssertEqual(SessionPolicy.stopDecision(profileID: "lab", uid: bob, sessions: sessions), .terminate(pid: 200))
     }
 
     /// `stop` of an id that is not running stays a successful no-op, so disconnecting twice (or after
     /// the tool already exited) never shows an error.
-    func testStopOfUnknownIDIsIdempotent() throws {
-        XCTAssertEqual(try SessionPolicy.stopDecision(profileID: "ghost", uid: alice, sessions: sessions), .notRunning)
-        XCTAssertEqual(try SessionPolicy.stopDecision(profileID: "acme", uid: alice, sessions: []), .notRunning)
+    func testStopOfUnknownIDIsIdempotent() {
+        XCTAssertEqual(SessionPolicy.stopDecision(profileID: "ghost", uid: alice, sessions: sessions), .notRunning)
+        XCTAssertEqual(SessionPolicy.stopDecision(profileID: "acme", uid: alice, sessions: []), .notRunning)
     }
 
     func testPerUserSessionCap() throws {
@@ -351,8 +366,8 @@ final class SessionPolicyTests: XCTestCase {
             XCTAssertEqual($0 as? SessionPolicy.Denial, .tooManySessions(limit: 8))
             XCTAssertEqual(String(describing: $0), "Too many active connections (limit 8). Disconnect one first.")
         }
-        // Other users are not affected by alice's sessions.
-        XCTAssertNoThrow(try SessionPolicy.checkStart(profileID: "lab", uid: bob, sessions: full))
+        // Other users are not affected by alice's sessions, even with the same IDs.
+        XCTAssertNoThrow(try SessionPolicy.checkStart(profileID: "p3", uid: bob, sessions: full))
         // An already-running id is reported as such even at the cap.
         XCTAssertThrowsError(try SessionPolicy.checkStart(profileID: "p3", uid: alice, sessions: full)) {
             XCTAssertEqual($0 as? SessionPolicy.Denial, .alreadyRunning("p3", pid: 1003))

@@ -1,8 +1,9 @@
 import Foundation
 
 /// Start an OpenVPN profile. `secret` is the password with the OTP already formatted in.
-/// The management interface is the unix socket `<profileDir>/mgmt.sock` (returned in
-/// `HelperResponse.mgmtSocket`); `mgmtPort` is ignored and only kept so protocol-1 payloads decode.
+/// The management interface is the unix socket `PT.mgmtSocketPath(uid:profileID:)` in the helper's
+/// root-owned session directory (returned in `HelperResponse.mgmtSocket`); `mgmtPort` is ignored and
+/// only kept so protocol-1 payloads decode.
 public struct OpenVPNStart: Codable, Equatable, CustomStringConvertible, CustomDebugStringConvertible,
                             CustomReflectable {
     public var profileID: String
@@ -92,7 +93,7 @@ public struct FortiStart: Codable, Equatable, CustomStringConvertible, CustomDeb
 }
 
 /// Request sent to the helper. Encoded as a flat JSON object with a `type` discriminator and the
-/// sender's protocol version, e.g. `{"profile_id":"acme","protocol_version":2,"type":"stop"}`.
+/// sender's protocol version, e.g. `{"profile_id":"acme","protocol_version":3,"type":"stop"}`.
 /// Use `jsonData()` / `init(jsonData:)` so both sides agree on the encoder settings; the helper
 /// decodes through `HelperCore.decodeRequest`, which also enforces size and version.
 public enum HelperRequest: Codable, Equatable {
@@ -143,29 +144,34 @@ public enum HelperRequest: Codable, Equatable {
     public init(jsonData: Data) throws { self = try HelperJSON.decoder.decode(HelperRequest.self, from: jsonData) }
 }
 
-/// Reply from the helper. `running` maps profile IDs to pids (only for `status`); `mgmtSocket` is the
-/// OpenVPN management socket path (only for `startOpenVPN`).
+/// Reply from the helper. `running` maps the caller's profile IDs to pids and `mgmtSockets` maps
+/// its OpenVPN profile IDs to their management sockets (only for `status`); `mgmtSocket` is the
+/// socket of a just-started OpenVPN (only for `startOpenVPN`).
 public struct HelperResponse: Codable, Equatable {
     public var ok: Bool
     public var error: String?
     public var pid: Int32?
     public var running: [String: Int32]?
     public var mgmtSocket: String?
+    public var mgmtSockets: [String: String]?
 
-    enum CodingKeys: String, CodingKey { case ok, error, pid, running, mgmtSocket = "mgmt_socket" }
+    enum CodingKeys: String, CodingKey {
+        case ok, error, pid, running, mgmtSocket = "mgmt_socket", mgmtSockets = "mgmt_sockets"
+    }
 
     public init(ok: Bool, error: String? = nil, pid: Int32? = nil, running: [String: Int32]? = nil,
-                mgmtSocket: String? = nil) {
+                mgmtSocket: String? = nil, mgmtSockets: [String: String]? = nil) {
         self.ok = ok
         self.error = error
         self.pid = pid
         self.running = running
         self.mgmtSocket = mgmtSocket
+        self.mgmtSockets = mgmtSockets
     }
 
     public static func success(pid: Int32? = nil, running: [String: Int32]? = nil,
-                               mgmtSocket: String? = nil) -> HelperResponse {
-        HelperResponse(ok: true, pid: pid, running: running, mgmtSocket: mgmtSocket)
+                               mgmtSocket: String? = nil, mgmtSockets: [String: String]? = nil) -> HelperResponse {
+        HelperResponse(ok: true, pid: pid, running: running, mgmtSocket: mgmtSocket, mgmtSockets: mgmtSockets)
     }
 
     public static func failure(_ message: String) -> HelperResponse {
