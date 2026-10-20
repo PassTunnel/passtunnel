@@ -17,7 +17,7 @@ PassTunnel.app/Contents/
 
 | Target | Owns | Depends on |
 |---|---|---|
-| `PassTunnelShared` | XPC protocol, request/response types, `OVPNSanitizer`, `FortiConfig`, identifiers | — |
+| `PassTunnelShared` | XPC protocol, request/response types, `HelperCore` (request decoding, path checks), `SessionPolicy`, `CodeSignature`, `OVPNSanitizer`, `FortiConfig`, identifiers | — |
 | `PassTunnelCore` | model, `ProfileStore`, `ProfilesWatcher`, `Secrets` (Keychain), `TOTP`, `OTPAuthURI`, `OVPNAnalyzer`, `ShareFile`, `Preferences`, `HealthCheck`, `HelperClient`, `ConnectionManager` | Shared |
 | `PassTunnelHelper` | `main.swift` XPC listener, process supervision | Shared |
 | `PassTunnel` | SwiftUI app, menu bar, onboarding, CLI | Core, Shared |
@@ -176,11 +176,18 @@ public struct HelperResponse: Codable { ok: Bool; error: String?; pid: Int32?; r
                                          mgmtSocket: String? }   // startOpenVPN → "<profileDir>/mgmt.sock"
 ```
 
+Requests carry `"protocol_version"`; the helper decodes them with `HelperCore.decodeRequest`, which
+rejects, in this order: more than 64 KiB, anything but a JSON object, a version other than its own
+(a missing version is accepted), a missing or unknown `type`, then missing/mistyped fields (errors name
+the field, never its value).
+
 Security rules (helper):
 - Runs **only** the tools inside its own app bundle (`Contents/Resources/bin/…`), after verifying their code
   signature has our Team ID. Never a path supplied by the client.
 - `profileDir` must be a real directory under the *calling user's* home `Library/Application Support/PassTunnel/profiles/`
-  (resolve symlinks; check owner uid == caller's euid from the audit token).
+  (resolve symlinks; check owner uid == caller's euid from the audit token), not group- or world-writable.
+  `config.ovpn` must be a regular, single-link file owned by the user and not group- or world-writable.
+  Profile IDs: ASCII letters, digits, `-`, `_`, `.`, 1–64 bytes, no leading `.`/`-`, no trailing `.`.
 - OpenVPN: reads `config.ovpn` from profileDir, runs it through `OVPNSanitizer` (rejects `up`, `down`,
   `route-up`, `route-pre-down`, `ipchange`, `learn-address`, `client-connect`, `client-disconnect`,
   `tls-verify`, `auth-user-pass-verify`, `plugin`, `script-security` > 1, `management*`, `log*`, `daemon`,
@@ -195,7 +202,9 @@ Security rules (helper):
 - Forti: the helper writes the openfortivpn config itself from the typed fields (no user-supplied raw config;
   no pppd options). OTP is passed in the config (`otp = …`), so no pinentry is needed.
 - Tracks the pid it started per profile; `stop` only signals that pid (SIGTERM, then SIGKILL after 5 s).
-  Several Forti/OpenVPN profiles may run at once.
+  Several Forti/OpenVPN profiles may run at once, at most `SessionPolicy.maxSessionsPerUser` (8) per user.
+  `SessionPolicy` decides: starting a running id fails; `status` lists only the caller's sessions and `stop`
+  refuses another user's (root sees and stops all); `stop` of an id that is not running succeeds (idempotent).
 
 `HelperClient` (Core) wraps the XPC connection with async functions. `ManagementSocket` (Core) is a
 one-shot client for the OpenVPN management socket: `ManagementSocket(path:).command(_:timeout:)` connects,

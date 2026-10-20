@@ -24,6 +24,10 @@ final class Supervisor {
     private let log = Logger(subsystem: PT.helperLabel, category: "supervisor")
     private var jobs: [String: Job] = [:]
 
+    private var sessions: [SessionPolicy.Session] {
+        jobs.values.map { SessionPolicy.Session(profileID: $0.profileID, ownerUID: $0.ownerUID, pid: $0.pid) }
+    }
+
     init(core: HelperCore) {
         self.core = core
     }
@@ -40,17 +44,17 @@ final class Supervisor {
             case .stop(let id):
                 self.stop(profileID: id, uid: uid, reply: reply)
             case .status:
-                let mine = self.jobs.values.filter { uid == 0 || $0.ownerUID == uid }
-                reply(.success(running: Dictionary(uniqueKeysWithValues: mine.map { ($0.profileID, $0.pid) })))
+                reply(.success(running: SessionPolicy.visible(to: uid, sessions: self.sessions)))
             }
         }
     }
 
     private func start(profileID: String, uid: uid_t, prepare: () throws -> HelperCore.LaunchPlan) -> HelperResponse {
         dispatchPrecondition(condition: .onQueue(queue))
-        if let job = jobs[profileID] {
-            return .failure(job.ownerUID == uid ? "Profile \(profileID) is already running (pid \(job.pid))."
-                                                : "Profile \(profileID) is in use by another user.")
+        do {
+            try SessionPolicy.checkStart(profileID: profileID, uid: uid, sessions: sessions)
+        } catch {
+            return .failure(String(describing: error))
         }
         let plan: HelperCore.LaunchPlan
         do {
@@ -96,8 +100,13 @@ final class Supervisor {
 
     private func stop(profileID: String, uid: uid_t, reply: @escaping (HelperResponse) -> Void) {
         dispatchPrecondition(condition: .onQueue(queue))
-        guard let job = jobs[profileID] else { return reply(.success()) }
-        guard uid == 0 || job.ownerUID == uid else { return reply(.failure("Profile \(profileID) belongs to another user.")) }
+        let decision: SessionPolicy.StopDecision
+        do {
+            decision = try SessionPolicy.stopDecision(profileID: profileID, uid: uid, sessions: sessions)
+        } catch {
+            return reply(.failure(String(describing: error)))
+        }
+        guard case .terminate = decision, let job = jobs[profileID] else { return reply(.success()) }
         jobs[profileID]?.waiters.append { reply(.success(pid: job.pid)) }
         terminate(job)
     }

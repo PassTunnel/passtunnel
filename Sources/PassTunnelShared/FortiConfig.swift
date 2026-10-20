@@ -2,7 +2,7 @@ import Foundation
 
 /// openfortivpn configuration rendered from typed fields. openfortivpn's format is one `key = value`
 /// per line with no quoting or escaping, so every value is validated to stay on its own line.
-public struct FortiConfig: Equatable {
+public struct FortiConfig: Equatable, CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
     public var host: String
     public var port: Int
     public var username: String
@@ -42,6 +42,18 @@ public struct FortiConfig: Equatable {
         self.trustedCert = trustedCert
         self.setDNS = setDNS
         self.setRoutes = setRoutes
+    }
+
+    public var description: String {
+        "FortiConfig(host: \(host), port: \(port), username: \(username), password: <redacted>, "
+            + "otp: \(otp == nil ? "nil" : "<redacted>"), trustedCert: \(trustedCert), setDNS: \(setDNS), "
+            + "setRoutes: \(setRoutes))"
+    }
+    public var debugDescription: String { description }
+    public var customMirror: Mirror {
+        Mirror(self, children: ["host": host, "port": port, "username": username, "password": "<redacted>",
+                                "otp": otp == nil ? "nil" : "<redacted>", "trustedCert": trustedCert,
+                                "setDNS": setDNS, "setRoutes": setRoutes])
     }
 
     public init(_ start: FortiStart) {

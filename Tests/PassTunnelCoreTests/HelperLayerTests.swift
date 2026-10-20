@@ -235,8 +235,9 @@ final class HelperMessageTests: XCTestCase {
 
     func testWireFormat() throws {
         let json = String(decoding: try HelperRequest.stop(profileID: "acme").jsonData(), as: UTF8.self)
-        XCTAssertEqual(json, #"{"profile_id":"acme","type":"stop"}"#)
-        XCTAssertEqual(String(decoding: try HelperRequest.status.jsonData(), as: UTF8.self), #"{"type":"status"}"#)
+        XCTAssertEqual(json, #"{"profile_id":"acme","protocol_version":2,"type":"stop"}"#)
+        XCTAssertEqual(String(decoding: try HelperRequest.status.jsonData(), as: UTF8.self),
+                       #"{"protocol_version":2,"type":"status"}"#)
         let start = String(decoding: try HelperRequest.startOpenVPN(OpenVPNStart(
             profileID: "a", profileDir: "/d", logPath: "/l")).jsonData(), as: UTF8.self)
         XCTAssertTrue(start.contains(#""type":"start_openvpn""#))

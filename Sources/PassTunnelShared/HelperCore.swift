@@ -114,9 +114,11 @@ public struct HelperCore {
         return String(cString: value)
     }
 
-    /// Slug-like IDs only: they become a path component under the run root.
+    /// Slug-like IDs only (ASCII letters, digits, `-`, `_`, `.`; no leading `.`/`-`, no trailing `.`):
+    /// they become a path component under the run root.
     public static func isValidProfileID(_ id: String) -> Bool {
-        guard (1...64).contains(id.utf8.count), let first = id.unicodeScalars.first, first != ".", first != "-" else {
+        guard (1...64).contains(id.utf8.count), let first = id.unicodeScalars.first, first != ".", first != "-",
+              id.unicodeScalars.last != "." else {
             return false
         }
         return id.unicodeScalars.allSatisfy { c in
@@ -138,7 +140,8 @@ public struct HelperCore {
 
     /// Opens `path` as the profile directory of `profileID` for user `uid`. The resolved path must be
     /// exactly `<profilesRoot>/<profileID>` with no symlinks below the home directory, the directory
-    /// must be owned by `uid` and not world-writable.
+    /// must be owned by `uid` and not group- or world-writable (on macOS the group is usually
+    /// `staff`, i.e. every local user).
     public func openProfileDir(_ path: String, profileID: String, uid: uid_t) throws -> ProfileDirectory {
         guard Self.isValidProfileID(profileID) else { throw Failure.invalidProfileID(profileID) }
         guard path.hasPrefix("/") else { throw Failure.notAbsolute(path) }
@@ -160,7 +163,7 @@ public struct HelperCore {
             close(fd)
             throw Failure.wrongOwner(path: resolved, expected: uid, actual: st.st_uid)
         }
-        guard st.st_mode & S_IWOTH == 0 else { close(fd); throw Failure.insecurePermissions(resolved) }
+        guard st.st_mode & (S_IWGRP | S_IWOTH) == 0 else { close(fd); throw Failure.insecurePermissions(resolved) }
         // Re-check the path of what was actually opened (a component may have been swapped meanwhile).
         guard let opened = Self.path(of: fd), opened == resolved else {
             close(fd)
@@ -389,7 +392,8 @@ public final class ProfileDirectory {
         !name.isEmpty && name != "." && name != ".." && !name.contains("/") && !name.contains("\0")
     }
 
-    /// Reads a regular, single-link file owned by the user. Symlinks are refused.
+    /// Reads a regular, single-link file owned by the user and writable only by them. Symlinks,
+    /// FIFOs and directories are refused.
     public func readFile(_ name: String, maxBytes: Int) throws -> Data {
         guard Self.isPlainName(name) else { throw HelperCore.Failure.notARegularFile(name) }
         let full = path + "/" + name
@@ -404,6 +408,7 @@ public final class ProfileDirectory {
         guard (st.st_mode & S_IFMT) == S_IFREG else { throw HelperCore.Failure.notARegularFile(full) }
         guard st.st_uid == uid else { throw HelperCore.Failure.wrongOwner(path: full, expected: uid, actual: st.st_uid) }
         guard st.st_nlink == 1 else { throw HelperCore.Failure.multipleLinks(full) }
+        guard st.st_mode & (S_IWGRP | S_IWOTH) == 0 else { throw HelperCore.Failure.insecurePermissions(full) }
         guard st.st_size <= maxBytes else { throw HelperCore.Failure.fileTooLarge(full) }
 
         var data = Data()

@@ -3,7 +3,8 @@ import Foundation
 /// Start an OpenVPN profile. `secret` is the password with the OTP already formatted in.
 /// The management interface is the unix socket `<profileDir>/mgmt.sock` (returned in
 /// `HelperResponse.mgmtSocket`); `mgmtPort` is ignored and only kept so protocol-1 payloads decode.
-public struct OpenVPNStart: Codable, Equatable, CustomStringConvertible {
+public struct OpenVPNStart: Codable, Equatable, CustomStringConvertible, CustomDebugStringConvertible,
+                            CustomReflectable {
     public var profileID: String
     public var profileDir: String
     public var mgmtPort: Int?
@@ -30,10 +31,18 @@ public struct OpenVPNStart: Codable, Equatable, CustomStringConvertible {
         "OpenVPNStart(profileID: \(profileID), profileDir: \(profileDir), "
             + "username: \(username ?? "nil"), secret: \(secret == nil ? "nil" : "<redacted>"), logPath: \(logPath))"
     }
+    public var debugDescription: String { description }
+
+    /// Keeps `dump()` and other Mirror-based printing from revealing the secret.
+    public var customMirror: Mirror {
+        Mirror(self, children: ["profileID": profileID, "profileDir": profileDir, "username": username as Any,
+                                "secret": secret == nil ? "nil" : "<redacted>", "logPath": logPath])
+    }
 }
 
 /// Start a FortiGate SSL VPN profile through openfortivpn.
-public struct FortiStart: Codable, Equatable, CustomStringConvertible {
+public struct FortiStart: Codable, Equatable, CustomStringConvertible, CustomDebugStringConvertible,
+                          CustomReflectable {
     public var profileID: String
     public var profileDir: String
     public var host: String
@@ -72,22 +81,31 @@ public struct FortiStart: Codable, Equatable, CustomStringConvertible {
             + "username: \(username), password: <redacted>, otp: \(otp == nil ? "nil" : "<redacted>"), "
             + "trustedCert: \(trustedCert), setDNS: \(setDNS), setRoutes: \(setRoutes), logPath: \(logPath))"
     }
+    public var debugDescription: String { description }
+
+    public var customMirror: Mirror {
+        Mirror(self, children: ["profileID": profileID, "profileDir": profileDir, "host": host, "port": port,
+                                "username": username, "password": "<redacted>",
+                                "otp": otp == nil ? "nil" : "<redacted>", "trustedCert": trustedCert,
+                                "setDNS": setDNS, "setRoutes": setRoutes, "logPath": logPath])
+    }
 }
 
-/// Request sent to the helper. Encoded as a flat JSON object with a `type` discriminator, e.g.
-/// `{"type":"stop","profile_id":"acme"}`. Use `jsonData()` / `init(jsonData:)` so both sides agree
-/// on the encoder settings.
+/// Request sent to the helper. Encoded as a flat JSON object with a `type` discriminator and the
+/// sender's protocol version, e.g. `{"profile_id":"acme","protocol_version":2,"type":"stop"}`.
+/// Use `jsonData()` / `init(jsonData:)` so both sides agree on the encoder settings; the helper
+/// decodes through `HelperCore.decodeRequest`, which also enforces size and version.
 public enum HelperRequest: Codable, Equatable {
     case startOpenVPN(OpenVPNStart)
     case startForti(FortiStart)
     case stop(profileID: String)
     case status
 
-    private enum Kind: String, Codable {
+    enum Kind: String, Codable {
         case startOpenVPN = "start_openvpn", startForti = "start_forti", stop, status
     }
 
-    private enum TypeKey: String, CodingKey { case type }
+    private enum TypeKey: String, CodingKey { case type, protocolVersion = "protocol_version" }
     private enum StopKeys: String, CodingKey { case profileID = "profile_id" }
 
     public init(from decoder: Decoder) throws {
@@ -104,6 +122,7 @@ public enum HelperRequest: Codable, Equatable {
 
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: TypeKey.self)
+        try c.encode(PT.helperProtocolVersion, forKey: .protocolVersion)
         switch self {
         case .startOpenVPN(let s):
             try c.encode(Kind.startOpenVPN, forKey: .type)
