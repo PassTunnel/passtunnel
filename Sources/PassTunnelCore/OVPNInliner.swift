@@ -11,6 +11,9 @@ public enum OVPNInliner {
         "ca", "cert", "key", "dh", "pkcs12", "extra-certs", "tls-auth", "tls-crypt", "tls-crypt-v2",
         "secret", "crl-verify", "http-proxy-user-pass",
     ]
+    /// Credentials that OpenVPN sends to a server named in the config. Only taken from the config's own
+    /// folder, so a hostile config cannot have the user's other files (e.g. `../../.git-credentials`) sent out.
+    static let credentialFiles: Set<String> = ["http-proxy-user-pass"]
     /// Binary files, embedded as base64.
     static let binary: Set<String> = ["pkcs12"]
     /// Directives whose optional second argument is a key direction.
@@ -23,9 +26,10 @@ public enum OVPNInliner {
         var out: [String] = []
         var verbatimTag: String?
 
-        for rawLine in text.components(separatedBy: "\n") {
+        for (index, rawLine) in text.components(separatedBy: "\n").enumerated() {
             var line = rawLine
             if line.hasSuffix("\r") { line.removeLast() }
+            if index == 0, line.hasPrefix("\u{FEFF}") { line.removeFirst() }   // UTF-8 BOM (Windows editors)
 
             if let tag = verbatimTag {
                 out.append(line)
@@ -66,7 +70,7 @@ public enum OVPNInliner {
                 throw PTError.ovpnReferencedFile(path)   // a CRL directory cannot be embedded
             }
 
-            let data = try readReferenced(path, baseDir: baseDir)
+            let data = try readReferenced(path, baseDir: baseDir, insideBaseDir: credentialFiles.contains(name))
             let body: String
             if binary.contains(name) {
                 body = data.base64EncodedString(options: .lineLength64Characters)
@@ -110,13 +114,17 @@ public enum OVPNInliner {
 
     // MARK: files
 
-    static func readReferenced(_ path: String, baseDir: URL) throws -> Data {
+    static func readReferenced(_ path: String, baseDir: URL, insideBaseDir: Bool = false) throws -> Data {
         let url = path.hasPrefix("/")
             ? URL(fileURLWithPath: path)
             : baseDir.appendingPathComponent(path)
         let resolved = url.standardizedFileURL.resolvingSymlinksInPath()
         let p = resolved.path
         guard !(p == "/dev" || p.hasPrefix("/dev/")) else { throw PTError.ovpnReferencedFile(path) }
+        if insideBaseDir {
+            let base = baseDir.standardizedFileURL.resolvingSymlinksInPath().path
+            guard p.hasPrefix(base.hasSuffix("/") ? base : base + "/") else { throw PTError.ovpnReferencedFile(path) }
+        }
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: p) else {
             throw PTError.ovpnReferencedFile(path)
         }
@@ -164,7 +172,9 @@ public enum OVPNInliner {
         return String(t.dropFirst().dropLast())
     }
 
+    /// Same rule as OpenVPN (and `OVPNSanitizer`): leading whitespace of any kind, then the close tag.
     static func isBlockEnd(_ line: String, tag: String) -> Bool {
-        line.drop(while: { $0 == " " || $0 == "\t" }).lowercased().hasPrefix("</\(tag.lowercased())>")
+        line.drop(while: { $0.unicodeScalars.allSatisfy { [0x20, 0x09, 0x0B, 0x0C, 0x0D].contains($0.value) } })
+            .lowercased().hasPrefix("</\(tag.lowercased())>")
     }
 }
