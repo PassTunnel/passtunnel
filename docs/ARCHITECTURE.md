@@ -52,7 +52,14 @@ public enum PT {
 public enum VPNType: String, Codable, CaseIterable { case openvpn, forti }
 public enum PasswordMode: String, Codable, CaseIterable { case keychain, ask, none }   // none = certificate only
 public enum OTPMode: String, Codable, CaseIterable { case none, totp, ask }
-public enum OTPFormat: String, Codable, CaseIterable { case append, scrv1 }            // OpenVPN only
+/// How the one-time code reaches the server.
+/// combined  → one secret built from `otpTemplate` (e.g. "{password}{otp}"); OpenVPN auth file / Forti password field
+/// separate  → code sent on its own: OpenVPN static-challenge (SCRV1:b64(password):b64(code)), Forti `otp =` field
+public enum OTPDelivery: String, Codable, CaseIterable { case combined, separate }
+/// Presets the UI offers; any template containing "{otp}" is valid ("{password}" optional, literal text allowed).
+public enum OTPTemplatePreset: String, CaseIterable {
+    case append = "{password}{otp}", prepend = "{otp}{password}", colon = "{password}:{otp}", comma = "{password},{otp}"
+}
 public enum BadgeStyle: String, Codable, CaseIterable { case letter, icon, both }
 public enum TOTPAlgorithm: String, Codable, CaseIterable { case sha1, sha256, sha512 }
 
@@ -78,8 +85,9 @@ public struct Profile: Codable, Identifiable, Equatable {
     public var sessionLimitMin = 0
     public var autoReconnect = false
     public var healthHost = ""            // "10.0.0.5" (ICMP) or "host:port" (TCP) or "[v6]:port"
+    public var otpDelivery = OTPDelivery.combined   // default: .combined for OpenVPN, .separate for Forti (set in create)
+    public var otpTemplate = "{password}{otp}"      // used when .combined; validated: must contain "{otp}"
     // OpenVPN
-    public var otpFormat = OTPFormat.append
     public var mgmtPort = 0               // assigned on creation: first free from 17505 (env PASSTUNNEL_MGMT_BASE)
     // FortiGate
     public var host = ""
@@ -126,7 +134,13 @@ public enum TOTP {
     public static func decodeSecret(_ s: String) throws -> Data         // base32 (case/space/padding tolerant) or hex
 }
 public struct OTPAuthURI { label, issuer, secret: Data, params: TOTPParams; init(_ uri: String) throws }   // otpauth://totp/...
-public enum OVPNAnalyzer { public static func analyze(_ text: String) -> (passwordMode, otpMode, otpFormat, remote: String) }
+public enum OVPNAnalyzer { public static func analyze(_ text: String) -> (passwordMode, otpMode, otpDelivery, remote: String) }
+// static-challenge in the file → otpMode .ask, otpDelivery .separate; otherwise .combined
+public enum OTPComposer {
+    public static func validate(template: String) throws               // must contain "{otp}"
+    public static func compose(password: String, otp: String?, delivery: OTPDelivery, template: String,
+                               type: VPNType) -> (secret: String, separateOTP: String?)
+}
 public struct ShareFile: Codable              // {"passtunnel_profile":1, "profile":{…minus username,last_username,order,mgmt_port,pinned}, "files":{"config.ovpn": base64}}
 public struct Preferences: Codable { defaultProfile, theme, showLock, notifyOnDrop, sessionWarnMin=30,
     sessionNotifyMin=10, hotkeys=false, autoType=false, launchAtLogin=true, autoUpdate=false }
@@ -175,9 +189,12 @@ Security rules (helper):
 `HelperClient` (Core) wraps the XPC connection with async functions. `ConnectionManager` (Core) owns
 state per profile: OpenVPN state via the management socket (`state` command; first field = since),
 Forti via helper `status` + log (`Tunnel is up and running`, `Got addresses: [...]`). It resolves
-credentials (Keychain / TOTP / caller-supplied for `.ask`), formats the OpenVPN secret
-(`append` → password+code; `scrv1` → `SCRV1:b64(password):b64(code)`), waits for the next TOTP window if
-fewer than 8 s remain, and publishes `ConnectionState` changes:
+credentials (Keychain / TOTP / caller-supplied for `.ask`), builds what is sent with
+`OTPComposer` (Core, pure + unit-tested):
+- `.combined`: `otpTemplate` with `{password}` / `{otp}` substituted (no other placeholders; literal text kept)
+  → OpenVPN auth-file password, or Forti `password` (Forti `otp` then omitted)
+- `.separate`: OpenVPN → `SCRV1:b64(password):b64(code)` (static-challenge), Forti → `password` + `otp` fields
+waits for the next TOTP window if fewer than 8 s remain, and publishes `ConnectionState` changes:
 
 ```swift
 public enum ConnectionState: Equatable { case disconnected, connecting(String), connected(ip: String, since: Date?) }

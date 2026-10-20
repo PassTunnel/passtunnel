@@ -1,0 +1,187 @@
+import Foundation
+
+public enum VPNType: String, Codable, CaseIterable { case openvpn, forti }
+public enum PasswordMode: String, Codable, CaseIterable { case keychain, ask, none }   // none = certificate only
+public enum OTPMode: String, Codable, CaseIterable { case none, totp, ask }
+
+/// How the one-time code reaches the server.
+/// combined → one secret built from `otpTemplate` (e.g. "{password}{otp}")
+/// separate → code sent on its own: OpenVPN static-challenge (SCRV1), Forti `otp =` field
+public enum OTPDelivery: String, Codable, CaseIterable { case combined, separate }
+
+/// Templates the UI offers; any template containing "{otp}" is valid.
+public enum OTPTemplatePreset: String, CaseIterable {
+    case append = "{password}{otp}", prepend = "{otp}{password}", colon = "{password}:{otp}", comma = "{password},{otp}"
+}
+
+public enum BadgeStyle: String, Codable, CaseIterable { case letter, icon, both }
+public enum TOTPAlgorithm: String, Codable, CaseIterable { case sha1, sha256, sha512 }
+public enum CredentialField: String, Codable { case username, password, otp }
+
+public struct TOTPParams: Codable, Equatable {
+    public var digits = 6
+    public var period = 30
+    public var algorithm = TOTPAlgorithm.sha1
+
+    public init(digits: Int = 6, period: Int = 30, algorithm: TOTPAlgorithm = .sha1) {
+        self.digits = digits
+        self.period = period
+        self.algorithm = algorithm
+    }
+
+    enum CodingKeys: String, CodingKey { case digits, period, algorithm }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        digits = c.lenient(Int.self, .digits) ?? 6
+        period = c.lenient(Int.self, .period) ?? 30
+        algorithm = c.lenientEnum(TOTPAlgorithm.self, .algorithm) ?? .sha1
+    }
+}
+
+public struct Profile: Codable, Identifiable, Equatable {
+    public var id: String                 // slug, unique, immutable
+    public var name: String
+    public var type: VPNType
+    public var order = 0
+    // appearance
+    public var badge = ""                 // empty → first letter of name
+    public var icon = ""                  // SF Symbol name
+    public var badgeStyle = BadgeStyle.letter
+    public var pinned = false
+    // authentication
+    public var username = ""              // empty → ask each time (remember lastUsername)
+    public var lastUsername = ""
+    public var passwordMode = PasswordMode.keychain
+    public var otpMode = OTPMode.none
+    public var totp = TOTPParams()
+    // behaviour
+    public var sessionLimitMin = 0
+    public var autoReconnect = false
+    public var healthHost = ""            // "10.0.0.5" (ICMP) or "host:port" (TCP) or "[v6]:port"
+    public var otpDelivery = OTPDelivery.combined
+    public var otpTemplate = OTPTemplatePreset.append.rawValue
+    // OpenVPN
+    public var mgmtPort = 0
+    // FortiGate
+    public var host = ""
+    public var port = 443
+    public var trustedCert = ""
+    public var setDNS = false
+    public var setRoutes = true
+
+    public init(id: String, name: String, type: VPNType) {
+        self.id = id
+        self.name = name
+        self.type = type
+    }
+
+    // MARK: derived
+
+    /// Badge text shown in the menu: `badge`, or the first letter of the name.
+    public var displayBadge: String {
+        let b = badge.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !b.isEmpty { return b }
+        let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = n.first else { return "?" }
+        return String(first).uppercased()
+    }
+
+    /// What must be asked from the user before connecting. Empty for certificate-only profiles.
+    public var needs: [CredentialField] {
+        if passwordMode == .none { return [] }
+        var out: [CredentialField] = []
+        if username.trimmingCharacters(in: .whitespaces).isEmpty { out.append(.username) }
+        if passwordMode == .ask { out.append(.password) }
+        if otpMode == .ask { out.append(.otp) }
+        return out
+    }
+
+    /// True when the profile can connect without asking anything (required for auto-reconnect).
+    public var unattended: Bool { needs.isEmpty }
+
+    // MARK: coding
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, type, order, badge, icon, badgeStyle, pinned
+        case username, lastUsername, passwordMode, otpMode, totp
+        case sessionLimitMin, autoReconnect, healthHost, otpDelivery, otpTemplate
+        case mgmtPort, host, port, trustedCert, setRoutes
+        case setDNS = "setDns"   // matches "set_dns" under the snake_case strategies
+        case otpFormat           // legacy, read only
+    }
+
+    /// Keys left out of share files.
+    static let shareExcludedKeys: Set<CodingKeys> = [.username, .lastUsername, .order, .mgmtPort, .pinned]
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = c.lenient(String.self, .id) ?? ""
+        name = c.lenient(String.self, .name) ?? ""
+        type = c.lenientEnum(VPNType.self, .type) ?? .openvpn
+        order = c.lenient(Int.self, .order) ?? 0
+        badge = c.lenient(String.self, .badge) ?? ""
+        icon = c.lenient(String.self, .icon) ?? ""
+        badgeStyle = c.lenientEnum(BadgeStyle.self, .badgeStyle) ?? .letter
+        pinned = c.lenient(Bool.self, .pinned) ?? false
+        username = c.lenient(String.self, .username) ?? ""
+        lastUsername = c.lenient(String.self, .lastUsername) ?? ""
+        passwordMode = c.lenientEnum(PasswordMode.self, .passwordMode) ?? .keychain
+        otpMode = c.lenientEnum(OTPMode.self, .otpMode) ?? .none
+        totp = c.lenient(TOTPParams.self, .totp) ?? TOTPParams()
+        sessionLimitMin = c.lenient(Int.self, .sessionLimitMin) ?? 0
+        autoReconnect = c.lenient(Bool.self, .autoReconnect) ?? false
+        healthHost = c.lenient(String.self, .healthHost) ?? ""
+        mgmtPort = c.lenient(Int.self, .mgmtPort) ?? 0
+        host = c.lenient(String.self, .host) ?? ""
+        port = c.lenient(Int.self, .port) ?? 443
+        trustedCert = c.lenient(String.self, .trustedCert) ?? ""
+        setDNS = c.lenient(Bool.self, .setDNS) ?? false
+        setRoutes = c.lenient(Bool.self, .setRoutes) ?? true
+
+        let template = c.lenient(String.self, .otpTemplate)
+        otpTemplate = (template?.isEmpty == false) ? template! : OTPTemplatePreset.append.rawValue
+        if let delivery = c.lenientEnum(OTPDelivery.self, .otpDelivery) {
+            otpDelivery = delivery
+        } else if let legacy = c.lenient(String.self, .otpFormat) {
+            // Files written before otp_delivery existed: scrv1 → separate, append → combined.
+            otpDelivery = legacy.lowercased() == "scrv1" ? .separate : .combined
+        } else {
+            otpDelivery = type == .forti ? .separate : .combined
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        let forShare = encoder.userInfo[.passTunnelShareExport] as? Bool == true
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        func put<T: Encodable>(_ value: T, _ key: CodingKeys) throws {
+            if forShare && Profile.shareExcludedKeys.contains(key) { return }
+            try c.encode(value, forKey: key)
+        }
+        try put(id, .id); try put(name, .name); try put(type, .type); try put(order, .order)
+        try put(badge, .badge); try put(icon, .icon); try put(badgeStyle, .badgeStyle); try put(pinned, .pinned)
+        try put(username, .username); try put(lastUsername, .lastUsername)
+        try put(passwordMode, .passwordMode); try put(otpMode, .otpMode); try put(totp, .totp)
+        try put(sessionLimitMin, .sessionLimitMin); try put(autoReconnect, .autoReconnect)
+        try put(healthHost, .healthHost); try put(otpDelivery, .otpDelivery); try put(otpTemplate, .otpTemplate)
+        try put(mgmtPort, .mgmtPort); try put(host, .host); try put(port, .port)
+        try put(trustedCert, .trustedCert); try put(setDNS, .setDNS); try put(setRoutes, .setRoutes)
+    }
+}
+
+extension CodingUserInfoKey {
+    /// When true, `Profile.encode` omits per-user fields (share-file export).
+    static let passTunnelShareExport = CodingUserInfoKey(rawValue: "passtunnel.shareExport")!
+}
+
+extension KeyedDecodingContainer {
+    /// Missing key, null or wrong type → nil instead of an error.
+    func lenient<T: Decodable>(_ type: T.Type, _ key: Key) -> T? {
+        (try? decodeIfPresent(type, forKey: key)) ?? nil
+    }
+
+    /// Unknown raw values (e.g. written by a newer version) → nil.
+    func lenientEnum<T: RawRepresentable>(_ type: T.Type, _ key: Key) -> T? where T.RawValue == String {
+        lenient(String.self, key).flatMap { T(rawValue: $0) }
+    }
+}
