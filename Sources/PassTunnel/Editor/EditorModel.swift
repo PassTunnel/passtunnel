@@ -23,6 +23,8 @@ final class EditorModel: ObservableObject {
     let palette: BadgePalette
 
     @Published var draft: Profile
+    /// The stored profile when the sheet opened; Save applies only the differences to it.
+    private let original: Profile?
     @Published var attemptedSave = false
     @Published var saveErrors: [Field: String] = [:]
 
@@ -77,6 +79,7 @@ final class EditorModel: ObservableObject {
             storedTOTPSecret = nil
         }
         draft = initial
+        original = isNew ? nil : initial
         customTemplate = !Self.isPreset(initial.otpTemplate)
         if isNew, let id = profileID { saveErrors[.general] = PTError.profileNotFound(id).localizedDescription }
         if !isNew { loadExistingConfig() }
@@ -95,6 +98,7 @@ final class EditorModel: ObservableObject {
         self.palette = .pastel
         self.isNew = isNew
         self.draft = profile
+        self.original = isNew ? nil : profile
         self.passwordStored = passwordStored
         self.storedTOTPSecret = storedTOTP
         self.configRemote = configRemote
@@ -148,8 +152,10 @@ final class EditorModel: ObservableObject {
     var usesCredentials: Bool { draft.passwordMode != .none }
 
     /// The profile as it would be saved (used for `unattended`).
-    var normalized: Profile {
-        var p = draft
+    var normalized: Profile { Self.normalize(draft) }
+
+    static func normalize(_ profile: Profile) -> Profile {
+        var p = profile
         p.name = p.name.trimmingCharacters(in: .whitespacesAndNewlines)
         p.username = p.username.trimmingCharacters(in: .whitespacesAndNewlines)
         p.badge = p.badge.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -471,12 +477,13 @@ final class EditorModel: ObservableObject {
                     throw error
                 }
             } else {
-                if let current = try? store.get(p.id) {
-                    // Changed elsewhere while the sheet was open (reordering, connecting).
-                    p.order = current.order
-                    p.lastUsername = current.lastUsername
+                // Only what was changed in the sheet: the CLI, reordering or a connect may have changed
+                // other fields while it was open.
+                let base = Self.normalize(original ?? p)
+                let edited = p
+                p = try store.update(p.id) { current in
+                    current = try ProfileMerge.merge(original: base, edited: edited, current: current)
                 }
-                try store.save(p)
                 if let url = configURL { try store.setOVPN(p.id, from: url) }
                 try writeSecrets(p)
             }

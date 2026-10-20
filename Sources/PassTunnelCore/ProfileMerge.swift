@@ -1,0 +1,66 @@
+import Foundation
+
+/// Three-way merge of profile edits: only the fields that differ between the copy an editor started
+/// from (`original`) and what it holds now (`edited`) are applied to the stored profile (`current`),
+/// so changes made elsewhere meanwhile (CLI, reordering, connecting) survive a Save. Nested objects
+/// such as `totp` merge field by field. Works on the encoded form, so new fields are covered too.
+public enum ProfileMerge {
+    /// Encoded keys (dotted for nested ones, e.g. `totp.digits`) that differ between the two.
+    public static func changedFields(from original: Profile, to edited: Profile) throws -> [String] {
+        var out: [String] = []
+        collectChanges(try object(original), try object(edited), prefix: "", into: &out)
+        return out.sorted()
+    }
+
+    /// `current` with every field changed from `original` to `edited` set to the edited value.
+    /// The ID is always the current one.
+    public static func merge(original: Profile, edited: Profile, current: Profile) throws -> Profile {
+        let merged = mergeObjects(try object(original), try object(edited), try object(current))
+        let data = try JSONSerialization.data(withJSONObject: merged)
+        var p = try JSONCoding.decode(Profile.self, from: data, name: "profile.json")
+        p.id = current.id
+        return p
+    }
+
+    static func object(_ p: Profile) throws -> [String: Any] {
+        let data = try JSONCoding.encode(p)
+        guard let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw PTError.invalidFile("profile.json")
+        }
+        return dict
+    }
+
+    private static func mergeObjects(_ original: [String: Any], _ edited: [String: Any],
+                                     _ current: [String: Any]) -> [String: Any] {
+        var out = current
+        for key in Set(original.keys).union(edited.keys) {
+            let o = original[key], e = edited[key]
+            if let od = o as? [String: Any], let ed = e as? [String: Any], let cd = current[key] as? [String: Any] {
+                out[key] = mergeObjects(od, ed, cd)
+            } else if !same(o, e) {
+                out[key] = e          // nil removes the key (an optional field cleared in the editor)
+            }
+        }
+        return out
+    }
+
+    private static func collectChanges(_ original: [String: Any], _ edited: [String: Any], prefix: String,
+                                       into out: inout [String]) {
+        for key in Set(original.keys).union(edited.keys) {
+            let o = original[key], e = edited[key]
+            if let od = o as? [String: Any], let ed = e as? [String: Any] {
+                collectChanges(od, ed, prefix: prefix + key + ".", into: &out)
+            } else if !same(o, e) {
+                out.append(prefix + key)
+            }
+        }
+    }
+
+    private static func same(_ a: Any?, _ b: Any?) -> Bool {
+        switch (a, b) {
+        case (nil, nil): return true
+        case let (a?, b?): return (a as AnyObject).isEqual(b)
+        default: return false
+        }
+    }
+}

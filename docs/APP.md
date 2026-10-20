@@ -86,6 +86,10 @@ Sections (only relevant rows visible — hide, don't disable):
      shows an example with fake values `secret` / `123456` → e.g. `secret123456`).
    Secrets are written to the Keychain only on Save; fields show "Saved in Keychain ✓".
 
+Save of an existing profile writes only the fields changed in the sheet (`ProfileMerge`: diff against the
+profile as it was when the sheet opened, applied with `ProfileStore.update`), so changes made meanwhile by
+the CLI, reordering or a connect are kept.
+
 ## Auto-type (optional, off by default)
 
 Preferences → "Type the code for me": a global hotkey (default ⌃⌥C) types the current code of the

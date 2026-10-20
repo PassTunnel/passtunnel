@@ -121,6 +121,7 @@ public struct ProfileStore {                       // all methods throw PTError 
     public func create(name: String, type: VPNType) throws -> Profile   // slug id (Turkish chars folded), unique (no mgmtPort any more)
     public func save(_ p: Profile) throws
     public func update(_ id: String, _ change: (inout Profile) throws -> Void) throws -> Profile   // re-read, change, save (locked)
+    // ProfileMerge.merge(original:edited:current:) → current + the fields edited changed vs original (editor Save)
     public func delete(_ id: String) throws        // also deletes keychain items and the dir
     public var defaultID: String? { get }; public func setDefault(_ id: String?) throws
     public func dir(_ id: String) -> URL
