@@ -197,6 +197,46 @@
         }
       }
     },
+    "Needs an update" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Güncelleme gerekiyor"
+          }
+        }
+      }
+    },
+    "The PassTunnel helper belongs to another version of PassTunnel (version %lld, expected %lld). Update it in Settings → Helper." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel yardımcısı başka bir PassTunnel sürümüne ait (sürüm %1$lld, beklenen %2$lld). Ayarlar → Yardımcı bölümünden güncelleyin."
+          }
+        }
+      }
+    },
+    "This helper belongs to another version of PassTunnel. Update it to connect; active connections stop." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu yardımcı PassTunnel’ın başka bir sürümüne ait. Bağlanmak için güncelleyin; etkin bağlantılar kesilir."
+          }
+        }
+      }
+    },
+    "Update Helper" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcıyı Güncelle"
+          }
+        }
+      }
+    },
     "[y/N]" : {
       "comment" : "Yes/no choices after a question; the capital letter is the default (no)",
       "localizations" : {
@@ -4428,16 +4468,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "PassTunnel yardımcısı yüklü değil. Uygulamanın kurulum ekranından yükleyin."
-          }
-        }
-      }
-    },
-    "The PassTunnel helper is out of date (version %lld, expected %lld). Reinstall it." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "PassTunnel yardımcısı güncel değil (sürüm %1$lld, beklenen %2$lld). Yeniden yükleyin."
           }
         }
       }

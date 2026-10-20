@@ -77,12 +77,17 @@ final class LoopingManagementServer: @unchecked Sendable {
 }
 
 /// Stands in for the privileged helper: tracks "running" profiles and, for OpenVPN, serves a
-/// management socket in the profile directory.
+/// management socket (in the temp profile directory; the manager only learns the path from the
+/// start and status replies, as with the real helper).
 final class FakeHelper: HelperClienting, @unchecked Sendable {
     private let lock = NSLock()
     private var _requests: [HelperRequest] = []
     private var _running: [String: Int32] = [:]
     private var servers: [String: LoopingManagementServer] = [:]
+    private var sockets: [String: String] = [:]
+
+    /// Protocol version the fake helper reports; anything else than ours fails `ensureCompatible`.
+    var protocolVersion = PT.helperProtocolVersion
 
     /// Start requests fail with this message while > 0 (decremented per start).
     var failStarts = 0
@@ -114,15 +119,22 @@ final class FakeHelper: HelperClienting, @unchecked Sendable {
         requests.compactMap { if case .stop(let id) = $0 { return id }; return nil }
     }
 
+    func ensureCompatible() async throws {
+        let v = locked { protocolVersion }
+        guard v == PT.helperProtocolVersion else {
+            throw HelperClientError.versionMismatch(helper: v, app: PT.helperProtocolVersion)
+        }
+    }
+
     func perform(_ request: HelperRequest, timeout: TimeInterval?) async throws -> HelperResponse {
         locked { _requests.append(request) }
         switch request {
         case .status:
-            let (snapshot, delay) = locked { () -> ([String: Int32], TimeInterval) in
-                (_running, _statusDelayPop())
+            let (snapshot, socks, delay) = locked { () -> ([String: Int32], [String: String], TimeInterval) in
+                (_running, sockets, _statusDelayPop())
             }
             if delay > 0 { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
-            return .success(running: snapshot)
+            return .success(running: snapshot, mgmtSockets: socks)
         case .startOpenVPN(let s):
             onStart?(request)
             if let failure = takeFailure() { return failure }
@@ -132,7 +144,7 @@ final class FakeHelper: HelperClienting, @unchecked Sendable {
                 let server = LoopingManagementServer(path: sock, stateLine: line(Date()))
                 locked { servers[s.profileID] = server }
             }
-            locked { _running[s.profileID] = 4242 }
+            locked { _running[s.profileID] = 4242; sockets[s.profileID] = sock }
             return .success(pid: 4242, mgmtSocket: sock)
         case .startForti(let s):
             if let failure = takeFailure() { return failure }
@@ -165,6 +177,7 @@ final class FakeHelper: HelperClienting, @unchecked Sendable {
     func simulateExit(_ id: String) {
         let server = locked { () -> LoopingManagementServer? in
             _running[id] = nil
+            sockets[id] = nil
             return servers.removeValue(forKey: id)
         }
         server?.stop()
@@ -172,10 +185,11 @@ final class FakeHelper: HelperClienting, @unchecked Sendable {
 
     /// Another process (e.g. the CLI) started the profile.
     func simulateExternalStart(_ id: String, profileDir: String, since: Date) {
-        let server = LoopingManagementServer(path: profileDir + "/" + PT.mgmtSocketName,
-                                             stateLine: LoopingManagementServer.connectedLine(since: since))
+        let sock = profileDir + "/" + PT.mgmtSocketName
+        let server = LoopingManagementServer(path: sock, stateLine: LoopingManagementServer.connectedLine(since: since))
         locked {
             servers[id] = server
+            sockets[id] = sock
             _running[id] = 5151
         }
     }
@@ -631,6 +645,37 @@ final class ConnectionManagerTests: XCTestCase {
         helper.simulateExit(p.id)
         await m.refresh()
         XCTAssertEqual(events, [.dropped(profileID: p.id, willReconnect: false)])
+    }
+
+    /// After an app restart or a CLI connect the socket is found through the helper's status reply,
+    /// wherever the helper put it (the profile directory is not involved).
+    func testSocketPathComesFromHelperStatus() async throws {
+        let p = try makeOpenVPN()
+        let elsewhere = home + "/run-" + p.id
+        try FileManager.default.createDirectory(atPath: elsewhere, withIntermediateDirectories: true)
+        let m = makeManager()
+        helper.simulateExternalStart(p.id, profileDir: elsewhere, since: t0)
+        await m.refresh()
+        XCTAssertTrue(m.state(p.id).isConnected, "\(m.state(p.id))")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: store.dir(p.id).appendingPathComponent(PT.mgmtSocketName).path))
+    }
+
+    func testOutdatedHelperFailsBeforeAnyStart() async throws {
+        let p = try makeOpenVPN()
+        helper.protocolVersion = 2
+        let m = makeManager()
+        do {
+            try await m.connect(p.id)
+            XCTFail("connected through an outdated helper")
+        } catch {
+            XCTAssertEqual(error as? HelperClientError, .versionMismatch(helper: 2, app: PT.helperProtocolVersion))
+        }
+        XCTAssertTrue(helper.starts.isEmpty)
+        XCTAssertEqual(m.state(p.id), .disconnected)
+        XCTAssertNotNil(m.lastError[p.id])
+        helper.protocolVersion = PT.helperProtocolVersion
+        try await m.connect(p.id)
+        XCTAssertTrue(m.state(p.id).isConnected)
     }
 
     // MARK: health
