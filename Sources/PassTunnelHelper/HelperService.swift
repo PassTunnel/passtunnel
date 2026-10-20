@@ -1,0 +1,48 @@
+import Foundation
+import os
+import PassTunnelShared
+
+/// Exported XPC object; one per connection.
+final class HelperService: NSObject, PassTunnelHelperProtocol {
+    private let supervisor: Supervisor
+    private let callerUID: uid_t
+
+    init(supervisor: Supervisor, callerUID: uid_t) {
+        self.supervisor = supervisor
+        self.callerUID = callerUID
+    }
+
+    func version(reply: @escaping (Int) -> Void) {
+        reply(PT.helperProtocolVersion)
+    }
+
+    func perform(_ request: Data, reply: @escaping (Data) -> Void) {
+        let uid = NSXPCConnection.current()?.effectiveUserIdentifier ?? callerUID
+        let send: (HelperResponse) -> Void = { response in
+            reply((try? response.jsonData()) ?? Data(#"{"ok":false,"error":"encoding failed"}"#.utf8))
+        }
+        guard request.count <= 1 << 16, let decoded = try? HelperRequest(jsonData: request) else {
+            return send(.failure("Invalid request."))
+        }
+        supervisor.handle(decoded, uid: uid, reply: send)
+    }
+}
+
+final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
+    private let supervisor: Supervisor
+    private let log = Logger(subsystem: PT.helperLabel, category: "xpc")
+
+    init(supervisor: Supervisor) {
+        self.supervisor = supervisor
+    }
+
+    func listener(_ listener: NSXPCListener, shouldAcceptNewConnection connection: NSXPCConnection) -> Bool {
+        // Messages from clients that do not satisfy the requirement invalidate the connection.
+        connection.setCodeSigningRequirement(PT.clientRequirement)
+        connection.exportedInterface = NSXPCInterface(with: PassTunnelHelperProtocol.self)
+        connection.exportedObject = HelperService(supervisor: supervisor, callerUID: connection.effectiveUserIdentifier)
+        connection.resume()
+        log.info("connection from pid \(connection.processIdentifier), uid \(connection.effectiveUserIdentifier)")
+        return true
+    }
+}

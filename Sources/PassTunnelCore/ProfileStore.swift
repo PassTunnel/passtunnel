@@ -119,20 +119,19 @@ public struct ProfileStore {
     public func logURL(_ id: String) -> URL { dir(id).appendingPathComponent(Self.logFile) }
     func profileURL(_ id: String) -> URL { dir(id).appendingPathComponent(Self.profileFile) }
 
-    /// Copies an .ovpn file into the profile (0600).
+    /// Replaces the profile's config (0600) with a self-contained copy of `url`: referenced files
+    /// (ca, cert, key, tls-auth, …) are inlined and the result must pass `OVPNSanitizer`.
     public func setOVPN(_ id: String, from url: URL) throws {
         let p = try get(id)
         guard p.type == .openvpn else { throw PTError.wrongProfileType(id) }
-        let data = try FileIO.read(url, maxSize: Self.maxOVPNSize)
-        try FileIO.writeAtomically(data, to: ovpnURL(id), mode: 0o600)
+        let text = try preparedOVPN(url)
+        try FileIO.writeAtomically(Data(text.utf8), to: ovpnURL(id), mode: 0o600)
     }
 
-    /// Creates an OpenVPN profile from an .ovpn file. Name defaults to the file name.
+    /// Creates an OpenVPN profile from an .ovpn file (made self-contained and checked as in `setOVPN`;
+    /// nothing is created if that fails). Name defaults to the file name.
     public func importOVPN(_ url: URL, name: String?) throws -> Profile {
-        let data = try FileIO.read(url, maxSize: Self.maxOVPNSize)
-        guard let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else {
-            throw PTError.invalidFile(url.lastPathComponent)
-        }
+        let text = try preparedOVPN(url)
         let a = OVPNAnalyzer.analyze(text)
         let fallback = url.deletingPathExtension().lastPathComponent
         var p = try create(name: Self.pick(name, fallback), type: .openvpn)
@@ -140,7 +139,7 @@ public struct ProfileStore {
             p.passwordMode = a.passwordMode
             p.otpMode = a.otpMode
             p.otpDelivery = a.otpDelivery
-            try FileIO.writeAtomically(data, to: ovpnURL(p.id), mode: 0o600)
+            try FileIO.writeAtomically(Data(text.utf8), to: ovpnURL(p.id), mode: 0o600)
             try save(p)
         } catch {
             try? delete(p.id)
@@ -164,6 +163,13 @@ public struct ProfileStore {
     public func importShare(_ url: URL, name: String?) throws -> Profile {
         let share = try ShareFile.read(from: url)
         let src = share.profile
+        var sharedOVPN: Data?
+        if src.type == .openvpn, let ovpn = share.files[Self.ovpnFile] {
+            guard ovpn.count <= Self.maxOVPNSize else { throw PTError.fileTooLarge(Self.ovpnFile) }
+            guard let text = String(data: ovpn, encoding: .utf8) else { throw PTError.invalidFile(Self.ovpnFile) }
+            try OVPNInliner.check(text)   // share files are already self-contained
+            sharedOVPN = ovpn
+        }
         var p = try create(name: Self.pick(name, src.name.isEmpty ? url.deletingPathExtension().lastPathComponent : src.name),
                            type: src.type)
         do {
@@ -183,8 +189,7 @@ public struct ProfileStore {
             p.trustedCert = src.trustedCert
             p.setDNS = src.setDNS
             p.setRoutes = src.setRoutes
-            if p.type == .openvpn, let ovpn = share.files[Self.ovpnFile] {
-                guard ovpn.count <= Self.maxOVPNSize else { throw PTError.fileTooLarge(Self.ovpnFile) }
+            if let ovpn = sharedOVPN {
                 try FileIO.writeAtomically(ovpn, to: ovpnURL(p.id), mode: 0o600)
             }
             try save(p)
@@ -196,6 +201,11 @@ public struct ProfileStore {
     }
 
     // MARK: helpers
+
+    private func preparedOVPN(_ url: URL) throws -> String {
+        let text = try FileIO.readText(url, maxSize: Self.maxOVPNSize)
+        return try OVPNInliner.prepare(text, baseDir: url.deletingLastPathComponent())
+    }
 
     private func load(_ id: String) throws -> Profile {
         var p = try JSONCoding.read(Profile.self, from: profileURL(id))

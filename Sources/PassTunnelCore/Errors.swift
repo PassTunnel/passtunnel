@@ -18,6 +18,8 @@ public enum PTError: Error, Equatable, LocalizedError {
     case invalidTemplate(String)           // reason
     case unsupportedShareFile
     case noFreePort
+    case ovpnReferencedFile(String)        // path that is missing, unreadable or not embeddable
+    case ovpnNotAllowed([String])          // sanitizer violations, e.g. "line 3: up (not allowed)"
 
     public var errorDescription: String? {
         switch self {
@@ -52,6 +54,11 @@ public enum PTError: Error, Equatable, LocalizedError {
             return String(localized: "This is not a PassTunnel profile file, or it was made by a newer version.")
         case .noFreePort:
             return String(localized: "No free management port is left for a new OpenVPN profile.")
+        case .ovpnReferencedFile(let path):
+            return String(localized: "The OpenVPN configuration refers to “\(path)”, which is missing or cannot be embedded. Keep the referenced files next to the .ovpn file.")
+        case .ovpnNotAllowed(let violations):
+            let list = violations.joined(separator: "\n")
+            return String(localized: "The OpenVPN configuration contains settings PassTunnel does not allow for security reasons:\n\(list)")
         }
     }
 }

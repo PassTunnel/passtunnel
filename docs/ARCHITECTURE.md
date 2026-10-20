@@ -31,7 +31,7 @@ public enum PT {
     public static let helperPlistName = "com.furkanprlk.passtunnel.helper.plist"
     public static let teamID = "YH4NUPFH74"
     public static let keychainService = "PassTunnel"
-    public static let helperProtocolVersion = 1
+    public static let helperProtocolVersion = 2   // 2: OpenVPN management via unix socket
 }
 ```
 
@@ -39,7 +39,8 @@ public enum PT {
 
 - Support dir: `~/Library/Application Support/PassTunnel/` — override with env `PASSTUNNEL_HOME` (tests).
   - `config.json` – preferences (`Preferences`), incl. `defaultProfile`
-  - `profiles/<id>/profile.json`, `profiles/<id>/config.ovpn`, `profiles/<id>/vpn.log`
+  - `profiles/<id>/profile.json`, `profiles/<id>/config.ovpn`, `profiles/<id>/vpn.log`,
+    `profiles/<id>/mgmt.sock` (OpenVPN management socket, exists only while connected)
 - Keychain: generic password, service `PT.keychainService` (env `PASSTUNNEL_KEYCHAIN_SERVICE` overrides
   for tests), account `"<profileID>/password"` and `"<profileID>/totp"`. Use the Security framework
   (`SecItemAdd/CopyMatching/Update/Delete`), never the `security` CLI. App and CLI are the same binary,
@@ -88,7 +89,7 @@ public struct Profile: Codable, Identifiable, Equatable {
     public var otpDelivery = OTPDelivery.combined   // default: .combined for OpenVPN, .separate for Forti (set in create)
     public var otpTemplate = "{password}{otp}"      // used when .combined; validated: must contain "{otp}"
     // OpenVPN
-    public var mgmtPort = 0               // assigned on creation: first free from 17505 (env PASSTUNNEL_MGMT_BASE)
+    public var mgmtPort = 0               // legacy, unused: kept only so older profile.json files decode
     // FortiGate
     public var host = ""
     public var port = 443
@@ -111,7 +112,7 @@ public struct ProfileStore {                       // all methods throw PTError 
     public init(paths: AppPaths = .default)
     public func list() -> [Profile]                // sorted by (order, name)
     public func get(_ id: String) throws -> Profile
-    public func create(name: String, type: VPNType) throws -> Profile   // slug id (Turkish chars folded), unique, mgmtPort
+    public func create(name: String, type: VPNType) throws -> Profile   // slug id (Turkish chars folded), unique (no mgmtPort any more)
     public func save(_ p: Profile) throws
     public func delete(_ id: String) throws        // also deletes keychain items and the dir
     public var defaultID: String? { get }; public func setDefault(_ id: String?) throws
@@ -162,12 +163,14 @@ stays tiny and versionable:
     func perform(_ request: Data, reply: @escaping (Data) -> Void)    // HelperRequest → HelperResponse
 }
 public enum HelperRequest: Codable {
-    case startOpenVPN(OpenVPNStart)        // profileID, profileDir, mgmtPort, username?, secret? (password+otp already formatted), logPath
+    case startOpenVPN(OpenVPNStart)        // profileID, profileDir, username?, secret? (password+otp already formatted), logPath
+                                           // (mgmtPort: Int? still decodes for protocol 1 payloads but is ignored)
     case startForti(FortiStart)            // profileID, profileDir, host, port, username, password, otp?, trustedCert, setDNS, setRoutes, logPath
     case stop(profileID: String)
     case status                            // → running profile IDs with pid
 }
-public struct HelperResponse: Codable { ok: Bool; error: String?; pid: Int32?; running: [String: Int32]? }
+public struct HelperResponse: Codable { ok: Bool; error: String?; pid: Int32?; running: [String: Int32]?
+                                         mgmtSocket: String? }   // startOpenVPN → "<profileDir>/mgmt.sock"
 ```
 
 Security rules (helper):
@@ -179,15 +182,25 @@ Security rules (helper):
   `route-up`, `route-pre-down`, `ipchange`, `learn-address`, `client-connect`, `client-disconnect`,
   `tls-verify`, `auth-user-pass-verify`, `plugin`, `script-security` > 1, `management*`, `log*`, `daemon`,
   `writepid`, `cd`, `chroot`, `user`/`group`, `config`; strips `static-challenge`), writes the sanitized copy and the auth file
-  into a root-only temp dir, then runs openvpn with fixed flags (management on 127.0.0.1:mgmtPort,
-  `--auth-nocache`, `--remap-usr1 SIGTERM`, `--connect-retry-max 3`, log to logPath).
+  into a root-only temp dir, then runs openvpn with fixed flags (`--management <profileDir>/mgmt.sock unix`
+  `--management-client-user <caller's user name>` so only the calling user can talk to it, no
+  `--management-hold`; `--auth-nocache`, `--remap-usr1 SIGTERM`, `--connect-retry-max 3`, stdout/stderr to
+  logPath). A stale `mgmt.sock` is removed through the profile-dir descriptor before launch (refused if it is
+  a symlink or not a socket); once OpenVPN creates it the helper chowns it to the user with mode 0600, and
+  removes it when the process exits. The socket path must fit in `sun_path` (103 bytes), which limits the
+  length of profile IDs.
 - Forti: the helper writes the openfortivpn config itself from the typed fields (no user-supplied raw config;
   no pppd options). OTP is passed in the config (`otp = …`), so no pinentry is needed.
 - Tracks the pid it started per profile; `stop` only signals that pid (SIGTERM, then SIGKILL after 5 s).
   Several Forti/OpenVPN profiles may run at once.
 
-`HelperClient` (Core) wraps the XPC connection with async functions. `ConnectionManager` (Core) owns
-state per profile: OpenVPN state via the management socket (`state` command; first field = since),
+`HelperClient` (Core) wraps the XPC connection with async functions. `ManagementSocket` (Core) is a
+one-shot client for the OpenVPN management socket: `ManagementSocket(path:).command(_:timeout:)` connects,
+reads the banner, sends one command and reads until `END` / `SUCCESS:` / `ERROR:` (retrying briefly while
+the socket is not there yet or another client is connected); `state()` returns
+`ManagementState(name, localIP, since, …)`. `ConnectionManager` (Core) owns state per profile: OpenVPN
+state via `ManagementSocket` on `HelperResponse.mgmtSocket` (`state` command; first field = since;
+disconnect = helper `stop`),
 Forti via helper `status` + log (`Tunnel is up and running`, `Got addresses: [...]`). It resolves
 credentials (Keychain / TOTP / caller-supplied for `.ask`), builds what is sent with
 `OTPComposer` (Core, pure + unit-tested):
@@ -205,6 +218,7 @@ public enum ConnectionState: Equatable { case disconnected, connecting(String), 
 - English identifiers, English comments (sparse). User-facing strings via `String(localized:)` with
   Turkish translations in `Localizable.xcstrings`.
 - No company/customer names, no real hostnames — examples use `Acme`, `vpn.example.com`.
-- Tests never touch the real Keychain service, real support dir or a real management port: they set
-  `PASSTUNNEL_HOME`, `PASSTUNNEL_KEYCHAIN_SERVICE`, `PASSTUNNEL_MGMT_BASE` (27505).
+- Tests never touch the real Keychain service or real support dir: they set `PASSTUNNEL_HOME` and
+  `PASSTUNNEL_KEYCHAIN_SERVICE`. Management-socket tests run their own fake server on a socket in a
+  temp dir.
 - Swift language mode 5 (tools 5.10), macOS 13 APIs, no third-party dependencies except Sparkle (updates).
