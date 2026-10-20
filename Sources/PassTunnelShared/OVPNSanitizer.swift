@@ -39,6 +39,9 @@ public enum OVPNSanitizer {
         "status", "replay-persist", "tmp-dir", "tls-export-cert", "dev-node",
         "client-config-dir", "ifconfig-pool-persist",
         "engine", "providers", "pkcs11-providers", "capath",
+        "show-pkcs11-ids",      // loads the given PKCS#11 provider library
+        "genkey",               // writes a key file (truncating it) at the given path
+        "port-share",           // server only; writes journal files into a directory
     ]
 
     /// Prefix families: `management*`, `log*`.
@@ -51,7 +54,7 @@ public enum OVPNSanitizer {
     /// would otherwise read arbitrary paths as root.
     public static let fileDirectives: Set<String> = [
         "ca", "cert", "key", "dh", "pkcs12", "extra-certs", "tls-auth", "tls-crypt", "tls-crypt-v2",
-        "secret", "crl-verify", "auth-user-pass", "http-proxy-user-pass", "askpass",
+        "secret", "crl-verify", "auth-user-pass", "http-proxy-user-pass", "askpass", "auth-gen-token-secret",
     ]
 
     /// `setenv` names that are client metadata only. Anything else could steer the shell that runs
@@ -190,6 +193,10 @@ public enum OVPNSanitizer {
         if fileDirectives.contains(name), let file = args.first, !isInlineMarker(file) {
             if name == "dh", file.lowercased() == "none" { return nil }
             return "references an external file; embed it inline as <\(name)>…</\(name)>"
+        }
+        if name == "socks-proxy", args.count >= 3 {
+            // `socks-proxy host port authfile`: the file's first two lines go to the proxy.
+            return "references an external credentials file"
         }
         if name == "http-proxy", args.count >= 3 {
             let auth = args[2].lowercased()

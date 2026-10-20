@@ -185,7 +185,8 @@ Security rules (helper):
 - OpenVPN: reads `config.ovpn` from profileDir, runs it through `OVPNSanitizer` (rejects `up`, `down`,
   `route-up`, `route-pre-down`, `ipchange`, `learn-address`, `client-connect`, `client-disconnect`,
   `tls-verify`, `auth-user-pass-verify`, `plugin`, `script-security` > 1, `management*`, `log*`, `daemon`,
-  `writepid`, `cd`, `chroot`, `user`/`group`, `config`; strips `static-challenge`), writes the sanitized copy and the auth file
+  `writepid`, `cd`, `chroot`, `user`/`group`, `config`, `show-pkcs11-ids`, `genkey`, `port-share`,
+  external files incl. a `socks-proxy` credentials file; strips `static-challenge`), writes the sanitized copy and the auth file
   into a root-only temp dir, then runs openvpn with fixed flags (`--management <profileDir>/mgmt.sock unix`
   `--management-client-user <caller's user name>` so only the calling user can talk to it, no
   `--management-hold`; `--auth-nocache`, `--remap-usr1 SIGTERM`, `--connect-retry-max 3`, stdout/stderr to
