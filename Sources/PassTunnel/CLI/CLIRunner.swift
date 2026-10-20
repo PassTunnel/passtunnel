@@ -181,13 +181,19 @@ final class CLIRunner {
             CLITerminal.out(String(localized: "\(p.name) is already connected."))
             return Exit.ok
         }
+        if manager.state(p.id).isConnecting {
+            // Started elsewhere (the app, another terminal): wait for that connection instead.
+            try await connectShowingProgress(p, given: [:], joining: true)
+            return Exit.ok
+        }
         let given = try askForNeeds(p)
         try await connectShowingProgress(p, given: given)
         return Exit.ok
     }
 
-    private func connectShowingProgress(_ p: Profile, given: [CredentialField: String]) async throws {
-        CLITerminal.err(String(localized: "Connecting \(p.name)…"))
+    private func connectShowingProgress(_ p: Profile, given: [CredentialField: String], joining: Bool = false) async throws {
+        CLITerminal.err(joining ? String(localized: "Already connecting \(p.name); waiting for it…")
+                                : String(localized: "Connecting \(p.name)…"))
         var lastPhase = ""
         manager.$states
             .compactMap { $0[p.id] }
@@ -197,11 +203,12 @@ final class CLIRunner {
                 CLITerminal.err(CLITerminal.dim("  " + phase))
             }
             .store(in: &bag)
-        // Ctrl-C while connecting stops the half-started connection.
+        // Ctrl-C while connecting stops the half-started connection (only stops waiting when joining).
         signal(SIGINT, SIG_IGN)
         let source = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
         source.setEventHandler { [weak self] in
             Task { @MainActor in
+                if joining { exit(130) }
                 CLITerminal.err(String(localized: "Cancelling…"))
                 try? await self?.manager.disconnect(p.id)
                 exit(130)

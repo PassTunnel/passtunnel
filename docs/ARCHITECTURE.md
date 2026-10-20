@@ -254,6 +254,12 @@ waits for the next TOTP window if fewer than 8 s remain or the current window's 
 public enum ConnectionState: Equatable { case disconnected, connecting(String), connected(ip: String, since: Date?) }
 ```
 
+A second `connect` while one of the same manager is in flight awaits it. When the helper already runs the
+profile (another process — app or CLI — is connecting it, or won the start race and the helper refused ours),
+the manager follows that session until it is up and never stops it on failure; the CLI prints
+"Already connecting …; waiting for it…" and exits 0 once it is connected. `disconnect` returns whether
+anything was stopped (the helper's `stop` reply names the pid), so the CLI says "X is not connected." otherwise.
+
 ## Rules for all code
 
 - English identifiers, English comments (sparse). User-facing strings via `String(localized:)` with

@@ -683,6 +683,69 @@ final class ConnectionManagerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: store.dir(p.id).appendingPathComponent(PT.mgmtSocketName).path))
     }
 
+    // MARK: concurrent connects
+
+    func testSecondConnectInTheSameProcessWaitsForTheFirst() async throws {
+        let p = try makeOpenVPN()
+        let m = makeManager()
+        async let first: Void = m.connect(p.id)
+        async let second: Void = m.connect(p.id)
+        _ = try await (first, second)
+        XCTAssertEqual(helper.starts.count, 1)
+        XCTAssertTrue(m.state(p.id).isConnected)
+    }
+
+    /// The CLI connects while the app (another process) is still connecting: it follows that session
+    /// instead of asking the helper for a second one, and returns once it is up.
+    func testConnectFollowsASessionAnotherProcessIsStarting() async throws {
+        let p = try makeOpenVPN()
+        var timing = ConnectionManager.Timing()
+        timing.openVPNTimeout = 100_000          // virtual seconds: the fake clock runs fast
+        let cli = makeManager(timing: timing)
+        helper.simulateExternalStart(p.id, profileDir: store.dir(p.id).path, since: t0)
+        helper.setStateLine(p.id, "1700000000,AUTH,,,,,,,")
+        await cli.refresh()
+        XCTAssertTrue(cli.state(p.id).isConnecting)
+
+        let connect = Task { try await cli.connect(p.id) }
+        await waitUntil { cli.state(p.id) == .connecting(ConnectionManager.Phase.signingIn) && cli.isBusyForTests(p.id) }
+        helper.setStateLine(p.id, LoopingManagementServer.connectedLine(ip: "10.8.0.7", since: t0))
+        try await connect.value
+        XCTAssertEqual(cli.state(p.id), .connected(ip: "10.8.0.7", since: t0))
+        XCTAssertTrue(helper.starts.isEmpty, "no second session requested")
+    }
+
+    /// Lost race: the other process got its start in first, so the helper refuses ours.
+    func testRefusedStartFollowsTheOtherSession() async throws {
+        let p = try makeOpenVPN()
+        let m = makeManager()
+        helper.failStarts = 1
+        helper.failMessage = "Profile \(p.id) is already running (pid 5151)."
+        helper.onStart = { [helper, store, t0] _ in
+            helper!.simulateExternalStart(p.id, profileDir: store.dir(p.id).path, since: t0)
+        }
+        try await m.connect(p.id)
+        XCTAssertTrue(m.state(p.id).isConnected)
+        XCTAssertNil(m.lastError[p.id])
+    }
+
+    /// A followed session that fails is reported, but stopping it is left to its owner.
+    func testFollowedSessionFailureDoesNotStopIt() async throws {
+        let p = try makeOpenVPN()
+        let m = makeManager()
+        helper.simulateExternalStart(p.id, profileDir: store.dir(p.id).path, since: t0)
+        helper.setStateLine(p.id, "1700000000,AUTH,,,,,,,")
+        try Data("AUTH: Received control message: AUTH_FAILED\n".utf8).write(to: store.logURL(p.id))
+        do {
+            try await m.connect(p.id)
+            XCTFail("connected")
+        } catch {
+            XCTAssertEqual((error as? PTError).map { if case .authFailed = $0 { return true }; return false }, true, "\(error)")
+        }
+        XCTAssertTrue(helper.stops.isEmpty)
+        XCTAssertNotNil(helper.running[p.id])
+    }
+
     func testOutdatedHelperFailsBeforeAnyStart() async throws {
         let p = try makeOpenVPN()
         helper.protocolVersion = 2

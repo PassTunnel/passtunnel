@@ -5388,6 +5388,16 @@
           }
         }
       }
+    },
+    "Already connecting %@; waiting for it…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ zaten bağlanıyor; bekleniyor…"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

@@ -181,6 +181,7 @@ public final class ConnectionManager: ObservableObject {
     private var reconnectGen: [String: Int] = [:]
     private var reconnectTasks: [String: Task<Void, Never>] = [:]
     private var codeWaits: [String: Task<Void, Error>] = [:]   // waiting for a fresh code; disconnect cancels
+    private var connectTasks: [String: Task<Void, Error>] = [:]  // connects started through `connect`
     private var healthFailures: [String: Int] = [:]
     private var outage: Set<String> = []
     private var forcedReconnectDone: Set<String> = []
@@ -360,10 +361,16 @@ public final class ConnectionManager: ObservableObject {
     // MARK: actions
 
     /// Connects `id`. `given` supplies the fields the profile asks for (`Profile.needs`).
-    /// Returns once connected; cancels any pending automatic reconnect.
+    /// Returns once connected; cancels any pending automatic reconnect. A second call while a connect
+    /// of this manager is in flight waits for that one; when another process (app ↔ CLI) is already
+    /// starting the profile, its session is followed instead of starting a second one.
     public func connect(_ id: String, given: [CredentialField: String] = [:]) async throws {
         cancelReconnect(id)
-        try await performConnect(id, given: given)
+        if let inFlight = connectTasks[id] { return try await inFlight.value }
+        let task = Task { try await self.performConnect(id, given: given) }
+        connectTasks[id] = task
+        defer { if connectTasks[id] == task { connectTasks[id] = nil } }
+        try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
     }
 
     /// Stops `id` (also cancels a connect in progress) and marks it user-stopped so the exit is not
@@ -424,6 +431,9 @@ public final class ConnectionManager: ObservableObject {
         do {
             // Always the profile as stored now (the CLI may have changed it), never a cached copy.
             let p = try store.get(id)
+            if let socket = await runningElsewhere(id) {
+                return try await follow(p, token: token, socketPath: socket)
+            }
             let creds = try resolveCredentials(p, given: given)
             // A helper left running from another app version would misplace or reject the session.
             try await helper.ensureCompatible()
@@ -455,7 +465,13 @@ public final class ConnectionManager: ObservableObject {
                     logPath: store.logURL(id).path))
             }
             let response = try await helper.perform(request, timeout: timing.helperTimeout)
-            guard response.ok else { throw PTError.helperFailed(response.error ?? "") }
+            guard response.ok else {
+                // Another process started it in the meantime: the helper refuses a second session.
+                if let socket = await runningElsewhere(id) {
+                    return try await follow(p, token: token, socketPath: socket)
+                }
+                throw PTError.helperFailed(response.error ?? "")
+            }
             if let codeTime { rememberUsedCode(p, at: codeTime) }   // the tool has it now, whatever happens next
             if actionToken[id] != token {
                 // Disconnected while the helper was starting the tool; its stop may have come first.
@@ -483,6 +499,27 @@ public final class ConnectionManager: ObservableObject {
             lastErrorLog[id] = (error as? PTError)?.logTail ?? ""
             throw error
         }
+    }
+
+    /// The management socket of `id` when the helper already runs it (started by another process,
+    /// or left from before), else nil.
+    private func runningElsewhere(_ id: String) async -> String? {
+        guard let r = try? await helper.perform(.status, timeout: timing.helperTimeout), r.ok,
+              r.running?[id] != nil else { return nil }
+        let socket = r.mgmtSockets?[id] ?? socketPath(id)
+        mgmtSockets[id] = socket
+        return socket
+    }
+
+    /// Waits for a session this manager did not start to come up. Failures are reported but the
+    /// session is left alone: the process that started it handles them.
+    private func follow(_ p: Profile, token: Int, socketPath: String) async throws {
+        let result = try await waitUntilConnected(p, token: token, socketPath: socketPath, owned: false)
+        let since = result.since ?? clock.now()
+        setState(p.id, .connected(ip: result.ip, since: since))
+        sessionActive.insert(p.id)
+        connectedAt[p.id] = since
+        healthFailures[p.id] = 0
     }
 
     struct Credentials {
@@ -579,7 +616,10 @@ public final class ConnectionManager: ObservableObject {
         try? JSONCoding.write(used, to: usedCodeURL(p.id), mode: 0o600)
     }
 
-    private func waitUntilConnected(_ p: Profile, token: Int, socketPath: String) async throws -> (ip: String, since: Date?) {
+    /// Polls until `p` is connected. When `owned` is false (a session another process started), the
+    /// session is never stopped here.
+    private func waitUntilConnected(_ p: Profile, token: Int, socketPath: String,
+                                    owned: Bool = true) async throws -> (ip: String, since: Date?) {
         let id = p.id
         let timeout = p.type == .openvpn ? timing.openVPNTimeout : timing.fortiTimeout
         let started = clock.now()
@@ -590,11 +630,11 @@ public final class ConnectionManager: ObservableObject {
             try checkToken(id, token)
             let log = VPNLog.read(logURL)
             if VPNLog.isAuthFailure(log) {
-                await stopQuietly(id)
+                if owned { await stopQuietly(id) }
                 throw PTError.authFailed(VPNLog.tail(log))
             }
             if VPNLog.isFatal(log) {
-                await stopQuietly(id)
+                if owned { await stopQuietly(id) }
                 throw PTError.connectFailed(VPNLog.tail(log))
             }
             switch p.type {
@@ -603,7 +643,7 @@ public final class ConnectionManager: ObservableObject {
                     try checkToken(id, token)
                     if s.isConnected { return (s.localIP.isEmpty ? s.localIPv6 : s.localIP, s.since) }
                     if s.name == "RECONNECTING" && s.detail.lowercased().contains("auth") {
-                        await stopQuietly(id)
+                        if owned { await stopQuietly(id) }
                         throw PTError.authFailed(VPNLog.tail(VPNLog.read(logURL)))
                     }
                     setState(id, Self.map(s))
@@ -626,7 +666,7 @@ public final class ConnectionManager: ObservableObject {
                 }
             }
             if clock.now().timeIntervalSince(started) >= timeout {
-                await stopQuietly(id)
+                if owned { await stopQuietly(id) }
                 throw PTError.connectTimeout(Int(timeout))
             }
             do { try await clock.sleep(timing.connectCheckInterval) } catch { throw PTError.connectCancelled }
@@ -858,6 +898,8 @@ public final class ConnectionManager: ObservableObject {
     }
 
     private func isBusy(_ id: String) -> Bool { busy[id] != nil }
+
+    func isBusyForTests(_ id: String) -> Bool { isBusy(id) }
 
     /// Where the helper puts our OpenVPN socket; used when no reply has named it (e.g. helper unreachable).
     private func socketPath(_ id: String) -> String {
