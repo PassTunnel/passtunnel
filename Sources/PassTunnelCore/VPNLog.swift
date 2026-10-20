@@ -16,9 +16,19 @@ public enum VPNLog {
         return String(decoding: data, as: UTF8.self)
     }
 
-    /// Last `lines` non-empty lines.
+    /// Last `lines` non-empty lines, without OpenVPN's notes about our own management-socket polls
+    /// (a few every poll, they would push the interesting lines out).
     public static func tail(_ text: String, lines: Int = 12) -> String {
-        text.split(whereSeparator: \.isNewline).suffix(lines).joined(separator: "\n")
+        text.split(whereSeparator: \.isNewline)
+            .filter { !isManagementChatter($0) }
+            .suffix(lines).joined(separator: "\n")
+    }
+
+    static let managementChatter = ["MANAGEMENT: Client connected from ", "MANAGEMENT: Client disconnected",
+                                    "MANAGEMENT: CMD '"]
+
+    static func isManagementChatter(_ line: Substring) -> Bool {
+        managementChatter.contains { line.contains($0) }
     }
 
     /// openfortivpn: "Tunnel is up and running" seen.

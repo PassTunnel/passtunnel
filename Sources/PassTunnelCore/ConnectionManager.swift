@@ -448,6 +448,7 @@ public final class ConnectionManager: ObservableObject {
             let cancelled = actionToken[id] != token
             if cancelled { throw PTError.connectCancelled }
             setState(id, .disconnected)
+            if (error as? PTError) == .connectCancelled { throw error }
             lastError[id] = error.localizedDescription
             lastErrorLog[id] = (error as? PTError)?.logTail ?? ""
             throw error
@@ -557,6 +558,8 @@ public final class ConnectionManager: ObservableObject {
                 if let r = try? await helper.perform(.status, timeout: timing.helperTimeout), r.ok,
                    (r.running ?? [:])[id] == nil {
                     try checkToken(id, token)
+                    // Stopped by a disconnect in another process (app ↔ CLI): a cancel, not a failure.
+                    if hasUserStoppedMarker(id) { throw PTError.connectCancelled }
                     let final = VPNLog.read(logURL)
                     if VPNLog.isAuthFailure(final) { throw PTError.authFailed(VPNLog.tail(final)) }
                     throw PTError.connectFailed(VPNLog.tail(final))
