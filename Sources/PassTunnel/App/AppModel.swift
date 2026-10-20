@@ -432,11 +432,35 @@ final class AppModel: ObservableObject {
     }
 
     private var onboardingClosedAt: Date?
+    /// Onboarding step 3 "Start PassTunnel at login": nil until the user has seen the checkbox.
+    @Published var onboardingStartAtLogin: Bool?
 
     func finishOnboarding() {
         UserDefaults.standard.set(true, forKey: Self.onboardingKey)
-        if showOnboarding { onboardingClosedAt = Date() }
+        if showOnboarding {
+            onboardingClosedAt = Date()
+            applyOnboardingLoginChoice()
+        }
         showOnboarding = false
+    }
+
+    /// Registers the login item when the user left "Start PassTunnel at login" checked. Nothing is
+    /// registered when the step was never shown (onboarding closed by an import from elsewhere).
+    private func applyOnboardingLoginChoice() {
+        guard let startAtLogin = onboardingStartAtLogin else { return }
+        onboardingStartAtLogin = nil
+        guard startAtLogin else {
+            prefs.launchAtLogin = false
+            return
+        }
+        do {
+            let status = try LoginItem.setEnabled(true)
+            if status != .unavailable { prefs.launchAtLogin = status == .enabled || status == .requiresApproval }
+        } catch {
+            alert = AppAlert(title: String(localized: "Launch at login could not be turned on"),
+                             message: error.localizedDescription + "\n\n"
+                                 + String(localized: "You can turn it on later in Settings → General."))
+        }
     }
 
     // MARK: events

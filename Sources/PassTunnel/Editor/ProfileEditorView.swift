@@ -530,8 +530,8 @@ struct ProfileEditorView: View {
                 Picker("Format", selection: templateChoiceBinding) {
                     Text("Append (password + code)").tag(EditorModel.TemplateChoice.preset(.append))
                     Text("Prepend (code + password)").tag(EditorModel.TemplateChoice.preset(.prepend))
-                    Text(verbatim: "password:code").tag(EditorModel.TemplateChoice.preset(.colon))
-                    Text(verbatim: "password,code").tag(EditorModel.TemplateChoice.preset(.comma))
+                    Text("password:code").tag(EditorModel.TemplateChoice.preset(.colon))
+                    Text("password,code").tag(EditorModel.TemplateChoice.preset(.comma))
                     Text("Custom…").tag(EditorModel.TemplateChoice.custom)
                 }
                 if model.customTemplate {
@@ -582,8 +582,8 @@ struct ProfileEditorView: View {
 
     static func typeName(_ type: VPNType) -> String {
         switch type {
-        case .openvpn: return String(localized: "OpenVPN")
-        case .forti: return String(localized: "FortiGate SSL VPN")
+        case .openvpn: return "OpenVPN"   // product names stay untranslated
+        case .forti: return "FortiGate SSL VPN"
         }
     }
 

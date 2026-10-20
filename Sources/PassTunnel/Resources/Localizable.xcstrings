@@ -1,5 +1,5274 @@
 {
   "sourceLanguage" : "en",
-  "strings" : {},
+  "strings" : {
+    "%@ disconnected" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ bağlantısı kesildi"
+          }
+        }
+      }
+    },
+    "%@ is already connected." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ zaten bağlı."
+          }
+        }
+      }
+    },
+    "%@ is not responding" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ yanıt vermiyor"
+          }
+        }
+      }
+    },
+    "%@ is responding again" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ yeniden yanıt veriyor"
+          }
+        }
+      }
+    },
+    "%@ needs a value." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ için bir değer gerekli."
+          }
+        }
+      }
+    },
+    "%@ reconnected" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ yeniden bağlandı"
+          }
+        }
+      }
+    },
+    "%@ session is ending" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ oturumu sona eriyor"
+          }
+        }
+      }
+    },
+    "%@ types the current code into the focused field instead of copying it." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ geçerli kodu kopyalamak yerine odaktaki alana yazar."
+          }
+        }
+      }
+    },
+    "%@ · imported %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ · %2$@ içe aktarıldı"
+          }
+        }
+      }
+    },
+    "%@, %lld seconds left" : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%1$@, %2$lld second left"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%1$@, %2$lld seconds left"
+                }
+              }
+            }
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, %lld saniye kaldı"
+          }
+        }
+      }
+    },
+    "%lld connected" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld bağlı"
+          }
+        }
+      }
+    },
+    "%lld s left" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld sn kaldı"
+          }
+        }
+      }
+    },
+    "%lld seconds" : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld second"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld seconds"
+                }
+              }
+            }
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld saniye"
+          }
+        }
+      }
+    },
+    "(out of date, reinstall it)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(güncel değil, yeniden yükleyin)"
+          }
+        }
+      }
+    },
+    "0 means no limit. With a limit, PassTunnel reminds you before the server ends the session." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "0 limit yok demektir. Limit varsa PassTunnel, sunucu oturumu sonlandırmadan önce size hatırlatır."
+          }
+        }
+      }
+    },
+    "10.0.0.5 or host:port" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "10.0.0.5 ya da sunucu:port"
+          }
+        }
+      }
+    },
+    "[y/N]" : {
+      "comment" : "Yes/no choices after a question; the capital letter is the default (no)",
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "[e/H]"
+          }
+        }
+      }
+    },
+    "A .passtunnel file exported by a colleague" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir iş arkadaşınızın dışa aktardığı .passtunnel dosyası"
+          }
+        }
+      }
+    },
+    "A file operation failed: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir dosya işlemi başarısız oldu: %@"
+          }
+        }
+      }
+    },
+    "A one-time code is required to connect." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlanmak için tek kullanımlık kod gerekli."
+          }
+        }
+      }
+    },
+    "A password is required to connect." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlanmak için parola gerekli."
+          }
+        }
+      }
+    },
+    "A scanned QR code sets these automatically. Change them only if your provider says so." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Taranan QR kodu bunları otomatik ayarlar. Yalnızca sağlayıcınız söylerse değiştirin."
+          }
+        }
+      }
+    },
+    "A trusted certificate is a SHA-256 fingerprint: 64 hexadecimal characters (colons are allowed)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Güvenilen sertifika bir SHA-256 parmak izidir: 64 onaltılık karakter (iki nokta kullanılabilir)."
+          }
+        }
+      }
+    },
+    "A user name is required to connect." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlanmak için kullanıcı adı gerekli."
+          }
+        }
+      }
+    },
+    "About" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hakkında"
+          }
+        }
+      }
+    },
+    "Accessibility permission granted" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erişilebilirlik izni verildi"
+          }
+        }
+      }
+    },
+    "Active connections stop. You can install the helper again at any time." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Etkin bağlantılar durur. Yardımcıyı istediğiniz zaman yeniden yükleyebilirsiniz."
+          }
+        }
+      }
+    },
+    "Add" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ekle"
+          }
+        }
+      }
+    },
+    "Add a VPN first" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Önce bir VPN ekleyin"
+          }
+        }
+      }
+    },
+    "Add a VPN…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VPN Ekle…"
+          }
+        }
+      }
+    },
+    "Add Code from QR" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "QR’dan Kod Ekle"
+          }
+        }
+      }
+    },
+    "Add code from QR…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "QR’dan kod ekle…"
+          }
+        }
+      }
+    },
+    "Add Code from QR…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "QR’dan Kod Ekle…"
+          }
+        }
+      }
+    },
+    "Add or import a VPN profile" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VPN profili ekleyin ya da içe aktarın"
+          }
+        }
+      }
+    },
+    "Add Profile" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profil Ekle"
+          }
+        }
+      }
+    },
+    "Add the routes the gateway sends" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ağ geçidinin gönderdiği yönlendirmeleri ekle"
+          }
+        }
+      }
+    },
+    "Add your first VPN" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "İlk VPN’inizi ekleyin"
+          }
+        }
+      }
+    },
+    "Advanced" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gelişmiş"
+          }
+        }
+      }
+    },
+    "Algorithm" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Algoritma"
+          }
+        }
+      }
+    },
+    "All profiles are disconnected." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tüm profillerin bağlantısı kesildi."
+          }
+        }
+      }
+    },
+    "Allow PassTunnel to type codes" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel’ın kod yazmasına izin verin"
+          }
+        }
+      }
+    },
+    "Almost done: turn on PassTunnel in System Settings → General → Login Items." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neredeyse bitti: Sistem Ayarları → Genel → Giriş Öğeleri bölümünde PassTunnel’ı açın."
+          }
+        }
+      }
+    },
+    "Always show in the menu bar" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Her zaman menü çubuğunda göster"
+          }
+        }
+      }
+    },
+    "Always show the profile in the menu bar." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profili her zaman menü çubuğunda gösterir."
+          }
+        }
+      }
+    },
+    "An address inside the VPN. While connected, PassTunnel checks it every 30 seconds and tells you when it stops answering." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VPN içindeki bir adres. Bağlıyken PassTunnel bu adresi 30 saniyede bir denetler ve yanıt vermeyi bırakınca size haber verir."
+          }
+        }
+      }
+    },
+    "An OpenVPN configuration file from your IT team" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "BT ekibinizin verdiği OpenVPN yapılandırması"
+          }
+        }
+      }
+    },
+    "Appearance" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Görünüm"
+          }
+        }
+      }
+    },
+    "Append (password + code)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sona ekle (parola + kod)"
+          }
+        }
+      }
+    },
+    "Ask each time" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Her seferinde sor"
+          }
+        }
+      }
+    },
+    "attempt %lld of %lld" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "deneme %1$lld/%2$lld"
+          }
+        }
+      }
+    },
+    "Authenticating…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kimlik doğrulanıyor…"
+          }
+        }
+      }
+    },
+    "Automatic updates arrive in a future version. Until then, new releases are published on GitHub." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Otomatik güncellemeler sonraki bir sürümde eklenecek. O zamana kadar yeni sürümler GitHub’da yayımlanıyor."
+          }
+        }
+      }
+    },
+    "Available only when PassTunnel can connect without asking you: a saved username, the password in the Keychain, and a generated code (or none)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yalnızca PassTunnel size sormadan bağlanabildiğinde kullanılabilir: kayıtlı kullanıcı adı, Anahtar Zinciri’nde parola ve üretilen kod (ya da kodsuz)."
+          }
+        }
+      }
+    },
+    "Available when PassTunnel runs as an app from the Applications folder." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel, Uygulamalar klasöründen uygulama olarak çalıştığında kullanılabilir."
+          }
+        }
+      }
+    },
+    "Back" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geri"
+          }
+        }
+      }
+    },
+    "Badge" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rozet"
+          }
+        }
+      }
+    },
+    "Badge colors" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rozet renkleri"
+          }
+        }
+      }
+    },
+    "Before a profile’s session limit ends the connection." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir profilin oturum limiti bağlantıyı sonlandırmadan önce."
+          }
+        }
+      }
+    },
+    "Both" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "İkisi de"
+          }
+        }
+      }
+    },
+    "Bundled tools" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paketteki araçlar"
+          }
+        }
+      }
+    },
+    "Cancel" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vazgeç"
+          }
+        }
+      }
+    },
+    "Cancel Connecting" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlanmayı İptal Et"
+          }
+        }
+      }
+    },
+    "Cancelling…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "İptal ediliyor…"
+          }
+        }
+      }
+    },
+    "Candy" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Şeker"
+          }
+        }
+      }
+    },
+    "Certificate only: the configuration contains everything needed to sign in." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yalnızca sertifika: yapılandırma oturum açmak için gereken her şeyi içeriyor."
+          }
+        }
+      }
+    },
+    "Certificate-only profiles do not use a one-time code." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yalnızca sertifika kullanan profiller tek kullanımlık kod kullanmaz."
+          }
+        }
+      }
+    },
+    "Change settings, e.g. username=alice health_host=10.0.0.5 auto_reconnect=true." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ayarları değiştirir, ör. username=alice health_host=10.0.0.5 auto_reconnect=true."
+          }
+        }
+      }
+    },
+    "Check for updates automatically" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Güncellemeleri otomatik denetle"
+          }
+        }
+      }
+    },
+    "Check Now" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Şimdi Denetle"
+          }
+        }
+      }
+    },
+    "Choose a .passtunnel file. You add your own username, password and code afterwards." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir .passtunnel dosyası seçin. Kendi kullanıcı adınızı, parolanızı ve kodunuzu sonra eklersiniz."
+          }
+        }
+      }
+    },
+    "Choose a screenshot or photo of the QR code your VPN provider gave you." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VPN sağlayıcınızın verdiği QR kodunun ekran görüntüsünü ya da fotoğrafını seçin."
+          }
+        }
+      }
+    },
+    "Choose a screenshot or photo of the QR code." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "QR kodunun ekran görüntüsünü ya da fotoğrafını seçin."
+          }
+        }
+      }
+    },
+    "Choose an .ovpn file. Certificates and keys it refers to are embedded automatically when they are in the same folder." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir .ovpn dosyası seçin. Başvurduğu sertifikalar ve anahtarlar aynı klasördeyse otomatik olarak gömülür."
+          }
+        }
+      }
+    },
+    "Choose an icon to show it in the menu bar." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Menü çubuğunda göstermek için bir simge seçin."
+          }
+        }
+      }
+    },
+    "Choose Image…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Görüntü Seç…"
+          }
+        }
+      }
+    },
+    "Choose OpenVPN Configuration" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OpenVPN Yapılandırması Seç"
+          }
+        }
+      }
+    },
+    "Choose QR Code Image" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "QR Kodu Görüntüsü Seç"
+          }
+        }
+      }
+    },
+    "Choose the OpenVPN configuration file (.ovpn)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OpenVPN yapılandırma dosyasını (.ovpn) seçin."
+          }
+        }
+      }
+    },
+    "Choose…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seç…"
+          }
+        }
+      }
+    },
+    "Click to copy the code" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kodu kopyalamak için tıklayın"
+          }
+        }
+      }
+    },
+    "Code" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kod"
+          }
+        }
+      }
+    },
+    "Code added. Compare it with your authenticator app, then Save." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kod eklendi. Doğrulama uygulamanızdakiyle karşılaştırın, sonra Kaydet’e tıklayın."
+          }
+        }
+      }
+    },
+    "Code copied" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kod kopyalandı"
+          }
+        }
+      }
+    },
+    "Code for “%@”. It is added when you save the profile." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” kodu. Profili kaydettiğinizde eklenir."
+          }
+        }
+      }
+    },
+    "Codes are shown as ••• ••• in the window and the menu. Clicking still copies them." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kodlar pencerede ve menüde ••• ••• olarak gösterilir. Tıklayınca yine kopyalanır."
+          }
+        }
+      }
+    },
+    "Command-line tool" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Komut satırı aracı"
+          }
+        }
+      }
+    },
+    "Configuration" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yapılandırma"
+          }
+        }
+      }
+    },
+    "Configuring…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yapılandırılıyor…"
+          }
+        }
+      }
+    },
+    "Confirm password" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parolayı onayla"
+          }
+        }
+      }
+    },
+    "Connect" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlan"
+          }
+        }
+      }
+    },
+    "Connect a profile (default: the default profile). Asks for missing input on a terminal." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir profile bağlanır (varsayılan: varsayılan profil). Eksik bilgileri terminalde sorar."
+          }
+        }
+      }
+    },
+    "Connect or Disconnect" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlan ya da Bağlantıyı Kes"
+          }
+        }
+      }
+    },
+    "Connect or disconnect the default profile" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Varsayılan profile bağlan ya da bağlantıyı kes"
+          }
+        }
+      }
+    },
+    "Connect to %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlan: %@"
+          }
+        }
+      }
+    },
+    "Connect when disconnected, disconnect otherwise." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlı değilse bağlanır, bağlıysa bağlantıyı keser."
+          }
+        }
+      }
+    },
+    "Connect your VPN without ever typing a one-time code again." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VPN’inize bir daha hiç tek kullanımlık kod yazmadan bağlanın."
+          }
+        }
+      }
+    },
+    "connected" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "bağlı"
+          }
+        }
+      }
+    },
+    "Connected" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlı"
+          }
+        }
+      }
+    },
+    "Connected %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ süredir bağlı"
+          }
+        }
+      }
+    },
+    "Connected, but the health check host %@ is not responding." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlı, ancak sağlık kontrolü sunucusu %@ yanıt vermiyor."
+          }
+        }
+      }
+    },
+    "Connected: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlandı: %@"
+          }
+        }
+      }
+    },
+    "Connected: %@ (%@)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlandı: %1$@ (%2$@)"
+          }
+        }
+      }
+    },
+    "Connecting" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlanıyor"
+          }
+        }
+      }
+    },
+    "Connecting %@…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ bağlanıyor…"
+          }
+        }
+      }
+    },
+    "Connecting to the gateway…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ağ geçidine bağlanılıyor…"
+          }
+        }
+      }
+    },
+    "Connecting…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlanıyor…"
+          }
+        }
+      }
+    },
+    "Connection" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlantı"
+          }
+        }
+      }
+    },
+    "Connection dropped" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlantı koptu"
+          }
+        }
+      }
+    },
+    "Continue" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Devam"
+          }
+        }
+      }
+    },
+    "copied" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "kopyalandı"
+          }
+        }
+      }
+    },
+    "Copy Code" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kodu Kopyala"
+          }
+        }
+      }
+    },
+    "Copy Code  %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kodu Kopyala  %@"
+          }
+        }
+      }
+    },
+    "Copy Password + Code" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parola + Kodu Kopyala"
+          }
+        }
+      }
+    },
+    "Copy the current code" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geçerli kodu kopyala"
+          }
+        }
+      }
+    },
+    "Could not change the login item: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Giriş öğesi değiştirilemedi: %@"
+          }
+        }
+      }
+    },
+    "Could not connect %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ bağlanamadı"
+          }
+        }
+      }
+    },
+    "Could not connect to %@: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ konumuna bağlanılamadı: %2$@"
+          }
+        }
+      }
+    },
+    "Could not install the command-line tool: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Komut satırı aracı yüklenemedi: %@"
+          }
+        }
+      }
+    },
+    "Could not reach the gateway: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ağ geçidine ulaşılamadı: %@"
+          }
+        }
+      }
+    },
+    "Could not reach the PassTunnel helper: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel yardımcısına ulaşılamadı: %@"
+          }
+        }
+      }
+    },
+    "Could not reconnect %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ yeniden bağlanamadı"
+          }
+        }
+      }
+    },
+    "Counter-based (HOTP) codes are not supported. Only time-based (TOTP) codes can be used." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sayaç tabanlı (HOTP) kodlar desteklenmiyor. Yalnızca zaman tabanlı (TOTP) kodlar kullanılabilir."
+          }
+        }
+      }
+    },
+    "Create an empty profile." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Boş bir profil oluşturur."
+          }
+        }
+      }
+    },
+    "Created “%@” (%@)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%1$@” oluşturuldu (%2$@)."
+          }
+        }
+      }
+    },
+    "Creating a VPN tunnel needs administrator rights. A small helper does that part, and it only runs the signed VPN tools that ship inside PassTunnel." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VPN tüneli kurmak yönetici yetkisi gerektirir. Bu işi küçük bir yardımcı üstlenir ve yalnızca PassTunnel’ın içinde gelen imzalı VPN araçlarını çalıştırır."
+          }
+        }
+      }
+    },
+    "Current code" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geçerli kod"
+          }
+        }
+      }
+    },
+    "Current code: %@ (compare it with your authenticator app)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geçerli kod: %@ (doğrulama uygulamanızdakiyle karşılaştırın)"
+          }
+        }
+      }
+    },
+    "Current version" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geçerli sürüm"
+          }
+        }
+      }
+    },
+    "Custom…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Özel…"
+          }
+        }
+      }
+    },
+    "Dark" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Koyu"
+          }
+        }
+      }
+    },
+    "Default profile" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Varsayılan profil"
+          }
+        }
+      }
+    },
+    "Default Profile" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Varsayılan Profil"
+          }
+        }
+      }
+    },
+    "Default profile: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Varsayılan profil: %@"
+          }
+        }
+      }
+    },
+    "Delete" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sil"
+          }
+        }
+      }
+    },
+    "Delete a profile and its Keychain items." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir profili ve Anahtar Zinciri öğelerini siler."
+          }
+        }
+      }
+    },
+    "Delete “%@” and its saved password and secret?" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” ve kayıtlı parolası ile gizli anahtarı silinsin mi?"
+          }
+        }
+      }
+    },
+    "Delete “%@”?" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” silinsin mi?"
+          }
+        }
+      }
+    },
+    "Deleted “%@”." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” silindi."
+          }
+        }
+      }
+    },
+    "Delete…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sil…"
+          }
+        }
+      }
+    },
+    "Digits" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Basamak"
+          }
+        }
+      }
+    },
+    "digits must be 6, 7 or 8" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "basamak sayısı 6, 7 ya da 8 olmalı"
+          }
+        }
+      }
+    },
+    "Disconnect" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlantıyı Kes"
+          }
+        }
+      }
+    },
+    "Disconnect a profile, or every profile with --all." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir profilin bağlantısını keser; --all ile tüm profillerin."
+          }
+        }
+      }
+    },
+    "disconnected" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "bağlı değil"
+          }
+        }
+      }
+    },
+    "Disconnected: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlantı kesildi: %@"
+          }
+        }
+      }
+    },
+    "Done" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bitti"
+          }
+        }
+      }
+    },
+    "Drop a screenshot here, or:" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir ekran görüntüsünü buraya bırakın ya da:"
+          }
+        }
+      }
+    },
+    "Drop to import" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "İçe aktarmak için bırakın"
+          }
+        }
+      }
+    },
+    "Dropped" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Koptu"
+          }
+        }
+      }
+    },
+    "Earth" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toprak"
+          }
+        }
+      }
+    },
+    "Edit “%@”" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” Profilini Düzenle"
+          }
+        }
+      }
+    },
+    "Edit…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Düzenle…"
+          }
+        }
+      }
+    },
+    "Enable global shortcuts" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Genel kestirmeleri etkinleştir"
+          }
+        }
+      }
+    },
+    "Enter a host name or IP address without “https://” or a port." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“https://” ve port olmadan bir sunucu adı ya da IP adresi girin."
+          }
+        }
+      }
+    },
+    "Enter a valid gateway address first." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Önce geçerli bir ağ geçidi adresi girin."
+          }
+        }
+      }
+    },
+    "Enter the gateway address, e.g. vpn.example.com." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ağ geçidi adresini girin, ör. vpn.example.com."
+          }
+        }
+      }
+    },
+    "Enter the password to save it in the Keychain, or choose “Ask each time”." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anahtar Zinciri’ne kaydetmek için parolayı girin ya da “Her seferinde sor”u seçin."
+          }
+        }
+      }
+    },
+    "Error: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hata: %@"
+          }
+        }
+      }
+    },
+    "Example" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Örnek"
+          }
+        }
+      }
+    },
+    "Exit codes: 0 ok, 1 error, 2 usage, 3 not connected." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Çıkış kodları: 0 tamam, 1 hata, 2 kullanım hatası, 3 bağlı değil."
+          }
+        }
+      }
+    },
+    "Export a profile as a .passtunnel file (no passwords or secrets)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir profili .passtunnel dosyası olarak dışa aktarır (parola ve gizli anahtarlar olmadan)."
+          }
+        }
+      }
+    },
+    "Exported to %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dışa aktarıldı: %@"
+          }
+        }
+      }
+    },
+    "Failed" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Başarısız"
+          }
+        }
+      }
+    },
+    "Fetch Fingerprint" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parmak İzini Al"
+          }
+        }
+      }
+    },
+    "file" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "dosya"
+          }
+        }
+      }
+    },
+    "Files the configuration refers to (certificates, keys) are embedded automatically when they are in the same folder." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yapılandırmanın başvurduğu dosyalar (sertifikalar, anahtarlar) aynı klasördeyse otomatik olarak gömülür."
+          }
+        }
+      }
+    },
+    "First in the list" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Listedeki ilk profil"
+          }
+        }
+      }
+    },
+    "Format" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Biçim"
+          }
+        }
+      }
+    },
+    "Gateway" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ağ geçidi"
+          }
+        }
+      }
+    },
+    "General" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Genel"
+          }
+        }
+      }
+    },
+    "Generate" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Üret"
+          }
+        }
+      }
+    },
+    "Give at least one key=value." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En az bir anahtar=değer verin."
+          }
+        }
+      }
+    },
+    "Health check" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sağlık kontrolü"
+          }
+        }
+      }
+    },
+    "Health check failures" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sağlık kontrolü hataları"
+          }
+        }
+      }
+    },
+    "Helper" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı"
+          }
+        }
+      }
+    },
+    "Helper: enabled (protocol %lld)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı: etkin (protokol %lld)"
+          }
+        }
+      }
+    },
+    "Helper: enabled, but not responding" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı: etkin ama yanıt vermiyor"
+          }
+        }
+      }
+    },
+    "Helper: missing from the app bundle" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı: uygulama paketinde yok"
+          }
+        }
+      }
+    },
+    "Helper: needs approval in System Settings → General → Login Items" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı: Sistem Ayarları → Genel → Giriş Öğeleri bölümünde onay bekliyor"
+          }
+        }
+      }
+    },
+    "Helper: not installed (run “passtunnel helper install”)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı: yüklü değil (“passtunnel helper install” komutunu çalıştırın)"
+          }
+        }
+      }
+    },
+    "Hide codes until copied" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kodları kopyalanana kadar gizle"
+          }
+        }
+      }
+    },
+    "Icon" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Simge"
+          }
+        }
+      }
+    },
+    "Import .ovpn…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : ".ovpn İçe Aktar…"
+          }
+        }
+      }
+    },
+    "Import a configuration and PassTunnel fills in your password and one-time code every time you connect." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir yapılandırmayı içe aktarın; PassTunnel her bağlandığınızda parolanızı ve tek kullanımlık kodunuzu sizin yerinize girsin."
+          }
+        }
+      }
+    },
+    "Import an .ovpn/.conf file or a shared .passtunnel profile." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir .ovpn/.conf dosyasını ya da paylaşılan bir .passtunnel profilini içe aktarır."
+          }
+        }
+      }
+    },
+    "Import OpenVPN Configuration" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OpenVPN Yapılandırmasını İçe Aktar"
+          }
+        }
+      }
+    },
+    "Import Shared Profile" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paylaşılan Profili İçe Aktar"
+          }
+        }
+      }
+    },
+    "Import Shared Profile…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paylaşılan Profili İçe Aktar…"
+          }
+        }
+      }
+    },
+    "Import shared profile…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paylaşılan profili içe aktar…"
+          }
+        }
+      }
+    },
+    "Imported %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ içe aktarıldı"
+          }
+        }
+      }
+    },
+    "Imported configuration" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "İçe aktarılan yapılandırma"
+          }
+        }
+      }
+    },
+    "Imported “%@” as %@." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%1$@”, %2$@ olarak içe aktarıldı."
+          }
+        }
+      }
+    },
+    "Install Helper" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcıyı Yükle"
+          }
+        }
+      }
+    },
+    "Install the helper" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcıyı yükleyin"
+          }
+        }
+      }
+    },
+    "Install the helper to connect VPNs. macOS asks you to approve it once." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VPN’lere bağlanmak için yardımcıyı yükleyin. macOS bir kez onay ister."
+          }
+        }
+      }
+    },
+    "Installed and running" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yüklü ve çalışıyor"
+          }
+        }
+      }
+    },
+    "Installed at %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yüklü: %@"
+          }
+        }
+      }
+    },
+    "Installed in %@, which is not on your PATH yet. Add this line to ~/.zprofile:\nexport PATH=\"$HOME/.local/bin:$PATH\"" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ konumuna yüklendi, ancak bu konum henüz PATH’inizde değil. ~/.zprofile dosyasına şu satırı ekleyin:\nexport PATH=\"$HOME/.local/bin:$PATH\""
+          }
+        }
+      }
+    },
+    "Installed. Try “passtunnel status” in Terminal." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yüklendi. Terminal’de “passtunnel status” komutunu deneyin."
+          }
+        }
+      }
+    },
+    "Install…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yükle…"
+          }
+        }
+      }
+    },
+    "it does not start with otpauth://" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "otpauth:// ile başlamıyor"
+          }
+        }
+      }
+    },
+    "it is empty" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "boş"
+          }
+        }
+      }
+    },
+    "it must contain {otp}" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{otp} içermeli"
+          }
+        }
+      }
+    },
+    "It should match the code in your authenticator app. The secret is saved in the Keychain when you save." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Doğrulama uygulamanızdaki kodla eşleşmeli. Gizli anahtar, kaydettiğinizde Anahtar Zinciri’ne kaydedilir."
+          }
+        }
+      }
+    },
+    "Keychain error: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anahtar Zinciri hatası: %@"
+          }
+        }
+      }
+    },
+    "Keys:" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anahtarlar:"
+          }
+        }
+      }
+    },
+    "Later" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sonra"
+          }
+        }
+      }
+    },
+    "Launch at login" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oturum açıldığında başlat"
+          }
+        }
+      }
+    },
+    "Launch at login could not be turned on" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oturum açıldığında başlatma açılamadı"
+          }
+        }
+      }
+    },
+    "Leave empty to be asked each time you connect." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Her bağlandığınızda sorulması için boş bırakın."
+          }
+        }
+      }
+    },
+    "Leave empty to keep the saved one" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kayıtlı olanı korumak için boş bırakın"
+          }
+        }
+      }
+    },
+    "Let PassTunnel generate the code, so you never type it again." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kodu PassTunnel üretsin, bir daha hiç yazmayın."
+          }
+        }
+      }
+    },
+    "Letter" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Harf"
+          }
+        }
+      }
+    },
+    "Light" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Açık"
+          }
+        }
+      }
+    },
+    "List profiles." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profilleri listeler."
+          }
+        }
+      }
+    },
+    "Menu bar" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Menü çubuğu"
+          }
+        }
+      }
+    },
+    "Menu bar preview" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Menü çubuğu önizlemesi"
+          }
+        }
+      }
+    },
+    "Menu bar shows" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Menü çubuğunda"
+          }
+        }
+      }
+    },
+    "minutes" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "dakika"
+          }
+        }
+      }
+    },
+    "Missing %@." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eksik: %@."
+          }
+        }
+      }
+    },
+    "Missing --type openvpn|forti." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--type openvpn|forti eksik."
+          }
+        }
+      }
+    },
+    "Missing from this copy of PassTunnel" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel’ın bu kopyasında yok"
+          }
+        }
+      }
+    },
+    "Missing profile name." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profil adı eksik."
+          }
+        }
+      }
+    },
+    "More actions" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diğer işlemler"
+          }
+        }
+      }
+    },
+    "More actions for %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ için diğer işlemler"
+          }
+        }
+      }
+    },
+    "Move PassTunnel to the Applications folder and open it from there to install the helper." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcıyı yüklemek için PassTunnel’ı Uygulamalar klasörüne taşıyıp oradan açın."
+          }
+        }
+      }
+    },
+    "Move PassTunnel to the Applications folder and open it from there." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel’ı Uygulamalar klasörüne taşıyıp oradan açın."
+          }
+        }
+      }
+    },
+    "Name" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ad"
+          }
+        }
+      }
+    },
+    "Needed when the gateway’s certificate is not signed by an authority your Mac trusts." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ağ geçidinin sertifikası Mac’inizin güvendiği bir yetkili tarafından imzalanmamışsa gerekir."
+          }
+        }
+      }
+    },
+    "Needs approval in Login Items." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Giriş Öğeleri’nde onay gerekiyor."
+          }
+        }
+      }
+    },
+    "Never type a one-time code again" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tek kullanımlık kodu bir daha asla yazmayın"
+          }
+        }
+      }
+    },
+    "New FortiGate Profile" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni FortiGate Profili"
+          }
+        }
+      }
+    },
+    "New FortiGate Profile…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni FortiGate Profili…"
+          }
+        }
+      }
+    },
+    "New FortiGate…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni FortiGate…"
+          }
+        }
+      }
+    },
+    "New OpenVPN Profile" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni OpenVPN Profili"
+          }
+        }
+      }
+    },
+    "New OpenVPN Profile…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni OpenVPN Profili…"
+          }
+        }
+      }
+    },
+    "New OpenVPN…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni OpenVPN…"
+          }
+        }
+      }
+    },
+    "New password" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni parola"
+          }
+        }
+      }
+    },
+    "Next: add the configuration in the app, or import an .ovpn file with “passtunnel import FILE”." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sonraki adım: yapılandırmayı uygulamadan ekleyin ya da “passtunnel import DOSYA” ile bir .ovpn dosyası içe aktarın."
+          }
+        }
+      }
+    },
+    "Next: passtunnel set %@ host=vpn.example.com username=alice" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sonraki adım: passtunnel set %@ host=vpn.example.com username=alice"
+          }
+        }
+      }
+    },
+    "No code available" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kod yok"
+          }
+        }
+      }
+    },
+    "No code is needed to sign in." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oturum açmak için kod gerekmiyor."
+          }
+        }
+      }
+    },
+    "No default profile is set." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Varsayılan profil ayarlanmamış."
+          }
+        }
+      }
+    },
+    "No default profile is set. Give a profile id, or set one with “passtunnel default ID”." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Varsayılan profil ayarlanmamış. Bir profil kimliği verin ya da “passtunnel default KİMLİK” ile ayarlayın."
+          }
+        }
+      }
+    },
+    "No Icon" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Simge yok"
+          }
+        }
+      }
+    },
+    "No log yet" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Henüz günlük yok"
+          }
+        }
+      }
+    },
+    "No password is saved in the Keychain for this profile. Add it in the profile editor." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu profil için Anahtar Zinciri’nde kayıtlı parola yok. Profil düzenleyicisinden ekleyin."
+          }
+        }
+      }
+    },
+    "No password saved in Keychain" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anahtar Zinciri’nde kayıtlı parola yok"
+          }
+        }
+      }
+    },
+    "No profiles match “%@”." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” ile eşleşen profil yok."
+          }
+        }
+      }
+    },
+    "No profiles. Add one with “passtunnel import FILE” or in the app." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profil yok. “passtunnel import DOSYA” ile ya da uygulamadan ekleyin."
+          }
+        }
+      }
+    },
+    "No QR code was found in the image." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Görüntüde QR kodu bulunamadı."
+          }
+        }
+      }
+    },
+    "No TOTP secret is saved in the Keychain for this profile. Add it in the profile editor." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu profil için Anahtar Zinciri’nde kayıtlı TOTP gizli anahtarı yok. Profil düzenleyicisinden ekleyin."
+          }
+        }
+      }
+    },
+    "No usable code was found." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kullanılabilir bir kod bulunamadı."
+          }
+        }
+      }
+    },
+    "No VPN profiles yet" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Henüz VPN profili yok"
+          }
+        }
+      }
+    },
+    "None" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yok"
+          }
+        }
+      }
+    },
+    "None — certificate only" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yok — yalnızca sertifika"
+          }
+        }
+      }
+    },
+    "Not connected" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlı değil"
+          }
+        }
+      }
+    },
+    "Not installed" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yüklü değil"
+          }
+        }
+      }
+    },
+    "Not reachable" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erişilemiyor"
+          }
+        }
+      }
+    },
+    "Not responding" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yanıt vermiyor"
+          }
+        }
+      }
+    },
+    "not saved" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "kayıtlı değil"
+          }
+        }
+      }
+    },
+    "Not saved yet" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Henüz kaydedilmedi"
+          }
+        }
+      }
+    },
+    "Note: the helper is not available (%@)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not: yardımcı kullanılamıyor (%@)."
+          }
+        }
+      }
+    },
+    "Nothing was deleted." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hiçbir şey silinmedi."
+          }
+        }
+      }
+    },
+    "Nothing was entered." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hiçbir şey girilmedi."
+          }
+        }
+      }
+    },
+    "Notifications" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bildirimler"
+          }
+        }
+      }
+    },
+    "Notify %lld minutes before" : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Notify %lld minute before"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Notify %lld minutes before"
+                }
+              }
+            }
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld dakika önce bildir"
+          }
+        }
+      }
+    },
+    "Off" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kapalı"
+          }
+        }
+      }
+    },
+    "One click, or a shortcut, to connect with a fresh code." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tek tıklamayla ya da bir kestirmeyle, yeni bir kodla bağlanın."
+          }
+        }
+      }
+    },
+    "One or two characters shown in the menu bar. Empty uses the first letter of the name." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Menü çubuğunda gösterilen bir ya da iki karakter. Boş bırakılırsa adın ilk harfi kullanılır."
+          }
+        }
+      }
+    },
+    "One-time code" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tek kullanımlık kod"
+          }
+        }
+      }
+    },
+    "one-time code" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "tek kullanımlık kod"
+          }
+        }
+      }
+    },
+    "One-time code %@, %lld seconds left. Click to copy." : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "One-time code %1$@, %2$lld second left. Click to copy."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "One-time code %1$@, %2$lld seconds left. Click to copy."
+                }
+              }
+            }
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tek kullanımlık kod %@, %lld saniye kaldı. Kopyalamak için tıklayın."
+          }
+        }
+      }
+    },
+    "One-time code, hidden. Click to copy." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tek kullanımlık kod gizli. Kopyalamak için tıklayın."
+          }
+        }
+      }
+    },
+    "One-time code: " : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tek kullanımlık kod: "
+          }
+        }
+      }
+    },
+    "Only what is not saved is asked here." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Burada yalnızca kayıtlı olmayan bilgiler sorulur."
+          }
+        }
+      }
+    },
+    "Open Accessibility Settings…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erişilebilirlik Ayarlarını Aç…"
+          }
+        }
+      }
+    },
+    "Open Helper Settings" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı Ayarlarını Aç"
+          }
+        }
+      }
+    },
+    "Open Login Items…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Giriş Öğelerini Aç…"
+          }
+        }
+      }
+    },
+    "Open Notification Settings…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bildirim Ayarlarını Aç…"
+          }
+        }
+      }
+    },
+    "Open PassTunnel" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel’ı Aç"
+          }
+        }
+      }
+    },
+    "Open Releases Page" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sürümler Sayfasını Aç"
+          }
+        }
+      }
+    },
+    "Open source under the MIT License. Bundled VPN tools keep their own licenses (Settings → Helper)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MIT Lisansı ile açık kaynak. Paketteki VPN araçları kendi lisanslarını korur (Ayarlar → Yardımcı)."
+          }
+        }
+      }
+    },
+    "OpenVPN closed the management connection." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OpenVPN yönetim bağlantısını kapattı."
+          }
+        }
+      }
+    },
+    "OpenVPN: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OpenVPN: %@"
+          }
+        }
+      }
+    },
+    "Or start from scratch:" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ya da sıfırdan başlayın:"
+          }
+        }
+      }
+    },
+    "PassTunnel asks for permission the first time it needs to show a notification." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel ilk kez bildirim göstermesi gerektiğinde izin ister."
+          }
+        }
+      }
+    },
+    "PassTunnel asks for the code each time you connect." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel her bağlandığınızda kodu sorar."
+          }
+        }
+      }
+    },
+    "PassTunnel asks for the password each time you connect and never stores it." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel her bağlandığınızda parolayı sorar ve asla saklamaz."
+          }
+        }
+      }
+    },
+    "PassTunnel can start and stop VPN connections." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel VPN bağlantılarını başlatıp durdurabilir."
+          }
+        }
+      }
+    },
+    "PassTunnel connects your VPN and fills in your password and the current one-time code for you." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel VPN’inize bağlanır; parolanızı ve geçerli tek kullanımlık kodu sizin yerinize girer."
+          }
+        }
+      }
+    },
+    "PassTunnel keeps running in the menu bar when its window is closed." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Penceresi kapatıldığında PassTunnel menü çubuğunda çalışmaya devam eder."
+          }
+        }
+      }
+    },
+    "PassTunnel needs Accessibility permission to type for you." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel’ın sizin yerinize yazabilmesi için Erişilebilirlik izni gerekli."
+          }
+        }
+      }
+    },
+    "PassTunnel, connected: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel, bağlı: %@"
+          }
+        }
+      }
+    },
+    "PassTunnel, not connected" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel, bağlı değil"
+          }
+        }
+      }
+    },
+    "Password" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parola"
+          }
+        }
+      }
+    },
+    "password" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "parola"
+          }
+        }
+      }
+    },
+    "Password and authenticator secret stay in your Keychain." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parola ve doğrulama anahtarı Anahtar Zinciri’nizde kalır."
+          }
+        }
+      }
+    },
+    "Password and code copied" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parola ve kod kopyalandı"
+          }
+        }
+      }
+    },
+    "Password for %@: " : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ parolası: "
+          }
+        }
+      }
+    },
+    "Password saved in the Keychain." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parola Anahtar Zinciri’ne kaydedildi."
+          }
+        }
+      }
+    },
+    "password,code" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "parola,kod"
+          }
+        }
+      }
+    },
+    "Password: " : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parola: "
+          }
+        }
+      }
+    },
+    "password:code" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "parola:kod"
+          }
+        }
+      }
+    },
+    "Paste from Clipboard" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Panodan Yapıştır"
+          }
+        }
+      }
+    },
+    "Paste the secret or an otpauth:// link" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gizli anahtarı ya da bir otpauth:// bağlantısını yapıştırın"
+          }
+        }
+      }
+    },
+    "Pastel" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pastel"
+          }
+        }
+      }
+    },
+    "Period" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Süre"
+          }
+        }
+      }
+    },
+    "Pin to Menu Bar" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Menü Çubuğuna Sabitle"
+          }
+        }
+      }
+    },
+    "pinned" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "sabitlendi"
+          }
+        }
+      }
+    },
+    "Pinned to the menu bar" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Menü çubuğuna sabitlendi"
+          }
+        }
+      }
+    },
+    "Pinned “%@” to the menu bar." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” menü çubuğuna sabitlendi."
+          }
+        }
+      }
+    },
+    "Port" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Port"
+          }
+        }
+      }
+    },
+    "Preparing…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hazırlanıyor…"
+          }
+        }
+      }
+    },
+    "Prepend (code + password)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Başa ekle (kod + parola)"
+          }
+        }
+      }
+    },
+    "Preview" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Önizleme"
+          }
+        }
+      }
+    },
+    "Print a shell completion script." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kabuk tamamlama betiğini yazdırır."
+          }
+        }
+      }
+    },
+    "Print the current one-time code and the seconds left; -c copies it." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geçerli tek kullanımlık kodu ve kalan saniyeyi yazdırır; -c kodu kopyalar."
+          }
+        }
+      }
+    },
+    "Print the VPN log of a profile; -f keeps following it." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir profilin VPN günlüğünü yazdırır; -f ile izlemeye devam eder."
+          }
+        }
+      }
+    },
+    "Privacy" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gizlilik"
+          }
+        }
+      }
+    },
+    "Privileged helper" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ayrıcalıklı yardımcı"
+          }
+        }
+      }
+    },
+    "profile" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "profil"
+          }
+        }
+      }
+    },
+    "Profile" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profil"
+          }
+        }
+      }
+    },
+    "Profile “%@” does not use a TOTP secret." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” profili TOTP gizli anahtarı kullanmıyor."
+          }
+        }
+      }
+    },
+    "Profile “%@” was not found." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” profili bulunamadı."
+          }
+        }
+      }
+    },
+    "Quit PassTunnel" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel’dan Çık"
+          }
+        }
+      }
+    },
+    "Reachable · %lld ms" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erişilebilir · %lld ms"
+          }
+        }
+      }
+    },
+    "Reconnect automatically" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Otomatik yeniden bağlan"
+          }
+        }
+      }
+    },
+    "Reconnecting in %lld s (%@)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld sn sonra yeniden bağlanılacak (%2$@)"
+          }
+        }
+      }
+    },
+    "Reconnecting…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeniden bağlanıyor…"
+          }
+        }
+      }
+    },
+    "Reconnecting… (%@)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeniden bağlanıyor… (%@)"
+          }
+        }
+      }
+    },
+    "Reconnects after an unexpected drop or when the health check keeps failing." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beklenmedik bir kopmadan sonra ya da sağlık kontrolü art arda başarısız olduğunda yeniden bağlanır."
+          }
+        }
+      }
+    },
+    "Reinstall" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeniden Yükle"
+          }
+        }
+      }
+    },
+    "Remove" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kaldır"
+          }
+        }
+      }
+    },
+    "Remove Helper…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcıyı Kaldır…"
+          }
+        }
+      }
+    },
+    "Remove the PassTunnel helper?" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel yardımcısı kaldırılsın mı?"
+          }
+        }
+      }
+    },
+    "Replace…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Değiştir…"
+          }
+        }
+      }
+    },
+    "Report an Issue" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sorun Bildir"
+          }
+        }
+      }
+    },
+    "Required" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gerekli"
+          }
+        }
+      }
+    },
+    "Reveal in Finder" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Finder’da Göster"
+          }
+        }
+      }
+    },
+    "Save" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kaydet"
+          }
+        }
+      }
+    },
+    "Save in Keychain" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anahtar Zinciri’ne kaydet"
+          }
+        }
+      }
+    },
+    "Save the password or TOTP secret (Base32 or otpauth:// link) in the Keychain. Reads from the terminal without echo, or from standard input." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parolayı ya da TOTP gizli anahtarını (Base32 veya otpauth:// bağlantısı) Anahtar Zinciri’ne kaydeder. Terminalden ekrana yansıtmadan ya da standart girdiden okur."
+          }
+        }
+      }
+    },
+    "Save the password with: passtunnel secret %@ password" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parolayı şununla kaydedin: passtunnel secret %@ password"
+          }
+        }
+      }
+    },
+    "Save the TOTP secret with: passtunnel secret %@ totp" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TOTP gizli anahtarını şununla kaydedin: passtunnel secret %@ totp"
+          }
+        }
+      }
+    },
+    "saved in Keychain" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anahtar Zinciri’nde kayıtlı"
+          }
+        }
+      }
+    },
+    "Saved in Keychain" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anahtar Zinciri’nde kayıtlı"
+          }
+        }
+      }
+    },
+    "Saved." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kaydedildi."
+          }
+        }
+      }
+    },
+    "Scan the authenticator QR code of your VPN" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VPN’inizin doğrulama QR kodunu tarayın"
+          }
+        }
+      }
+    },
+    "Scan the QR code or paste the secret to generate codes." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kod üretmek için QR kodunu tarayın ya da gizli anahtarı yapıştırın."
+          }
+        }
+      }
+    },
+    "Scan the QR code your VPN provider gave you" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VPN sağlayıcınızın verdiği QR kodunu tarayın"
+          }
+        }
+      }
+    },
+    "Search profiles" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profillerde ara"
+          }
+        }
+      }
+    },
+    "Secret" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gizli anahtar"
+          }
+        }
+      }
+    },
+    "Send the code" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kodu gönder"
+          }
+        }
+      }
+    },
+    "Separately" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ayrı"
+          }
+        }
+      }
+    },
+    "Server: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu: %@"
+          }
+        }
+      }
+    },
+    "Session limit" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oturum limiti"
+          }
+        }
+      }
+    },
+    "Settings…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ayarlar…"
+          }
+        }
+      }
+    },
+    "SHA-256 fingerprint (optional)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SHA-256 parmak izi (isteğe bağlı)"
+          }
+        }
+      }
+    },
+    "Share “%@”" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” Profilini Paylaş"
+          }
+        }
+      }
+    },
+    "Share…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paylaş…"
+          }
+        }
+      }
+    },
+    "Shortcuts" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kestirmeler"
+          }
+        }
+      }
+    },
+    "Shortcuts work in every app while PassTunnel is running." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel çalışırken kestirmeler her uygulamada çalışır."
+          }
+        }
+      }
+    },
+    "Show in Dock" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dock’ta göster"
+          }
+        }
+      }
+    },
+    "Show in Finder" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Finder’da Göster"
+          }
+        }
+      }
+    },
+    "Show Licenses…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lisansları Göster…"
+          }
+        }
+      }
+    },
+    "Show lock symbol" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kilit simgesini göster"
+          }
+        }
+      }
+    },
+    "Show Log" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Günlüğü Göster"
+          }
+        }
+      }
+    },
+    "Show log" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Günlüğü göster"
+          }
+        }
+      }
+    },
+    "Show or set the default profile." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Varsayılan profili gösterir ya da ayarlar."
+          }
+        }
+      }
+    },
+    "Show the copy PassTunnel uses" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel’ın kullandığı kopyayı göster"
+          }
+        }
+      }
+    },
+    "Show the profile in the menu bar only while it is active." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profili menü çubuğunda yalnızca etkinken gösterir."
+          }
+        }
+      }
+    },
+    "Show the settings of a profile." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir profilin ayarlarını gösterir."
+          }
+        }
+      }
+    },
+    "Show the state of all profiles, or of one (exit code 3 when not connected)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tüm profillerin ya da tek bir profilin durumunu gösterir (bağlı değilse çıkış kodu 3)."
+          }
+        }
+      }
+    },
+    "Show, install or remove the privileged helper." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ayrıcalıklı yardımcıyı gösterir, yükler ya da kaldırır."
+          }
+        }
+      }
+    },
+    "Sign-in" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oturum açma"
+          }
+        }
+      }
+    },
+    "Signing in…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oturum açılıyor…"
+          }
+        }
+      }
+    },
+    "Soft" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yumuşak"
+          }
+        }
+      }
+    },
+    "Something went wrong" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir sorun oluştu"
+          }
+        }
+      }
+    },
+    "Source Code" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kaynak Kodu"
+          }
+        }
+      }
+    },
+    "Start from what your IT team gave you. You can add more profiles at any time with the + button." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "BT ekibinizin size verdiği dosyayla başlayın. + düğmesiyle istediğiniz zaman başka profiller ekleyebilirsiniz."
+          }
+        }
+      }
+    },
+    "Start PassTunnel at login" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oturum açıldığında PassTunnel’ı başlat"
+          }
+        }
+      }
+    },
+    "Starting…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Başlatılıyor…"
+          }
+        }
+      }
+    },
+    "Starts quietly in the menu bar, without opening the window." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pencereyi açmadan, sessizce menü çubuğunda başlar."
+          }
+        }
+      }
+    },
+    "Status at a glance in the menu bar, with alerts when a VPN drops." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Durum bir bakışta menü çubuğunda; VPN koptuğunda uyarı alırsınız."
+          }
+        }
+      }
+    },
+    "Step %lld of %lld" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adım %1$lld/%2$lld"
+          }
+        }
+      }
+    },
+    "System" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sistem"
+          }
+        }
+      }
+    },
+    "Template" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Şablon"
+          }
+        }
+      }
+    },
+    "Test" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Test Et"
+          }
+        }
+      }
+    },
+    "Testing…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Test ediliyor…"
+          }
+        }
+      }
+    },
+    "The clipboard does not contain an image. Copy a screenshot of the QR code first." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Panoda görüntü yok. Önce QR kodunun ekran görüntüsünü kopyalayın."
+          }
+        }
+      }
+    },
+    "The code belongs to a VPN profile. Add or import the VPN, then add its code." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kod bir VPN profiline aittir. Önce VPN’i ekleyin ya da içe aktarın, sonra kodunu ekleyin."
+          }
+        }
+      }
+    },
+    "The code is added when you save the profile." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kod, profili kaydettiğinizde eklenir."
+          }
+        }
+      }
+    },
+    "The code is joined to the password and sent as one password, in the format below." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kod parolaya eklenir ve aşağıdaki biçimde tek bir parola olarak gönderilir."
+          }
+        }
+      }
+    },
+    "The code is sent as the answer to the server’s challenge prompt (static-challenge), not inside the password." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kod parolanın içinde değil, sunucunun sorgusuna (static-challenge) yanıt olarak gönderilir."
+          }
+        }
+      }
+    },
+    "The code is sent in the gateway’s own one-time code field, after the password." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kod, paroladan sonra ağ geçidinin kendi tek kullanımlık kod alanında gönderilir."
+          }
+        }
+      }
+    },
+    "The code template is not valid: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kod şablonu geçerli değil: %@"
+          }
+        }
+      }
+    },
+    "The configuration could not be imported." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yapılandırma içe aktarılamadı."
+          }
+        }
+      }
+    },
+    "The connection attempt was cancelled." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlantı denemesi iptal edildi."
+          }
+        }
+      }
+    },
+    "The connection dropped unexpectedly." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlantı beklenmedik şekilde koptu."
+          }
+        }
+      }
+    },
+    "The connection dropped unexpectedly. Reconnecting…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlantı beklenmedik şekilde koptu. Yeniden bağlanıyor…"
+          }
+        }
+      }
+    },
+    "The connection is back." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlantı geri geldi."
+          }
+        }
+      }
+    },
+    "the connection was interrupted" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "bağlantı kesildi"
+          }
+        }
+      }
+    },
+    "the connection was refused (is this a properly signed build?)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "bağlantı reddedildi (bu sürüm doğru imzalanmış mı?)"
+          }
+        }
+      }
+    },
+    "The file contains the profile’s settings and VPN configuration. It does not contain your username, password or one-time code secret." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dosya profilin ayarlarını ve VPN yapılandırmasını içerir. Kullanıcı adınızı, parolanızı ya da tek kullanımlık kod gizli anahtarınızı içermez."
+          }
+        }
+      }
+    },
+    "The file “%@” could not be read or is damaged." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” dosyası okunamadı ya da bozuk."
+          }
+        }
+      }
+    },
+    "The file “%@” is too large." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” dosyası çok büyük."
+          }
+        }
+      }
+    },
+    "The gateway %@ presented a certificate with this SHA-256 fingerprint:\n\n%@\n\nTrust it only if it matches the fingerprint your administrator gave you." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ ağ geçidi bu SHA-256 parmak izine sahip bir sertifika sundu:\n\n%2$@\n\nYalnızca yöneticinizin verdiği parmak iziyle eşleşiyorsa güvenin."
+          }
+        }
+      }
+    },
+    "The gateway did not answer in time." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ağ geçidi zamanında yanıt vermedi."
+          }
+        }
+      }
+    },
+    "The gateway did not present a certificate." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ağ geçidi bir sertifika sunmadı."
+          }
+        }
+      }
+    },
+    "The health check host can be reached again." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sağlık kontrolü sunucusuna yeniden ulaşılabiliyor."
+          }
+        }
+      }
+    },
+    "The helper is installed and running." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı yüklü ve çalışıyor."
+          }
+        }
+      }
+    },
+    "The helper is not ready" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı hazır değil"
+          }
+        }
+      }
+    },
+    "The helper was removed." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı kaldırıldı."
+          }
+        }
+      }
+    },
+    "The image could not be read." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Görüntü okunamadı."
+          }
+        }
+      }
+    },
+    "The new configuration replaces the current one when you save." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kaydettiğinizde yeni yapılandırma mevcut olanın yerini alır."
+          }
+        }
+      }
+    },
+    "The OpenVPN configuration contains settings PassTunnel does not allow for security reasons:\n%@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OpenVPN yapılandırması, PassTunnel’ın güvenlik nedeniyle izin vermediği ayarlar içeriyor:\n%@"
+          }
+        }
+      }
+    },
+    "The OpenVPN configuration refers to “%@”, which is missing or cannot be embedded. Keep the referenced files next to the .ovpn file." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OpenVPN yapılandırması “%@” dosyasına başvuruyor, ancak bu dosya eksik ya da gömülemiyor. Başvurulan dosyaları .ovpn dosyasının yanında tutun."
+          }
+        }
+      }
+    },
+    "The OpenVPN management interface did not answer in time." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OpenVPN yönetim arayüzü zamanında yanıt vermedi."
+          }
+        }
+      }
+    },
+    "The OpenVPN management interface is in use by another client." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OpenVPN yönetim arayüzü başka bir istemci tarafından kullanılıyor."
+          }
+        }
+      }
+    },
+    "The OpenVPN management socket path is too long: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OpenVPN yönetim soketi yolu çok uzun: %@"
+          }
+        }
+      }
+    },
+    "The otpauth link is not valid: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "otpauth bağlantısı geçerli değil: %@"
+          }
+        }
+      }
+    },
+    "The PassTunnel helper could not start the connection: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel yardımcısı bağlantıyı başlatamadı: %@"
+          }
+        }
+      }
+    },
+    "The PassTunnel helper did not answer within %lld seconds." : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The PassTunnel helper did not answer within %lld second."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The PassTunnel helper did not answer within %lld seconds."
+                }
+              }
+            }
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel yardımcısı %lld saniye içinde yanıt vermedi."
+          }
+        }
+      }
+    },
+    "The PassTunnel helper is missing from the app bundle. Reinstall PassTunnel." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel yardımcısı uygulama paketinde yok. PassTunnel’ı yeniden yükleyin."
+          }
+        }
+      }
+    },
+    "The PassTunnel helper is not installed. Install it from the app’s setup screen." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel yardımcısı yüklü değil. Uygulamanın kurulum ekranından yükleyin."
+          }
+        }
+      }
+    },
+    "The PassTunnel helper is out of date (version %lld, expected %lld). Reinstall it." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel yardımcısı güncel değil (sürüm %1$lld, beklenen %2$lld). Yeniden yükleyin."
+          }
+        }
+      }
+    },
+    "The PassTunnel helper needs your approval in System Settings → General → Login Items." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel yardımcısı Sistem Ayarları → Genel → Giriş Öğeleri bölümünde onayınızı bekliyor."
+          }
+        }
+      }
+    },
+    "The PassTunnel helper sent an invalid response." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel yardımcısı geçersiz bir yanıt gönderdi."
+          }
+        }
+      }
+    },
+    "The password is now taken from the Keychain." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parola artık Anahtar Zinciri’nden alınıyor."
+          }
+        }
+      }
+    },
+    "The passwords do not match." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parolalar eşleşmiyor."
+          }
+        }
+      }
+    },
+    "the period is not valid" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "süre geçerli değil"
+          }
+        }
+      }
+    },
+    "The port must be between 1 and 65535." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Port 1 ile 65535 arasında olmalı."
+          }
+        }
+      }
+    },
+    "The profile could not be shared." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profil paylaşılamadı."
+          }
+        }
+      }
+    },
+    "The profile name cannot be empty." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profil adı boş olamaz."
+          }
+        }
+      }
+    },
+    "The profile, its configuration and its Keychain items are removed. This cannot be undone." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profil, yapılandırması ve Anahtar Zinciri öğeleri silinir. Bu işlem geri alınamaz."
+          }
+        }
+      }
+    },
+    "The QR code does not contain an otpauth:// link." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "QR kodu bir otpauth:// bağlantısı içermiyor."
+          }
+        }
+      }
+    },
+    "the secret is missing" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "gizli anahtar eksik"
+          }
+        }
+      }
+    },
+    "The server rejected the sign-in. Check the user name, password and one-time code." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu oturum açmayı reddetti. Kullanıcı adını, parolayı ve tek kullanımlık kodu denetleyin."
+          }
+        }
+      }
+    },
+    "The session limit cannot be negative." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oturum limiti negatif olamaz."
+          }
+        }
+      }
+    },
+    "The session limit is reached in %lld minutes." : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The session limit is reached in %lld minute."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The session limit is reached in %lld minutes."
+                }
+              }
+            }
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oturum limitine %lld dakika kaldı."
+          }
+        }
+      }
+    },
+    "The shared profile could not be imported." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paylaşılan profil içe aktarılamadı."
+          }
+        }
+      }
+    },
+    "The TOTP secret is not valid Base32 or hex." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TOTP gizli anahtarı geçerli bir Base32 ya da onaltılık değer değil."
+          }
+        }
+      }
+    },
+    "The value of “%@” is not valid." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” değeri geçerli değil."
+          }
+        }
+      }
+    },
+    "The VPN connection could not be established. See the log for details." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VPN bağlantısı kurulamadı. Ayrıntılar için günlüğe bakın."
+          }
+        }
+      }
+    },
+    "The VPN did not connect within %lld seconds." : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The VPN did not connect within %lld second."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The VPN did not connect within %lld seconds."
+                }
+              }
+            }
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VPN %lld saniye içinde bağlanmadı."
+          }
+        }
+      }
+    },
+    "The VPN is connected, but the health check host cannot be reached." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VPN bağlı, ancak sağlık kontrolü sunucusuna ulaşılamıyor."
+          }
+        }
+      }
+    },
+    "There are no profiles yet. Add one with “passtunnel import FILE”." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Henüz profil yok. “passtunnel import DOSYA” ile ekleyin."
+          }
+        }
+      }
+    },
+    "There is no log for this profile yet." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu profilin henüz günlüğü yok."
+          }
+        }
+      }
+    },
+    "This action is not available for the VPN type of profile “%@”." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu işlem “%@” profilinin VPN türü için kullanılamaz."
+          }
+        }
+      }
+    },
+    "This is an authenticator export code with several accounts. Export a single account, or use the QR code your VPN provider showed when you set up the code." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu, birden çok hesap içeren bir doğrulama uygulaması dışa aktarma kodu. Tek bir hesabı dışa aktarın ya da kodu kurarken VPN sağlayıcınızın gösterdiği QR kodunu kullanın."
+          }
+        }
+      }
+    },
+    "This is not a PassTunnel profile file, or it was made by a newer version." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu bir PassTunnel profil dosyası değil ya da daha yeni bir sürümle oluşturulmuş."
+          }
+        }
+      }
+    },
+    "This profile asks for: %@. Run the command in a terminal." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu profil şunları soruyor: %@. Komutu bir terminalde çalıştırın."
+          }
+        }
+      }
+    },
+    "This profile has no OpenVPN configuration file. Choose one in the profile editor." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu profilin OpenVPN yapılandırma dosyası yok. Profil düzenleyicisinden bir dosya seçin."
+          }
+        }
+      }
+    },
+    "This profile has no server address. Enter one in the profile editor." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu profilin sunucu adresi yok. Profil düzenleyicisinden bir adres girin."
+          }
+        }
+      }
+    },
+    "Toggle Default Profile" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Varsayılan Profile Bağlan ya da Bağlantıyı Kes"
+          }
+        }
+      }
+    },
+    "Tool information is not available in this build." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu sürümde araç bilgisi yok."
+          }
+        }
+      }
+    },
+    "TOTP secret or otpauth:// link for %@: " : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ için TOTP gizli anahtarı ya da otpauth:// bağlantısı: "
+          }
+        }
+      }
+    },
+    "TOTP secret saved in the Keychain." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TOTP gizli anahtarı Anahtar Zinciri’ne kaydedildi."
+          }
+        }
+      }
+    },
+    "Trust Certificate" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sertifikaya Güven"
+          }
+        }
+      }
+    },
+    "Trust this certificate?" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu sertifikaya güvenilsin mi?"
+          }
+        }
+      }
+    },
+    "Trusted certificate" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Güvenilen sertifika"
+          }
+        }
+      }
+    },
+    "Turn on PassTunnel in System Settings → General → Login Items." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sistem Ayarları → Genel → Giriş Öğeleri bölümünde PassTunnel’ı açın."
+          }
+        }
+      }
+    },
+    "Turn on PassTunnel in System Settings → Privacy & Security → Accessibility." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sistem Ayarları → Gizlilik ve Güvenlik → Erişilebilirlik bölümünde PassTunnel’ı açın."
+          }
+        }
+      }
+    },
+    "Turn on PassTunnel in System Settings → Privacy & Security → Accessibility. Until then, the code is copied instead." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sistem Ayarları → Gizlilik ve Güvenlik → Erişilebilirlik bölümünde PassTunnel’ı açın. O zamana kadar kod yazılmak yerine kopyalanır."
+          }
+        }
+      }
+    },
+    "Type" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tür"
+          }
+        }
+      }
+    },
+    "Type Code for %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ Kodunu Yaz"
+          }
+        }
+      }
+    },
+    "Type it again" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeniden yazın"
+          }
+        }
+      }
+    },
+    "Type the code for me" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kodu benim yerime yaz"
+          }
+        }
+      }
+    },
+    "Type the current code" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geçerli kodu yaz"
+          }
+        }
+      }
+    },
+    "Type the password again to confirm it." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Onaylamak için parolayı yeniden yazın."
+          }
+        }
+      }
+    },
+    "Unexpected argument “%@”." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beklenmeyen argüman “%@”."
+          }
+        }
+      }
+    },
+    "Unexpected disconnects" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beklenmedik kopmalar"
+          }
+        }
+      }
+    },
+    "Unexpected reply from the OpenVPN management interface: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OpenVPN yönetim arayüzünden beklenmeyen yanıt: %@"
+          }
+        }
+      }
+    },
+    "unknown code type “%@”" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "bilinmeyen kod türü “%@”"
+          }
+        }
+      }
+    },
+    "Unknown command “%@”." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilinmeyen komut “%@”."
+          }
+        }
+      }
+    },
+    "Unknown helper action “%@” (use status, install or uninstall)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilinmeyen yardımcı işlemi “%@” (status, install ya da uninstall kullanın)."
+          }
+        }
+      }
+    },
+    "Unknown key “%@”." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilinmeyen anahtar “%@”."
+          }
+        }
+      }
+    },
+    "Unknown option “%@”." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilinmeyen seçenek “%@”."
+          }
+        }
+      }
+    },
+    "unknown placeholder %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "bilinmeyen yer tutucu %@"
+          }
+        }
+      }
+    },
+    "Unknown secret “%@” (use password or totp)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilinmeyen gizli bilgi “%@” (password ya da totp kullanın)."
+          }
+        }
+      }
+    },
+    "Unknown shell “%@” (use zsh, bash or fish)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilinmeyen kabuk “%@” (zsh, bash ya da fish kullanın)."
+          }
+        }
+      }
+    },
+    "Unknown VPN type “%@” (use openvpn or forti)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilinmeyen VPN türü “%@” (openvpn ya da forti kullanın)."
+          }
+        }
+      }
+    },
+    "Unpinned “%@”." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” sabitlemesi kaldırıldı."
+          }
+        }
+      }
+    },
+    "unsupported algorithm “%@”" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "desteklenmeyen algoritma “%@”"
+          }
+        }
+      }
+    },
+    "Updates" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Güncellemeler"
+          }
+        }
+      }
+    },
+    "Usage:" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kullanım:"
+          }
+        }
+      }
+    },
+    "Use an address (10.0.0.5) or host:port (intranet.example.com:443)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir adres (10.0.0.5) ya da sunucu:port (intranet.example.com:443) kullanın."
+          }
+        }
+      }
+    },
+    "Use either a profile or --all, not both." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ya bir profil ya da --all verin, ikisini birden değil."
+          }
+        }
+      }
+    },
+    "Use the VPN’s DNS servers" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VPN’in DNS sunucularını kullan"
+          }
+        }
+      }
+    },
+    "Use {password} and {otp}; any other text is sent as typed." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{password} ve {otp} kullanın; diğer metinler yazıldığı gibi gönderilir."
+          }
+        }
+      }
+    },
+    "Use “passtunnel connect”, “passtunnel code” and more from Terminal." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal’den “passtunnel connect”, “passtunnel code” ve diğer komutları kullanın."
+          }
+        }
+      }
+    },
+    "user name" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "kullanıcı adı"
+          }
+        }
+      }
+    },
+    "User name [%@]: " : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kullanıcı adı [%@]: "
+          }
+        }
+      }
+    },
+    "User name: " : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kullanıcı adı: "
+          }
+        }
+      }
+    },
+    "Username" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kullanıcı adı"
+          }
+        }
+      }
+    },
+    "Version %@ (%@)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sürüm %1$@ (%2$@)"
+          }
+        }
+      }
+    },
+    "Vivid" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Canlı"
+          }
+        }
+      }
+    },
+    "VPN profile" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VPN profili"
+          }
+        }
+      }
+    },
+    "VPN tools need administrator rights to create the tunnel. The helper only runs the signed copies of OpenVPN and openfortivpn inside PassTunnel, never anything else." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VPN araçlarının tüneli kurmak için yönetici yetkisine ihtiyacı var. Yardımcı yalnızca PassTunnel’ın içindeki imzalı OpenVPN ve openfortivpn kopyalarını çalıştırır, başka hiçbir şeyi değil."
+          }
+        }
+      }
+    },
+    "Waiting for a fresh code…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni kod bekleniyor…"
+          }
+        }
+      }
+    },
+    "Waiting for your approval" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Onayınız bekleniyor"
+          }
+        }
+      }
+    },
+    "When a connected VPN stops reaching its health check host." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlı bir VPN sağlık kontrolü sunucusuna ulaşamadığında."
+          }
+        }
+      }
+    },
+    "When a connection drops without you disconnecting it, and when it comes back." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siz kesmeden bir bağlantı koptuğunda ve geri geldiğinde."
+          }
+        }
+      }
+    },
+    "Which VPN is this code for?" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu kod hangi VPN için?"
+          }
+        }
+      }
+    },
+    "With the password" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parolayla birlikte"
+          }
+        }
+      }
+    },
+    "With the password “secret” and the code “123456”." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“secret” parolası ve “123456” koduyla."
+          }
+        }
+      }
+    },
+    "Without arguments, passtunnel prints the status of all profiles." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Argüman verilmezse passtunnel tüm profillerin durumunu yazdırır."
+          }
+        }
+      }
+    },
+    "Work VPN" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "İş VPN’i"
+          }
+        }
+      }
+    },
+    "y" : {
+      "comment" : "Short form of yes in y/N prompts",
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "e"
+          }
+        }
+      }
+    },
+    "You can also drop .ovpn, .passtunnel or QR code images here." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : ".ovpn, .passtunnel dosyalarını ya da QR kodu görüntülerini buraya da bırakabilirsiniz."
+          }
+        }
+      }
+    },
+    "You can turn it on later in Settings → General." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daha sonra Ayarlar → Genel bölümünden açabilirsiniz."
+          }
+        }
+      }
+    },
+    "“%@” is not a valid profile identifier." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” geçerli bir profil kimliği değil."
+          }
+        }
+      }
+    },
+    "“%@” is not in key=value form." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” anahtar=değer biçiminde değil."
+          }
+        }
+      }
+    }
+  },
   "version" : "1.0"
 }

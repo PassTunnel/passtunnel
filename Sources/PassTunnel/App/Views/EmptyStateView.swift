@@ -30,10 +30,10 @@ struct EmptyStateView: View {
                 HStack(spacing: 6) {
                     Text(String(localized: "Or start from scratch:"))
                         .foregroundStyle(.secondary)
-                    Button(String(localized: "OpenVPN")) { model.newProfile(.openvpn) }
+                    Button(VPNType.openvpn.displayName) { model.newProfile(.openvpn) }
                         .buttonStyle(.link)
                     Text(verbatim: "·").foregroundStyle(.tertiary)
-                    Button(String(localized: "FortiGate")) { model.newProfile(.forti) }
+                    Button(VPNType.forti.displayName) { model.newProfile(.forti) }
                         .buttonStyle(.link)
                 }
                 .font(.callout)

@@ -32,8 +32,8 @@ extension AppModel {
 extension VPNType {
     var displayName: String {
         switch self {
-        case .openvpn: return String(localized: "OpenVPN")
-        case .forti: return String(localized: "FortiGate")
+        case .openvpn: return "OpenVPN"   // product names stay untranslated
+        case .forti: return "FortiGate"
         }
     }
 
@@ -132,7 +132,7 @@ struct CountdownRing: View {
                 .trim(from: 0, to: fraction)
                 .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-            Text("\(Int(remaining.rounded(.up)))")
+            Text(verbatim: "\(Int(remaining.rounded(.up)))")
                 .font(.system(size: size * 0.42, weight: .semibold, design: .rounded).monospacedDigit())
                 .foregroundStyle(remaining <= 5 ? Color.red : Color.secondary)
         }

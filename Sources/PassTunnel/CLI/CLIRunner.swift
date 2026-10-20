@@ -216,7 +216,7 @@ final class CLIRunner {
         let needs = p.needs
         guard !needs.isEmpty else { return [:] }
         guard CLITerminal.stdinIsTTY else {
-            let list = needs.map(\.rawValue).joined(separator: ", ")
+            let list = needs.map(\.displayName).joined(separator: ", ")
             throw CLIFailure(String(localized: "This profile asks for: \(list). Run the command in a terminal."))
         }
         var given: [CredentialField: String] = [:]

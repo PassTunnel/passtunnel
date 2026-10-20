@@ -75,7 +75,8 @@ enum CLITerminal {
 
     /// y/N question on the terminal.
     static func confirm(_ question: String) -> Bool {
-        guard let answer = ask(question + " [y/N] ") else { return false }
+        let choices = String(localized: "[y/N]", comment: "Yes/no choices after a question; the capital letter is the default (no)")
+        guard let answer = ask(question + " " + choices + " ") else { return false }
         let a = answer.trimmingCharacters(in: .whitespaces).lowercased()
         let yes = String(localized: "y", comment: "Short form of yes in y/N prompts").lowercased()
         return a == "y" || a == "yes" || a == yes

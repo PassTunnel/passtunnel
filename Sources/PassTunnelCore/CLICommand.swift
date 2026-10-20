@@ -66,6 +66,26 @@ public enum CLICommand: Equatable {
         commandNames.contains(first) || aliases[first] != nil || globalFlags.contains(first)
     }
 
+    /// Removes Foundation's argument-domain pairs such as `-AppleLanguages '(tr)'` or `-AppleLocale tr_TR`.
+    /// They still take effect through `UserDefaults` (and so pick the CLI language) but are not
+    /// commands or options of `passtunnel`.
+    public static func strippingSystemArguments(_ args: [String]) -> [String] {
+        var out: [String] = []
+        var i = args.startIndex
+        while i < args.endIndex {
+            let arg = args[i]
+            let isDefaultsKey = (arg.hasPrefix("-Apple") || arg.hasPrefix("-NS")) && arg.count > 3
+                && arg.dropFirst().allSatisfy { $0.isLetter || $0.isNumber || $0 == "_" }
+            if isDefaultsKey && args.index(after: i) < args.endIndex {
+                i = args.index(i, offsetBy: 2)
+                continue
+            }
+            out.append(arg)
+            i = args.index(after: i)
+        }
+        return out
+    }
+
     /// Parses the arguments after the program name. No arguments means `status`.
     public static func parse(_ args: [String]) throws -> CLICommand {
         guard let first = args.first else { return .status(id: nil, json: false) }

@@ -11,13 +11,16 @@ public enum ManagementError: Error, Equatable, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .pathTooLong(let p): return "Management socket path is too long: \(p)"
-        case .connectFailed(let p, let e): return "Cannot connect to \(p): \(String(cString: strerror(e)))"
-        case .busy: return "The OpenVPN management interface is in use by another client."
-        case .timeout: return "The OpenVPN management interface did not answer in time."
-        case .closed: return "OpenVPN closed the management connection."
-        case .commandFailed(let m): return "OpenVPN: \(m)"
-        case .unexpectedReply(let r): return "Unexpected management reply: \(r)"
+        case .pathTooLong(let p):
+            return String(localized: "The OpenVPN management socket path is too long: \(p)")
+        case .connectFailed(let p, let e):
+            let reason = String(cString: strerror(e))
+            return String(localized: "Could not connect to \(p): \(reason)")
+        case .busy: return String(localized: "The OpenVPN management interface is in use by another client.")
+        case .timeout: return String(localized: "The OpenVPN management interface did not answer in time.")
+        case .closed: return String(localized: "OpenVPN closed the management connection.")
+        case .commandFailed(let m): return String(localized: "OpenVPN: \(m)")
+        case .unexpectedReply(let r): return String(localized: "Unexpected reply from the OpenVPN management interface: \(r)")
         }
     }
 }

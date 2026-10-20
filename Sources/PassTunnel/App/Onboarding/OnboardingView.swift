@@ -248,6 +248,8 @@ private struct HelperStep: View {
 }
 
 private struct FirstProfileStep: View {
+    @EnvironmentObject private var model: AppModel
+
     var body: some View {
         VStack(spacing: 22) {
             StepHeader(title: String(localized: "Add your first VPN"),
@@ -255,7 +257,17 @@ private struct FirstProfileStep: View {
                 .padding(.top, 10)
             ImportOptionsView()
                 .frame(maxWidth: 420)
+            Toggle(String(localized: "Start PassTunnel at login"), isOn: startAtLogin)
+                .toggleStyle(.checkbox)
+                .help(String(localized: "Starts quietly in the menu bar, without opening the window."))
+                .frame(maxWidth: 420, alignment: .leading)
             Spacer(minLength: 0)
         }
+        // The choice is applied when onboarding closes (Done, or the first import), only once seen here.
+        .onAppear { if model.onboardingStartAtLogin == nil { model.onboardingStartAtLogin = true } }
+    }
+
+    private var startAtLogin: Binding<Bool> {
+        Binding(get: { model.onboardingStartAtLogin ?? true }, set: { model.onboardingStartAtLogin = $0 })
     }
 }

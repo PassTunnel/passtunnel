@@ -13,6 +13,7 @@ enum PassTunnelCLI {
     /// CLI mode when invoked through the `passtunnel` symlink or with a known command as the first argument.
     static func isInvocation(_ args: [String]) -> Bool {
         if let first = args.first, (first as NSString).lastPathComponent == "passtunnel" { return true }
+        let args = CLICommand.strippingSystemArguments(args)
         return args.count > 1 && CLICommand.isCommand(args[1])
     }
 
@@ -20,7 +21,7 @@ enum PassTunnelCLI {
     static func run(_ args: [String]) -> Int32 {
         let command: CLICommand
         do {
-            command = try CLICommand.parse(Array(args.dropFirst()))
+            command = try CLICommand.parse(CLICommand.strippingSystemArguments(Array(args.dropFirst())))
         } catch let e as CLIUsageError {
             CLITerminal.fail(e.message)
             CLITerminal.err(CLIHelp.usage(for: e.command))

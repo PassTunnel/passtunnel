@@ -12,6 +12,15 @@ final class CLICommandTests: XCTestCase {
         }
     }
 
+    func testFoundationLanguageArgumentsAreIgnored() throws {
+        let args = CLICommand.strippingSystemArguments(["help", "-AppleLanguages", "(tr)", "-AppleLocale", "tr_TR"])
+        XCTAssertEqual(args, ["help"])
+        XCTAssertEqual(try CLICommand.parse(CLICommand.strippingSystemArguments(["-AppleLanguages", "(tr)", "list", "--json"])),
+                       .list(json: true, quiet: false))
+        // Ordinary options and a trailing key without a value stay.
+        XCTAssertEqual(CLICommand.strippingSystemArguments(["code", "-c", "-AppleLanguages"]), ["code", "-c", "-AppleLanguages"])
+    }
+
     func testStatusAndDefaults() throws {
         XCTAssertEqual(try CLICommand.parse([]), .status(id: nil, json: false))
         XCTAssertEqual(try parse("status"), .status(id: nil, json: false))

@@ -154,6 +154,14 @@ English source strings; Turkish in `Sources/PassTunnel/Resources/Localizable.xcs
 (build-app.sh compiles it into the bundle). All user-facing strings (app, CLI, core errors, helper
 client errors) must have Turkish translations.
 
+- Lookups use `Bundle.main` (Core included), so the language is the user's `Locale.preferredLanguages`
+  (or the per-app language in System Settings). The CLI follows the same rule; started through the
+  `passtunnel` symlink it re-executes the binary inside the app so `Bundle.main` is the app bundle.
+  `-AppleLanguages '(tr)'` works for both and is ignored by the CLI parser.
+- SwiftPM does not sync the catalog: add new keys by hand. `LocalizationTests` fails when a localized
+  literal in the sources is missing from the catalog, lacks a Turkish value, or changes placeholders.
+- `PASSTUNNEL_RENDER_LANG=tr` renders the `PASSTUNNEL_RENDER` screenshots in Turkish.
+
 ## Content rules
 
 No company or customer names and no real hostnames — examples use Acme, vpn.example.com, alice.

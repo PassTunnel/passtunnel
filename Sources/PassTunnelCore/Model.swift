@@ -16,7 +16,18 @@ public enum OTPTemplatePreset: String, CaseIterable {
 
 public enum BadgeStyle: String, Codable, CaseIterable { case letter, icon, both }
 public enum TOTPAlgorithm: String, Codable, CaseIterable { case sha1, sha256, sha512 }
-public enum CredentialField: String, Codable { case username, password, otp }
+public enum CredentialField: String, Codable {
+    case username, password, otp
+
+    /// Localized name, e.g. for "This profile asks for: …".
+    public var displayName: String {
+        switch self {
+        case .username: return String(localized: "user name")
+        case .password: return String(localized: "password")
+        case .otp: return String(localized: "one-time code")
+        }
+    }
+}
 
 public struct TOTPParams: Codable, Equatable {
     public var digits = 6

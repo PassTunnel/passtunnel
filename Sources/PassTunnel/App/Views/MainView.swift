@@ -285,27 +285,52 @@ struct PrimaryButton: View {
             switch model.state(profile.id) {
             case .disconnected:
                 Button { model.connect(profile) } label: {
-                    Text(String(localized: "Connect")).frame(minWidth: 78)
+                    uniformWidth(Text(String(localized: "Connect")))
                 }
                 .buttonStyle(.borderedProminent)
             case .connecting:
                 Button { model.disconnect(profile) } label: {
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 12, height: 12)
-                        Text(String(localized: "Cancel"))
-                    }
-                    .frame(minWidth: 78)
+                    uniformWidth(cancelLabel)
                 }
                 .buttonStyle(.bordered)
             case .connected:
                 Button { model.disconnect(profile) } label: {
-                    Text(String(localized: "Disconnect")).frame(minWidth: 78)
+                    uniformWidth(Text(String(localized: "Disconnect")))
                 }
                 .buttonStyle(.bordered)
             }
         }
         .controlSize(.regular)
         .accessibilityHint(Text(profile.name))
+    }
+
+    private var cancelLabel: some View {
+        HStack(spacing: 6) {
+            ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 12, height: 12)
+            Text(String(localized: "Cancel"))
+        }
+    }
+
+    /// Every state's label takes the width of the widest one, so codes line up across rows in
+    /// any language ("Bağlantıyı Kes" is much wider than "Bağlan").
+    private func uniformWidth<Label: View>(_ label: Label) -> some View {
+        ZStack {
+            Text(String(localized: "Connect")).hidden()
+            Text(String(localized: "Disconnect")).hidden()
+            cancelLabel.hidden()
+            label
+        }
+        .frame(minWidth: 78)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: labelText))
+    }
+
+    private var labelText: String {
+        switch model.state(profile.id) {
+        case .disconnected: return String(localized: "Connect")
+        case .connecting: return String(localized: "Cancel")
+        case .connected: return String(localized: "Disconnect")
+        }
     }
 }
 
