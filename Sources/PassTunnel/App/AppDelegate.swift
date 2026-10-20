@@ -57,6 +57,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DistributedNotificationCenter.default().publisher(for: Self.showMainWindowNotification)
             .sink { [weak self] _ in self?.showMainWindow() }
             .store(in: &bag)
+        // `passtunnel helper install|uninstall`: the CLI cannot register the helper itself.
+        DistributedNotificationCenter.default().publisher(for: HelperHandoff.notification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] note in
+                guard let raw = note.object as? String, let action = HelperHandoff(rawValue: raw) else { return }
+                self?.handleHelperHandoff(action)
+            }
+            .store(in: &bag)
+        if let action = HelperHandoff.from(arguments: CommandLine.arguments) {
+            DispatchQueue.main.async { self.handleHelperHandoff(action) }
+        }
 
         if let model = AppModel.shared {
             apply(model.prefs)
@@ -133,6 +144,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let showDock = hasWindow || (AppModel.shared?.prefs.showInDock ?? false)
         let wanted: NSApplication.ActivationPolicy = showDock ? .regular : .accessory
         if NSApp.activationPolicy() != wanted { NSApp.setActivationPolicy(wanted) }
+    }
+
+    /// Shows Settings → Helper, where the pending action is started (install) or confirmed (removal).
+    func handleHelperHandoff(_ action: HelperHandoff) {
+        guard let model = AppModel.shared else { return }
+        model.settingsTab = .helper
+        model.pendingHelperAction = action
+        showSettings()
     }
 
     // MARK: preferences

@@ -399,7 +399,8 @@ public final class ConnectionManager: ObservableObject {
         setState(id, .connecting(Phase.preparing))
 
         do {
-            var p = try store.get(id)
+            // Always the profile as stored now (the CLI may have changed it), never a cached copy.
+            let p = try store.get(id)
             let creds = try resolveCredentials(p, given: given)
 
             var otp = creds.otp
@@ -440,8 +441,8 @@ public final class ConnectionManager: ObservableObject {
             connectedAt[id] = since
             healthFailures[id] = 0
             if p.username.trimmingCharacters(in: .whitespaces).isEmpty, let u = creds.username, p.lastUsername != u {
-                p.lastUsername = u
-                try? store.save(p)
+                // Only this field: the profile may have been edited (CLI, editor) while connecting.
+                _ = try? store.update(id) { $0.lastUsername = u }
             }
         } catch {
             let cancelled = actionToken[id] != token

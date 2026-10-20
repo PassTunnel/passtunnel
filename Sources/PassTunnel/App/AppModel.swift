@@ -52,6 +52,8 @@ final class AppModel: ObservableObject {
     @Published var settingsTab: SettingsTab = .general
     @Published private(set) var droppedUnseen: Set<String> = []
     @Published private(set) var helperStatus: HelperStatus = .notRegistered
+    /// Set when the CLI asked the app to install or remove the helper; Settings → Helper consumes it.
+    @Published var pendingHelperAction: HelperHandoff?
 
     /// Render/preview overrides; when set, they replace the live connection data.
     var previewStates: [String: ConnectionState]?
@@ -64,6 +66,7 @@ final class AppModel: ObservableObject {
     private var bag = Set<AnyCancellable>()
     private var toastTask: Task<Void, Never>?
     private var reloadTimer: Timer?
+    private var watcher: ProfilesWatcher?
     var onPrefsChanged: ((Preferences, Preferences) -> Void)?
 
     static let onboardingKey = "PTOnboardingDone"
@@ -107,10 +110,20 @@ final class AppModel: ObservableObject {
                 }
             }
             .store(in: &bag)
+        // The CLI can change profiles, secrets and preferences while the app runs: reload when the
+        // files change, when the CLI says so (Keychain items), when the app becomes active, and
+        // every few seconds as a fallback.
+        watcher = ProfilesWatcher(paths: paths) { [weak self] in
+            MainActor.assumeIsolated { self?.reloadFromDisk() }
+        }
+        watcher?.start()
+        DistributedNotificationCenter.default().publisher(for: ProfileChangeSignal.name)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.reloadFromDisk() }
+            .store(in: &bag)
         NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
             .sink { [weak self] _ in self?.reloadFromDisk() }
             .store(in: &bag)
-        // The CLI can change profiles and preferences while the app runs.
         reloadTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.reloadFromDisk() }
         }
@@ -118,25 +131,54 @@ final class AppModel: ObservableObject {
 
     // MARK: data
 
+    /// Re-reads the profiles and their TOTP secrets. Cheap when nothing changed (no UI update),
+    /// so it is safe to call after the app's own writes.
     func reload() {
         let fresh = store.list()
-        if fresh != profiles { profiles = fresh }
-        secretCache.removeAll()
-        missingSecret.removeAll()
+        let secretsChanged = refreshSecrets(for: fresh)
+        if fresh != profiles {
+            profiles = fresh
+        } else if secretsChanged {
+            objectWillChange.send()
+        }
         if let sel = selection, !fresh.contains(where: { $0.id == sel }) { selection = nil }
     }
 
-    /// Picks up changes made by the CLI without discarding in-app edits.
+    /// Picks up changes made by the CLI (profiles, Keychain items, preferences). Editor sheets keep
+    /// their own copy, so in-app edits in progress are not discarded.
     func reloadFromDisk() {
-        let fresh = store.list()
-        if fresh != profiles {
-            profiles = fresh
-            secretCache.removeAll()
-            missingSecret.removeAll()
-        }
+        reload()
         let diskPrefs = Preferences.load(paths: paths)
         if diskPrefs != prefs { prefs = diskPrefs }
         refreshHelperStatus()
+    }
+
+    /// Rebuilds the TOTP secret cache from the Keychain; true when anything differs from before
+    /// (a secret saved, replaced or removed by the CLI).
+    @discardableResult
+    private func refreshSecrets(for list: [Profile]) -> Bool {
+        var cache: [String: Data] = [:]
+        var missing: Set<String> = []
+        for p in list where p.otpMode != .none {
+            if let raw = Secrets.get(p.id, .totp), let data = try? TOTP.decodeSecret(raw) {
+                cache[p.id] = data
+            } else {
+                missing.insert(p.id)
+            }
+        }
+        let changed = cache != secretCache || missing != missingSecret
+        secretCache = cache
+        missingSecret = missing
+        return changed
+    }
+
+    /// The profile as stored right now, or nil when it was deleted. Actions use this, never the
+    /// copy a view captured: the CLI may have changed the profile since. Refreshes the UI when the
+    /// stored version differs from the one shown.
+    func storedProfile(_ p: Profile) -> Profile? {
+        let fresh = try? store.get(p.id)
+        if fresh != profile(p.id) { reload() }
+        return fresh
     }
 
     func profile(_ id: String) -> Profile? { profiles.first { $0.id == id } }
@@ -231,10 +273,20 @@ final class AppModel: ObservableObject {
 
     func hasCode(_ p: Profile) -> Bool { p.otpMode == .totp && totpSecret(p) != nil }
 
-    /// Current code for profiles with a stored TOTP secret (also used for `.ask` profiles to prefill).
+    /// Current code for profiles with a stored TOTP secret (also used for `.ask` profiles to prefill),
+    /// for display. Uses the latest loaded settings even when the caller holds an older copy.
     func code(for p: Profile, at date: Date = Date()) -> (code: String, remaining: Int)? {
+        let p = previewStates == nil ? (profile(p.id) ?? p) : p
         guard p.otpMode != .none, let secret = totpSecret(p) else { return nil }
         return (TOTP.code(secret: secret, params: p.totp, at: date), TOTP.remaining(params: p.totp, at: date))
+    }
+
+    /// Code for an action (copy, type, connect sheet): computed from the stored profile and the
+    /// Keychain item as they are now, bypassing every cache.
+    func currentCode(for p: Profile, at date: Date = Date()) -> String? {
+        guard let stored = storedProfile(p), stored.otpMode != .none,
+              let raw = Secrets.get(stored.id, .totp), let secret = try? TOTP.decodeSecret(raw) else { return nil }
+        return TOTP.code(secret: secret, params: stored.totp, at: date)
     }
 
     func forgetSecrets(_ id: String) {
@@ -253,6 +305,7 @@ final class AppModel: ObservableObject {
 
     func connect(_ p: Profile) {
         droppedUnseen.remove(p.id)
+        guard let p = storedProfile(p) else { return showError(PTError.profileNotFound(p.id)) }
         let needs = p.needs
         if !needs.isEmpty {
             credentialRequest = CredentialRequest(profile: p, needs: needs)
@@ -261,11 +314,20 @@ final class AppModel: ObservableObject {
         connect(p, given: [:])
     }
 
+    /// `given` holds what the credential sheet asked for. The profile is re-read first; if it now
+    /// needs something that was not asked (changed by the CLI meanwhile), the sheet is shown again.
     func connect(_ p: Profile, given: [CredentialField: String]) {
+        guard let p = storedProfile(p) else { return showError(PTError.profileNotFound(p.id)) }
+        let unanswered = p.needs.filter { (given[$0] ?? "").trimmingCharacters(in: .whitespaces).isEmpty }
+        if !unanswered.isEmpty {
+            let request = CredentialRequest(profile: p, needs: p.needs)
+            // Let a sheet that is still closing go away first.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.credentialRequest = request }
+            return
+        }
         if let user = given[.username], !user.isEmpty, user != p.lastUsername {
-            var updated = p
-            updated.lastUsername = user
-            try? store.save(updated)
+            // Only this field: never write back a whole copy that may be older than the file.
+            _ = try? store.update(p.id) { $0.lastUsername = user }
             reload()
         }
         Task {
@@ -311,20 +373,21 @@ final class AppModel: ObservableObject {
     }
 
     func copyCode(_ p: Profile) {
-        guard let c = code(for: p, at: Date()) else {
+        guard let c = currentCode(for: p) else {
             showToast(String(localized: "No code available"), symbol: "exclamationmark.circle.fill")
             return
         }
-        Pasteboard.copy(c.code, concealed: true)
+        Pasteboard.copy(c, concealed: true)
         showToast(String(localized: "Code copied"))
     }
 
     func copyPasswordAndCode(_ p: Profile) {
+        guard let p = storedProfile(p) else { return showError(PTError.profileNotFound(p.id)) }
         guard let password = Secrets.get(p.id, .password) else {
             showToast(String(localized: "No password saved in Keychain"), symbol: "exclamationmark.circle.fill")
             return
         }
-        let otp = code(for: p, at: Date())?.code
+        let otp = currentCode(for: p)
         let composed = OTPComposer.compose(password: password, otp: otp, delivery: .combined,
                                            template: p.otpTemplate, type: p.type)
         Pasteboard.copy(composed.secret, concealed: true)
@@ -342,16 +405,16 @@ final class AppModel: ObservableObject {
     }
 
     func typeCode(_ p: Profile) {
-        guard let c = code(for: p, at: Date()) else { NSSound.beep(); return }
+        guard let c = currentCode(for: p) else { NSSound.beep(); return }
         guard AutoType.isTrusted else {
             AutoType.requestTrust()
             Notifier.shared.post(title: String(localized: "Allow PassTunnel to type codes"),
                                  body: String(localized: "Turn on PassTunnel in System Settings → Privacy & Security → Accessibility."),
                                  profileID: nil)
-            Pasteboard.copy(c.code, concealed: true)
+            Pasteboard.copy(c, concealed: true)
             return
         }
-        AutoType.type(c.code)
+        AutoType.type(c)
     }
 
     func showLog(_ p: Profile) {
@@ -374,7 +437,8 @@ final class AppModel: ObservableObject {
     }
 
     func togglePin(_ p: Profile) {
-        update(p) { $0.pinned.toggle() }
+        let pinned = !p.pinned   // what the user sees flipped, even if the file changed meanwhile
+        update(p) { $0.pinned = pinned }
     }
 
     func makeDefault(_ p: Profile) {
@@ -401,17 +465,15 @@ final class AppModel: ObservableObject {
     func move(fromOffsets source: IndexSet, toOffset destination: Int) {
         var list = profiles
         list.move(fromOffsets: source, toOffset: destination)
-        for (i, var p) in list.enumerated() where p.order != i {
-            p.order = i
-            do { try store.save(p) } catch { showError(error) }
+        for (i, p) in list.enumerated() where p.order != i {
+            do { try store.update(p.id) { $0.order = i } } catch { showError(error) }
         }
         reload()
     }
 
+    /// Changes one profile on top of the stored version (read-modify-write).
     private func update(_ p: Profile, _ change: (inout Profile) -> Void) {
-        var copy = p
-        change(&copy)
-        do { try store.save(copy) } catch { showError(error) }
+        do { try store.update(p.id, change) } catch { showError(error) }
         reload()
     }
 

@@ -93,6 +93,8 @@ final class FakeHelper: HelperClienting, @unchecked Sendable {
     var startLog = ""
     /// Delays (seconds) for the next `status` calls, consumed in order.
     var statusDelays: [TimeInterval] = []
+    /// Runs when a start request arrives, before the tool "starts" (e.g. to edit files meanwhile).
+    var onStart: ((HelperRequest) -> Void)?
 
     func locked<T>(_ body: () -> T) -> T { lock.lock(); defer { lock.unlock() }; return body() }
 
@@ -122,6 +124,7 @@ final class FakeHelper: HelperClienting, @unchecked Sendable {
             if delay > 0 { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
             return .success(running: snapshot)
         case .startOpenVPN(let s):
+            onStart?(request)
             if let failure = takeFailure() { return failure }
             write(startLog, to: s.logPath)
             let sock = s.profileDir + "/" + PT.mgmtSocketName
@@ -426,6 +429,46 @@ final class ConnectionManagerTests: XCTestCase {
         XCTAssertEqual(s.username, "bob")
         XCTAssertEqual(s.secret, "pw123456")
         XCTAssertEqual(try store.get(q.id).lastUsername, "bob")
+    }
+
+    /// The app keeps a loaded copy of its profiles; the CLI may change the file and the Keychain
+    /// afterwards. Connecting must use what is stored at that moment.
+    func testConnectUsesProfileAndSecretAsStoredNow() async throws {
+        let p = try makeOpenVPN(otp: .ask)
+        let m = makeManager()
+        await m.refresh()                                   // the manager has seen the old profile
+
+        // "CLI": another store instance, as a separate process would use.
+        let newSecret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
+        var changed = try ProfileStore().get(p.id)
+        changed.otpMode = .totp
+        changed.totp.period = 60
+        try ProfileStore().save(changed)
+        try Secrets.set(p.id, .totp, newSecret)
+        try Secrets.set(p.id, .password, "new-pw")
+
+        try await m.connect(p.id)                           // no `.otp` given: the old copy would need one
+        var params = TOTPParams()
+        params.period = 60
+        let expected = TOTP.code(secret: try TOTP.decodeSecret(newSecret), params: params, at: t0)
+        XCTAssertEqual(secretSent(try XCTUnwrap(helper.starts.last)), "new-pw" + expected)
+        XCTAssertEqual(clock.sleeps, [], "40 s left in the 60 s window: no wait")
+    }
+
+    /// Remembering the asked user name must not write back a profile read before the connect.
+    func testRememberedUsernameKeepsEditsMadeWhileConnecting() async throws {
+        var p = try makeOpenVPN()
+        p.username = ""
+        try store.save(p)
+        helper.onStart = { [id = p.id] _ in
+            _ = try? ProfileStore().update(id) { $0.healthHost = "10.0.0.5"; $0.totp.period = 60 }
+        }
+        let m = makeManager()
+        try await m.connect(p.id, given: [.username: "bob"])
+        let saved = try store.get(p.id)
+        XCTAssertEqual(saved.lastUsername, "bob")
+        XCTAssertEqual(saved.healthHost, "10.0.0.5")
+        XCTAssertEqual(saved.totp.period, 60)
     }
 
     func testWaitsForFreshTOTPWindow() async throws {

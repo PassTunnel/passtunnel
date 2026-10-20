@@ -135,7 +135,11 @@ struct HelperSettings: View {
         .formStyle(.grouped)
         .frame(minHeight: 480)
         .onReceive(timer) { _ in model.refreshHelperStatus() }
-        .onAppear { model.refreshHelperStatus() }
+        .onAppear {
+            model.refreshHelperStatus()
+            runPendingAction()
+        }
+        .onChange(of: model.pendingHelperAction) { _ in runPendingAction() }
         .confirmationDialog(String(localized: "Remove the PassTunnel helper?"), isPresented: $confirmRemove) {
             Button(String(localized: "Remove"), role: .destructive) { remove() }
         } message: {
@@ -177,6 +181,21 @@ struct HelperSettings: View {
         case .requiresApproval: return .orange
         case .notRegistered: return .secondary
         case .notFound: return .red
+        }
+    }
+
+    /// Carries out what `passtunnel helper install|uninstall` asked for. Removal is never silent:
+    /// any local process can post the request, so the user confirms it here.
+    private func runPendingAction() {
+        guard let action = model.pendingHelperAction else { return }
+        model.pendingHelperAction = nil
+        model.refreshHelperStatus()
+        switch (action, model.helperStatus) {
+        case (.install, .notRegistered): install()
+        case (.install, .requiresApproval): HelperInstaller.openSystemSettingsLoginItems()
+        case (.install, _): break
+        case (.uninstall, .enabled), (.uninstall, .requiresApproval): confirmRemove = true
+        case (.uninstall, _): break
         }
     }
 

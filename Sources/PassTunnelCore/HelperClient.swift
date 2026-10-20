@@ -192,3 +192,21 @@ public enum HelperInstaller {
         SMAppService.openSystemSettingsLoginItems()
     }
 }
+
+/// Helper install / removal requested by the CLI but carried out by the app: SMAppService refuses
+/// (or misattributes) registrations from a process started in Terminal, so `passtunnel helper
+/// install|uninstall` opens the app with `argument`, or, when it already runs, posts `notification`
+/// with the raw value as the object. The app then shows Settings → Helper and starts the action
+/// there (removal still asks for confirmation).
+public enum HelperHandoff: String, CaseIterable, Sendable {
+    case install, uninstall
+
+    public static let notification = Notification.Name("com.furkanprlk.passtunnel.helperHandoff")
+
+    /// Launch argument, e.g. `--install-helper` (not a CLI command, so the binary starts as the app).
+    public var argument: String { "--\(rawValue)-helper" }
+
+    public static func from(arguments: [String]) -> HelperHandoff? {
+        allCases.first { arguments.dropFirst().contains($0.argument) }
+    }
+}

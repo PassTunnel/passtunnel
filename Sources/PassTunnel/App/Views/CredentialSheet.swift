@@ -110,7 +110,8 @@ struct CredentialSheet: View {
         if needs(.password) { given[.password] = password }
         if needs(.otp) {
             // An untouched prefilled code may have rolled over; send the current one.
-            if otp == prefilledOTP, let fresh = model.code(for: profile)?.code { given[.otp] = fresh }
+            // Computed from the stored profile and Keychain item, in case either changed meanwhile.
+            if otp == prefilledOTP, let fresh = model.currentCode(for: profile) { given[.otp] = fresh }
             else { given[.otp] = otp.filter { !$0.isWhitespace } }
         }
         dismiss()

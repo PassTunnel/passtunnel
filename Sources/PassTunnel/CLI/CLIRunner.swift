@@ -23,6 +23,7 @@ final class CLIRunner {
     }
 
     func run(_ command: CLICommand) async -> Int32 {
+        defer { if Self.changesProfiles(command) { ProfileChangeSignal.post() } }
         do {
             return try await execute(command)
         } catch let e as CLIUsageError {
@@ -32,6 +33,15 @@ final class CLIRunner {
         } catch {
             report(error)
             return Exit.error
+        }
+    }
+
+    /// Commands after which a running app should reload right away. Profile files are also seen by
+    /// the app's file watcher; Keychain items (`secret`, `rm`) only through this signal.
+    static func changesProfiles(_ command: CLICommand) -> Bool {
+        switch command {
+        case .set, .add, .importFile, .remove, .secret, .setDefault, .pin, .unpin: return true
+        default: return false
         }
     }
 
@@ -565,17 +575,77 @@ final class CLIRunner {
         case .status:
             return await printHelperStatus()
         case .install:
-            try HelperInstaller.register()
-            let code = await printHelperStatus()
-            if HelperInstaller.status == .requiresApproval {
+            switch HelperInstaller.status {
+            case .enabled, .notFound:
+                return await printHelperStatus()
+            case .requiresApproval:
                 HelperInstaller.openSystemSettingsLoginItems()
+                return await printHelperStatus()
+            case .notRegistered:
+                break
             }
-            return code
+            // SMAppService refuses registrations from a process started in Terminal ("Operation not
+            // permitted"), so the app does it: always, rather than trying here first.
+            try handOffToApp(.install)
+            CLITerminal.out(String(localized: "Opening PassTunnel to install the helper…"))
+            CLITerminal.out(String(localized: "Approve it in PassTunnel, then turn on PassTunnel in System Settings → General → Login Items."))
+            guard await waitForHelperStatus(timeout: 30, until: { $0 != .notRegistered }) else {
+                CLITerminal.out(String(localized: "The helper is not installed yet. Finish the installation in PassTunnel → Settings → Helper."))
+                return Exit.error
+            }
+            return await printHelperStatus()
         case .uninstall:
-            try await HelperInstaller.unregister()
+            guard HelperInstaller.status != .notRegistered else {
+                CLITerminal.out(String(localized: "The helper is not installed."))
+                return Exit.ok
+            }
+            try handOffToApp(.uninstall)
+            CLITerminal.out(String(localized: "Opening PassTunnel to remove the helper. Confirm the removal there."))
+            guard await waitForHelperStatus(timeout: 60, until: { $0 == .notRegistered }) else {
+                CLITerminal.out(String(localized: "The helper is still installed. Confirm the removal in PassTunnel → Settings → Helper."))
+                return Exit.error
+            }
             CLITerminal.out(String(localized: "The helper was removed."))
             return Exit.ok
         }
+    }
+
+    /// Asks the app to perform `action`: a running copy gets a notification, otherwise the app is
+    /// launched with the action's argument. Prefers the app bundle this CLI belongs to, whose helper
+    /// is the one to register.
+    private func handOffToApp(_ action: HelperHandoff) throws {
+        if let running = NSRunningApplication.runningApplications(withBundleIdentifier: PT.bundleID)
+            .first(where: { !$0.isTerminated && $0.processIdentifier != getpid() }) {
+            DistributedNotificationCenter.default().postNotificationName(
+                HelperHandoff.notification, object: action.rawValue, userInfo: nil, deliverImmediately: true)
+            running.activate(options: [])
+            return
+        }
+        let bundle = Bundle.main
+        let target: [String] = bundle.bundleURL.pathExtension == "app" && bundle.bundleIdentifier == PT.bundleID
+            ? [bundle.bundlePath] : ["-b", PT.bundleID]
+        let open = Process()
+        open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        open.arguments = target + ["--args", action.argument]
+        open.standardOutput = FileHandle.nullDevice
+        open.standardError = FileHandle.nullDevice
+        do { try open.run() } catch {
+            throw CLIFailure(String(localized: "Could not open PassTunnel: \(error.localizedDescription)"))
+        }
+        open.waitUntilExit()
+        guard open.terminationStatus == 0 else {
+            throw CLIFailure(String(localized: "Could not open PassTunnel. Install it in the Applications folder and try again."))
+        }
+    }
+
+    /// Polls the helper's registration until `condition` holds or `timeout` seconds pass.
+    private func waitForHelperStatus(timeout: TimeInterval, until condition: (HelperStatus) -> Bool) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition(HelperInstaller.status) {
+            if Date() > deadline { return false }
+            try? await Task.sleep(nanoseconds: 500_000_000)
+        }
+        return true
     }
 
     private func printHelperStatus() async -> Int32 {

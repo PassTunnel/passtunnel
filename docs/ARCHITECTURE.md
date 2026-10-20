@@ -18,7 +18,7 @@ PassTunnel.app/Contents/
 | Target | Owns | Depends on |
 |---|---|---|
 | `PassTunnelShared` | XPC protocol, request/response types, `OVPNSanitizer`, `FortiConfig`, identifiers | — |
-| `PassTunnelCore` | model, `ProfileStore`, `Secrets` (Keychain), `TOTP`, `OTPAuthURI`, `OVPNAnalyzer`, `ShareFile`, `Preferences`, `HealthCheck`, `HelperClient`, `ConnectionManager` | Shared |
+| `PassTunnelCore` | model, `ProfileStore`, `ProfilesWatcher`, `Secrets` (Keychain), `TOTP`, `OTPAuthURI`, `OVPNAnalyzer`, `ShareFile`, `Preferences`, `HealthCheck`, `HelperClient`, `ConnectionManager` | Shared |
 | `PassTunnelHelper` | `main.swift` XPC listener, process supervision | Shared |
 | `PassTunnel` | SwiftUI app, menu bar, onboarding, CLI | Core, Shared |
 
@@ -116,6 +116,7 @@ public struct ProfileStore {                       // all methods throw PTError 
     public func get(_ id: String) throws -> Profile
     public func create(name: String, type: VPNType) throws -> Profile   // slug id (Turkish chars folded), unique (no mgmtPort any more)
     public func save(_ p: Profile) throws
+    public func update(_ id: String, _ change: (inout Profile) throws -> Void) throws -> Profile   // re-read, change, save (locked)
     public func delete(_ id: String) throws        // also deletes keychain items and the dir
     public var defaultID: String? { get }; public func setDefault(_ id: String?) throws
     public func dir(_ id: String) -> URL

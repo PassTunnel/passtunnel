@@ -518,6 +518,16 @@
         }
       }
     },
+    "Approve it in PassTunnel, then turn on PassTunnel in System Settings → General → Login Items." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel’da onaylayın, ardından Sistem Ayarları → Genel → Giriş Öğeleri bölümünde PassTunnel’ı açın."
+          }
+        }
+      }
+    },
     "Ask each time" : {
       "localizations" : {
         "tr" : {
@@ -1214,6 +1224,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Komut satırı aracı yüklenemedi: %@"
+          }
+        }
+      }
+    },
+    "Could not open PassTunnel. Install it in the Applications folder and try again." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel açılamadı. Uygulamalar klasörüne kurup yeniden deneyin."
+          }
+        }
+      }
+    },
+    "Could not open PassTunnel: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel açılamadı: %@"
           }
         }
       }
@@ -2904,6 +2934,26 @@
         }
       }
     },
+    "Opening PassTunnel to install the helper…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcıyı kurmak için PassTunnel açılıyor…"
+          }
+        }
+      }
+    },
+    "Opening PassTunnel to remove the helper. Confirm the removal there." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcıyı kaldırmak için PassTunnel açılıyor. Kaldırmayı orada onaylayın."
+          }
+        }
+      }
+    },
     "OpenVPN closed the management connection." : {
       "localizations" : {
         "tr" : {
@@ -4194,12 +4244,42 @@
         }
       }
     },
+    "The helper is not installed yet. Finish the installation in PassTunnel → Settings → Helper." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı henüz kurulmadı. Kurulumu PassTunnel → Ayarlar → Yardımcı bölümünde tamamlayın."
+          }
+        }
+      }
+    },
+    "The helper is not installed." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı kurulu değil."
+          }
+        }
+      }
+    },
     "The helper is not ready" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Yardımcı hazır değil"
+          }
+        }
+      }
+    },
+    "The helper is still installed. Confirm the removal in PassTunnel → Settings → Helper." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı hâlâ kurulu. Kaldırmayı PassTunnel → Ayarlar → Yardımcı bölümünde onaylayın."
           }
         }
       }

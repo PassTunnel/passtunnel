@@ -118,7 +118,7 @@ private struct ProfileMenuSection: View {
         let p = profile
         switch model.state(p.id) {
         case .disconnected:
-            Button(String(localized: "Connect")) { model.connect(p); bringForwardIfAsking(p) }
+            Button(String(localized: "Connect")) { model.connect(p); bringForwardIfAsking() }
         case .connecting:
             Button(String(localized: "Cancel Connecting")) { model.disconnect(p) }
         case .connected:
@@ -130,9 +130,10 @@ private struct ProfileMenuSection: View {
         }
     }
 
-    /// The credential sheet lives in the main window.
-    private func bringForwardIfAsking(_ p: Profile) {
-        if !p.needs.isEmpty { AppDelegate.shared?.showMainWindow() }
+    /// The credential sheet lives in the main window. `connect` decides from the stored profile
+    /// whether to ask, so look at its result rather than at this (possibly older) copy.
+    private func bringForwardIfAsking() {
+        if model.credentialRequest != nil { AppDelegate.shared?.showMainWindow() }
     }
 }
 

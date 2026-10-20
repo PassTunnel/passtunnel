@@ -148,6 +148,19 @@ passtunnel completion zsh|bash|fish
 ```
 Exit codes: 0 ok, 1 error, 2 usage, 3 not connected (status of a single profile).
 
+`helper install|uninstall` are carried out by the app: SMAppService refuses registrations from a
+process started in Terminal ("Operation not permitted"), so the CLI never calls it. It posts
+`HelperHandoff.notification` to a running app, or opens its own app bundle with `--install-helper` /
+`--uninstall-helper`; the app shows Settings → Helper, starts the registration (removal asks for
+confirmation there), and the CLI waits for the new status and prints it. `helper status` stays local.
+
+The app and the CLI share the files and the Keychain. The app never acts on a cached profile:
+connect, copy code, copy password + code and auto-type re-read the stored profile and Keychain item
+first, and single-field changes (pin, order, remembered user name) go through `ProfileStore.update`
+(read-modify-write). It reloads on `ProfilesWatcher` (FSEvents on the support directory, debounced;
+`vpn.log`, the management socket and temp files are ignored), on `ProfileChangeSignal` (posted by the
+CLI after commands that change profiles or secrets), when it becomes active, and every 5 s.
+
 ## Localization
 
 English source strings; Turkish in `Sources/PassTunnel/Resources/Localizable.xcstrings`

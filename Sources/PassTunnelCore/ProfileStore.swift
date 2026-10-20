@@ -73,6 +73,21 @@ public struct ProfileStore {
         try JSONCoding.write(p, to: profileURL(p.id), mode: 0o600)
     }
 
+    /// Read-modify-write of one profile: re-reads `profile.json`, applies `change` and saves the
+    /// result, so fields changed elsewhere (CLI, another window) are kept. Use this instead of saving
+    /// a copy that may have been read earlier. Returns the saved profile.
+    @discardableResult
+    public func update(_ id: String, _ change: (inout Profile) throws -> Void) throws -> Profile {
+        _ = try get(id)
+        return try withLock {
+            var p = try get(id)
+            try change(&p)
+            p.id = id
+            try save(p)
+            return p
+        }
+    }
+
     /// Removes the profile directory, both Keychain items, and the default if it pointed here.
     public func delete(_ id: String) throws {
         try checkID(id)
@@ -244,7 +259,7 @@ public struct ProfileStore {
         return n.isEmpty ? fallback : n
     }
 
-    /// Serialises create() across processes (app and CLI share the directory).
+    /// Serialises create() and update() across processes (app and CLI share the directory).
     private func withLock<T>(_ body: () throws -> T) throws -> T {
         let lockPath = paths.profilesDir.appendingPathComponent(".lock").path
         let fd = open(lockPath, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
