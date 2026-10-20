@@ -155,8 +155,10 @@ final class FakeHelper: HelperClienting, @unchecked Sendable {
             locked { _running[s.profileID] = 4343 }
             return .success(pid: 4343)
         case .stop(let id):
+            // Like the helper: the pid only when something was running.
+            let pid = locked { _running[id] }
             simulateExit(id)
-            return .success()
+            return .success(pid: pid)
         }
     }
 
@@ -502,6 +504,24 @@ final class ConnectionManagerTests: XCTestCase {
         XCTAssertEqual(secretSent(helper.starts[0]), "pw" + fresh)
         XCTAssertNotEqual(fresh, try code(at: t0.addingTimeInterval(7)))
         XCTAssertTrue(seen.contains(.connecting(ConnectionManager.Phase.waitingForCode)))
+    }
+
+    func testDisconnectReportsWhetherAnythingWasRunning() async throws {
+        let p = try makeOpenVPN()
+        let m = makeManager()
+        let stoppedIdle = try await m.disconnect(p.id)
+        XCTAssertFalse(stoppedIdle)
+        try await m.connect(p.id)
+        let stoppedConnected = try await m.disconnect(p.id)
+        XCTAssertTrue(stoppedConnected)
+
+        // Another process (the CLI) has not seen the connection, but the helper names the stopped pid.
+        try await m.connect(p.id)
+        let cli = ConnectionManager(store: store, helper: helper, clock: clock)
+        let stoppedByCLI = try await cli.disconnect(p.id)
+        XCTAssertTrue(stoppedByCLI)
+        let again = try await cli.disconnect(p.id)
+        XCTAssertFalse(again)
     }
 
     // MARK: drops

@@ -367,8 +367,11 @@ public final class ConnectionManager: ObservableObject {
     }
 
     /// Stops `id` (also cancels a connect in progress) and marks it user-stopped so the exit is not
-    /// reported as a drop.
-    public func disconnect(_ id: String) async throws {
+    /// reported as a drop. Returns false when there was nothing to stop: no VPN process (the helper
+    /// names the pid it stopped) and no connect in progress here.
+    @discardableResult
+    public func disconnect(_ id: String) async throws -> Bool {
+        let wasActive = state(id).isActive || isBusy(id) || codeWaits[id] != nil
         cancelReconnect(id)
         actionToken[id, default: 0] += 1
         codeWaits.removeValue(forKey: id)?.cancel()
@@ -381,6 +384,7 @@ public final class ConnectionManager: ObservableObject {
         let r = try await helper.perform(.stop(profileID: id), timeout: timing.stopTimeout)
         setState(id, .disconnected)
         guard r.ok else { throw PTError.helperFailed(r.error ?? "") }
+        return wasActive || r.pid != nil
     }
 
     /// Disconnect when connected or connecting, connect otherwise.

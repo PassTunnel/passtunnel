@@ -5378,6 +5378,16 @@
           }
         }
       }
+    },
+    "%@ is not connected." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ bağlı değil."
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

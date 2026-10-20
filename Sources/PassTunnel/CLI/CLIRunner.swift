@@ -254,8 +254,11 @@ final class CLIRunner {
             return Exit.ok
         }
         let p = try resolve(id)
-        try await manager.disconnect(p.id)
-        CLITerminal.out(String(localized: "Disconnected: \(p.name)"))
+        if try await manager.disconnect(p.id) {
+            CLITerminal.out(String(localized: "Disconnected: \(p.name)"))
+        } else {
+            CLITerminal.out(String(localized: "\(p.name) is not connected."))
+        }
         return Exit.ok
     }
 
