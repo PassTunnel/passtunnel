@@ -101,6 +101,7 @@ struct MenuBarMenu: View {
     }
 
     private func openMain() {
+        AppDelegate.shared?.allowMainWindow()
         NSApp.setActivationPolicy(.regular)
         openWindow(id: "main")
         NSApp.activate(ignoringOtherApps: true)

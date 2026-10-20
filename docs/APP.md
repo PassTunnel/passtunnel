@@ -114,6 +114,13 @@ Connect/Disconnect, Copy code; then Open PassTunnel (⌘O), Settings… (⌘,), 
 `showLock`, `hideCodes`, `showInDock`, `notifyOnDrop`, `notifyHealth`, `sessionNotifyMin`,
 `hotkeys`, `autoType`, `defaultProfile`.
 
+## Launch at login
+
+`LoginItem` (Core) wraps `SMAppService.mainApp` (status: enabled / needs approval / disabled / unavailable).
+Never registered without the user's choice: onboarding step 3 offers "Start PassTunnel at login" (default on)
+and Settings → General has the toggle. A login launch (`keyAELaunchedAsLogInItem` or `--background`) starts in the
+menu bar only; manual launches open the main window.
+
 ## Onboarding (first launch, 3 steps)
 
 1. Welcome — what PassTunnel does (one sentence + illustration with a live fake code).

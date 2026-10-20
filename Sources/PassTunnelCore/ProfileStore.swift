@@ -114,11 +114,17 @@ public struct ProfileStore {
 
     /// Replaces the profile's config (0600) with a self-contained copy of `url`: referenced files
     /// (ca, cert, key, tls-auth, …) are inlined and the result must pass `OVPNSanitizer`.
-    public func setOVPN(_ id: String, from url: URL) throws {
-        let p = try get(id)
+    /// Records the source file name and import time in the profile and returns the saved profile.
+    @discardableResult
+    public func setOVPN(_ id: String, from url: URL, now: Date = Date()) throws -> Profile {
+        var p = try get(id)
         guard p.type == .openvpn else { throw PTError.wrongProfileType(id) }
         let text = try preparedOVPN(url)
         try FileIO.writeAtomically(Data(text.utf8), to: ovpnURL(id), mode: 0o600)
+        p.configSourceName = url.lastPathComponent
+        p.configImportedAt = Self.wholeSeconds(now)
+        try save(p)
+        return p
     }
 
     /// Creates an OpenVPN profile from an .ovpn file (made self-contained and checked as in `setOVPN`;
@@ -132,6 +138,8 @@ public struct ProfileStore {
             p.passwordMode = a.passwordMode
             p.otpMode = a.otpMode
             p.otpDelivery = a.otpDelivery
+            p.configSourceName = url.lastPathComponent
+            p.configImportedAt = Self.wholeSeconds(Date())
             try FileIO.writeAtomically(Data(text.utf8), to: ovpnURL(p.id), mode: 0o600)
             try save(p)
         } catch {
@@ -184,6 +192,8 @@ public struct ProfileStore {
             p.setRoutes = src.setRoutes
             if let ovpn = sharedOVPN {
                 try FileIO.writeAtomically(ovpn, to: ovpnURL(p.id), mode: 0o600)
+                p.configSourceName = src.configSourceName ?? Self.ovpnFile
+                p.configImportedAt = Self.wholeSeconds(Date())
             }
             try save(p)
         } catch {
@@ -222,6 +232,11 @@ public struct ProfileStore {
             n += 1
         }
         return candidate
+    }
+
+    /// profile.json stores whole seconds; rounding here keeps saved and returned profiles equal.
+    static func wholeSeconds(_ date: Date) -> Date {
+        Date(timeIntervalSince1970: date.timeIntervalSince1970.rounded(.down))
     }
 
     private static func pick(_ name: String?, _ fallback: String) -> String {

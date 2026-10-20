@@ -44,6 +44,10 @@ enum EditorPreviewRenderer {
         customOK.templateChoice = .custom
         customOK.draft.otpTemplate = "{password}#{otp}"
         out.append(State(name: "editor-template-custom", model: customOK, height: 1800))
+
+        let typing = totpModel()
+        typing.newPassword = "new-secret"
+        out.append(State(name: "editor-password-typing", model: typing, height: 1800))
         return out
     }
 
@@ -55,7 +59,14 @@ enum EditorPreviewRenderer {
         p.otpMode = .totp
         p.otpDelivery = .combined
         p.healthHost = "10.0.0.5"
-        let model = EditorModel(preview: p, isNew: false, passwordStored: true, configRemote: "vpn.example.com")
+        // Imported on 3 October of the current year (fixed so screenshots are stable).
+        let calendar = Calendar.current
+        let year = calendar.component(.year, from: Date())
+        let imported = calendar.date(from: DateComponents(year: year, month: 10, day: 3, hour: 10)) ?? Date()
+        p.configSourceName = "acme.ovpn"
+        p.configImportedAt = imported
+        let model = EditorModel(preview: p, isNew: false, passwordStored: true, configRemote: "vpn.example.com",
+                                now: imported.addingTimeInterval(17 * 86_400))
         if let uri = try? OTPAuthURI("otpauth://totp/Acme:alice?secret=\(sampleSecret)&issuer=Acme") {
             model.apply(uri)
         }

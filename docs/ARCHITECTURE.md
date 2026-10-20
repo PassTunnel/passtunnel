@@ -96,6 +96,8 @@ public struct Profile: Codable, Identifiable, Equatable {
     public var trustedCert = ""
     public var setDNS = false
     public var setRoutes = true
+    public var configSourceName: String?    // file name the OpenVPN config was imported from
+    public var configImportedAt: Date?      // ISO 8601, whole seconds
     // derived
     public var displayBadge: String
     public var needs: [CredentialField]   // what must be asked before connecting (none if password == .none)

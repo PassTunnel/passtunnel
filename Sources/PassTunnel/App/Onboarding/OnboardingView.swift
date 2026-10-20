@@ -40,7 +40,7 @@ struct OnboardingView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
         }
-        .frame(width: 560, height: 480)
+        .frame(width: 560, height: 520)
     }
 }
 
@@ -84,10 +84,15 @@ private struct StepHeader: View {
 
 private struct WelcomeStep: View {
     var body: some View {
-        VStack(spacing: 24) {
-            DemoCodeCard()
+        VStack(spacing: 20) {
+            Image(nsImage: AppInfo.appIcon)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: 72, height: 72)
+                .accessibilityHidden(true)
             StepHeader(title: String(localized: "Never type a one-time code again"),
                        subtitle: String(localized: "PassTunnel connects your VPN and fills in your password and the current one-time code for you."))
+            DemoCodeCard()
             VStack(alignment: .leading, spacing: 12) {
                 FeatureRow(symbol: "key.fill", tint: .blue,
                            text: String(localized: "Password and authenticator secret stay in your Keychain."))

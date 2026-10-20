@@ -1,6 +1,5 @@
 import AppKit
 import PassTunnelCore
-import ServiceManagement
 import SwiftUI
 
 enum SettingsTab: String, CaseIterable, Identifiable {
@@ -67,11 +66,25 @@ struct GeneralSettings: View {
     @State private var cliLocation: URL? = CommandLineTool.installedLocation
     @State private var cliMessage: String?
     @State private var loginItemError: String?
+    @State private var loginStatus: LoginItemStatus
+    /// Screenshots: a fixed login item status instead of asking the system.
+    private let previewLoginStatus: LoginItemStatus?
+    private let loginTimer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
+
+    init(previewLoginStatus: LoginItemStatus? = nil) {
+        self.previewLoginStatus = previewLoginStatus
+        _loginStatus = State(initialValue: previewLoginStatus ?? LoginItem.status)
+    }
 
     var body: some View {
         Form {
             Section {
-                Toggle(String(localized: "Open at login"), isOn: launchAtLogin)
+                Toggle(isOn: launchAtLogin) {
+                    SettingLabel(String(localized: "Launch at login"),
+                                 String(localized: "Starts quietly in the menu bar, without opening the window."))
+                }
+                .disabled(loginStatus == .unavailable)
+                loginStatusRow
                 if let loginItemError {
                     Text(loginItemError).font(.caption).foregroundStyle(.red)
                 }
@@ -137,19 +150,62 @@ struct GeneralSettings: View {
         }
         .formStyle(.grouped)
         .frame(minHeight: 520)
+        .onAppear(perform: refreshLoginStatus)
+        .onReceive(loginTimer) { _ in
+            // System Settings may approve or remove the item while this pane is open.
+            if loginStatus == .requiresApproval { refreshLoginStatus() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshLoginStatus()
+        }
+    }
+
+    @ViewBuilder private var loginStatusRow: some View {
+        switch loginStatus {
+        case .requiresApproval:
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Label(String(localized: "Needs approval in Login Items."),
+                      systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Button(String(localized: "Open Login Items…")) { LoginItem.openSystemSettings() }
+                    .controlSize(.small)
+            }
+        case .unavailable:
+            Text(String(localized: "Available when PassTunnel runs as an app from the Applications folder."))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .enabled, .disabled:
+            EmptyView()
+        }
     }
 
     private var launchAtLogin: Binding<Bool> {
-        Binding(get: { model.prefs.launchAtLogin }, set: { on in
+        Binding(get: { loginStatus == .enabled || loginStatus == .requiresApproval }, set: { on in
             loginItemError = nil
-            model.prefs.launchAtLogin = on
-            guard Bundle.main.bundleURL.pathExtension == "app" else { return }
-            do {
-                if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
-            } catch {
-                loginItemError = error.localizedDescription
+            guard previewLoginStatus == nil else {
+                loginStatus = on ? .enabled : .disabled
+                return
             }
+            do {
+                loginStatus = try LoginItem.setEnabled(on)
+            } catch {
+                loginItemError = String(localized: "Could not change the login item: \(error.localizedDescription)")
+                loginStatus = LoginItem.status
+            }
+            model.prefs.launchAtLogin = loginStatus == .enabled || loginStatus == .requiresApproval
         })
+    }
+
+    private func refreshLoginStatus() {
+        guard previewLoginStatus == nil else { return }
+        loginStatus = LoginItem.status
+        if loginStatus != .unavailable {
+            let on = loginStatus == .enabled || loginStatus == .requiresApproval
+            if model.prefs.launchAtLogin != on { model.prefs.launchAtLogin = on }
+        }
     }
 
     private func installCLI() {
@@ -405,8 +461,9 @@ struct UpdateSettings: View {
 // MARK: - About
 
 enum AppInfo {
-    static let repositoryURL = URL(string: "https://github.com/furkanprlk/passtunnel")!
-    static let releasesURL = URL(string: "https://github.com/furkanprlk/passtunnel/releases")!
+    static let repositoryURL = URL(string: "https://github.com/Furkanprlk/passtunnel")!
+    static let releasesURL = URL(string: "https://github.com/Furkanprlk/passtunnel/releases")!
+    static let issuesURL = URL(string: "https://github.com/Furkanprlk/passtunnel/issues")!
 
     static var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0" }
     static var build: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0" }
@@ -416,10 +473,26 @@ enum AppInfo {
         String(localized: "Version \(version) (\(build))")
     }
 
-    static var appIcon: NSImage {
+    /// The app icon: from the bundle, or from `Resources/AppIcon.icns` of the source tree when run
+    /// unbundled (`swift run`, screenshot rendering).
+    static let appIcon: NSImage = {
+        if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+           let image = NSImage(contentsOf: url) {
+            return image
+        }
+        var dir = Bundle.main.executableURL?.resolvingSymlinksInPath().deletingLastPathComponent()
+        for _ in 0..<6 {
+            guard let current = dir else { break }
+            let candidate = current.appendingPathComponent("Resources/AppIcon.icns")
+            if FileManager.default.fileExists(atPath: current.appendingPathComponent("Package.swift").path),
+               let image = NSImage(contentsOf: candidate) {
+                return image
+            }
+            dir = current.deletingLastPathComponent()
+        }
         if Bundle.main.bundleURL.pathExtension == "app" { return NSApp.applicationIconImage }
         return NSWorkspace.shared.icon(for: .applicationBundle)
-    }
+    }()
 }
 
 struct AboutSettings: View {
@@ -442,7 +515,7 @@ struct AboutSettings: View {
                 Link(destination: AppInfo.repositoryURL) {
                     Label(String(localized: "Source Code"), systemImage: "chevron.left.forwardslash.chevron.right")
                 }
-                Link(destination: AppInfo.repositoryURL.appendingPathComponent("issues")) {
+                Link(destination: AppInfo.issuesURL) {
                     Label(String(localized: "Report an Issue"), systemImage: "exclamationmark.bubble")
                 }
             }

@@ -63,6 +63,10 @@ public struct Profile: Codable, Identifiable, Equatable {
     public var otpTemplate = OTPTemplatePreset.append.rawValue
     // OpenVPN
     public var mgmtPort = 0
+    /// File name the configuration was imported from ("acme.ovpn"); nil for older profiles.
+    public var configSourceName: String?
+    /// When the current configuration was imported; nil for older profiles.
+    public var configImportedAt: Date?
     // FortiGate
     public var host = ""
     public var port = 443
@@ -107,12 +111,13 @@ public struct Profile: Codable, Identifiable, Equatable {
         case username, lastUsername, passwordMode, otpMode, totp
         case sessionLimitMin, autoReconnect, healthHost, otpDelivery, otpTemplate
         case mgmtPort, host, port, trustedCert, setRoutes
+        case configSourceName, configImportedAt
         case setDNS = "setDns"   // matches "set_dns" under the snake_case strategies
         case otpFormat           // legacy, read only
     }
 
     /// Keys left out of share files.
-    static let shareExcludedKeys: Set<CodingKeys> = [.username, .lastUsername, .order, .mgmtPort, .pinned]
+    static let shareExcludedKeys: Set<CodingKeys> = [.username, .lastUsername, .order, .mgmtPort, .pinned, .configImportedAt]
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -138,6 +143,8 @@ public struct Profile: Codable, Identifiable, Equatable {
         trustedCert = c.lenient(String.self, .trustedCert) ?? ""
         setDNS = c.lenient(Bool.self, .setDNS) ?? false
         setRoutes = c.lenient(Bool.self, .setRoutes) ?? true
+        configSourceName = c.lenient(String.self, .configSourceName).flatMap { $0.isEmpty ? nil : $0 }
+        configImportedAt = c.lenientDate(.configImportedAt)
 
         let template = c.lenient(String.self, .otpTemplate)
         otpTemplate = (template?.isEmpty == false) ? template! : OTPTemplatePreset.append.rawValue
@@ -166,7 +173,16 @@ public struct Profile: Codable, Identifiable, Equatable {
         try put(healthHost, .healthHost); try put(otpDelivery, .otpDelivery); try put(otpTemplate, .otpTemplate)
         try put(mgmtPort, .mgmtPort); try put(host, .host); try put(port, .port)
         try put(trustedCert, .trustedCert); try put(setDNS, .setDNS); try put(setRoutes, .setRoutes)
+        if let configSourceName { try put(configSourceName, .configSourceName) }
+        if let configImportedAt { try put(Profile.dateFormatter.string(from: configImportedAt), .configImportedAt) }
     }
+
+    /// ISO 8601 (UTC) for dates in profile.json.
+    static let dateFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
 }
 
 extension CodingUserInfoKey {
@@ -178,6 +194,13 @@ extension KeyedDecodingContainer {
     /// Missing key, null or wrong type → nil instead of an error.
     func lenient<T: Decodable>(_ type: T.Type, _ key: Key) -> T? {
         (try? decodeIfPresent(type, forKey: key)) ?? nil
+    }
+
+    /// ISO 8601 string or seconds since 1970; anything else → nil.
+    func lenientDate(_ key: Key) -> Date? {
+        if let text = lenient(String.self, key) { return Profile.dateFormatter.date(from: text) }
+        if let seconds = lenient(Double.self, key), seconds.isFinite, seconds > 0 { return Date(timeIntervalSince1970: seconds) }
+        return nil
     }
 
     /// Unknown raw values (e.g. written by a newer version) → nil.

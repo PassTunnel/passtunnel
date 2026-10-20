@@ -87,7 +87,7 @@ final class EditorModel: ObservableObject {
 
     /// For `EditorPreviewRenderer`: a fixed state with no store or Keychain access.
     init(preview profile: Profile, isNew: Bool, passwordStored: Bool = false, storedTOTP: Data? = nil,
-         configRemote: String = "") {
+         configRemote: String = "", now: Date? = nil) {
         self.store = ProfileStore(paths: AppPaths(root: FileManager.default.temporaryDirectory
             .appendingPathComponent("PassTunnelPreview-\(UUID().uuidString)")))
         self.isPreview = true
@@ -100,7 +100,11 @@ final class EditorModel: ObservableObject {
         self.configRemote = configRemote
         self.hasConfig = !configRemote.isEmpty
         self.customTemplate = !Self.isPreset(profile.otpTemplate)
+        self.previewNow = now
     }
+
+    /// Fixed "now" for rendered previews (date formatting).
+    private var previewNow: Date?
 
     func changeType(_ type: VPNType) {
         guard allowsTypeChange, type != draft.type else { return }
@@ -249,6 +253,35 @@ final class EditorModel: ObservableObject {
     }
 
     // MARK: OpenVPN configuration
+
+    /// "acme.ovpn · imported 3 Oct" for the stored configuration, or the chosen file's name.
+    var configSummary: String? {
+        if let url = configURL { return url.lastPathComponent }
+        guard hasConfig else { return nil }
+        let name = draft.configSourceName
+        guard let date = draft.configImportedAt else {
+            return name ?? String(localized: "Imported configuration")
+        }
+        let when = Self.shortDate(date, now: previewNow ?? Date())
+        if let name { return String(localized: "\(name) · imported \(when)") }
+        return String(localized: "Imported \(when)")
+    }
+
+    /// "3 Oct" this year, "3 Oct 2025" otherwise (locale-aware order).
+    static func shortDate(_ date: Date, now: Date = Date()) -> String {
+        let calendar = Calendar.current
+        let sameYear = calendar.component(.year, from: date) == calendar.component(.year, from: now)
+        let style = Date.FormatStyle.dateTime.day().month(.abbreviated)
+        return sameYear ? date.formatted(style) : date.formatted(style.year())
+    }
+
+    /// The stored copy can be revealed once the profile exists.
+    var canRevealConfig: Bool { hasConfig && !isNew }
+
+    func revealConfig() {
+        guard canRevealConfig, !isPreview else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([store.ovpnURL(draft.id)])
+    }
 
     private func loadExistingConfig() {
         let url = store.ovpnURL(draft.id)
@@ -426,7 +459,11 @@ final class EditorModel: ObservableObject {
                 p.id = created.id
                 p.order = created.order
                 do {
-                    if let url = configURL { try store.setOVPN(p.id, from: url) }
+                    if let url = configURL {
+                        let imported = try store.setOVPN(p.id, from: url)
+                        p.configSourceName = imported.configSourceName
+                        p.configImportedAt = imported.configImportedAt
+                    }
                     try store.save(p)
                     try writeSecrets(p)
                 } catch {

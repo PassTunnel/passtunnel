@@ -241,21 +241,33 @@ struct ProfileEditorView: View {
     @ViewBuilder private var openVPNRows: some View {
         VStack(alignment: .leading, spacing: 4) {
             LabeledContent("Configuration") {
-                HStack(spacing: 8) {
-                    if let url = model.configURL {
-                        Text(verbatim: url.lastPathComponent).lineLimit(1).truncationMode(.middle)
-                    } else if model.hasConfig {
-                        Text("Installed")
-                            .foregroundStyle(.secondary)
+                VStack(alignment: .trailing, spacing: 6) {
+                    if let summary = model.configSummary {
+                        VStack(alignment: .trailing, spacing: 1) {
+                            Text(verbatim: summary)
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .help(Text(verbatim: summary))
+                            if !model.configRemote.isEmpty {
+                                Text("Server: \(model.configRemote)")
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .textSelection(.enabled)
+                            }
+                        }
                     }
-                    Button(model.hasConfig || model.configURL != nil ? LocalizedStringKey("Replace…") : LocalizedStringKey("Choose…")) {
-                        chooseConfig()
+                    HStack(spacing: 8) {
+                        if model.canRevealConfig {
+                            Button("Reveal in Finder") { model.revealConfig() }
+                                .help(Text("Show the copy PassTunnel uses"))
+                        }
+                        Button(model.hasConfig || model.configURL != nil ? LocalizedStringKey("Replace…") : LocalizedStringKey("Choose…")) {
+                            chooseConfig()
+                        }
                     }
-                }
-            }
-            if !model.configRemote.isEmpty {
-                LabeledContent("Server") {
-                    Text(verbatim: model.configRemote).textSelection(.enabled)
                 }
             }
             EditorInlineError(message: model.error(.config))
@@ -323,22 +335,25 @@ struct ProfileEditorView: View {
 
     private var signInSection: some View {
         Section {
-            Picker("Password", selection: $model.draft.passwordMode) {
-                ForEach(model.passwordModes, id: \.self) { mode in
-                    Text(Self.passwordModeName(mode)).tag(mode)
+            if p.passwordMode != .none { usernameRow }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Picker("Password", selection: $model.draft.passwordMode) {
+                    ForEach(model.passwordModes, id: \.self) { mode in
+                        Text(Self.passwordModeName(mode)).tag(mode)
+                    }
+                }
+                switch p.passwordMode {
+                case .none:
+                    EditorHint("Certificate only: the configuration contains everything needed to sign in.")
+                case .ask:
+                    EditorHint("PassTunnel asks for the password each time you connect and never stores it.")
+                case .keychain:
+                    passwordStatus
                 }
             }
 
-            switch p.passwordMode {
-            case .none:
-                EditorHint("Certificate only: the configuration contains everything needed to sign in.")
-            case .ask:
-                usernameRow
-                EditorHint("PassTunnel asks for the password each time you connect and never stores it.")
-            case .keychain:
-                usernameRow
-                passwordRows
-            }
+            if p.passwordMode == .keychain { passwordRows }
         } header: {
             Text("Sign-in")
         }
@@ -353,12 +368,23 @@ struct ProfileEditorView: View {
         }
     }
 
-    @ViewBuilder private var passwordRows: some View {
-        if model.passwordStored && model.newPassword.isEmpty {
-            LabeledContent("Password") { EditorKeychainBadge() }
+    /// One line under the mode picker: what is in the Keychain now.
+    @ViewBuilder private var passwordStatus: some View {
+        HStack {
+            Spacer(minLength: 0)
+            if model.passwordStored {
+                EditorKeychainBadge()
+            } else {
+                Label("Not saved yet", systemImage: "key")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
         }
+    }
+
+    @ViewBuilder private var passwordRows: some View {
         VStack(alignment: .leading, spacing: 4) {
-            SecureField(model.passwordStored ? LocalizedStringKey("New password") : LocalizedStringKey("Enter password"),
+            SecureField("New password",
                         text: $model.newPassword,
                         prompt: model.passwordStored ? Text("Leave empty to keep the saved one") : Text("Required"))
                 .focused($focus, equals: .password)
@@ -367,7 +393,7 @@ struct ProfileEditorView: View {
         .id(Field.password)
         if !model.newPassword.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
-                SecureField("Confirm password", text: $model.confirmPassword)
+                SecureField("Confirm password", text: $model.confirmPassword, prompt: Text("Type it again"))
                     .focused($focus, equals: .confirmPassword)
                 EditorInlineError(message: model.error(.confirmPassword))
             }
@@ -565,7 +591,7 @@ struct ProfileEditorView: View {
         switch mode {
         case .keychain: return "Save in Keychain"
         case .ask: return "Ask each time"
-        case .none: return "None (certificate only)"
+        case .none: return "None — certificate only"
         }
     }
 }

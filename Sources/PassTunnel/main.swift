@@ -17,6 +17,8 @@ if let bundleID = Bundle.main.bundleIdentifier {
     let me = ProcessInfo.processInfo.processIdentifier
     if let other = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
         .first(where: { $0.processIdentifier != me && !$0.isTerminated }) {
+        // A background start (login item) never pulls the running copy forward.
+        if CommandLine.arguments.dropFirst().contains(LoginItem.backgroundArgument) { exit(0) }
         other.activate(options: [.activateAllWindows])
         DistributedNotificationCenter.default().postNotificationName(
             AppDelegate.showMainWindowNotification, object: nil, userInfo: nil, deliverImmediately: true)

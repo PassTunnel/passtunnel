@@ -15,6 +15,7 @@ struct PassTunnelApp: App {
             MainView()
                 .environmentObject(model)
                 .frame(minWidth: 520, idealWidth: 600, minHeight: 360, idealHeight: 480)
+                .background { MainWindowObserver() }
         }
         .defaultSize(width: 600, height: 500)
         .commands { AppCommands(model: model) }

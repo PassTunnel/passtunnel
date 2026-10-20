@@ -97,6 +97,8 @@ enum RenderSnapshots {
                              name: "settings-\(tab.rawValue)", window: true)
                 }
             }
+            snapshot(GeneralSettings(previewLoginStatus: .requiresApproval).frame(width: 540).environmentObject(model),
+                     size: nil, dark: false, to: out, name: "settings-general-login-approval", window: true)
 
             // Onboarding.
             for (i, status) in [HelperStatus.enabled, .notRegistered, .enabled].enumerated() {
@@ -124,6 +126,7 @@ enum RenderSnapshots {
     @ViewBuilder
     private static func tabView(_ tab: SettingsTab, model: AppModel) -> some View {
         switch tab {
+        case .general: GeneralSettings(previewLoginStatus: .enabled)
         case .shortcuts: ShortcutSettings(previewTrusted: false)
         case .helper:
             let real = BundledTools.load()
