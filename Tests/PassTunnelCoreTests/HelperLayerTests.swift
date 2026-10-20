@@ -235,8 +235,9 @@ final class HelperMessageTests: XCTestCase {
 
     func testWireFormat() throws {
         let json = String(decoding: try HelperRequest.stop(profileID: "acme").jsonData(), as: UTF8.self)
-        XCTAssertEqual(json, #"{"profile_id":"acme","type":"stop"}"#)
-        XCTAssertEqual(String(decoding: try HelperRequest.status.jsonData(), as: UTF8.self), #"{"type":"status"}"#)
+        XCTAssertEqual(json, #"{"profile_id":"acme","protocol_version":3,"type":"stop"}"#)
+        XCTAssertEqual(String(decoding: try HelperRequest.status.jsonData(), as: UTF8.self),
+                       #"{"protocol_version":3,"type":"status"}"#)
         let start = String(decoding: try HelperRequest.startOpenVPN(OpenVPNStart(
             profileID: "a", profileDir: "/d", logPath: "/l")).jsonData(), as: UTF8.self)
         XCTAssertTrue(start.contains(#""type":"start_openvpn""#))
@@ -247,6 +248,9 @@ final class HelperMessageTests: XCTestCase {
         XCTAssertEqual(o.mgmtPort, 17505)
         let reply = String(decoding: try HelperResponse.success(pid: 7, mgmtSocket: "/d/mgmt.sock").jsonData(), as: UTF8.self)
         XCTAssertEqual(reply, #"{"mgmt_socket":"\/d\/mgmt.sock","ok":true,"pid":7}"#)
+        let status = String(decoding: try HelperResponse.success(running: ["acme": 7], mgmtSockets: ["acme": "/r/mgmt.sock"])
+            .jsonData(), as: UTF8.self)
+        XCTAssertEqual(status, #"{"mgmt_sockets":{"acme":"\/r\/mgmt.sock"},"ok":true,"running":{"acme":7}}"#)
         let decoded = try HelperRequest(jsonData: Data(#"{"type":"start_forti","profile_id":"f","profile_dir":"/d","host":"h","port":443,"username":"u","password":"p","trusted_cert":"","set_dns":false,"set_routes":true,"log_path":"/d/vpn.log"}"#.utf8))
         guard case .startForti(let f) = decoded else { return XCTFail() }
         XCTAssertNil(f.otp)
@@ -255,7 +259,8 @@ final class HelperMessageTests: XCTestCase {
 
     func testResponseRoundTrip() throws {
         for r in [HelperResponse.success(pid: 42), .failure("nope"), .success(running: ["acme": 7, "b": 9]),
-                  .success(pid: 3, mgmtSocket: "/Users/alice/x/mgmt.sock"),
+                  .success(pid: 3, mgmtSocket: "/var/run/passtunnel/501/acme/mgmt.sock"),
+                  .success(running: ["acme": 7], mgmtSockets: ["acme": "/var/run/passtunnel/501/acme/mgmt.sock"]),
                   HelperResponse(ok: true)] {
             XCTAssertEqual(try HelperResponse(jsonData: try r.jsonData()), r)
         }
@@ -310,6 +315,7 @@ final class HelperCoreTests: XCTestCase {
     }
 
     var acmeDir: String { profiles.appendingPathComponent("acme").path }
+    var acmeRunDir: String { PT.sessionDir(uid: me, profileID: "acme", runRoot: runRoot.path) }
 
     func openVPNStart(dir: String? = nil, id: String = "acme", log: String? = nil) -> OpenVPNStart {
         let d = dir ?? acmeDir
@@ -337,11 +343,13 @@ final class HelperCoreTests: XCTestCase {
 
     func testPrepareOpenVPN() throws {
         let plan = try core().prepareOpenVPN(openVPNStart(), uid: me)
-        defer { close(plan.logFD); core().removeRunDir(profileID: "acme") }
+        defer { close(plan.logFD); core().removeRunDir(profileID: "acme", uid: me) }
         XCTAssertEqual(plan.tool, .openvpn)
-        XCTAssertEqual(plan.runDir, runRoot.path + "/acme")
+        XCTAssertEqual(plan.runDir, runRoot.path + "/\(me)/acme")
+        XCTAssertEqual(plan.runDir, plan.sessionDir.path)
+        XCTAssertEqual(plan.mgmtSocket, plan.runDir + "/mgmt.sock")
         XCTAssertEqual(plan.arguments, [
-            "--config", plan.runDir + "/config.ovpn", "--management", plan.profileDir.path + "/mgmt.sock", "unix",
+            "--config", plan.runDir + "/config.ovpn", "--management", plan.runDir + "/mgmt.sock", "unix",
             "--management-client-user", "alice", "--auth-nocache",
             "--remap-usr1", "SIGTERM", "--connect-retry-max", "3", "--auth-user-pass", plan.runDir + "/auth",
             "--script-security", "1", "--dns-updown", "disable",
@@ -349,12 +357,13 @@ final class HelperCoreTests: XCTestCase {
         let config = try String(contentsOfFile: plan.runDir + "/config.ovpn", encoding: .utf8)
         XCTAssertEqual(config, "client\nremote vpn.example.com 1194\nauth-user-pass\n")
         XCTAssertEqual(try String(contentsOfFile: plan.runDir + "/auth", encoding: .utf8), "alice\npw123456\n")
-        for (path, mode) in [(plan.runDir, 0o700), (plan.runDir + "/auth", 0o600), (plan.runDir + "/config.ovpn", 0o600),
+        for (path, mode) in [(runRoot.path, 0o711), (runRoot.path + "/\(me)", 0o711), (plan.runDir, 0o711),
+                             (plan.runDir + "/auth", 0o600), (plan.runDir + "/config.ovpn", 0o600),
                              (acmeDir + "/vpn.log", 0o600)] {
             let attrs = try FileManager.default.attributesOfItem(atPath: path)
             XCTAssertEqual((attrs[.posixPermissions] as? NSNumber)?.intValue, mode, path)
         }
-        core().removeRunDir(profileID: "acme")
+        core().removeRunDir(profileID: "acme", uid: me)
         XCTAssertFalse(FileManager.default.fileExists(atPath: plan.runDir))
     }
 
@@ -457,7 +466,7 @@ final class HelperCoreTests: XCTestCase {
         assertFails(try self.core().prepareOpenVPN(self.openVPNStart(), uid: self.me)) {
             if case .multipleLinks = $0 { return true }; return false
         }
-        XCTAssertFalse(FileManager.default.fileExists(atPath: runRoot.path + "/acme"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: acmeRunDir))
     }
 
     func testLogPathValidation() throws {
@@ -488,7 +497,7 @@ final class HelperCoreTests: XCTestCase {
         XCTAssertThrowsError(try core().prepareOpenVPN(openVPNStart(), uid: me)) { error in
             XCTAssertEqual((error as? OVPNSanitizer.Failure)?.violations.map(\.line), [2])
         }
-        XCTAssertFalse(FileManager.default.fileExists(atPath: runRoot.path + "/acme"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: acmeRunDir))
     }
 
     func testCredentialValidation() {
@@ -500,9 +509,7 @@ final class HelperCoreTests: XCTestCase {
         assertFails(try self.core().prepareOpenVPN(s, uid: self.me)) { $0 == .invalidCredential("password") }
     }
 
-    // MARK: Management socket
-
-    var socketPath: String { acmeDir + "/" + PT.mgmtSocketName }
+    // MARK: Management socket (root-owned session directory)
 
     func makeSocketFile(_ path: String) throws {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -519,48 +526,84 @@ final class HelperCoreTests: XCTestCase {
         XCTAssertEqual(rc, 0, String(cString: strerror(errno)))
     }
 
-    func testStaleSocketIsRemovedAndReported() throws {
-        try makeSocketFile(socketPath)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: socketPath))
-        let plan = try core().prepareOpenVPN(openVPNStart(), uid: me)
-        defer { close(plan.logFD) }
-        XCTAssertFalse(FileManager.default.fileExists(atPath: socketPath))
-        XCTAssertEqual(plan.mgmtSocket, plan.profileDir.path + "/mgmt.sock")
-        // Ownership fix-up and removal work through the directory descriptor.
-        try makeSocketFile(socketPath)
-        XCTAssertTrue(plan.profileDir.restrictSocket(PT.mgmtSocketName))
-        let attrs = try FileManager.default.attributesOfItem(atPath: socketPath)
-        XCTAssertEqual((attrs[.posixPermissions] as? NSNumber)?.intValue, 0o600)
-        try plan.profileDir.removeSocket(PT.mgmtSocketName)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: socketPath))
-        XCTAssertNoThrow(try plan.profileDir.removeSocket(PT.mgmtSocketName))   // already gone
+    func mode(_ path: String) throws -> Int {
+        try XCTUnwrap((FileManager.default.attributesOfItem(atPath: path)[.posixPermissions] as? NSNumber)?.intValue)
     }
 
-    func testSymlinkOrFileAtSocketPathIsRefused() throws {
+    func testSocketIsRestrictedInsideTheSessionDirectory() throws {
+        let plan = try core().prepareOpenVPN(openVPNStart(), uid: me)
+        defer { close(plan.logFD) }
+        let socketPath = try XCTUnwrap(plan.mgmtSocket)
+        XCTAssertFalse(socketPath.hasPrefix(acmeDir), "never in the user's profile directory")
+        XCTAssertFalse(plan.sessionDir.restrictSocket(PT.mgmtSocketName), "nothing there yet")
+        try makeSocketFile(socketPath)
+        XCTAssertEqual(chmod(socketPath, 0o777), 0)          // OpenVPN binds with umask 0
+        XCTAssertTrue(plan.sessionDir.restrictSocket(PT.mgmtSocketName))
+        XCTAssertEqual(try mode(socketPath), 0o600)
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: socketPath)[.ownerAccountID] as? NSNumber,
+                       NSNumber(value: me))
+        try plan.sessionDir.removeSocket(PT.mgmtSocketName)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: socketPath))
+        XCTAssertNoThrow(try plan.sessionDir.removeSocket(PT.mgmtSocketName))   // already gone
+        // Ending the session removes the whole directory, socket included.
+        try makeSocketFile(socketPath)
+        core().removeRunDir(profileID: "acme", uid: me)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: plan.runDir))
+    }
+
+    func testSocketRestrictRefusesSymlinkAndOtherFiles() throws {
+        let session = try core().makeRunDir(profileID: "acme", uid: me)
+        let socketPath = session.path + "/" + PT.mgmtSocketName
         let victim = base.appendingPathComponent("victim")
         try "keep".write(to: victim, atomically: true, encoding: .utf8)
+        XCTAssertEqual(chmod(victim.path, 0o644), 0)
+
         try FileManager.default.createSymbolicLink(atPath: socketPath, withDestinationPath: victim.path)
-        assertFails(try self.core().prepareOpenVPN(self.openVPNStart(), uid: self.me)) {
+        XCTAssertFalse(session.restrictSocket(PT.mgmtSocketName))
+        assertFails(try session.removeSocket(PT.mgmtSocketName)) {
             if case .symlinkNotAllowed = $0 { return true }; return false
         }
-        XCTAssertTrue(FileManager.default.fileExists(atPath: victim.path))
+        XCTAssertEqual(try mode(victim.path), 0o644, "link target untouched")
+
         try FileManager.default.removeItem(atPath: socketPath)
-        try "x".write(toFile: socketPath, atomically: true, encoding: .utf8)
-        assertFails(try self.core().prepareOpenVPN(self.openVPNStart(), uid: self.me)) {
+        try FileManager.default.linkItem(atPath: victim.path, toPath: socketPath)    // hard link
+        XCTAssertFalse(session.restrictSocket(PT.mgmtSocketName))
+        assertFails(try session.removeSocket(PT.mgmtSocketName)) {
             if case .notASocket = $0 { return true }; return false
         }
-        XCTAssertTrue(FileManager.default.fileExists(atPath: socketPath))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: runRoot.path + "/acme"))
+        XCTAssertEqual(try mode(victim.path), 0o644)
+
+        try FileManager.default.removeItem(atPath: socketPath)
+        try FileManager.default.createDirectory(atPath: socketPath, withIntermediateDirectories: false)
+        XCTAssertFalse(session.restrictSocket(PT.mgmtSocketName))
+        XCTAssertFalse(session.restrictSocket("../acme"))
+        XCTAssertFalse(session.restrictSocket(""))
+    }
+
+    func testProfileDirSocketIsNoLongerTouched() throws {
+        // Leftovers of protocol 2 in the profile directory are neither used nor followed.
+        let old = acmeDir + "/" + PT.mgmtSocketName
+        let victim = base.appendingPathComponent("victim")
+        try "keep".write(to: victim, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(atPath: old, withDestinationPath: victim.path)
+        let plan = try core().prepareOpenVPN(openVPNStart(), uid: me)
+        defer { close(plan.logFD) }
+        XCTAssertNotEqual(plan.mgmtSocket, old)
+        XCTAssertFalse(plan.arguments.contains(old))
+        XCTAssertEqual(try String(contentsOf: victim, encoding: .utf8), "keep")
     }
 
     func testSocketPathLengthAndClientUser() throws {
-        let longID = String(repeating: "a", count: 60)
-        let longDir = profiles.appendingPathComponent(longID)
-        try FileManager.default.createDirectory(at: longDir, withIntermediateDirectories: true)
-        try FileManager.default.copyItem(atPath: acmeDir + "/config.ovpn", toPath: longDir.path + "/config.ovpn")
-        assertFails(try self.core().prepareOpenVPN(self.openVPNStart(dir: longDir.path, id: longID), uid: self.me)) {
+        // The socket path is <runRoot>/<uid>/<id>/mgmt.sock; a long run root makes it overflow sun_path.
+        let longRoot = base.appendingPathComponent(String(repeating: "r", count: 80)).path
+        let c = HelperCore(runRoot: longRoot, homeDirectory: { [home] _ in home!.path }, userName: { _ in "alice" })
+        assertFails(try c.prepareOpenVPN(self.openVPNStart(), uid: self.me)) {
             if case .socketPathTooLong = $0 { return true }; return false
         }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: longRoot + "/\(me)/acme"))
+        // Production layout: a 64-character ID fits for typical uids.
+        XCTAssertLessThanOrEqual(PT.mgmtSocketPath(uid: 501, profileID: String(repeating: "a", count: 64)).utf8.count,
+                                 HelperCore.maxSocketPathBytes)
         let noName = HelperCore(runRoot: runRoot.path, homeDirectory: { [home] _ in home!.path }, userName: { _ in nil })
         assertFails(try noName.prepareOpenVPN(self.openVPNStart(), uid: self.me)) { $0 == .unknownUser(self.me) }
     }
@@ -571,16 +614,60 @@ final class HelperCoreTests: XCTestCase {
         let link = base.appendingPathComponent("run-link")
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
         let c = HelperCore(runRoot: link.path, homeDirectory: { _ in nil })
-        assertFails(try c.makeRunDir(profileID: "acme")) { if case .symlinkNotAllowed = $0 { return true }; return false }
+        assertFails(try c.makeRunDir(profileID: "acme", uid: self.me)) {
+            if case .symlinkNotAllowed = $0 { return true }; return false
+        }
+        // A symlinked per-user directory is refused the same way.
+        try FileManager.default.createSymbolicLink(atPath: runRoot.path + "/\(me)", withDestinationPath: target.path)
+        assertFails(try self.core().makeRunDir(profileID: "acme", uid: self.me)) {
+            if case .symlinkNotAllowed = $0 { return true }; return false
+        }
+        XCTAssertTrue((try FileManager.default.contentsOfDirectory(atPath: target.path)).isEmpty)
+    }
+
+    func testRunDirLayoutAndPermissions() throws {
+        XCTAssertEqual(chmod(runRoot.path, 0o755), 0)
+        let session = try core().makeRunDir(profileID: "acme", uid: me)
+        XCTAssertEqual(session.path, runRoot.path + "/\(me)/acme")
+        XCTAssertEqual(session.ownerUID, me)
+        for path in [runRoot.path, runRoot.path + "/\(me)", session.path] {
+            XCTAssertEqual(try mode(path), 0o711, path)
+            XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: path)[.ownerAccountID] as? NSNumber,
+                           NSNumber(value: geteuid()), path)
+        }
+        // A plain file where the per-user directory should be is refused, not replaced.
+        let other: uid_t = me + 1
+        try "x".write(toFile: runRoot.path + "/\(other)", atomically: true, encoding: .utf8)
+        assertFails(try self.core().makeRunDir(profileID: "acme", uid: other)) {
+            if case .notADirectory = $0 { return true }; return false
+        }
     }
 
     func testRunDirReplacesStaleDirectory() throws {
         let c = core()
-        let dir = try c.makeRunDir(profileID: "acme")
+        let dir = try c.makeRunDir(profileID: "acme", uid: me).path
         try "stale".write(toFile: dir + "/auth", atomically: true, encoding: .utf8)
-        let again = try c.makeRunDir(profileID: "acme")
+        let again = try c.makeRunDir(profileID: "acme", uid: me).path
         XCTAssertEqual(dir, again)
         XCTAssertFalse(FileManager.default.fileExists(atPath: dir + "/auth"))
-        c.removeRunDir(profileID: "acme")
+        c.removeRunDir(profileID: "acme", uid: me)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: runRoot.path + "/\(me)"))
+    }
+
+    func testSameProfileIDForTwoUsersGetsSeparateSessions() throws {
+        let c = core()
+        let mine = try c.makeRunDir(profileID: "acme", uid: me)
+        let theirs = try c.makeRunDir(profileID: "acme", uid: stranger)
+        XCTAssertNotEqual(mine.path, theirs.path)
+        try "mine".write(toFile: mine.path + "/auth", atomically: true, encoding: .utf8)
+        try "theirs".write(toFile: theirs.path + "/auth", atomically: true, encoding: .utf8)
+        // Recreating or removing one never touches the other.
+        _ = try c.makeRunDir(profileID: "acme", uid: stranger)
+        XCTAssertEqual(try String(contentsOfFile: mine.path + "/auth", encoding: .utf8), "mine")
+        c.removeRunDir(profileID: "acme", uid: stranger)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: mine.path + "/auth"))
+        XCTAssertEqual(PT.mgmtSocketPath(uid: me, profileID: "acme", runRoot: runRoot.path), mine.path + "/mgmt.sock")
+        XCTAssertNotEqual(PT.mgmtSocketPath(uid: me, profileID: "acme"), PT.mgmtSocketPath(uid: stranger, profileID: "acme"))
     }
 }

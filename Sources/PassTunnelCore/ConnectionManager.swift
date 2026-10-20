@@ -54,6 +54,12 @@ public enum ConnectionEvent: Equatable, Sendable {
 /// The helper calls the manager needs; `HelperClient` in production, a fake in tests.
 public protocol HelperClienting: AnyObject {
     func perform(_ request: HelperRequest, timeout: TimeInterval?) async throws -> HelperResponse
+    /// Throws `HelperClientError.versionMismatch` unless the running helper speaks our protocol.
+    func ensureCompatible() async throws
+}
+
+public extension HelperClienting {
+    func ensureCompatible() async throws {}
 }
 
 extension HelperClient: HelperClienting {}
@@ -171,6 +177,7 @@ public final class ConnectionManager: ObservableObject {
     private var userStopped: Set<String> = []
     private var sessionActive: Set<String> = []           // reached "connected" in the current session
     private var connectedAt: [String: Date] = [:]
+    private var mgmtSockets: [String: String] = [:]       // management socket per profile, as the helper reports it
     private var reconnectGen: [String: Int] = [:]
     private var reconnectTasks: [String: Task<Void, Never>] = [:]
     private var codeWaits: [String: Task<Void, Error>] = [:]   // waiting for a fresh code; disconnect cancels
@@ -268,6 +275,7 @@ public final class ConnectionManager: ObservableObject {
             let r = try await helper.perform(.status, timeout: timing.helperTimeout)
             if r.ok {
                 running = r.running ?? [:]
+                mgmtSockets = r.mgmtSockets ?? [:]
                 helperError = nil
             } else {
                 helperError = r.error ?? ""
@@ -296,7 +304,7 @@ public final class ConnectionManager: ObservableObject {
         switch p.type {
         case .openvpn:
             if running != nil && !isRunning { return .disconnected }
-            if let s = try? await management.state(socketPath: socketPath(p.id), timeout: 2) {
+            if let s = try? await management.state(socketPath: mgmtSockets[p.id] ?? socketPath(p.id), timeout: 2) {
                 return Self.map(s)
             }
             return isRunning ? .connecting(Phase.starting) : .disconnected
@@ -413,6 +421,8 @@ public final class ConnectionManager: ObservableObject {
             // Always the profile as stored now (the CLI may have changed it), never a cached copy.
             let p = try store.get(id)
             let creds = try resolveCredentials(p, given: given)
+            // A helper left running from another app version would misplace or reject the session.
+            try await helper.ensureCompatible()
 
             var otp = creds.otp
             var codeTime: Date?
@@ -449,6 +459,7 @@ public final class ConnectionManager: ObservableObject {
                 throw PTError.connectCancelled
             }
 
+            if let socket = response.mgmtSocket { mgmtSockets[id] = socket }
             let result = try await waitUntilConnected(p, token: token, socketPath: response.mgmtSocket ?? socketPath(id))
             let since = result.since ?? clock.now()
             setState(id, .connected(ip: result.ip, since: result.since ?? since))
@@ -844,8 +855,9 @@ public final class ConnectionManager: ObservableObject {
 
     private func isBusy(_ id: String) -> Bool { busy[id] != nil }
 
+    /// Where the helper puts our OpenVPN socket; used when no reply has named it (e.g. helper unreachable).
     private func socketPath(_ id: String) -> String {
-        store.dir(id).appendingPathComponent(PT.mgmtSocketName).path
+        PT.mgmtSocketPath(uid: geteuid(), profileID: id)
     }
 
     /// File marker so a disconnect made by another process (app ↔ CLI) is not seen as a drop.

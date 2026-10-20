@@ -1,9 +1,11 @@
 import Foundation
 
 /// Start an OpenVPN profile. `secret` is the password with the OTP already formatted in.
-/// The management interface is the unix socket `<profileDir>/mgmt.sock` (returned in
-/// `HelperResponse.mgmtSocket`); `mgmtPort` is ignored and only kept so protocol-1 payloads decode.
-public struct OpenVPNStart: Codable, Equatable, CustomStringConvertible {
+/// The management interface is the unix socket `PT.mgmtSocketPath(uid:profileID:)` in the helper's
+/// root-owned session directory (returned in `HelperResponse.mgmtSocket`); `mgmtPort` is ignored and
+/// only kept so protocol-1 payloads decode.
+public struct OpenVPNStart: Codable, Equatable, CustomStringConvertible, CustomDebugStringConvertible,
+                            CustomReflectable {
     public var profileID: String
     public var profileDir: String
     public var mgmtPort: Int?
@@ -30,10 +32,18 @@ public struct OpenVPNStart: Codable, Equatable, CustomStringConvertible {
         "OpenVPNStart(profileID: \(profileID), profileDir: \(profileDir), "
             + "username: \(username ?? "nil"), secret: \(secret == nil ? "nil" : "<redacted>"), logPath: \(logPath))"
     }
+    public var debugDescription: String { description }
+
+    /// Keeps `dump()` and other Mirror-based printing from revealing the secret.
+    public var customMirror: Mirror {
+        Mirror(self, children: ["profileID": profileID, "profileDir": profileDir, "username": username as Any,
+                                "secret": secret == nil ? "nil" : "<redacted>", "logPath": logPath])
+    }
 }
 
 /// Start a FortiGate SSL VPN profile through openfortivpn.
-public struct FortiStart: Codable, Equatable, CustomStringConvertible {
+public struct FortiStart: Codable, Equatable, CustomStringConvertible, CustomDebugStringConvertible,
+                          CustomReflectable {
     public var profileID: String
     public var profileDir: String
     public var host: String
@@ -72,22 +82,31 @@ public struct FortiStart: Codable, Equatable, CustomStringConvertible {
             + "username: \(username), password: <redacted>, otp: \(otp == nil ? "nil" : "<redacted>"), "
             + "trustedCert: \(trustedCert), setDNS: \(setDNS), setRoutes: \(setRoutes), logPath: \(logPath))"
     }
+    public var debugDescription: String { description }
+
+    public var customMirror: Mirror {
+        Mirror(self, children: ["profileID": profileID, "profileDir": profileDir, "host": host, "port": port,
+                                "username": username, "password": "<redacted>",
+                                "otp": otp == nil ? "nil" : "<redacted>", "trustedCert": trustedCert,
+                                "setDNS": setDNS, "setRoutes": setRoutes, "logPath": logPath])
+    }
 }
 
-/// Request sent to the helper. Encoded as a flat JSON object with a `type` discriminator, e.g.
-/// `{"type":"stop","profile_id":"acme"}`. Use `jsonData()` / `init(jsonData:)` so both sides agree
-/// on the encoder settings.
+/// Request sent to the helper. Encoded as a flat JSON object with a `type` discriminator and the
+/// sender's protocol version, e.g. `{"profile_id":"acme","protocol_version":3,"type":"stop"}`.
+/// Use `jsonData()` / `init(jsonData:)` so both sides agree on the encoder settings; the helper
+/// decodes through `HelperCore.decodeRequest`, which also enforces size and version.
 public enum HelperRequest: Codable, Equatable {
     case startOpenVPN(OpenVPNStart)
     case startForti(FortiStart)
     case stop(profileID: String)
     case status
 
-    private enum Kind: String, Codable {
+    enum Kind: String, Codable {
         case startOpenVPN = "start_openvpn", startForti = "start_forti", stop, status
     }
 
-    private enum TypeKey: String, CodingKey { case type }
+    private enum TypeKey: String, CodingKey { case type, protocolVersion = "protocol_version" }
     private enum StopKeys: String, CodingKey { case profileID = "profile_id" }
 
     public init(from decoder: Decoder) throws {
@@ -104,6 +123,7 @@ public enum HelperRequest: Codable, Equatable {
 
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: TypeKey.self)
+        try c.encode(PT.helperProtocolVersion, forKey: .protocolVersion)
         switch self {
         case .startOpenVPN(let s):
             try c.encode(Kind.startOpenVPN, forKey: .type)
@@ -124,29 +144,34 @@ public enum HelperRequest: Codable, Equatable {
     public init(jsonData: Data) throws { self = try HelperJSON.decoder.decode(HelperRequest.self, from: jsonData) }
 }
 
-/// Reply from the helper. `running` maps profile IDs to pids (only for `status`); `mgmtSocket` is the
-/// OpenVPN management socket path (only for `startOpenVPN`).
+/// Reply from the helper. `running` maps the caller's profile IDs to pids and `mgmtSockets` maps
+/// its OpenVPN profile IDs to their management sockets (only for `status`); `mgmtSocket` is the
+/// socket of a just-started OpenVPN (only for `startOpenVPN`).
 public struct HelperResponse: Codable, Equatable {
     public var ok: Bool
     public var error: String?
     public var pid: Int32?
     public var running: [String: Int32]?
     public var mgmtSocket: String?
+    public var mgmtSockets: [String: String]?
 
-    enum CodingKeys: String, CodingKey { case ok, error, pid, running, mgmtSocket = "mgmt_socket" }
+    enum CodingKeys: String, CodingKey {
+        case ok, error, pid, running, mgmtSocket = "mgmt_socket", mgmtSockets = "mgmt_sockets"
+    }
 
     public init(ok: Bool, error: String? = nil, pid: Int32? = nil, running: [String: Int32]? = nil,
-                mgmtSocket: String? = nil) {
+                mgmtSocket: String? = nil, mgmtSockets: [String: String]? = nil) {
         self.ok = ok
         self.error = error
         self.pid = pid
         self.running = running
         self.mgmtSocket = mgmtSocket
+        self.mgmtSockets = mgmtSockets
     }
 
     public static func success(pid: Int32? = nil, running: [String: Int32]? = nil,
-                               mgmtSocket: String? = nil) -> HelperResponse {
-        HelperResponse(ok: true, pid: pid, running: running, mgmtSocket: mgmtSocket)
+                               mgmtSocket: String? = nil, mgmtSockets: [String: String]? = nil) -> HelperResponse {
+        HelperResponse(ok: true, pid: pid, running: running, mgmtSocket: mgmtSocket, mgmtSockets: mgmtSockets)
     }
 
     public static func failure(_ message: String) -> HelperResponse {

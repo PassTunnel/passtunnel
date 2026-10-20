@@ -4,8 +4,7 @@ import Foundation
 /// runs of anything else collapsed to "-". "Şirket VPN İç" → "sirket-vpn-ic".
 public enum Slug {
     /// Longest id handed out to new profiles. The OpenVPN management socket lives at
-    /// `~/Library/Application Support/PassTunnel/profiles/<id>/mgmt.sock`, which must fit in
-    /// `sun_path` (103 bytes) together with the user's home directory.
+    /// `/var/run/passtunnel/<uid>/<id>/mgmt.sock`, which must fit in `sun_path` (103 bytes).
     public static let maxIDLength = 24
 
     static let turkish: [Character: String] = [

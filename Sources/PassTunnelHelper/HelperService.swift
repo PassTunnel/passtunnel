@@ -21,8 +21,11 @@ final class HelperService: NSObject, PassTunnelHelperProtocol {
         let send: (HelperResponse) -> Void = { response in
             reply((try? response.jsonData()) ?? Data(#"{"ok":false,"error":"encoding failed"}"#.utf8))
         }
-        guard request.count <= 1 << 16, let decoded = try? HelperRequest(jsonData: request) else {
-            return send(.failure("Invalid request."))
+        let decoded: HelperRequest
+        do {
+            decoded = try HelperCore.decodeRequest(request)
+        } catch {
+            return send(.failure(String(describing: error)))
         }
         supervisor.handle(decoded, uid: uid, reply: send)
     }

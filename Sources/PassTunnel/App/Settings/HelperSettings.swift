@@ -97,6 +97,11 @@ struct HelperSettings: View {
                             .buttonStyle(.borderedProminent)
                         Button(String(localized: "Remove"), role: .destructive) { confirmRemove = true }
                     case .enabled:
+                        if model.helperOutdated {
+                            Button(String(localized: "Update Helper")) { update() }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(busy)
+                        }
                         Button(String(localized: "Open Login Items…")) { HelperInstaller.openSystemSettingsLoginItems() }
                         Button(String(localized: "Remove Helper…"), role: .destructive) { confirmRemove = true }
                             .disabled(busy)
@@ -148,7 +153,10 @@ struct HelperSettings: View {
         .sheet(isPresented: $showLicenses) { LicensesView() }
     }
 
+    private var outdated: Bool { model.helperStatus == .enabled && model.helperOutdated }
+
     private var statusTitle: String {
+        if outdated { return String(localized: "Needs an update") }
         switch model.helperStatus {
         case .enabled: return String(localized: "Installed and running")
         case .requiresApproval: return String(localized: "Waiting for your approval")
@@ -158,6 +166,9 @@ struct HelperSettings: View {
     }
 
     private var statusDetail: String {
+        if outdated {
+            return String(localized: "This helper belongs to another version of PassTunnel. Update it to connect; active connections stop.")
+        }
         switch model.helperStatus {
         case .enabled: return String(localized: "PassTunnel can start and stop VPN connections.")
         case .requiresApproval: return String(localized: "Turn on PassTunnel in System Settings → General → Login Items.")
@@ -167,6 +178,7 @@ struct HelperSettings: View {
     }
 
     private var statusSymbol: String {
+        if outdated { return "arrow.triangle.2.circlepath" }
         switch model.helperStatus {
         case .enabled: return "checkmark.shield.fill"
         case .requiresApproval: return "exclamationmark.shield.fill"
@@ -176,6 +188,7 @@ struct HelperSettings: View {
     }
 
     private var statusColor: Color {
+        if outdated { return .orange }
         switch model.helperStatus {
         case .enabled: return .green
         case .requiresApproval: return .orange
@@ -208,6 +221,25 @@ struct HelperSettings: View {
         }
         model.refreshHelperStatus()
         if model.helperStatus == .requiresApproval { HelperInstaller.openSystemSettingsLoginItems() }
+    }
+
+    /// Replaces a helper left running from another app version: unregistering stops it (launchd
+    /// sends SIGTERM, which stops its tunnels), registering again points launchd at this copy.
+    private func update() {
+        busy = true
+        errorText = nil
+        Task {
+            do {
+                try await HelperInstaller.unregister()
+                try HelperInstaller.register()
+            } catch {
+                errorText = error.localizedDescription
+            }
+            busy = false
+            model.refreshHelperStatus()
+            model.checkHelperVersion()
+            if model.helperStatus == .requiresApproval { HelperInstaller.openSystemSettingsLoginItems() }
+        }
     }
 
     private func remove() {

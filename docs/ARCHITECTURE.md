@@ -17,7 +17,7 @@ PassTunnel.app/Contents/
 
 | Target | Owns | Depends on |
 |---|---|---|
-| `PassTunnelShared` | XPC protocol, request/response types, `OVPNSanitizer`, `FortiConfig`, identifiers | — |
+| `PassTunnelShared` | XPC protocol, request/response types, `HelperCore` (request decoding, path checks), `SessionPolicy`, `CodeSignature`, `OVPNSanitizer`, `FortiConfig`, identifiers | — |
 | `PassTunnelCore` | model, `ProfileStore`, `ProfilesWatcher`, `Secrets` (Keychain), `TOTP`, `OTPAuthURI`, `OVPNAnalyzer`, `ShareFile`, `Preferences`, `HealthCheck`, `HelperClient`, `ConnectionManager` | Shared |
 | `PassTunnelHelper` | `main.swift` XPC listener, process supervision | Shared |
 | `PassTunnel` | SwiftUI app, menu bar, onboarding, CLI | Core, Shared |
@@ -31,7 +31,10 @@ public enum PT {
     public static let helperPlistName = "com.furkanprlk.passtunnel.helper.plist"
     public static let teamID = "YH4NUPFH74"
     public static let keychainService = "PassTunnel"
-    public static let helperProtocolVersion = 2   // 2: OpenVPN management via unix socket
+    public static let helperProtocolVersion = 3   // 3: sessions per (uid, id), socket in the run dir
+    public static let helperRunRoot = "/var/run/passtunnel"
+    public static func sessionDir(uid:profileID:runRoot:) -> String       // <runRoot>/<uid>/<id>
+    public static func mgmtSocketPath(uid:profileID:runRoot:) -> String   // <sessionDir>/mgmt.sock
 }
 ```
 
@@ -40,8 +43,8 @@ public enum PT {
 - Support dir: `~/Library/Application Support/PassTunnel/` — override with env `PASSTUNNEL_HOME` (tests).
   - `config.json` – preferences (`Preferences`), incl. `defaultProfile`
   - `profiles/<id>/profile.json`, `profiles/<id>/config.ovpn`, `profiles/<id>/vpn.log`,
-    `profiles/<id>/mgmt.sock` (OpenVPN management socket, exists only while connected),
     `profiles/<id>/.last-otp` (TOTP window of the last code sent, so app and CLI never reuse a code)
+    (the OpenVPN management socket is in the helper's run directory, see below)
 - Keychain: generic password, service `PT.keychainService` (env `PASSTUNNEL_KEYCHAIN_SERVICE` overrides
   for tests), account `"<profileID>/password"` and `"<profileID>/totp"`. Use the Security framework
   (`SecItemAdd/CopyMatching/Update/Delete`), never the `security` CLI. App and CLI are the same binary,
@@ -174,37 +177,69 @@ public enum HelperRequest: Codable {
     case status                            // → running profile IDs with pid
 }
 public struct HelperResponse: Codable { ok: Bool; error: String?; pid: Int32?; running: [String: Int32]?
-                                         mgmtSocket: String? }   // startOpenVPN → "<profileDir>/mgmt.sock"
+                                         mgmtSocket: String?               // startOpenVPN → PT.mgmtSocketPath(uid, id)
+                                         mgmtSockets: [String: String]? }  // status → id → socket (caller's OpenVPN sessions)
 ```
+
+Requests carry `"protocol_version"`; the helper decodes them with `HelperCore.decodeRequest`, which
+rejects, in this order: more than 64 KiB, anything but a JSON object, a version other than its own
+(a missing version counts as 2), a missing or unknown `type`, then missing/mistyped fields (errors name
+the field, never its value). `ConnectionManager` calls `ensureCompatible()` (the `version` XPC call)
+before every start, so a helper left running from another app version fails with
+`HelperClientError.versionMismatch`; the app then shows Settings → Helper as "Needs an update", whose
+**Update Helper** button unregisters the daemon (launchd stops it, which stops its tunnels) and
+registers it again from the running app bundle.
+
+Run directory layout (all root-owned; `HelperCore.makeRunDir`):
+
+```
+/var/run/passtunnel/            0711   run root
+  <uid>/                        0711   one per user
+    <profileID>/                0711   one per session, recreated on start, removed when the tool exits
+      config.ovpn | openfortivpn.conf, auth, dns-updown, state   0600/0700 root
+      mgmt.sock                 0600   owned by <uid> (OpenVPN only)
+```
+
+Users can traverse to their socket by name but cannot list, rename or replace entries, so handing the
+socket to the user (`SessionDirectory.restrictSocket`: `fstatat`/`AT_SYMLINK_NOFOLLOW` on the directory
+descriptor, then `fchownat`/`fchmodat`) cannot be redirected to another file. A restarted helper adopts
+tools recorded in `<uid>/<id>/state`; tools recorded by a protocol-2 helper (`<root>/<id>/state`) are
+stopped, since their socket is in the profile directory.
 
 Security rules (helper):
 - Runs **only** the tools inside its own app bundle (`Contents/Resources/bin/…`), after verifying their code
   signature has our Team ID. Never a path supplied by the client.
 - `profileDir` must be a real directory under the *calling user's* home `Library/Application Support/PassTunnel/profiles/`
-  (resolve symlinks; check owner uid == caller's euid from the audit token).
+  (resolve symlinks; check owner uid == caller's euid from the audit token), not group- or world-writable.
+  `config.ovpn` must be a regular, single-link file owned by the user and not group- or world-writable.
+  Profile IDs: ASCII letters, digits, `-`, `_`, `.`, 1–64 bytes, no leading `.`/`-`, no trailing `.`.
 - OpenVPN: reads `config.ovpn` from profileDir, runs it through `OVPNSanitizer` (rejects `up`, `down`,
   `route-up`, `route-pre-down`, `ipchange`, `learn-address`, `client-connect`, `client-disconnect`,
   `tls-verify`, `auth-user-pass-verify`, `plugin`, `script-security` > 1, `management*`, `log*`, `daemon`,
   `writepid`, `cd`, `chroot`, `user`/`group`, `config`, `show-pkcs11-ids`, `genkey`, `port-share`,
   external files incl. a `socks-proxy` credentials file; strips `static-challenge`), writes the sanitized copy and the auth file
-  into a root-only temp dir, then runs openvpn with fixed flags (`--management <profileDir>/mgmt.sock unix`
+  into the session's run directory, then runs openvpn with fixed flags (`--management <runDir>/mgmt.sock unix`
   `--management-client-user <caller's user name>` so only the calling user can talk to it, no
   `--management-hold`; `--auth-nocache`, `--remap-usr1 SIGTERM`, `--connect-retry-max 3`, stdout/stderr to
-  logPath). A stale `mgmt.sock` is removed through the profile-dir descriptor before launch (refused if it is
-  a symlink or not a socket); once OpenVPN creates it the helper chowns it to the user with mode 0600, and
-  removes it when the process exits. The socket path must fit in `sun_path` (103 bytes), which limits the
-  length of profile IDs.
+  logPath). Once OpenVPN creates the socket the helper chowns it to the user with mode 0600; it goes away
+  with the run directory when the process exits. The socket path must fit in `sun_path` (103 bytes):
+  `/var/run/passtunnel/<uid>/<id>/mgmt.sock` fits 64-byte IDs for uids up to 8 digits.
 - Forti: the helper writes the openfortivpn config itself from the typed fields (no user-supplied raw config;
   no pppd options). OTP is passed in the config (`otp = …`), so no pinentry is needed.
 - Tracks the pid it started per profile; `stop` only signals that pid (SIGTERM, then SIGKILL after 5 s).
-  Several Forti/OpenVPN profiles may run at once.
+  Several Forti/OpenVPN profiles may run at once, at most `SessionPolicy.maxSessionsPerUser` (8) per user.
+  `SessionPolicy` decides, keyed by (caller uid, profile ID): two users may run the same ID; starting one of
+  your own running IDs fails; `status` lists only the caller's sessions (root included); another user's session
+  is invisible, so `stop` of it is the same successful no-op as an unknown ID (idempotent).
 
 `HelperClient` (Core) wraps the XPC connection with async functions. `ManagementSocket` (Core) is a
 one-shot client for the OpenVPN management socket: `ManagementSocket(path:).command(_:timeout:)` connects,
 reads the banner, sends one command and reads until `END` / `SUCCESS:` / `ERROR:` (retrying briefly while
 the socket is not there yet or another client is connected); `state()` returns
 `ManagementState(name, localIP, since, …)`. `ConnectionManager` (Core) owns state per profile: OpenVPN
-state via `ManagementSocket` on `HelperResponse.mgmtSocket` (`state` command; first field = since;
+state via `ManagementSocket` on the socket the helper reports (`HelperResponse.mgmtSocket` after start,
+`mgmtSockets` in each `status` poll, so sessions started by the CLI or before an app restart are found;
+`PT.mgmtSocketPath(uid: geteuid(), …)` only as a fallback) (`state` command; first field = since;
 disconnect = helper `stop`),
 Forti via helper `status` + log (`Tunnel is up and running`, `Got addresses: [...]`). It resolves
 credentials (Keychain / TOTP / caller-supplied for `.ask`), builds what is sent with

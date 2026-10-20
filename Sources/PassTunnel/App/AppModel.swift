@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import PassTunnelCore
+import PassTunnelShared
 import SwiftUI
 
 struct EditorRequest: Identifiable {
@@ -52,6 +53,9 @@ final class AppModel: ObservableObject {
     @Published var settingsTab: SettingsTab = .general
     @Published private(set) var droppedUnseen: Set<String> = []
     @Published private(set) var helperStatus: HelperStatus = .notRegistered
+    /// The registered helper is running but speaks another protocol version (left from another app version).
+    @Published private(set) var helperOutdated = false
+    private var checkingHelperVersion = false
     /// Set when the CLI asked the app to install or remove the helper; Settings → Helper consumes it.
     @Published var pendingHelperAction: HelperHandoff?
 
@@ -208,7 +212,25 @@ final class AppModel: ObservableObject {
         if let previewHelperStatus { helperStatus = previewHelperStatus; return }
         guard Bundle.main.bundleIdentifier != nil else { helperStatus = .notFound; return }
         let s = HelperInstaller.status
-        if s != helperStatus { helperStatus = s }
+        let changed = s != helperStatus
+        if changed { helperStatus = s }
+        if s != .enabled {
+            helperOutdated = false
+        } else if changed || helperOutdated {
+            checkHelperVersion()
+        }
+    }
+
+    /// Asks the running helper for its protocol version; a mismatch means it must be updated
+    /// (Settings → Helper → Update Helper re-registers it from this copy of the app).
+    func checkHelperVersion() {
+        guard previewHelperStatus == nil, !checkingHelperVersion else { return }
+        checkingHelperVersion = true
+        Task {
+            let version = try? await HelperClient.shared.version()
+            checkingHelperVersion = false
+            if let version { helperOutdated = version != PT.helperProtocolVersion }
+        }
     }
 
     // MARK: connection state
@@ -358,6 +380,7 @@ final class AppModel: ObservableObject {
         if let h = error as? HelperClientError {
             switch h {
             case .notInstalled, .requiresApproval, .notFound, .versionMismatch:
+                if case .versionMismatch = h { helperOutdated = true }
                 alert = AppAlert(title: String(localized: "The helper is not ready"),
                                  message: h.localizedDescription, opensHelperSettings: true)
                 return

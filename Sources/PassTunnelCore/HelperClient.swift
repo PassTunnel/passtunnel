@@ -24,7 +24,7 @@ public enum HelperClientError: Error, Equatable, LocalizedError {
         case .timeout(let s):
             return String(localized: "The PassTunnel helper did not answer within \(Int(s)) seconds.")
         case .versionMismatch(let helper, let app):
-            return String(localized: "The PassTunnel helper is out of date (version \(helper), expected \(app)). Reinstall it.")
+            return String(localized: "The PassTunnel helper belongs to another version of PassTunnel (version \(helper), expected \(app)). Update it in Settings → Helper.")
         case .badResponse:
             return String(localized: "The PassTunnel helper sent an invalid response.")
         }
