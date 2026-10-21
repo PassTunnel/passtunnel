@@ -1,0 +1,55 @@
+{
+  "$schema": "https://raw.githubusercontent.com/modelcontextprotocol/mcpb/main/schemas/mcpb-manifest-v0.3.schema.json",
+  "manifest_version": "0.3",
+  "name": "passtunnel",
+  "display_name": "PassTunnel",
+  "version": "@VERSION@",
+  "description": "VPN status, logs and diagnosis for PassTunnel on macOS. Requires the PassTunnel app in /Applications.",
+  "long_description": "PassTunnel is a macOS VPN client for OpenVPN and FortiGate SSL VPN that fills in TOTP one-time codes automatically. This bundle starts the MCP server built into the installed app (`PassTunnel mcp`).\n\n**Requires the PassTunnel app in /Applications** (Apple silicon, macOS 13 or later): `brew trust passtunnel/tap && brew install --cask passtunnel/tap/passtunnel`, or the disk image from https://github.com/passtunnel/passtunnel/releases/latest. The bundle contains only a small launcher script, not the app, and never downloads or installs anything; without the app the server stops with an install hint.\n\nRead-only by default: list_profiles, get_status, get_logs (credentials redacted) and diagnose. connect and disconnect are offered only when \"Allow connect and disconnect\" is turned on; a profile protected with Touch ID still asks on your Mac. No tool returns passwords, TOTP secrets or one-time codes, and no tool creates, changes or deletes profiles. See SECURITY.md for the full model.",
+  "author": {
+    "name": "Furkanprlk",
+    "url": "https://github.com/Furkanprlk"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/passtunnel/passtunnel.git"
+  },
+  "homepage": "https://github.com/passtunnel/passtunnel",
+  "documentation": "https://github.com/passtunnel/passtunnel#use-with-ai-assistants-mcp",
+  "support": "https://github.com/passtunnel/passtunnel/issues",
+  "icon": "icon.png",
+  "server": {
+    "type": "binary",
+    "entry_point": "server/passtunnel-mcp",
+    "mcp_config": {
+      "command": "/bin/sh",
+      "args": ["${__dirname}/server/passtunnel-mcp"],
+      "env": {
+        "PASSTUNNEL_MCP_ALLOW_CONNECT": "${user_config.allow_connect}"
+      }
+    }
+  },
+  "tools": [
+    { "name": "list_profiles", "description": "Profiles with type, state, whether connecting asks for Touch ID, auto-reconnect" },
+    { "name": "get_status", "description": "State, tunnel IP, since when, last error; whether the helper is installed and current" },
+    { "name": "get_logs", "description": "The last lines (up to 500) of a profile's VPN log, with credentials redacted" },
+    { "name": "diagnose", "description": "App version, helper state, and per profile whether config, server and saved credentials are in place" },
+    { "name": "connect", "description": "Connect a profile (only with Allow connect and disconnect)" },
+    { "name": "disconnect", "description": "Disconnect a profile (only with Allow connect and disconnect)" }
+  ],
+  "tools_generated": false,
+  "keywords": ["vpn", "openvpn", "fortigate", "totp", "macos", "diagnostics"],
+  "license": "MIT",
+  "compatibility": {
+    "platforms": ["darwin"]
+  },
+  "user_config": {
+    "allow_connect": {
+      "type": "boolean",
+      "title": "Allow connect and disconnect",
+      "description": "Off: read-only (status, logs, diagnosis). On: also connect and disconnect profiles; profiles protected with Touch ID still ask on your Mac.",
+      "default": false,
+      "required": false
+    }
+  }
+}

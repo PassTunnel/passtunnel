@@ -322,8 +322,16 @@ Without the `passtunnel` command, use the app binary directly:
 claude mcp add passtunnel -- /Applications/PassTunnel.app/Contents/MacOS/PassTunnel mcp
 ```
 
-**Claude Desktop** starts servers without your shell's `PATH`, so give the full path. In
-`~/Library/Application Support/Claude/claude_desktop_config.json`:
+**Claude Desktop:** download `PassTunnel-mcp-<version>.mcpb` from the
+[latest release](https://github.com/passtunnel/passtunnel/releases/latest) and double-click it;
+Claude Desktop opens the MCP bundle and installs it. Its setting *Allow connect and disconnect*
+(off by default) adds `--allow-connect`. The bundle holds only a launcher for the server built into
+the app, so PassTunnel must be installed in `/Applications`; without it the server stops with an
+install hint. The same bundle is the package of PassTunnel's
+[MCP Registry](https://registry.modelcontextprotocol.io) entry, `io.github.PassTunnel/passtunnel`.
+
+Or configure it by hand. Claude Desktop starts servers without your shell's `PATH`, so give the full
+path. In `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {

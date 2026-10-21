@@ -12,8 +12,11 @@
 #
 # Without --publish nothing leaves this Mac apart from the notarization uploads: no tag, no push, no
 # release. Output: dist/PassTunnel-VERSION.dmg, dist/PassTunnel-VERSION.zip (Sparkle update),
-# dist/SHA256SUMS, dist/appcast.xml, dist/passtunnel.rb (Homebrew cask), dist/release-notes-VERSION.md.
-# Repository slugs come from scripts/release.env. Setup and the whole procedure: docs/RELEASING.md.
+# dist/PassTunnel-mcp-VERSION.mcpb (MCP bundle), dist/SHA256SUMS, dist/appcast.xml,
+# dist/passtunnel.rb (Homebrew cask), dist/server.json (MCP Registry entry, published by the
+# publish-mcp workflow), dist/release-notes-VERSION.md.
+# Repository slugs and tool versions come from scripts/release.env. Setup and the whole procedure:
+# docs/RELEASING.md.
 #
 # Environment: PASSTUNNEL_SIGN_IDENTITY (default: the Developer ID Application identity of the Team ID
 # in Identifiers.swift), NOTARY_PROFILE (notarytool keychain profile, default: passtunnel).
@@ -26,7 +29,7 @@ source "$ROOT/scripts/release.env"
 
 die() { echo "error: $*" >&2; exit 1; }
 step() { printf '\n==> %s\n' "$*"; }
-usage() { sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; }
 
 VERSION=""
 DRAFT=0
@@ -61,6 +64,7 @@ DIST="$ROOT/dist"
 WORK="$DIST/.work-$VERSION"
 DMG_NAME="PassTunnel-$VERSION.dmg"
 ZIP_NAME="PassTunnel-$VERSION.zip"
+MCPB_NAME="PassTunnel-mcp-$VERSION.mcpb"
 SPARKLE_BIN="$ROOT/.build/artifacts/sparkle/Sparkle/bin"
 
 ((PUBLISH && ALLOW_BRANCH)) && die "--publish releases from main only; drop --allow-branch"
@@ -126,6 +130,10 @@ KEY="$("$SPARKLE_BIN/generate_keys" -p 2>/dev/null)" || die "no Sparkle signing 
 PLIST_KEY="$(plutil -extract SUPublicEDKey raw Resources/Info.plist)"
 [[ "$KEY" == "$PLIST_KEY" ]] || die "the Sparkle key in the keychain ($KEY) is not the SUPublicEDKey in Resources/Info.plist ($PLIST_KEY)"
 echo "EdDSA public key: $KEY"
+
+step "checking the MCP bundle tools"
+# jq, zip, unzip and sips; jq also writes dist/server.json.
+"$ROOT/scripts/build-mcpb.sh" --check
 
 if ((PUBLISH)); then
     step "checking GitHub"
@@ -221,8 +229,21 @@ else
         || die "Gatekeeper does not accept the disk image as notarized"
 fi
 
+step "building the MCP bundle"
+"$ROOT/scripts/build-mcpb.sh" "$VERSION" "$WORK"
+MCPB_SHA="$(shasum -a 256 "$WORK/$MCPB_NAME" | awk '{print $1}')"
+
+step "writing the MCP Registry entry"
+# The publish-mcp workflow writes the same file from the published asset and publishes it.
+"$ROOT/scripts/make-server-json.sh" "$VERSION" "$MCPB_SHA" > "$WORK/server.json"
+if command -v mcp-publisher >/dev/null; then
+    (cd "$WORK" && mcp-publisher validate server.json) || die "mcp-publisher validate rejects dist/server.json"
+else
+    echo "note: mcp-publisher is not installed; server.json is checked when the workflow publishes it"
+fi
+
 step "writing checksums and release notes"
-(cd "$WORK" && shasum -a 256 "$DMG_NAME" "$ZIP_NAME" > SHA256SUMS)
+(cd "$WORK" && shasum -a 256 "$DMG_NAME" "$ZIP_NAME" "$MCPB_NAME" > SHA256SUMS)
 cat "$WORK/SHA256SUMS"
 printf '%s\n' "$NOTES" > "$WORK/release-notes-$VERSION.md"
 
@@ -298,7 +319,7 @@ fi
 
 step "moving the results to dist/"
 rm -rf "$WORK/PassTunnel.app"
-for f in "$DMG_NAME" "$ZIP_NAME" SHA256SUMS appcast.xml passtunnel.rb "release-notes-$VERSION.md"; do
+for f in "$DMG_NAME" "$ZIP_NAME" "$MCPB_NAME" SHA256SUMS appcast.xml passtunnel.rb server.json "release-notes-$VERSION.md"; do
     mv -f "$WORK/$f" "$DIST/$f"
 done
 mv -f "$NOTARY_LOG" "$DIST/notarization-$VERSION.txt"
@@ -316,7 +337,7 @@ if ((PUBLISH)); then
         fi
     fi
     git push origin "$TAG"
-    ASSETS=("$DIST/$DMG_NAME" "$DIST/$ZIP_NAME" "$DIST/appcast.xml" "$DIST/SHA256SUMS")
+    ASSETS=("$DIST/$DMG_NAME" "$DIST/$ZIP_NAME" "$DIST/$MCPB_NAME" "$DIST/appcast.xml" "$DIST/SHA256SUMS")
     # Draft first, upload, check, then publish: with immutable releases a published release's assets
     # can no longer be added or replaced, so it must be complete before it is published.
     if ((EXISTING_DRAFT)); then
@@ -335,6 +356,7 @@ if ((PUBLISH)); then
     if ((DRAFT)); then
         echo
         echo "Draft release $TAG is ready on GitHub; publish it there (or run this again without --draft)."
+        echo "Publishing it starts the publish-mcp workflow (MCP Registry; not for pre-releases)."
     else
         if ((PRERELEASE)); then
             gh release edit "$TAG" --repo "$GITHUB_REPO" --draft=false --prerelease --latest=false
@@ -343,6 +365,11 @@ if ((PUBLISH)); then
         fi
         echo
         echo "Released. Copy dist/passtunnel.rb to Casks/passtunnel.rb in $TAP_REPO ($TAP_NAME) and push it."
+        if ((PRERELEASE)); then
+            echo "Pre-releases are not published to the MCP Registry (run the publish-mcp workflow by hand to list one)."
+        else
+            echo "The publish-mcp workflow now publishes $VERSION to the MCP Registry; check it under Actions."
+        fi
     fi
 else
     echo

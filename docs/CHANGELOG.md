@@ -4,6 +4,17 @@ All notable changes to PassTunnel. Versions follow Semantic Versioning.
 `scripts/release.sh` uses the section of the version it releases as the release notes (GitHub
 release and the update window), so write it for users.
 
+## [Unreleased]
+
+### Added
+
+- **MCP bundle for Claude Desktop.** Every release now includes `PassTunnel-mcp-<version>.mcpb`:
+  double-click it to add PassTunnel's MCP server to Claude Desktop (and other clients that install
+  MCP bundles), with a setting to allow connecting and disconnecting (off by default). The bundle
+  starts the server of the installed app, so PassTunnel must be in /Applications.
+- PassTunnel's entry in the MCP Registry (`io.github.PassTunnel/passtunnel`) now points at that
+  bundle, so clients that install from the registry can set it up directly.
+
 ## [1.1.0] - 2026-10-21
 
 ### Added

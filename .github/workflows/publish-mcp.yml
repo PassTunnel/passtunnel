@@ -1,27 +1,84 @@
-# Publishes server.json to the MCP Registry (registry.modelcontextprotocol.io) as
-# io.github.PassTunnel/passtunnel. GitHub's OIDC token proves the repository owner, so no secret is
-# stored. Runs when a release is published, or by hand (Actions → Publish to MCP Registry → Run).
-# The registry accepts each version once: server.json's "version" must match the release.
+# Publishes a release to the MCP Registry (registry.modelcontextprotocol.io) as
+# io.github.PassTunnel/passtunnel, with the release's MCP bundle (PassTunnel-mcp-VERSION.mcpb) as the
+# installable package. Runs when a release is published (pre-releases are skipped), or by hand for a
+# tag (Actions → Publish to MCP Registry → Run workflow → tag). The entry is server.json of the tagged
+# commit with the version of the tag and the SHA-256 of the published bundle, written by
+# scripts/make-server-json.sh, so it always describes exactly that release. GitHub's OIDC token proves
+# the repository owner, so no secret is stored. The registry accepts each version once: a version it
+# already has is skipped (the run succeeds), so re-running is safe.
 name: Publish to MCP Registry
 
 on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish, for example v1.2.0
+        required: true
 
 permissions:
   contents: read
   id-token: write
 
+concurrency:
+  group: publish-mcp
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
 jobs:
   publish:
+    if: github.event_name == 'workflow_dispatch' || !github.event.release.prerelease
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.tag }}
     steps:
+      - name: Check the tag
+        run: |
+          [[ "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$ ]] \
+            || { echo "::error::'$TAG' is not a release tag like v1.2.0"; exit 1; }
+          echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: refs/tags/${{ env.TAG }}
           persist-credentials: false
 
+      - name: Check whether the registry has this version
+        id: registry
+        run: |
+          name="$(jq -r .name server.json)"
+          code="$(curl -sS -o /dev/null -w '%{http_code}' \
+            "https://registry.modelcontextprotocol.io/v0.1/servers/${name//\//%2F}/versions/$VERSION")"
+          case "$code" in
+            200) echo "::notice::$name $VERSION is already in the MCP Registry; nothing to publish"
+                 echo "missing=false" >> "$GITHUB_OUTPUT" ;;
+            404) echo "missing=true" >> "$GITHUB_OUTPUT" ;;
+            *)   echo "::error::the MCP Registry answered HTTP $code"; exit 1 ;;
+          esac
+
+      - name: Download and check the MCP bundle
+        if: steps.registry.outputs.missing == 'true'
+        run: |
+          source scripts/release.env
+          base="https://github.com/$GITHUB_REPO/releases/download/$TAG"
+          file="PassTunnel-mcp-$VERSION.mcpb"
+          cd "$RUNNER_TEMP"
+          curl -fsSL --retry 3 -o "$file" "$base/$file" \
+            || { echo "::error::$file is not attached to the release $TAG"; exit 1; }
+          curl -fsSL --retry 3 -o SHA256SUMS "$base/SHA256SUMS"
+          grep -qF "  $file" SHA256SUMS || { echo "::error::SHA256SUMS of $TAG does not list $file"; exit 1; }
+          grep -F "  $file" SHA256SUMS | sha256sum -c -
+          manifest_version="$(unzip -p "$file" manifest.json | jq -r .version)"
+          [[ "$manifest_version" == "$VERSION" ]] \
+            || { echo "::error::$file has version $manifest_version, expected $VERSION"; exit 1; }
+          sha256sum "$file" | cut -d' ' -f1 > mcpb.sha256
+
       - name: Install mcp-publisher 1.8.1
+        if: steps.registry.outputs.missing == 'true'
         run: |
           curl -fsSL -o mcp-publisher.tar.gz \
             https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_linux_amd64.tar.gz
@@ -29,6 +86,10 @@ jobs:
           tar xzf mcp-publisher.tar.gz mcp-publisher
 
       - name: Publish
+        if: steps.registry.outputs.missing == 'true'
         run: |
+          scripts/make-server-json.sh "$VERSION" "$(cat "$RUNNER_TEMP/mcpb.sha256")" > "$RUNNER_TEMP/server.json"
+          cat "$RUNNER_TEMP/server.json"
+          ./mcp-publisher validate "$RUNNER_TEMP/server.json"
           ./mcp-publisher login github-oidc
-          ./mcp-publisher publish server.json
+          ./mcp-publisher publish "$RUNNER_TEMP/server.json"

@@ -1,0 +1,27 @@
+#!/bin/sh
+# Launcher of the PassTunnel MCP bundle (packaging/mcpb, built by scripts/build-mcpb.sh). The bundle
+# contains no copy of PassTunnel: the MCP server is the signed app binary itself, which needs its app
+# bundle (helper, frameworks). This script only starts it and never downloads or installs anything.
+#
+# PASSTUNNEL_MCP_ALLOW_CONNECT is the bundle's "Allow connect and disconnect" setting ("true" or
+# "false", from manifest.json); only "true" adds --allow-connect.
+set -eu
+
+app="/Applications/PassTunnel.app"
+bin="$app/Contents/MacOS/PassTunnel"
+
+if [ ! -x "$bin" ]; then
+    {
+        echo "PassTunnel is not installed: $bin not found."
+        echo "This MCP bundle only starts the server built into the PassTunnel app. Install the app with"
+        echo "  brew trust passtunnel/tap && brew install --cask passtunnel/tap/passtunnel"
+        echo "or download it from https://github.com/passtunnel/passtunnel/releases/latest, open it once,"
+        echo "then restart this MCP server."
+    } >&2
+    exit 127
+fi
+
+if [ "${PASSTUNNEL_MCP_ALLOW_CONNECT:-false}" = "true" ]; then
+    exec "$bin" mcp --allow-connect
+fi
+exec "$bin" mcp

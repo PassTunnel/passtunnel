@@ -1,8 +1,10 @@
 # Releasing PassTunnel
 
 A release is a signed and notarized disk image for people who download it, a zip archive plus a
-signed `appcast.xml` for Sparkle (in-app updates), and a Homebrew cask. `scripts/release.sh` builds
-all of them into `dist/`; with `--publish` it also tags the commit and creates the GitHub release.
+signed `appcast.xml` for Sparkle (in-app updates), a Homebrew cask, and an MCP bundle (`.mcpb`) for
+Claude Desktop and the MCP Registry. `scripts/release.sh` builds all of them into `dist/`; with
+`--publish` it also tags the commit and creates the GitHub release, and publishing the release starts
+the workflow that updates the MCP Registry entry (see [MCP bundle and MCP Registry](#mcp-bundle-and-mcp-registry)).
 
 Where things are published is set once, in [`scripts/release.env`](../scripts/release.env):
 
@@ -67,9 +69,12 @@ they all match.
 
    Add the same key to the GitHub account as a *signing* key so the tag shows as verified (GPG works
    too: `user.signingkey` set to the key ID).
-6. **Tools.** Xcode (Swift 5.10+, `xcstringstool`, `notarytool`, `stapler`) and
+6. **Tools.** Xcode (Swift 5.10+, `xcstringstool`, `notarytool`, `stapler`),
    `brew install openvpn openfortivpn` (bundled into the app, at the versions pinned in
-   `release.env`; see [Bundled tools](#bundled-tools)).
+   `release.env`; see [Bundled tools](#bundled-tools)) and `jq` (part of macOS 15 and later, else
+   `brew install jq`). No Node.js or npm: the MCP bundle is built with macOS tools and `jq` only.
+   Optional: `brew install mcp-publisher`, then `release.sh` also validates
+   `dist/server.json` (it only validates; publishing is the workflow's job).
 
 ## Every release
 
@@ -90,20 +95,22 @@ they all match.
    ```
 
    The script stops at the first problem: not on `main`, uncommitted changes, an existing tag, no
-   changelog section, a missing identity, notarization profile or Sparkle key, or Homebrew tool
-   versions that differ from the pins in `release.env`. It then builds with
+   changelog section, a missing identity, notarization profile or Sparkle key, Homebrew tool
+   versions that differ from the pins in `release.env`, or no `jq`. It then builds with
    `build-app.sh --sign … --version 1.2.0` (`CFBundleShortVersionString` = the version,
    `CFBundleVersion` = the commit count, which Sparkle compares), notarizes and staples the app,
    makes the Sparkle zip, makes a signed disk image (the app and a link to Applications), notarizes
-   and staples it, checks both with Gatekeeper (`spctl`), and writes:
+   and staples it, checks both with Gatekeeper (`spctl`), builds the MCP bundle, and writes:
 
    | File | |
    |---|---|
    | `dist/PassTunnel-1.2.0.dmg` | download for people |
    | `dist/PassTunnel-1.2.0.zip` | Sparkle update archive |
    | `dist/appcast.xml` | Sparkle feed: the feed and the zip are EdDSA-signed, download URLs on the `v1.2.0` release |
-   | `dist/SHA256SUMS` | checksums of the dmg and zip |
+   | `dist/PassTunnel-mcp-1.2.0.mcpb` | MCP bundle for Claude Desktop and the MCP Registry |
+   | `dist/SHA256SUMS` | checksums of the dmg, zip and MCP bundle |
    | `dist/passtunnel.rb` | Homebrew cask (from `scripts/homebrew/passtunnel.rb.template`) |
+   | `dist/server.json` | the MCP Registry entry for this release (for reference; the workflow publishes its own copy) |
    | `dist/release-notes-1.2.0.md` | the changelog section |
    | `dist/notarization-1.2.0.txt` | notarization submission IDs |
 
@@ -115,9 +122,10 @@ they all match.
    ```
 
    This repeats the build, creates the tag `v1.2.0` (signed if a signing key is set up, see
-   One-time setup), pushes it, creates a **draft** GitHub release with the dmg, zip, `appcast.xml`
-   and `SHA256SUMS`, checks that all four are attached, and only then publishes it (pre-releases
-   are marked as such and never become "latest"). With `--draft` it stops before publishing; publish
+   One-time setup), pushes it, creates a **draft** GitHub release with the dmg, zip, MCP bundle,
+   `appcast.xml` and `SHA256SUMS`, checks that all five are attached, and only then publishes it
+   (pre-releases are marked as such and never become "latest"). Publishing it starts the MCP Registry
+   workflow; check that its run under Actions succeeds. With `--draft` it stops before publishing; publish
    the draft on GitHub, or run the command again without `--draft`. The feed URL in the app is
    `…/releases/latest/download/appcast.xml`, so installed copies see the update as soon as the
    release is published (not while it is a draft or a pre-release). Pre-release appcasts also use
@@ -141,6 +149,69 @@ they all match.
    The cask has `auto_updates true`: Sparkle updates the app, and `brew upgrade` only touches it
    with `--greedy`. Its `zap` also deletes the Keychain items of the service `PassTunnel` (as the
    user, through `security delete-generic-password`). Skip the tap for pre-releases.
+
+## MCP bundle and MCP Registry
+
+`PassTunnel-mcp-VERSION.mcpb` is an [MCP bundle](https://github.com/modelcontextprotocol/mcpb): a zip
+with `manifest.json`, the launcher `server/passtunnel-mcp` and the app icon, from
+[`packaging/mcpb/`](../packaging/mcpb). It does not contain the app. The launcher runs
+`/Applications/PassTunnel.app/Contents/MacOS/PassTunnel mcp` (with `--allow-connect` when the
+bundle's setting *Allow connect and disconnect* is on; clients pass it as
+`PASSTUNNEL_MCP_ALLOW_CONNECT=true`), and prints an install hint and exits 127 when the app is
+missing. It never downloads or installs anything. The name must contain "mcp": the registry
+refuses bundle URLs without it.
+
+`scripts/build-mcpb.sh VERSION [OUTPUT_DIR]` builds it (`release.sh` calls it with its work
+directory; run it alone for a quick check, it signs and publishes nothing). It sets the version in
+the manifest, converts `Resources/AppIcon.icns` to a 512×512 `icon.png`, checks the manifest, packs
+the three files with `zip`, and checks the result again. It uses only macOS tools and `jq`, never a
+package manager: the release Mac holds the signing identity, the Sparkle key and the notarization
+credentials, and a three-file zip is no reason to run code fetched from a registry there.
+`scripts/build-mcpb.sh --check` only checks that the tools are there (`release.sh` does that before
+the build).
+
+- **Reproducible.** The files are packed in a fixed order (`icon.png`, `manifest.json`,
+  `server/passtunnel-mcp`) with fixed modes (644, and 755 for the launcher), all dated
+  2020-01-01 00:00 UTC, without directory entries or extra attributes (`zip -X -D`). The same sources
+  and version give the same SHA-256 on any Mac, whatever its time zone or umask.
+- **Manifest checks** (jq, MCPB manifest 0.3, before and after packing): only fields the 0.3 schema
+  knows; `manifest_version` `0.3`; `name`, `description` and `author.name` set; `version` is the
+  version built; `server.type` `binary`; `server.entry_point` is an executable file in the bundle and
+  `server.mcp_config` runs it (`command`, `args`), passing the setting as
+  `PASSTUNNEL_MCP_ALLOW_CONNECT`; `compatibility.platforms` contains `darwin`; `tools` are named and
+  unique; `user_config.allow_connect` is a boolean that defaults to `false`; every
+  `${user_config.…}` names a setting; the icon is a PNG.
+- **Bundle checks:** `unzip -Z1` lists exactly the three files in order, the launcher is
+  `-rwxr-xr-x` in the zip, the extracted files equal the staged ones, `unzip -p … manifest.json`
+  reads back as the same JSON, and `unzip -t` passes.
+
+To check a bundle with the official [mcpb CLI](https://github.com/modelcontextprotocol/mcpb) too
+(after changing the manifest, or when the MCPB format moves on), do it by hand on a machine without
+release credentials, or at least in an empty temporary directory with npm install scripts disabled:
+extract the bundle and run the CLI's `validate` on the extracted `manifest.json` and `info` on the
+`.mcpb` (it reports the bundle as not signed; MCPB signatures are not used). Then install the bundle in
+Claude Desktop. The release itself never runs it.
+
+The registry entry `io.github.PassTunnel/passtunnel` is published by
+[`.github/workflows/publish-mcp.yml`](../.github/workflows/publish-mcp.yml), not by `release.sh`,
+because the registry only accepts a bundle URL that is publicly reachable, which a draft's assets
+are not. When a release is published, the workflow checks out its tag, downloads
+`PassTunnel-mcp-VERSION.mcpb` from the release, checks it against `SHA256SUMS` and the version in its
+manifest, writes `server.json` with `scripts/make-server-json.sh VERSION SHA256` (the repository's
+`server.json` with `version` set to the release and a `packages` entry: `registryType` `mcpb`, the
+asset's download URL, `fileSha256`, `transport` stdio), validates it and publishes it, logging in
+with the job's GitHub OIDC token (no secret). `release.sh` writes the same file to
+`dist/server.json`. So the release commit needs no change to `server.json`: it holds the metadata
+(name, description, links), and its `version` is whatever was published last without a bundle; edit
+the metadata there and it takes effect with the next release.
+
+- The registry accepts each version once and keeps it. The workflow first asks the registry for the
+  version and stops successfully when it is already there, so re-running it is safe; a failed run
+  can be re-run as is.
+- Pre-releases are skipped. To list one, or to publish a release again after a failed run, use
+  Actions → Publish to MCP Registry → Run workflow with the tag (`v1.2.0`).
+- A release without a `.mcpb` asset (1.1.0 and earlier) cannot be published by the workflow; the
+  run fails with a message.
 
 ## Signed appcast
 
