@@ -15,24 +15,24 @@ cask "passtunnel" do
 
   auto_updates true
   depends_on arch: :arm64
-  depends_on macos: ">= :ventura"
+  depends_on macos: :ventura
 
   app "PassTunnel.app"
   binary "#{appdir}/PassTunnel.app/Contents/MacOS/PassTunnel", target: "passtunnel"
 
   # The helper is a launchd daemon registered from inside the app bundle (SMAppService); there is
   # nothing in /Library/PrivilegedHelperTools. Removing the job stops its VPN sessions.
-  uninstall quit:      "com.furkanprlk.passtunnel",
-            launchctl: "com.furkanprlk.passtunnel.helper"
+  uninstall launchctl: "com.furkanprlk.passtunnel.helper",
+            quit:      "com.furkanprlk.passtunnel"
 
   zap trash: [
+    "/usr/local/bin/passtunnel",
     "~/.local/bin/passtunnel",
     "~/Library/Application Support/PassTunnel",
     "~/Library/Caches/com.furkanprlk.passtunnel",
     "~/Library/HTTPStorages/com.furkanprlk.passtunnel",
     "~/Library/Preferences/com.furkanprlk.passtunnel.plist",
     "~/Library/Saved Application State/com.furkanprlk.passtunnel.savedState",
-    "/usr/local/bin/passtunnel",
   ]
 
   caveats <<~EOS

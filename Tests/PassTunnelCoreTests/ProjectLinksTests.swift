@@ -41,7 +41,7 @@ final class ProjectLinksTests: XCTestCase {
         let tapName = "\(tapOwner)/\(tapRepo.split(separator: "/")[1].replacingOccurrences(of: "homebrew-", with: ""))"
 
         let repoPattern = try NSRegularExpression(pattern: #"github\.com/([A-Za-z0-9_.-]+/(?:passtunnel|homebrew-tap))\b"#)
-        let tapPattern = try NSRegularExpression(pattern: #"\b([A-Za-z0-9_.-]+/tap)/passtunnel\b"#)
+        let tapPattern = try NSRegularExpression(pattern: #"\b([A-Za-z0-9_.-]+/tap)/passtunnel\b|brew trust ([A-Za-z0-9_.-]+/tap)\b"#)
         var problems: [String] = []
         var seen = 0
         for url in try Self.files() {
@@ -55,8 +55,9 @@ final class ProjectLinksTests: XCTestCase {
                 if found != expected { problems.append("\(name): github.com/\(found), expected \(expected)") }
             }
             for m in tapPattern.matches(in: text, range: range) {
-                let found = String(text[Range(m.range(at: 1), in: text)!])
-                if found != tapName { problems.append("\(name): \(found)/passtunnel, expected \(tapName)/passtunnel") }
+                let group = m.range(at: 1).location != NSNotFound ? 1 : 2
+                let found = String(text[Range(m.range(at: group), in: text)!])
+                if found != tapName { problems.append("\(name): \(found), expected \(tapName)") }
             }
         }
         XCTAssertGreaterThan(seen, 3)

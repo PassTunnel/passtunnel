@@ -107,10 +107,12 @@ automatically as soon as no VPN connection is active.
 ### Homebrew
 
 ```sh
+brew trust passtunnel/tap
 brew install --cask passtunnel/tap/passtunnel
 ```
 
-The cask also links the `passtunnel` command. Updates arrive through the app itself, so
+Since Homebrew 6, casks from third-party taps load only once you trust the tap, hence the first
+line. The cask also links the `passtunnel` command. Updates arrive through the app itself, so
 `brew upgrade` leaves it alone unless you run `brew upgrade --greedy`.
 
 ### Build from source
@@ -421,9 +423,10 @@ Mac'in Secure Enclave'indeki bir anahtarla şifreler. Arayüz Türkçe ve İngil
 **Kurulum:** İmzalı ve notarize edilmiş `.dmg` dosyasını
 [GitHub Releases](https://github.com/passtunnel/passtunnel/releases/latest) sayfasından indirip
 PassTunnel’ı **Uygulamalar** klasörüne sürükleyin ya da Homebrew ile kurun:
-`brew install --cask passtunnel/tap/passtunnel`. Uygulama kendini güncel tutar (Ayarlar →
-Güncellemeler). Kaynaktan derlemek için yukarıdaki [Build from source](#build-from-source)
-bölümüne bakın.
+`brew trust passtunnel/tap`, ardından `brew install --cask passtunnel/tap/passtunnel` (Homebrew 6
+ve sonrası, üçüncü taraf bir tap'teki cask'ı ancak o tap'e güvendiğinizde yükler). Uygulama kendini
+güncel tutar (Ayarlar → Güncellemeler). Kaynaktan derlemek için yukarıdaki
+[Build from source](#build-from-source) bölümüne bakın.
 
 İlk açılışta, VPN araçlarını yönetici yetkisiyle çalıştıran küçük yardımcıyı (helper) kurmanız
 istenir. Bunu Sistem Ayarları → Genel → Giriş Öğeleri'nden bir kez onaylarsınız. Yardımcı yalnızca

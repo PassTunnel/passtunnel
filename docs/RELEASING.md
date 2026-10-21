@@ -9,7 +9,7 @@ Where things are published is set once, in [`scripts/release.env`](../scripts/re
 | Variable | Used for |
 |---|---|
 | `GITHUB_REPO` | GitHub releases, download URLs, the feed URL and links stamped into `Info.plist` (`SUFeedURL`, `PTGitHubRepository`) by `build-app.sh`, the cask |
-| `TAP_REPO` | the Homebrew tap (`<owner>/homebrew-tap` → `brew install --cask <owner>/tap/passtunnel`) |
+| `TAP_REPO` | the Homebrew tap (`<owner>/homebrew-tap` → `brew trust <owner>/tap`, then `brew install --cask <owner>/tap/passtunnel`) |
 
 If they change, also update the URLs written out in `README.md`, `SECURITY.md`,
 `THIRD_PARTY_NOTICES.md` and the fallback in `AppInfo.repository`; `ProjectLinksTests` fails until
@@ -100,9 +100,14 @@ they all match.
    (`TAP_REPO`), check it and push:
 
    ```sh
+   brew trust passtunnel/tap
    brew audit --cask --online passtunnel/tap/passtunnel
+   brew style passtunnel/tap
    brew install --cask passtunnel/tap/passtunnel
    ```
+
+   Since Homebrew 6, casks from a tap that is not trusted are not loaded, so the README's install
+   instructions start with `brew trust passtunnel/tap`.
 
    The cask has `auto_updates true`: Sparkle updates the app, and `brew upgrade` only touches it
    with `--greedy`. Skip the tap for pre-releases.
