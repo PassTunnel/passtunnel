@@ -2,6 +2,7 @@
 # Builds a signed, notarized PassTunnel release into dist/.
 #
 #   scripts/release.sh VERSION [--draft] [--skip-notarize] [--allow-branch] [--publish]
+#                      [--notes-file FILE]
 #
 #   VERSION          semantic version: 1.2.0, 1.3.0-rc.1, …
 #   --skip-notarize  sign only (no notarization, no stapling); never use for a published release
@@ -9,6 +10,9 @@
 #   --publish        create and push the tag vVERSION (signed when git has a signing key), then
 #                    create the GitHub release as a draft, upload the files and publish it
 #   --draft          with --publish: leave the release as a draft (publish it on GitHub later)
+#   --notes-file FILE
+#                    the release notes (Markdown) from FILE instead of the section "## [VERSION]" of
+#                    docs/CHANGELOG.md (the release workflow passes the notes of next-version.sh)
 #
 # Without --publish nothing leaves this Mac apart from the notarization uploads: no tag, no push, no
 # release. Output: dist/PassTunnel-VERSION.dmg, dist/PassTunnel-VERSION.zip (Sparkle update),
@@ -29,19 +33,23 @@ source "$ROOT/scripts/release.env"
 
 die() { echo "error: $*" >&2; exit 1; }
 step() { printf '\n==> %s\n' "$*"; }
-usage() { sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; }
 
 VERSION=""
 DRAFT=0
 SKIP_NOTARIZE=0
 ALLOW_BRANCH=0
 PUBLISH=0
+NOTES_FILE=""
 while (($#)); do
     case "$1" in
         --draft) DRAFT=1 ;;
         --skip-notarize) SKIP_NOTARIZE=1 ;;
         --allow-branch) ALLOW_BRANCH=1 ;;
         --publish) PUBLISH=1 ;;
+        # Relative to the directory release.sh was started from (the script has changed to ROOT).
+        --notes-file) (($# >= 2)) || die "--notes-file needs a file"; NOTES_FILE="$2"
+                      [[ "$NOTES_FILE" == /* ]] || NOTES_FILE="$OLDPWD/$NOTES_FILE"; shift ;;
         -h|--help) usage; exit 0 ;;
         -*) usage >&2; die "unknown option: $1" ;;
         *) [[ -z "$VERSION" ]] || die "more than one version given"; VERSION="$1" ;;
@@ -90,7 +98,6 @@ if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
     echo "tag $TAG exists at HEAD; continuing"
 fi
 
-step "reading the release notes from docs/CHANGELOG.md"
 # The section "## [VERSION] …" up to the next "## "; a pre-release falls back to its base version.
 changelog_section() {
     awk -v v="$1" '
@@ -98,12 +105,20 @@ changelog_section() {
         found { print }
     ' docs/CHANGELOG.md | sed -e '/./,$!d' | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}'
 }
-NOTES="$(changelog_section "$(sed 's/[.]/\\\\./g' <<<"$VERSION")")"
-if [[ -z "$NOTES" && "$PRERELEASE" == 1 ]]; then
-    NOTES="$(changelog_section "$(sed 's/[.]/\\\\./g' <<<"$BASE_VERSION")")"
-    [[ -n "$NOTES" ]] && echo "no section for $VERSION; using the one for $BASE_VERSION"
+if [[ -n "$NOTES_FILE" ]]; then
+    step "reading the release notes from $NOTES_FILE"
+    [[ -f "$NOTES_FILE" ]] || die "$NOTES_FILE not found"
+    NOTES="$(sed -e '/./,$!d' "$NOTES_FILE")"
+    [[ -n "$NOTES" ]] || die "$NOTES_FILE is empty"
+else
+    step "reading the release notes from docs/CHANGELOG.md"
+    NOTES="$(changelog_section "$(sed 's/[.]/\\\\./g' <<<"$VERSION")")"
+    if [[ -z "$NOTES" && "$PRERELEASE" == 1 ]]; then
+        NOTES="$(changelog_section "$(sed 's/[.]/\\\\./g' <<<"$BASE_VERSION")")"
+        [[ -n "$NOTES" ]] && echo "no section for $VERSION; using the one for $BASE_VERSION"
+    fi
+    [[ -n "$NOTES" ]] || die "docs/CHANGELOG.md has no section '## [$VERSION]'"
 fi
-[[ -n "$NOTES" ]] || die "docs/CHANGELOG.md has no section '## [$VERSION]'"
 
 step "checking signing and notarization"
 if [[ -z "${PASSTUNNEL_SIGN_IDENTITY:-}" ]]; then
