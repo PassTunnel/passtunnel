@@ -96,8 +96,8 @@ done
 rm -f "$seen_list"
 
 # --- pinned versions ------------------------------------------------------------------------------
-# Every bundled formula must have the Cellar version pinned in release.env (openssl@3 →
-# OPENSSL3_VERSION, pkcs11-helper → PKCS11_HELPER_VERSION, …), and every pin must be bundled.
+# Every bundled formula must have the Cellar version pinned in release.env (openssl@4 →
+# OPENSSL4_VERSION, pkcs11-helper → PKCS11_HELPER_VERSION, …), and every pin must be bundled.
 # PASSTUNNEL_ALLOW_UNPINNED_TOOLS=1 only warns (local builds; release.sh refuses it).
 source "$(dirname "$0")/release.env"
 pin_var() { echo "$(tr '[:lower:]-' '[:upper:]_' <<<"${1//@/}")_VERSION"; }

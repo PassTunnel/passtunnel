@@ -407,11 +407,11 @@ automatically. The error lists every offending line. The complete list is in
 <details>
 <summary><b>My .p12 certificate does not load ("unsupported", "RC2-40-CBC"). Why?</b></summary>
 
-Older PKCS#12 files are encrypted with RC2, which OpenSSL 3 only reads through its legacy provider.
-PassTunnel's OpenVPN loads no OpenSSL providers or modules (they would come from paths outside the
-app), so such a file cannot be used as it is. Re-export it once with modern encryption, using
-OpenSSL 3 (for example Homebrew's, `brew install openssl@3`; macOS's own `/usr/bin/openssl` is
-LibreSSL and has no `-legacy` option):
+Older PKCS#12 files are encrypted with RC2, which OpenSSL 3 and 4 only read through their legacy
+provider. PassTunnel's OpenVPN loads no OpenSSL providers or modules (they would come from paths
+outside the app), so such a file cannot be used as it is. Re-export it once with modern
+encryption, using OpenSSL 3 (for example Homebrew's, `brew install openssl@3`; macOS's own
+`/usr/bin/openssl` is LibreSSL and has no `-legacy` option):
 
 ```sh
 OPENSSL="$(brew --prefix openssl@3)/bin/openssl"

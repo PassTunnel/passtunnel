@@ -129,7 +129,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           brew install openvpn openfortivpn
-          brew list --versions openvpn openfortivpn openssl@3 openssl@4 lz4 lzo pkcs11-helper
+          brew list --versions openvpn openfortivpn openssl@4 lz4 lzo pkcs11-helper
 
       - name: Set up the signing keychain
         env:
