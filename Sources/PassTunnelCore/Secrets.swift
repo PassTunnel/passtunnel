@@ -6,7 +6,7 @@ public enum SecretKind: String, CaseIterable { case password, totp }
 
 /// Generic-password Keychain items: service `PT.keychainService` (or `$PASSTUNNEL_KEYCHAIN_SERVICE`),
 /// account "<profileID>/<kind>". Values are stored as UTF-8: plain text, or a `SecretEnvelope` for
-/// profiles with "Confirm it’s you" (read those through `SecretVault`).
+/// profiles with "Confirm with Touch ID" (read those through `SecretVault`).
 public enum Secrets {
     static func account(_ profileID: String, _ kind: SecretKind) -> String { "\(profileID)/\(kind.rawValue)" }
     /// The profile's protection key record (`ProtectionKeyRecord`): a Secure Enclave–wrapped private

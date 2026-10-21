@@ -38,7 +38,7 @@ public protocol UserAuthenticator: AnyObject {
     /// Asks the user ("PassTunnel is trying to `reason`") and returns the key ready for use.
     /// Throws `PTError.userConfirmationCancelled` / `.userConfirmationFailed`, or
     /// `ProtectionKeyUnusable` when the key data cannot be used.
-    func unlock(keyData: Data, reason: String, reuseDuration: TimeInterval) async throws -> UnlockedProtectionKey
+    func unlock(keyData: Data, reason: String) async throws -> UnlockedProtectionKey
 }
 
 /// CryptoKit Secure Enclave P-256 key-agreement keys with the access control
@@ -66,13 +66,14 @@ public final class SecureEnclaveAuthenticator: UserAuthenticator {
 
     /// One `LAContext` is confirmed first (`evaluateAccessControl` for a key exchange with the key's own
     /// access control), then handed to the key, so all key agreements of this unlock share one prompt.
-    /// `reuseDuration` becomes `touchIDAuthenticationAllowableReuseDuration` (at most 5 minutes).
-    public func unlock(keyData: Data, reason: String, reuseDuration: TimeInterval) async throws -> UnlockedProtectionKey {
+    /// `touchIDAuthenticationAllowableReuseDuration` stays 0: it would accept a recent Touch ID unlock of
+    /// the Mac instead of a prompt, which is what this protects against. Repeats within the reuse window
+    /// are served from `SecretVault`'s memory instead.
+    public func unlock(keyData: Data, reason: String) async throws -> UnlockedProtectionKey {
         guard let access = Self.accessControl() else { throw PTError.protectionUnavailable }
         let context = LAContext()
         context.localizedReason = reason
-        context.touchIDAuthenticationAllowableReuseDuration =
-            min(max(0, reuseDuration), LATouchIDAuthenticationMaximumAllowableReuseDuration)
+        context.touchIDAuthenticationAllowableReuseDuration = 0
         do {
             guard try await context.evaluateAccessControl(access, operation: .useKeyKeyExchange, localizedReason: reason) else {
                 throw PTError.userConfirmationFailed(String(localized: "the confirmation failed."))
@@ -126,6 +127,21 @@ public final class SecureEnclaveAuthenticator: UserAuthenticator {
         default:
             return PTError.userConfirmationFailed(error.localizedDescription)
         }
+    }
+}
+
+/// How the setting is named: "Confirm with Touch ID", or "Confirm with your password" on a Mac without
+/// Touch ID (no built-in sensor and no Touch ID keyboard; the confirmation is then the login password).
+public enum ConfirmationWording {
+    /// `LAContext.biometryType` is set by `canEvaluatePolicy`, whatever it returns.
+    public static let hasTouchID: Bool = {
+        let context = LAContext()
+        _ = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
+        return context.biometryType != .none
+    }()
+
+    public static var settingName: String {
+        hasTouchID ? String(localized: "Confirm with Touch ID") : String(localized: "Confirm with your password")
     }
 }
 

@@ -327,7 +327,7 @@ final class CLIRunner {
         guard p.otpMode == .totp else {
             throw CLIFailure(String(localized: "Profile “\(p.id)” does not use a TOTP secret."))
         }
-        // Encrypted ("Confirm it’s you"): decrypting asks for Touch ID or the Mac password.
+        // Encrypted ("Confirm with Touch ID"): decrypting asks for Touch ID or the Mac password.
         guard let text = try await manager.vault.secret(p, .totp, for: .code) else { throw PTError.missingTOTPSecret(p.id) }
         let secret = try TOTP.decodeSecret(text)
         let now = Date()

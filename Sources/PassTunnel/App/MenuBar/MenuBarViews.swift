@@ -127,7 +127,7 @@ private struct ProfileMenuSection: View {
             Button(String(localized: "Disconnect")) { model.disconnect(p) }
         }
         if model.isCodeLocked(p) {
-            // Stored encrypted ("Confirm it’s you"): hidden; copying asks first.
+            // Stored encrypted ("Confirm with Touch ID"): hidden; copying asks first.
             let shown = CodeFormat.hidden(max(6, p.totp.digits))
             Button(String(localized: "Copy Code  \(shown)")) { model.copyCode(p) }
         } else if let c = model.code(for: p) {

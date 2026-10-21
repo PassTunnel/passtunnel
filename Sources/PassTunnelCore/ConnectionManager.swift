@@ -648,6 +648,7 @@ public final class ConnectionManager: ObservableObject {
                 return try await follow(p, token: token, session: session)
             }
             if p.type == .openvpn && !force { try checkNoOtherFullTunnel(p, running: status?.running ?? [:]) }
+            vault.reconcile(p)   // a setting edited by hand: encrypt what it protects before use
             let stored = try await storedSecrets(p, interactive: interactive)
             try checkToken(id, token)
             let creds = try resolveCredentials(p, given: given, stored: stored)

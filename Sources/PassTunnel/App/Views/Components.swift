@@ -140,7 +140,7 @@ struct CountdownRing: View {
     }
 }
 
-/// Large live code with countdown; click copies. A locked code (stored encrypted, "Confirm it’s you")
+/// Large live code with countdown; click copies. A locked code (stored encrypted, "Confirm with Touch ID")
 /// is masked with a lock; click asks for Touch ID or the Mac password and shows it.
 struct LiveCodeView: View {
     @EnvironmentObject private var model: AppModel

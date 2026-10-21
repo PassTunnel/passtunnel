@@ -18,7 +18,7 @@ final class EditorModel: ObservableObject {
 
     let isNew: Bool
     let store: ProfileStore
-    /// Writes secrets encrypted when the profile's "Confirm it’s you" setting protects them.
+    /// Writes secrets encrypted when the profile's "Confirm with Touch ID" setting protects them.
     let vault: SecretVault
     /// Preview models (renderer) never read or write the store or the Keychain.
     let isPreview: Bool
@@ -164,7 +164,7 @@ final class EditorModel: ObservableObject {
     /// this sheet is the user's own input and always shown).
     var storedCodeNeedsConfirmation: Bool { newTOTPSecret == nil && storedTOTPProtected }
 
-    /// "Confirm it’s you" is being turned on where it cannot work (no Secure Enclave).
+    /// "Confirm with Touch ID" is being turned on where it cannot work (no Secure Enclave).
     var protectionUnavailable: Bool {
         draft.requireAuth != .off && (original?.requireAuth ?? .off) == .off && !isPreview && !vault.isAvailable
     }

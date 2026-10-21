@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 
-/// Profile secrets protected by "Confirm it’s you" (`Profile.requireAuth`).
+/// Profile secrets protected by "Confirm with Touch ID" (`Profile.requireAuth`).
 ///
 /// Protected secrets are stored encrypted (`SecretEnvelope`) to a per-profile protection key whose
 /// private half is in the Secure Enclave and usable only after the user confirms (Touch ID or the login
@@ -88,9 +88,10 @@ public final class SecretVault: ObservableObject {
     public func isProtected(_ id: String, _ kind: SecretKind) -> Bool { Secrets.isProtected(id, kind) }
 
     /// True when using `kinds` of `p` would ask the user now: one of them is stored encrypted and not
-    /// unlocked.
+    /// unlocked. Reconciles the stored form with the setting first (`reconcile`).
     public func needsPrompt(_ p: Profile, _ kinds: Set<SecretKind>) -> Bool {
-        kinds.contains { Secrets.isProtected(p.id, $0) && !isUnlocked(p.id, $0) }
+        reconcile(p)
+        return kinds.contains { Secrets.isProtected(p.id, $0) && !isUnlocked(p.id, $0) }
     }
 
     public func needsPrompt(_ p: Profile, for action: UserPresenceAction) -> Bool {
@@ -115,6 +116,7 @@ public final class SecretVault: ObservableObject {
     /// The secret, decrypting (and asking) when needed. Nil when no item exists. Without `prompt`, a
     /// locked secret throws `PTError.confirmationRequired` instead of asking.
     public func secret(_ p: Profile, _ kind: SecretKind, for action: UserPresenceAction, prompt: Bool = true) async throws -> String? {
+        reconcile(p)
         guard Secrets.has(p.id, kind) else { return nil }
         if let value = available(p.id, kind) { return value }
         guard prompt else { throw PTError.confirmationRequired }
@@ -149,10 +151,9 @@ public final class SecretVault: ObservableObject {
             if let first = encrypted.first { throw PTError.protectedSecretUnreadable(first.0) }
             return   // no key and nothing encrypted: nothing to protect
         }
-        let window = reuseWindow()
         let unlocked: UnlockedProtectionKey
         do {
-            unlocked = try await authenticator.unlock(keyData: record.key, reason: action.reason(p.name), reuseDuration: window)
+            unlocked = try await authenticator.unlock(keyData: record.key, reason: action.reason(p.name))
         } catch is ProtectionKeyUnusable {
             throw discardUnusableKey(id, encrypted.map(\.0))
         }
@@ -192,6 +193,24 @@ public final class SecretVault: ObservableObject {
     }
 
     // MARK: writing
+
+    /// Brings items in line with a setting that was changed outside the app and the CLI (e.g.
+    /// `require_auth` edited in profile.json): a secret the setting protects but that is still plain is
+    /// encrypted now (public key only, no prompt). The other way round, encrypted items of a profile set
+    /// to `off` stay encrypted, so reading them asks, until the setting is lowered properly
+    /// (`applyProtection`). Best effort: without a Secure Enclave nothing changes. Returns whether
+    /// anything was encrypted.
+    @discardableResult
+    public func reconcile(_ p: Profile) -> Bool {
+        guard p.requireAuth != .off else { return false }
+        var changed = false
+        for kind in Self.protectedKinds(p).sorted(by: { $0.rawValue < $1.rawValue }) {
+            guard let raw = Secrets.raw(p.id, kind), !SecretEnvelope.isEnvelope(raw) else { continue }
+            do { try store(p, kind, SecretEnvelope.decodePlain(raw)) } catch { return changed }
+            changed = true
+        }
+        return changed
+    }
 
     /// Stores a new secret: encrypted when the profile's setting protects `kind` (public key only, no
     /// prompt; the key is made if needed), otherwise in plain text.

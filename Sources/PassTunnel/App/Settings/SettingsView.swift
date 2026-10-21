@@ -135,7 +135,7 @@ struct GeneralSettings: View {
             } header: {
                 Text(String(localized: "Security"))
             } footer: {
-                Text(String(localized: "For profiles set to “Confirm it’s you”, one Touch ID or password confirmation is valid this long for the same profile. Sleep and locking the screen end it."))
+                Text(String(localized: "For profiles set to “\(ConfirmationWording.settingName)”, one confirmation with Touch ID or your Mac password is valid this long for the same profile. Sleep and locking the screen end it."))
                     .settingsFooter()
             }
 

@@ -99,7 +99,7 @@ struct ProfileEditorView: View {
         .padding(.vertical, 12)
     }
 
-    /// For a saved profile, the stored secrets are brought in line with "Confirm it’s you" first
+    /// For a saved profile, the stored secrets are brought in line with "Confirm with Touch ID" first
     /// (`SecretVault.applyProtection`): turning it on encrypts them; lowering it decrypts them, which
     /// asks for Touch ID or the Mac password (otherwise the protection would be one click away).
     private func save() {
@@ -432,10 +432,10 @@ struct ProfileEditorView: View {
     /// Touch ID (or the Mac password) before the stored password or code is used.
     private var requireAuthRow: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Picker("Confirm it’s you", selection: $model.draft.requireAuth) {
+            Picker(ConfirmationWording.settingName, selection: $model.draft.requireAuth) {
                 Text("Off").tag(AuthRequirement.off)
                 Text("Before connecting").tag(AuthRequirement.connect)
-                Text("Before connecting and showing the code").tag(AuthRequirement.always)
+                Text("Before connecting and showing codes").tag(AuthRequirement.always)
             }
             .accessibilityIdentifier("editor.requireAuth")
             .disabled(p.requireAuth == .off && !model.isPreview && !model.vault.isAvailable)
@@ -449,7 +449,7 @@ struct ProfileEditorView: View {
             case .connect:
                 EditorHint("The password is encrypted with a key in this Mac’s Secure Enclave. PassTunnel asks for Touch ID or your Mac password before it connects. Reconnecting after a drop does not ask again.")
             case .always:
-                EditorHint("The password and the TOTP secret are encrypted. PassTunnel also asks before it shows, copies or types the code; codes stay hidden until you confirm.")
+                EditorHint("The password and the TOTP secret are encrypted. PassTunnel asks for Touch ID or your Mac password before it connects and before it shows, copies or types the code; codes stay hidden until you confirm.")
             }
         }
     }

@@ -10,7 +10,6 @@ final class FakeAuthenticator: UserAuthenticator, @unchecked Sendable {
     private let lock = NSLock()
     private var _results: [Error?] = []
     private var _reasons: [String] = []
-    private var _reuse: [TimeInterval] = []
     private var _created = 0
     /// False: like a Mac without a Secure Enclave.
     var isAvailable = true
@@ -23,7 +22,6 @@ final class FakeAuthenticator: UserAuthenticator, @unchecked Sendable {
     }
 
     var reasons: [String] { lock.lock(); defer { lock.unlock() }; return _reasons }
-    var reuseDurations: [TimeInterval] { lock.lock(); defer { lock.unlock() }; return _reuse }
     var calls: Int { reasons.count }
     var keysCreated: Int { lock.lock(); defer { lock.unlock() }; return _created }
 
@@ -34,11 +32,10 @@ final class FakeAuthenticator: UserAuthenticator, @unchecked Sendable {
         return ProtectionKey(data: key.rawRepresentation, publicKey: key.publicKey)
     }
 
-    func unlock(keyData: Data, reason: String, reuseDuration: TimeInterval) async throws -> UnlockedProtectionKey {
+    func unlock(keyData: Data, reason: String) async throws -> UnlockedProtectionKey {
         let result: Error? = {
             lock.lock(); defer { lock.unlock() }
             _reasons.append(reason)
-            _reuse.append(reuseDuration)
             return _results.isEmpty ? nil : _results.removeFirst()
         }()
         if delay > 0 { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
@@ -90,7 +87,6 @@ extension ConnectionManagerTests {
         try await m.connect(p.id)
         XCTAssertTrue(m.state(p.id).isConnected)
         XCTAssertEqual(authenticator.reasons, ["connect to “Acme VPN”"])
-        XCTAssertEqual(authenticator.reuseDurations, [60])
         XCTAssertEqual(startedSecret(p.id), "pw" + (try code(at: t0)))
     }
 
@@ -269,6 +265,19 @@ extension ConnectionManagerTests {
         try await m.connect(p.id)
         XCTAssertEqual(startedSecret(p.id), "new-password")
         XCTAssertEqual(authenticator.calls, 1)
+    }
+
+    func testHandEditedSettingEncryptsBeforeTheFirstUse() async throws {
+        var p = try makeOpenVPN("Acme", otp: .totp)
+        p.requireAuth = .always                        // as if profile.json was edited: secrets still plain
+        try store.save(p)
+        XCTAssertNotNil(Secrets.get(p.id, .password))
+        let m = makeManager()
+        try await m.connect(p.id)
+        XCTAssertTrue(Secrets.isProtected(p.id, .password))
+        XCTAssertTrue(Secrets.isProtected(p.id, .totp))
+        XCTAssertEqual(authenticator.calls, 1, "encrypted without a prompt, then decrypted with one")
+        XCTAssertEqual(startedSecret(p.id), "pw" + (try code(at: t0)))
     }
 
     func testLostKeyAsksToEnterTheSecretAgain() async throws {
@@ -466,6 +475,46 @@ final class SecretVaultTests: CoreTestCase {
         }
         XCTAssertEqual(Secrets.get(p.id, .password), "pw", "nothing changed, nothing silently degraded")
         XCTAssertNil(Secrets.protectionKey(p.id))
+    }
+
+    @MainActor func testReconcileEncryptsPlainSecretsTheSettingProtects() async throws {
+        let vault = makeVault()
+        var p = try makeProfile()
+        p.requireAuth = .connect
+        try store.save(p)                              // edited by hand, not through applyProtection
+        XCTAssertTrue(vault.reconcile(p))
+        XCTAssertTrue(Secrets.isProtected(p.id, .password))
+        XCTAssertFalse(Secrets.isProtected(p.id, .totp), "connect leaves the TOTP secret readable")
+        XCTAssertFalse(vault.reconcile(p), "nothing left to do")
+        XCTAssertEqual(auth.calls, 0)
+        let password = try await vault.secret(p, .password, for: .connect)
+        XCTAssertEqual(password, "pw")
+        XCTAssertEqual(auth.calls, 1)
+
+        // Without a Secure Enclave nothing changes (and nothing fails).
+        auth.isAvailable = false
+        var q = try makeProfile("Other")
+        q.requireAuth = .always
+        try store.save(q)
+        XCTAssertFalse(vault.reconcile(q))
+        XCTAssertEqual(Secrets.get(q.id, .password), "pw")
+    }
+
+    @MainActor func testEncryptedWhileOffStaysProtected() async throws {
+        let vault = makeVault()
+        let p = try await change(try makeProfile(), to: .always, in: vault)
+        var off = p
+        off.requireAuth = .off
+        try store.save(off)                            // turned off by hand: no decrypt happened
+        XCTAssertFalse(vault.reconcile(off))
+        XCTAssertTrue(vault.needsPrompt(off, for: .connect), "still asks: the items are still encrypted")
+        XCTAssertTrue(vault.requiresConfirmation(off))
+        let password = try await vault.secret(off, .password, for: .connect)
+        XCTAssertEqual(password, "pw")
+        XCTAssertEqual(auth.calls, 1)
+        XCTAssertTrue(Secrets.isProtected(p.id, .password), "left as is until it is turned off properly")
+        XCTAssertTrue(Secrets.isProtected(p.id, .totp))
+        XCTAssertNotNil(Secrets.protectionKey(p.id))
     }
 
     @MainActor func testDeletingTheProfileDeletesItsKey() async throws {

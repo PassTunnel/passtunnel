@@ -317,12 +317,12 @@
         }
       }
     },
-    "Before connecting and showing the code" : {
+    "Before connecting and showing codes" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bağlanmadan ve kodu göstermeden önce"
+            "value" : "Bağlanmadan ve kodları göstermeden önce"
           }
         }
       }
@@ -357,12 +357,22 @@
         }
       }
     },
-    "Confirm it’s you" : {
+    "Confirm with Touch ID" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kimliğinizi doğrulayın"
+            "value" : "Touch ID ile onayla"
+          }
+        }
+      }
+    },
+    "Confirm with your password" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parolanızla onaylayın"
           }
         }
       }
@@ -397,12 +407,12 @@
         }
       }
     },
-    "For profiles set to “Confirm it’s you”, one Touch ID or password confirmation is valid this long for the same profile. Sleep and locking the screen end it." : {
+    "For profiles set to “%@”, one confirmation with Touch ID or your Mac password is valid this long for the same profile. Sleep and locking the screen end it." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "“Kimliğinizi doğrulayın” ayarlı profillerde bir Touch ID veya parola onayı, aynı profil için bu süre boyunca geçerlidir. Uyku ve ekran kilidi onayı sona erdirir."
+            "value" : "“%@” ayarlı profillerde Touch ID ya da Mac parolanızla verilen bir onay, aynı profil için bu süre boyunca geçerlidir. Uyku ve ekran kilidi onayı sona erdirir."
           }
         }
       }
@@ -412,7 +422,7 @@
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Şifreli olarak saklanıyor: kullanmak için Touch ID veya Mac parolanız istenir."
+            "value" : "Şifreli olarak saklanıyor: kullanmak için Touch ID ya da Mac parolanız istenir."
           }
         }
       }
@@ -462,7 +472,7 @@
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Yeniden bağlanmak için onayınız gerekiyor (Touch ID veya Mac parolanız): bağlantıyı kendiniz yeniden kurun."
+            "value" : "Yeniden bağlanmak için onayınız gerekiyor (Touch ID ya da Mac parolanız): bağlantıyı kendiniz yeniden kurun."
           }
         }
       }
@@ -532,7 +542,7 @@
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "TOTP gizli anahtarı, bu Mac’in Secure Enclave’indeki bir anahtarla şifrelenir. PassTunnel bağlanmadan veya kodu göstermeden önce Touch ID’yi veya Mac parolanızı ister."
+            "value" : "TOTP gizli anahtarı, bu Mac’in Secure Enclave’indeki bir anahtarla şifrelenir. PassTunnel bağlanmadan veya kodu göstermeden önce Touch ID ya da Mac parolanızla onay ister."
           }
         }
       }
@@ -567,12 +577,12 @@
         }
       }
     },
-    "The password and the TOTP secret are encrypted. PassTunnel also asks before it shows, copies or types the code; codes stay hidden until you confirm." : {
+    "The password and the TOTP secret are encrypted. PassTunnel asks for Touch ID or your Mac password before it connects and before it shows, copies or types the code; codes stay hidden until you confirm." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Parola ve TOTP gizli anahtarı şifrelenir. PassTunnel kodu göstermeden, kopyalamadan veya yazmadan önce de sorar; siz onaylayana kadar kodlar gizli kalır."
+            "value" : "Parola ve TOTP gizli anahtarı şifrelenir. PassTunnel bağlanmadan ve kodu göstermeden, kopyalamadan veya yazmadan önce Touch ID ya da Mac parolanızla onay ister; siz onaylayana kadar kodlar gizli kalır."
           }
         }
       }
@@ -582,7 +592,7 @@
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Parola, bu Mac’in Secure Enclave’indeki bir anahtarla şifrelenir. PassTunnel bağlanmadan önce Touch ID’yi veya Mac parolanızı ister. Bağlantı düştükten sonra yeniden bağlanırken tekrar sormaz."
+            "value" : "Parola, bu Mac’in Secure Enclave’indeki bir anahtarla şifrelenir. PassTunnel bağlanmadan önce Touch ID ya da Mac parolanızla onay ister. Bağlantı düştükten sonra yeniden bağlanırken tekrar sormaz."
           }
         }
       }
@@ -607,22 +617,22 @@
         }
       }
     },
+    "This Mac has no Secure Enclave, so the saved secrets cannot be protected with Touch ID or your Mac password." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu Mac’te Secure Enclave olmadığından kayıtlı gizli bilgiler Touch ID ya da Mac parolanızla korunamıyor."
+          }
+        }
+      }
+    },
     "This Mac has no Secure Enclave, so this protection is not available." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bu Mac’te Secure Enclave olmadığından bu koruma kullanılamıyor."
-          }
-        }
-      }
-    },
-    "This Mac has no Secure Enclave, so “Confirm it’s you” cannot be turned on." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bu Mac’te Secure Enclave olmadığından “Kimliğinizi doğrulayın” açılamıyor."
           }
         }
       }

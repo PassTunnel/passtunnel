@@ -110,7 +110,7 @@ public enum PTError: Error, Equatable, LocalizedError {
         case .confirmationRequired:
             return String(localized: "Reconnecting needs your confirmation (Touch ID or your Mac password): connect it again yourself.")
         case .protectionUnavailable:
-            return String(localized: "This Mac has no Secure Enclave, so “Confirm it’s you” cannot be turned on.")
+            return String(localized: "This Mac has no Secure Enclave, so the saved secrets cannot be protected with Touch ID or your Mac password.")
         case .protectedSecretUnreadable(let kind):
             switch kind {
             case .password:

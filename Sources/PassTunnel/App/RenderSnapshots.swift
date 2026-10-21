@@ -63,7 +63,7 @@ enum RenderSnapshots {
                      dark: false, to: out, name: "main-hidden-codes", window: true)
             model.prefs.hideCodes = false
 
-            // "Confirm it’s you" protecting the TOTP secret: the first row's code is locked until confirmed
+            // "Confirm with Touch ID" protecting the TOTP secret: the first row's code is locked until confirmed
             // (no Secure Enclave key is made for screenshots).
             if let first = sample.ids.first {
                 model.previewLockedCodes = [first]

@@ -49,7 +49,7 @@ enum EditorPreviewRenderer {
         typing.newPassword = "new-secret"
         out.append(State(name: "editor-password-typing", model: typing, height: 1800))
 
-        // "Confirm it’s you" set to always: the stored code stays hidden until confirmed.
+        // "Confirm with Touch ID" set to always: the stored code stays hidden until confirmed.
         out.append(State(name: "editor-require-auth", model: protectedModel(), height: 1800))
         out.append(State(name: "editor-require-auth-dark", model: protectedModel(), dark: true, height: 1800))
         return out

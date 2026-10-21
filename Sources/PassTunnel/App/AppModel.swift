@@ -67,7 +67,7 @@ final class AppModel: ObservableObject {
 
     private var secretCache: [String: Data] = [:]
     private var missingSecret: Set<String> = []
-    /// Profiles whose TOTP secret is stored encrypted ("Confirm it’s you"): its code shows only while
+    /// Profiles whose TOTP secret is stored encrypted ("Confirm with Touch ID"): its code shows only while
     /// the vault has it unlocked.
     private var protectedTOTP: Set<String> = []
     /// Render override: profiles whose code is shown locked.
@@ -147,6 +147,8 @@ final class AppModel: ObservableObject {
     /// so it is safe to call after the app's own writes.
     func reload() {
         let fresh = store.list()
+        // A "Confirm with Touch ID" setting edited by hand: encrypt what it protects (no prompt).
+        for p in fresh where p.requireAuth != .off { vault.reconcile(p) }
         let secretsChanged = refreshSecrets(for: fresh)
         if fresh != profiles {
             profiles = fresh
