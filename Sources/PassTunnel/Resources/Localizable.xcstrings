@@ -237,6 +237,16 @@
         }
       }
     },
+    "Show log of %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ günlüğünü göster"
+          }
+        }
+      }
+    },
     "The PassTunnel helper belongs to another version of PassTunnel (version %lld, expected %lld). Update it in Settings → Helper." : {
       "localizations" : {
         "tr" : {
@@ -303,6 +313,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Güncelleniyor…"
+          }
+        }
+      }
+    },
+    "Working…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Çalışıyor…"
           }
         }
       }

@@ -89,8 +89,10 @@ struct ProfileEditorView: View {
             Spacer()
             Button("Cancel", role: .cancel) { onClose() }
                 .keyboardShortcut(.cancelAction)
+                .accessibilityIdentifier("editor.cancel")
             Button(model.isNew ? LocalizedStringKey("Add Profile") : LocalizedStringKey("Save")) { save() }
                 .keyboardShortcut(.defaultAction)
+                .accessibilityIdentifier("editor.save")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)

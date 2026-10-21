@@ -26,15 +26,18 @@ struct OnboardingView: View {
                 Spacer()
                 if step > 0 {
                     Button(String(localized: "Back")) { withAnimation { step -= 1 } }
+                        .accessibilityIdentifier("onboarding.back")
                 }
                 if step < steps - 1 {
                     Button(step == 1 && model.helperStatus != .enabled ? String(localized: "Later") : String(localized: "Continue")) {
                         withAnimation { step += 1 }
                     }
                     .keyboardShortcut(.defaultAction)
+                    .accessibilityIdentifier("onboarding.continue")
                 } else {
                     Button(String(localized: "Done")) { model.finishOnboarding() }
                         .keyboardShortcut(.defaultAction)
+                        .accessibilityIdentifier("onboarding.done")
                 }
             }
             .padding(.horizontal, 20)
@@ -208,10 +211,12 @@ private struct HelperStep: View {
                     Button(String(localized: "Open Login Items…")) { HelperInstaller.openSystemSettingsLoginItems() }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.large)
+                        .accessibilityIdentifier("onboarding.loginItems")
                 case .notRegistered:
                     Button(String(localized: "Install Helper")) { install() }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.large)
+                        .accessibilityIdentifier("onboarding.installHelper")
                 case .notFound:
                     Text(String(localized: "Move PassTunnel to the Applications folder and open it from there to install the helper."))
                         .font(.callout)

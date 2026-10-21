@@ -173,6 +173,19 @@ first, and single-field changes (pin, order, remembered user name) go through `P
 `vpn.log`, the management socket, markers and temp files are ignored), on `ProfileChangeSignal` (posted by the
 CLI after commands that change profiles or secrets), when it becomes active, and every 5 s.
 
+## Accessibility
+
+Every control has a localized accessibility label (text buttons get it from their title; icon-only
+controls, the live code and the row's primary button set `.accessibilityLabel` on the control itself —
+a label set inside a button's label with `children: .ignore` can leave the button nameless). SwiftUI
+exposes it as `AXDescription` (read by VoiceOver and `AXUIElementCopyAttributeValue`), never as
+`AXTitle`, and does not list it in `AXAttributeNames`, so System Events shows `name` as missing value.
+For UI automation, key controls carry stable, unlocalized `.accessibilityIdentifier`s (`AXIdentifier`):
+`profile.<id>`, `profile.<id>.primary`, `profile.<id>.more`, `profile.<id>.code`, `main.add`,
+`helper.install|update|loginItems|remove|licenses`, `onboarding.back|continue|done|installHelper|loginItems`,
+`editor.cancel|save`. While the screen is locked, accessibility clients see no windows at all (the
+window server still lists them).
+
 ## Localization
 
 English source strings; Turkish in `Sources/PassTunnel/Resources/Localizable.xcstrings`

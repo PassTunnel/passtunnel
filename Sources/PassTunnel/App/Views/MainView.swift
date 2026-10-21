@@ -141,6 +141,8 @@ struct AddMenu: View {
             Label(String(localized: "Add"), systemImage: "plus")
         }
         .help(String(localized: "Add or import a VPN profile"))
+        .accessibilityLabel(String(localized: "Add"))
+        .accessibilityIdentifier("main.add")
     }
 }
 
@@ -266,12 +268,14 @@ struct ProfileRow: View {
             .foregroundStyle(.secondary)
             .help(String(localized: "More actions"))
             .accessibilityLabel(String(localized: "More actions for \(profile.name)"))
+            .accessibilityIdentifier("profile.\(profile.id).more")
         }
         .padding(.vertical, 7)
         .padding(.horizontal, 4)
         .contentShape(Rectangle())
         .accessibilityElement(children: .contain)
         .accessibilityLabel(profile.name)
+        .accessibilityIdentifier("profile.\(profile.id)")
     }
 }
 
@@ -301,12 +305,17 @@ struct PrimaryButton: View {
             }
         }
         .controlSize(.regular)
+        // On the button itself: a label set inside the button's label (with `children: .ignore`)
+        // can leave the button without a name.
+        .accessibilityLabel(Text(verbatim: labelText))
         .accessibilityHint(Text(profile.name))
+        .accessibilityIdentifier("profile.\(profile.id).primary")
     }
 
     private var cancelLabel: some View {
         HStack(spacing: 6) {
             ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 12, height: 12)
+                .accessibilityHidden(true)
             Text(String(localized: "Cancel"))
         }
     }
@@ -315,14 +324,15 @@ struct PrimaryButton: View {
     /// any language ("Bağlantıyı Kes" is much wider than "Bağlan").
     private func uniformWidth<Label: View>(_ label: Label) -> some View {
         ZStack {
-            Text(String(localized: "Connect")).hidden()
-            Text(String(localized: "Disconnect")).hidden()
-            cancelLabel.hidden()
+            Group {
+                Text(String(localized: "Connect")).hidden()
+                Text(String(localized: "Disconnect")).hidden()
+                cancelLabel.hidden()
+            }
+            .accessibilityHidden(true)
             label
         }
         .frame(minWidth: 78)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(verbatim: labelText))
     }
 
     private var labelText: String {
@@ -351,6 +361,7 @@ struct StatusLine: View {
                 Button(String(localized: "Show log")) { model.showLog(profile) }
                     .buttonStyle(.link)
                     .controlSize(.small)
+                    .accessibilityLabel(String(localized: "Show log of \(profile.name)"))
             }
         }
         .font(.system(size: 11.5))

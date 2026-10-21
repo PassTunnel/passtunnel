@@ -170,6 +170,7 @@ struct LiveCodeView: View {
                 .accessibilityLabel(model.prefs.hideCodes
                     ? String(localized: "One-time code, hidden. Click to copy.")
                     : String(localized: "One-time code \(c.code.map(String.init).joined(separator: " ")), \(Int(remaining)) seconds left. Click to copy."))
+                .accessibilityIdentifier("profile.\(profile.id).code")
             }
         }
     }

@@ -81,7 +81,10 @@ struct HelperSettings: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer()
-                    if busy { ProgressView().controlSize(.small) }
+                    if busy {
+                        ProgressView().controlSize(.small)
+                            .accessibilityLabel(updating ? String(localized: "Updating…") : String(localized: "Working…"))
+                    }
                 }
                 .padding(.vertical, 4)
                 if let errorText {
@@ -93,19 +96,31 @@ struct HelperSettings: View {
                         Button(String(localized: "Install Helper")) { install() }
                             .buttonStyle(.borderedProminent)
                             .disabled(busy || model.helperStatus == .notFound)
+                            .accessibilityLabel(String(localized: "Install Helper"))
+                            .accessibilityIdentifier("helper.install")
                     case .requiresApproval:
                         Button(String(localized: "Open Login Items…")) { HelperInstaller.openSystemSettingsLoginItems() }
                             .buttonStyle(.borderedProminent)
+                            .accessibilityLabel(String(localized: "Open Login Items…"))
+                            .accessibilityIdentifier("helper.loginItems")
                         Button(String(localized: "Remove"), role: .destructive) { confirmRemove = true }
+                            .accessibilityLabel(String(localized: "Remove Helper…"))
+                            .accessibilityIdentifier("helper.remove")
                     case .enabled:
                         if model.helperOutdated {
                             Button(String(localized: "Update Helper")) { update() }
                                 .buttonStyle(.borderedProminent)
                                 .disabled(busy)
+                                .accessibilityLabel(String(localized: "Update Helper"))
+                                .accessibilityIdentifier("helper.update")
                         }
                         Button(String(localized: "Open Login Items…")) { HelperInstaller.openSystemSettingsLoginItems() }
+                            .accessibilityLabel(String(localized: "Open Login Items…"))
+                            .accessibilityIdentifier("helper.loginItems")
                         Button(String(localized: "Remove Helper…"), role: .destructive) { confirmRemove = true }
                             .disabled(busy)
+                            .accessibilityLabel(String(localized: "Remove Helper…"))
+                            .accessibilityIdentifier("helper.remove")
                     }
                     Spacer()
                 }
@@ -134,6 +149,8 @@ struct HelperSettings: View {
                 }
                 Button(String(localized: "Show Licenses…")) { showLicenses = true }
                     .disabled(BundledTools.licenseFiles().isEmpty)
+                    .accessibilityLabel(String(localized: "Show Licenses…"))
+                    .accessibilityIdentifier("helper.licenses")
             } header: {
                 Text(String(localized: "Bundled tools"))
             }
