@@ -91,30 +91,33 @@ code layout is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 Requires **macOS 13 Ventura or later**.
 
-### Download (coming soon)
+### Download
 
-A signed and notarized `.dmg` will be published on
-[GitHub Releases](https://github.com/Furkanprlk/passtunnel/releases). Open it, drag PassTunnel to
-**Applications** and launch it from there (the helper can only be installed from the Applications
-folder).
+Download `PassTunnel-<version>.dmg` from
+[GitHub Releases](https://github.com/passtunnel/passtunnel/releases/latest), open it and drag
+PassTunnel to **Applications**. Launch it from there: the helper can only be installed from the
+Applications folder. The app is signed with a Developer ID and notarized by Apple.
 
-### Homebrew (coming soon)
+PassTunnel keeps itself up to date (Settings → Updates). After an update, the helper is updated
+automatically as soon as no VPN connection is active.
 
-A cask in the project's own Homebrew tap is planned. Once it is published:
+### Homebrew
 
 ```sh
-brew tap furkanprlk/tap
-brew install --cask passtunnel
+brew install --cask passtunnel/tap/passtunnel
 ```
 
-### Build from source (works today)
+The cask also links the `passtunnel` command. Updates arrive through the app itself, so
+`brew upgrade` leaves it alone unless you run `brew upgrade --greedy`.
+
+### Build from source
 
 You need Xcode 15.3 or later (Swift 5.10, plus `xcstringstool` for the Turkish strings) and
 [Homebrew](https://brew.sh), which provides the VPN tools that get bundled into the app:
 
 ```sh
 brew install openvpn openfortivpn
-git clone https://github.com/Furkanprlk/passtunnel.git
+git clone https://github.com/passtunnel/passtunnel.git
 cd passtunnel
 scripts/build-app.sh                  # → build/PassTunnel.app (ad-hoc signed)
 ```
@@ -349,6 +352,9 @@ swift test                  # unit tests
 scripts/build-app.sh        # full app bundle in build/PassTunnel.app
 ```
 
+Releases (signing, notarization, the Sparkle feed and the Homebrew cask) are described in
+[docs/RELEASING.md](docs/RELEASING.md).
+
 Tests never touch your real data: they point `PASSTUNNEL_HOME` at a temporary folder and use a
 throwaway Keychain service via `PASSTUNNEL_KEYCHAIN_SERVICE`.
 
@@ -377,7 +383,7 @@ Issues and pull requests are welcome. Please open an issue first for larger chan
   `ConnectionManager`. Never let the helper run a client-supplied path or raw config.
 - User-facing strings go through `String(localized:)` with a Turkish translation in
   `Sources/PassTunnel/Resources/Localizable.xcstrings`.
-- No third-party Swift dependencies. Run `swift test` before sending a PR.
+- No third-party Swift dependencies besides Sparkle (updates). Run `swift test` before sending a PR.
 
 ## License
 
@@ -407,11 +413,12 @@ vardır. QR kodu ekran görüntüsünden okunur. Profilleri kimlik bilgisi içer
 dosyalarıyla ekibinizle paylaşabilir, aynı işlemleri `passtunnel` komut satırı aracıyla da
 yapabilirsiniz. Arayüz Türkçe ve İngilizcedir ve macOS dilinizi izler.
 
-**Kurulum:** İmzalı ve notarize edilmiş `.dmg` dosyası ile Homebrew cask'i yakında
-[GitHub Releases](https://github.com/Furkanprlk/passtunnel/releases) üzerinden yayımlanacak. Şimdilik
-kaynaktan derleyebilirsiniz: `brew install openvpn openfortivpn`, ardından depo klasöründe
-`scripts/build-app.sh`. Ayrıntılar yukarıdaki [Build from source](#build-from-source-works-today)
-bölümünde.
+**Kurulum:** İmzalı ve notarize edilmiş `.dmg` dosyasını
+[GitHub Releases](https://github.com/passtunnel/passtunnel/releases/latest) sayfasından indirip
+PassTunnel’ı **Uygulamalar** klasörüne sürükleyin ya da Homebrew ile kurun:
+`brew install --cask passtunnel/tap/passtunnel`. Uygulama kendini güncel tutar (Ayarlar →
+Güncellemeler). Kaynaktan derlemek için yukarıdaki [Build from source](#build-from-source)
+bölümüne bakın.
 
 İlk açılışta, VPN araçlarını yönetici yetkisiyle çalıştıran küçük yardımcıyı (helper) kurmanız
 istenir. Bunu Sistem Ayarları → Genel → Giriş Öğeleri'nden bir kez onaylarsınız. Yardımcı yalnızca
