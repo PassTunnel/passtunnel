@@ -826,7 +826,7 @@ public final class ConnectionManager: ObservableObject {
     private func endSessionSecrets(_ id: String) {
         guard var secrets = sessionSecrets.removeValue(forKey: id) else { return }
         for kind in Array(secrets.keys) {
-            secrets[kind]?.withUnsafeMutableBytes { $0.initializeMemory(as: UInt8.self, repeating: 0) }
+            _ = secrets[kind]?.withUnsafeMutableBytes { $0.initializeMemory(as: UInt8.self, repeating: 0) }
         }
     }
 

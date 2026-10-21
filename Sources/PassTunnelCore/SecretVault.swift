@@ -298,7 +298,7 @@ public final class SecretVault: ObservableObject {
 
     private func forget(_ id: String, _ kind: SecretKind) {
         guard cache[id]?[kind] != nil else { return }
-        cache[id]?[kind]?.bytes.withUnsafeMutableBytes { $0.initializeMemory(as: UInt8.self, repeating: 0) }
+        _ = cache[id]?[kind]?.bytes.withUnsafeMutableBytes { $0.initializeMemory(as: UInt8.self, repeating: 0) }
         cache[id]?[kind] = nil
         if cache[id]?.isEmpty == true { cache[id] = nil }
         revision += 1
