@@ -9,6 +9,7 @@ Implementation details are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - [The privileged helper](#the-privileged-helper)
 - [OpenVPN configuration sanitizer](#openvpn-configuration-sanitizer)
 - [Secrets and files](#secrets-and-files)
+- [Confirm it's you (Secure Enclave)](#confirm-its-you-secure-enclave)
 - [What is not protected](#what-is-not-protected)
 
 ## Reporting a vulnerability
@@ -189,6 +190,59 @@ script-security N            (when N > 1)
 - **Auto-type** (off by default) needs Accessibility permission, which is requested only when you
   enable it. Global shortcuts use Carbon hotkeys and do not need any permission.
 
+## Confirm it's you (Secure Enclave)
+
+Off by default, per profile (`require_auth`: `off`, `connect`, `always`). Without it, anyone using your
+Mac while you are logged in can connect with one click, because the app may read its own Keychain items
+without asking.
+
+**What is encrypted.** With the option on, PassTunnel creates a P-256 key-agreement key for the profile
+in the Mac's **Secure Enclave** (CryptoKit `SecureEnclave.P256.KeyAgreement`) with the access control
+`privateKeyUsage` + `userPresence`: the private key never leaves the Secure Enclave, and the Secure
+Enclave uses it only after Touch ID or the login password (or an Apple Watch, where set up). The
+Keychain item `<profile-id>/sekey` holds only the key's wrapped blob (`dataRepresentation`, usable by
+this Mac's Secure Enclave alone) and its public key. The protected secrets replace their plain Keychain
+items with an envelope (`ptse1:` + Base64): a fresh ephemeral P-256 key, ECDH with the profile's public
+key, HKDF-SHA256 (salt: both public keys, info `PassTunnel secret v1`) and AES-256-GCM with the item's
+account name as authenticated data, so an envelope cannot be moved to another item.
+
+- `connect`: the saved password is encrypted; the TOTP secret stays readable so live codes show
+  without a prompt. A profile without a saved password gets its TOTP secret encrypted instead
+  (otherwise the option would protect nothing), and its code is hidden until you confirm.
+- `always`: the password and the TOTP secret are encrypted; codes are hidden until you confirm.
+
+**Decrypting is the confirmation.** There is no separate yes/no check that could be skipped: without
+the Secure Enclave operation, PassTunnel has no password or TOTP secret to send. A cancelled or failed
+prompt means no connection; nothing falls back to a plain copy. Saving a new secret to a protected
+profile only needs the public key (no prompt). Turning the option off, or lowering `always` to
+`connect`, needs a successful decrypt; the encrypted items are then rewritten in plain text and the key
+item is deleted. Deleting the profile deletes its key item.
+
+**Reuse.** After one confirmation, the decrypted values of that profile stay in the app's memory for
+the "Ask again after" time (Settings → General → Security: 1, 5 or 15 minutes). The same time (at most
+5 minutes, the system's limit) is passed to LocalAuthentication as
+`touchIDAuthenticationAllowableReuseDuration`, so a Touch ID unlock of the Mac within that time can
+count as the confirmation. Sleep and screen lock end the in-memory reuse early. A connected session keeps its
+decrypted secrets in memory so an automatic reconnect after a drop needs no prompt; they are
+overwritten (best effort) when you disconnect or the session ends. After the Mac was asleep, a
+dropped protected profile is not reconnected on its own: a notification asks you to reconnect. The CLI
+is a separate process and asks every time it needs a protected secret.
+
+**Limits.**
+- It needs a Secure Enclave (Apple silicon or a T2 Mac). Without one (e.g. a virtual machine), the
+  option cannot be turned on; it never silently degrades to plain storage.
+- Secure Enclave keys do not move to another Mac or survive erasing this one. After migrating, the
+  encrypted items cannot be decrypted; PassTunnel says so, removes them and asks you to enter the
+  password or TOTP secret again.
+- `userPresence` is used (not `biometryCurrentSet`), so adding a fingerprint does not lock you out and
+  the password fallback always works.
+- It protects against other people at your unlocked Mac and against other processes or apps reading
+  the Keychain items (they get ciphertext). It does **not** protect against malware running as you
+  that waits for you to confirm, drives the prompt you then approve, or reads the app's memory while a
+  session or the reuse window holds the decrypted values. The settings in `profile.json` are not
+  protected either: editing them does not decrypt anything, but someone with your account can delete
+  the items or the profile.
+
 ## What is not protected
 
 PassTunnel cannot defend against an attacker who already controls your account or your Mac:
@@ -200,7 +254,8 @@ PassTunnel cannot defend against an attacker who already controls your account o
   requester is not PassTunnel; if you allow it, the secrets are disclosed), and can watch your
   screen or clipboard, where codes appear when you copy or auto-type them.
 - **A TOTP secret on the same machine as your password** turns two factors into something closer
-  to one: anyone who gets your unlocked Mac and Keychain has both. This is the trade-off PassTunnel
+  to one: anyone who gets your unlocked Mac and Keychain has both ([Confirm it's
+  you](#confirm-its-you-secure-enclave) adds Touch ID or your password in front of them). This is the trade-off PassTunnel
   makes for convenience. If your organization requires the second factor on a separate device, use
   *Ask each time* for the one-time code.
 - **The VPN configuration itself.** The sanitizer stops configs from running code or touching files

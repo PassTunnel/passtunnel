@@ -28,6 +28,11 @@ One binary, two modes:
   Apply results with a monotonically increasing sequence number so stale polls never overwrite newer
   state.
 - `connect(_ id:, given: [CredentialField: String]) async throws`:
+  0. "Confirm it's you" (`Profile.requireAuth`, see below): when a secret the connect uses is stored
+     encrypted and not unlocked, `vault.unlock` asks (Touch ID / Mac password) before anything starts;
+     a cancel throws `PTError.userConfirmationCancelled` (no helper call, no `lastError`), a failure is
+     recorded in `lastError` like any connect failure. Not asked when the profile is already
+     connecting or connected.
   1. read profile; check `Secrets.has` for keychain password / TOTP secret → precise error if missing
   2. TOTP: if fewer than 8 s remain in the window, or this window's code was already sent (by the app
      or the CLI, `profiles/<id>/.last-otp`), wait for the next one ("Waiting for a fresh code…",
@@ -39,11 +44,21 @@ One binary, two modes:
 - Drop detection: only `connected → disconnected` with no action in flight and not user-stopped.
   Then: notification (if enabled) and, if `profile.autoReconnect && profile.unattended` and secrets
   exist, reconnect with backoff 5 s / 15 s / 45 s (generation counter; any manual action cancels).
+  Automatic and health-forced reconnects never prompt (`interactive: false`): they use the decrypted
+  secrets the manager keeps for a session it connected (dropped, overwritten, on user disconnect, final
+  reconnect failure or when the profile is forgotten) or the reuse window; otherwise they fail with
+  `PTError.confirmationRequired` (not retried; "Could not reconnect" with a Connect action), e.g. for a
+  session the CLI started.
 - Health: every 30 s for connected profiles with `healthHost`; 2 consecutive failures → "connected
   but unreachable" (amber) + one notification per outage; if auto-reconnect, one forced reconnect per
   outage. Success clears the outage.
 - Wake (`NSWorkspace.didWakeNotification`): poll after 4 s, health-check, reconnect eligible profiles
-  that were connected before sleep.
+  that were connected before sleep. Sleep ends the reuse window (`vault.reset()`). A profile whose
+  connect needs a confirmation (`vault.requiresConfirmation`) is not reconnected and nobody is prompted
+  out of the blue: the event `droppedWhileAsleep` becomes the notification "“Acme VPN” disconnected
+  while the Mac was asleep." / "Click to reconnect." (shown even with drop notifications off, as it
+  replaces the automatic reconnect); clicking it or its Connect action runs `AppModel.connect`, which asks.
+- Disconnect never asks.
 - Session limit: notification `sessionNotifyMin` before `sessionLimitMin` elapses (once per session).
 
 ## Main window (authenticator-style)
@@ -55,6 +70,11 @@ Sidebar-less single list, one row per profile (drag to reorder → `order`):
 ```
 - The live code (if the profile has TOTP) is large, monospaced, grouped 3+3; a circular countdown
   ring; click copies it (toast "Copied"). Hidden behind "•••" when `Preferences.hideCodes`.
+  When the TOTP secret is stored encrypted ("Confirm it's you": `always`, or `connect` without a saved
+  password) and not unlocked, the code is "••• •••" with a lock instead of the ring; click asks
+  (`AppModel.revealCode`) and the code shows for the reuse window. Copy code, Copy password + code,
+  ⌘C, the menu bar's Copy Code and auto-type ask first in the same way (`whenUnlocked`); a cancel does
+  nothing, a failure shows an alert.
 - Primary button: Connect / Disconnect / Cancel (while connecting). If the profile needs input
   (`needs`), Connect opens a compact sheet asking only those fields, with the TOTP pre-filled when
   available.
@@ -77,6 +97,13 @@ Sections (only relevant rows visible — hide, don't disable):
    asks to confirm), DNS / routes toggles. Session limit, health host with "Test", auto-reconnect
    (disabled with explanation when not unattended).
 3. **Sign-in**: username (empty = ask), password: Keychain / ask / none (cert only; OpenVPN only).
+   **Confirm it's you** (`requireAuth`, picker `editor.requireAuth`: Off / Before connecting / Before
+   connecting and showing the code), shown only when the profile uses a stored secret
+   (`usesStoredSecrets`), disabled with a hint on a Mac without a Secure Enclave. The hint says what is
+   encrypted. Save of an existing profile first runs `vault.applyProtection(from: original, to: edited)`:
+   turning it on encrypts without a prompt; lowering it asks (a cancel keeps the sheet open, nothing
+   saved). New and changed secrets are written with `vault.store` (encrypted when protected). An
+   encrypted saved TOTP secret shows "••• •••" with **Show** (`editor.revealCode`) instead of the live code.
 4. **One-time code** (the hero section): mode none / TOTP / ask.
    - TOTP: "Scan QR…" (image file, clipboard image, or drag & drop; Vision `VNDetectBarcodesRequest`;
      `otpauth://` → secret + digits + period + algorithm), or paste secret / otpauth URI; live preview of
@@ -93,7 +120,8 @@ the CLI, reordering or a connect are kept.
 ## Auto-type (optional, off by default)
 
 Preferences → "Type the code for me": a global hotkey (default ⌃⌥C) types the current code of the
-default (or chosen) profile into the focused field using `CGEvent` keyboard events. Requires
+default (or chosen) profile into the focused field using `CGEvent` keyboard events. An encrypted TOTP
+secret asks first; typing starts 0.4 s after the prompt closes so the focus is back in the field. Requires
 Accessibility permission — request it only when the user enables the feature, with an explanation and a
 button to open the right System Settings pane. Also a menu-bar action "Type code".
 
@@ -107,7 +135,8 @@ Connect/Disconnect, Copy code; then Open PassTunnel (⌘O), Settings… (⌘,), 
 
 - **General**: launch at login (`SMAppService.mainApp`), show in Dock, install CLI, appearance,
   badge palette (pastel / vivid / soft / candy / earth — the menu bar colors for connected /
-  connecting / disconnected), show lock symbol, hide codes.
+  connecting / disconnected), show lock symbol, hide codes; **Security**: "Ask again after" 1 / 5 / 15
+  minutes (`authReuseMinutes`, `settings.authReuse`): how long one confirmation unlocks a profile.
 - **Notifications**: unexpected drop, session-limit (minutes before), health.
 - **Shortcuts**: enable global hotkeys (default off): ⌃⌥V connect/disconnect default profile,
   ⌃⌥C type/copy code.
@@ -119,7 +148,7 @@ Connect/Disconnect, Copy code; then Open PassTunnel (⌘O), Settings… (⌘,), 
 
 `Preferences` (Core) gets: `badgePalette` (string enum above), `appearance` (system/light/dark),
 `showLock`, `hideCodes`, `showInDock`, `notifyOnDrop`, `notifyHealth`, `sessionNotifyMin`,
-`hotkeys`, `autoType`, `defaultProfile`.
+`hotkeys`, `autoType`, `defaultProfile`, `authReuseMinutes`.
 
 ## Launch at login
 
@@ -156,6 +185,16 @@ passtunnel completion zsh|bash|fish
 passtunnel debug drop ID                     test hook, not in help or completion (see below)
 ```
 Exit codes: 0 ok, 1 error, 2 usage, 3 not connected (status of a single profile).
+
+"Confirm it's you" in the CLI (its own process, so its own reuse window: in practice it asks every
+time): `connect` and `toggle` (when connecting) unlock after the other-VPN check and before asking for
+credentials; `code` decrypts an encrypted TOTP secret; `set ID require_auth=off|connect|always`
+(alias `auth`) runs `vault.applyProtection` before saving (turning it on encrypts without a prompt,
+lowering it asks); `secret` writes encrypted when the profile protects that secret; `show` says
+"saved in Keychain, encrypted (Touch ID)" (`--json`: `password_encrypted`, `totp_encrypted`). A
+cancelled prompt prints "Cancelled." and exits 1; when no prompt can be shown (over SSH:
+`notInteractive` / `systemCancel`), the Touch ID lockout or a Mac without a login password, it prints why
+and exits 1. Nothing is ever done without the decrypt. `disconnect` never asks.
 
 `debug drop ID` (test hook, `DebugDrop`) makes a connected OpenVPN profile drop as if the server ended
 the session, so drop notifications and auto-reconnect can be tried for real: OpenVPN gets
@@ -199,7 +238,7 @@ exposes it as `AXDescription` (read by VoiceOver and `AXUIElementCopyAttributeVa
 For UI automation, key controls carry stable, unlocalized `.accessibilityIdentifier`s (`AXIdentifier`):
 `profile.<id>`, `profile.<id>.primary`, `profile.<id>.more`, `profile.<id>.code`, `main.add`,
 `helper.install|update|loginItems|remove|licenses`, `onboarding.back|continue|done|installHelper|loginItems`,
-`editor.cancel|save`. While the screen is locked, accessibility clients see no windows at all (the
+`editor.cancel|save|requireAuth|revealCode`, `settings.authReuse`. While the screen is locked, accessibility clients see no windows at all (the
 window server still lists them).
 
 ## Localization
@@ -214,7 +253,9 @@ client errors) must have Turkish translations.
   `-AppleLanguages '(tr)'` works for both and is ignored by the CLI parser.
 - SwiftPM does not sync the catalog: add new keys by hand. `LocalizationTests` fails when a localized
   literal in the sources is missing from the catalog, lacks a Turkish value, or changes placeholders.
-- `PASSTUNNEL_RENDER_LANG=tr` renders the `PASSTUNNEL_RENDER` screenshots in Turkish.
+- `PASSTUNNEL_RENDER_LANG=tr` renders the `PASSTUNNEL_RENDER` screenshots in Turkish (from a bundle
+  with the compiled `tr.lproj`, e.g. the app `build-app.sh` makes). Renders include `main-code-locked`
+  (`AppModel.previewLockedCodes`; no Secure Enclave key is made) and `editor/editor-require-auth`.
 
 ## Content rules
 

@@ -18,7 +18,7 @@ PassTunnel.app/Contents/
 | Target | Owns | Depends on |
 |---|---|---|
 | `PassTunnelShared` | XPC protocol, request/response types, `HelperCore` (request decoding, path checks), `SessionPolicy`, `CodeSignature`, `OVPNSanitizer`, `FortiConfig`, identifiers | — |
-| `PassTunnelCore` | model, `ProfileStore`, `ProfilesWatcher`, `Secrets` (Keychain), `TOTP`, `OTPAuthURI`, `OVPNAnalyzer`, `ShareFile`, `Preferences`, `HealthCheck`, `HelperClient`, `ConnectionManager` | Shared |
+| `PassTunnelCore` | model, `ProfileStore`, `ProfilesWatcher`, `Secrets` (Keychain), `SecretVault` + `SecretEnvelope` + `UserAuthenticator` (Secure Enclave protection), `TOTP`, `OTPAuthURI`, `OVPNAnalyzer`, `ShareFile`, `Preferences`, `HealthCheck`, `HelperClient`, `ConnectionManager` | Shared |
 | `PassTunnelHelper` | `main.swift` XPC listener, process supervision | Shared |
 | `PassTunnel` | SwiftUI app, menu bar, onboarding, CLI | Core, Shared |
 
@@ -49,7 +49,11 @@ public enum PT {
 - Keychain: generic password, service `PT.keychainService` (env `PASSTUNNEL_KEYCHAIN_SERVICE` overrides
   for tests), account `"<profileID>/password"` and `"<profileID>/totp"`. Use the Security framework
   (`SecItemAdd/CopyMatching/Update/Delete`), never the `security` CLI. App and CLI are the same binary,
-  so Keychain ACLs never prompt between them.
+  so Keychain ACLs never prompt between them. A value is plain text, or, for profiles with
+  `requireAuth` ("Confirm it's you"), an envelope `ptse1:…` (`SecretEnvelope`); plain values that start
+  with `ptse`/`ptpl` are stored as `ptpl1:<value>`. `"<profileID>/sekey"` holds the profile's protection
+  key (`ProtectionKeyRecord`, JSON: Secure Enclave `dataRepresentation` + X9.63 public key); it is never a
+  `SecretKind` (the CLI's `secret` command cannot name it). `ProfileStore.delete` removes all three.
 - JSON uses snake_case keys (`JSONEncoder.keyEncodingStrategy = .convertToSnakeCase`), pretty, sorted.
 
 ## Model (`PassTunnelCore/Model.swift`)
@@ -87,6 +91,7 @@ public struct Profile: Codable, Identifiable, Equatable {
     public var passwordMode = PasswordMode.keychain
     public var otpMode = OTPMode.none
     public var totp = TOTPParams()
+    public var requireAuth = AuthRequirement.off   // "Confirm it's you": off | connect | always (JSON require_auth)
     // behaviour
     public var sessionLimitMin = 0
     public var autoReconnect = false
@@ -107,10 +112,13 @@ public struct Profile: Codable, Identifiable, Equatable {
     public var displayBadge: String
     public var needs: [CredentialField]   // what must be asked before connecting (none if password == .none)
     public var unattended: Bool           // can connect without asking (required for auto-reconnect)
+    public var usesStoredSecrets: Bool    // keychain password or TOTP: only then is requireAuth offered
 }
+public enum AuthRequirement: String, Codable, CaseIterable, Comparable { case off, connect, always }   // ordered
 public enum CredentialField: String, Codable { case username, password, otp }
 ```
-Decoding must tolerate missing keys (defaults) so older/newer files load.
+Decoding must tolerate missing keys (defaults) so older/newer files load (no `require_auth` → `off`;
+unknown values → `off`). Share files leave `require_auth` out (a per-user choice, like `pinned`).
 
 ## Core APIs
 
@@ -133,9 +141,12 @@ public struct ProfileStore {                       // all methods throw PTError 
     public func importShare(_ url: URL, name: String?) throws -> Profile
 }
 public enum Secrets {                               // Keychain
-    public static func get(_ profileID: String, _ kind: SecretKind) -> String?
-    public static func set(_ profileID: String, _ kind: SecretKind, _ value: String) throws
+    public static func get(_ profileID: String, _ kind: SecretKind) -> String?   // plain text only; nil if encrypted
+    public static func has(_ profileID: String, _ kind: SecretKind) -> Bool      // plain or encrypted
+    public static func isProtected(_ profileID: String, _ kind: SecretKind) -> Bool
+    public static func set(_ profileID: String, _ kind: SecretKind, _ value: String) throws   // plain
     public static func delete(_ profileID: String, _ kind: SecretKind)
+    public static func deleteProtectionKey(_ profileID: String)
 }
 public enum SecretKind: String { case password, totp }
 public enum TOTP {
@@ -153,9 +164,61 @@ public enum OTPComposer {
 }
 public struct ShareFile: Codable              // {"passtunnel_profile":1, "profile":{…minus username,last_username,order,mgmt_port,pinned}, "files":{"config.ovpn": base64}}
 public struct Preferences: Codable { defaultProfile, theme, showLock, notifyOnDrop, sessionWarnMin=30,
-    sessionNotifyMin=10, hotkeys=false, autoType=false, launchAtLogin=true, autoUpdate=false }
+    sessionNotifyMin=10, hotkeys=false, autoType=false, launchAtLogin=true, autoUpdate=false,
+    authReuseMinutes=1 /* 1, 5 or 15; others → 1 */ }
 public enum HealthCheck { public static func check(_ host: String, timeout: TimeInterval = 3) -> (ok: Bool, ms: Int) }
 ```
+
+### Confirm it's you (`SecretVault.swift`, `SecretEnvelope.swift`, `UserPresence.swift`)
+
+`requireAuth` is enforced by encryption, not by a check: the protected secrets are stored encrypted to a
+per-profile Secure Enclave key, and decrypting them is the user's confirmation.
+
+```swift
+public protocol UserAuthenticator: AnyObject {          // SecureEnclaveAuthenticator; a software P-256 key in tests
+    var isAvailable: Bool { get }                        // SecureEnclave.isAvailable
+    func createKey() throws -> ProtectionKey             // no prompt; .protectionUnavailable without a Secure Enclave
+    func unlock(keyData: Data, reason: String, reuseDuration: TimeInterval) async throws -> UnlockedProtectionKey   // the prompt
+}
+@MainActor public final class SecretVault: ObservableObject {   // ConnectionManager.vault (app: shared with the editor)
+    static func protectedKinds(_ p: Profile) -> Set<SecretKind>   // connect: [.password], or [.totp] without a keychain password; always: both
+    func needsPrompt(_ p: Profile, _ kinds: Set<SecretKind>) -> Bool   // a kind is encrypted and not unlocked
+    func unlock(_ p: Profile, _ kinds: Set<SecretKind>, for: UserPresenceAction, fresh: Bool = false) async throws
+    func secret(_ p: Profile, _ kind: SecretKind, for: UserPresenceAction, prompt: Bool = true) async throws -> String?
+    func available(_ id: String, _ kind: SecretKind) -> String?    // plain, or decrypted within the reuse window; never asks
+    func store(_ p: Profile, _ kind: SecretKind, _ value: String) throws          // encrypts when protected (public key only)
+    func applyProtection(from old: Profile?, to new: Profile) async throws        // after a setting/mode change
+    func reset() / reset(_ id) / prune()
+}
+```
+
+- `SecureEnclaveAuthenticator`: `SecureEnclave.P256.KeyAgreement.PrivateKey(accessControl:)` with
+  `[.privateKeyUsage, .userPresence]` (Touch ID or the login password / Apple Watch; not
+  `biometryCurrentSet`, so a new fingerprint does not lock the key). `unlock` evaluates one `LAContext`
+  (`evaluateAccessControl(…, operation: .useKeyKeyExchange)`, `localizedReason` = "connect to “Acme
+  VPN”" etc., macOS prefixes "PassTunnel is trying to"; `touchIDAuthenticationAllowableReuseDuration` =
+  the reuse window, at most 5 min) and loads the key with it, so all key agreements of one unlock share
+  one prompt. LAError → `PTError`: user/app cancel → `.userConfirmationCancelled`; `notInteractive`,
+  `systemCancel` (no GUI session, e.g. SSH), lockout, no password → `.userConfirmationFailed(reason)`.
+  A key blob this Secure Enclave cannot use → `ProtectionKeyUnusable`.
+- `SecretEnvelope`: `ptse1:` + Base64(0x01 ‖ ephemeral X9.63 public key (65) ‖ nonce (12) ‖ ciphertext ‖
+  tag (16)); ECDH(ephemeral, profile key), HKDF-SHA256 (salt = ephemeral ‖ recipient public key, info
+  `PassTunnel secret v1`, 32 bytes), AES-GCM with the account (`<id>/<kind>`) as AAD. Other versions
+  are recognized (`ptse…`) but not read. Tampering, a wrong key or a moved item →
+  `PTError.protectedSecretUnreadable(kind)`.
+- Reuse: one unlock decrypts every encrypted item of the profile into memory (bytes overwritten when
+  dropped) for `Preferences.authReuseMinutes` (1/5/15, default 1) per profile, judged with the
+  manager's clock (testable). `reset()` on sleep (`ConnectionManager.handleWillSleep`) and screen lock
+  (app); `prune()` on every poll.
+- `applyProtection(from:to:)`: makes the key when the setting is on (`.protectionUnavailable` without
+  a Secure Enclave, before anything changes); encrypts plain items the new setting protects (no prompt);
+  decrypts encrypted items it no longer protects (when still used, or when the setting is off), which
+  asks; lowering the setting (`always → connect`, `→ off`) always asks with a fresh prompt (the reuse
+  window never covers it), using the key once even when nothing is encrypted; deletes the key when the
+  setting is off and nothing encrypted is left. A cancel leaves everything as it was.
+- Lost key (another Mac, an erased Secure Enclave): `ProtectionKeyUnusable` → the undecryptable items and
+  the key record are deleted and `.protectedSecretUnreadable(kind)` asks the user to enter the secret
+  again (a new key is made then). A tampered item is kept (the key still works) and reported the same way.
 
 ## Privileged helper
 
@@ -324,5 +387,6 @@ tunnel. Hence:
 - No company/customer names, no real hostnames — examples use `Acme`, `vpn.example.com`.
 - Tests never touch the real Keychain service or real support dir: they set `PASSTUNNEL_HOME` and
   `PASSTUNNEL_KEYCHAIN_SERVICE`. Management-socket tests run their own fake server on a socket in a
-  temp dir.
+  temp dir. Tests never use the Secure Enclave or show a prompt: `ConnectionManagerTests` and
+  `SecretVaultTests` inject `FakeAuthenticator` (a software P-256 key).
 - Swift language mode 5 (tools 5.10), macOS 13 APIs, no third-party dependencies except Sparkle (updates).
