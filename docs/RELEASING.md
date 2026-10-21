@@ -301,16 +301,19 @@ One-time setup).
 
 `openvpn`, `openfortivpn` and their libraries come from the release Mac's Homebrew.
 `bundle-tools.sh` prints the formula versions it bundles and stops the build unless each one
-matches its pin in `release.env` (`OPENVPN_VERSION`, `OPENFORTIVPN_VERSION`, `OPENSSL3_VERSION`,
-`OPENSSL4_VERSION`, `LZ4_VERSION`, `LZO_VERSION`, `PKCS11_HELPER_VERSION`; the name is the formula
-in capitals without `@`, `-` as `_`). A pin is the Cellar directory name, including a Homebrew
-revision such as `1.24.1_1`; a formula without a pin, or a pin that is not bundled, also stops it.
+matches its pin in `release.env` (`OPENVPN_VERSION`, `OPENFORTIVPN_VERSION`, `OPENSSL4_VERSION`,
+`LZ4_VERSION`, `LZO_VERSION`, `PKCS11_HELPER_VERSION`; the name is the formula in capitals without
+`@`, `-` as `_`, so `openssl@3` would be `OPENSSL3_VERSION`). A pin is the Cellar directory name,
+including a Homebrew revision such as `1.24.1_1`; a formula without a pin, or a pin that is not
+bundled, also stops it. When Homebrew moves a tool to another library (openvpn 2.7.8_1 moved from
+`openssl@3` to `openssl@4`), the build lists the new formula as not pinned and the old pin as not
+bundled: add the one and remove the other.
 
 To move to new versions:
 
 ```sh
 brew update
-brew outdated openvpn openfortivpn openssl@3 openssl@4 lz4 lzo pkcs11-helper
+brew outdated openvpn openfortivpn openssl@4 lz4 lzo pkcs11-helper
 HOMEBREW_VERIFY_ATTESTATIONS=1 brew upgrade openvpn openfortivpn   # and the libraries
 scripts/build-app.sh                                               # prints the versions it found
 ```
