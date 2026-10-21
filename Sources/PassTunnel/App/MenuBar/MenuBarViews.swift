@@ -90,7 +90,9 @@ struct MenuBarMenu: View {
             } else {
                 status = String(localized: "Connected")
             }
-        case .degraded: status = String(localized: "Not responding")
+        case .degraded:
+            // As in the main window: a health outage, or a connection whose set-up is incomplete.
+            status = model.isUnreachable(p.id) ? String(localized: "Not responding") : String(localized: "Setup incomplete")
         case .connecting: status = String(localized: "Connecting…")
         case .error: status = String(localized: "Failed")
         case .dropped: status = String(localized: "Dropped")

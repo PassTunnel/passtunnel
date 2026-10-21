@@ -152,6 +152,60 @@ final class FullTunnelTests: XCTestCase {
 
     """
 
+    /// Every session adds the server's host route three times: from `redirect-gateway def1` (works),
+    /// from a config `route <server> 255.255.255.255 net_gateway` and from the same route pushed by the
+    /// server (both "File exists"). The log names no server address here, so only the duplicate rule applies.
+    static let duplicateServerRouteLog = """
+    2026-01-01 10:00:01 /sbin/route add -net 203.0.113.10 192.0.2.1 255.255.255.255
+    add net 203.0.113.10: gateway 192.0.2.1
+    2026-01-01 10:00:01 /sbin/route add -net 0.0.0.0 10.8.0.1 128.0.0.0
+    add net 0.0.0.0: gateway 10.8.0.1
+    2026-01-01 10:00:01 /sbin/route add -net 128.0.0.0 10.8.0.1 128.0.0.0
+    add net 128.0.0.0: gateway 10.8.0.1
+    2026-01-01 10:00:01 /sbin/route add -net 203.0.113.10 192.0.2.1 255.255.255.255
+                                    route: writing to routing socket: File exists
+    add net 203.0.113.10: gateway 192.0.2.1: File exists
+    2026-01-01 10:00:01 ERROR: OS X route add command failed: external program exited with error status: 1
+    2026-01-01 10:00:01 /sbin/route add -net 10.20.0.0 10.8.0.1 255.255.0.0
+    add net 10.20.0.0: gateway 10.8.0.1
+    2026-01-01 10:00:01 /sbin/route add -net 203.0.113.10 192.0.2.1 255.255.255.255
+    add net 203.0.113.10: gateway 192.0.2.1: File exists
+    2026-01-01 10:00:02 Initialization Sequence Completed
+
+    """
+
+    func testRouteAddedEarlierInTheSessionIsNotASetupProblem() {
+        XCTAssertNil(VPNLog.setupProblem(Self.duplicateServerRouteLog))
+        // A route that exists, but not because this session added it: still reported.
+        let foreign = Self.duplicateServerRouteLog + """
+        2026-01-01 10:00:03 /sbin/route add -net 10.30.0.0 10.8.0.1 255.255.0.0
+        add net 10.30.0.0: gateway 10.8.0.1: File exists
+
+        """
+        XCTAssertEqual(VPNLog.setupProblem(foreign)?.reason, "add net 10.30.0.0: gateway 10.8.0.1: File exists")
+        // The same destination with another mask is another route.
+        let otherMask = Self.duplicateServerRouteLog + """
+        2026-01-01 10:00:03 /sbin/route add -net 10.20.0.0 10.8.0.1 255.255.255.0
+        add net 10.20.0.0: gateway 10.8.0.1: File exists
+
+        """
+        XCTAssertEqual(VPNLog.setupProblem(otherMask)?.reason, "add net 10.20.0.0: gateway 10.8.0.1: File exists")
+        // A duplicate that fails for another reason than "File exists" is still a problem.
+        let unreachable = Self.duplicateServerRouteLog.replacingOccurrences(
+            of: "add net 10.20.0.0: gateway 10.8.0.1\n",
+            with: "add net 10.20.0.0: gateway 10.8.0.1\n2026-01-01 10:00:01 /sbin/route add -net 10.20.0.0 10.8.0.1 255.255.0.0\n"
+                + "add net 10.20.0.0: gateway 10.8.0.1: Network is unreachable\n")
+        XCTAssertEqual(VPNLog.setupProblem(unreachable)?.reason, "add net 10.20.0.0: gateway 10.8.0.1: Network is unreachable")
+    }
+
+    func testRouteCommandParsing() {
+        XCTAssertEqual(VPNLog.RouteCommand("/sbin/route add -net 203.0.113.10 192.0.2.1 255.255.255.255"),
+                       VPNLog.RouteCommand(destination: "203.0.113.10", mask: "255.255.255.255"))
+        XCTAssertEqual(VPNLog.RouteCommand("/sbin/route add -inet6 2000:: -prefixlen 3 fe80::1%utun6")?.mask, "3")
+        XCTAssertEqual(VPNLog.addedRouteDestination("add net 10.20.0.0: gateway 10.8.0.1"), "10.20.0.0")
+        XCTAssertNil(VPNLog.addedRouteDestination("add net 10.20.0.0: gateway 10.8.0.1: File exists"))
+    }
+
     func testRemoteAddressesAndDefaultGateway() {
         XCTAssertEqual(VPNLog.remoteAddresses(Self.leftoverServerRouteLog), ["203.0.113.10"])
         XCTAssertEqual(VPNLog.remoteAddresses("2026-01-01 10:00:00 TCP connection established with [AF_INET]203.0.113.20:443\n"),

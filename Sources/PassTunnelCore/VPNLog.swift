@@ -76,13 +76,19 @@ public enum VPNLog {
                                                        "2000::", "3000::", "fc00::"]
 
     /// The first DNS-hook failure or all-traffic route failure, else the first other route failure.
-    /// Not counted: "File exists" for the host route to the server itself via the original default
-    /// gateway (`isLeftoverServerRoute`), and the "route add command failed" line that follows it.
+    /// Not counted (`File exists` that means the route is already there the way OpenVPN wants it):
+    /// - a route this session already added successfully: OpenVPN adds the server's host route up to
+    ///   three times (from `redirect-gateway`, from a config `route <server> … net_gateway`, and from the
+    ///   same route pushed by the server); only the first one can succeed;
+    /// - the host route to the server via the original default gateway (`isLeftoverServerRoute`);
+    /// and the "route add command failed" line that follows either.
     public static func setupProblem(_ text: String) -> SetupProblem? {
         let servers = remoteAddresses(text)
         let gateway = defaultGateway(text)
         var routeProblem: SetupProblem?
         var skipCommandFailure = false
+        var command: RouteCommand?           // the last `/sbin/route add …` OpenVPN ran
+        var added: Set<String> = []          // RouteCommand.key of routes added in this session
         for raw in text.split(whereSeparator: \.isNewline) {
             let line = withoutTimestamp(raw)
             let lower = line.lowercased()
@@ -90,14 +96,21 @@ public enum VPNLog {
                 || (lower.contains("dns updown") && (lower.contains("failed") || lower.contains("error status"))) {
                 return SetupProblem(reason: line, allTraffic: true)
             }
-            if line.hasPrefix("/sbin/route ") { skipCommandFailure = false }
+            if line.hasPrefix("/sbin/route ") {
+                skipCommandFailure = false
+                command = RouteCommand(line)
+            }
             if let route = failedRoute(line) {
-                if allTrafficDestinations.contains(route.destination) { return SetupProblem(reason: line, allTraffic: true) }
-                if isLeftoverServerRoute(route, servers: servers, defaultGateway: gateway) {
+                let key = RouteCommand.key(route.destination, after: command)
+                if route.error.lowercased().contains("file exists"), added.contains(key)
+                    || isLeftoverServerRoute(route, servers: servers, defaultGateway: gateway) {
                     skipCommandFailure = true
                     continue
                 }
+                if allTrafficDestinations.contains(route.destination) { return SetupProblem(reason: line, allTraffic: true) }
                 if routeProblem == nil { routeProblem = SetupProblem(reason: line, allTraffic: false) }
+            } else if let destination = addedRouteDestination(line) {
+                added.insert(RouteCommand.key(destination, after: command))
             } else if lower.contains("route add command failed") {
                 if skipCommandFailure {
                     skipCommandFailure = false
@@ -107,6 +120,55 @@ public enum VPNLog {
             }
         }
         return routeProblem
+    }
+
+    /// "/sbin/route add -net 203.0.113.10 192.0.2.1 255.255.255.255" → destination and mask, so the
+    /// same destination with another mask counts as another route.
+    struct RouteCommand: Equatable {
+        var destination: String
+        var mask: String
+
+        init(destination: String, mask: String) {
+            self.destination = destination
+            self.mask = mask
+        }
+
+        init?(_ line: String) {
+            let tokens = line.split(separator: " ").map(String.init)
+            guard let add = tokens.firstIndex(of: "add") else { return nil }
+            var positional: [String] = []
+            var mask = ""
+            var i = add + 1
+            while i < tokens.count {
+                let t = tokens[i]
+                if t == "-netmask" || t == "-prefixlen", i + 1 < tokens.count {
+                    mask = tokens[i + 1]
+                    i += 2
+                    continue
+                }
+                if !t.hasPrefix("-") { positional.append(t) }
+                i += 1
+            }
+            guard let destination = positional.first else { return nil }
+            self.destination = destination
+            self.mask = mask.isEmpty && positional.count >= 3 ? positional[2] : mask
+        }
+
+        /// Identity of the route `route` reported on: with the mask of the command it belongs to.
+        static func key(_ destination: String, after command: RouteCommand?) -> String {
+            guard let command, command.destination == destination else { return destination }
+            return destination + "/" + command.mask
+        }
+    }
+
+    /// `route`'s success line, "add net 10.20.0.0: gateway 10.8.0.1" → "10.20.0.0".
+    static func addedRouteDestination(_ line: String) -> String? {
+        for kind in ["add net ", "add host "] {
+            guard line.hasPrefix(kind), let gateway = line.range(of: ": gateway ") else { continue }
+            guard !line[gateway.upperBound...].contains(": ") else { return nil }
+            return String(line[line.index(line.startIndex, offsetBy: kind.count)..<gateway.lowerBound])
+        }
+        return nil
     }
 
     /// A failed `route add`, parsed from `route`'s own error line.
