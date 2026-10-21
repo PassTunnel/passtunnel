@@ -1,0 +1,274 @@
+# Releases PassTunnel from main. Every push to main (a merged pull request from dev) runs it:
+#
+#   plan            scripts/next-version.sh works out the version and the release notes from the
+#                   commit subjects since the last release. No feat, fix, perf or breaking change: no
+#                   release, and the run ends here (successfully, with a notice).
+#   release         builds, signs, notarizes and publishes the release with
+#                   scripts/release.sh VERSION --publish --notes-file …, then attests the dmg, zip and
+#                   MCP bundle (build provenance; gh attestation verify FILE -R passtunnel/passtunnel).
+#   mcp-registry    publish-mcp.yml for the new tag.
+#   homebrew-tap    commits dist/passtunnel.rb of the release as Casks/passtunnel.rb to the tap.
+#
+# release and homebrew-tap run in the environment "release", which holds the secrets and needs a
+# maintainer's approval:
+#
+#   DEVELOPER_ID_P12_BASE64, DEVELOPER_ID_P12_PASSWORD
+#                   the Developer ID Application certificate and its private key (.p12, base64)
+#   NOTARY_KEY_P8_BASE64, NOTARY_KEY_ID, NOTARY_ISSUER_ID
+#                   an App Store Connect API key (Developer role) for notarytool
+#   SPARKLE_PRIVATE_KEY
+#                   the Sparkle EdDSA private key (the file generate_keys -x writes)
+#   TAP_TOKEN       a fine-grained token with Contents read and write on the tap repository only
+#
+# The identity and the notarytool profile "passtunnel" go into a temporary keychain that is the job's
+# default keychain, so release.sh finds them as on a Mac; the Sparkle key is a file
+# (SPARKLE_PRIVATE_KEY_FILE). Files with secrets are written to RUNNER_TEMP with umask 077, and the
+# keychain and the files are deleted at the end whatever happened. The tag is an unsigned annotated
+# tag (no signing key here).
+#
+# Re-running: Actions → Release → Run workflow on main. When HEAD already carries the tag of an
+# unfinished release (tag pushed, release still a draft or missing), that version is built again and
+# release.sh finishes it; a published release is final, and the run then only reports it.
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  plan:
+    name: Plan
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+      notes: ${{ steps.next.outputs.notes }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Work out the version
+        id: next
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          notes="$RUNNER_TEMP/release-notes.md"
+          # A stable tag on HEAD is a release that was started before: done when it is published,
+          # otherwise built again with the version and notes it had (worked out without the tag).
+          tag="$(git tag --points-at HEAD --list 'v*' \
+            | grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' | sort -V | tail -1 || true)"
+          if [[ -n "$tag" ]]; then
+            draft="$(gh release view "$tag" --repo "$REPO" --json isDraft --jq .isDraft 2>/dev/null || echo missing)"
+            if [[ "$draft" == false ]]; then
+              echo "::notice title=Already released::HEAD is $tag, which is published; nothing to do"
+              exit 0
+            fi
+            echo "HEAD is $tag (release: $draft); finishing it"
+            git tag -d "$tag" >/dev/null
+          fi
+          version="$(scripts/next-version.sh --notes "$notes")"
+          if [[ -n "$tag" && "$version" != "${tag#v}" ]]; then
+            echo "::error::HEAD is tagged $tag, but the commits since the last release give '${version:-no release}'"
+            exit 1
+          fi
+          if [[ -z "$version" ]]; then
+            echo "::notice title=No release::no feat, fix, perf or breaking change since the last release"
+            exit 0
+          fi
+          echo "::notice title=Release::PassTunnel $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          delimiter="notes-$(openssl rand -hex 16)"
+          { echo "notes<<$delimiter"; cat "$notes"; echo "$delimiter"; } >> "$GITHUB_OUTPUT"
+          { echo "## PassTunnel $version"; echo; cat "$notes"; } >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    name: Build and publish
+    needs: plan
+    if: needs.plan.outputs.version != ''
+    runs-on: macos-26
+    timeout-minutes: 120
+    environment: release
+    permissions:
+      contents: write       # push the tag, create and publish the release
+      id-token: write       # sign the attestations
+      attestations: write   # store them
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      # The pushed commit on branch main (release.sh releases from main only); full history, because
+      # CFBundleVersion is the commit count.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # bundle-tools.sh stops when a version differs from its pin in scripts/release.env; the fix is a
+      # pull request that moves the pins.
+      - name: Install the bundled tools
+        env:
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+          HOMEBREW_VERIFY_ATTESTATIONS: 1
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          brew install openvpn openfortivpn
+          brew list --versions openvpn openfortivpn openssl@3 openssl@4 lz4 lzo pkcs11-helper
+
+      - name: Set up the signing keychain
+        env:
+          DEVELOPER_ID_P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          NOTARY_KEY_P8_BASE64: ${{ secrets.NOTARY_KEY_P8_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          umask 077
+          for name in DEVELOPER_ID_P12_BASE64 DEVELOPER_ID_P12_PASSWORD NOTARY_KEY_P8_BASE64 NOTARY_KEY_ID \
+                      NOTARY_ISSUER_ID SPARKLE_PRIVATE_KEY; do
+            [[ -n "${!name}" ]] || { echo "::error::the secret $name is not set in the environment 'release'"; exit 1; }
+          done
+          secrets="$RUNNER_TEMP/secrets"
+          mkdir -p "$secrets"
+          keychain="$RUNNER_TEMP/release.keychain-db"
+
+          # A keychain only for this job, first in the search list and the default one, so
+          # security find-identity, codesign and notarytool use it like the login keychain on a Mac.
+          password="$(openssl rand -hex 32)"
+          echo "::add-mask::$password"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          keychains=()
+          while read -r line; do
+            line="${line#*\"}"
+            keychains+=("${line%\"*}")
+          done < <(security list-keychains -d user)
+          security list-keychains -d user -s "$keychain" "${keychains[@]}"
+          security default-keychain -d user -s "$keychain"
+
+          # Developer ID Application identity; codesign may use the key without a prompt.
+          base64 --decode > "$secrets/developer-id.p12" <<<"$DEVELOPER_ID_P12_BASE64"
+          security import "$secrets/developer-id.p12" -k "$keychain" -f pkcs12 \
+            -P "$DEVELOPER_ID_P12_PASSWORD" -T /usr/bin/codesign >/dev/null
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" >/dev/null
+          rm -P "$secrets/developer-id.p12"
+          security find-identity -v -p codesigning "$keychain"
+
+          # notarytool profile "passtunnel" (release.sh's NOTARY_PROFILE); checked against Apple here.
+          base64 --decode > "$secrets/notary-key.p8" <<<"$NOTARY_KEY_P8_BASE64"
+          xcrun notarytool store-credentials passtunnel --key "$secrets/notary-key.p8" \
+            --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" --keychain "$keychain" >/dev/null
+          rm -P "$secrets/notary-key.p8"
+
+          # Sparkle EdDSA key: a file for release.sh (SPARKLE_PRIVATE_KEY_FILE), not the keychain, where
+          # sign_update and generate_appcast would wait for an access prompt. release.sh checks that its
+          # public key is SUPublicEDKey.
+          printf '%s\n' "$SPARKLE_PRIVATE_KEY" > "$secrets/sparkle-private-key.txt"
+          echo "SPARKLE_PRIVATE_KEY_FILE=$secrets/sparkle-private-key.txt" >> "$GITHUB_ENV"
+
+      - name: Build and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTES: ${{ needs.plan.outputs.notes }}
+        run: |
+          printf '%s\n' "$NOTES" > "$RUNNER_TEMP/release-notes.md"
+          # The tag's author; git push and gh use GH_TOKEN (gh as git's credential helper).
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          gh auth setup-git
+          scripts/release.sh "$VERSION" --publish --notes-file "$RUNNER_TEMP/release-notes.md"
+          rm -P "$SPARKLE_PRIVATE_KEY_FILE"
+
+      - name: Attest the release files
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/PassTunnel-${{ env.VERSION }}.dmg
+            dist/PassTunnel-${{ env.VERSION }}.zip
+            dist/PassTunnel-mcp-${{ env.VERSION }}.mcpb
+
+      - name: Keep the Homebrew cask
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: homebrew-cask
+          path: dist/passtunnel.rb
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Remove the keychain and secrets
+        if: always()
+        run: |
+          security default-keychain -d user -s login.keychain-db || true
+          keychain="$RUNNER_TEMP/release.keychain-db"
+          [[ ! -e "$keychain" ]] || security delete-keychain "$keychain" || true
+          rm -rf "$RUNNER_TEMP/secrets" "$RUNNER_TEMP/release-notes.md"
+
+  mcp-registry:
+    name: MCP Registry
+    needs: [plan, release]
+    permissions:
+      contents: read
+      id-token: write   # mcp-publisher login github-oidc
+    uses: ./.github/workflows/publish-mcp.yml
+    with:
+      tag: v${{ needs.plan.outputs.version }}
+
+  homebrew-tap:
+    name: Homebrew tap
+    needs: [plan, release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      contents: read
+    steps:
+      # Only for TAP_REPO.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/release.env
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: homebrew-cask
+          path: ${{ runner.temp }}/cask
+
+      # Through the contents API: GitHub signs the commit, and no clone or key is needed.
+      - name: Update Casks/passtunnel.rb
+        env:
+          GH_TOKEN: ${{ secrets.TAP_TOKEN }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          [[ -n "$GH_TOKEN" ]] || { echo "::error::the secret TAP_TOKEN is not set in the environment 'release'"; exit 1; }
+          source scripts/release.env
+          cask="$RUNNER_TEMP/cask/passtunnel.rb"
+          path=Casks/passtunnel.rb
+          grep -qF "version \"$VERSION\"" "$cask" || { echo "::error::the cask is not for $VERSION"; exit 1; }
+          current="$RUNNER_TEMP/current.rb"
+          sha="$(gh api "repos/$TAP_REPO/contents/$path?ref=main" --jq .sha)"
+          gh api "repos/$TAP_REPO/contents/$path?ref=main" -H "Accept: application/vnd.github.raw" > "$current"
+          if cmp -s "$cask" "$current"; then
+            echo "::notice title=Homebrew tap::$TAP_REPO already has the cask of $VERSION"
+            exit 0
+          fi
+          gh api -X PUT "repos/$TAP_REPO/contents/$path" \
+            -f message="Update PassTunnel to $VERSION" -f branch=main -f sha="$sha" \
+            -f content="$(base64 -w0 "$cask")" --jq '"committed \(.commit.sha)"'
