@@ -710,12 +710,25 @@ final class MCPServerTests: XCTestCase {
         XCTAssertEqual(helper.stops, ["acme"], "the half-started connection is stopped")
     }
 
+    /// Sends request 41, a connect of "acme" that stays in WAIT, and returns once the manager has the
+    /// helper's reply to the start and polls the management socket. Seeing the start request is not
+    /// enough: a cancel that arrives while the start is still in the helper is handled too, but with
+    /// two stops (the cancelled call's disconnect, then the manager's stop of the session that came up
+    /// meanwhile), so tests that count stops must not cancel before this point.
+    func startConnectThatWaits(_ server: MCPServer) async {
+        helper.openVPNStateLine = { "\(Int($0.timeIntervalSince1970)),WAIT,,,,,,," }
+        let polled = expectation(description: "the connect polls the management socket")
+        polled.assertForOverFulfill = false
+        helper.onStateQuery = { _ in polled.fulfill() }
+        server.receive(line(request(41, "tools/call", ["name": "connect", "arguments": ["profile_id": "acme", "timeout_seconds": 60]])))
+        await fulfillment(of: [polled], timeout: 5)
+        XCTAssertEqual(helper.starts.count, 1)
+    }
+
     func testRequestsRunConcurrentlyAndCanBeCancelled() async throws {
         try makeOpenVPN()
-        helper.openVPNStateLine = { "\(Int($0.timeIntervalSince1970)),WAIT,,,,,,," }
         let server = makeServer(allowConnect: true, clock: SystemClock())
-        server.receive(line(request(41, "tools/call", ["name": "connect", "arguments": ["profile_id": "acme", "timeout_seconds": 60]])))
-        await waitUntil { !self.helper.starts.isEmpty }
+        await startConnectThatWaits(server)
         // A ping is answered while the connect waits.
         server.receive(line(request(42, "ping")))
         await waitUntil { self.sent.count == 1 }
@@ -731,13 +744,12 @@ final class MCPServerTests: XCTestCase {
     /// its id (its cancel and its reply), and the id is free again once it has finished.
     func testDuplicateInFlightIDIsRefused() async throws {
         try makeOpenVPN()
-        helper.openVPNStateLine = { "\(Int($0.timeIntervalSince1970)),WAIT,,,,,,," }
         let server = makeServer(allowConnect: true, clock: SystemClock())
-        server.receive(line(request(41, "tools/call", ["name": "connect", "arguments": ["profile_id": "acme", "timeout_seconds": 60]])))
-        await waitUntil { !self.helper.starts.isEmpty }
+        await startConnectThatWaits(server)
+        // Refused at once, in `receive`.
         server.receive(line(request(41, "ping")))
-        await waitUntil { self.sent.count == 1 }
-        let duplicate = try XCTUnwrap(try JSONSerialization.jsonObject(with: sent[0]) as? [String: Any])
+        XCTAssertEqual(sent.count, 1)
+        let duplicate = try XCTUnwrap(try JSONSerialization.jsonObject(with: XCTUnwrap(sent.first)) as? [String: Any])
         XCTAssertEqual(rpcError(duplicate), -32600)
         XCTAssertEqual(duplicate["id"] as? Int, 41)
 

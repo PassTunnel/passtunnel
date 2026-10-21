@@ -14,10 +14,13 @@ final class LoopingManagementServer: @unchecked Sendable {
     private var _commands: [String] = []
     private let listenFD: Int32
     private let finished = DispatchSemaphore(value: 0)
+    /// Runs on the server's thread after each `state` reply.
+    private let onStateQuery: (() -> Void)?
 
-    init(path: String, stateLine: String) {
+    init(path: String, stateLine: String, onStateQuery: (() -> Void)? = nil) {
         self.path = path
         self.line = stateLine
+        self.onStateQuery = onStateQuery
         unlink(path)
         listenFD = socket(AF_UNIX, SOCK_STREAM, 0)
         var addr = sockaddr_un()
@@ -55,6 +58,7 @@ final class LoopingManagementServer: @unchecked Sendable {
             let cmd = FakeManagementServer.readLine(c)
             if cmd == "state" {
                 FakeManagementServer.send(c, stateLine + "\r\nEND\r\n")
+                onStateQuery?()
             } else if cmd.hasPrefix("signal ") {
                 lock.lock(); _commands.append(cmd); lock.unlock()
                 FakeManagementServer.send(c, "SUCCESS: \(cmd) thrown\r\n")
@@ -106,6 +110,10 @@ final class FakeHelper: HelperClienting, @unchecked Sendable {
     var statusDelays: [TimeInterval] = []
     /// Runs when a start request arrives, before the tool "starts" (e.g. to edit files meanwhile).
     var onStart: ((HelperRequest) -> Void)?
+    /// Runs (on the management server's thread, with the profile id) each time the management socket
+    /// of an OpenVPN started here answers `state`: the manager has the start's reply and is waiting
+    /// for the connection.
+    var onStateQuery: ((String) -> Void)?
     /// When set, `status` calls fail with this error (helper unreachable).
     var statusError: Error?
     /// Runs at the start of every `status` call with its number (1 for the first).
@@ -164,7 +172,9 @@ final class FakeHelper: HelperClienting, @unchecked Sendable {
             write(startLog, to: s.logPath)
             let sock = s.profileDir + "/" + PT.mgmtSocketName
             if let line = openVPNStateLine {
-                let server = LoopingManagementServer(path: sock, stateLine: line(Date()))
+                let id = s.profileID
+                let onQuery = onStateQuery.map { f in { f(id) } }
+                let server = LoopingManagementServer(path: sock, stateLine: line(Date()), onStateQuery: onQuery)
                 locked { servers[s.profileID] = server }
             }
             locked { _running[s.profileID] = 4242; sockets[s.profileID] = sock }
