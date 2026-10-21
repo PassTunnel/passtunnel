@@ -33,6 +33,21 @@ final class ProjectLinksTests: XCTestCase {
         return out
     }
 
+    /// GitHub owner and repository names are case-insensitive, so `PassTunnel/passtunnel` names the
+    /// same repository as `passtunnel/passtunnel`. Some services (the Scorecard API) need the exact case.
+    static func sameRepository(_ found: String, _ expected: String) -> Bool {
+        found.caseInsensitiveCompare(expected) == .orderedSame
+    }
+
+    func testRepositoryNamesCompareCaseInsensitively() {
+        XCTAssertTrue(Self.sameRepository("passtunnel/passtunnel", "passtunnel/passtunnel"))
+        XCTAssertTrue(Self.sameRepository("PassTunnel/passtunnel", "passtunnel/passtunnel"))
+        XCTAssertTrue(Self.sameRepository("PassTunnel/tap", "passtunnel/tap"))
+        XCTAssertFalse(Self.sameRepository("PassTunnel/passtunnel-old", "passtunnel/passtunnel"))
+        XCTAssertFalse(Self.sameRepository("acme/passtunnel", "passtunnel/passtunnel"))
+        XCTAssertFalse(Self.sameRepository("passtunnel/homebrew-tap", "passtunnel/passtunnel"))
+    }
+
     func testRepositoryAndTapMatchReleaseEnv() throws {
         let env = try Self.releaseEnv()
         let repo = try XCTUnwrap(env["GITHUB_REPO"])
@@ -40,8 +55,10 @@ final class ProjectLinksTests: XCTestCase {
         let tapOwner = try XCTUnwrap(tapRepo.split(separator: "/").first)
         let tapName = "\(tapOwner)/\(tapRepo.split(separator: "/")[1].replacingOccurrences(of: "homebrew-", with: ""))"
 
-        let repoPattern = try NSRegularExpression(pattern: #"github\.com/([A-Za-z0-9_.-]+/(?:passtunnel|homebrew-tap))\b"#)
-        let tapPattern = try NSRegularExpression(pattern: #"\b([A-Za-z0-9_.-]+/tap)/passtunnel\b|brew trust ([A-Za-z0-9_.-]+/tap)\b"#)
+        let repoPattern = try NSRegularExpression(pattern: #"github\.com/([A-Za-z0-9_.-]+/(?:passtunnel|homebrew-tap))\b"#,
+                                                 options: .caseInsensitive)
+        let tapPattern = try NSRegularExpression(pattern: #"\b([A-Za-z0-9_.-]+/tap)/passtunnel\b|brew trust ([A-Za-z0-9_.-]+/tap)\b"#,
+                                                options: .caseInsensitive)
         var problems: [String] = []
         var seen = 0
         for url in try Self.files() {
@@ -51,13 +68,13 @@ final class ProjectLinksTests: XCTestCase {
             for m in repoPattern.matches(in: text, range: range) {
                 let found = String(text[Range(m.range(at: 1), in: text)!])
                 seen += 1
-                let expected = found.hasSuffix("/homebrew-tap") ? tapRepo : repo
-                if found != expected { problems.append("\(name): github.com/\(found), expected \(expected)") }
+                let expected = found.lowercased().hasSuffix("/homebrew-tap") ? tapRepo : repo
+                if !Self.sameRepository(found, expected) { problems.append("\(name): github.com/\(found), expected \(expected)") }
             }
             for m in tapPattern.matches(in: text, range: range) {
                 let group = m.range(at: 1).location != NSNotFound ? 1 : 2
                 let found = String(text[Range(m.range(at: group), in: text)!])
-                if found != tapName { problems.append("\(name): \(found), expected \(tapName)") }
+                if !Self.sameRepository(found, tapName) { problems.append("\(name): \(found), expected \(tapName)") }
             }
         }
         XCTAssertGreaterThan(seen, 3)
