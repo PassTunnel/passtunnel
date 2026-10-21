@@ -96,7 +96,7 @@ final class CLICommandTests: XCTestCase {
         XCTAssertEqual(try parse("help ls"), .help(command: "list"))
         XCTAssertEqual(try parse("connect --help"), .help(command: "connect"))
         XCTAssertEqual(try parse("--help"), .help(command: nil))
-        XCTAssertEqual(try parse("--version"), .version)
+        XCTAssertEqual(try parse("--version"), .version())
         assertUsage("frobnicate")
     }
 

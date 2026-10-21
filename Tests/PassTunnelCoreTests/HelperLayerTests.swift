@@ -71,6 +71,28 @@ final class OVPNSanitizerTests: XCTestCase {
         }
     }
 
+    func testVerbosity() {
+        let cases: [(String, Int?, Int)] = [
+            ("client\n", nil, 3),
+            ("verb 2\n", 2, 2),
+            ("verb 11\n", 11, 4),
+            ("verb 7\nverb 1\n", 1, 1),                      // the last one wins, as in OpenVPN
+            ("verb 1\n--verb 9\n", 9, 4),
+            ("VERB 0\n", 0, 0),
+            ("setenv opt verb 8\n", 8, 4),
+            ("verb 2\n<ca>\nverb 9\n</ca>\n", 2, 2),       // block content is not a directive
+            ("verb 2\n# verb 9\n; verb 9\n", 2, 2),
+            ("verb\nverb high\n", nil, 3),
+        ]
+        for (config, parsed, used) in cases {
+            XCTAssertEqual(OVPNSanitizer.verbosity(of: config), parsed, config)
+            XCTAssertEqual(HelperCore.openVPNVerbosity(config), used, config)
+        }
+        let args = HelperCore.openVPNArguments(configPath: "/c", mgmtSocket: "/s", clientUser: "alice", authFile: nil,
+                                               dnsUpdown: nil, verbosity: 11)
+        XCTAssertEqual(Array(args.prefix(4)), ["--config", "/c", "--verb", "4"])
+    }
+
     func testReportsAllViolationsWithLineNumbers() {
         let v = violations("client\nup /tmp/a\nremote vpn.example.com\ndown /tmp/b\n")
         XCTAssertEqual(v.map(\.line), [2, 4])
@@ -373,7 +395,7 @@ final class HelperCoreTests: XCTestCase {
         XCTAssertEqual(plan.runDir, plan.sessionDir.path)
         XCTAssertEqual(plan.mgmtSocket, plan.runDir + "/mgmt.sock")
         XCTAssertEqual(plan.arguments, [
-            "--config", plan.runDir + "/config.ovpn", "--management", plan.runDir + "/mgmt.sock", "unix",
+            "--config", plan.runDir + "/config.ovpn", "--verb", "3", "--management", plan.runDir + "/mgmt.sock", "unix",
             "--management-client-user", "alice", "--auth-nocache",
             "--remap-usr1", "SIGTERM", "--connect-retry-max", "3", "--auth-user-pass", plan.runDir + "/auth",
             "--script-security", "1", "--dns-updown", "disable",
@@ -389,6 +411,17 @@ final class HelperCoreTests: XCTestCase {
         }
         core().removeRunDir(profileID: "acme", uid: me)
         XCTAssertFalse(FileManager.default.fileExists(atPath: plan.runDir))
+    }
+
+    /// A config that asks for OpenVPN's debug levels (keys from 7, packet contents from 9) is capped.
+    func testPrepareOpenVPNCapsVerbosity() throws {
+        try Data("client\nremote vpn.example.com 1194\nverb 9\n".utf8)
+            .write(to: URL(fileURLWithPath: acmeDir + "/config.ovpn"))
+        let plan = try core().prepareOpenVPN(openVPNStart(), uid: me)
+        defer { close(plan.logFD); core().removeRunDir(profileID: "acme", uid: me) }
+        XCTAssertEqual(Array(plan.arguments.prefix(4)), ["--config", plan.runDir + "/config.ovpn", "--verb", "4"],
+                       "after --config, so it overrides the file")
+        XCTAssertEqual(plan.arguments.filter { $0 == "--verb" }.count, 1)
     }
 
     func testPrepareOpenVPNStagesDNSScript() throws {

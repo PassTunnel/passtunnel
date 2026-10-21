@@ -21,6 +21,7 @@ secret in the Keychain and fills in the current code (and your password) every t
 [Quick start](#quick-start) ·
 [Code format](#configuring-the-code-format) ·
 [CLI](#command-line) ·
+[AI assistants](#use-with-ai-assistants-mcp) ·
 [FAQ](#faq) ·
 [Security](SECURITY.md) ·
 [Türkçe](#türkçe)
@@ -63,8 +64,11 @@ secret in the Keychain and fills in the current code (and your password) every t
 - **Several VPNs at once**, each with its own status, log and settings.
 - **Shareable profiles.** Export a `.passtunnel` file for your team. It never contains passwords,
   TOTP secrets or user names.
-- **Command-line tool.** `passtunnel connect`, `passtunnel code -c`, `--json` output and shell
-  completions: the same features as the app.
+- **Command-line tool.** `passtunnel connect`, `passtunnel code -c`, `--json` output, stable exit
+  codes and shell completions: the same features as the app.
+- **Works with AI assistants.** `passtunnel mcp` is an MCP server, so Claude Code, Claude Desktop
+  and other MCP clients can check your VPNs, read logs and diagnose problems. Read-only unless
+  you allow connecting, and it never hands out passwords, secrets or codes.
 - **No sudoers rule, no admin password at every connect.** A small privileged helper, registered
   through macOS's own `SMAppService` and approved once, runs only the VPN tools signed and shipped
   inside the app, with sanitized configurations. See [SECURITY.md](SECURITY.md).
@@ -264,8 +268,74 @@ passtunnel completion zsh > ~/.zfunc/_passtunnel
 ```
 
 `passtunnel set ID key=value…` accepts the same settings as the editor; `passtunnel help set` lists
-the keys and `passtunnel help` lists all commands. Exit codes: `0` ok, `1` error, `2` usage,
-`3` not connected.
+the keys and `passtunnel help` lists all commands.
+
+**For scripts:** every command takes `--json` (results on stdout, errors as
+`{"error":{"code":…,"message":…}}`), `--no-input` (never ask on the terminal; also
+`PASSTUNNEL_NO_INPUT=1`) and `--no-auth-prompt` (fail instead of showing Touch ID);
+`connect --wait --timeout 90` bounds the wait. Exit codes: `0` ok, `1` error, `2` usage, `3` not
+found or not connected, `4` confirmation cancelled or not possible, `5` helper missing or outdated,
+`6` connection failed, `7` timeout. The objects and codes are described in
+[docs/CLI-JSON.md](docs/CLI-JSON.md).
+
+```sh
+passtunnel connect work --timeout 90 --no-input --json
+passtunnel status --json | jq '.[] | select(.state == "connected") | .id'
+```
+
+## Use with AI assistants (MCP)
+
+`passtunnel mcp` runs a [Model Context Protocol](https://modelcontextprotocol.io) server on
+standard input and output, so an AI assistant can answer “is my VPN up?”, read the log of a failed
+connection and tell you what is wrong.
+
+| Tool | What it does |
+|---|---|
+| `list_profiles` | Profiles with type, state, whether connecting asks for Touch ID, auto-reconnect |
+| `get_status` | State, tunnel IP, since when, last error; whether the helper is installed and current |
+| `get_logs` | The last lines (up to 500) of a profile's VPN log, with anything that looks like a credential redacted |
+| `diagnose` | App version and location, helper state, and per profile whether config, server and saved credentials are in place |
+| `connect`, `disconnect` | Only with `--allow-connect` |
+
+**Read-only by default.** Without `--allow-connect` the assistant can look, not act. With it, it
+can connect and disconnect profiles; a profile with *Confirm with Touch ID* still shows the Touch
+ID prompt on your Mac, and nothing happens until you confirm. There is no tool for codes,
+passwords or secrets, and none that creates, changes or deletes profiles. The server gets the same
+access as the `passtunnel` command; see [SECURITY.md](SECURITY.md#mcp-server-and-automation) for
+what that means, including prompt injection.
+
+**Claude Code** (uses your shell's `PATH`; the `passtunnel` command comes with the Homebrew cask, or
+from Settings → General → Command-line tool):
+
+```sh
+claude mcp add passtunnel -- passtunnel mcp                   # read-only
+claude mcp add passtunnel -- passtunnel mcp --allow-connect   # may also connect and disconnect
+```
+
+Without the `passtunnel` command, use the app binary directly:
+
+```sh
+claude mcp add passtunnel -- /Applications/PassTunnel.app/Contents/MacOS/PassTunnel mcp
+```
+
+**Claude Desktop** starts servers without your shell's `PATH`, so give the full path. In
+`~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "passtunnel": {
+      "command": "/Applications/PassTunnel.app/Contents/MacOS/PassTunnel",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Add `"--allow-connect"` to `args` to allow connecting. Other MCP clients work the same way: the
+command is the app binary (or `passtunnel`), the argument `mcp`. Diagnostics go to stderr. The
+server speaks MCP 2026-07-28 and, for clients that start with an `initialize` handshake,
+2025-11-25 back to 2024-11-05.
 
 ## Sharing profiles
 
@@ -444,7 +514,9 @@ Kodun nasıl gönderileceğini profil başına seçebilirsiniz: parolanın sonun
 authenticator uygulaması gibi canlı kodları gösterir. Menü çubuğunda her profil için renkli bir rozet
 vardır. QR kodu ekran görüntüsünden okunur. Profilleri kimlik bilgisi içermeyen `.passtunnel`
 dosyalarıyla ekibinizle paylaşabilir, aynı işlemleri `passtunnel` komut satırı aracıyla da
-yapabilirsiniz. İsterseniz profil başına “Touch ID ile onayla” seçeneğini açın: PassTunnel bağlanmadan
+yapabilirsiniz. `passtunnel mcp` ile Claude gibi yapay zekâ asistanları VPN durumunu okuyabilir ve
+sorunları teşhis edebilir (varsayılan olarak yalnızca okur; parola, anahtar ya da kod vermez).
+İsterseniz profil başına “Touch ID ile onayla” seçeneğini açın: PassTunnel bağlanmadan
 (ya da kodları göstermeden) önce Touch ID ya da Mac parolanızla onay ister ve kayıtlı parola ile TOTP anahtarını
 Mac'in Secure Enclave'indeki bir anahtarla şifreler. Arayüz Türkçe ve İngilizcedir ve macOS dilinizi izler.
 

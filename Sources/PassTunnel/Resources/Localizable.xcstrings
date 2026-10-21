@@ -11,6 +11,26 @@
         }
       }
     },
+    "%@ did not connect within %lld seconds." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ %2$lld saniye içinde bağlanmadı."
+          }
+        }
+      }
+    },
+    "%@ did not disconnect within %lld seconds." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ bağlantısı %2$lld saniye içinde kesilmedi."
+          }
+        }
+      }
+    },
     "%@ disconnected" : {
       "localizations" : {
         "tr" : {
@@ -227,6 +247,46 @@
         }
       }
     },
+    "--follow cannot be combined with --json." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--follow, --json ile birlikte kullanılamaz."
+          }
+        }
+      }
+    },
+    "--json works with “helper status” only." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--json yalnızca “helper status” ile çalışır."
+          }
+        }
+      }
+    },
+    "--lines needs a positive number." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--lines için pozitif bir sayı gerekli."
+          }
+        }
+      }
+    },
+    "--timeout needs a number of seconds (1–86400)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--timeout için saniye cinsinden bir sayı gerekli (1–86400)."
+          }
+        }
+      }
+    },
     "0 means no limit. With a limit, PassTunnel reminds you before the server ends the session." : {
       "localizations" : {
         "tr" : {
@@ -407,6 +467,16 @@
         }
       }
     },
+    "Connect a profile (default: the default profile). Asks for missing input on a terminal. --wait gives up after --timeout seconds (default 60)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir profile bağlanır (varsayılan: varsayılan profil). Eksik bilgileri terminalde sorar. --wait, --timeout saniye sonra vazgeçer (varsayılan 60)."
+          }
+        }
+      }
+    },
     "connect to “%@” (%@)" : {
       "localizations" : {
         "tr" : {
@@ -427,12 +497,32 @@
         }
       }
     },
+    "Deleting asks for a confirmation. Add --yes to delete without asking." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Silme işlemi onay ister. Sormadan silmek için --yes ekleyin."
+          }
+        }
+      }
+    },
     "Dropping %@ as if the server ended the session…" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ bağlantısı, oturumu sunucu sonlandırmış gibi düşürülüyor…"
+          }
+        }
+      }
+    },
+    "Exit codes: 0 ok, 1 error, 2 usage, 3 not found or not connected, 4 confirmation cancelled or not possible, 5 helper missing or outdated, 6 connection failed, 7 timeout." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Çıkış kodları: 0 tamam, 1 hata, 2 kullanım hatası, 3 bulunamadı ya da bağlı değil, 4 onay iptal edildi ya da mümkün değil, 5 yardımcı eksik ya da güncel değil, 6 bağlantı kurulamadı, 7 zaman aşımı."
           }
         }
       }
@@ -557,6 +647,16 @@
         }
       }
     },
+    "Options for every command: --no-input never asks on the terminal (also PASSTUNNEL_NO_INPUT=1), --no-auth-prompt never shows Touch ID." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Her komut için seçenekler: --no-input terminalde hiçbir şey sormaz (PASSTUNNEL_NO_INPUT=1 de olur), --no-auth-prompt Touch ID’yi hiç göstermez."
+          }
+        }
+      }
+    },
     "PassTunnel could not confirm it’s you: %@" : {
       "localizations" : {
         "tr" : {
@@ -583,6 +683,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "PassTunnel yeni sürümleri günde bir kez GitHub’da arar ve kurmadan önce size sorar. Güncellemeler imzalıdır ve kurulmadan önce doğrulanır."
+          }
+        }
+      }
+    },
+    "Print the version." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sürümü yazdırır."
+          }
+        }
+      }
+    },
+    "Print the VPN log of a profile; -f keeps following it, -n prints only the last N lines." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir profilin VPN günlüğünü yazdırır; -f ile izlemeye devam eder, -n yalnızca son N satırı yazdırır."
           }
         }
       }
@@ -633,6 +753,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Yardımcı, PassTunnel’ın bu kopyasındakiyle değiştiriliyor. Etkin bağlantılar kesilir."
+          }
+        }
+      }
+    },
+    "Run the MCP server for AI assistants on standard input and output. Read-only unless --allow-connect." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yapay zekâ asistanları için MCP sunucusunu standart girdi ve çıktı üzerinde çalıştırır. --allow-connect verilmedikçe yalnızca okur."
           }
         }
       }
@@ -733,6 +863,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kaldırma PassTunnel'da iptal edildi. Yardımcı hâlâ kurulu."
+          }
+        }
+      }
+    },
+    "The secret is read from standard input or the terminal, which --no-input does not allow." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gizli anahtar standart girdiden ya da terminalden okunur; --no-input buna izin vermez."
           }
         }
       }
@@ -903,6 +1043,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bu yardımcı PassTunnel’ın başka bir sürümüne ait. Bağlanmak için güncelleyin; etkin bağlantılar kesilir."
+          }
+        }
+      }
+    },
+    "This needs your confirmation (Touch ID or your Mac password), but prompts are turned off (--no-auth-prompt)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bunun için onayınız gerekiyor (Touch ID ya da Mac parolanız), ancak onay istemleri kapalı (--no-auth-prompt)."
+          }
+        }
+      }
+    },
+    "This profile asks for: %@. Connect it in PassTunnel or in a terminal." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu profil şunları soruyor: %@. PassTunnel’da ya da bir terminalde bağlanın."
           }
         }
       }
@@ -1718,16 +1878,6 @@
         }
       }
     },
-    "Connect a profile (default: the default profile). Asks for missing input on a terminal." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bir profile bağlanır (varsayılan: varsayılan profil). Eksik bilgileri terminalde sorar."
-          }
-        }
-      }
-    },
     "Connect or Disconnect" : {
       "localizations" : {
         "tr" : {
@@ -2444,16 +2594,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Örnek"
-          }
-        }
-      }
-    },
-    "Exit codes: 0 ok, 1 error, 2 usage, 3 not connected." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Çıkış kodları: 0 tamam, 1 hata, 2 kullanım hatası, 3 bağlı değil."
           }
         }
       }
@@ -4100,16 +4240,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Geçerli tek kullanımlık kodu ve kalan saniyeyi yazdırır; -c kodu kopyalar."
-          }
-        }
-      }
-    },
-    "Print the VPN log of a profile; -f keeps following it." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bir profilin VPN günlüğünü yazdırır; -f ile izlemeye devam eder."
           }
         }
       }

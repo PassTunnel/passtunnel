@@ -37,7 +37,7 @@ A bundle without `dns-updown` pins an empty set for it, so the helper refuses an
 | Target | Owns | Depends on |
 |---|---|---|
 | `PassTunnelShared` | XPC protocol, request/response types, `HelperCore` (request decoding, path checks, tool environment), `SessionPolicy`, `CodeSignature`, `Spawner` (verified, suspended launch), `PinnedTools`, `ToolStager` (root-owned copy of the tools and their dylibs), `HelperBuild`, `OVPNSanitizer`, `FortiConfig`, identifiers | — |
-| `PassTunnelCore` | model, `ProfileStore`, `ProfilesWatcher`, `Secrets` (Keychain), `SecretVault` + `SecretEnvelope` + `UserAuthenticator` (Secure Enclave protection), `TOTP`, `OTPAuthURI`, `OVPNAnalyzer`, `OVPNInliner`, `ShareFile`, `Preferences`, `HealthCheck`, `HelperClient`, `HelperAutoUpdate`, `ConnectionManager` + `ProfileDestination` | Shared |
+| `PassTunnelCore` | model, `ProfileStore`, `ProfilesWatcher`, `Secrets` (Keychain), `SecretVault` + `SecretEnvelope` + `UserAuthenticator` (Secure Enclave protection), `TOTP`, `OTPAuthURI`, `OVPNAnalyzer`, `OVPNInliner`, `ShareFile`, `Preferences`, `HealthCheck`, `HelperClient`, `HelperAutoUpdate`, `ConnectionManager` + `ProfileDestination`, CLI parsing (`CLICommand`, `CLIInvocation`), automation objects + `AutomationService`, `MCPServer` + `MCPTools` | Shared |
 | `PassTunnelHelper` | `main.swift` XPC listener, process supervision | Shared |
 | `PassTunnel` | SwiftUI app, menu bar, onboarding, CLI, updates (`AppUpdater`) | Core, Shared, Sparkle |
 
@@ -301,6 +301,54 @@ public enum ConfirmationWording { static let hasTouchID: Bool; static var settin
   (`vault.requiresConfirmation`), does not run: `DestinationChangedError` (not retried) /
   `ConnectionEvent.destinationChanged`. A successful connect, a disconnect or that event clears the mark.
 
+## Automation: `--json` and the MCP server
+
+One model, two front ends. `Automation.swift` defines the result objects (`ProfileSummary`,
+`ProfileStatus`, `StatusReport`, `HelperReport`, `LogReport`, `DiagnoseReport`/`ProfileCheck`,
+`VersionReport`), the error object (`ErrorReport`, `ErrorEnvelope`), the stable error codes
+(`AutomationErrorCode`, mapped from `PTError`, `HelperClientError`, `DestinationChangedError`,
+`CLIUsageError` by `AutomationErrorCode.of`) and the exit codes (`AutomationExit`).
+`AutomationService` (`@MainActor`, one per CLI command or MCP server, over a `ProfileStore`, a
+`ConnectionManager`, a `HelperInspecting` and `AppInfo`) builds them and runs the waiting connect
+(`connect(_:given:force:timeout:joining:)`: a task group racing `ConnectionManager.connect` against
+the deadline; on timeout or cancellation it stops the attempt only if the manager reported
+`ConnectRole.started` for it, never a session it follows. `joining` passes `followOnly`, so a
+connect that saw another process's attempt never starts one itself: it gets `NothingToFollow` when
+that attempt has ended and the caller runs its own checks before starting) and disconnect
+(`disconnect(_:wait:timeout:)`, polling `refresh`). `logs` drops management chatter and lines that
+look like key material (`LogRedactor.isKeyMaterial`: `TLS: tls_` traces, hex runs of 32+ digits
+except openfortivpn's `--trusted-cert` / `trusted-cert =` digest),
+then `LogRedactor` masks credentials. `PromptlessAuthenticator` wraps the Secure Enclave
+authenticator for `--no-auth-prompt`.
+
+```
+passtunnel … --json ──▶ CLIRunner (app target) ─┐
+                                                 ├─▶ AutomationService ─▶ ConnectionManager, ProfileStore,
+passtunnel mcp ──stdio──▶ MCPServer ─▶ MCPTools ─┘                        HelperInspecting, Secrets
+```
+
+`Secrets` is used for `has` (`diagnose`) and, in `logs`, for `get` of the profile's password and
+TOTP secret: their plaintext values are what `LogRedactor` masks literally. Neither leaves the
+process. An encrypted (Confirm with Touch ID) secret is not decrypted for this (`get` returns nil
+for an envelope), so literal masking does not cover it; the keyword and pattern rules still apply.
+
+- `CLIRunner` prints the objects with `AutomationJSON.encoder()` (the file style plus ISO 8601
+  dates) and maps any error to `ErrorEnvelope` + `exitCode`. Command-only results (`show`,
+  `export`, `rm`, `secret`, `default`, `code`) stay local to the runner.
+- `MCPServer` parses lines with `JSONSerialization`, dispatches requests as main-actor tasks keyed by
+  JSON-RPC id (so `notifications/cancelled` can cancel one; an id already in flight gets -32600),
+  writes each reply as one line through an injected `send` (stdout in `runStdio`, which reads stdin
+  on a background thread through `LineReader`, at most 1 MiB per line, a longer one is skipped and
+  answered with -32700, and ignores SIGPIPE; it also keeps a `VaultExpiry`, which resets the
+  vault on screen lock and sleep as the app does). `MCPTools` holds the tool definitions and JSON
+  Schemas (`Schema`), checks arguments (`Arguments`: every key must be consumed, a `null` counts as
+  absent; `profile_id` via `Slug.isValid`; booleans must be JSON booleans) and encodes results with
+  `AutomationJSON.object` for `structuredContent` and as text.
+- `SystemHelperInspector` reads `HelperInstaller.status`, then asks a 5 s `HelperClient` for the
+  protocol and build. `HelperClient.defaultMachServiceName` is `PT.helperLabel`; debug builds take
+  `PASSTUNNEL_HELPER_SERVICE` instead, so a debug binary run against a temporary
+  `PASSTUNNEL_HOME` never talks to the installed helper.
+
 ## Privileged helper
 
 Registered with `SMAppService.daemon(plistName: PT.helperPlistName)`; the user approves it once in
@@ -475,8 +523,9 @@ Security rules (helper):
   `static-challenge`), writes the sanitized copy and the auth file
   into the session's run directory, then runs openvpn with fixed flags (`--management <runDir>/mgmt.sock unix`
   `--management-client-user <caller's user name>` so only the calling user can talk to it, no
-  `--management-hold`; `--auth-nocache`, `--remap-usr1 SIGTERM`, `--connect-retry-max 3`, stdout/stderr to
-  logPath). Once OpenVPN creates the socket the helper chowns it to the user with mode 0600; it goes away
+  `--management-hold`; `--verb N` with the config's last `verb` capped at 4, 3 when it sets none
+  (`HelperCore.openVPNVerbosity`, from `OVPNSanitizer.verbosity(of:)`); `--auth-nocache`,
+  `--remap-usr1 SIGTERM`, `--connect-retry-max 3`, stdout/stderr to logPath). Once OpenVPN creates the socket the helper chowns it to the user with mode 0600; it goes away
   with the run directory when the process exits. The socket path must fit in `sun_path` (103 bytes):
   `/var/run/passtunnel/<uid>/<id>/mgmt.sock` fits 64-byte IDs for uids up to 8 digits.
 - Forti: the helper writes the openfortivpn config itself from the typed fields (no user-supplied raw config;
@@ -565,7 +614,8 @@ tunnel. Hence:
   Turkish translations in `Localizable.xcstrings`.
 - No company/customer names, no real hostnames — examples use `Acme`, `vpn.example.com`.
 - Tests never touch the real Keychain service or real support dir: they set `PASSTUNNEL_HOME` and
-  `PASSTUNNEL_KEYCHAIN_SERVICE`. Management-socket tests run their own fake server on a socket in a
+  `PASSTUNNEL_KEYCHAIN_SERVICE`. `MCPServerTests` drive `MCPServer` through its `send` closure with
+  `FakeHelper`, `FakeAuthenticator` and a fixed `HelperInspecting`. Management-socket tests run their own fake server on a socket in a
   temp dir. Tests never use the Secure Enclave or show a prompt: `ConnectionManagerTests` and
   `SecretVaultTests` inject `FakeAuthenticator` (a software P-256 key).
 - Swift language mode 5 (tools 5.10), macOS 13 APIs, no third-party dependencies except Sparkle (updates,

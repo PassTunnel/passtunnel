@@ -21,30 +21,38 @@ public enum CLICommand: Equatable {
     #endif
     public enum Shell: String, CaseIterable { case zsh, bash, fish }
 
+    // json: print the result (or `{"error": …}`) as JSON on stdout (docs/CLI-JSON.md).
     case status(id: String?, json: Bool)
-    case connect(id: String?, force: Bool = false)   // force: even if another VPN takes all traffic
-    case disconnect(id: String?, all: Bool)
-    case toggle(id: String?)
+    // force: even if another VPN takes all traffic. wait / timeout: give up after `timeout` seconds
+    // (default `defaultTimeout`); `--timeout` implies `--wait`.
+    case connect(id: String?, force: Bool = false, json: Bool = false, wait: Bool = false, timeout: Int? = nil)
+    case disconnect(id: String?, all: Bool, json: Bool = false, wait: Bool = false, timeout: Int? = nil)
+    case toggle(id: String?, json: Bool = false)
     case code(id: String?, copy: Bool, json: Bool)
     case list(json: Bool, quiet: Bool)          // quiet: ids only (used by shell completion)
     case show(id: String, json: Bool)
-    case set(id: String, assignments: [Assignment])
-    case add(name: String, type: VPNType)
-    case importFile(path: String, name: String?)
-    case export(id: String, output: String?)
-    case remove(id: String, yes: Bool)
-    case secret(id: String, kind: SecretKind)
-    case setDefault(id: String?)           // nil: print the current default
-    case pin(id: String)
-    case unpin(id: String)
-    case log(id: String, follow: Bool)
-    case helper(HelperAction)
+    case set(id: String, assignments: [Assignment], json: Bool = false)
+    case add(name: String, type: VPNType, json: Bool = false)
+    case importFile(path: String, name: String?, json: Bool = false)
+    case export(id: String, output: String?, json: Bool = false)
+    case remove(id: String, yes: Bool, json: Bool = false)
+    case secret(id: String, kind: SecretKind, json: Bool = false)
+    case setDefault(id: String?, json: Bool = false)           // nil: print the current default
+    case pin(id: String, json: Bool = false)
+    case unpin(id: String, json: Bool = false)
+    case log(id: String, follow: Bool, json: Bool = false, lines: Int? = nil)   // lines: only the last N
+    case helper(HelperAction, json: Bool = false)              // json: `status` only
+    case mcp(allowConnect: Bool)                               // MCP server on stdio (`MCPServer`)
     #if DEBUG
     case debug(DebugAction, id: String)   // hidden test hooks, e.g. `debug drop ID` (see `DebugDrop`)
     #endif
     case completion(Shell)
     case help(command: String?)
-    case version
+    case version(json: Bool = false)
+
+    /// Seconds `--wait` waits when no `--timeout` is given.
+    public static let defaultTimeout = 60
+    static let maxTimeout = 86_400
 
     public struct Assignment: Equatable {
         public var key: String
@@ -58,7 +66,7 @@ public enum CLICommand: Equatable {
     /// Every first word that selects CLI mode.
     public static let commandNames = [
         "status", "connect", "disconnect", "toggle", "code", "list", "show", "set", "add", "import", "export",
-        "rm", "secret", "default", "pin", "unpin", "log", "helper", "completion", "help",
+        "rm", "secret", "default", "pin", "unpin", "log", "helper", "mcp", "completion", "version", "help",
     ]
 
     /// Commands that select CLI mode but are left out of help and completion (test hooks, debug
@@ -78,7 +86,13 @@ public enum CLICommand: Equatable {
     /// True when `first` (argv[1]) names a command or a global flag.
     public static func isCommand(_ first: String) -> Bool {
         commandNames.contains(first) || hiddenCommandNames.contains(first) || aliases[first] != nil
-            || globalFlags.contains(first)
+            || globalFlags.contains(first) || CLIOptions.flags.contains(first)
+    }
+
+    /// Whether the command line asks for JSON output (`--json` before any `--`), also when it does
+    /// not parse: a usage error is then reported as JSON too.
+    public static func requestsJSON(_ args: [String]) -> Bool {
+        args.prefix { $0 != "--" }.contains("--json")
     }
 
     /// Removes Foundation's argument-domain pairs such as `-AppleLanguages '(tr)'` or `-AppleLocale tr_TR`.
@@ -113,7 +127,7 @@ public enum CLICommand: Equatable {
     public static func parse(_ args: [String]) throws -> CLICommand {
         guard let first = args.first else { return .status(id: nil, json: false) }
         if first == "--help" || first == "-h" { return .help(command: args.dropFirst().first) }
-        if first == "--version" || first == "-V" { return .version }
+        if first == "--version" || first == "-V" { return .version(json: args.dropFirst().contains("--json")) }
         if first == "--json" { return try parse(["status"] + args) }
         let name = aliases[first] ?? first
         guard commandNames.contains(name) || hiddenCommandNames.contains(name) else {
@@ -129,16 +143,25 @@ public enum CLICommand: Equatable {
             try a.finish()
             return .status(id: id, json: json)
         case "connect", "toggle":
-            let force = name == "connect" && a.flag("--force", "-f")
+            let json = a.flag("--json")
+            guard name == "connect" else {
+                let id = try a.optionalPositional()
+                try a.finish()
+                return .toggle(id: id, json: json)
+            }
+            let force = a.flag("--force", "-f")
+            let (wait, timeout) = try a.waitOptions()
             let id = try a.optionalPositional()
             try a.finish()
-            return name == "connect" ? .connect(id: id, force: force) : .toggle(id: id)
+            return .connect(id: id, force: force, json: json, wait: wait, timeout: timeout)
         case "disconnect":
             let all = a.flag("--all", "-a")
+            let json = a.flag("--json")
+            let (wait, timeout) = try a.waitOptions()
             let id = try a.optionalPositional()
             try a.finish()
             if all && id != nil { throw CLIUsageError(String(localized: "Use either a profile or --all, not both."), command: name) }
-            return .disconnect(id: id, all: all)
+            return .disconnect(id: id, all: all, json: json, wait: wait, timeout: timeout)
         case "code":
             let copy = a.flag("--copy", "-c")
             let json = a.flag("--json")
@@ -156,6 +179,7 @@ public enum CLICommand: Equatable {
             try a.finish()
             return .show(id: id, json: json)
         case "set":
+            let json = a.flag("--json")
             let id = try a.positional(String(localized: "profile"))
             let rest = a.remaining()
             guard !rest.isEmpty else { throw CLIUsageError(String(localized: "Give at least one key=value."), command: name) }
@@ -165,8 +189,9 @@ public enum CLICommand: Equatable {
                 }
                 return Assignment(key: String(item[..<eq]), value: String(item[item.index(after: eq)...]))
             }
-            return .set(id: id, assignments: assignments)
+            return .set(id: id, assignments: assignments, json: json)
         case "add":
+            let json = a.flag("--json")
             guard let typeText = try a.option("--type", "-t") else {
                 throw CLIUsageError(String(localized: "Missing --type openvpn|forti."), command: name)
             }
@@ -177,50 +202,76 @@ public enum CLICommand: Equatable {
             let words = a.remaining()
             let joined = words.joined(separator: " ").trimmingCharacters(in: .whitespaces)
             guard !joined.isEmpty else { throw CLIUsageError(String(localized: "Missing profile name."), command: name) }
-            return .add(name: joined, type: type)
+            return .add(name: joined, type: type, json: json)
         case "import":
+            let json = a.flag("--json")
             let newName = try a.option("--name", "-n")
             let path = try a.positional(String(localized: "file"))
             try a.finish()
-            return .importFile(path: path, name: newName)
+            return .importFile(path: path, name: newName, json: json)
         case "export":
+            let json = a.flag("--json")
             let output = try a.option("--output", "-o")
             let id = try a.positional(String(localized: "profile"))
             try a.finish()
-            return .export(id: id, output: output)
+            return .export(id: id, output: output, json: json)
         case "rm":
+            let json = a.flag("--json")
             let yes = a.flag("--yes", "-y", "--force", "-f")
             let id = try a.positional(String(localized: "profile"))
             try a.finish()
-            return .remove(id: id, yes: yes)
+            return .remove(id: id, yes: yes, json: json)
         case "secret":
+            let json = a.flag("--json")
             let id = try a.positional(String(localized: "profile"))
             let kindText = try a.positional("password|totp")
             try a.finish()
             guard let kind = SecretKind(rawValue: kindText.lowercased()) else {
                 throw CLIUsageError(String(localized: "Unknown secret “\(kindText)” (use password or totp)."), command: name)
             }
-            return .secret(id: id, kind: kind)
+            return .secret(id: id, kind: kind, json: json)
         case "default":
+            let json = a.flag("--json")
             let id = try a.optionalPositional()
             try a.finish()
-            return .setDefault(id: id)
+            return .setDefault(id: id, json: json)
         case "pin", "unpin":
+            let json = a.flag("--json")
             let id = try a.positional(String(localized: "profile"))
             try a.finish()
-            return name == "pin" ? .pin(id: id) : .unpin(id: id)
+            return name == "pin" ? .pin(id: id, json: json) : .unpin(id: id, json: json)
         case "log":
             let follow = a.flag("--follow", "-f")
+            let json = a.flag("--json")
+            let lines = try a.option("--lines", "-n").map { text -> Int in
+                guard let n = Int(text), n > 0 else {
+                    throw CLIUsageError(String(localized: "--lines needs a positive number."), command: name)
+                }
+                return n
+            }
             let id = try a.positional(String(localized: "profile"))
             try a.finish()
-            return .log(id: id, follow: follow)
+            if follow && json { throw CLIUsageError(String(localized: "--follow cannot be combined with --json."), command: name) }
+            return .log(id: id, follow: follow, json: json, lines: lines)
         case "helper":
+            let json = a.flag("--json")
             let actionText = try a.optionalPositional() ?? "status"
             try a.finish()
             guard let action = HelperAction(rawValue: actionText) else {
                 throw CLIUsageError(String(localized: "Unknown helper action “\(actionText)” (use status, install or uninstall)."), command: name)
             }
-            return .helper(action)
+            if json && action != .status {
+                throw CLIUsageError(String(localized: "--json works with “helper status” only."), command: name)
+            }
+            return .helper(action, json: json)
+        case "mcp":
+            let allowConnect = a.flag("--allow-connect")
+            try a.finish()
+            return .mcp(allowConnect: allowConnect)
+        case "version":
+            let json = a.flag("--json")
+            try a.finish()
+            return .version(json: json)
         #if DEBUG
         case "debug":
             let actionText = try a.positional("drop")
@@ -306,6 +357,16 @@ public enum CLICommand: Equatable {
             return nil
         }
 
+        /// `--wait` and `--timeout SECONDS` (which implies `--wait`).
+        mutating func waitOptions() throws -> (wait: Bool, timeout: Int?) {
+            let wait = flag("--wait", "-w")
+            guard let text = try option("--timeout", "-t") else { return (wait, nil) }
+            guard let seconds = Int(text), (1...CLICommand.maxTimeout).contains(seconds) else {
+                throw CLIUsageError(String(localized: "--timeout needs a number of seconds (1–86400)."), command: command)
+            }
+            return (true, seconds)
+        }
+
         mutating func positional(_ what: String) throws -> String {
             guard let v = try optionalPositional() else {
                 throw CLIUsageError(String(localized: "Missing \(what)."), command: command)
@@ -332,5 +393,52 @@ public enum CLICommand: Equatable {
                 throw CLIUsageError(String(localized: "Unexpected argument “\(extra)”."), command: command)
             }
         }
+    }
+}
+
+/// Options for every command, accepted anywhere before `--`.
+public struct CLIOptions: Equatable {
+    /// Never read standard input or ask on the terminal; fail with `input_required` instead.
+    /// `--no-input`, or `PASSTUNNEL_NO_INPUT=1` in the environment.
+    public var noInput = false
+    /// Never show the Touch ID / Mac password prompt; fail with `auth_unavailable` instead.
+    public var noAuthPrompt = false
+
+    public init(noInput: Bool = false, noAuthPrompt: Bool = false) {
+        self.noInput = noInput
+        self.noAuthPrompt = noAuthPrompt
+    }
+
+    public static let flags = ["--no-input", "--no-auth-prompt"]
+
+    /// `PASSTUNNEL_NO_INPUT` set to 1, true or yes.
+    public static func noInputFromEnvironment(_ environment: [String: String]) -> Bool {
+        guard let value = environment["PASSTUNNEL_NO_INPUT"]?.trimmingCharacters(in: .whitespaces).lowercased() else { return false }
+        return ["1", "true", "yes"].contains(value)
+    }
+}
+
+/// A command line: the command plus the global options.
+public struct CLIInvocation: Equatable {
+    public var command: CLICommand
+    public var options: CLIOptions
+
+    public init(command: CLICommand, options: CLIOptions = CLIOptions()) {
+        self.command = command
+        self.options = options
+    }
+
+    /// Parses the arguments after the program name: removes the global options, then `CLICommand.parse`.
+    public static func parse(_ args: [String], environment: [String: String] = ProcessInfo.processInfo.environment) throws -> CLIInvocation {
+        var options = CLIOptions(noInput: CLIOptions.noInputFromEnvironment(environment))
+        var rest: [String] = []
+        var literal = false
+        for arg in args {
+            if !literal && arg == "--" { literal = true }
+            if !literal && arg == "--no-input" { options.noInput = true; continue }
+            if !literal && arg == "--no-auth-prompt" { options.noAuthPrompt = true; continue }
+            rest.append(arg)
+        }
+        return CLIInvocation(command: try CLICommand.parse(rest), options: options)
     }
 }

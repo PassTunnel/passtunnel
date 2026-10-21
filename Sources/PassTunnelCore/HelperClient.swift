@@ -46,12 +46,21 @@ public enum HelperClientError: Error, Equatable, LocalizedError {
 public final class HelperClient: @unchecked Sendable {
     public static let shared = HelperClient()
 
+    /// `PT.helperLabel`. Debug builds take `$PASSTUNNEL_HELPER_SERVICE` instead when set, so a test run
+    /// of the CLI or the MCP server can be pointed away from the installed helper.
+    public static var defaultMachServiceName: String {
+        #if DEBUG
+        if let name = Env.string("PASSTUNNEL_HELPER_SERVICE") { return name }
+        #endif
+        return PT.helperLabel
+    }
+
     public let machServiceName: String
     public let timeout: TimeInterval
     private let lock = NSLock()
     private var connection: NSXPCConnection?
 
-    public init(machServiceName: String = PT.helperLabel, timeout: TimeInterval = 15) {
+    public init(machServiceName: String = HelperClient.defaultMachServiceName, timeout: TimeInterval = 15) {
         self.machServiceName = machServiceName
         self.timeout = timeout
     }

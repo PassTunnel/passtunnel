@@ -4,39 +4,80 @@ import Foundation
 import PassTunnelCore
 import PassTunnelShared
 
-/// Executes parsed CLI commands against the same Core APIs the app uses.
+/// Executes parsed CLI commands against the same Core APIs the app uses. With `--json`, results are
+/// the automation objects (`AutomationService`, shared with the MCP server) and failures are
+/// `{"error": …}` on stdout; the exit code comes from the error (`AutomationErrorCode.exitCode`).
 @MainActor
 final class CLIRunner {
     typealias Exit = PassTunnelCLI.Exit
 
     let store = ProfileStore()
+    let options: CLIOptions
+    private var json = false
     private var managerStorage: ConnectionManager?
+    private var automationStorage: AutomationService?
     private var bag: Set<AnyCancellable> = []
     private var signalSource: DispatchSourceSignal?
 
-    /// Created on first use so offline commands never talk to the helper.
+    init(options: CLIOptions = CLIOptions()) {
+        self.options = options
+    }
+
+    /// Created on first use so offline commands never talk to the helper. `--no-auth-prompt` swaps in an
+    /// authenticator that refuses to ask.
     var manager: ConnectionManager {
         if let managerStorage { return managerStorage }
-        let m = ConnectionManager(store: store)
+        let authenticator: UserAuthenticator = options.noAuthPrompt
+            ? PromptlessAuthenticator(SecureEnclaveAuthenticator()) : SecureEnclaveAuthenticator()
+        let m = ConnectionManager(store: store, authenticator: authenticator)
         managerStorage = m
         return m
     }
 
+    var automation: AutomationService {
+        if let automationStorage { return automationStorage }
+        let a = AutomationService(store: store, manager: manager)
+        automationStorage = a
+        return a
+    }
+
     func run(_ command: CLICommand) async -> Int32 {
         defer { if Self.changesProfiles(command) { ProfileChangeSignal.post() } }
+        json = Self.wantsJSON(command)
         do {
             return try await execute(command)
-        } catch let e as CLIUsageError {
+        } catch {
+            return fail(error)
+        }
+    }
+
+    /// Reports `error` (JSON on stdout with `--json`, else on stderr) and returns its exit code.
+    func fail(_ error: Error) -> Int32 {
+        if json {
+            try? printJSON(ErrorEnvelope(error))
+        } else if let e = error as? CLIUsageError {
             CLITerminal.fail(e.message)
             CLITerminal.err(CLIHelp.usage(for: e.command))
-            return Exit.usage
-        } catch PTError.userConfirmationCancelled {
+        } else if (error as? PTError) == .userConfirmationCancelled {
             // The user cancelled the Touch ID / password prompt: nothing happened, nothing to explain.
-            CLITerminal.err(PTError.userConfirmationCancelled.localizedDescription)
-            return Exit.error
-        } catch {
+            CLITerminal.err(error.localizedDescription)
+        } else {
             report(error)
-            return Exit.error
+        }
+        return AutomationErrorCode.of(error).exitCode
+    }
+
+    static func wantsJSON(_ command: CLICommand) -> Bool {
+        switch command {
+        case let .status(_, json), let .code(_, _, json), let .list(json, _), let .show(_, json), let .toggle(_, json),
+             let .set(_, _, json), let .add(_, _, json), let .importFile(_, _, json), let .export(_, _, json),
+             let .remove(_, _, json), let .secret(_, _, json), let .setDefault(_, json), let .pin(_, json),
+             let .unpin(_, json), let .helper(_, json), let .version(json):
+            return json
+        case let .connect(_, _, json, _, _), let .disconnect(_, _, json, _, _), let .log(_, _, json, _):
+            return json
+        default:
+            return false
         }
     }
 
@@ -59,23 +100,27 @@ final class CLIRunner {
     private func execute(_ command: CLICommand) async throws -> Int32 {
         switch command {
         case let .status(id, json): return try await status(id, json: json)
-        case let .connect(id, force): return try await connect(id, force: force)
-        case let .disconnect(id, all): return try await disconnect(id, all: all)
-        case let .toggle(id): return try await toggle(id)
+        case let .connect(id, force, _, wait, timeout):
+            return try await connect(id, force: force, timeout: wait ? timeout ?? CLICommand.defaultTimeout : nil)
+        case let .disconnect(id, all, _, wait, timeout):
+            return try await disconnect(id, all: all, wait: wait, timeout: timeout ?? CLICommand.defaultTimeout)
+        case let .toggle(id, _): return try await toggle(id)
         case let .code(id, copy, json): return try await code(id, copy: copy, json: json)
         case let .list(json, quiet): return try list(json: json, quiet: quiet)
         case let .show(id, json): return try show(id, json: json)
-        case let .set(id, assignments): return try await set(id, assignments)
-        case let .add(name, type): return try add(name, type: type)
-        case let .importFile(path, name): return try importFile(path, name: name)
-        case let .export(id, output): return try export(id, output: output)
-        case let .remove(id, yes): return try await remove(id, yes: yes)
-        case let .secret(id, kind): return try await secret(id, kind: kind)
-        case let .setDefault(id): return try setDefault(id)
-        case let .pin(id): return try pin(id, true)
-        case let .unpin(id): return try pin(id, false)
-        case let .log(id, follow): return try await log(id, follow: follow)
-        case let .helper(action): return try await helper(action)
+        case let .set(id, assignments, _): return try await set(id, assignments)
+        case let .add(name, type, _): return try add(name, type: type)
+        case let .importFile(path, name, _): return try importFile(path, name: name)
+        case let .export(id, output, _): return try export(id, output: output)
+        case let .remove(id, yes, _): return try await remove(id, yes: yes)
+        case let .secret(id, kind, _): return try await secret(id, kind: kind)
+        case let .setDefault(id, _): return try setDefault(id)
+        case let .pin(id, _): return try pin(id, true)
+        case let .unpin(id, _): return try pin(id, false)
+        case let .log(id, follow, _, lines): return try await log(id, follow: follow, lines: lines)
+        case let .helper(action, _): return try await helper(action)
+        case let .mcp(allowConnect):
+            return await MCPServer.runStdio(service: automation, allowConnect: allowConnect)
         #if DEBUG
         case let .debug(.drop, id): return try await debugDrop(id)
         #endif
@@ -86,10 +131,9 @@ final class CLIRunner {
             CLITerminal.out(CLIHelp.usage(for: name))
             return Exit.ok
         case .version:
-            let info = Bundle.main.infoDictionary
-            let version = info?["CFBundleShortVersionString"] as? String ?? "dev"
-            let build = info?["CFBundleVersion"] as? String
-            CLITerminal.out("PassTunnel \(version)" + (build.map { " (\($0))" } ?? ""))
+            let report = automation.versionReport()
+            if json { try printJSON(report); return Exit.ok }
+            CLITerminal.out("PassTunnel \(report.version)" + (report.build.map { " (\($0))" } ?? ""))
             return Exit.ok
         }
     }
@@ -102,40 +146,11 @@ final class CLIRunner {
         if let def = store.defaultID { return try store.get(def) }
         let all = store.list()
         if all.count == 1 { return all[0] }
-        if all.isEmpty { throw CLIFailure(String(localized: "There are no profiles yet. Add one with “passtunnel import FILE”.")) }
-        throw CLIFailure(String(localized: "No default profile is set. Give a profile id, or set one with “passtunnel default ID”."))
+        if all.isEmpty { throw AutomationError(.profileNotFound, String(localized: "There are no profiles yet. Add one with “passtunnel import FILE”.")) }
+        throw AutomationError(.invalidArgument, String(localized: "No default profile is set. Give a profile id, or set one with “passtunnel default ID”."))
     }
 
     // MARK: status
-
-    private struct StatusJSON: Encodable {
-        var id: String
-        var name: String
-        var type: String
-        var state: String
-        var phase: String?
-        var ip: String?
-        var since: Date?
-        var isDefault: Bool
-        var health: String?
-        var error: String?
-        var warning: String?
-        var statusUnavailable: Bool?
-    }
-
-    private func statusJSON(_ p: Profile) -> StatusJSON {
-        let m = manager
-        var s = StatusJSON(id: p.id, name: p.name, type: p.type.rawValue, state: "disconnected",
-                           isDefault: store.defaultID == p.id, error: m.lastError[p.id])
-        switch m.state(p.id) {
-        case .disconnected: break
-        case .connecting(let phase): s.state = "connecting"; s.phase = phase
-        case let .connected(ip, since):
-            s.state = "connected"; s.ip = ip; s.since = since; s.warning = m.warnings[p.id]
-            if m.statusUnavailable.contains(p.id) { s.statusUnavailable = true }
-        }
-        return s
-    }
 
     private func status(_ id: String?, json: Bool) async throws -> Int32 {
         let profiles: [Profile] = try id.map { [try store.get($0)] } ?? store.list()
@@ -144,7 +159,8 @@ final class CLIRunner {
             CLITerminal.err(CLITerminal.dim(String(localized: "Note: the helper is not available (\(e)).")))
         }
         if json {
-            try printJSON(id == nil ? AnyEncodable(profiles.map(statusJSON)) : AnyEncodable(statusJSON(profiles[0])))
+            let statuses = profiles.map { automation.status($0) }
+            try printJSON(id == nil ? AnyEncodable(statuses) : AnyEncodable(statuses[0]))
         } else if profiles.isEmpty {
             CLITerminal.out(String(localized: "No profiles. Add one with “passtunnel import FILE” or in the app."))
         } else {
@@ -189,34 +205,41 @@ final class CLIRunner {
 
     // MARK: connect / disconnect
 
-    private func connect(_ id: String?, force: Bool = false) async throws -> Int32 {
+    /// `timeout`: `--wait` / `--timeout`; nil waits as long as the connection steps themselves allow.
+    private func connect(_ id: String?, force: Bool = false, timeout: Int? = nil) async throws -> Int32 {
         let p = try resolve(id)
         await manager.refresh()
         if manager.state(p.id).isConnected {
-            CLITerminal.out(String(localized: "\(p.name) is already connected."))
+            if json { try printJSON(automation.status(p)) } else { CLITerminal.out(String(localized: "\(p.name) is already connected.")) }
             return Exit.ok
         }
         if manager.state(p.id).isConnecting {
             // Started elsewhere (the app, another terminal): wait for that connection instead.
-            try await connectShowingProgress(p, given: [:], joining: true)
-            return Exit.ok
+            do {
+                try await connectShowingProgress(p, given: [:], joining: true, timeout: timeout)
+                if json { try printJSON(automation.status(p)) }
+                return Exit.ok
+            } catch is ConnectionManager.NothingToFollow {
+                // It ended before it could be followed: connect as usual, with the checks below.
+            }
         }
         do {
             // Before "Connecting …" and before asking for credentials.
             if !force { try await manager.checkCanStart(p.id) }
             try await manager.vault.unlock(p, for: .connect)
             let given = try askForNeeds(p)
-            try await connectShowingProgress(p, given: given, force: force)
-        } catch PTError.otherVPNActive(let other) {
+            try await connectShowingProgress(p, given: given, force: force, timeout: timeout)
+        } catch PTError.otherVPNActive(let other) where !json {
             CLITerminal.fail(PTError.otherVPNActive(other).localizedDescription)
             CLITerminal.err(CLITerminal.dim(String(localized: "Use --force to connect anyway.")))
-            return Exit.error
+            return AutomationErrorCode.otherVPNActive.exitCode
         }
+        if json { try printJSON(automation.status(p)) }
         return Exit.ok
     }
 
     private func connectShowingProgress(_ p: Profile, given: [CredentialField: String], joining: Bool = false,
-                                        force: Bool = false) async throws {
+                                        force: Bool = false, timeout: Int? = nil) async throws {
         CLITerminal.err(joining ? String(localized: "Already connecting \(p.name); waiting for it…")
                                 : String(localized: "Connecting \(p.name)…"))
         var progress = ConnectionManager.PhaseProgress()
@@ -235,12 +258,15 @@ final class CLIRunner {
                 }
             }
             .store(in: &bag)
-        // Ctrl-C while connecting stops the half-started connection (only stops waiting when joining).
+        // Ctrl-C while connecting stops the half-started connection if this process started it; a
+        // session it follows (started by the app or another terminal) is left running.
+        final class Started { var value = false }
+        let started = Started()
         signal(SIGINT, SIG_IGN)
         let source = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
         source.setEventHandler { [weak self] in
             Task { @MainActor in
-                if joining { exit(130) }
+                if !started.value { exit(130) }
                 CLITerminal.err(String(localized: "Cancelling…"))
                 _ = try? await self?.manager.disconnect(p.id)
                 exit(130)
@@ -253,8 +279,9 @@ final class CLIRunner {
             signal(SIGINT, SIG_DFL)
             bag.removeAll()
         }
-        try await manager.connect(p.id, given: given, force: force)
-        if case let .connected(ip, _) = manager.state(p.id) {
+        try await automation.connect(p.id, given: given, force: force, timeout: timeout.map(TimeInterval.init),
+                                     joining: joining) { started.value = $0 == .started }
+        if !json, case let .connected(ip, _) = manager.state(p.id) {
             CLITerminal.out(ip.isEmpty ? String(localized: "Connected: \(p.name)")
                                     : String(localized: "Connected: \(p.name) (\(ip))"))
             if let warning = manager.warnings[p.id] { CLITerminal.err(warning) }
@@ -265,9 +292,9 @@ final class CLIRunner {
     private func askForNeeds(_ p: Profile) throws -> [CredentialField: String] {
         let needs = p.needs
         guard !needs.isEmpty else { return [:] }
-        guard CLITerminal.stdinIsTTY else {
+        guard CLITerminal.stdinIsTTY, !options.noInput else {
             let list = needs.map(\.displayName).joined(separator: ", ")
-            throw CLIFailure(String(localized: "This profile asks for: \(list). Run the command in a terminal."))
+            throw AutomationError(.inputRequired, String(localized: "This profile asks for: \(list). Run the command in a terminal."))
         }
         var given: [CredentialField: String] = [:]
         for field in needs {
@@ -287,14 +314,21 @@ final class CLIRunner {
         return given
     }
 
-    private func disconnect(_ id: String?, all: Bool) async throws -> Int32 {
+    private func disconnect(_ id: String?, all: Bool, wait: Bool, timeout: Int) async throws -> Int32 {
         if all {
-            try await manager.disconnectAll()
-            CLITerminal.out(String(localized: "All profiles are disconnected."))
+            try await automation.disconnectAll(wait: wait, timeout: TimeInterval(timeout))
+            if json {
+                try printJSON(store.list().map { automation.status($0) })
+            } else {
+                CLITerminal.out(String(localized: "All profiles are disconnected."))
+            }
             return Exit.ok
         }
         let p = try resolve(id)
-        if try await manager.disconnect(p.id) {
+        let wasActive = try await automation.disconnect(p.id, wait: wait, timeout: TimeInterval(timeout))
+        if json {
+            try printJSON(automation.status(p))
+        } else if wasActive {
             CLITerminal.out(String(localized: "Disconnected: \(p.name)"))
         } else {
             CLITerminal.out(String(localized: "\(p.name) is not connected."))
@@ -307,11 +341,12 @@ final class CLIRunner {
         await manager.refresh()
         if manager.state(p.id).isActive {
             try await manager.disconnect(p.id)
-            CLITerminal.out(String(localized: "Disconnected: \(p.name)"))
+            if !json { CLITerminal.out(String(localized: "Disconnected: \(p.name)")) }
         } else {
             try await manager.vault.unlock(p, for: .connect)
             try await connectShowingProgress(p, given: try askForNeeds(p))
         }
+        if json { try printJSON(automation.status(p)) }
         return Exit.ok
     }
 
@@ -327,7 +362,7 @@ final class CLIRunner {
     private func code(_ id: String?, copy: Bool, json: Bool) async throws -> Int32 {
         let p = try resolveTOTPProfile(id)
         guard p.otpMode == .totp else {
-            throw CLIFailure(String(localized: "Profile “\(p.id)” does not use a TOTP secret."))
+            throw AutomationError(.invalidArgument, String(localized: "Profile “\(p.id)” does not use a TOTP secret."))
         }
         // Encrypted ("Confirm with Touch ID"): decrypting asks for Touch ID or the Mac password.
         guard let text = try await manager.vault.secret(p, .totp, for: .code) else { throw PTError.missingTOTPSecret(p.id) }
@@ -363,27 +398,13 @@ final class CLIRunner {
 
     // MARK: list / show / set
 
-    private struct ListJSON: Encodable {
-        var id: String
-        var name: String
-        var type: String
-        var isDefault: Bool
-        var pinned: Bool
-        var username: String
-        var passwordMode: String
-        var otpMode: String
-    }
-
     private func list(json: Bool, quiet: Bool) throws -> Int32 {
         let profiles = store.list()
         let def = store.defaultID
         if quiet {
             profiles.forEach { CLITerminal.out($0.id) }
         } else if json {
-            try printJSON(profiles.map {
-                ListJSON(id: $0.id, name: $0.name, type: $0.type.rawValue, isDefault: $0.id == def, pinned: $0.pinned,
-                         username: $0.username, passwordMode: $0.passwordMode.rawValue, otpMode: $0.otpMode.rawValue)
-            })
+            try printJSON(profiles.map { ProfileSummary($0, isDefault: $0.id == def) })
         } else if profiles.isEmpty {
             CLITerminal.out(String(localized: "No profiles. Add one with “passtunnel import FILE” or in the app."))
         } else {
@@ -463,6 +484,7 @@ final class CLIRunner {
         _ = try store.update(id) { current in
             for a in assignments { try ProfileFields.set(&current, key: a.key, value: a.value) }
         }
+        if json { return try show(id, json: true) }
         CLITerminal.out(String(localized: "Saved."))
         return Exit.ok
     }
@@ -471,6 +493,7 @@ final class CLIRunner {
 
     private func add(_ name: String, type: VPNType) throws -> Int32 {
         let p = try store.create(name: name, type: type)
+        if json { try printJSON(automation.summary(p)); return Exit.ok }
         CLITerminal.out(String(localized: "Created “\(p.name)” (\(p.id))."))
         switch type {
         case .openvpn:
@@ -490,6 +513,7 @@ final class CLIRunner {
         } else {
             p = try store.importOVPN(url, name: name)
         }
+        if json { try printJSON(automation.summary(p)); return Exit.ok }
         CLITerminal.out(String(localized: "Imported “\(p.name)” as \(p.id)."))
         if p.passwordMode == .keychain && Secrets.has(p.id, .password) {
             // Only from an inline <auth-user-pass> block: a new profile starts without Keychain items.
@@ -515,30 +539,56 @@ final class CLIRunner {
         let path = output ?? "\(id).passtunnel"
         let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         try store.exportShare(id, to: url)
+        if json { try printJSON(ExportJSON(id: id, path: url.path)); return Exit.ok }
         CLITerminal.out(String(localized: "Exported to \(url.path)"))
         return Exit.ok
     }
 
+    private struct ExportJSON: Encodable {
+        var id: String
+        var path: String
+    }
+
+    private struct RemoveJSON: Encodable {
+        var id: String
+        var deleted: Bool
+    }
+
     private func remove(_ id: String, yes: Bool) async throws -> Int32 {
         let p = try store.get(id)
-        if !yes && CLITerminal.stdinIsTTY {
+        // Without a terminal nobody can answer: deleting needs --yes then (a script or an agent).
+        if !yes && (options.noInput || !CLITerminal.stdinIsTTY) {
+            throw AutomationError(.inputRequired, String(localized: "Deleting asks for a confirmation. Add --yes to delete without asking."))
+        }
+        if !yes {
             guard CLITerminal.confirm(String(localized: "Delete “\(p.name)” and its saved password and secret?")) else {
-                CLITerminal.err(String(localized: "Nothing was deleted."))
-                return Exit.error
+                throw AutomationError(.cancelled, String(localized: "Nothing was deleted."))
             }
         }
         await manager.refresh()
         if manager.state(id).isActive { _ = try? await manager.disconnect(id) }
         try store.delete(id)
+        if json { try printJSON(RemoveJSON(id: id, deleted: true)); return Exit.ok }
         CLITerminal.out(String(localized: "Deleted “\(p.name)”."))
         return Exit.ok
     }
 
     // MARK: secrets / default / pin
 
+    /// The result of `secret --json`: what was saved, never the value (nor, for TOTP, a code).
+    private struct SecretJSON: Encodable {
+        var id: String
+        var secret: String
+        var saved: Bool
+        var encrypted: Bool
+    }
+
     private func secret(_ id: String, kind: SecretKind) async throws -> Int32 {
         let original = try store.get(id)
         var p = original
+        guard !options.noInput else {
+            throw AutomationError(.inputRequired, String(localized: "The secret is read from standard input or the terminal, which --no-input does not allow."))
+        }
         let value: String
         if CLITerminal.stdinIsTTY {
             let prompt = kind == .password ? String(localized: "Password for \(p.name): ")
@@ -547,7 +597,7 @@ final class CLIRunner {
         } else {
             value = CLITerminal.readAllStdin()
         }
-        guard !value.isEmpty else { throw CLIFailure(String(localized: "Nothing was entered.")) }
+        guard !value.isEmpty else { throw AutomationError(.invalidArgument, String(localized: "Nothing was entered.")) }
 
         switch kind {
         case .password:
@@ -557,8 +607,9 @@ final class CLIRunner {
             try manager.vault.store(p, .password, value)
             if original.passwordMode != .keychain {
                 try store.save(p)
-                CLITerminal.err(CLITerminal.dim(String(localized: "The password is now taken from the Keychain.")))
+                if !json { CLITerminal.err(CLITerminal.dim(String(localized: "The password is now taken from the Keychain."))) }
             }
+            if json { break }
             CLITerminal.out(String(localized: "Password saved in the Keychain."))
             if Secrets.isProtected(id, .password) {
                 CLITerminal.err(CLITerminal.dim(String(localized: "It is encrypted: using it asks for Touch ID or your Mac password.")))
@@ -577,6 +628,7 @@ final class CLIRunner {
             try await manager.vault.applyProtection(from: original, to: p)
             try manager.vault.store(p, .totp, TOTP.base32Encode(secret))
             try store.save(p)
+            if json { break }
             CLITerminal.out(String(localized: "TOTP secret saved in the Keychain."))
             if Secrets.isProtected(id, .totp) {
                 CLITerminal.err(CLITerminal.dim(String(localized: "It is encrypted: using it asks for Touch ID or your Mac password.")))
@@ -584,19 +636,32 @@ final class CLIRunner {
             let code = TOTP.code(secret: secret, params: p.totp)
             CLITerminal.out(String(localized: "Current code: \(Self.grouped(code)) (compare it with your authenticator app)"))
         }
+        if json { try printJSON(SecretJSON(id: id, secret: kind.rawValue, saved: true, encrypted: Secrets.isProtected(id, kind))) }
         return Exit.ok
+    }
+
+    private struct DefaultJSON: Encodable {
+        var `default`: String?
+
+        enum CodingKeys: String, CodingKey { case `default` }
+
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(self.default, forKey: .default)   // null when none is set
+        }
     }
 
     private func setDefault(_ id: String?) throws -> Int32 {
         guard let id else {
             guard let def = store.defaultID else {
-                CLITerminal.err(String(localized: "No default profile is set."))
+                if json { try printJSON(DefaultJSON(default: nil)) } else { CLITerminal.err(String(localized: "No default profile is set.")) }
                 return Exit.error
             }
-            CLITerminal.out(def)
+            if json { try printJSON(DefaultJSON(default: def)) } else { CLITerminal.out(def) }
             return Exit.ok
         }
         try store.setDefault(id)
+        if json { try printJSON(DefaultJSON(default: id)); return Exit.ok }
         CLITerminal.out(String(localized: "Default profile: \(id)"))
         return Exit.ok
     }
@@ -605,6 +670,7 @@ final class CLIRunner {
         var p = try store.get(id)
         p.pinned = on
         try store.save(p)
+        if json { try printJSON(automation.summary(p)); return Exit.ok }
         CLITerminal.out(on ? String(localized: "Pinned “\(p.name)” to the menu bar.")
                         : String(localized: "Unpinned “\(p.name)”."))
         return Exit.ok
@@ -612,7 +678,13 @@ final class CLIRunner {
 
     // MARK: log
 
-    private func log(_ id: String, follow: Bool) async throws -> Int32 {
+    /// `lines`: only the last N lines first. `--json`: `AutomationService.logs` (redacted, at most
+    /// `AutomationService.maxLogLines`).
+    private func log(_ id: String, follow: Bool, lines: Int?) async throws -> Int32 {
+        if json {
+            try printJSON(automation.logs(id, lines: lines ?? AutomationService.maxLogLines))
+            return Exit.ok
+        }
         _ = try store.get(id)
         let url = store.logURL(id)
         var offset: UInt64 = 0
@@ -633,7 +705,16 @@ final class CLIRunner {
             CLITerminal.err(String(localized: "There is no log for this profile yet."))
             return Exit.ok
         }
-        dump()
+        if let lines {
+            let text = VPNLog.read(url)
+            let tail = text.split(separator: "\n", omittingEmptySubsequences: false).suffix(lines + (text.hasSuffix("\n") ? 1 : 0))
+            FileHandle.standardOutput.write(Data(tail.joined(separator: "\n").utf8))
+            let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
+            offset = (attrs?[.size] as? NSNumber)?.uint64Value ?? 0
+            inode = (attrs?[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0
+        } else {
+            dump()
+        }
         guard follow else { return Exit.ok }
         while true {
             try? await Task.sleep(nanoseconds: 500_000_000)
@@ -820,34 +901,36 @@ final class CLIRunner {
     }
 
 
+    /// Exit 0 when the helper is enabled, answering and current, else `AutomationExit.helper`.
     private func printHelperStatus() async -> Int32 {
-        switch HelperInstaller.status {
-        case .enabled:
-            if let v = try? await HelperClient.shared.version() {
-                var outdated = v != PT.helperProtocolVersion
-                if !outdated { outdated = (try? await HelperClient.shared.isOutdated()) == true }
-                let note = outdated ? "  " + String(localized: "(out of date; “passtunnel helper install” updates it)") : ""
+        let r = await automation.helperReport()
+        let code = r.isUsable ? Exit.ok : AutomationExit.helper
+        if json {
+            try? printJSON(r)
+            return code
+        }
+        switch r.state {
+        case "enabled":
+            if let v = r.protocolVersion {
+                let note = r.outdated == true ? "  " + String(localized: "(out of date; “passtunnel helper install” updates it)") : ""
                 CLITerminal.out(String(localized: "Helper: enabled (protocol \(v))") + note)
             } else {
                 CLITerminal.out(String(localized: "Helper: enabled, but not responding"))
             }
-            return Exit.ok
-        case .requiresApproval:
+        case "requires_approval":
             CLITerminal.out(String(localized: "Helper: needs approval in System Settings → General → Login Items"))
-        case .notRegistered:
+        case "not_installed":
             CLITerminal.out(String(localized: "Helper: not installed (run “passtunnel helper install”)"))
-        case .notFound:
+        default:
             CLITerminal.out(String(localized: "Helper: missing from the app bundle"))
         }
-        return Exit.error
+        return code
     }
 
     // MARK: output
 
     private func printJSON<T: Encodable>(_ value: T) throws {
-        let e = JSONCoding.encoder()
-        e.dateEncodingStrategy = .iso8601
-        let data = try e.encode(value)
+        let data = try AutomationJSON.encoder().encode(value)
         FileHandle.standardOutput.write(data + Data("\n".utf8))
     }
 }
@@ -898,7 +981,7 @@ enum CLIClipboard {
     }
 }
 
-/// A plain CLI error (exit code 1).
+/// A plain CLI error (exit code 1, `internal` in JSON).
 struct CLIFailure: LocalizedError {
     var message: String
     init(_ message: String) { self.message = message }

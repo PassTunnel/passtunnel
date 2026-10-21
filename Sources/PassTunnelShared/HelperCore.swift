@@ -243,7 +243,8 @@ public struct HelperCore {
             }
             let dnsPath = try stageDNSScript(in: runDir)
             let args = Self.openVPNArguments(configPath: configPath, mgmtSocket: socketPath, clientUser: clientUser,
-                                             authFile: authPath, dnsUpdown: dnsPath)
+                                             authFile: authPath, dnsUpdown: dnsPath,
+                                             verbosity: Self.openVPNVerbosity(sanitized))
             let logFD = try dir.createLogFile(logName)
             return LaunchPlan(profileID: s.profileID, ownerUID: uid, tool: .openvpn, arguments: args,
                               runDir: runDir, sessionDir: session, logFD: logFD, dnsUpdownPath: dnsPath,
@@ -277,11 +278,12 @@ public struct HelperCore {
     /// Fixed OpenVPN flags. They follow `--config`, so they override anything left in the file.
     /// Management is a unix socket that OpenVPN only serves to `clientUser` (peer credentials check).
     /// The DNS hook is always explicit: OpenVPN's compiled-in default points into the build machine's
-    /// Homebrew prefix, which must never be executed as root.
+    /// Homebrew prefix, which must never be executed as root. `verbosity` comes from `openVPNVerbosity`.
     public static func openVPNArguments(configPath: String, mgmtSocket: String, clientUser: String,
-                                        authFile: String?, dnsUpdown: String?) -> [String] {
+                                        authFile: String?, dnsUpdown: String?, verbosity: Int = defaultVerbosity) -> [String] {
         var args = [
             "--config", configPath,
+            "--verb", String(min(max(0, verbosity), maxVerbosity)),
             "--management", mgmtSocket, "unix",
             "--management-client-user", clientUser,
             "--auth-nocache",
@@ -295,6 +297,17 @@ public struct HelperCore {
             args += ["--script-security", "1", "--dns-updown", "disable"]
         }
         return args
+    }
+
+    /// OpenVPN's `verb` when a config sets none. From `verb 5` on it logs every packet (R/W marks),
+    /// from 7 data-channel keys and from 9 packet contents; the log is readable by the user and by
+    /// `get_logs`, so the level is capped.
+    public static let defaultVerbosity = 3
+    public static let maxVerbosity = 4
+
+    /// The config's `verb` (the last one wins), capped at `maxVerbosity`.
+    public static func openVPNVerbosity(_ config: String) -> Int {
+        min(OVPNSanitizer.verbosity(of: config) ?? defaultVerbosity, maxVerbosity)
     }
 
     /// Always pass `-c`: without it openfortivpn reads a default config from the Homebrew prefix.

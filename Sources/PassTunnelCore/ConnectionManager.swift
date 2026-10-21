@@ -640,10 +640,15 @@ public final class ConnectionManager: ObservableObject {
     /// `PTError.userConfirmationCancelled` before anything starts. Automatic reconnects after a drop
     /// and health-forced reconnects do not ask again: they reuse the secrets of the session the user
     /// confirmed, as long as the profile still points where it did then (`ProfileDestination`).
-    public func connect(_ id: String, given: [CredentialField: String] = [:], force: Bool = false) async throws {
+    /// `followOnly`: only wait for an attempt already under way (this manager's, or a session the
+    /// helper runs for another process); throws `NothingToFollow` instead of starting one, and asks
+    /// for nothing. `role` learns whether this call started the session or follows another process's
+    /// (not called when it waits for this manager's own attempt or there was nothing to do).
+    public func connect(_ id: String, given: [CredentialField: String] = [:], force: Bool = false,
+                        followOnly: Bool = false, role: ((ConnectRole) -> Void)? = nil) async throws {
         cancelReconnect(id)
         if let inFlight = connectTasks[id] { return try await inFlight.value }
-        let current = state(id).isActive ? nil : try? store.get(id)
+        let current = state(id).isActive || followOnly ? nil : try? store.get(id)
         // A confirmation given for other server settings does not count: ask now, naming the new server.
         if let p = current { vault.forgetUnlessBound(p) }
         if let p = current, vault.needsPrompt(p, for: .connect) {
@@ -659,11 +664,17 @@ public final class ConnectionManager: ObservableObject {
             }
             if let inFlight = connectTasks[id] { return try await inFlight.value }
         }
-        let task = Task { try await self.performConnect(id, given: given, force: force) }
+        let task = Task { try await self.performConnect(id, given: given, force: force, followOnly: followOnly, role: role) }
         connectTasks[id] = task
         defer { if connectTasks[id] == task { connectTasks[id] = nil } }
         try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
     }
+
+    /// Whether a `connect` call started its session or follows one another process started.
+    public enum ConnectRole: Sendable { case started, followed }
+
+    /// `connect(followOnly:)` found no attempt to follow: the one seen before has ended.
+    public struct NothingToFollow: Error {}
 
     /// Stops `id` (also cancels a connect in progress) and marks it user-stopped so the exit is not
     /// reported as a drop. Returns false when there was nothing to stop: no VPN process (the helper
@@ -711,7 +722,11 @@ public final class ConnectionManager: ObservableObject {
     /// the reuse window, never from a prompt (`PTError.confirmationRequired` otherwise), and never for
     /// a destination other than the one they were confirmed for (`DestinationChangedError`).
     private func performConnect(_ id: String, given: [CredentialField: String], force: Bool = false,
-                                interactive: Bool = true) async throws {
+                                interactive: Bool = true, followOnly: Bool = false,
+                                role: ((ConnectRole) -> Void)? = nil) async throws {
+        guard !isBusy(id), !state(id).isConnected else { return }
+        // Before anything changes state: the last error of the attempt that ended stays visible.
+        if followOnly, session(id, in: await currentStatus()) == nil { throw NothingToFollow() }
         guard !isBusy(id), !state(id).isConnected else { return }
         actionToken[id, default: 0] += 1
         let token = actionToken[id]!
@@ -732,8 +747,11 @@ public final class ConnectionManager: ObservableObject {
             let p = try store.get(id)
             let status = await currentStatus()
             if let session = session(id, in: status) {
+                role?(.followed)
                 return try await follow(p, token: token, session: session)
             }
+            if followOnly { throw NothingToFollow() }
+            role?(.started)
             if p.type == .openvpn && !force { try checkNoOtherFullTunnel(p, running: status?.running ?? [:]) }
             vault.reconcile(p)   // a setting edited by hand: encrypt what it protects before use
             let destination = ProfileDestination.of(p, store: store)
@@ -781,6 +799,7 @@ public final class ConnectionManager: ObservableObject {
                 }
                 // Another process started it in the meantime: the helper refuses a second session.
                 if let session = session(id, in: await currentStatus()) {
+                    role?(.followed)
                     return try await follow(p, token: token, session: session)
                 }
                 throw PTError.helperFailed(response.error ?? "")
@@ -810,7 +829,8 @@ public final class ConnectionManager: ObservableObject {
             let cancelled = actionToken[id] != token
             if cancelled { throw PTError.connectCancelled }
             setState(id, .disconnected)
-            if (error as? PTError) == .connectCancelled || (error as? PTError) == .userConfirmationCancelled { throw error }
+            if (error as? PTError) == .connectCancelled || (error as? PTError) == .userConfirmationCancelled
+                || error is NothingToFollow { throw error }
             lastError[id] = error.localizedDescription
             lastErrorLog[id] = (error as? PTError)?.logTail ?? ""
             throw error

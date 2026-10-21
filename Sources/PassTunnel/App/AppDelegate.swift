@@ -78,7 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
         // Confirmations (Touch ID before connecting or showing codes) end when the screen locks;
         // ConnectionManager ends them on sleep.
-        DistributedNotificationCenter.default().publisher(for: Notification.Name("com.apple.screenIsLocked"))
+        DistributedNotificationCenter.default().publisher(for: VaultExpiry.screenLockedNotification)
             .receive(on: DispatchQueue.main)
             .sink { _ in AppModel.shared?.vault.reset() }
             .store(in: &bag)

@@ -11,6 +11,7 @@ Implementation details are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - [Secrets and files](#secrets-and-files)
 - [Confirm with Touch ID (Secure Enclave)](#confirm-with-touch-id-secure-enclave)
 - [Updates](#updates)
+- [MCP server and automation](#mcp-server-and-automation)
 - [What is not protected](#what-is-not-protected)
 
 ## Reporting a vulnerability
@@ -131,8 +132,10 @@ FortiGate, stop, and status. It enforces the following rules on every request.
   name, but cannot list, rename or replace anything). The run directory is deleted when the tunnel stops.
 - OpenVPN gets fixed flags after `--config`, so they override anything left in the file:
   `--management <run directory>/mgmt.sock unix`, `--management-client-user <your user name>`,
-  `--auth-nocache`, `--remap-usr1 SIGTERM`, `--connect-retry-max 3`, and explicit
-  `--script-security`/`--dns-updown` settings.
+  `--verb` (the configuration's `verb`, at most 4; 3 when it sets none), `--auth-nocache`,
+  `--remap-usr1 SIGTERM`, `--connect-retry-max 3`, and explicit `--script-security`/`--dns-updown`
+  settings. The cap keeps OpenVPN's debug levels (from 5 every packet, from 7 the data-channel keys,
+  from 9 packet contents) out of the log, which you, the app and `get_logs` can read.
 - **Management over a per-user unix socket.** The management interface is a unix socket in the
   session's root-owned run directory, not a TCP port. OpenVPN only serves the user named in
   `--management-client-user` (peer credential check). Once the socket exists, the helper also
@@ -301,8 +304,10 @@ would let a recent Touch ID unlock of the Mac count as the confirmation, which i
 this option is for. A connected session keeps its
 decrypted secrets in memory so an automatic reconnect after a drop needs no prompt; they are
 overwritten (best effort) when you disconnect or the session ends. After the Mac was asleep, a
-dropped protected profile is not reconnected on its own: a notification asks you to reconnect. The CLI
-is a separate process and asks every time it needs a protected secret.
+dropped protected profile is not reconnected on its own: a notification asks you to reconnect. Each
+CLI command is a separate process and asks every time it needs a protected secret; `passtunnel mcp`
+is one process for as long as the MCP client runs it, so the window (and its end on sleep and
+screen lock) applies within it.
 
 **Bound to the server.** The connect prompt names the server the secrets go to ("connect to “Acme VPN”
 (vpn.example.com)"; for OpenVPN the first `remote` of the configuration, read exactly as OpenVPN reads
@@ -360,6 +365,66 @@ moment is not used either: the connect fails and asks you to connect again.
   - Replacing a newer helper with an older one (Settings → Helper → Update Helper, or the above) shows
     a separate warning first.
   - Removing the helper on request from outside the app always asks.
+
+## MCP server and automation
+
+`passtunnel mcp` lets an AI assistant (an MCP client such as Claude Code or Claude Desktop) use
+PassTunnel. Treat it like this: **the MCP client gets the same power as running the `passtunnel`
+command yourself, limited further by the read-only default.**
+
+- **What it is.** The same signed binary as the app, started by the MCP client as a child process
+  under your user, speaking JSON-RPC over its standard input and output. It opens no port and no
+  socket; only the process that started it can talk to it. It adds no privilege: any program
+  running as you can already run `passtunnel`.
+- **Read-only by default.** Without `--allow-connect` the tools are `list_profiles`, `get_status`,
+  `get_logs` and `diagnose`. `connect` and `disconnect` are listed and callable only when the
+  server was started with `passtunnel mcp --allow-connect`. No tool creates, changes or deletes a
+  profile or a secret, in any mode.
+- **No secrets in any answer.** No tool returns a password, a TOTP secret, a current one-time code,
+  a private key or the contents of a configuration file; there is deliberately no tool for codes.
+  `diagnose` says *whether* a password or TOTP secret is saved and names configuration problems by
+  directive, never by value. Tests check every tool's output for a profile with a saved password and
+  TOTP secret.
+- **Logs.** The VPN tools receive credentials through root-owned files, not on the command line,
+  and do not log them or key material at the verbosity the helper allows: OpenVPN always runs with
+  `--verb` at most 4, whatever the configuration says, and openfortivpn runs at its default level
+  (the helper passes no `-v`, and the configuration it writes has no setting for it or for pppd's
+  debug output). `get_logs` adds two filters. It leaves out lines that look like key material or
+  packet dumps (OpenVPN `TLS: tls_…` traces and any line with a run of 32 or more hex digits, also
+  when split into groups by spaces or colons; openfortivpn's `--trusted-cert <digest>` hint is kept,
+  as the gateway certificate's digest is public and explains the failure), and it replaces the saved password and TOTP secret,
+  `auth-token` values, OpenVPN challenge responses (`CRV1:`, `SCRV1:`, `RV1:`) and
+  `password=…` / `otp: …`-style values with `<redacted>`. The saved password and TOTP secret are
+  masked by value only when they are stored in plain text; one protected by Confirm with Touch ID
+  is not decrypted for this, so only the keyword and pattern rules apply to it. It returns at most
+  500 lines; when the log is longer than the 256 KB it reads, the first, partial line is dropped.
+  Log lines do contain server names, your user name and IP addresses.
+- **Strict arguments.** `profile_id` must be a valid profile id (the same pattern profile folders
+  use: lowercase letters, digits and single dashes); unknown arguments, wrong types and
+  out-of-range numbers are refused before anything is read.
+- **Touch ID still applies.** Connecting a profile with *Confirm with Touch ID* shows the same
+  prompt as the app, naming the server, on your Mac: nothing is decrypted or sent until you confirm.
+  If no prompt can be shown (for example in an SSH session, or with `passtunnel mcp
+  --no-auth-prompt`), the call fails with `auth_unavailable`. A confirmation counts only for the
+  server settings the profile had at that moment, exactly as in the app. The MCP server is one
+  long-running process, so the [reuse window](#confirm-with-touch-id-secure-enclave) applies to it
+  as to the app: a second `connect` of the same profile within the "Ask again after" time (Settings
+  → General → Security; 1 minute is the shortest, it cannot be turned off) does not prompt again.
+  Sleep and screen lock end the window early, in the MCP server as in the app. Profiles that ask for a
+  user name, password or code on every connect cannot be connected through MCP, and there is no
+  way to override the check for another VPN that takes all traffic.
+- **Prompt injection.** An assistant follows text it reads: a web page, a file, an issue comment or
+  a log line can contain instructions. With `--allow-connect`, such instructions could make the
+  assistant connect or disconnect a profile, which changes routes and DNS for the whole Mac or
+  ends a session. Keep the server read-only unless you need it, turn on Confirm with Touch ID for
+  profiles an assistant may connect, and keep your client's per-tool approval on for `connect`
+  and `disconnect`.
+- **Where the answers go.** Whatever a tool returns (profile names, user names, server names, IP
+  addresses, log lines) goes to the assistant and its provider.
+
+For scripts, `--no-input` and `--no-auth-prompt` turn a prompt into an error (`input_required`,
+`auth_unavailable`) instead of waiting for an answer that will not come. Neither skips a check:
+there is no option that connects a protected profile without the confirmation.
 
 ## What is not protected
 

@@ -3,11 +3,12 @@ import PassTunnelCore
 
 /// `passtunnel` command-line mode of the app binary.
 enum PassTunnelCLI {
+    /// The documented exit codes (`AutomationExit`, docs/CLI-JSON.md).
     enum Exit {
-        static let ok: Int32 = 0
-        static let error: Int32 = 1
-        static let usage: Int32 = 2
-        static let notConnected: Int32 = 3
+        static let ok = AutomationExit.ok
+        static let error = AutomationExit.error
+        static let usage = AutomationExit.usage
+        static let notConnected = AutomationExit.notFound
     }
 
     /// CLI mode when invoked through the `passtunnel` symlink or with a known command as the first argument.
@@ -25,18 +26,23 @@ enum PassTunnelCLI {
         if args.count == 3, args[1] == clearClipboardArgument, let count = Int(args[2]) {
             return CLIClipboard.clearLater(ifUnchangedSince: count)
         }
-        let command: CLICommand
+        let arguments = CLICommand.strippingSystemArguments(Array(args.dropFirst()))
+        let invocation: CLIInvocation
         do {
-            command = try CLICommand.parse(CLICommand.strippingSystemArguments(Array(args.dropFirst())))
-        } catch let e as CLIUsageError {
-            CLITerminal.fail(e.message)
-            CLITerminal.err(CLIHelp.usage(for: e.command))
-            return Exit.usage
+            invocation = try CLIInvocation.parse(arguments)
         } catch {
-            CLITerminal.fail(error.localizedDescription)
+            if CLICommand.requestsJSON(arguments) {
+                let data = (try? AutomationJSON.encoder().encode(ErrorEnvelope(error))) ?? Data()
+                FileHandle.standardOutput.write(data + Data("\n".utf8))
+            } else if let e = error as? CLIUsageError {
+                CLITerminal.fail(e.message)
+                CLITerminal.err(CLIHelp.usage(for: e.command))
+            } else {
+                CLITerminal.fail(error.localizedDescription)
+            }
             return Exit.usage
         }
-        return runOnMainRunLoop { await CLIRunner().run(command) }
+        return runOnMainRunLoop { await CLIRunner(options: invocation.options).run(invocation.command) }
     }
 
     /// Drives async main-actor work from synchronous top-level code by spinning the main run loop.
@@ -62,30 +68,32 @@ enum PassTunnelCLI {
 enum CLIHelp {
     static let synopsis: [(String, String)] = [
         ("status", "passtunnel status [ID] [--json]"),
-        ("connect", "passtunnel connect [ID] [--force]"),
-        ("disconnect", "passtunnel disconnect [ID] | --all"),
-        ("toggle", "passtunnel toggle [ID]"),
+        ("connect", "passtunnel connect [ID] [--force] [--wait] [--timeout S] [--json]"),
+        ("disconnect", "passtunnel disconnect [ID] | --all [--wait] [--timeout S] [--json]"),
+        ("toggle", "passtunnel toggle [ID] [--json]"),
         ("code", "passtunnel code [ID] [-c|--copy] [--json]"),
         ("list", "passtunnel list [--json] [-q|--quiet]"),
         ("show", "passtunnel show ID [--json]"),
-        ("set", "passtunnel set ID key=value…"),
-        ("add", "passtunnel add NAME --type openvpn|forti"),
-        ("import", "passtunnel import FILE [--name NAME]"),
-        ("export", "passtunnel export ID [-o FILE]"),
-        ("rm", "passtunnel rm ID [-y|--yes]"),
-        ("secret", "passtunnel secret ID password|totp"),
-        ("default", "passtunnel default [ID]"),
-        ("pin", "passtunnel pin ID"),
-        ("unpin", "passtunnel unpin ID"),
-        ("log", "passtunnel log ID [-f|--follow]"),
-        ("helper", "passtunnel helper status|install|uninstall"),
+        ("set", "passtunnel set ID key=value… [--json]"),
+        ("add", "passtunnel add NAME --type openvpn|forti [--json]"),
+        ("import", "passtunnel import FILE [--name NAME] [--json]"),
+        ("export", "passtunnel export ID [-o FILE] [--json]"),
+        ("rm", "passtunnel rm ID [-y|--yes] [--json]"),
+        ("secret", "passtunnel secret ID password|totp [--json]"),
+        ("default", "passtunnel default [ID] [--json]"),
+        ("pin", "passtunnel pin ID [--json]"),
+        ("unpin", "passtunnel unpin ID [--json]"),
+        ("log", "passtunnel log ID [-f|--follow] [-n N] [--json]"),
+        ("helper", "passtunnel helper status|install|uninstall [--json]"),
+        ("mcp", "passtunnel mcp [--allow-connect]"),
         ("completion", "passtunnel completion zsh|bash|fish"),
+        ("version", "passtunnel version [--json]"),
     ]
 
     static func summary(_ command: String) -> String {
         switch command {
         case "status": return String(localized: "Show the state of all profiles, or of one (exit code 3 when not connected).")
-        case "connect": return String(localized: "Connect a profile (default: the default profile). Asks for missing input on a terminal.")
+        case "connect": return String(localized: "Connect a profile (default: the default profile). Asks for missing input on a terminal. --wait gives up after --timeout seconds (default 60).")
         case "disconnect": return String(localized: "Disconnect a profile, or every profile with --all.")
         case "toggle": return String(localized: "Connect when disconnected, disconnect otherwise.")
         case "code": return String(localized: "Print the current one-time code and the seconds left; -c copies it.")
@@ -100,9 +108,11 @@ enum CLIHelp {
         case "default": return String(localized: "Show or set the default profile.")
         case "pin": return String(localized: "Always show the profile in the menu bar.")
         case "unpin": return String(localized: "Show the profile in the menu bar only while it is active.")
-        case "log": return String(localized: "Print the VPN log of a profile; -f keeps following it.")
+        case "log": return String(localized: "Print the VPN log of a profile; -f keeps following it, -n prints only the last N lines.")
         case "helper": return String(localized: "Show, install or remove the privileged helper.")
+        case "mcp": return String(localized: "Run the MCP server for AI assistants on standard input and output. Read-only unless --allow-connect.")
         case "completion": return String(localized: "Print a shell completion script.")
+        case "version": return String(localized: "Print the version.")
         #if DEBUG
         case "debug": return String(localized: "Test hook: make a connected OpenVPN profile drop as if the server ended the session (not a user stop, so auto-reconnect runs).")
         #endif
@@ -132,7 +142,8 @@ enum CLIHelp {
         }
         lines.append("")
         lines.append(String(localized: "Without arguments, passtunnel prints the status of all profiles."))
-        lines.append(String(localized: "Exit codes: 0 ok, 1 error, 2 usage, 3 not connected."))
+        lines.append(String(localized: "Options for every command: --no-input never asks on the terminal (also PASSTUNNEL_NO_INPUT=1), --no-auth-prompt never shows Touch ID."))
+        lines.append(String(localized: "Exit codes: 0 ok, 1 error, 2 usage, 3 not found or not connected, 4 confirmation cancelled or not possible, 5 helper missing or outdated, 6 connection failed, 7 timeout."))
         return lines.joined(separator: "\n")
     }
 }

@@ -1,5 +1,8 @@
 import CryptoKit
 import Foundation
+#if canImport(AppKit)
+import AppKit
+#endif
 
 /// Profile secrets protected by "Confirm with Touch ID" (`Profile.requireAuth`).
 ///
@@ -354,4 +357,38 @@ public struct ProtectionKeyMismatch: Error, Equatable, LocalizedError {
     public var errorDescription: String? {
         String(localized: "The protection key of profile “\(profileID)” does not match its Keychain record, so PassTunnel did not use it. Another app may have replaced the record. Delete the profile and set it up again.")
     }
+}
+
+/// Ends the reuse window of a `SecretVault` when the screen locks or the Mac goes to sleep, as the app
+/// does. For processes that live on without the app's delegate (`passtunnel mcp`). The centers are
+/// injectable for tests; the observers go away with the instance.
+@MainActor
+public final class VaultExpiry {
+    /// Posted (distributed) when the screen locks.
+    public static let screenLockedNotification = Notification.Name("com.apple.screenIsLocked")
+
+    private let observers: [(NotificationCenter, NSObjectProtocol)]
+
+    /// `screenLock`: where `screenLockedNotification` arrives; `sleep`: where `sleepNotification` does.
+    public init(vault: SecretVault, screenLock: NotificationCenter = DistributedNotificationCenter.default(),
+                sleep: NotificationCenter = VaultExpiry.workspaceCenter,
+                sleepNotification: Notification.Name = VaultExpiry.willSleepNotification) {
+        observers = [(screenLock, Self.screenLockedNotification), (sleep, sleepNotification)].map { center, name in
+            (center, center.addObserver(forName: name, object: nil, queue: .main) { [weak vault] _ in
+                MainActor.assumeIsolated { vault?.reset() }
+            })
+        }
+    }
+
+    deinit {
+        for (center, token) in observers { center.removeObserver(token) }
+    }
+
+    #if canImport(AppKit)
+    public nonisolated static var workspaceCenter: NotificationCenter { NSWorkspace.shared.notificationCenter }
+    public nonisolated static let willSleepNotification = NSWorkspace.willSleepNotification
+    #else
+    public nonisolated static var workspaceCenter: NotificationCenter { .default }
+    public nonisolated static let willSleepNotification = Notification.Name("NSWorkspaceWillSleepNotification")
+    #endif
 }

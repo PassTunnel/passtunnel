@@ -108,6 +108,9 @@ final class FakeHelper: HelperClienting, @unchecked Sendable {
     var onStart: ((HelperRequest) -> Void)?
     /// When set, `status` calls fail with this error (helper unreachable).
     var statusError: Error?
+    /// Runs at the start of every `status` call with its number (1 for the first).
+    var onStatus: ((Int) -> Void)?
+    private var statusCalls = 0
 
     func locked<T>(_ body: () -> T) -> T { lock.lock(); defer { lock.unlock() }; return body() }
 
@@ -142,6 +145,8 @@ final class FakeHelper: HelperClienting, @unchecked Sendable {
         locked { _requests.append(request) }
         switch request {
         case .status:
+            let call = locked { () -> Int in statusCalls += 1; return statusCalls }
+            onStatus?(call)
             if let error = locked({ statusError }) { throw error }
             let (snapshot, socks, delay) = locked { () -> ([String: Int32], [String: String], TimeInterval) in
                 (_running, sockets, _statusDelayPop())

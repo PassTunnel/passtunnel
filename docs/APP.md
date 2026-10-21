@@ -210,24 +210,45 @@ menu bar only; manual launches open the main window.
 
 ## CLI (`passtunnel`)
 
-Parity with the app; output in the user's language; `--json` where marked.
+Parity with the app; output in the user's language. Every command with a result takes `--json`
+([CLI-JSON.md](CLI-JSON.md) describes each object, the error object and the exit codes).
 ```
 passtunnel                                   status of all profiles (= status)
-passtunnel status [ID] [--json]
+passtunnel status [ID]
 passtunnel connect|disconnect|toggle [ID]    ID default: default profile; asks on TTY for `needs`
 passtunnel disconnect --all
 passtunnel connect [ID] --force              even if another VPN already takes all traffic
-passtunnel code [ID] [-c|--copy] [--json]    live code + seconds left
-passtunnel list [--json] / show ID / set ID key=value…   (keys as in the editor)
+passtunnel connect|disconnect … --wait [--timeout S]   bound the wait (default 60 s; --timeout implies --wait)
+passtunnel code [ID] [-c|--copy]             live code + seconds left
+passtunnel list / show ID / set ID key=value…   (keys as in the editor)
 passtunnel add NAME --type openvpn|forti / import FILE [--name N] / export ID [-o FILE] / rm ID
 passtunnel secret ID password|totp           reads from TTY (no echo) or stdin; totp accepts base32 or otpauth://
 passtunnel default ID / pin ID / unpin ID
-passtunnel log ID [-f]
+passtunnel log ID [-f] [-n N]
 passtunnel helper status|install|uninstall
+passtunnel mcp [--allow-connect]             MCP server on stdio (below)
 passtunnel completion zsh|bash|fish
+passtunnel version
 passtunnel debug drop ID                     debug builds only: test hook, not in help or completion (see below)
 ```
-Exit codes: 0 ok, 1 error, 2 usage, 3 not connected (status of a single profile).
+Options for every command, anywhere before `--` (`CLIOptions`, `CLIInvocation.parse`): `--no-input`
+(or `PASSTUNNEL_NO_INPUT=1`) never reads stdin or asks on the terminal — `connect` of a profile with
+`needs`, `secret`, and `rm` without `--yes` fail with `input_required` (`rm` without `--yes` also
+when stdin is not a terminal); `--no-auth-prompt` makes the
+CLI's `ConnectionManager` use `PromptlessAuthenticator`, so anything that would show Touch ID fails
+with `auth_unavailable`.
+
+Exit codes (`AutomationExit`, `AutomationErrorCode.exitCode`): 0 ok, 1 other error, 2 usage /
+invalid argument, 3 not found or (`status ID`) not connected, 4 confirmation or input cancelled or
+not possible, 5 helper missing, unapproved, outdated or not answering (also `helper status`), 6
+connect failed (incl. other VPN, destination changed, credentials rejected or missing), 7 timeout,
+130 interrupted. With `--json`, a failure prints `{"error":{"code","message"}}` on stdout (usage
+errors too, `CLICommand.requestsJSON`); the human output is unchanged.
+
+`--wait` / `--timeout` (`AutomationService.connect`): the connect already waited for the result;
+`--timeout` bounds it, counted after the Touch ID confirmation. On a timeout the half-started
+connection is stopped (like Ctrl-C) only if this process started it (`ConnectRole.started`), never
+a session it follows that the app or another process started, and the command exits 7. `disconnect --wait` polls until the helper no longer runs the profile.
 
 "Confirm with Touch ID" in the CLI (its own process, so its own reuse window: in practice it asks every
 time): `connect` and `toggle` (when connecting) unlock after the other-VPN check and before asking for
@@ -235,9 +256,9 @@ credentials; `code` decrypts an encrypted TOTP secret; `set ID require_auth=off|
 (alias `auth`) runs `vault.applyProtection` before saving (turning it on encrypts without a prompt,
 lowering it asks); `secret` writes encrypted when the profile protects that secret; `show` says
 "saved in Keychain, encrypted (Touch ID)" (`--json`: `password_encrypted`, `totp_encrypted`). A
-cancelled prompt prints "Cancelled." and exits 1; when no prompt can be shown (over SSH:
-`notInteractive` / `systemCancel`), the Touch ID lockout or a Mac without a login password, it prints why
-and exits 1. Nothing is ever done without the decrypt. `disconnect` never asks.
+cancelled prompt prints "Cancelled." and exits 4 (`auth_cancelled`); when no prompt can be shown (over
+SSH: `notInteractive` / `systemCancel`), the Touch ID lockout, a Mac without a login password or
+`--no-auth-prompt`, it prints why and exits 4 (`auth_unavailable`). Nothing is ever done without the decrypt. `disconnect` never asks.
 
 `code -c` copies like the app (`Pasteboard.copySecret`) and leaves a detached copy of the binary behind
 (`posix_spawn` with `POSIX_SPAWN_SETSID`, stdio to `/dev/null`, internal first argument
@@ -290,6 +311,33 @@ installation in PassTunnel → Settings → Helper."), a refusal ("PassTunnel di
 open PassTunnel from the Applications folder, then try again.") or the deadline exits 1. Success is
 still decided by polling the helper, never by a reply: any local process can post one, so a forged
 reply only changes the message.
+
+### `passtunnel mcp`
+
+`MCPServer` (Core) on stdin/stdout: newline-delimited JSON-RPC 2.0, one message per line, stdout
+carries protocol messages only, diagnostics go to stderr ("passtunnel mcp: …"). Dual-era: a request
+with `_meta["io.modelcontextprotocol/protocolVersion"]` is served statelessly under that version
+(2026-07-28: `clientCapabilities` required, results carry `resultType` and
+`_meta["io.modelcontextprotocol/serverInfo"]`; unknown versions get -32022 with the supported list);
+`initialize` starts a handshake session for 2025-11-25, 2025-06-18, 2025-03-26 or 2024-11-05 (the
+version asked for, else 2025-11-25). Methods: `server/discover`, `initialize`, `ping`, `tools/list`,
+`tools/call`; notifications `notifications/initialized`, `notifications/cancelled` (cancels the call;
+a cancelled connect is stopped). Requests run concurrently on the main actor. Errors: -32700 parse,
+-32600 invalid request (also batches), -32601 unknown method, -32602 invalid params / unknown tool /
+no `_meta` without a handshake. Tool failures (including bad arguments) are results with
+`isError: true` and the `{"error": …}` object as text. At the end of input the server finishes the
+requests it has, then exits 0.
+
+Tools (`MCPTools`): `list_profiles`, `get_status` (`profile_id`?), `get_logs` (`profile_id`,
+`lines` 1–500, default 50), `diagnose`; with `--allow-connect` also `connect` (`profile_id`, `wait`
+default true, `timeout_seconds` 1–600, default 60) and `disconnect` (`profile_id`, `wait`,
+`timeout_seconds`). Each has an `inputSchema` (closed objects) and, from 2025-06-18, an
+`outputSchema` and `structuredContent`; the text content is the same JSON. Results are the
+automation objects of `--json`. `connect` mirrors the CLI: refresh, already connected → status,
+already connecting → wait for it, `needs` → `input_required`, `checkCanStart`, `vault.unlock` (Touch
+ID on the Mac), then `AutomationService.connect`; `wait: false` returns once the attempt shows as
+connecting and lets it finish in the server. The server never calls `ConnectionManager.start()`
+(no polling, no auto-reconnect of its own).
 
 The app and the CLI share the files and the Keychain. The app never acts on a cached profile:
 connect, copy code, copy password + code and auto-type re-read the stored profile and Keychain item

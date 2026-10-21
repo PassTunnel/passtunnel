@@ -16,6 +16,10 @@ enum CLICompletions {
 
     static var commands: String { CLICommand.commandNames.joined(separator: " ") }
 
+    /// Options offered after a profile id.
+    static let profileFlags = ["--json", "--all", "--copy", "--follow", "--lines", "--yes", "--force", "--wait", "--timeout",
+                               "--no-input", "--no-auth-prompt"]
+
     static var zsh: String {
         """
         #compdef passtunnel
@@ -40,12 +44,14 @@ enum CLICompletions {
               elif [[ $cmd == set ]]; then
                 _values -S = 'key' \(ProfileFields.keys.joined(separator: " "))
               else
-                _arguments '--json' '--all' '--copy' '--follow' '--yes' '--force'
+                _arguments \(profileFlags.map { "'\($0)'" }.joined(separator: " "))
               fi
               ;;
-            import) _files ;;
-            add) _arguments '--type[VPN type]:type:(openvpn forti)' ;;
+            import) _arguments '--name' '--json' '*:file:_files' ;;
+            add) _arguments '--type[VPN type]:type:(openvpn forti)' '--json' ;;
             helper) _values 'action' status install uninstall ;;
+            mcp) _arguments '--allow-connect[also offer connect and disconnect]' '--no-auth-prompt' ;;
+            list|version) _arguments '--json' ;;
             completion) _values 'shell' zsh bash fish ;;
             help) _describe 'command' commands ;;
           esac
@@ -76,12 +82,14 @@ enum CLICompletions {
                 compopt -o nospace 2>/dev/null
                 COMPREPLY=($(compgen -S = -W "\(ProfileFields.keys.joined(separator: " "))" -- "$cur"))
               else
-                COMPREPLY=($(compgen -W "--json --all --copy --follow --yes --force" -- "$cur"))
+                COMPREPLY=($(compgen -W "\(profileFlags.joined(separator: " "))" -- "$cur"))
               fi
               ;;
             import) COMPREPLY=($(compgen -f -- "$cur")) ;;
-            add) COMPREPLY=($(compgen -W "--type openvpn forti" -- "$cur")) ;;
-            helper) COMPREPLY=($(compgen -W "status install uninstall" -- "$cur")) ;;
+            add) COMPREPLY=($(compgen -W "--type openvpn forti --json" -- "$cur")) ;;
+            helper) COMPREPLY=($(compgen -W "status install uninstall --json" -- "$cur")) ;;
+            mcp) COMPREPLY=($(compgen -W "--allow-connect --no-auth-prompt" -- "$cur")) ;;
+            list|version) COMPREPLY=($(compgen -W "--json --quiet" -- "$cur")) ;;
             completion) COMPREPLY=($(compgen -W "zsh bash fish" -- "$cur")) ;;
             help) COMPREPLY=($(compgen -W "\(commands)" -- "$cur")) ;;
           esac
@@ -106,8 +114,11 @@ enum CLICompletions {
             "complete -c passtunnel -n '__fish_seen_subcommand_from completion' -a 'zsh bash fish'",
             "complete -c passtunnel -n '__fish_seen_subcommand_from help' -a '\(commands)'",
         ]
-        for (flag, cmds) in [("json", "status code list show"), ("all", "disconnect"), ("copy", "code"),
-                             ("follow", "log"), ("yes", "rm"), ("force", "connect"), ("name", "import"), ("output", "export")] {
+        let jsonCommands = "status connect disconnect toggle code list show set add import export rm secret default pin unpin log helper version"
+        for (flag, cmds) in [("json", jsonCommands), ("all", "disconnect"), ("copy", "code"),
+                             ("follow", "log"), ("lines", "log"), ("yes", "rm"), ("force", "connect"), ("name", "import"),
+                             ("output", "export"), ("wait", "connect disconnect"), ("timeout", "connect disconnect"),
+                             ("allow-connect", "mcp"), ("no-input", commands), ("no-auth-prompt", commands)] {
             lines.append("complete -c passtunnel -n '__fish_seen_subcommand_from \(cmds)' -l \(flag)")
         }
         return lines.joined(separator: "\n") + "\n"

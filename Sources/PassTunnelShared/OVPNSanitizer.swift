@@ -157,6 +157,29 @@ public enum OVPNSanitizer {
         return out
     }
 
+    /// The `verb` level the config sets (the last one wins, as in OpenVPN), or nil when it sets none.
+    /// Reads lines as `sanitize` does: inline blocks are skipped, `setenv opt verb …` counts.
+    public static func verbosity(of text: String) -> Int? {
+        var level: Int?
+        var block: (tag: String, verbatim: Bool)?
+        for line in splitLines(text) {
+            if let b = block {
+                if isBlockEnd(line.content, tag: b.tag) { block = nil; continue }
+                if b.verbatim { continue }
+            }
+            guard case .success(var tokens) = tokenize(line.content), !tokens.isEmpty else { continue }
+            if tokens.count == 1, let tag = blockTag(tokens[0]) {
+                block = (tag: tag, verbatim: normalize(tag) != "connection")
+                continue
+            }
+            if normalize(tokens[0]) == "setenv", tokens.count >= 3, tokens[1].lowercased() == "opt" {
+                tokens.removeFirst(2)
+            }
+            if normalize(tokens[0]) == "verb", tokens.count >= 2, let n = Int(tokens[1]) { level = max(0, n) }
+        }
+        return level
+    }
+
     // MARK: - Directive rules
 
     enum Verdict: Equatable { case ok, strip, violation(String, String) }
