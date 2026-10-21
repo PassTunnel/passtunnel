@@ -1,11 +1,13 @@
 # Publishes a release to the MCP Registry (registry.modelcontextprotocol.io) as
 # io.github.PassTunnel/passtunnel, with the release's MCP bundle (PassTunnel-mcp-VERSION.mcpb) as the
-# installable package. Runs when a release is published (pre-releases are skipped), or by hand for a
-# tag (Actions → Publish to MCP Registry → Run workflow → tag). The entry is server.json of the tagged
-# commit with the version of the tag and the SHA-256 of the published bundle, written by
-# scripts/make-server-json.sh, so it always describes exactly that release. GitHub's OIDC token proves
-# the repository owner, so no secret is stored. The registry accepts each version once: a version it
-# already has is skipped (the run succeeds), so re-running is safe.
+# installable package. Runs when a release is published (pre-releases are skipped), when release.yml
+# calls it with the tag of the release it just published (a release published with a workflow's own
+# token starts no other workflow), or by hand for a tag (Actions → Publish to MCP Registry → Run
+# workflow → tag). The entry is server.json of the tagged commit with the version of the tag and the
+# SHA-256 of the published bundle, written by scripts/make-server-json.sh, so it always describes
+# exactly that release. GitHub's OIDC token proves the repository owner, so no secret is stored. The
+# registry accepts each version once: a version it already has is skipped (the run succeeds), so
+# re-running is safe.
 name: Publish to MCP Registry
 
 on:
@@ -16,6 +18,12 @@ on:
       tag:
         description: Release tag to publish, for example v1.2.0
         required: true
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag to publish, for example v1.2.0
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -31,7 +39,7 @@ defaults:
 
 jobs:
   publish:
-    if: github.event_name == 'workflow_dispatch' || !github.event.release.prerelease
+    if: github.event_name != 'release' || !github.event.release.prerelease
     runs-on: ubuntu-latest
     env:
       TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.tag }}

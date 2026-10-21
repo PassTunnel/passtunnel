@@ -3,8 +3,13 @@
 A release is a signed and notarized disk image for people who download it, a zip archive plus a
 signed `appcast.xml` for Sparkle (in-app updates), a Homebrew cask, and an MCP bundle (`.mcpb`) for
 Claude Desktop and the MCP Registry. `scripts/release.sh` builds all of them into `dist/`; with
-`--publish` it also tags the commit and creates the GitHub release, and publishing the release starts
-the workflow that updates the MCP Registry entry (see [MCP bundle and MCP Registry](#mcp-bundle-and-mcp-registry)).
+`--publish` it also tags the commit and creates the GitHub release.
+
+Releases are made by GitHub Actions: merging `dev` into `main` starts
+[`.github/workflows/release.yml`](../.github/workflows/release.yml), which works out the version and
+the release notes, waits for the maintainer's approval, runs `release.sh --publish` on a macOS runner,
+updates the Homebrew tap and the MCP Registry (see [Automatic releases](#automatic-releases)).
+Releasing from a Mac with the same script still works (see [Releasing from a Mac](#releasing-from-a-mac)).
 
 Where things are published is set once, in [`scripts/release.env`](../scripts/release.env):
 
@@ -55,8 +60,9 @@ they all match.
      release's assets and tag can then no longer be changed or replaced, so an `appcast.xml` or
      zip cannot be swapped later. `release.sh` already uploads everything to a draft before it
      publishes, which is what immutable releases need.
-   - `TAP_REPO` → Settings → Rules: a ruleset for `main` that blocks force pushes and deletion (the
-     app repository has one), and ideally requires signed commits. The cask is what
+   - `TAP_REPO` → Settings → Rules: a ruleset for `main` that blocks force pushes and deletion and
+     requires signed commits, with deploy keys allowed to bypass it (the release workflow pushes
+     the cask with one, see [Automatic releases](#automatic-releases)). The cask is what
      `brew install` trusts.
 5. **Tag signing key (optional, recommended).** `release.sh` signs the release tag (`git tag -s`)
    when git has a signing key, and otherwise creates an unsigned annotated tag with a warning. With
@@ -76,18 +82,79 @@ they all match.
    Optional: `brew install mcp-publisher`, then `release.sh` also validates
    `dist/server.json` (it only validates; publishing is the workflow's job).
 
-## Every release
+## Automatic releases
 
-1. **Changelog.** Add a section to [`CHANGELOG.md`](CHANGELOG.md) on `main`:
+### How a release happens
 
-   ```markdown
-   ## [1.2.0] - 2026-11-03
+1. Work is merged into `dev` through squash-merged pull requests whose titles follow Conventional
+   Commits ([CONTRIBUTING.md](../CONTRIBUTING.md#pull-request-titles)).
+2. A pull request from `dev` into `main` is merged with a merge commit. Its checks are the ones of
+   `dev` plus `Source branch` (only `dev` may go into `main`).
+3. The push to `main` starts **Release**:
+   - **Plan** runs `scripts/next-version.sh --notes FILE`. It looks at the commit subjects since the
+     highest `vX.Y.Z` tag (merge commits and subjects that are not Conventional Commits are ignored):
+     a breaking change (`!` or a `BREAKING CHANGE:` footer) makes a major release, `feat` a minor
+     one, `fix` or `perf` a patch; anything else releases nothing and the run ends there. The notes
+     list those subjects under *Breaking changes*, *New features* and *Fixes*, without the type and
+     with GitHub's `(#123)`. They become the GitHub release notes and the text of the update window.
+   - **Build and publish** waits for approval in the environment `release` (Actions → the run →
+     *Review deployments*). It then installs `openvpn` and `openfortivpn` with Homebrew, puts the
+     Developer ID identity and the notarytool profile into a temporary keychain, writes the Sparkle
+     key to a file, runs `scripts/release.sh VERSION --publish --notes-file …`, creates build
+     provenance attestations for the dmg, zip and MCP bundle, and pushes `dist/passtunnel.rb` to the
+     tap as `Casks/passtunnel.rb` (commit `Update PassTunnel to VERSION`). The keychain and the
+     secret files are deleted at the end, whatever happened.
+   - **MCP Registry** runs `publish-mcp.yml` for the new tag.
 
-   - What changed, written for users.
-   ```
+Nothing in the repository is changed by a release: the version is in the tag only (`build-app.sh`
+stamps it into the app), and `docs/CHANGELOG.md` is not updated (it covers 1.1.1 and earlier). The
+tag is an unsigned annotated tag (the runner has no signing key); the attestations and the
+immutable release are the proof of origin:
 
-   It becomes the GitHub release notes and the text of the update window. A pre-release
-   (`1.2.0-rc.1`) uses its own section if there is one, else the one of `1.2.0`.
+```sh
+gh attestation verify PassTunnel-1.2.0.dmg -R PassTunnel/passtunnel
+```
+
+If a run fails, fix the cause and use Actions → Release → Run workflow on `main`. When `HEAD`
+already has the tag of an unfinished release, that version is built again and `release.sh` finishes
+the draft; a published release is final.
+
+### Setup
+
+The environment `release` (Settings → Environments) allows only the branch `main`, needs the
+maintainer's approval, and holds these secrets:
+
+| Secret | What |
+|---|---|
+| `DEVELOPER_ID_P12_BASE64`, `DEVELOPER_ID_P12_PASSWORD` | the Developer ID Application certificate and its private key, as a base64 `.p12` and its password. Export only that one identity. |
+| `NOTARY_KEY_P8_BASE64`, `NOTARY_KEY_ID`, `NOTARY_ISSUER_ID` | an App Store Connect API key with the Developer role (Users and Access → Integrations → Team Keys), for notarytool |
+| `SPARKLE_PRIVATE_KEY` | the Sparkle EdDSA private key, as `generate_keys -x` writes it |
+| `TAP_DEPLOY_KEY` | the private half of an ed25519 deploy key with write access on `TAP_REPO` |
+
+Secrets of an environment are only given to jobs that run in it, so pull requests and forks never
+see them. Anyone who can approve a release can sign an update for every installed copy: keep the
+GitHub account behind a passkey or security key, and keep the offline backup of the Sparkle key
+(see One-time setup), since GitHub secrets cannot be read back.
+
+The branch rulesets (Settings → Rules): `dev` and `main` refuse direct pushes, force pushes,
+deletion and unsigned commits; `dev` takes squash merges, `main` merge commits; the required checks
+are `Build and test`, `Release scripts` and `PR title`, plus `Source branch` on `main`. Actions must be
+pinned to full commit SHAs.
+
+## Releasing from a Mac
+
+The release workflow runs these same steps. Doing it by hand is for a release the workflow cannot
+make (GitHub Actions down) or for test builds. `release.sh` refuses `--publish` except on `main`;
+tag from the `main` that is on GitHub, and the tap and the MCP Registry are then not updated for you
+(steps 4 and the workflow `Publish to MCP Registry`).
+
+
+1. **Release notes.** Write them to a file outside the repository, for example with
+   `scripts/next-version.sh --notes /tmp/notes.md`, and pass `--notes-file /tmp/notes.md` to every
+   `release.sh` call below. Without `--notes-file`, `release.sh` takes the section `## [1.2.0]` of
+   [`CHANGELOG.md`](CHANGELOG.md) (a pre-release `1.2.0-rc.1` uses its own section if there is one,
+   else the one of `1.2.0`). The notes become the GitHub release notes and the text of the update
+   window.
 2. **Build and check** (nothing is published):
 
    ```sh
@@ -249,7 +316,9 @@ scripts/build-app.sh                                               # prints the 
 ```
 
 Read the upstream changelogs (security fixes in particular), set the new versions in `release.env`,
-build again and commit the pins together with a changelog line. For a local build against other
+build again and send the pins as a pull request (`fix(deps): bundle openvpn 2.7.8`, so it releases).
+The release workflow installs the tools with the runner's Homebrew, so it stops the release as soon
+as Homebrew has moved past a pin; the same pull request fixes that. For a local build against other
 versions, `PASSTUNNEL_ALLOW_UNPINNED_TOOLS=1 scripts/build-app.sh` only warns; `release.sh`
 refuses to run with it set.
 
