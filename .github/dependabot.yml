@@ -1,0 +1,33 @@
+# Dependabot opens pull requests into dev (squash-merged; the title is the commit subject that
+# scripts/next-version.sh reads):
+#
+#   GitHub Actions   "ci(deps): bump …"    no release on its own (actions are not shipped)
+#   Swift packages   "fix(deps): bump …"   a patch release (Sparkle is shipped in the app)
+#
+# Updates of each ecosystem come grouped in one pull request a week. Dependabot's pull requests need
+# no linked issue (pull-request.yml).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+      include: scope
+    groups:
+      github-actions:
+        patterns: ["*"]
+
+  - package-ecosystem: swift
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: fix
+      include: scope
+    groups:
+      swift:
+        patterns: ["*"]
