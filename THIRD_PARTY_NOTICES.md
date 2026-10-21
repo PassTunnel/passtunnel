@@ -43,7 +43,7 @@ PassTunnel.app/Contents/Resources/licenses/       full license texts + THIRD_PAR
 
 `Contents/Resources/licenses/THIRD_PARTY_NOTICES.txt` is generated at build time and lists each
 bundled component with its **exact version**, license and source URL. The full license texts
-(`openvpn-COPYING`, `openfortivpn-LICENSE`, `openssl@3-LICENSE.txt`, `lzo-COPYING`, `lz4-LICENSE`,
+(`openvpn-COPYING`, `openfortivpn-LICENSE`, `openssl@4-LICENSE.txt`, `lzo-COPYING`, `lz4-LICENSE`,
 `pkcs11-helper-COPYING*`, `Sparkle-LICENSE.txt`, …) are in the same folder. You can also open them from **Settings →
 Helper → Show Licenses…**.
 
