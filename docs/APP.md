@@ -114,7 +114,16 @@ Connect/Disconnect, Copy code; then Open PassTunnel (⌘O), Settings… (⌘,), 
 - **Helper**: status (enabled / needs approval / not installed / needs an update / updating) with Install /
   Update / Open Login Items / Remove;
   bundled tool versions; "Show licenses" (Resources/licenses).
-- **Updates**: Sparkle (check automatically, check now). Feed URL on GitHub Releases (appcast.xml).
+- **Updates**: Sparkle 2 (`AppUpdater`, `SPUStandardUpdaterController`): "Check for updates
+  automatically" (Sparkle's own setting, default on via `SUEnableAutomaticChecks`; Sparkle checks once
+  a day), current version, last check date, **Check Now**; the app menu has "Check for Updates…".
+  `SUAutomaticallyUpdate` is false: an update is installed when the user clicks Install. Feed:
+  `https://github.com/<GITHUB_REPO>/releases/latest/download/appcast.xml` (`SUFeedURL`, stamped by
+  build-app.sh from scripts/release.env), signed with EdDSA (`SUPublicEDKey`). The app is not
+  sandboxed, so Sparkle's installer launcher XPC service is off (`SUEnableInstallerLauncherService`
+  false). The updater starts in `PassTunnelApp.init` only, so the CLI and the screenshot renderer
+  never start it; unbundled runs show the tab disabled. A scheduled update in the menu-bar-only state
+  switches to a regular app (Dock icon) without taking focus. Releases: docs/RELEASING.md.
 - **About**: version, GitHub link, license (MIT).
 
 `Preferences` (Core) gets: `badgePalette` (string enum above), `appearance` (system/light/dark),

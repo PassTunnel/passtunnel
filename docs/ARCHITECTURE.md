@@ -11,6 +11,7 @@ PassTunnel.app/Contents/
   Library/LaunchDaemons/com.furkanprlk.passtunnel.helper.plist
   Resources/bin/openvpn, openfortivpn    bundled, signed with the app's Team ID
   Frameworks/*.dylib            their dependencies (OpenSSL, LZO, LZ4, pkcs11-helper)
+  Frameworks/Sparkle.framework  app updates (Autoupdate, Updater.app, XPCServices signed inside-out)
 ```
 
 ## Targets
@@ -20,7 +21,7 @@ PassTunnel.app/Contents/
 | `PassTunnelShared` | XPC protocol, request/response types, `HelperCore` (request decoding, path checks), `SessionPolicy`, `CodeSignature`, `OVPNSanitizer`, `FortiConfig`, identifiers | — |
 | `PassTunnelCore` | model, `ProfileStore`, `ProfilesWatcher`, `Secrets` (Keychain), `TOTP`, `OTPAuthURI`, `OVPNAnalyzer`, `ShareFile`, `Preferences`, `HealthCheck`, `HelperClient`, `ConnectionManager` | Shared |
 | `PassTunnelHelper` | `main.swift` XPC listener, process supervision | Shared |
-| `PassTunnel` | SwiftUI app, menu bar, onboarding, CLI | Core, Shared |
+| `PassTunnel` | SwiftUI app, menu bar, onboarding, CLI, updates (`AppUpdater`) | Core, Shared, Sparkle |
 
 ## Identifiers (`PassTunnelShared/Identifiers.swift`)
 
@@ -204,6 +205,19 @@ up to 1.5 s for the old job to leave `.enabled` and retries EPERM after 0.5, 1, 
 it fail (`HelperInstallError.notPermitted`). `kSMErrorLaunchDeniedByUser` (switched off in Login Items)
 is not retried (`.deniedByUser`); `kSMErrorAlreadyRegistered` counts as success.
 
+After an app update (Sparkle replaces the bundle; the running helper keeps its old build) the app
+runs that update by itself (`AppModel.updateHelper`, the same flow as the button), decided by
+`HelperAutoUpdate` (Core, unit-tested): only for an enabled helper known to be outdated, only when
+the app runs from `/Applications` or `~/Applications` (a test build elsewhere never takes the helper
+over), at most once per outdated helper (a failure is left to the button), and only while no
+PassTunnel session is active. Sessions are counted by `HelperSessions` from the process list
+(`sysctl KERN_PROC_ALL` + `proc_pidpath`): children of a `PassTunnelHelper` process, and
+`openvpn`/`openfortivpn` inside an app bundle whose identifier is PassTunnel's (or that is gone,
+replaced by the update), so other users' sessions and tools adopted by a restarted helper count too;
+plus the profiles the app itself sees as active. While sessions are active it notifies once ("The
+helper needs an update"), Settings → Helper says it updates itself, and the app re-evaluates on every
+5 s reload, so the update runs right after the last session ends.
+
 Run directory layout (all root-owned; `HelperCore.makeRunDir`):
 
 ```
@@ -325,4 +339,5 @@ tunnel. Hence:
 - Tests never touch the real Keychain service or real support dir: they set `PASSTUNNEL_HOME` and
   `PASSTUNNEL_KEYCHAIN_SERVICE`. Management-socket tests run their own fake server on a socket in a
   temp dir.
-- Swift language mode 5 (tools 5.10), macOS 13 APIs, no third-party dependencies except Sparkle (updates).
+- Swift language mode 5 (tools 5.10), macOS 13 APIs, no third-party dependencies except Sparkle (updates,
+  pinned to an exact version in `Package.swift`).

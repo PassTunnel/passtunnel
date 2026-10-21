@@ -1,7 +1,8 @@
 # Third-party notices
 
-PassTunnel's own source code is released under the [MIT License](LICENSE). It has no third-party
-Swift dependencies.
+PassTunnel's own source code is released under the [MIT License](LICENSE). Its only third-party
+Swift dependency is [Sparkle](https://sparkle-project.org) (MIT), the update framework, linked into
+the app and shipped as `Contents/Frameworks/Sparkle.framework`.
 
 The PassTunnel **app bundle** also ships the VPN tools it drives and the libraries they need. They
 are **separate, independent programs** that PassTunnel starts as child processes. They are not
@@ -19,6 +20,7 @@ own license.
 | [LZO](https://www.oberhumer.com/opensource/lzo/) (`liblzo2`) | GPL-2.0 | https://www.oberhumer.com/opensource/lzo/ |
 | [LZ4](https://lz4.org) (`liblz4`) | BSD-2-Clause | https://github.com/lz4/lz4 |
 | [pkcs11-helper](https://github.com/OpenSC/pkcs11-helper) (`libpkcs11-helper`) | BSD-3-Clause or GPL-2.0 (dual) | https://github.com/OpenSC/pkcs11-helper |
+| [Sparkle](https://sparkle-project.org) (`Sparkle.framework`, app updates) | MIT (includes notices for its own bundled code) | https://github.com/sparkle-project/Sparkle |
 
 The exact set of libraries and their versions depend on the build. Depending on how the tools were
 built, more than one OpenSSL major version may be included (for example `libcrypto.3` and
@@ -34,14 +36,15 @@ Inside the app:
 
 ```
 PassTunnel.app/Contents/Resources/bin/            openvpn, openfortivpn, dns-updown
-PassTunnel.app/Contents/Frameworks/               libssl, libcrypto, liblzo2, liblz4, libpkcs11-helper
+PassTunnel.app/Contents/Frameworks/               libssl, libcrypto, liblzo2, liblz4, libpkcs11-helper,
+                                                  Sparkle.framework
 PassTunnel.app/Contents/Resources/licenses/       full license texts + THIRD_PARTY_NOTICES.txt
 ```
 
 `Contents/Resources/licenses/THIRD_PARTY_NOTICES.txt` is generated at build time and lists each
 bundled component with its **exact version**, license and source URL. The full license texts
 (`openvpn-COPYING`, `openfortivpn-LICENSE`, `openssl@3-LICENSE.txt`, `lzo-COPYING`, `lz4-LICENSE`,
-`pkcs11-helper-COPYING*`, …) are in the same folder. You can also open them from **Settings →
+`pkcs11-helper-COPYING*`, `Sparkle-LICENSE.txt`, …) are in the same folder. You can also open them from **Settings →
 Helper → Show Licenses…**.
 
 ## Source code for GPL components
@@ -51,7 +54,7 @@ projects linked above. The Homebrew formulae used for the build (in
 [homebrew-core](https://github.com/Homebrew/homebrew-core)) record the exact source archive and
 checksum for each version. If you need the source for the exact version included in a PassTunnel
 release and cannot find it, open an issue at
-[github.com/Furkanprlk/passtunnel/issues](https://github.com/Furkanprlk/passtunnel/issues).
+[github.com/passtunnel/passtunnel/issues](https://github.com/passtunnel/passtunnel/issues).
 
 ## Trademarks
 

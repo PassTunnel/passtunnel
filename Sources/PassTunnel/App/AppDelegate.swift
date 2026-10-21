@@ -134,6 +134,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppModel.shared?.markDropsSeen()
     }
 
+    /// Shows the Dock icon so a window (e.g. the update window) can come forward.
+    func bringToFront(activate: Bool) {
+        if NSApp.activationPolicy() != .regular { NSApp.setActivationPolicy(.regular) }
+        if activate { NSApp.activate(ignoringOtherApps: true) }
+    }
+
     func showSettings() {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)

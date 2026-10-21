@@ -247,12 +247,42 @@
         }
       }
     },
+    "Check for Updates…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Güncellemeleri Denetle…"
+          }
+        }
+      }
+    },
     "Dropping %@ as if the server ended the session…" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ bağlantısı, oturumu sunucu sonlandırmış gibi düşürülüyor…"
+          }
+        }
+      }
+    },
+    "It updates itself when all VPN connections are disconnected. Until then, new connections cannot start." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tüm VPN bağlantıları kesildiğinde kendiliğinden güncellenir. O zamana kadar yeni bağlantı başlatılamaz."
+          }
+        }
+      }
+    },
+    "Last checked" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Son denetim"
           }
         }
       }
@@ -267,12 +297,32 @@
         }
       }
     },
+    "Never" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hiç"
+          }
+        }
+      }
+    },
     "Opening PassTunnel to update the helper…" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Yardımcıyı güncellemek için PassTunnel açılıyor…"
+          }
+        }
+      }
+    },
+    "PassTunnel looks for new versions on GitHub once a day and asks before installing one. Updates are signed and checked before they are installed." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel yeni sürümleri günde bir kez GitHub’da arar ve kurmadan önce size sorar. Güncellemeler imzalıdır ve kurulmadan önce doğrulanır."
           }
         }
       }
@@ -337,12 +387,32 @@
         }
       }
     },
+    "The helper needs an update" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcının güncellenmesi gerekiyor"
+          }
+        }
+      }
+    },
     "The helper was updated." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Yardımcı güncellendi."
+          }
+        }
+      }
+    },
+    "This helper belongs to another version of PassTunnel. It updates itself when all VPN connections are disconnected." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu yardımcı PassTunnel’ın başka bir sürümüne ait. Tüm VPN bağlantıları kesildiğinde kendiliğinden güncellenir."
           }
         }
       }
@@ -764,16 +834,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kimlik doğrulanıyor…"
-          }
-        }
-      }
-    },
-    "Automatic updates arrive in a future version. Until then, new releases are published on GitHub." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Otomatik güncellemeler sonraki bir sürümde eklenecek. O zamana kadar yeni sürümler GitHub’da yayımlanıyor."
           }
         }
       }

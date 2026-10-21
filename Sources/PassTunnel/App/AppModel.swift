@@ -56,6 +56,13 @@ final class AppModel: ObservableObject {
     /// The registered helper is running but speaks another protocol version (left from another app version).
     @Published private(set) var helperOutdated = false
     private var checkingHelperVersion = false
+    /// `HelperInstaller.update` is running (Settings → Helper, or the automatic update).
+    @Published private(set) var helperUpdating = false
+    /// Why the last helper update failed; cleared when the next one starts.
+    @Published private(set) var helperUpdateError: String?
+    private var helperAutoUpdate = HelperAutoUpdate()
+    /// The helper is outdated and updates itself once the active sessions end.
+    @Published private(set) var helperUpdateWaiting = false
     /// Set when the CLI asked the app to install or remove the helper; Settings → Helper consumes it.
     @Published var pendingHelperAction: HelperHandoff?
 
@@ -219,6 +226,7 @@ final class AppModel: ObservableObject {
         } else if changed || helperOutdated {
             checkHelperVersion()
         }
+        autoUpdateHelperIfIdle()
     }
 
     /// Asks the running helper for its protocol version and build; a mismatch means it must be updated
@@ -230,6 +238,49 @@ final class AppModel: ObservableObject {
             let outdated = try? await HelperClient.shared.isOutdated()
             checkingHelperVersion = false
             if let outdated { helperOutdated = outdated }
+            autoUpdateHelperIfIdle()
+        }
+    }
+
+    /// Re-registers the helper from this copy of the app (`HelperInstaller.update`); active
+    /// connections stop. Used by Settings → Helper → Update Helper and by the automatic update.
+    func updateHelper() async {
+        guard !helperUpdating else { return }
+        helperUpdating = true
+        helperUpdateError = nil
+        do {
+            try await HelperInstaller.update()
+        } catch {
+            helperUpdateError = error.localizedDescription
+        }
+        helperUpdating = false
+        refreshHelperStatus()
+        checkHelperVersion()
+    }
+
+    /// After the app was updated, the helper still runs the previous build. Update it right away when
+    /// no PassTunnel session is active (no approval needed), else as soon as the last one ends.
+    private func autoUpdateHelperIfIdle() {
+        guard previewHelperStatus == nil, Bundle.main.bundleURL.pathExtension == "app" else { return }
+        let outdated = helperStatus == .enabled && helperOutdated
+        let sessions = outdated
+            ? connections.states.values.filter(\.isActive).count + HelperSessions.runningToolCount()
+            : 0
+        let situation = HelperAutoUpdate.Situation(
+            status: helperStatus, outdated: checkingHelperVersion && !helperOutdated ? nil : helperOutdated,
+            activeSessions: sessions, updating: helperUpdating,
+            inApplicationsFolder: HelperSessions.isInApplicationsFolder(Bundle.main.bundlePath))
+        let action = helperAutoUpdate.next(situation)
+        if helperAutoUpdate.waiting != helperUpdateWaiting { helperUpdateWaiting = helperAutoUpdate.waiting }
+        switch action {
+        case .none, .wait(notify: false):
+            break
+        case .wait(notify: true):
+            Notifier.shared.post(title: String(localized: "The helper needs an update"),
+                                 body: String(localized: "It updates itself when all VPN connections are disconnected. Until then, new connections cannot start."),
+                                 profileID: nil)
+        case .update:
+            Task { await updateHelper() }
         }
     }
 

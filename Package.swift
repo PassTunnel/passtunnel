@@ -9,6 +9,10 @@ let package = Package(
         .executable(name: "PassTunnel", targets: ["PassTunnel"]),
         .executable(name: "PassTunnelHelper", targets: ["PassTunnelHelper"]),
     ],
+    dependencies: [
+        // App updates. The `passtunnel` CLI never starts the updater.
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0"),
+    ],
     targets: [
         // Shared by the app and the privileged helper: XPC protocol, request types, config sanitizer.
         .target(name: "PassTunnelShared"),
@@ -17,7 +21,9 @@ let package = Package(
         // Root helper registered with SMAppService; starts/stops the bundled VPN tools.
         .executableTarget(name: "PassTunnelHelper", dependencies: ["PassTunnelShared"]),
         // The app (SwiftUI) and the `passtunnel` CLI are the same binary.
-        .executableTarget(name: "PassTunnel", dependencies: ["PassTunnelCore", "PassTunnelShared"],
+        .executableTarget(name: "PassTunnel",
+                          dependencies: ["PassTunnelCore", "PassTunnelShared",
+                                         .product(name: "Sparkle", package: "Sparkle")],
                           resources: [.process("Resources")]),
         .testTarget(name: "PassTunnelCoreTests", dependencies: ["PassTunnelCore", "PassTunnelShared"]),
     ]

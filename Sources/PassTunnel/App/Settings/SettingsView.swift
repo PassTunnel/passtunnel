@@ -433,21 +433,50 @@ private struct ShortcutRow: View {
     }
 }
 
-// MARK: - Updates (placeholder until Sparkle is integrated)
+// MARK: - Updates
 
 struct UpdateSettings: View {
-    @EnvironmentObject private var model: AppModel
+    var body: some View {
+        if let updater = AppUpdater.shared {
+            UpdateSettingsForm(updater: updater)
+        } else {
+            // Unbundled runs (`swift run`, screenshots): no updater, same layout.
+            UpdateSettingsForm(updater: nil)
+        }
+    }
+}
+
+private struct UpdateSettingsForm: View {
+    @ObservedObject private var updater: AppUpdater
+    private let available: Bool
+
+    init(updater: AppUpdater?) {
+        _updater = ObservedObject(wrappedValue: updater ?? AppUpdater.placeholder)
+        available = updater != nil
+    }
+
+    private var lastCheck: String {
+        guard let date = updater.lastUpdateCheckDate else { return String(localized: "Never") }
+        return date.formatted(date: .abbreviated, time: .shortened)
+    }
 
     var body: some View {
         Form {
             Section {
-                Toggle(String(localized: "Check for updates automatically"), isOn: $model.prefs.autoUpdate)
-                    .disabled(true)
+                Toggle(String(localized: "Check for updates automatically"),
+                       isOn: Binding(get: { updater.automaticallyChecksForUpdates },
+                                     set: { updater.setAutomaticallyChecks($0) }))
+                    .disabled(!available)
                 LabeledContent(String(localized: "Current version"), value: AppInfo.versionString)
-                Button(String(localized: "Check Now")) {}
-                    .disabled(true)
+                LabeledContent(String(localized: "Last checked"), value: lastCheck)
+                HStack {
+                    Button(String(localized: "Check Now")) { updater.checkForUpdates() }
+                        .disabled(!available || !updater.canCheckForUpdates)
+                        .accessibilityIdentifier("updates.checkNow")
+                    Spacer()
+                }
             } footer: {
-                Text(String(localized: "Automatic updates arrive in a future version. Until then, new releases are published on GitHub."))
+                Text(String(localized: "PassTunnel looks for new versions on GitHub once a day and asks before installing one. Updates are signed and checked before they are installed."))
                     .settingsFooter()
             }
             Section {
@@ -461,9 +490,13 @@ struct UpdateSettings: View {
 // MARK: - About
 
 enum AppInfo {
-    static let repositoryURL = URL(string: "https://github.com/Furkanprlk/passtunnel")!
-    static let releasesURL = URL(string: "https://github.com/Furkanprlk/passtunnel/releases")!
-    static let issuesURL = URL(string: "https://github.com/Furkanprlk/passtunnel/issues")!
+    /// GitHub "owner/name", stamped into Info.plist by build-app.sh from scripts/release.env; the
+    /// literal is for unbundled runs (screenshots) and must match release.env (ProjectLinksTests).
+    static let repository = Bundle.main.object(forInfoDictionaryKey: "PTGitHubRepository") as? String
+        ?? "passtunnel/passtunnel"
+    static let repositoryURL = URL(string: "https://github.com/\(repository)")!
+    static let releasesURL = repositoryURL.appendingPathComponent("releases")
+    static let issuesURL = repositoryURL.appendingPathComponent("issues")
 
     static var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0" }
     static var build: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0" }

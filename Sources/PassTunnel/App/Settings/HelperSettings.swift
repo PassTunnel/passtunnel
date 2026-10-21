@@ -57,7 +57,6 @@ enum BundledTools {
 struct HelperSettings: View {
     @EnvironmentObject private var model: AppModel
     @State private var busy = false
-    @State private var updating = false
     @State private var errorText: String?
     @State private var confirmRemove = false
     @State private var showLicenses = false
@@ -81,14 +80,14 @@ struct HelperSettings: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer()
-                    if busy {
+                    if isBusy {
                         ProgressView().controlSize(.small)
                             .accessibilityLabel(updating ? String(localized: "Updating…") : String(localized: "Working…"))
                     }
                 }
                 .padding(.vertical, 4)
-                if let errorText {
-                    Text(errorText).font(.caption).foregroundStyle(.red)
+                if let error = errorText ?? model.helperUpdateError {
+                    Text(error).font(.caption).foregroundStyle(.red)
                 }
                 HStack {
                     switch model.helperStatus {
@@ -110,7 +109,7 @@ struct HelperSettings: View {
                         if model.helperOutdated {
                             Button(String(localized: "Update Helper")) { update() }
                                 .buttonStyle(.borderedProminent)
-                                .disabled(busy)
+                                .disabled(isBusy)
                                 .accessibilityLabel(String(localized: "Update Helper"))
                                 .accessibilityIdentifier("helper.update")
                         }
@@ -118,7 +117,7 @@ struct HelperSettings: View {
                             .accessibilityLabel(String(localized: "Open Login Items…"))
                             .accessibilityIdentifier("helper.loginItems")
                         Button(String(localized: "Remove Helper…"), role: .destructive) { confirmRemove = true }
-                            .disabled(busy)
+                            .disabled(isBusy)
                             .accessibilityLabel(String(localized: "Remove Helper…"))
                             .accessibilityIdentifier("helper.remove")
                     }
@@ -172,6 +171,8 @@ struct HelperSettings: View {
     }
 
     private var outdated: Bool { model.helperStatus == .enabled && model.helperOutdated }
+    private var updating: Bool { model.helperUpdating }
+    private var isBusy: Bool { busy || updating }
 
     private var statusTitle: String {
         if updating { return String(localized: "Updating…") }
@@ -187,6 +188,9 @@ struct HelperSettings: View {
     private var statusDetail: String {
         if updating {
             return String(localized: "Replacing the helper with the one from this copy of PassTunnel. Active connections stop.")
+        }
+        if outdated && model.helperUpdateWaiting {
+            return String(localized: "This helper belongs to another version of PassTunnel. It updates itself when all VPN connections are disconnected.")
         }
         if outdated {
             return String(localized: "This helper belongs to another version of PassTunnel. Update it to connect; active connections stop.")
@@ -241,7 +245,7 @@ struct HelperSettings: View {
     /// Asks the running helper whether it is current (the cached `helperOutdated` may not be known
     /// yet right after launch). `force`: also update a helper that does not answer.
     private func updateIfOutdated(force: Bool) {
-        guard !busy else { return }
+        guard !isBusy else { return }
         Task {
             let outdated = try? await HelperClient.shared.isOutdated()
             if outdated == true || (force && outdated == nil) { update() }
@@ -249,7 +253,7 @@ struct HelperSettings: View {
     }
 
     private func install() {
-        guard !busy else { return }
+        guard !isBusy else { return }
         busy = true
         errorText = nil
         Task {
@@ -264,22 +268,12 @@ struct HelperSettings: View {
         }
     }
 
-    /// Replaces a helper left running from another app version (see `HelperInstaller.update`).
+    /// Replaces a helper left running from another app version (see `AppModel.updateHelper`).
     private func update() {
-        guard !busy else { return }
-        busy = true
-        updating = true
+        guard !isBusy else { return }
         errorText = nil
         Task {
-            do {
-                try await HelperInstaller.update()
-            } catch {
-                errorText = error.localizedDescription
-            }
-            busy = false
-            updating = false
-            model.refreshHelperStatus()
-            model.checkHelperVersion()
+            await model.updateHelper()
             if model.helperStatus == .requiresApproval { HelperInstaller.openSystemSettingsLoginItems() }
         }
     }

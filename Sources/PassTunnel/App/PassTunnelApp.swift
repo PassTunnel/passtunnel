@@ -7,6 +7,7 @@ struct PassTunnelApp: App {
     @StateObject private var model: AppModel
 
     init() {
+        AppUpdater.start()
         _model = StateObject(wrappedValue: AppModel(connections: ConnectionManager(management: PersistentManagementQuerier())))
     }
 
@@ -18,7 +19,10 @@ struct PassTunnelApp: App {
                 .background { MainWindowObserver() }
         }
         .defaultSize(width: 600, height: 500)
-        .commands { AppCommands(model: model) }
+        .commands {
+            CheckForUpdatesCommand()
+            AppCommands(model: model)
+        }
 
         MenuBarExtra {
             MenuBarMenu()

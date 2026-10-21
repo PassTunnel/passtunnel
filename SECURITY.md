@@ -16,7 +16,7 @@ Implementation details are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 Please **do not open a public issue** for security problems.
 
 Report it privately through GitHub: on
-[github.com/Furkanprlk/passtunnel](https://github.com/Furkanprlk/passtunnel) open the **Security**
+[github.com/passtunnel/passtunnel](https://github.com/passtunnel/passtunnel) open the **Security**
 tab and choose **Report a vulnerability** (private vulnerability reporting / security advisories).
 Include the version (Settings → About), your macOS version, the steps to reproduce and what an
 attacker gains.

@@ -29,6 +29,8 @@
 	<string>__BUILD_NUMBER__</string>
 	<key>PTGitDescribe</key>
 	<string>__GIT_DESCRIBE__</string>
+	<key>PTGitHubRepository</key>
+	<string>__GITHUB_REPO__</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>LSMinimumSystemVersion</key>
@@ -44,6 +46,16 @@
 	<key>NSSupportsAutomaticTermination</key>
 	<false/>
 	<key>NSSupportsSuddenTermination</key>
+	<false/>
+	<key>SUFeedURL</key>
+	<string>https://github.com/__GITHUB_REPO__/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>ir1bD2hehY/dSmtfLzPpcTGD+cHqoHQA4KoGXaIbzcw=</string>
+	<key>SUEnableInstallerLauncherService</key>
+	<false/>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUAutomaticallyUpdate</key>
 	<false/>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © Furkan Parlak. Open source software.</string>
