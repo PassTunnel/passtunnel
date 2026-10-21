@@ -1,0 +1,82 @@
+# Checks a pull request itself, not its code (that is ci.yml). Both job names are required status
+# checks in the branch rulesets:
+#
+#   PR title        The title is the commit subject on dev (pull requests are squash-merged), and
+#                   scripts/next-version.sh reads those subjects to pick the next version, so it must
+#                   follow Conventional Commits: type(scope)!: description. A pull request into dev
+#                   must also link its issue in the body (Closes #N, Fixes #N, Resolves #N or Refs #N),
+#                   except Dependabot's.
+#   Source branch   main only takes pull requests from dev of this repository.
+#
+# Runs again when the title, body or base branch is edited, so fixing the title is enough to clear the
+# check. The title and body are untrusted input: they reach the shell only through env.
+name: Pull request
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+    branches: [dev, main]
+
+permissions: {}
+
+concurrency:
+  group: pull-request-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  title:
+    name: PR title
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      TITLE: ${{ github.event.pull_request.title }}
+      BODY: ${{ github.event.pull_request.body }}
+      BASE: ${{ github.event.pull_request.base.ref }}
+      AUTHOR: ${{ github.event.pull_request.user.login }}
+    steps:
+      - name: Check the title
+        run: |
+          # Keep the types and the pattern in step with scripts/next-version.sh.
+          types='feat|fix|perf|docs|refactor|test|build|ci|chore|revert|style'
+          pattern="^($types)(\([A-Za-z0-9._/-]+\))?!?: [^ ].*$"
+          if [[ ! "$TITLE" =~ $pattern ]]; then
+            echo "::error title=PR title::'$TITLE' is not a Conventional Commits title." \
+              "Expected 'type(scope)!: description' with type one of ${types//|/, }; the scope and '!' are optional," \
+              "'!' marks a breaking change. Examples: 'feat(cli): add --json to list', 'fix: reconnect after sleep'." \
+              "feat makes a minor release, fix and perf a patch release, '!' a major one, the other types none."
+            exit 1
+          fi
+          echo "title ok: $TITLE"
+
+      - name: Check the linked issue
+        if: github.event.pull_request.base.ref == 'dev' && github.event.pull_request.user.login != 'dependabot[bot]'
+        run: |
+          if ! grep -Eiq '(^|[^[:alnum:]_])(close[sd]?|fix(e[sd])?|resolve[sd]?|refs?)[[:space:]]+#[0-9]+' <<<"$BODY"; then
+            echo "::error title=Linked issue::the description of a pull request into $BASE must link its issue:" \
+              "'Closes #123' (or Fixes / Resolves) when merging it finishes the issue, 'Refs #123' when it does not."
+            exit 1
+          fi
+          echo "issue link ok"
+
+  source:
+    name: Source branch
+    if: github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+      HEAD_REF: ${{ github.event.pull_request.head.ref }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Check the source branch
+        run: |
+          if [[ "$HEAD_REPO" != "$REPO" || "$HEAD_REF" != "dev" ]]; then
+            echo "::error title=Source branch::main only takes pull requests from dev of $REPO, not from" \
+              "$HEAD_REPO:$HEAD_REF. Open the pull request against dev instead."
+            exit 1
+          fi
+          echo "source ok: $HEAD_REPO:$HEAD_REF"

@@ -2,6 +2,7 @@
 # Builds a signed, notarized PassTunnel release into dist/.
 #
 #   scripts/release.sh VERSION [--draft] [--skip-notarize] [--allow-branch] [--publish]
+#                      [--notes-file FILE]
 #
 #   VERSION          semantic version: 1.2.0, 1.3.0-rc.1, …
 #   --skip-notarize  sign only (no notarization, no stapling); never use for a published release
@@ -9,6 +10,9 @@
 #   --publish        create and push the tag vVERSION (signed when git has a signing key), then
 #                    create the GitHub release as a draft, upload the files and publish it
 #   --draft          with --publish: leave the release as a draft (publish it on GitHub later)
+#   --notes-file FILE
+#                    the release notes (Markdown) from FILE instead of the section "## [VERSION]" of
+#                    docs/CHANGELOG.md (the release workflow passes the notes of next-version.sh)
 #
 # Without --publish nothing leaves this Mac apart from the notarization uploads: no tag, no push, no
 # release. Output: dist/PassTunnel-VERSION.dmg, dist/PassTunnel-VERSION.zip (Sparkle update),
@@ -19,7 +23,10 @@
 # docs/RELEASING.md.
 #
 # Environment: PASSTUNNEL_SIGN_IDENTITY (default: the Developer ID Application identity of the Team ID
-# in Identifiers.swift), NOTARY_PROFILE (notarytool keychain profile, default: passtunnel).
+# in Identifiers.swift), NOTARY_PROFILE (notarytool keychain profile, default: passtunnel),
+# SPARKLE_PRIVATE_KEY_FILE (the Sparkle EdDSA private key as generate_keys -x exports it, instead of
+# the key in the keychain; the release workflow uses it because the Sparkle tools cannot read a key
+# without a keychain prompt there).
 # PASSTUNNEL_ALLOW_UNPINNED_TOOLS is refused: bundled tool versions must match release.env.
 set -euo pipefail
 
@@ -29,19 +36,23 @@ source "$ROOT/scripts/release.env"
 
 die() { echo "error: $*" >&2; exit 1; }
 step() { printf '\n==> %s\n' "$*"; }
-usage() { sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; }
 
 VERSION=""
 DRAFT=0
 SKIP_NOTARIZE=0
 ALLOW_BRANCH=0
 PUBLISH=0
+NOTES_FILE=""
 while (($#)); do
     case "$1" in
         --draft) DRAFT=1 ;;
         --skip-notarize) SKIP_NOTARIZE=1 ;;
         --allow-branch) ALLOW_BRANCH=1 ;;
         --publish) PUBLISH=1 ;;
+        # Relative to the directory release.sh was started from (the script has changed to ROOT).
+        --notes-file) (($# >= 2)) || die "--notes-file needs a file"; NOTES_FILE="$2"
+                      [[ "$NOTES_FILE" == /* ]] || NOTES_FILE="$OLDPWD/$NOTES_FILE"; shift ;;
         -h|--help) usage; exit 0 ;;
         -*) usage >&2; die "unknown option: $1" ;;
         *) [[ -z "$VERSION" ]] || die "more than one version given"; VERSION="$1" ;;
@@ -90,7 +101,6 @@ if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
     echo "tag $TAG exists at HEAD; continuing"
 fi
 
-step "reading the release notes from docs/CHANGELOG.md"
 # The section "## [VERSION] …" up to the next "## "; a pre-release falls back to its base version.
 changelog_section() {
     awk -v v="$1" '
@@ -98,12 +108,20 @@ changelog_section() {
         found { print }
     ' docs/CHANGELOG.md | sed -e '/./,$!d' | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}'
 }
-NOTES="$(changelog_section "$(sed 's/[.]/\\\\./g' <<<"$VERSION")")"
-if [[ -z "$NOTES" && "$PRERELEASE" == 1 ]]; then
-    NOTES="$(changelog_section "$(sed 's/[.]/\\\\./g' <<<"$BASE_VERSION")")"
-    [[ -n "$NOTES" ]] && echo "no section for $VERSION; using the one for $BASE_VERSION"
+if [[ -n "$NOTES_FILE" ]]; then
+    step "reading the release notes from $NOTES_FILE"
+    [[ -f "$NOTES_FILE" ]] || die "$NOTES_FILE not found"
+    NOTES="$(sed -e '/./,$!d' "$NOTES_FILE")"
+    [[ -n "$NOTES" ]] || die "$NOTES_FILE is empty"
+else
+    step "reading the release notes from docs/CHANGELOG.md"
+    NOTES="$(changelog_section "$(sed 's/[.]/\\\\./g' <<<"$VERSION")")"
+    if [[ -z "$NOTES" && "$PRERELEASE" == 1 ]]; then
+        NOTES="$(changelog_section "$(sed 's/[.]/\\\\./g' <<<"$BASE_VERSION")")"
+        [[ -n "$NOTES" ]] && echo "no section for $VERSION; using the one for $BASE_VERSION"
+    fi
+    [[ -n "$NOTES" ]] || die "docs/CHANGELOG.md has no section '## [$VERSION]'"
 fi
-[[ -n "$NOTES" ]] || die "docs/CHANGELOG.md has no section '## [$VERSION]'"
 
 step "checking signing and notarization"
 if [[ -z "${PASSTUNNEL_SIGN_IDENTITY:-}" ]]; then
@@ -126,9 +144,33 @@ swift package resolve >/dev/null
 for tool in generate_appcast generate_keys sign_update; do
     [[ -x "$SPARKLE_BIN/$tool" ]] || die "$SPARKLE_BIN/$tool not found (swift package resolve)"
 done
-KEY="$("$SPARKLE_BIN/generate_keys" -p 2>/dev/null)" || die "no Sparkle signing key in the keychain (see docs/RELEASING.md)"
+# The public key of a key file of generate_keys -x: base64 of the 32-byte seed (or, in Sparkle's older
+# format, of the 64-byte private key followed by the 32-byte public key).
+sparkle_file_public_key() {
+    local size openssl
+    size="$(base64 -D -i "$1" | wc -c | tr -d ' ')"
+    case "$size" in
+        96) base64 -D -i "$1" | tail -c 32 | base64 ;;
+        32) openssl="$(brew --prefix openssl@3 2>/dev/null)/bin/openssl"
+            [[ -x "$openssl" ]] || { echo "error: reading the key needs openssl@3 (brew install openssl@3)" >&2; return 1; }
+            # DER of an Ed25519 PKCS#8 private key: the fixed header, then the seed.
+            { printf '\x30\x2e\x02\x01\x00\x30\x05\x06\x03\x2b\x65\x70\x04\x22\x04\x20'; base64 -D -i "$1"; } \
+                | "$openssl" pkey -inform DER -pubout -outform DER | tail -c 32 | base64 ;;
+        *) echo "error: the key decodes to $size bytes, not 32 or 96" >&2; return 1 ;;
+    esac
+}
+SPARKLE_KEY=()
+if [[ -n "${SPARKLE_PRIVATE_KEY_FILE:-}" ]]; then
+    KEY_SOURCE="key file $SPARKLE_PRIVATE_KEY_FILE"
+    [[ -f "$SPARKLE_PRIVATE_KEY_FILE" ]] || die "SPARKLE_PRIVATE_KEY_FILE: $SPARKLE_PRIVATE_KEY_FILE not found"
+    KEY="$(sparkle_file_public_key "$SPARKLE_PRIVATE_KEY_FILE")" || die "cannot read the Sparkle $KEY_SOURCE"
+    SPARKLE_KEY=(--ed-key-file "$SPARKLE_PRIVATE_KEY_FILE")
+else
+    KEY_SOURCE="keychain"
+    KEY="$("$SPARKLE_BIN/generate_keys" -p 2>/dev/null)" || die "no Sparkle signing key in the keychain (see docs/RELEASING.md)"
+fi
 PLIST_KEY="$(plutil -extract SUPublicEDKey raw Resources/Info.plist)"
-[[ "$KEY" == "$PLIST_KEY" ]] || die "the Sparkle key in the keychain ($KEY) is not the SUPublicEDKey in Resources/Info.plist ($PLIST_KEY)"
+[[ "$KEY" == "$PLIST_KEY" ]] || die "the Sparkle key in the $KEY_SOURCE ($KEY) is not the SUPublicEDKey in Resources/Info.plist ($PLIST_KEY)"
 echo "EdDSA public key: $KEY"
 
 step "checking the MCP bundle tools"
@@ -297,15 +339,16 @@ APPCAST_ARGS=(--download-url-prefix "$DOWNLOAD_PREFIX" --embed-release-notes --m
               --link "https://github.com/$GITHUB_REPO")
 # Pre-releases go to the "beta" channel, which the app does not subscribe to.
 ((PRERELEASE)) && APPCAST_ARGS+=(--channel beta)
-"$SPARKLE_BIN/generate_appcast" "${APPCAST_ARGS[@]}" -o "$WORK/appcast.xml" "$FEED"
+# ${a[@]+…}: an empty array under set -u in bash 3.2.
+"$SPARKLE_BIN/generate_appcast" "${APPCAST_ARGS[@]}" ${SPARKLE_KEY[@]+"${SPARKLE_KEY[@]}"} -o "$WORK/appcast.xml" "$FEED"
 grep -q 'sparkle:edSignature=' "$WORK/appcast.xml" || die "the appcast has no EdDSA signature"
 # The app sets SURequireSignedFeed, so the feed itself must carry an EdDSA signature (an XML comment
 # at the end). generate_appcast adds it when the archived app requires it; sign_update otherwise.
 if ! grep -q '<!-- sparkle-signatures:' "$WORK/appcast.xml"; then
-    "$SPARKLE_BIN/sign_update" "$WORK/appcast.xml"
+    "$SPARKLE_BIN/sign_update" ${SPARKLE_KEY[@]+"${SPARKLE_KEY[@]}"} "$WORK/appcast.xml"
 fi
 grep -q '<!-- sparkle-signatures:' "$WORK/appcast.xml" || die "the appcast feed is not signed"
-"$SPARKLE_BIN/sign_update" --verify "$WORK/appcast.xml" || die "the appcast feed signature does not verify"
+"$SPARKLE_BIN/sign_update" ${SPARKLE_KEY[@]+"${SPARKLE_KEY[@]}"} --verify "$WORK/appcast.xml" || die "the appcast feed signature does not verify"
 grep -q "url=\"$DOWNLOAD_PREFIX$ZIP_NAME\"" "$WORK/appcast.xml" || die "the appcast does not point at $DOWNLOAD_PREFIX$ZIP_NAME"
 rm -rf "$FEED"
 

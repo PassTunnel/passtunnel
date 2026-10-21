@@ -1,6 +1,14 @@
+<!--
+Title: type(scope): description, for example "feat: fill in the code for GlobalProtect" or
+"fix(cli): exit with 3 for a missing profile". Types and what they release: CONTRIBUTING.md.
+Pull requests go into dev and are squash-merged; the title is the commit and the release-notes line.
+-->
+
+Closes #
+
 ## What and why
 
-<!-- What does this change, and which issue does it address? -->
+<!-- What does this change, and why? -->
 
 ## How it was tested
 
