@@ -2,7 +2,7 @@
 
 Changes up to 1.1.1. Later releases are made automatically when `dev` is merged into `main`, and
 their notes are generated from the pull request titles: see
-[GitHub Releases](https://github.com/PassTunnel/passtunnel/releases) and
+[GitHub Releases](https://github.com/passtunnel/passtunnel/releases) and
 [CONTRIBUTING.md](../CONTRIBUTING.md#pull-request-titles). Versions follow Semantic Versioning.
 
 ## [1.1.1] - 2026-10-21

@@ -10,8 +10,8 @@ secret in the Keychain and fills in the current code (and your password) every t
 [![macOS 13+](https://img.shields.io/badge/macOS-13%2B-blue)](#install)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Swift 5.10](https://img.shields.io/badge/Swift-5.10-orange)](Package.swift)
-[![CI](https://github.com/PassTunnel/passtunnel/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/PassTunnel/passtunnel/actions/workflows/ci.yml)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/PassTunnel/passtunnel/badge)](https://scorecard.dev/viewer/?uri=github.com/PassTunnel/passtunnel)
+[![CI](https://github.com/passtunnel/passtunnel/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/passtunnel/passtunnel/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/passtunnel/passtunnel/badge)](https://scorecard.dev/viewer/?uri=github.com/passtunnel/passtunnel)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/main-dark.png">
