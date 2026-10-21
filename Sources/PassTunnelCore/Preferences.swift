@@ -4,7 +4,8 @@ import Foundation
 public enum AppAppearance: String, Codable, CaseIterable, Sendable { case system, light, dark }
 
 /// App preferences stored in `config.json`. Missing or unknown keys fall back to defaults; the
-/// legacy `theme` key is read into `appearance`.
+/// legacy `theme` key is read into `appearance`. Unknown keys are ignored and dropped on the next save
+/// (e.g. `auto_update` from before Sparkle, which keeps its own setting).
 public struct Preferences: Codable, Equatable {
     public var defaultProfile: String? = nil
     // General
@@ -14,7 +15,6 @@ public struct Preferences: Codable, Equatable {
     public var hideCodes = false
     public var showInDock = false
     public var launchAtLogin = true
-    public var autoUpdate = false
     // Notifications
     public var notifyOnDrop = true
     public var notifyHealth = true
@@ -35,7 +35,7 @@ public struct Preferences: Codable, Equatable {
     public init() {}
 
     enum CodingKeys: String, CodingKey {
-        case defaultProfile, appearance, badgePalette, showLock, hideCodes, showInDock, launchAtLogin, autoUpdate
+        case defaultProfile, appearance, badgePalette, showLock, hideCodes, showInDock, launchAtLogin
         case notifyOnDrop, notifyHealth, sessionNotifyMin, sessionWarnMin, hotkeys, autoType, authReuseMinutes
         case theme   // legacy, read only
     }
@@ -51,7 +51,6 @@ public struct Preferences: Codable, Equatable {
         hideCodes = c.lenient(Bool.self, .hideCodes) ?? d.hideCodes
         showInDock = c.lenient(Bool.self, .showInDock) ?? d.showInDock
         launchAtLogin = c.lenient(Bool.self, .launchAtLogin) ?? d.launchAtLogin
-        autoUpdate = c.lenient(Bool.self, .autoUpdate) ?? d.autoUpdate
         notifyOnDrop = c.lenient(Bool.self, .notifyOnDrop) ?? d.notifyOnDrop
         notifyHealth = c.lenient(Bool.self, .notifyHealth) ?? d.notifyHealth
         sessionNotifyMin = max(0, c.lenient(Int.self, .sessionNotifyMin) ?? d.sessionNotifyMin)
@@ -71,7 +70,6 @@ public struct Preferences: Codable, Equatable {
         try c.encode(hideCodes, forKey: .hideCodes)
         try c.encode(showInDock, forKey: .showInDock)
         try c.encode(launchAtLogin, forKey: .launchAtLogin)
-        try c.encode(autoUpdate, forKey: .autoUpdate)
         try c.encode(notifyOnDrop, forKey: .notifyOnDrop)
         try c.encode(notifyHealth, forKey: .notifyHealth)
         try c.encode(sessionNotifyMin, forKey: .sessionNotifyMin)

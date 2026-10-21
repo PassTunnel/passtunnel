@@ -36,6 +36,9 @@ cask "passtunnel" do
   ]
 
   caveats <<~EOS
+    The helper's entry in System Settings → General → Login Items disappears the next time macOS
+    cleans up its background items, at the latest after a restart.
+
     Passwords and TOTP secrets stay in your login Keychain (service "PassTunnel") after
     uninstalling. Remove them in Keychain Access, or with:
       while security delete-generic-password -s PassTunnel >/dev/null 2>&1; do :; done

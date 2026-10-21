@@ -149,7 +149,18 @@ final class JSONAndPreferencesTests: CoreTestCase {
         XCTAssertFalse(p.hotkeys)
         XCTAssertFalse(p.autoType)
         XCTAssertTrue(p.launchAtLogin)
-        XCTAssertFalse(p.autoUpdate)
+    }
+
+    /// `auto_update` was a preference before Sparkle kept its own setting: still loads, then is dropped.
+    func testPreferencesIgnoreTheLegacyAutoUpdateKey() throws {
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try Data(#"{"auto_update":true,"hotkeys":true}"#.utf8).write(to: AppPaths.default.configURL)
+        let p = Preferences.load()
+        XCTAssertTrue(p.hotkeys)
+        try p.save()
+        let saved = try String(contentsOf: AppPaths.default.configURL, encoding: .utf8)
+        XCTAssertFalse(saved.contains("auto_update"))
+        XCTAssertEqual(Preferences.load(), p)
     }
 
     func testPreferencesPartialFileAndRoundTrip() throws {

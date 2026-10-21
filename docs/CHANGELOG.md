@@ -36,7 +36,9 @@ The first public release.
 
 ### More
 
-- **Optional Touch ID protection** for your codes and secrets.
+- **Confirm with Touch ID** per profile: off, before connecting, or before connecting and showing
+  codes. Secrets are then encrypted with a Secure Enclave key that only Touch ID or your Mac
+  password unlocks.
 - **Command-line tool** `passtunnel` with the same features as the app, `--json` output and shell
   completions.
 - **Automatic updates** (signed with EdDSA, checked before installing); the helper updates itself
