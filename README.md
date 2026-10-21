@@ -291,6 +291,8 @@ connection and tell you what is wrong.
 
 [![Install in Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/en/install-mcp?name=passtunnel&config=eyJjb21tYW5kIjoiL0FwcGxpY2F0aW9ucy9QYXNzVHVubmVsLmFwcC9Db250ZW50cy9NYWNPUy9QYXNzVHVubmVsIiwiYXJncyI6WyJtY3AiXX0%3D) [![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_PassTunnel_MCP-0098FF?logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect?url=vscode%3Amcp%2Finstall%3F%257B%2522name%2522%253A%2522passtunnel%2522%252C%2522command%2522%253A%2522%2FApplications%2FPassTunnel.app%2FContents%2FMacOS%2FPassTunnel%2522%252C%2522args%2522%253A%255B%2522mcp%2522%255D%257D)
 
+[![passtunnel MCP server – quality and maintenance score on Glama](https://glama.ai/mcp/servers/PassTunnel/passtunnel/badges/card.svg)](https://glama.ai/mcp/servers/PassTunnel/passtunnel)
+
 | Tool | What it does |
 |---|---|
 | `list_profiles` | Profiles with type, state, whether connecting asks for Touch ID, auto-reconnect |
