@@ -376,26 +376,34 @@ public struct HelperCore {
 
     // MARK: - Log size
 
-    /// Size above which a running tool's log is trimmed, and how much of its end is kept.
+    /// Size above which a running tool's log is trimmed, how much of its end is kept, and how much of
+    /// its start (version, tunnel device, pushed options, route and DNS set-up).
     public static let maxLogBytes = 5 << 20
     public static let keptLogBytes = 1 << 20
+    public static let keptLogHeadBytes = 64 << 10
 
     /// Keeps the log behind `fd` (opened with `O_APPEND`, readable) under `maxBytes`: when it is
-    /// larger, it is cut to its last `keepBytes` (from a line start) behind a marker line. The tool
-    /// keeps appending through its own descriptor. Lines it writes during the few microseconds of the
-    /// cut can be lost. Returns true when it trimmed.
+    /// larger, everything between its first `headBytes` and its last `keepBytes` (both cut at line
+    /// boundaries) is replaced by a marker line. The tool keeps appending through its own descriptor;
+    /// lines it writes during the few microseconds of the cut can be lost. Returns true when it trimmed.
     @discardableResult
-    public static func capLog(fd: Int32, maxBytes: Int = maxLogBytes, keepBytes: Int = keptLogBytes) -> Bool {
+    public static func capLog(fd: Int32, maxBytes: Int = maxLogBytes, keepBytes: Int = keptLogBytes,
+                              headBytes: Int = keptLogHeadBytes) -> Bool {
         var st = stat()
-        guard fstat(fd, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG, st.st_size > maxBytes else { return false }
-        let keep = min(keepBytes, Int(st.st_size))
-        var tail = [UInt8](repeating: 0, count: keep)
-        let n = pread(fd, &tail, keep, off_t(Int(st.st_size) - keep))
+        guard fstat(fd, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG, st.st_size > maxBytes,
+              headBytes + keepBytes < st.st_size else { return false }
+        let size = Int(st.st_size)
+        var head = [UInt8](repeating: 0, count: headBytes)
+        let h = headBytes > 0 ? pread(fd, &head, headBytes, 0) : 0
+        guard h >= 0 else { return false }
+        let headEnd = head[0..<h].lastIndex(of: 0x0A).map { $0 + 1 } ?? 0
+        var tail = [UInt8](repeating: 0, count: keepBytes)
+        let n = pread(fd, &tail, keepBytes, off_t(size - keepBytes))
         guard n > 0 else { return false }
         var kept = tail[0..<n]
         if let nl = kept.firstIndex(of: 0x0A) { kept = kept[(nl + 1)...] }
-        guard ftruncate(fd, 0) == 0 else { return false }
-        let marker = "[log trimmed by the helper at \(maxBytes >> 20) MB; older lines removed]\n"
+        guard ftruncate(fd, off_t(headEnd)) == 0 else { return false }
+        let marker = "[log trimmed by the helper at \(maxBytes >> 20) MB; lines in between removed]\n"
         let data = Array(marker.utf8) + Array(kept)
         _ = data.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
         return true

@@ -242,7 +242,8 @@ Security rules (helper):
   is invisible, so `stop` of it is the same successful no-op as an unknown ID (idempotent).
 - Logs: `vpn.log` is recreated for every session (`ProfileDirectory.createLogFile`, `O_APPEND`, readable);
   the supervisor keeps a copy of the descriptor and once a minute runs `HelperCore.capLog`: above 5 MB the
-  file is cut to its last 1 MB (from a line start) behind a marker line.
+  file keeps its first 64 KB (start-up: tunnel device, pushed options, route/DNS set-up) and its last 1 MB,
+  whole lines, with a marker line in between.
 
 `HelperClient` (Core) wraps the XPC connection with async functions. `ManagementSocket` (Core) is a
 one-shot client for the OpenVPN management socket: `ManagementSocket(path:).command(_:timeout:)` connects,

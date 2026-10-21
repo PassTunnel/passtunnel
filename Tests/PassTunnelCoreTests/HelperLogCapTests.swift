@@ -25,28 +25,36 @@ final class HelperLogCapTests: XCTestCase {
 
     func testSmallLogIsLeftAlone() {
         append("line 1\nline 2\n")
-        XCTAssertFalse(HelperCore.capLog(fd: fd, maxBytes: 100, keepBytes: 50))
+        XCTAssertFalse(HelperCore.capLog(fd: fd, maxBytes: 100, keepBytes: 50, headBytes: 10))
         XCTAssertEqual(contents, "line 1\nline 2\n")
     }
 
-    func testLargeLogKeepsWholeLinesFromTheEnd() {
+    func testLargeLogKeepsWholeLinesFromTheStartAndTheEnd() {
+        append("Opened utun device utun7\n")
         for i in 0..<200 { append("2026-01-01 10:00:00 line \(i)\n") }
-        XCTAssertTrue(HelperCore.capLog(fd: fd, maxBytes: 1000, keepBytes: 300))
+        XCTAssertTrue(HelperCore.capLog(fd: fd, maxBytes: 1000, keepBytes: 300, headBytes: 40))
         let lines = contents.split(separator: "\n").map(String.init)
-        XCTAssertTrue(lines[0].hasPrefix("[log trimmed by the helper"), lines[0])
-        XCTAssertFalse(lines[0].contains("PassTunnel: "), "would read as a start failure")
-        XCTAssertTrue(lines[1].hasPrefix("2026-01-01 10:00:00 line "), "starts at a whole line: \(lines[1])")
+        XCTAssertEqual(lines[0], "Opened utun device utun7", "whole head lines only")
+        XCTAssertTrue(lines[1].hasPrefix("[log trimmed by the helper"), lines[1])
+        XCTAssertFalse(lines[1].contains("PassTunnel: "), "would read as a start failure")
+        XCTAssertTrue(lines[2].hasPrefix("2026-01-01 10:00:00 line "), "starts at a whole line: \(lines[2])")
         XCTAssertEqual(lines.last, "2026-01-01 10:00:00 line 199")
-        XCTAssertLessThan(contents.utf8.count, 400)
+        XCTAssertLessThan(contents.utf8.count, 450)
 
         // The tool keeps appending through its descriptor.
         append("after\n")
         XCTAssertTrue(contents.hasSuffix("line 199\nafter\n"))
-        XCTAssertFalse(HelperCore.capLog(fd: fd, maxBytes: 1000, keepBytes: 300))
+        XCTAssertFalse(HelperCore.capLog(fd: fd, maxBytes: 1000, keepBytes: 300, headBytes: 40))
+    }
+
+    func testWithoutHead() {
+        for i in 0..<200 { append("2026-01-01 10:00:00 line \(i)\n") }
+        XCTAssertTrue(HelperCore.capLog(fd: fd, maxBytes: 1000, keepBytes: 300, headBytes: 0))
+        XCTAssertTrue(contents.hasPrefix("[log trimmed by the helper"))
     }
 
     func testDefaultLimits() {
         XCTAssertEqual(HelperCore.maxLogBytes, 5 * 1024 * 1024)
-        XCTAssertLessThan(HelperCore.keptLogBytes, HelperCore.maxLogBytes)
+        XCTAssertLessThan(HelperCore.keptLogBytes + HelperCore.keptLogHeadBytes, HelperCore.maxLogBytes)
     }
 }
