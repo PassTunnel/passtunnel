@@ -197,7 +197,12 @@ app bundle is replaced), the app/CLI hash `Contents/MacOS/PassTunnelHelper` next
 separate call rather than a second `version` reply value so a protocol-2 helper is still recognized as
 outdated. The app then shows Settings → Helper as "Needs an update", whose
 **Update Helper** button unregisters the daemon (launchd stops it, which stops its tunnels) and
-registers it again from the running app bundle.
+registers it again from the running app bundle (`HelperInstaller.update`, Core, behind the
+`HelperRegistrar` protocol so it is unit-tested with a fake). Right after the unregister, launchd may
+refuse the new registration with EPERM ("Operation not permitted") for a few seconds, so `update` waits
+up to 1.5 s for the old job to leave `.enabled` and retries EPERM after 0.5, 1, 2 and 3 s; only then does
+it fail (`HelperInstallError.notPermitted`). `kSMErrorLaunchDeniedByUser` (switched off in Login Items)
+is not retried (`.deniedByUser`); `kSMErrorAlreadyRegistered` counts as success.
 
 Run directory layout (all root-owned; `HelperCore.makeRunDir`):
 

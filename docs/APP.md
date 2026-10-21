@@ -111,7 +111,8 @@ Connect/Disconnect, Copy code; then Open PassTunnel (⌘O), Settings… (⌘,), 
 - **Notifications**: unexpected drop, session-limit (minutes before), health.
 - **Shortcuts**: enable global hotkeys (default off): ⌃⌥V connect/disconnect default profile,
   ⌃⌥C type/copy code.
-- **Helper**: status (enabled / needs approval / not installed) with Install / Open Login Items / Remove;
+- **Helper**: status (enabled / needs approval / not installed / needs an update / updating) with Install /
+  Update / Open Login Items / Remove;
   bundled tool versions; "Show licenses" (Resources/licenses).
 - **Updates**: Sparkle (check automatically, check now). Feed URL on GitHub Releases (appcast.xml).
 - **About**: version, GitHub link, license (MIT).
@@ -160,6 +161,10 @@ process started in Terminal ("Operation not permitted"), so the CLI never calls 
 `HelperHandoff.notification` to a running app, or opens its own app bundle with `--install-helper` /
 `--uninstall-helper`; the app shows Settings → Helper, starts the registration (removal asks for
 confirmation there), and the CLI waits for the new status and prints it. `helper status` stays local.
+When the helper is enabled but outdated (another protocol or build), `helper install` hands off
+`--update-helper` (`HelperHandoff.update`) instead: the app runs the same update as Settings → Helper →
+Update Helper (active connections stop), and the CLI waits up to 60 s for the helper to report the
+current protocol and build. An `install` hand-off that finds an outdated helper updates it too.
 
 The app and the CLI share the files and the Keychain. The app never acts on a cached profile:
 connect, copy code, copy password + code and auto-type re-read the stored profile and Keychain item

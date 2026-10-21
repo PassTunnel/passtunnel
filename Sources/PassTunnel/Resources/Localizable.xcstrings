@@ -167,12 +167,12 @@
         }
       }
     },
-    "(out of date, reinstall it)" : {
+    "(out of date; “passtunnel helper install” updates it)" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "(güncel değil, yeniden yükleyin)"
+            "value" : "(güncel değil; “passtunnel helper install” ile güncellenir)"
           }
         }
       }
@@ -197,6 +197,16 @@
         }
       }
     },
+    "Active connections stop while the helper is replaced." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı değiştirilirken etkin bağlantılar kesilir."
+          }
+        }
+      }
+    },
     "Needs an update" : {
       "localizations" : {
         "tr" : {
@@ -207,12 +217,62 @@
         }
       }
     },
+    "Opening PassTunnel to update the helper…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcıyı güncellemek için PassTunnel açılıyor…"
+          }
+        }
+      }
+    },
+    "Replacing the helper with the one from this copy of PassTunnel. Active connections stop." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı, PassTunnel’ın bu kopyasındakiyle değiştiriliyor. Etkin bağlantılar kesilir."
+          }
+        }
+      }
+    },
     "The PassTunnel helper belongs to another version of PassTunnel (version %lld, expected %lld). Update it in Settings → Helper." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "PassTunnel yardımcısı başka bir PassTunnel sürümüne ait (sürüm %1$lld, beklenen %2$lld). Ayarlar → Yardımcı bölümünden güncelleyin."
+          }
+        }
+      }
+    },
+    "The helper is not updated yet. Finish the update in PassTunnel → Settings → Helper." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı henüz güncellenmedi. Güncellemeyi PassTunnel → Ayarlar → Yardımcı bölümünde tamamlayın."
+          }
+        }
+      }
+    },
+    "The helper is turned off in System Settings → General → Login Items. Turn on PassTunnel there." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı, Sistem Ayarları → Genel → Giriş Öğeleri bölümünde kapalı. PassTunnel’ı orada açın."
+          }
+        }
+      }
+    },
+    "The helper was updated." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı güncellendi."
           }
         }
       }
@@ -233,6 +293,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Yardımcıyı Güncelle"
+          }
+        }
+      }
+    },
+    "Updating…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Güncelleniyor…"
           }
         }
       }
@@ -2284,6 +2354,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Menü çubuğunda"
+          }
+        }
+      }
+    },
+    "macOS did not allow PassTunnel to install the helper (%@). Click Install Helper to try again." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS, PassTunnel’ın yardımcıyı kurmasına izin vermedi (%@). Yeniden denemek için Yardımcıyı Yükle’ye tıklayın."
           }
         }
       }

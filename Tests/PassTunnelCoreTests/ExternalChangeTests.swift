@@ -113,6 +113,9 @@ final class ExternalChangeTests: CoreTestCase {
     func testHelperHandOffArguments() {
         XCTAssertEqual(HelperHandoff.install.argument, "--install-helper")
         XCTAssertEqual(HelperHandoff.uninstall.argument, "--uninstall-helper")
+        XCTAssertEqual(HelperHandoff.update.argument, "--update-helper")
+        XCTAssertEqual(HelperHandoff.from(arguments: ["PassTunnel", "--update-helper"]), .update)
+        XCTAssertEqual(HelperHandoff(rawValue: "update"), .update)
         XCTAssertEqual(HelperHandoff.from(arguments: ["/Applications/PassTunnel.app/Contents/MacOS/PassTunnel",
                                                       "--install-helper"]), .install)
         XCTAssertEqual(HelperHandoff.from(arguments: ["PassTunnel", "-AppleLanguages", "(tr)", "--uninstall-helper"]),

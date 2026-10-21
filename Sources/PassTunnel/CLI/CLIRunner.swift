@@ -597,7 +597,10 @@ final class CLIRunner {
             return await printHelperStatus()
         case .install:
             switch HelperInstaller.status {
-            case .enabled, .notFound:
+            case .enabled:
+                guard await helperIsOutdated() == true else { return await printHelperStatus() }
+                return try await updateHelper()
+            case .notFound:
                 return await printHelperStatus()
             case .requiresApproval:
                 HelperInstaller.openSystemSettingsLoginItems()
@@ -629,6 +632,34 @@ final class CLIRunner {
             CLITerminal.out(String(localized: "The helper was removed."))
             return Exit.ok
         }
+    }
+
+    /// The helper is enabled but from another app version or build: the app replaces it (unregister,
+    /// then register from its own bundle), which stops its connections. Waits for the current helper.
+    private func updateHelper() async throws -> Int32 {
+        try handOffToApp(.update)
+        CLITerminal.out(String(localized: "Opening PassTunnel to update the helper…"))
+        CLITerminal.out(String(localized: "Active connections stop while the helper is replaced."))
+        let deadline = Date().addingTimeInterval(60)
+        // Give the app time to unregister the old helper before asking the running one.
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
+        while Date() < deadline {
+            if HelperInstaller.status == .enabled, await helperIsOutdated() == false {
+                CLITerminal.out(String(localized: "The helper was updated."))
+                return await printHelperStatus()
+            }
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+        CLITerminal.out(String(localized: "The helper is not updated yet. Finish the update in PassTunnel → Settings → Helper."))
+        _ = await printHelperStatus()
+        return Exit.error
+    }
+
+    /// Whether the running helper speaks another protocol or is another build; nil when it does not answer.
+    private func helperIsOutdated() async -> Bool? {
+        let client = HelperClient(timeout: 5)
+        defer { client.invalidate() }
+        return try? await client.isOutdated()
     }
 
     /// Asks the app to perform `action`: a running copy gets a notification, otherwise the app is
@@ -673,7 +704,9 @@ final class CLIRunner {
         switch HelperInstaller.status {
         case .enabled:
             if let v = try? await HelperClient.shared.version() {
-                let note = v == PT.helperProtocolVersion ? "" : "  " + String(localized: "(out of date, reinstall it)")
+                var outdated = v != PT.helperProtocolVersion
+                if !outdated { outdated = (try? await HelperClient.shared.isOutdated()) == true }
+                let note = outdated ? "  " + String(localized: "(out of date; “passtunnel helper install” updates it)") : ""
                 CLITerminal.out(String(localized: "Helper: enabled (protocol \(v))") + note)
             } else {
                 CLITerminal.out(String(localized: "Helper: enabled, but not responding"))

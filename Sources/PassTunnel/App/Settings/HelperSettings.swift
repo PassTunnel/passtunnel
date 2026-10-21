@@ -57,6 +57,7 @@ enum BundledTools {
 struct HelperSettings: View {
     @EnvironmentObject private var model: AppModel
     @State private var busy = false
+    @State private var updating = false
     @State private var errorText: String?
     @State private var confirmRemove = false
     @State private var showLicenses = false
@@ -156,6 +157,7 @@ struct HelperSettings: View {
     private var outdated: Bool { model.helperStatus == .enabled && model.helperOutdated }
 
     private var statusTitle: String {
+        if updating { return String(localized: "Updating…") }
         if outdated { return String(localized: "Needs an update") }
         switch model.helperStatus {
         case .enabled: return String(localized: "Installed and running")
@@ -166,6 +168,9 @@ struct HelperSettings: View {
     }
 
     private var statusDetail: String {
+        if updating {
+            return String(localized: "Replacing the helper with the one from this copy of PassTunnel. Active connections stop.")
+        }
         if outdated {
             return String(localized: "This helper belongs to another version of PassTunnel. Update it to connect; active connections stop.")
         }
@@ -178,7 +183,7 @@ struct HelperSettings: View {
     }
 
     private var statusSymbol: String {
-        if outdated { return "arrow.triangle.2.circlepath" }
+        if outdated || updating { return "arrow.triangle.2.circlepath" }
         switch model.helperStatus {
         case .enabled: return "checkmark.shield.fill"
         case .requiresApproval: return "exclamationmark.shield.fill"
@@ -188,7 +193,7 @@ struct HelperSettings: View {
     }
 
     private var statusColor: Color {
-        if outdated { return .orange }
+        if outdated || updating { return .orange }
         switch model.helperStatus {
         case .enabled: return .green
         case .requiresApproval: return .orange
@@ -198,44 +203,64 @@ struct HelperSettings: View {
     }
 
     /// Carries out what `passtunnel helper install|uninstall` asked for. Removal is never silent:
-    /// any local process can post the request, so the user confirms it here.
+    /// any local process can post the request, so the user confirms it here. An install request for
+    /// a helper that is enabled but outdated updates it (the user asked for a working helper; updating
+    /// stops active connections, as the status line says).
     private func runPendingAction() {
         guard let action = model.pendingHelperAction else { return }
         model.pendingHelperAction = nil
         model.refreshHelperStatus()
         switch (action, model.helperStatus) {
-        case (.install, .notRegistered): install()
-        case (.install, .requiresApproval): HelperInstaller.openSystemSettingsLoginItems()
-        case (.install, _): break
+        case (.install, .notRegistered), (.update, .notRegistered): install()
+        case (.install, .requiresApproval), (.update, .requiresApproval): HelperInstaller.openSystemSettingsLoginItems()
+        case (.install, .enabled): updateIfOutdated(force: false)
+        case (.update, .enabled): updateIfOutdated(force: true)
+        case (.install, _), (.update, _): break
         case (.uninstall, .enabled), (.uninstall, .requiresApproval): confirmRemove = true
         case (.uninstall, _): break
         }
     }
 
-    private func install() {
-        errorText = nil
-        do {
-            try HelperInstaller.register()
-        } catch {
-            errorText = error.localizedDescription
+    /// Asks the running helper whether it is current (the cached `helperOutdated` may not be known
+    /// yet right after launch). `force`: also update a helper that does not answer.
+    private func updateIfOutdated(force: Bool) {
+        guard !busy else { return }
+        Task {
+            let outdated = try? await HelperClient.shared.isOutdated()
+            if outdated == true || (force && outdated == nil) { update() }
         }
-        model.refreshHelperStatus()
-        if model.helperStatus == .requiresApproval { HelperInstaller.openSystemSettingsLoginItems() }
     }
 
-    /// Replaces a helper left running from another app version: unregistering stops it (launchd
-    /// sends SIGTERM, which stops its tunnels), registering again points launchd at this copy.
-    private func update() {
+    private func install() {
+        guard !busy else { return }
         busy = true
         errorText = nil
         Task {
             do {
-                try await HelperInstaller.unregister()
-                try HelperInstaller.register()
+                try await HelperInstaller.registerRetrying()
             } catch {
                 errorText = error.localizedDescription
             }
             busy = false
+            model.refreshHelperStatus()
+            if model.helperStatus == .requiresApproval { HelperInstaller.openSystemSettingsLoginItems() }
+        }
+    }
+
+    /// Replaces a helper left running from another app version (see `HelperInstaller.update`).
+    private func update() {
+        guard !busy else { return }
+        busy = true
+        updating = true
+        errorText = nil
+        Task {
+            do {
+                try await HelperInstaller.update()
+            } catch {
+                errorText = error.localizedDescription
+            }
+            busy = false
+            updating = false
             model.refreshHelperStatus()
             model.checkHelperVersion()
             if model.helperStatus == .requiresApproval { HelperInstaller.openSystemSettingsLoginItems() }
