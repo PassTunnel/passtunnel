@@ -65,6 +65,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.handleHelperHandoff(action)
             }
             .store(in: &bag)
+        // `passtunnel debug drop ID` (test hook): drop over the management connection the app holds.
+        DistributedNotificationCenter.default().publisher(for: DebugDrop.notification)
+            .receive(on: DispatchQueue.main)
+            .sink { note in
+                guard let id = note.object as? String, let model = AppModel.shared else { return }
+                Task { @MainActor in _ = try? await model.connections.simulateDrop(id) }
+            }
+            .store(in: &bag)
         if let action = HelperHandoff.from(arguments: CommandLine.arguments) {
             DispatchQueue.main.async { self.handleHelperHandoff(action) }
         }

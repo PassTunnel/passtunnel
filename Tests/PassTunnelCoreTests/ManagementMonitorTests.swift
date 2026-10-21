@@ -95,6 +95,30 @@ final class PersistentManagementQuerierTests: XCTestCase {
         XCTAssertEqual(q.openConnections, 0)
     }
 
+    /// A command (the debug drop) goes over the held connection: a second client would only wait.
+    func testSendUsesTheHeldConnection() async throws {
+        var accepted = 0
+        var received: String?
+        let server = FakeManagementServer(path: sock, handlers: [
+            { fd in
+                accepted += 1
+                Self.open(fd, state: Self.connected)
+                received = FakeManagementServer.readLine(fd)
+                FakeManagementServer.send(fd, "SUCCESS: signal SIGTERM thrown\r\n")
+                var b: UInt8 = 0
+                while read(fd, &b, 1) == 1 {}
+            },
+        ])
+        waitForSocket()
+        let q = PersistentManagementQuerier()
+        _ = try await q.state(socketPath: sock, timeout: 2)
+        _ = try await q.send(DebugDrop.command, socketPath: sock, timeout: 2)
+        q.releaseAll()
+        server.wait()
+        XCTAssertEqual(accepted, 1)
+        XCTAssertEqual(received, DebugDrop.command)
+    }
+
     func testBusyWhenAnotherClientHoldsTheInterface() async throws {
         let server = FakeManagementServer(path: sock, handlers: [{ _ in usleep(600_000) }])
         waitForSocket()

@@ -11,6 +11,7 @@ final class LoopingManagementServer: @unchecked Sendable {
     private let lock = NSLock()
     private var line: String
     private var stopped = false
+    private var _commands: [String] = []
     private let listenFD: Int32
     private let finished = DispatchSemaphore(value: 0)
 
@@ -39,6 +40,8 @@ final class LoopingManagementServer: @unchecked Sendable {
     }
 
     private var isStopped: Bool { lock.lock(); defer { lock.unlock() }; return stopped }
+    /// Commands other than `state` that clients sent.
+    var commands: [String] { lock.lock(); defer { lock.unlock() }; return _commands }
 
     private func loop() {
         while !isStopped {
@@ -52,6 +55,9 @@ final class LoopingManagementServer: @unchecked Sendable {
             let cmd = FakeManagementServer.readLine(c)
             if cmd == "state" {
                 FakeManagementServer.send(c, stateLine + "\r\nEND\r\n")
+            } else if cmd.hasPrefix("signal ") {
+                lock.lock(); _commands.append(cmd); lock.unlock()
+                FakeManagementServer.send(c, "SUCCESS: \(cmd) thrown\r\n")
             } else {
                 FakeManagementServer.send(c, "ERROR: unknown command\r\n")
             }
@@ -201,6 +207,10 @@ final class FakeHelper: HelperClienting, @unchecked Sendable {
             sockets[id] = sock
             _running[id] = 5151
         }
+    }
+
+    func managementCommands(_ id: String) -> [String] {
+        locked { servers[id] }?.commands ?? []
     }
 
     func setStateLine(_ id: String, _ line: String) {
@@ -589,6 +599,26 @@ final class ConnectionManagerTests: XCTestCase {
         await m.refresh()
         XCTAssertEqual(events.count, 1)
         XCTAssertNil(m.reconnecting[p.id])
+    }
+
+    /// `passtunnel debug drop`: OpenVPN is asked to exit over its management socket, and the exit is a
+    /// drop (not a user stop), so auto-reconnect runs.
+    func testSimulatedDropIsHandledAsADrop() async throws {
+        let p = try makeOpenVPN(autoReconnect: true)
+        let m = makeManager()
+        try await m.connect(p.id)
+        let dropped = try await m.simulateDrop(p.id)
+        XCTAssertTrue(dropped)
+        XCTAssertEqual(helper.managementCommands(p.id), [DebugDrop.command])
+        helper.simulateExit(p.id)
+        await m.refresh()
+        XCTAssertEqual(events.first, .dropped(profileID: p.id, willReconnect: true))
+        await waitUntil { self.events.count == 2 }
+        XCTAssertEqual(events.last, .reconnected(profileID: p.id))
+        // Nothing to drop once it is not running.
+        let other = try makeOpenVPN("Other")
+        let droppedOther = try await m.simulateDrop(other.id)
+        XCTAssertFalse(droppedOther)
     }
 
     func testDropReconnectsWithBackoff() async throws {

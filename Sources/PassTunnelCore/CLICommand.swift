@@ -16,6 +16,7 @@ public struct CLIUsageError: Error, Equatable, LocalizedError {
 /// A parsed `passtunnel` command line. Pure, so it can be unit-tested; execution lives in the app target.
 public enum CLICommand: Equatable {
     public enum HelperAction: String, CaseIterable { case status, install, uninstall }
+    public enum DebugAction: String, CaseIterable { case drop }
     public enum Shell: String, CaseIterable { case zsh, bash, fish }
 
     case status(id: String?, json: Bool)
@@ -36,6 +37,7 @@ public enum CLICommand: Equatable {
     case unpin(id: String)
     case log(id: String, follow: Bool)
     case helper(HelperAction)
+    case debug(DebugAction, id: String)   // hidden test hooks, e.g. `debug drop ID` (see `DebugDrop`)
     case completion(Shell)
     case help(command: String?)
     case version
@@ -55,6 +57,9 @@ public enum CLICommand: Equatable {
         "rm", "secret", "default", "pin", "unpin", "log", "helper", "completion", "help",
     ]
 
+    /// Commands that select CLI mode but are left out of help and completion (test hooks).
+    public static let hiddenCommandNames = ["debug"]
+
     /// Also accepted as a first argument (`passtunnel --help`, `PassTunnel --version`).
     public static let globalFlags = ["--help", "-h", "--version", "-V"]
 
@@ -63,7 +68,8 @@ public enum CLICommand: Equatable {
 
     /// True when `first` (argv[1]) names a command or a global flag.
     public static func isCommand(_ first: String) -> Bool {
-        commandNames.contains(first) || aliases[first] != nil || globalFlags.contains(first)
+        commandNames.contains(first) || hiddenCommandNames.contains(first) || aliases[first] != nil
+            || globalFlags.contains(first)
     }
 
     /// Removes Foundation's argument-domain pairs such as `-AppleLanguages '(tr)'` or `-AppleLocale tr_TR`.
@@ -101,7 +107,7 @@ public enum CLICommand: Equatable {
         if first == "--version" || first == "-V" { return .version }
         if first == "--json" { return try parse(["status"] + args) }
         let name = aliases[first] ?? first
-        guard commandNames.contains(name) else {
+        guard commandNames.contains(name) || hiddenCommandNames.contains(name) else {
             throw CLIUsageError(String(localized: "Unknown command “\(first)”."))
         }
         var a = Args(Array(args.dropFirst()), command: name)
@@ -206,6 +212,14 @@ public enum CLICommand: Equatable {
                 throw CLIUsageError(String(localized: "Unknown helper action “\(actionText)” (use status, install or uninstall)."), command: name)
             }
             return .helper(action)
+        case "debug":
+            let actionText = try a.positional("drop")
+            guard let action = DebugAction(rawValue: actionText) else {
+                throw CLIUsageError(String(localized: "Unknown debug action “\(actionText)” (use drop)."), command: name)
+            }
+            let id = try a.positional(String(localized: "profile"))
+            try a.finish()
+            return .debug(action, id: id)
         case "completion":
             let shellText = try a.positional("zsh|bash|fish")
             try a.finish()

@@ -153,8 +153,18 @@ passtunnel default ID / pin ID / unpin ID
 passtunnel log ID [-f]
 passtunnel helper status|install|uninstall
 passtunnel completion zsh|bash|fish
+passtunnel debug drop ID                     test hook, not in help or completion (see below)
 ```
 Exit codes: 0 ok, 1 error, 2 usage, 3 not connected (status of a single profile).
+
+`debug drop ID` (test hook, `DebugDrop`) makes a connected OpenVPN profile drop as if the server ended
+the session, so drop notifications and auto-reconnect can be tried for real: OpenVPN gets
+`signal SIGTERM` over its management interface and exits, and the profile is *not* marked user-stopped.
+OpenVPN serves one management client at a time and the app holds it, so the CLI posts
+`DebugDrop.notification` (object: the profile ID; distributed notifications stay within the user's
+login session) and the app sends the command over its own connection
+(`ConnectionManager.simulateDrop` → `ManagementQuerying.send`); without a running app the CLI sends it
+itself. The CLI then waits up to 15 s for the profile to leave "connected".
 
 `connect` runs the other-VPN check (`ConnectionManager.checkCanStart`) before it prints
 "Connecting …" or asks for credentials. On a terminal it prints each connecting phase once and only

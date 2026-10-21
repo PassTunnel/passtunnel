@@ -51,6 +51,17 @@ public final class PersistentManagementQuerier: ManagementQuerying, @unchecked S
         }
     }
 
+    /// Over the held connection when there is one (the reply is read, and ignored, by its reader
+    /// thread), else on a one-shot connection.
+    public func send(_ command: String, socketPath: String, timeout: TimeInterval) async throws -> String {
+        guard !command.contains("\n"), !command.contains("\r") else { throw ManagementError.unexpectedReply(command) }
+        if let s = liveSession(socketPath) {
+            try s.write(command + "\n", timeout: timeout)
+            return ""
+        }
+        return try await ManagementSocket.sendOneShot(command, socketPath: socketPath, timeout: timeout)
+    }
+
     /// Closes the connection to `socketPath` (e.g. the profile went away).
     public func release(socketPath: String) {
         lock.withLock { sessions.removeValue(forKey: socketPath) }?.close()
@@ -146,6 +157,12 @@ public final class PersistentManagementQuerier: ManagementQuerying, @unchecked S
                 descriptorClosed = true
                 conn.close()
             }
+        }
+
+        func write(_ text: String, timeout: TimeInterval) throws {
+            let open = lock.withLock { _alive && !descriptorClosed }
+            guard open else { throw ManagementError.closed }
+            try conn.write(text, until: Date().addingTimeInterval(timeout))
         }
 
         /// Ends the connection; the reader thread finishes and closes the descriptor.

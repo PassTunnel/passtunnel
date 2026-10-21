@@ -72,6 +72,7 @@ final class CLIRunner {
         case let .unpin(id): return try pin(id, false)
         case let .log(id, follow): return try await log(id, follow: follow)
         case let .helper(action): return try await helper(action)
+        case let .debug(.drop, id): return try await debugDrop(id)
         case let .completion(shell):
             FileHandle.standardOutput.write(Data(CLICompletions.script(for: shell).utf8))
             return Exit.ok
@@ -646,6 +647,43 @@ final class CLIRunner {
             CLITerminal.out(String(localized: "The helper was removed."))
             return Exit.ok
         }
+    }
+
+    // MARK: debug
+
+    /// `DebugDrop`: the running app sends the command over the management connection it holds;
+    /// without the app, this process sends it. Then waits for the profile to leave "connected".
+    private func debugDrop(_ id: String) async throws -> Int32 {
+        let p = try store.get(id)
+        guard p.type == .openvpn else { throw PTError.wrongProfileType(p.id) }
+        await manager.refresh()
+        guard manager.state(p.id).isActive else {
+            CLITerminal.out(String(localized: "\(p.name) is not connected."))
+            return Exit.notConnected
+        }
+        if NSRunningApplication.runningApplications(withBundleIdentifier: PT.bundleID)
+            .contains(where: { !$0.isTerminated && $0.processIdentifier != getpid() }) {
+            DistributedNotificationCenter.default().postNotificationName(
+                DebugDrop.notification, object: p.id, userInfo: nil, deliverImmediately: true)
+            CLITerminal.out(String(localized: "Asked PassTunnel to drop \(p.name) as if the server ended the session…"))
+        } else {
+            guard try await manager.simulateDrop(p.id) else {
+                CLITerminal.out(String(localized: "\(p.name) is not connected."))
+                return Exit.notConnected
+            }
+            CLITerminal.out(String(localized: "Dropping \(p.name) as if the server ended the session…"))
+        }
+        let deadline = Date().addingTimeInterval(15)
+        while Date() < deadline {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            await manager.refresh()
+            if !manager.state(p.id).isConnected {
+                CLITerminal.out(String(localized: "\(p.name) dropped."))
+                return Exit.ok
+            }
+        }
+        CLITerminal.out(String(localized: "\(p.name) is still connected."))
+        return Exit.error
     }
 
     /// The helper is enabled but from another app version or build: the app replaces it (unregister,

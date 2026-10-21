@@ -73,11 +73,41 @@ public protocol ManagementQuerying {
     var sharesState: Bool { get }
     /// The connection to `socketPath` is no longer needed.
     func release(socketPath: String)
+    /// Sends one management command. The app's querier uses the connection it holds (OpenVPN serves one
+    /// client at a time); the default opens a one-shot connection and returns the reply.
+    func send(_ command: String, socketPath: String, timeout: TimeInterval) async throws -> String
 }
 
 public extension ManagementQuerying {
     var sharesState: Bool { false }
     func release(socketPath: String) {}
+
+    func send(_ command: String, socketPath: String, timeout: TimeInterval) async throws -> String {
+        try await ManagementSocket.sendOneShot(command, socketPath: socketPath, timeout: timeout)
+    }
+}
+
+extension ManagementSocket {
+    /// `command` on a background queue (its I/O is blocking).
+    static func sendOneShot(_ command: String, socketPath: String, timeout: TimeInterval) async throws -> String {
+        try await withCheckedThrowingContinuation { cont in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let socket = ManagementSocket(path: socketPath)
+                cont.resume(with: Result { try socket.command(command, timeout: timeout) })
+            }
+        }
+    }
+}
+
+/// `passtunnel debug drop ID`: a test hook that makes a connected OpenVPN profile drop as if the server
+/// had ended the session, so drop notifications and auto-reconnect can be tried for real. The CLI posts
+/// `notification` (object: the profile ID) to a running app — distributed notifications stay within
+/// the user's login session — which sends it over the management connection it holds; without the app,
+/// the CLI sends it itself.
+public enum DebugDrop {
+    public static let notification = Notification.Name("com.furkanprlk.passtunnel.debugDrop")
+    /// OpenVPN exits as on a fatal server-side error; not a user stop.
+    public static let command = "signal SIGTERM"
 }
 
 /// `ManagementSocket` on a background queue (its I/O is blocking).
@@ -665,6 +695,18 @@ public final class ConnectionManager: ObservableObject {
         let socket = status?.mgmtSockets?[id] ?? socketPath(id)
         mgmtSockets[id] = socket
         return (socket, pid)
+    }
+
+    /// Test hook (`DebugDrop`): asks the OpenVPN of `id` to exit over its management interface. The
+    /// profile is not marked user-stopped, so the exit is handled as a drop (notification,
+    /// auto-reconnect). Returns false when the helper does not run the profile.
+    @discardableResult
+    public func simulateDrop(_ id: String) async throws -> Bool {
+        let p = try store.get(id)
+        guard p.type == .openvpn else { throw PTError.wrongProfileType(id) }
+        guard let session = session(id, in: await currentStatus()) else { return false }
+        _ = try await management.send(DebugDrop.command, socketPath: session.socket, timeout: 3)
+        return true
     }
 
     /// The check `connect` runs before starting `id` (without `force`), on its own, so a caller can

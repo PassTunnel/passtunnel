@@ -97,12 +97,16 @@ enum CLIHelp {
         case "log": return String(localized: "Print the VPN log of a profile; -f keeps following it.")
         case "helper": return String(localized: "Show, install or remove the privileged helper.")
         case "completion": return String(localized: "Print a shell completion script.")
+        case "debug": return String(localized: "Test hook: make a connected OpenVPN profile drop as if the server ended the session (not a user stop, so auto-reconnect runs).")
         default: return ""
         }
     }
 
+    /// Test hooks: `passtunnel help debug` shows them; the overview does not.
+    static let hiddenSynopsis = [("debug", "passtunnel debug drop ID")]
+
     static func usage(for command: String?) -> String {
-        if let command, let line = synopsis.first(where: { $0.0 == command }) {
+        if let command, let line = (synopsis + hiddenSynopsis).first(where: { $0.0 == command }) {
             var text = String(localized: "Usage:") + " " + line.1 + "\n  " + summary(command)
             if command == "set" {
                 text += "\n" + String(localized: "Keys:") + " " + ProfileFields.keys.joined(separator: ", ")

@@ -11,6 +11,16 @@
         }
       }
     },
+    "%@ dropped." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ bağlantısı düştü."
+          }
+        }
+      }
+    },
     "%@ is already connected." : {
       "localizations" : {
         "tr" : {
@@ -37,6 +47,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ yeniden yanıt veriyor"
+          }
+        }
+      }
+    },
+    "%@ is still connected." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ hâlâ bağlı."
           }
         }
       }
@@ -217,6 +237,26 @@
         }
       }
     },
+    "Asked PassTunnel to drop %@ as if the server ended the session…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel’dan %@ bağlantısını, oturumu sunucu sonlandırmış gibi düşürmesi istendi…"
+          }
+        }
+      }
+    },
+    "Dropping %@ as if the server ended the session…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ bağlantısı, oturumu sunucu sonlandırmış gibi düşürülüyor…"
+          }
+        }
+      }
+    },
     "Needs an update" : {
       "localizations" : {
         "tr" : {
@@ -253,6 +293,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ günlüğünü göster"
+          }
+        }
+      }
+    },
+    "Test hook: make a connected OpenVPN profile drop as if the server ended the session (not a user stop, so auto-reconnect runs)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Test kancası: bağlı bir OpenVPN profilini, oturumu sunucu sonlandırmış gibi düşürür (kullanıcı durdurması sayılmaz, otomatik yeniden bağlanma çalışır)."
           }
         }
       }
@@ -303,6 +353,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bu yardımcı PassTunnel’ın başka bir sürümüne ait. Bağlanmak için güncelleyin; etkin bağlantılar kesilir."
+          }
+        }
+      }
+    },
+    "Unknown debug action “%@” (use drop)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilinmeyen debug işlemi “%@” (drop kullanın)."
           }
         }
       }
