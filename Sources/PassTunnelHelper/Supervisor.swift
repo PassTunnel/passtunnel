@@ -17,6 +17,8 @@ final class Supervisor {
         /// Open root-owned session directory (holds the management socket).
         let sessionDir: SessionDirectory?
         let mgmtSocket: String?
+        /// Our copy of the tool's log descriptor, for `HelperCore.capLog` (nil for adopted tools).
+        let logFD: Int32?
         var source: DispatchSourceProcess?
         var waiters: [() -> Void] = []
 
@@ -24,11 +26,13 @@ final class Supervisor {
     }
 
     static let stopGrace: TimeInterval = 5
+    static let logCheckInterval: TimeInterval = 60
 
     let queue = DispatchQueue(label: "com.furkanprlk.passtunnel.helper.supervisor")
     private let core: HelperCore
     private let log = Logger(subsystem: PT.helperLabel, category: "supervisor")
     private var jobs: [Key: Job] = [:]
+    private var logTimer: DispatchSourceTimer?
 
     private var sessions: [SessionPolicy.Session] {
         jobs.values.map {
@@ -38,6 +42,20 @@ final class Supervisor {
 
     init(core: HelperCore) {
         self.core = core
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + Self.logCheckInterval, repeating: Self.logCheckInterval)
+        timer.setEventHandler { [weak self] in self?.capLogs() }
+        timer.resume()
+        logTimer = timer
+    }
+
+    /// A long session must not fill the disk: logs above `HelperCore.maxLogBytes` keep only their end.
+    private func capLogs() {
+        for job in jobs.values {
+            if let fd = job.logFD, HelperCore.capLog(fd: fd) {
+                log.notice("trimmed the log of \(job.profileID, privacy: .public) (uid \(job.ownerUID))")
+            }
+        }
     }
 
     // MARK: - Requests
@@ -83,8 +101,10 @@ final class Supervisor {
                                         environment: HelperCore.fixedEnvironment,
                                         workingDirectory: plan.runDir, outputFD: plan.logFD)
             writeState(plan: plan, pid: pid, executable: executable)
+            let logCopy = fcntl(plan.logFD, F_DUPFD_CLOEXEC, 0)
             let job = Job(profileID: plan.profileID, ownerUID: plan.ownerUID, pid: pid, executable: executable,
-                          runDir: plan.runDir, isChild: true, sessionDir: plan.sessionDir, mgmtSocket: plan.mgmtSocket)
+                          runDir: plan.runDir, isChild: true, sessionDir: plan.sessionDir, mgmtSocket: plan.mgmtSocket,
+                          logFD: logCopy >= 0 ? logCopy : nil)
             track(job)
             if plan.mgmtSocket != nil { restrictSocketWhenReady(job.key, pid: pid, attempt: 0) }
             log.info("started \(plan.tool.rawValue, privacy: .public) for \(profileID, privacy: .public), uid \(uid), pid \(pid)")
@@ -183,6 +203,7 @@ final class Supervisor {
 
     private func finish(_ job: Job, status: Int32) {
         job.source?.cancel()
+        if let fd = job.logFD { close(fd) }
         jobs[job.key] = nil
         kill(-job.pid, SIGTERM)          // leftovers in the group (pppd)
         core.removeRunDir(profileID: job.profileID, uid: job.ownerUID)   // config, auth file and socket
@@ -230,7 +251,7 @@ final class Supervisor {
                     let socket = state.mgmtSocket == PT.mgmtSocketPath(uid: uid, profileID: id, runRoot: root)
                         ? state.mgmtSocket : nil
                     track(Job(profileID: id, ownerUID: uid, pid: state.pid, executable: state.executable,
-                              runDir: dir.path, isChild: false, sessionDir: dir, mgmtSocket: socket))
+                              runDir: dir.path, isChild: false, sessionDir: dir, mgmtSocket: socket, logFD: nil))
                 }
             }
         }

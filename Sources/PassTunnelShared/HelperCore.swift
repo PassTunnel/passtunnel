@@ -374,6 +374,33 @@ public struct HelperCore {
         return dst
     }
 
+    // MARK: - Log size
+
+    /// Size above which a running tool's log is trimmed, and how much of its end is kept.
+    public static let maxLogBytes = 5 << 20
+    public static let keptLogBytes = 1 << 20
+
+    /// Keeps the log behind `fd` (opened with `O_APPEND`, readable) under `maxBytes`: when it is
+    /// larger, it is cut to its last `keepBytes` (from a line start) behind a marker line. The tool
+    /// keeps appending through its own descriptor. Lines it writes during the few microseconds of the
+    /// cut can be lost. Returns true when it trimmed.
+    @discardableResult
+    public static func capLog(fd: Int32, maxBytes: Int = maxLogBytes, keepBytes: Int = keptLogBytes) -> Bool {
+        var st = stat()
+        guard fstat(fd, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG, st.st_size > maxBytes else { return false }
+        let keep = min(keepBytes, Int(st.st_size))
+        var tail = [UInt8](repeating: 0, count: keep)
+        let n = pread(fd, &tail, keep, off_t(Int(st.st_size) - keep))
+        guard n > 0 else { return false }
+        var kept = tail[0..<n]
+        if let nl = kept.firstIndex(of: 0x0A) { kept = kept[(nl + 1)...] }
+        guard ftruncate(fd, 0) == 0 else { return false }
+        let marker = "[log trimmed by the helper at \(maxBytes >> 20) MB; older lines removed]\n"
+        let data = Array(marker.utf8) + Array(kept)
+        _ = data.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
+        return true
+    }
+
     // MARK: - File helpers
 
     /// Writes a new file (never follows or replaces an existing entry).
@@ -463,15 +490,16 @@ public final class ProfileDirectory {
         return data
     }
 
-    /// Replaces `name` with a fresh file owned by the user (0600) and returns a write descriptor.
-    /// Whatever was there before (symlink, hard link) is unlinked, never followed or truncated.
+    /// Replaces `name` with a fresh file owned by the user (0600) and returns an appending descriptor
+    /// (also readable, for `HelperCore.capLog`). Whatever was there before (symlink, hard link) is
+    /// unlinked, never followed or truncated, so every session starts with an empty log.
     public func createLogFile(_ name: String) throws -> Int32 {
         guard Self.isPlainName(name) else { throw HelperCore.Failure.invalidLogPath(name) }
         let full = path + "/" + name
         if unlinkat(fd, name, 0) != 0, errno != ENOENT {
             throw HelperCore.Failure.system("remove \(full)", errno)
         }
-        let f = openat(fd, name, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_APPEND | O_CLOEXEC, 0o600)
+        let f = openat(fd, name, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_APPEND | O_CLOEXEC, 0o600)
         guard f >= 0 else { throw HelperCore.Failure.system("create \(full)", errno) }
         if fchown(f, uid, gid) != 0, geteuid() == 0 {
             let e = errno

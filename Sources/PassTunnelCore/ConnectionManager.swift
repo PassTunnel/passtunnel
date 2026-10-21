@@ -68,6 +68,16 @@ extension HelperClient: HelperClienting {}
 /// Reads OpenVPN's state from its management socket.
 public protocol ManagementQuerying {
     func state(socketPath: String, timeout: TimeInterval) async throws -> ManagementState
+    /// True when this querier holds the management interface open (other processes then cannot query
+    /// it), so the manager shares the state it reads through a snapshot file.
+    var sharesState: Bool { get }
+    /// The connection to `socketPath` is no longer needed.
+    func release(socketPath: String)
+}
+
+public extension ManagementQuerying {
+    var sharesState: Bool { false }
+    func release(socketPath: String) {}
 }
 
 /// `ManagementSocket` on a background queue (its I/O is blocking).
@@ -152,6 +162,43 @@ public final class ConnectionManager: ObservableObject {
         var period: Int
     }
 
+    /// OpenVPN state shared through the profile directory by the process that holds the management
+    /// interface open (the app), for processes that then find it busy (the CLI).
+    static let sharedStateFile = ".mgmt-state"
+
+    struct SharedState: Codable, Equatable {
+        var pid: Int32             // the OpenVPN process the state belongs to
+        var writer: Int32          // the process that wrote it; ignored once that is gone
+        var name: String
+        var localIP: String
+        var since: Date
+        var detail: String
+        var remoteIP: String
+        var localIPv6: String
+
+        // Raw values survive JSONCoding's snake_case round trip ("local_ip" ↔ "localIp").
+        enum CodingKeys: String, CodingKey {
+            case pid, writer, name, since, detail
+            case localIP = "localIp", remoteIP = "remoteIp", localIPv6 = "localIpv6"
+        }
+
+        init(pid: Int32, writer: Int32, _ s: ManagementState) {
+            self.pid = pid
+            self.writer = writer
+            name = s.name
+            localIP = s.localIP
+            since = s.since
+            detail = s.detail
+            remoteIP = s.remoteIP
+            localIPv6 = s.localIPv6
+        }
+
+        var state: ManagementState {
+            ManagementState(name: name, localIP: localIP, since: since, detail: detail, remoteIP: remoteIP,
+                            localIPv6: localIPv6)
+        }
+    }
+
     @Published public private(set) var states: [String: ConnectionState] = [:]
     @Published public private(set) var lastError: [String: String] = [:]
     /// Log excerpt for the last error (tooltip / "Show log").
@@ -179,6 +226,7 @@ public final class ConnectionManager: ObservableObject {
     private var sessionActive: Set<String> = []           // reached "connected" in the current session
     private var connectedAt: [String: Date] = [:]
     private var mgmtSockets: [String: String] = [:]       // management socket per profile, as the helper reports it
+    private var sharedStates: [String: SharedState] = [:] // last state written to the shared file per profile
     private var reconnectGen: [String: Int] = [:]
     private var reconnectTasks: [String: Task<Void, Never>] = [:]
     private var codeWaits: [String: Task<Void, Error>] = [:]   // waiting for a fresh code; disconnect cancels
@@ -305,8 +353,12 @@ public final class ConnectionManager: ObservableObject {
         let isRunning = running?[p.id] != nil
         switch p.type {
         case .openvpn:
-            if running != nil && !isRunning { return .disconnected }
-            if let s = try? await management.state(socketPath: mgmtSockets[p.id] ?? socketPath(p.id), timeout: 2) {
+            if running != nil && !isRunning {
+                stopSharing(p.id)
+                return .disconnected
+            }
+            let socket = mgmtSockets[p.id] ?? socketPath(p.id)
+            if let s = await managementState(p.id, socketPath: socket, pid: running?[p.id]) {
                 return Self.map(s)
             }
             return isRunning ? .connecting(Phase.starting) : .disconnected
@@ -317,6 +369,42 @@ public final class ConnectionManager: ObservableObject {
             let created = (try? FileManager.default.attributesOfItem(atPath: store.logURL(p.id).path))?[.creationDate] as? Date
             return .connected(ip: VPNLog.fortiAddress(log) ?? "", since: connectedAt[p.id] ?? created)
         }
+    }
+
+    /// OpenVPN's state from its management socket, or, while another process holds the interface (the
+    /// app keeps a connection open), the state that process shares for the same OpenVPN `pid`.
+    private func managementState(_ id: String, socketPath: String, pid: Int32?) async -> ManagementState? {
+        do {
+            let s = try await management.state(socketPath: socketPath, timeout: 2)
+            if management.sharesState, let pid { share(id, SharedState(pid: pid, writer: getpid(), s)) }
+            return s
+        } catch {
+            // The holder itself has nothing to fall back on: its own connection is the source.
+            guard let pid, !management.sharesState else { return nil }
+            return sharedState(id, pid: pid)
+        }
+    }
+
+    private func sharedStateURL(_ id: String) -> URL { store.dir(id).appendingPathComponent(Self.sharedStateFile) }
+
+    /// Writes the shared state when it changed (not on every poll).
+    private func share(_ id: String, _ state: SharedState) {
+        guard sharedStates[id] != state, FileManager.default.fileExists(atPath: store.dir(id).path) else { return }
+        sharedStates[id] = state
+        try? JSONCoding.write(state, to: sharedStateURL(id), mode: 0o600)
+    }
+
+    private func stopSharing(_ id: String) {
+        guard sharedStates.removeValue(forKey: id) != nil else { return }
+        try? FileManager.default.removeItem(at: sharedStateURL(id))
+        management.release(socketPath: mgmtSockets[id] ?? socketPath(id))
+    }
+
+    /// The state another live process shared for OpenVPN process `pid`, if any.
+    func sharedState(_ id: String, pid: Int32) -> ManagementState? {
+        guard let s = try? JSONCoding.read(SharedState.self, from: sharedStateURL(id)), s.pid == pid,
+              kill(s.writer, 0) == 0 || errno == EPERM else { return nil }
+        return s.state
     }
 
     static func map(_ s: ManagementState) -> ConnectionState {
@@ -432,8 +520,8 @@ public final class ConnectionManager: ObservableObject {
         do {
             // Always the profile as stored now (the CLI may have changed it), never a cached copy.
             let p = try store.get(id)
-            if let socket = await runningElsewhere(id) {
-                return try await follow(p, token: token, socketPath: socket)
+            if let session = await runningElsewhere(id) {
+                return try await follow(p, token: token, session: session)
             }
             let creds = try resolveCredentials(p, given: given)
             // A helper left running from another app version would misplace or reject the session.
@@ -468,8 +556,8 @@ public final class ConnectionManager: ObservableObject {
             let response = try await helper.perform(request, timeout: timing.helperTimeout)
             guard response.ok else {
                 // Another process started it in the meantime: the helper refuses a second session.
-                if let socket = await runningElsewhere(id) {
-                    return try await follow(p, token: token, socketPath: socket)
+                if let session = await runningElsewhere(id) {
+                    return try await follow(p, token: token, session: session)
                 }
                 throw PTError.helperFailed(response.error ?? "")
             }
@@ -481,7 +569,8 @@ public final class ConnectionManager: ObservableObject {
             }
 
             if let socket = response.mgmtSocket { mgmtSockets[id] = socket }
-            let result = try await waitUntilConnected(p, token: token, socketPath: response.mgmtSocket ?? socketPath(id))
+            let result = try await waitUntilConnected(p, token: token, socketPath: response.mgmtSocket ?? socketPath(id),
+                                                      pid: response.pid)
             let since = result.since ?? clock.now()
             setState(id, .connected(ip: result.ip, since: result.since ?? since))
             sessionActive.insert(id)
@@ -504,18 +593,19 @@ public final class ConnectionManager: ObservableObject {
 
     /// The management socket of `id` when the helper already runs it (started by another process,
     /// or left from before), else nil.
-    private func runningElsewhere(_ id: String) async -> String? {
+    private func runningElsewhere(_ id: String) async -> (socket: String, pid: Int32)? {
         guard let r = try? await helper.perform(.status, timeout: timing.helperTimeout), r.ok,
-              r.running?[id] != nil else { return nil }
+              let pid = r.running?[id] else { return nil }
         let socket = r.mgmtSockets?[id] ?? socketPath(id)
         mgmtSockets[id] = socket
-        return socket
+        return (socket, pid)
     }
 
     /// Waits for a session this manager did not start to come up. Failures are reported but the
     /// session is left alone: the process that started it handles them.
-    private func follow(_ p: Profile, token: Int, socketPath: String) async throws {
-        let result = try await waitUntilConnected(p, token: token, socketPath: socketPath, owned: false)
+    private func follow(_ p: Profile, token: Int, session: (socket: String, pid: Int32)) async throws {
+        let result = try await waitUntilConnected(p, token: token, socketPath: session.socket, pid: session.pid,
+                                                  owned: false)
         let since = result.since ?? clock.now()
         setState(p.id, .connected(ip: result.ip, since: since))
         sessionActive.insert(p.id)
@@ -619,7 +709,7 @@ public final class ConnectionManager: ObservableObject {
 
     /// Polls until `p` is connected. When `owned` is false (a session another process started), the
     /// session is never stopped here.
-    private func waitUntilConnected(_ p: Profile, token: Int, socketPath: String,
+    private func waitUntilConnected(_ p: Profile, token: Int, socketPath: String, pid: Int32?,
                                     owned: Bool = true) async throws -> (ip: String, since: Date?) {
         let id = p.id
         let timeout = p.type == .openvpn ? timing.openVPNTimeout : timing.fortiTimeout
@@ -640,7 +730,7 @@ public final class ConnectionManager: ObservableObject {
             }
             switch p.type {
             case .openvpn:
-                if let s = try? await management.state(socketPath: socketPath, timeout: 2) {
+                if let s = await managementState(id, socketPath: socketPath, pid: pid) {
                     try checkToken(id, token)
                     if s.isConnected { return (s.localIP.isEmpty ? s.localIPv6 : s.localIP, s.since) }
                     if s.name == "RECONNECTING" && s.detail.lowercased().contains("auth") {
@@ -879,6 +969,8 @@ public final class ConnectionManager: ObservableObject {
     private func forget(_ id: String) {
         cancelReconnect(id)
         endSession(id)
+        sharedStates[id] = nil
+        management.release(socketPath: mgmtSockets[id] ?? socketPath(id))
         states[id] = nil
         lastError[id] = nil
         lastErrorLog[id] = nil

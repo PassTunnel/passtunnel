@@ -43,7 +43,8 @@ public enum PT {
 - Support dir: `~/Library/Application Support/PassTunnel/` — override with env `PASSTUNNEL_HOME` (tests).
   - `config.json` – preferences (`Preferences`), incl. `defaultProfile`
   - `profiles/<id>/profile.json`, `profiles/<id>/config.ovpn`, `profiles/<id>/vpn.log`,
-    `profiles/<id>/.last-otp` (TOTP window of the last code sent, so app and CLI never reuse a code)
+    `profiles/<id>/.last-otp` (TOTP window of the last code sent, so app and CLI never reuse a code),
+    `profiles/<id>/.mgmt-state` (OpenVPN state shared by the app, which holds the management interface)
     (the OpenVPN management socket is in the helper's run directory, see below)
 - Keychain: generic password, service `PT.keychainService` (env `PASSTUNNEL_KEYCHAIN_SERVICE` overrides
   for tests), account `"<profileID>/password"` and `"<profileID>/totp"`. Use the Security framework
@@ -239,6 +240,9 @@ Security rules (helper):
   `SessionPolicy` decides, keyed by (caller uid, profile ID): two users may run the same ID; starting one of
   your own running IDs fails; `status` lists only the caller's sessions (root included); another user's session
   is invisible, so `stop` of it is the same successful no-op as an unknown ID (idempotent).
+- Logs: `vpn.log` is recreated for every session (`ProfileDirectory.createLogFile`, `O_APPEND`, readable);
+  the supervisor keeps a copy of the descriptor and once a minute runs `HelperCore.capLog`: above 5 MB the
+  file is cut to its last 1 MB (from a line start) behind a marker line.
 
 `HelperClient` (Core) wraps the XPC connection with async functions. `ManagementSocket` (Core) is a
 one-shot client for the OpenVPN management socket: `ManagementSocket(path:).command(_:timeout:)` connects,
@@ -248,8 +252,14 @@ the socket is not there yet or another client is connected); `state()` returns
 state via `ManagementSocket` on the socket the helper reports (`HelperResponse.mgmtSocket` after start,
 `mgmtSockets` in each `status` poll, so sessions started by the CLI or before an app restart are found;
 `PT.mgmtSocketPath(uid: geteuid(), …)` only as a fallback) (`state` command; first field = since;
-disconnect = helper `stop`),
-Forti via helper `status` + log (`Tunnel is up and running`, `Got addresses: [...]`). It resolves
+disconnect = helper `stop`). The CLI uses one-shot queries (`SocketManagementQuerier`). The app uses
+`PersistentManagementQuerier`: one held connection per socket with `state on`, following `>STATE:`
+notifications and reopened on the next poll after a drop — OpenVPN logs every client connect, command and
+disconnect, so a 3 s one-shot poll grew the log by ~7 MB a day. OpenVPN serves one management client at a
+time, so while the app holds it a one-shot query finds it busy; the app therefore writes the state it
+sees (only on change) to `<profileDir>/.mgmt-state` with the OpenVPN pid and its own pid, and a busy query
+falls back to that file when the pid matches the helper's `status` and the writer is still alive.
+Forti state comes from helper `status` + log (`Tunnel is up and running`, `Got addresses: [...]`). It resolves
 credentials (Keychain / TOTP / caller-supplied for `.ask`), builds what is sent with
 `OTPComposer` (Core, pure + unit-tested):
 - `.combined`: `otpTemplate` with `{password}` / `{otp}` substituted (no other placeholders; literal text kept)

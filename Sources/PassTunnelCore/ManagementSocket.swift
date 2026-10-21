@@ -47,8 +47,9 @@ public struct ManagementState: Equatable {
     public var isConnected: Bool { name == "CONNECTED" }
 }
 
-/// Minimal client for OpenVPN's management interface on a unix socket. One connection per command:
-/// OpenVPN serves a single client at a time, so the connection is never held open.
+/// Minimal client for OpenVPN's management interface on a unix socket. One connection per command;
+/// OpenVPN serves a single client at a time, so while another client (the app's
+/// `PersistentManagementQuerier`) holds the interface, this one reports `.busy`.
 public struct ManagementSocket {
     public let path: String
     /// Short retries while OpenVPN is starting up or another client is connected.
@@ -171,6 +172,12 @@ public struct ManagementSocket {
 
         func close() {
             if fd >= 0 { Darwin.close(fd); fd = -1 }
+        }
+
+        /// Wakes a reader blocked on this connection (it then sees end of file) without closing the
+        /// descriptor under it.
+        func shutdown() {
+            if fd >= 0 { _ = Darwin.shutdown(fd, SHUT_RDWR) }
         }
 
         /// Next line without its CR/LF, nil at EOF with nothing buffered.

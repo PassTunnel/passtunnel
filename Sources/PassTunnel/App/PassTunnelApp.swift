@@ -7,7 +7,7 @@ struct PassTunnelApp: App {
     @StateObject private var model: AppModel
 
     init() {
-        _model = StateObject(wrappedValue: AppModel(connections: ConnectionManager()))
+        _model = StateObject(wrappedValue: AppModel(connections: ConnectionManager(management: PersistentManagementQuerier())))
     }
 
     var body: some Scene {

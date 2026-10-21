@@ -124,6 +124,8 @@ FortiGate, stop, and status. It enforces the following rules on every request.
   (never followed or truncated), a new file is created owned by you with mode `0600`, and its
   descriptor becomes the tool's stdout/stderr. OpenVPN's `--log` options are not used and are
   rejected in configs, so OpenVPN never opens a file path as root.
+- Every session starts with an empty log; while it runs, the helper checks the size once a minute
+  and cuts a log above 5 MB down to its last 1 MB (through its own copy of the descriptor).
 
 ## OpenVPN configuration sanitizer
 

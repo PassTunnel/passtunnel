@@ -101,7 +101,8 @@ public final class ProfilesWatcher {
     }
 
     /// Files that change while a VPN runs or that only exist mid-write; they never change a profile.
-    static let ignoredNames: Set<String> = ["vpn.log", "mgmt.sock", ".lock", ".DS_Store", ".user-stopped", ".last-otp"]
+    static let ignoredNames: Set<String> = ["vpn.log", "mgmt.sock", ".lock", ".DS_Store", ".user-stopped", ".last-otp",
+                                                  ".mgmt-state"]
 
     /// Whether an event can mean a changed profile, config or preference.
     public static func isRelevant(path: String, flags: FSEventStreamEventFlags = 0) -> Bool {
