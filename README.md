@@ -97,7 +97,7 @@ code layout is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Install
 
-Requires **macOS 13 Ventura or later**.
+Requires **macOS 13 Ventura or later** on a Mac with **Apple silicon**.
 
 ### Download
 
@@ -289,6 +289,8 @@ passtunnel status --json | jq '.[] | select(.state == "connected") | .id'
 standard input and output, so an AI assistant can answer “is my VPN up?”, read the log of a failed
 connection and tell you what is wrong.
 
+[![Install in Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/en/install-mcp?name=passtunnel&config=eyJjb21tYW5kIjoiL0FwcGxpY2F0aW9ucy9QYXNzVHVubmVsLmFwcC9Db250ZW50cy9NYWNPUy9QYXNzVHVubmVsIiwiYXJncyI6WyJtY3AiXX0%3D) [![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_PassTunnel_MCP-0098FF?logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect?url=vscode%3Amcp%2Finstall%3F%257B%2522name%2522%253A%2522passtunnel%2522%252C%2522command%2522%253A%2522%2FApplications%2FPassTunnel.app%2FContents%2FMacOS%2FPassTunnel%2522%252C%2522args%2522%253A%255B%2522mcp%2522%255D%257D)
+
 | Tool | What it does |
 |---|---|
 | `list_profiles` | Profiles with type, state, whether connecting asks for Touch ID, auto-reconnect |
@@ -332,7 +334,7 @@ claude mcp add passtunnel -- /Applications/PassTunnel.app/Contents/MacOS/PassTun
 }
 ```
 
-Add `"--allow-connect"` to `args` to allow connecting. Other MCP clients work the same way: the
+The Cursor and VS Code buttons above add the same read-only entry. Add `"--allow-connect"` to `args` to allow connecting. Other MCP clients work the same way: the
 command is the app binary (or `passtunnel`), the argument `mcp`. Diagnostics go to stderr. The
 server speaks MCP 2026-07-28 and, for clients that start with an `initialize` handshake,
 2025-11-25 back to 2024-11-05.
@@ -504,7 +506,7 @@ of their respective owners.
 
 ## Türkçe
 
-**PassTunnel**, macOS 13 ve üzeri için açık kaynaklı bir VPN uygulamasıdır. OpenVPN ve FortiGate SSL
+**PassTunnel**, Apple silicon Mac'lerde macOS 13 ve üzeri için açık kaynaklı bir VPN uygulamasıdır. OpenVPN ve FortiGate SSL
 VPN bağlantılarını tek tıkla açar. TOTP anahtarınız Anahtar Zinciri'nde (Keychain) durur; PassTunnel
 bağlanırken o anki tek kullanımlık kodu ve parolanızı sizin yerinize gönderir. Telefondan kod bakıp
 yazmanız gerekmez.
