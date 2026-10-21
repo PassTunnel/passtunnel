@@ -1,8 +1,9 @@
 # Changelog
 
-All notable changes to PassTunnel. Versions follow Semantic Versioning.
-`scripts/release.sh` uses the section of the version it releases as the release notes (GitHub
-release and the update window), so write it for users.
+Changes up to 1.1.1. Later releases are made automatically when `dev` is merged into `main`, and
+their notes are generated from the pull request titles: see
+[GitHub Releases](https://github.com/PassTunnel/passtunnel/releases) and
+[CONTRIBUTING.md](../CONTRIBUTING.md#pull-request-titles). Versions follow Semantic Versioning.
 
 ## [1.1.1] - 2026-10-21
 

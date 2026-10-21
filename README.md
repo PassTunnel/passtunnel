@@ -10,6 +10,8 @@ secret in the Keychain and fills in the current code (and your password) every t
 [![macOS 13+](https://img.shields.io/badge/macOS-13%2B-blue)](#install)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Swift 5.10](https://img.shields.io/badge/Swift-5.10-orange)](Package.swift)
+[![CI](https://github.com/PassTunnel/passtunnel/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/PassTunnel/passtunnel/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/PassTunnel/passtunnel/badge)](https://scorecard.dev/viewer/?uri=github.com/PassTunnel/passtunnel)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/main-dark.png">
@@ -489,6 +491,11 @@ The images in [`docs/images`](docs/images) come from it.
 ## Contributing
 
 Issues and pull requests are welcome. Please open an issue first for larger changes.
+
+Work happens on `dev`: one branch per issue, a pull request into `dev` with a
+[Conventional Commits](https://www.conventionalcommits.org/) title (`feat: …`, `fix: …`), squash-merged.
+Merging `dev` into `main` releases. The workflow, title rules and checks are in
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 - Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (targets, storage, helper protocol, security
   rules) and [docs/APP.md](docs/APP.md) (app and CLI behavior).
