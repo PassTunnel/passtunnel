@@ -8,7 +8,8 @@ Claude Desktop and the MCP Registry. `scripts/release.sh` builds all of them int
 Releases are made by GitHub Actions: merging `dev` into `main` starts
 [`.github/workflows/release.yml`](../.github/workflows/release.yml), which works out the version and
 the release notes, waits for the maintainer's approval, runs `release.sh --publish` on a macOS runner,
-updates the Homebrew tap and the MCP Registry (see [Automatic releases](#automatic-releases)).
+attaches signed build provenance, updates the Homebrew tap and the MCP Registry (see
+[Automatic releases](#automatic-releases)).
 Releasing from a Mac with the same script still works (see [Releasing from a Mac](#releasing-from-a-mac)).
 
 Where things are published is set once, in [`scripts/release.env`](../scripts/release.env):
@@ -100,24 +101,54 @@ they all match.
    - **Build and publish** waits for approval in the environment `release` (Actions → the run →
      *Review deployments*). It then installs `openvpn` and `openfortivpn` with Homebrew, puts the
      Developer ID identity and the notarytool profile into a temporary keychain, writes the Sparkle
-     key to a file, runs `scripts/release.sh VERSION --publish --notes-file …`, creates build
-     provenance attestations for the dmg, zip and MCP bundle, and pushes `dist/passtunnel.rb` to the
-     tap as `Casks/passtunnel.rb` (commit `Update PassTunnel to VERSION`). The keychain and the
-     secret files are deleted at the end, whatever happened.
+     key to a file and runs `scripts/release.sh VERSION --publish --draft --notes-file …`, which
+     tags, builds and uploads everything to a **draft** release. It then creates a build provenance
+     attestation for the dmg, zip and MCP bundle (`actions/attest-build-provenance`), checks its
+     Sigstore bundle against the three files, attaches it to the draft as
+     `PassTunnel-VERSION.intoto.jsonl` and publishes the draft with
+     `scripts/release.sh VERSION --publish-draft --attach dist/PassTunnel-VERSION.intoto.jsonl`
+     (which checks that the draft has all its files; a pre-release is marked as such and never
+     becomes "latest"). The provenance has to be attached before publishing, because an immutable
+     release takes no new files afterwards. Last, it pushes `dist/passtunnel.rb` to the tap as
+     `Casks/passtunnel.rb` (commit `Update PassTunnel to VERSION`). The keychain and the secret
+     files are deleted at the end, whatever happened.
    - **MCP Registry** runs `publish-mcp.yml` for the new tag.
 
 Nothing in the repository is changed by a release: the version is in the tag only (`build-app.sh`
 stamps it into the app), and `docs/CHANGELOG.md` is not updated (it covers 1.1.1 and earlier). The
 tag is an unsigned annotated tag (the runner has no signing key); the attestations and the
-immutable release are the proof of origin:
+immutable release are the proof of origin.
+
+### Checking the provenance
+
+Every release made by the workflow carries `PassTunnel-VERSION.intoto.jsonl`: the Sigstore bundle
+(one JSON line) of the build provenance attestation of `PassTunnel-VERSION.dmg`,
+`PassTunnel-VERSION.zip` and `PassTunnel-mcp-VERSION.mcpb`. It says which commit and which run of
+`release.yml` built the files, and is signed with the run's GitHub identity (Sigstore, recorded in
+the public transparency log). The same attestation is stored on GitHub, so either of these checks a
+downloaded file:
 
 ```sh
 gh attestation verify PassTunnel-1.2.0.dmg -R PassTunnel/passtunnel
+gh attestation verify PassTunnel-1.2.0.dmg -R PassTunnel/passtunnel --bundle PassTunnel-1.2.0.intoto.jsonl
 ```
 
-If a run fails, fix the cause and use Actions → Release → Run workflow on `main`. When `HEAD`
-already has the tag of an unfinished release, that version is built again and `release.sh` finishes
-the draft; a published release is final.
+The first asks GitHub for the attestation; the second uses the bundle from the release instead
+(offline, apart from Sigstore's trust root). Add
+`--signer-workflow PassTunnel/passtunnel/.github/workflows/release.yml` to also require that the
+release workflow made it (that value is case-sensitive). The bundle is not listed in `SHA256SUMS`:
+that file is uploaded with the draft before the attestation exists, and the bundle is signed
+itself. OpenSSF Scorecard's *Signed-Releases* check looks for such a file among the
+release's assets (`.intoto.jsonl` counts as provenance). Releases made from a Mac have no
+provenance: the attestation needs the workflow's GitHub identity.
+
+### When a run fails
+
+Fix the cause and use Actions → Release → Run workflow on `main`. When `HEAD` already has the tag of
+an unfinished release, that version is built again: `release.sh` replaces the draft's files and
+removes files it did not build (a provenance bundle of the earlier build would not match the new
+files), and a new attestation is attached before the draft is published. A published release is
+final, and the run then only reports it.
 
 ### Setup
 
@@ -193,12 +224,15 @@ tag from the `main` that is on GitHub, and the tap and the MCP Registry are then
    `appcast.xml` and `SHA256SUMS`, checks that all five are attached, and only then publishes it
    (pre-releases are marked as such and never become "latest"). Publishing it starts the MCP Registry
    workflow; check that its run under Actions succeeds. With `--draft` it stops before publishing; publish
-   the draft on GitHub, or run the command again without `--draft`. The feed URL in the app is
+   the draft on GitHub, run the command again without `--draft`, or publish it without building
+   again with `scripts/release.sh 1.2.0 --publish-draft` (`--attach FILE`, repeatable, first uploads
+   further files to the draft; that is how the workflow adds the provenance). The feed URL in the app is
    `…/releases/latest/download/appcast.xml`, so installed copies see the update as soon as the
    release is published (not while it is a draft or a pre-release). Pre-release appcasts also use
    the Sparkle channel `beta`, which the app does not follow.
    If the push or the release fails, run the same command again: a tag at `HEAD` is reused, and a
-   draft release of the tag gets its assets replaced. A published release is final (with immutable
+   draft release of the tag gets its assets replaced (other files on the draft, such as a
+   provenance bundle of an earlier build, are removed). A published release is final (with immutable
    releases GitHub refuses changes); fix problems with a new version.
 4. **Homebrew tap.** Copy `dist/passtunnel.rb` to `Casks/passtunnel.rb` in the tap repository
    (`TAP_REPO`), check it and push:
