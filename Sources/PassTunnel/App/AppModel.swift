@@ -476,7 +476,7 @@ final class AppModel: ObservableObject {
 
     func delete(_ p: Profile) {
         Task {
-            if state(p.id).isActive { try? await connections.disconnect(p.id) }
+            if state(p.id).isActive { _ = try? await connections.disconnect(p.id) }
             do {
                 try store.delete(p.id)
                 prefs = Preferences.load(paths: paths)

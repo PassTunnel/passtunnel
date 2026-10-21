@@ -220,7 +220,7 @@ final class CLIRunner {
             Task { @MainActor in
                 if joining { exit(130) }
                 CLITerminal.err(String(localized: "Cancelling…"))
-                try? await self?.manager.disconnect(p.id)
+                _ = try? await self?.manager.disconnect(p.id)
                 exit(130)
             }
         }
@@ -486,7 +486,7 @@ final class CLIRunner {
             }
         }
         await manager.refresh()
-        if manager.state(id).isActive { try? await manager.disconnect(id) }
+        if manager.state(id).isActive { _ = try? await manager.disconnect(id) }
         try store.delete(id)
         CLITerminal.out(String(localized: "Deleted “\(p.name)”."))
         return Exit.ok
