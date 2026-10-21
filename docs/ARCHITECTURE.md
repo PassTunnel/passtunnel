@@ -50,7 +50,7 @@ public enum PT {
   for tests), account `"<profileID>/password"` and `"<profileID>/totp"`. Use the Security framework
   (`SecItemAdd/CopyMatching/Update/Delete`), never the `security` CLI. App and CLI are the same binary,
   so Keychain ACLs never prompt between them. A value is plain text, or, for profiles with
-  `requireAuth` ("Confirm it's you"), an envelope `ptse1:…` (`SecretEnvelope`); plain values that start
+  `requireAuth` ("Confirm with Touch ID"), an envelope `ptse1:…` (`SecretEnvelope`); plain values that start
   with `ptse`/`ptpl` are stored as `ptpl1:<value>`. `"<profileID>/sekey"` holds the profile's protection
   key (`ProtectionKeyRecord`, JSON: Secure Enclave `dataRepresentation` + X9.63 public key); it is never a
   `SecretKind` (the CLI's `secret` command cannot name it). `ProfileStore.delete` removes all three.
@@ -91,7 +91,7 @@ public struct Profile: Codable, Identifiable, Equatable {
     public var passwordMode = PasswordMode.keychain
     public var otpMode = OTPMode.none
     public var totp = TOTPParams()
-    public var requireAuth = AuthRequirement.off   // "Confirm it's you": off | connect | always (JSON require_auth)
+    public var requireAuth = AuthRequirement.off   // "Confirm with Touch ID": off | connect | always (JSON require_auth)
     // behaviour
     public var sessionLimitMin = 0
     public var autoReconnect = false
@@ -169,7 +169,7 @@ public struct Preferences: Codable { defaultProfile, theme, showLock, notifyOnDr
 public enum HealthCheck { public static func check(_ host: String, timeout: TimeInterval = 3) -> (ok: Bool, ms: Int) }
 ```
 
-### Confirm it's you (`SecretVault.swift`, `SecretEnvelope.swift`, `UserPresence.swift`)
+### Confirm with Touch ID (`SecretVault.swift`, `SecretEnvelope.swift`, `UserPresence.swift`)
 
 `requireAuth` is enforced by encryption, not by a check: the protected secrets are stored encrypted to a
 per-profile Secure Enclave key, and decrypting them is the user's confirmation.
@@ -178,7 +178,7 @@ per-profile Secure Enclave key, and decrypting them is the user's confirmation.
 public protocol UserAuthenticator: AnyObject {          // SecureEnclaveAuthenticator; a software P-256 key in tests
     var isAvailable: Bool { get }                        // SecureEnclave.isAvailable
     func createKey() throws -> ProtectionKey             // no prompt; .protectionUnavailable without a Secure Enclave
-    func unlock(keyData: Data, reason: String, reuseDuration: TimeInterval) async throws -> UnlockedProtectionKey   // the prompt
+    func unlock(keyData: Data, reason: String) async throws -> UnlockedProtectionKey   // the prompt
 }
 @MainActor public final class SecretVault: ObservableObject {   // ConnectionManager.vault (app: shared with the editor)
     static func protectedKinds(_ p: Profile) -> Set<SecretKind>   // connect: [.password], or [.totp] without a keychain password; always: both
@@ -188,16 +188,18 @@ public protocol UserAuthenticator: AnyObject {          // SecureEnclaveAuthenti
     func available(_ id: String, _ kind: SecretKind) -> String?    // plain, or decrypted within the reuse window; never asks
     func store(_ p: Profile, _ kind: SecretKind, _ value: String) throws          // encrypts when protected (public key only)
     func applyProtection(from old: Profile?, to new: Profile) async throws        // after a setting/mode change
+    func reconcile(_ p: Profile) -> Bool                                          // hand-edited setting: encrypt plain protected items
     func reset() / reset(_ id) / prune()
 }
+public enum ConfirmationWording { static let hasTouchID: Bool; static var settingName: String }   // "Confirm with Touch ID" / "Confirm with your password"
 ```
 
 - `SecureEnclaveAuthenticator`: `SecureEnclave.P256.KeyAgreement.PrivateKey(accessControl:)` with
   `[.privateKeyUsage, .userPresence]` (Touch ID or the login password / Apple Watch; not
   `biometryCurrentSet`, so a new fingerprint does not lock the key). `unlock` evaluates one `LAContext`
   (`evaluateAccessControl(…, operation: .useKeyKeyExchange)`, `localizedReason` = "connect to “Acme
-  VPN”" etc., macOS prefixes "PassTunnel is trying to"; `touchIDAuthenticationAllowableReuseDuration` =
-  the reuse window, at most 5 min) and loads the key with it, so all key agreements of one unlock share
+  VPN”" etc., macOS prefixes "PassTunnel is trying to"; `touchIDAuthenticationAllowableReuseDuration` = 0, so a
+  recent Touch ID unlock of the Mac never stands in for the prompt) and loads the key with it, so all key agreements of one unlock share
   one prompt. LAError → `PTError`: user/app cancel → `.userConfirmationCancelled`; `notInteractive`,
   `systemCancel` (no GUI session, e.g. SSH), lockout, no password → `.userConfirmationFailed(reason)`.
   A key blob this Secure Enclave cannot use → `ProtectionKeyUnusable`.
@@ -216,6 +218,11 @@ public protocol UserAuthenticator: AnyObject {          // SecureEnclaveAuthenti
   asks; lowering the setting (`always → connect`, `→ off`) always asks with a fresh prompt (the reuse
   window never covers it), using the key once even when nothing is encrypted; deletes the key when the
   setting is off and nothing encrypted is left. A cancel leaves everything as it was.
+- Hand-edited setting (`require_auth` changed in `profile.json`): `reconcile` encrypts plain items the
+  setting protects (no prompt); it runs in `AppModel.reload`, `ConnectionManager.performConnect` and at
+  the start of `needsPrompt` / `secret` / `unlock` (so before every CLI use). Encrypted items of a profile
+  set to `off` are left encrypted (reading them asks) until `applyProtection` lowers the setting properly.
+  Without a Secure Enclave nothing changes.
 - Lost key (another Mac, an erased Secure Enclave): `ProtectionKeyUnusable` → the undecryptable items and
   the key record are deleted and `.protectedSecretUnreadable(kind)` asks the user to enter the secret
   again (a new key is made then). A tampered item is kept (the key still works) and reported the same way.

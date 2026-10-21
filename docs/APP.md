@@ -28,7 +28,7 @@ One binary, two modes:
   Apply results with a monotonically increasing sequence number so stale polls never overwrite newer
   state.
 - `connect(_ id:, given: [CredentialField: String]) async throws`:
-  0. "Confirm it's you" (`Profile.requireAuth`, see below): when a secret the connect uses is stored
+  0. "Confirm with Touch ID" (`Profile.requireAuth`, see below): when a secret the connect uses is stored
      encrypted and not unlocked, `vault.unlock` asks (Touch ID / Mac password) before anything starts;
      a cancel throws `PTError.userConfirmationCancelled` (no helper call, no `lastError`), a failure is
      recorded in `lastError` like any connect failure. Not asked when the profile is already
@@ -70,7 +70,7 @@ Sidebar-less single list, one row per profile (drag to reorder → `order`):
 ```
 - The live code (if the profile has TOTP) is large, monospaced, grouped 3+3; a circular countdown
   ring; click copies it (toast "Copied"). Hidden behind "•••" when `Preferences.hideCodes`.
-  When the TOTP secret is stored encrypted ("Confirm it's you": `always`, or `connect` without a saved
+  When the TOTP secret is stored encrypted ("Confirm with Touch ID": `always`, or `connect` without a saved
   password) and not unlocked, the code is "••• •••" with a lock instead of the ring; click asks
   (`AppModel.revealCode`) and the code shows for the reuse window. Copy code, Copy password + code,
   ⌘C, the menu bar's Copy Code and auto-type ask first in the same way (`whenUnlocked`); a cancel does
@@ -97,8 +97,9 @@ Sections (only relevant rows visible — hide, don't disable):
    asks to confirm), DNS / routes toggles. Session limit, health host with "Test", auto-reconnect
    (disabled with explanation when not unattended).
 3. **Sign-in**: username (empty = ask), password: Keychain / ask / none (cert only; OpenVPN only).
-   **Confirm it's you** (`requireAuth`, picker `editor.requireAuth`: Off / Before connecting / Before
-   connecting and showing the code), shown only when the profile uses a stored secret
+   **Confirm with Touch ID** (`requireAuth`, picker `editor.requireAuth`: Off / Before connecting /
+   Before connecting and showing codes; named "Confirm with your password" on a Mac without Touch ID,
+   `ConfirmationWording`, where `LAContext.biometryType == .none`), shown only when the profile uses a stored secret
    (`usesStoredSecrets`), disabled with a hint on a Mac without a Secure Enclave. The hint says what is
    encrypted. Save of an existing profile first runs `vault.applyProtection(from: original, to: edited)`:
    turning it on encrypts without a prompt; lowering it asks (a cancel keeps the sheet open, nothing
@@ -186,7 +187,7 @@ passtunnel debug drop ID                     test hook, not in help or completio
 ```
 Exit codes: 0 ok, 1 error, 2 usage, 3 not connected (status of a single profile).
 
-"Confirm it's you" in the CLI (its own process, so its own reuse window: in practice it asks every
+"Confirm with Touch ID" in the CLI (its own process, so its own reuse window: in practice it asks every
 time): `connect` and `toggle` (when connecting) unlock after the other-VPN check and before asking for
 credentials; `code` decrypts an encrypted TOTP secret; `set ID require_auth=off|connect|always`
 (alias `auth`) runs `vault.applyProtection` before saving (turning it on encrypts without a prompt,

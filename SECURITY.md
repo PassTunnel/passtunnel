@@ -9,7 +9,7 @@ Implementation details are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - [The privileged helper](#the-privileged-helper)
 - [OpenVPN configuration sanitizer](#openvpn-configuration-sanitizer)
 - [Secrets and files](#secrets-and-files)
-- [Confirm it's you (Secure Enclave)](#confirm-its-you-secure-enclave)
+- [Confirm with Touch ID (Secure Enclave)](#confirm-with-touch-id-secure-enclave)
 - [What is not protected](#what-is-not-protected)
 
 ## Reporting a vulnerability
@@ -190,9 +190,10 @@ script-security N            (when N > 1)
 - **Auto-type** (off by default) needs Accessibility permission, which is requested only when you
   enable it. Global shortcuts use Carbon hotkeys and do not need any permission.
 
-## Confirm it's you (Secure Enclave)
+## Confirm with Touch ID (Secure Enclave)
 
-Off by default, per profile (`require_auth`: `off`, `connect`, `always`). Without it, anyone using your
+Off by default, per profile (`require_auth`: `off`, `connect`, `always`; on a Mac without Touch ID the
+setting is called "Confirm with your password", and the login password is the confirmation). Without it, anyone using your
 Mac while you are logged in can connect with one click, because the app may read its own Keychain items
 without asking.
 
@@ -219,10 +220,10 @@ profile only needs the public key (no prompt). Turning the option off, or loweri
 item is deleted. Deleting the profile deletes its key item.
 
 **Reuse.** After one confirmation, the decrypted values of that profile stay in the app's memory for
-the "Ask again after" time (Settings → General → Security: 1, 5 or 15 minutes). The same time (at most
-5 minutes, the system's limit) is passed to LocalAuthentication as
-`touchIDAuthenticationAllowableReuseDuration`, so a Touch ID unlock of the Mac within that time can
-count as the confirmation. Sleep and screen lock end the in-memory reuse early. A connected session keeps its
+the "Ask again after" time (Settings → General → Security: 1, 5 or 15 minutes). Sleep and screen lock
+end it early. LocalAuthentication's own `touchIDAuthenticationAllowableReuseDuration` is left at 0: it
+would let a recent Touch ID unlock of the Mac count as the confirmation, which is exactly the situation
+this option is for. A connected session keeps its
 decrypted secrets in memory so an automatic reconnect after a drop needs no prompt; they are
 overwritten (best effort) when you disconnect or the session ends. After the Mac was asleep, a
 dropped protected profile is not reconnected on its own: a notification asks you to reconnect. The CLI
@@ -236,6 +237,11 @@ is a separate process and asks every time it needs a protected secret.
   password or TOTP secret again.
 - `userPresence` is used (not `biometryCurrentSet`), so adding a fingerprint does not lock you out and
   the password fallback always works.
+- A setting changed outside PassTunnel (e.g. `require_auth` edited in `profile.json`) is reconciled
+  safely: plain secrets the setting protects are encrypted on the app's next reload or before the CLI
+  uses them (no prompt needed); encrypted secrets of a profile set to `off` stay encrypted (using them
+  asks) until the setting is lowered in the app or with `passtunnel set`, which decrypts them. Without a
+  Secure Enclave such a hand-edited setting cannot be applied and the secrets stay plain.
 - It protects against other people at your unlocked Mac and against other processes or apps reading
   the Keychain items (they get ciphertext). It does **not** protect against malware running as you
   that waits for you to confirm, drives the prompt you then approve, or reads the app's memory while a
@@ -254,8 +260,8 @@ PassTunnel cannot defend against an attacker who already controls your account o
   requester is not PassTunnel; if you allow it, the secrets are disclosed), and can watch your
   screen or clipboard, where codes appear when you copy or auto-type them.
 - **A TOTP secret on the same machine as your password** turns two factors into something closer
-  to one: anyone who gets your unlocked Mac and Keychain has both ([Confirm it's
-  you](#confirm-its-you-secure-enclave) adds Touch ID or your password in front of them). This is the trade-off PassTunnel
+  to one: anyone who gets your unlocked Mac and Keychain has both ([Confirm with Touch
+  ID](#confirm-with-touch-id-secure-enclave) adds Touch ID or your password in front of them). This is the trade-off PassTunnel
   makes for convenience. If your organization requires the second factor on a separate device, use
   *Ask each time* for the one-time code.
 - **The VPN configuration itself.** The sanitizer stops configs from running code or touching files
