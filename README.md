@@ -12,6 +12,7 @@ secret in the Keychain and fills in the current code (and your password) every t
 [![Swift 5.10](https://img.shields.io/badge/Swift-5.10-orange)](Package.swift)
 [![CI](https://github.com/passtunnel/passtunnel/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/passtunnel/passtunnel/actions/workflows/ci.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/passtunnel/passtunnel/badge)](https://scorecard.dev/viewer/?uri=github.com/passtunnel/passtunnel)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15779/badge)](https://www.bestpractices.dev/projects/15779)
 [![OpenSSF Baseline](https://www.bestpractices.dev/projects/15779/baseline)](https://www.bestpractices.dev/projects/15779)
 
 <picture>
