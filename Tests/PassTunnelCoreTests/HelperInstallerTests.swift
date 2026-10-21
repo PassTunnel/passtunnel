@@ -16,37 +16,40 @@ final class HelperInstallerTests: XCTestCase {
         private var current: HelperStatus = .enabled
 
         var status: HelperStatus {
-            lock.lock(); defer { lock.unlock() }
-            if current == .notRegistered, enabledPollsAfterUnregister > 0 {
-                enabledPollsAfterUnregister -= 1
-                return .enabled
+            lock.withLock {
+                if current == .notRegistered, enabledPollsAfterUnregister > 0 {
+                    enabledPollsAfterUnregister -= 1
+                    return .enabled
+                }
+                return current
             }
-            return current
         }
 
         func register() throws {
-            lock.lock(); defer { lock.unlock() }
-            registerCalls += 1
-            events.append("register")
-            if !registerResults.isEmpty, let error = registerResults.removeFirst() { throw error }
-            current = .enabled
+            try lock.withLock {
+                registerCalls += 1
+                events.append("register")
+                if !registerResults.isEmpty, let error = registerResults.removeFirst() { throw error }
+                current = .enabled
+            }
         }
 
         func unregister() async throws {
-            lock.lock(); defer { lock.unlock() }
-            unregisterCalls += 1
-            events.append("unregister")
-            if let unregisterError { throw unregisterError }
-            current = .notRegistered
+            try lock.withLock {
+                unregisterCalls += 1
+                events.append("unregister")
+                if let unregisterError { throw unregisterError }
+                current = .notRegistered
+            }
         }
     }
 
     final class SleepRecorder: @unchecked Sendable {
         private let lock = NSLock()
         private var _delays: [TimeInterval] = []
-        var delays: [TimeInterval] { lock.lock(); defer { lock.unlock() }; return _delays }
+        var delays: [TimeInterval] { lock.withLock { _delays } }
         var sleeper: HelperInstaller.Sleeper {
-            { [self] seconds in lock.lock(); _delays.append(seconds); lock.unlock() }
+            { [self] seconds in lock.withLock { _delays.append(seconds) } }
         }
     }
 

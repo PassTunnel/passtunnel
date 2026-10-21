@@ -433,7 +433,7 @@ final class ConnectionStressTests: XCTestCase {
         weak var manager: ConnectionManager?
         let m = makeManager(healthProbe: { [id = p.id] _ in
             // The user disconnects while the probe is still running.
-            try? await manager?.disconnect(id)
+            _ = try? await manager?.disconnect(id)
             return (false, 0)
         })
         manager = m
