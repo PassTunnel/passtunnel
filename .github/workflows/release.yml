@@ -4,13 +4,13 @@
 #                   commit subjects since the last release. No feat, fix, perf or breaking change: no
 #                   release, and the run ends here (successfully, with a notice).
 #   release         builds, signs, notarizes and publishes the release with
-#                   scripts/release.sh VERSION --publish --notes-file …, then attests the dmg, zip and
-#                   MCP bundle (build provenance; gh attestation verify FILE -R passtunnel/passtunnel).
+#                   scripts/release.sh VERSION --publish --notes-file …, attests the dmg, zip and
+#                   MCP bundle (build provenance; gh attestation verify FILE -R passtunnel/passtunnel),
+#                   then commits dist/passtunnel.rb as Casks/passtunnel.rb to the Homebrew tap.
 #   mcp-registry    publish-mcp.yml for the new tag.
-#   homebrew-tap    commits dist/passtunnel.rb of the release as Casks/passtunnel.rb to the tap.
 #
-# release and homebrew-tap run in the environment "release", which holds the secrets and needs a
-# maintainer's approval:
+# release runs in the environment "release", which holds the secrets and needs a maintainer's
+# approval (one per release):
 #
 #   DEVELOPER_ID_P12_BASE64, DEVELOPER_ID_P12_PASSWORD
 #                   the Developer ID Application certificate and its private key (.p12, base64)
@@ -18,7 +18,8 @@
 #                   an App Store Connect API key (Developer role) for notarytool
 #   SPARKLE_PRIVATE_KEY
 #                   the Sparkle EdDSA private key (the file generate_keys -x writes)
-#   TAP_TOKEN       a fine-grained token with Contents read and write on the tap repository only
+#   TAP_DEPLOY_KEY  the ed25519 private key of a write deploy key on the tap repository (deploy keys
+#                   may bypass the tap's signed-commit rule)
 #
 # The identity and the notarytool profile "passtunnel" go into a temporary keychain that is the job's
 # default keychain, so release.sh finds them as on a Mac; the Sparkle key is a file
@@ -204,13 +205,39 @@ jobs:
             dist/PassTunnel-${{ env.VERSION }}.zip
             dist/PassTunnel-mcp-${{ env.VERSION }}.mcpb
 
-      - name: Keep the Homebrew cask
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: homebrew-cask
-          path: dist/passtunnel.rb
-          if-no-files-found: error
-          retention-days: 7
+      # Over SSH with the tap's deploy key and GitHub's ed25519 host key pinned (api.github.com/meta,
+      # SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU). Nothing is committed when the tap already
+      # has this cask, so a re-run is safe.
+      - name: Update the Homebrew tap
+        env:
+          TAP_DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
+        run: |
+          [[ -n "$TAP_DEPLOY_KEY" ]] || { echo "::error::the secret TAP_DEPLOY_KEY is not set in the environment 'release'"; exit 1; }
+          source scripts/release.env
+          cask="$PWD/dist/passtunnel.rb"
+          grep -qF "version \"$VERSION\"" "$cask" || { echo "::error::dist/passtunnel.rb is not the cask of $VERSION"; exit 1; }
+          ssh_dir="$RUNNER_TEMP/tap-ssh"
+          (
+            umask 077
+            mkdir -p "$ssh_dir"
+            printf '%s\n' "$TAP_DEPLOY_KEY" > "$ssh_dir/deploy-key"
+          )
+          echo "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl" \
+            > "$ssh_dir/known_hosts"
+          export GIT_SSH_COMMAND="ssh -i '$ssh_dir/deploy-key' -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile='$ssh_dir/known_hosts' -o HostKeyAlgorithms=ssh-ed25519"
+          tap="$RUNNER_TEMP/tap"
+          git clone -q --depth 1 --branch main "git@github.com:$TAP_REPO.git" "$tap"
+          cp "$cask" "$tap/Casks/passtunnel.rb"
+          cd "$tap"
+          if git diff --quiet -- Casks/passtunnel.rb; then
+            echo "::notice title=Homebrew tap::$TAP_REPO already has the cask of $VERSION"
+            exit 0
+          fi
+          git -c user.name=Furkanprlk -c user.email=18267444+Furkanprlk@users.noreply.github.com \
+            -c commit.gpgsign=false commit -q -m "Update PassTunnel to $VERSION" -- Casks/passtunnel.rb
+          git push -q origin HEAD:main
+          echo "::notice title=Homebrew tap::$TAP_REPO: $(git log -1 --format='%h %s')"
 
       - name: Remove the keychain and secrets
         if: always()
@@ -218,7 +245,7 @@ jobs:
           security default-keychain -d user -s login.keychain-db || true
           keychain="$RUNNER_TEMP/release.keychain-db"
           [[ ! -e "$keychain" ]] || security delete-keychain "$keychain" || true
-          rm -rf "$RUNNER_TEMP/secrets" "$RUNNER_TEMP/release-notes.md"
+          rm -rf "$RUNNER_TEMP/secrets" "$RUNNER_TEMP/release-notes.md" "$RUNNER_TEMP/tap-ssh" "$RUNNER_TEMP/tap"
 
   mcp-registry:
     name: MCP Registry
@@ -229,46 +256,3 @@ jobs:
     uses: ./.github/workflows/publish-mcp.yml
     with:
       tag: v${{ needs.plan.outputs.version }}
-
-  homebrew-tap:
-    name: Homebrew tap
-    needs: [plan, release]
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    environment: release
-    permissions:
-      contents: read
-    steps:
-      # Only for TAP_REPO.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          sparse-checkout: scripts/release.env
-          sparse-checkout-cone-mode: false
-
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: homebrew-cask
-          path: ${{ runner.temp }}/cask
-
-      # Through the contents API: GitHub signs the commit, and no clone or key is needed.
-      - name: Update Casks/passtunnel.rb
-        env:
-          GH_TOKEN: ${{ secrets.TAP_TOKEN }}
-          VERSION: ${{ needs.plan.outputs.version }}
-        run: |
-          [[ -n "$GH_TOKEN" ]] || { echo "::error::the secret TAP_TOKEN is not set in the environment 'release'"; exit 1; }
-          source scripts/release.env
-          cask="$RUNNER_TEMP/cask/passtunnel.rb"
-          path=Casks/passtunnel.rb
-          grep -qF "version \"$VERSION\"" "$cask" || { echo "::error::the cask is not for $VERSION"; exit 1; }
-          current="$RUNNER_TEMP/current.rb"
-          sha="$(gh api "repos/$TAP_REPO/contents/$path?ref=main" --jq .sha)"
-          gh api "repos/$TAP_REPO/contents/$path?ref=main" -H "Accept: application/vnd.github.raw" > "$current"
-          if cmp -s "$cask" "$current"; then
-            echo "::notice title=Homebrew tap::$TAP_REPO already has the cask of $VERSION"
-            exit 0
-          fi
-          gh api -X PUT "repos/$TAP_REPO/contents/$path" \
-            -f message="Update PassTunnel to $VERSION" -f branch=main -f sha="$sha" \
-            -f content="$(base64 -w0 "$cask")" --jq '"committed \(.commit.sha)"'
