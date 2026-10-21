@@ -3,22 +3,29 @@
 #
 #   scripts/release.sh VERSION [--draft] [--skip-notarize] [--allow-branch] [--publish]
 #                      [--notes-file FILE]
+#   scripts/release.sh VERSION --publish-draft [--attach FILE]...
 #
 #   VERSION          semantic version: 1.2.0, 1.3.0-rc.1, …
 #   --skip-notarize  sign only (no notarization, no stapling); never use for a published release
 #   --allow-branch   build from the current branch instead of main (local test runs; not with --publish)
 #   --publish        create and push the tag vVERSION (signed when git has a signing key), then
 #                    create the GitHub release as a draft, upload the files and publish it
-#   --draft          with --publish: leave the release as a draft (publish it on GitHub later)
+#   --draft          with --publish: leave the release as a draft (publish it on GitHub later, or
+#                    with --publish-draft)
 #   --notes-file FILE
 #                    the release notes (Markdown) from FILE instead of the section "## [VERSION]" of
 #                    docs/CHANGELOG.md (the release workflow passes the notes of next-version.sh)
+#   --publish-draft  build nothing: upload the --attach files to the existing draft release vVERSION,
+#                    check that it has all its files and publish it (the release workflow attaches
+#                    the build provenance this way)
+#   --attach FILE    with --publish-draft: a further file for the draft (repeatable); it may not have
+#                    the name of a file this script builds
 #
-# Without --publish nothing leaves this Mac apart from the notarization uploads: no tag, no push, no
-# release. Output: dist/PassTunnel-VERSION.dmg, dist/PassTunnel-VERSION.zip (Sparkle update),
-# dist/PassTunnel-mcp-VERSION.mcpb (MCP bundle), dist/SHA256SUMS, dist/appcast.xml,
-# dist/passtunnel.rb (Homebrew cask), dist/server.json (MCP Registry entry, published by the
-# publish-mcp workflow), dist/release-notes-VERSION.md.
+# Without --publish or --publish-draft nothing leaves this Mac apart from the notarization uploads:
+# no tag, no push, no release. Output: dist/PassTunnel-VERSION.dmg, dist/PassTunnel-VERSION.zip
+# (Sparkle update), dist/PassTunnel-mcp-VERSION.mcpb (MCP bundle), dist/SHA256SUMS,
+# dist/appcast.xml, dist/passtunnel.rb (Homebrew cask), dist/server.json (MCP Registry entry,
+# published by the publish-mcp workflow), dist/release-notes-VERSION.md.
 # Repository slugs and tool versions come from scripts/release.env. Setup and the whole procedure:
 # docs/RELEASING.md.
 #
@@ -36,7 +43,7 @@ source "$ROOT/scripts/release.env"
 
 die() { echo "error: $*" >&2; exit 1; }
 step() { printf '\n==> %s\n' "$*"; }
-usage() { sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'; }
 
 VERSION=""
 DRAFT=0
@@ -44,6 +51,8 @@ SKIP_NOTARIZE=0
 ALLOW_BRANCH=0
 PUBLISH=0
 NOTES_FILE=""
+PUBLISH_DRAFT=0
+ATTACH=()
 while (($#)); do
     case "$1" in
         --draft) DRAFT=1 ;;
@@ -53,6 +62,9 @@ while (($#)); do
         # Relative to the directory release.sh was started from (the script has changed to ROOT).
         --notes-file) (($# >= 2)) || die "--notes-file needs a file"; NOTES_FILE="$2"
                       [[ "$NOTES_FILE" == /* ]] || NOTES_FILE="$OLDPWD/$NOTES_FILE"; shift ;;
+        --publish-draft) PUBLISH_DRAFT=1 ;;
+        --attach) (($# >= 2)) || die "--attach needs a file"
+                  if [[ "$2" == /* ]]; then ATTACH+=("$2"); else ATTACH+=("$OLDPWD/$2"); fi; shift ;;
         -h|--help) usage; exit 0 ;;
         -*) usage >&2; die "unknown option: $1" ;;
         *) [[ -z "$VERSION" ]] || die "more than one version given"; VERSION="$1" ;;
@@ -78,11 +90,71 @@ ZIP_NAME="PassTunnel-$VERSION.zip"
 MCPB_NAME="PassTunnel-mcp-$VERSION.mcpb"
 SPARKLE_BIN="$ROOT/.build/artifacts/sparkle/Sparkle/bin"
 
+if ((PUBLISH_DRAFT)); then
+    ((!PUBLISH && !DRAFT && !SKIP_NOTARIZE && !ALLOW_BRANCH)) && [[ -z "$NOTES_FILE" ]] \
+        || die "--publish-draft builds nothing and only takes --attach"
+fi
+((${#ATTACH[@]} == 0 || PUBLISH_DRAFT)) || die "--attach only works with --publish-draft"
 ((PUBLISH && ALLOW_BRANCH)) && die "--publish releases from main only; drop --allow-branch"
 ((PUBLISH && SKIP_NOTARIZE)) && die "--publish needs a notarized build; drop --skip-notarize"
 ((DRAFT && !PUBLISH)) && echo "note: --draft only matters with --publish"
 [[ -z "${PASSTUNNEL_ALLOW_UNPINNED_TOOLS:-}" ]] \
     || die "unset PASSTUNNEL_ALLOW_UNPINNED_TOOLS: releases bundle the tool versions pinned in scripts/release.env"
+
+# The files of every release, in the order they are uploaded.
+RELEASE_ASSETS=("$DMG_NAME" "$ZIP_NAME" "$MCPB_NAME" appcast.xml SHA256SUMS)
+
+# Fails unless the draft release of TAG has every asset named in the arguments.
+check_draft_assets() {
+    local uploaded name
+    uploaded="$(gh release view "$TAG" --repo "$GITHUB_REPO" --json assets --jq '.assets[].name')"
+    for name in "$@"; do
+        grep -qxF "$name" <<<"$uploaded" || die "$name is missing from the draft release $TAG"
+    done
+}
+
+# Publishes the complete draft release of TAG. Pre-releases are marked as such and never become
+# "latest".
+publish_draft() {
+    local tap_name="${TAP_REPO%%/*}/${TAP_REPO#*/homebrew-}"
+    if ((PRERELEASE)); then
+        gh release edit "$TAG" --repo "$GITHUB_REPO" --draft=false --prerelease --latest=false
+    else
+        gh release edit "$TAG" --repo "$GITHUB_REPO" --draft=false --latest
+    fi
+    echo
+    echo "Released. Copy dist/passtunnel.rb to Casks/passtunnel.rb in $TAP_REPO ($tap_name) and push it."
+    if ((PRERELEASE)); then
+        echo "Pre-releases are not published to the MCP Registry (run the publish-mcp workflow by hand to list one)."
+    else
+        echo "The publish-mcp workflow now publishes $VERSION to the MCP Registry; check it under Actions."
+    fi
+}
+
+# MARK: --publish-draft (no build)
+
+if ((PUBLISH_DRAFT)); then
+    step "publishing the draft release $TAG on $GITHUB_REPO"
+    command -v gh >/dev/null || die "gh is not installed"
+    IS_DRAFT="$(gh release view "$TAG" --repo "$GITHUB_REPO" --json isDraft --jq .isDraft 2>/dev/null)" \
+        || die "there is no release $TAG on $GITHUB_REPO (scripts/release.sh $VERSION --publish --draft creates it)"
+    [[ "$IS_DRAFT" == "true" ]] || die "release $TAG is already published; a published release is final"
+    ATTACH_NAMES=()
+    for f in ${ATTACH[@]+"${ATTACH[@]}"}; do
+        [[ -f "$f" && -s "$f" ]] || die "$f not found or empty"
+        name="$(basename "$f")"
+        for built in "${RELEASE_ASSETS[@]}"; do
+            [[ "$name" != "$built" ]] || die "--attach $f would replace the release file $built"
+        done
+        ATTACH_NAMES+=("$name")
+    done
+    if ((${#ATTACH[@]})); then
+        gh release upload "$TAG" --repo "$GITHUB_REPO" --clobber "${ATTACH[@]}"
+    fi
+    check_draft_assets "${RELEASE_ASSETS[@]}" ${ATTACH_NAMES[@]+"${ATTACH_NAMES[@]}"}
+    publish_draft
+    exit 0
+fi
 
 # MARK: checks (all before the long build)
 
@@ -380,10 +452,20 @@ if ((PUBLISH)); then
         fi
     fi
     git push origin "$TAG"
-    ASSETS=("$DIST/$DMG_NAME" "$DIST/$ZIP_NAME" "$DIST/$MCPB_NAME" "$DIST/appcast.xml" "$DIST/SHA256SUMS")
+    ASSETS=()
+    for f in "${RELEASE_ASSETS[@]}"; do ASSETS+=("$DIST/$f"); done
     # Draft first, upload, check, then publish: with immutable releases a published release's assets
     # can no longer be added or replaced, so it must be complete before it is published.
     if ((EXISTING_DRAFT)); then
+        # Files of an earlier attempt that this build does not replace go: a provenance bundle
+        # (--attach) describes the files it was made for, not this build.
+        DRAFT_ASSETS="$(gh release view "$TAG" --repo "$GITHUB_REPO" --json assets --jq '.assets[].name')"
+        while IFS= read -r name; do
+            [[ -n "$name" ]] || continue
+            printf '%s\n' "${RELEASE_ASSETS[@]}" | grep -qxF "$name" && continue
+            echo "removing $name of an earlier attempt from the draft"
+            gh release delete-asset "$TAG" "$name" --repo "$GITHUB_REPO" --yes
+        done <<<"$DRAFT_ASSETS"
         gh release upload "$TAG" --repo "$GITHUB_REPO" --clobber "${ASSETS[@]}"
     else
         CREATE_ARGS=(--repo "$GITHUB_REPO" --verify-tag --draft --title "PassTunnel $VERSION"
@@ -391,28 +473,14 @@ if ((PUBLISH)); then
         ((PRERELEASE)) && CREATE_ARGS+=(--prerelease)
         gh release create "$TAG" "${CREATE_ARGS[@]}" "${ASSETS[@]}"
     fi
-    UPLOADED="$(gh release view "$TAG" --repo "$GITHUB_REPO" --json assets --jq '.assets[].name')"
-    for f in "${ASSETS[@]}"; do
-        grep -qxF "$(basename "$f")" <<<"$UPLOADED" || die "$(basename "$f") is missing from the draft release $TAG"
-    done
-    TAP_NAME="${TAP_REPO%%/*}/${TAP_REPO#*/homebrew-}"
+    check_draft_assets "${RELEASE_ASSETS[@]}"
     if ((DRAFT)); then
         echo
-        echo "Draft release $TAG is ready on GitHub; publish it there (or run this again without --draft)."
+        echo "Draft release $TAG is ready on GitHub; publish it there, run this again without --draft, or"
+        echo "publish it with: scripts/release.sh $VERSION --publish-draft [--attach FILE]..."
         echo "Publishing it starts the publish-mcp workflow (MCP Registry; not for pre-releases)."
     else
-        if ((PRERELEASE)); then
-            gh release edit "$TAG" --repo "$GITHUB_REPO" --draft=false --prerelease --latest=false
-        else
-            gh release edit "$TAG" --repo "$GITHUB_REPO" --draft=false --latest
-        fi
-        echo
-        echo "Released. Copy dist/passtunnel.rb to Casks/passtunnel.rb in $TAP_REPO ($TAP_NAME) and push it."
-        if ((PRERELEASE)); then
-            echo "Pre-releases are not published to the MCP Registry (run the publish-mcp workflow by hand to list one)."
-        else
-            echo "The publish-mcp workflow now publishes $VERSION to the MCP Registry; check it under Actions."
-        fi
+        publish_draft
     fi
 else
     echo
