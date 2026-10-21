@@ -385,7 +385,8 @@ struct StatusLine: View {
             let base = duration.map { String(localized: "Connected \($0)") } ?? String(localized: "Connected")
             let degraded = model.isUnreachable(profile.id) ? String(localized: "Not responding")
                                                            : String(localized: "Setup incomplete")
-            let line = [kind == .degraded ? degraded : base, ip].filter { !$0.isEmpty }
+            let unavailable = model.isStatusUnavailable(profile.id) ? String(localized: "(status unavailable)") : ""
+            let line = [kind == .degraded ? degraded : base, ip, unavailable].filter { !$0.isEmpty }
             Text(line.joined(separator: " · ")).foregroundStyle(kind.tint)
         case .connecting(let detail):
             Text(detail.isEmpty ? String(localized: "Connecting…") : detail).foregroundStyle(kind.tint)

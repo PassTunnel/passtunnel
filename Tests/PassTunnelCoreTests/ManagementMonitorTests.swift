@@ -227,6 +227,84 @@ final class SharedStateTests: XCTestCase {
     }
 }
 
+extension SharedStateTests {
+    static let upLog = """
+    2026-01-01 10:00:00 UDPv4 link remote: [AF_INET]203.0.113.10:1194
+    2026-01-01 10:00:01 /sbin/ifconfig utun6 10.8.0.6 10.8.0.6 netmask 255.255.255.0 mtu 1500 up
+    2026-01-01 10:00:02 Initialization Sequence Completed
+
+    """
+
+    func reapedPID() throws -> Int32 {
+        let child = Process()
+        child.executableURL = URL(fileURLWithPath: "/usr/bin/true")
+        try child.run()
+        child.waitUntilExit()
+        return child.processIdentifier
+    }
+
+    /// Another client holds the interface and the app that shared the state has quit: the last state
+    /// written for the same OpenVPN process, marked as unverified, not "Starting…".
+    func testBusySocketFallsBackToTheLastStateOfADeadWriter() async throws {
+        let p = try makeProfile()
+        helper.openVPNStateLine = nil
+        helper.simulateExternalStart(p.id, profileDir: store.dir(p.id).path, since: since)
+        let url = store.dir(p.id).appendingPathComponent(ConnectionManager.sharedStateFile)
+        try JSONCoding.write(ConnectionManager.SharedState(pid: 5151, writer: try reapedPID(), connected), to: url)
+        let cli = manager(StubQuerier(.failure(ManagementError.busy), shares: false))
+        await cli.refresh()
+        XCTAssertEqual(cli.state(p.id), .connected(ip: "10.8.0.6", since: since))
+        XCTAssertEqual(cli.statusUnavailable, [p.id])
+
+        // Another OpenVPN process than the one that is running: not used.
+        try JSONCoding.write(ConnectionManager.SharedState(pid: 4242, writer: try reapedPID(), connected), to: url)
+        await cli.refresh()
+        XCTAssertEqual(cli.state(p.id), .connecting(ConnectionManager.Phase.starting))
+        XCTAssertEqual(cli.statusUnavailable, [])
+    }
+
+    func testBusySocketFallsBackToTheLog() async throws {
+        let p = try makeProfile()
+        helper.openVPNStateLine = nil
+        helper.simulateExternalStart(p.id, profileDir: store.dir(p.id).path, since: since)
+        try Data(Self.upLog.utf8).write(to: store.logURL(p.id))
+        let querier = StubQuerier(.failure(ManagementError.busy), shares: true)
+        let app = manager(querier)
+        await app.refresh()
+        guard case .connected(let ip, _) = app.state(p.id) else { return XCTFail("\(app.state(p.id))") }
+        XCTAssertEqual(ip, "10.8.0.6")
+        XCTAssertEqual(app.statusUnavailable, [p.id])
+
+        // The interface is free again: the app takes it over and the state is verified.
+        querier.result = .success(connected)
+        await app.refresh()
+        XCTAssertEqual(app.state(p.id), .connected(ip: "10.8.0.6", since: since))
+        XCTAssertEqual(app.statusUnavailable, [])
+    }
+
+    func testBusySocketWithoutAnUpLogStaysStarting() async throws {
+        let p = try makeProfile()
+        helper.openVPNStateLine = nil
+        helper.simulateExternalStart(p.id, profileDir: store.dir(p.id).path, since: since)
+        try Data((Self.upLog + "2026-01-01 10:05:00 SIGUSR1[soft,ping-restart] received, process restarting\n").utf8)
+            .write(to: store.logURL(p.id))
+        let cli = manager(StubQuerier(.failure(ManagementError.busy), shares: false))
+        await cli.refresh()
+        XCTAssertEqual(cli.state(p.id), .connecting(ConnectionManager.Phase.starting))
+        XCTAssertEqual(cli.statusUnavailable, [])
+    }
+
+    func testOpenVPNStateFromTheLog() {
+        XCTAssertTrue(VPNLog.openVPNIsUp(Self.upLog))
+        XCTAssertFalse(VPNLog.openVPNIsUp(Self.upLog + "2026-01-01 10:05:00 Restart pause, 5 second(s)\n"))
+        XCTAssertTrue(VPNLog.openVPNIsUp(Self.upLog + "Restart pause, 5 second(s)\n" + "Initialization Sequence Completed\n"))
+        XCTAssertFalse(VPNLog.openVPNIsUp("2026-01-01 10:00:00 TLS: Initial packet\n"))
+        XCTAssertEqual(VPNLog.openVPNLocalIP(Self.upLog), "10.8.0.6")
+        XCTAssertEqual(VPNLog.openVPNLocalIP("net_addr_v4_add: 10.8.0.7/24 dev utun3\n"), "10.8.0.7")
+        XCTAssertNil(VPNLog.openVPNLocalIP("/sbin/ifconfig utun6 delete\n"))
+    }
+}
+
 extension PersistentManagementQuerierTests {
     /// Two callers at once (a poll and a connect) share one open instead of queueing a second client.
     func testConcurrentQueriesOpenOnce() async throws {

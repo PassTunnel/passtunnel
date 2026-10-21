@@ -177,6 +177,16 @@
         }
       }
     },
+    "(status unavailable)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(durum alınamıyor)"
+          }
+        }
+      }
+    },
     "0 means no limit. With a limit, PassTunnel reminds you before the server ends the session." : {
       "localizations" : {
         "tr" : {

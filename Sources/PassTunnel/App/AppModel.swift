@@ -251,6 +251,12 @@ final class AppModel: ObservableObject {
         return connections.warnings[id]
     }
 
+    /// Connected according to the last known state or the log: the management interface is held by
+    /// another client (`ConnectionManager.statusUnavailable`).
+    func isStatusUnavailable(_ id: String) -> Bool {
+        previewStates == nil && connections.statusUnavailable.contains(id)
+    }
+
     func isUnreachable(_ id: String) -> Bool {
         if previewStates != nil { return previewUnreachable.contains(id) }
         return connections.health[id] == .unreachable

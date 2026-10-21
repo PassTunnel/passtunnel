@@ -232,6 +232,10 @@ public final class ConnectionManager: ObservableObject {
     @Published public private(set) var helperError: String?
     /// Connected, but part of the tunnel set-up failed (e.g. a route OpenVPN could not add).
     @Published public private(set) var warnings: [String: String] = [:]
+    /// Profiles whose state could not be read from the management interface (another client holds
+    /// it, OpenVPN serves one at a time) and comes from the last state written for the same OpenVPN
+    /// process or from the log instead: shown as "(status unavailable)".
+    @Published public private(set) var statusUnavailable: Set<String> = []
     /// While a connect waits for a fresh TOTP code: when that wait ends.
     @Published public private(set) var codeWaitUntil: [String: Date] = [:]
 
@@ -365,11 +369,16 @@ public final class ConnectionManager: ObservableObject {
         }
 
         var observed: [String: ConnectionState] = [:]
+        var unverified: Set<String> = []
         for p in profiles where !isBusy(p.id) {
-            observed[p.id] = await observe(p, running: running)
+            let o = await observe(p, running: running)
+            observed[p.id] = o.state
+            if o.unverified { unverified.insert(p.id) }
         }
         guard seq > appliedSeq else { return }   // stale: a newer poll or an action got in first
         appliedSeq = seq
+        let unavailable = statusUnavailable.filter { observed[$0] == nil }.union(unverified)
+        if unavailable != statusUnavailable { statusUnavailable = unavailable }
 
         let ids = Set(profiles.map(\.id))
         for id in states.keys where !ids.contains(id) { forget(id) }
@@ -379,41 +388,54 @@ public final class ConnectionManager: ObservableObject {
         }
     }
 
-    private func observe(_ p: Profile, running: [String: Int32]?) async -> ConnectionState {
+    private func observe(_ p: Profile, running: [String: Int32]?) async -> (state: ConnectionState, unverified: Bool) {
         let isRunning = running?[p.id] != nil
         switch p.type {
         case .openvpn:
             if running != nil && !isRunning {
                 stopSharing(p.id)
-                return .disconnected
+                return (.disconnected, false)
             }
             let socket = mgmtSockets[p.id] ?? socketPath(p.id)
             if let s = await managementState(p.id, socketPath: socket, pid: running?[p.id]) {
-                return Self.map(s)
+                return (Self.map(s.state), s.unverified)
             }
-            return isRunning ? .connecting(Phase.starting) : .disconnected
+            return (isRunning ? .connecting(Phase.starting) : .disconnected, false)
         case .forti:
-            guard isRunning else { return .disconnected }
+            guard isRunning else { return (.disconnected, false) }
             let log = VPNLog.read(store.logURL(p.id))
-            guard VPNLog.fortiIsUp(log) else { return .connecting(Phase.connecting) }
-            let created = (try? FileManager.default.attributesOfItem(atPath: store.logURL(p.id).path))?[.creationDate] as? Date
-            return .connected(ip: VPNLog.fortiAddress(log) ?? "", since: connectedAt[p.id] ?? created)
+            guard VPNLog.fortiIsUp(log) else { return (.connecting(Phase.connecting), false) }
+            return (.connected(ip: VPNLog.fortiAddress(log) ?? "", since: connectedAt[p.id] ?? logCreated(p.id)), false)
         }
+    }
+
+    private func logCreated(_ id: String) -> Date? {
+        (try? FileManager.default.attributesOfItem(atPath: store.logURL(id).path))?[.creationDate] as? Date
     }
 
     /// OpenVPN's state from its management socket, or, while another process holds the interface (the
     /// app keeps a connection open), the state that process shares for the same OpenVPN `pid`.
-    private func managementState(_ id: String, socketPath: String, pid: Int32?) async -> ManagementState? {
+    /// When the interface cannot be read and no live process shares the state (e.g. a client other
+    /// than the app holds it, or the app that wrote the state has quit), the helper still runs
+    /// OpenVPN: the last state written for that process, else the log's, marked `unverified`, rather
+    /// than "Starting…" for a tunnel that is up. The app reopens the interface on every poll, so it
+    /// takes it over as soon as it is free.
+    private func managementState(_ id: String, socketPath: String,
+                                 pid: Int32?) async -> (state: ManagementState, unverified: Bool)? {
         // A live holder keeps the interface busy anyway: don't wait for the busy timeout.
-        if !management.sharesState, let pid, let shared = sharedState(id, pid: pid) { return shared }
+        if !management.sharesState, let pid, let shared = sharedState(id, pid: pid) { return (shared, false) }
         do {
             let s = try await management.state(socketPath: socketPath, timeout: 2)
             if management.sharesState, let pid { share(id, SharedState(pid: pid, writer: getpid(), s)) }
-            return s
+            return (s, false)
         } catch {
-            // The holder itself has nothing to fall back on: its own connection is the source.
-            guard let pid, !management.sharesState else { return nil }
-            return sharedState(id, pid: pid)
+            guard let pid else { return nil }
+            if !management.sharesState, let shared = sharedState(id, pid: pid) { return (shared, false) }
+            if let last = sharedState(id, pid: pid, requireLiveWriter: false) { return (last, true) }
+            let log = VPNLog.read(store.logURL(id))
+            guard VPNLog.openVPNIsUp(log) else { return nil }
+            let since = connectedAt[id] ?? logCreated(id) ?? clock.now()
+            return (ManagementState(name: "CONNECTED", localIP: VPNLog.openVPNLocalIP(log) ?? "", since: since), true)
         }
     }
 
@@ -433,9 +455,10 @@ public final class ConnectionManager: ObservableObject {
     }
 
     /// The state another live process shared for OpenVPN process `pid`, if any.
-    func sharedState(_ id: String, pid: Int32) -> ManagementState? {
-        guard let s = try? JSONCoding.read(SharedState.self, from: sharedStateURL(id)), s.pid == pid,
-              kill(s.writer, 0) == 0 || errno == EPERM else { return nil }
+    /// `requireLiveWriter: false`: also when the process that wrote it has exited (last known state).
+    func sharedState(_ id: String, pid: Int32, requireLiveWriter: Bool = true) -> ManagementState? {
+        guard let s = try? JSONCoding.read(SharedState.self, from: sharedStateURL(id)), s.pid == pid else { return nil }
+        guard !requireLiveWriter || kill(s.writer, 0) == 0 || errno == EPERM else { return nil }
         return s.state
     }
 
@@ -811,7 +834,7 @@ public final class ConnectionManager: ObservableObject {
             try await checkSetup(p, log: log, owned: owned)
             switch p.type {
             case .openvpn:
-                if let s = await managementState(id, socketPath: socketPath, pid: pid) {
+                if let s = await managementState(id, socketPath: socketPath, pid: pid)?.state {
                     try checkToken(id, token)
                     if s.isConnected {
                         // Routes and DNS are set up before CONNECTED: their errors are in the log by now.

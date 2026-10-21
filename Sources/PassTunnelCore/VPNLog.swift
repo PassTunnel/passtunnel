@@ -244,6 +244,42 @@ public enum VPNLog {
         return s
     }
 
+    // MARK: OpenVPN state from the log
+
+    static let openVPNRestartMarkers = ["SIGUSR1[", "SIGHUP[", "SIGTERM[", "Restart pause", "Inactivity timeout",
+                                        "Connection reset, restarting"]
+
+    /// OpenVPN: the tunnel came up ("Initialization Sequence Completed") and has not restarted since.
+    /// Only a fallback for when the management interface cannot be read.
+    public static func openVPNIsUp(_ text: String) -> Bool {
+        var up = false
+        for line in text.split(whereSeparator: \.isNewline) {
+            if line.contains("Initialization Sequence Completed") {
+                up = true
+            } else if openVPNRestartMarkers.contains(where: { line.contains($0) }) {
+                up = false
+            }
+        }
+        return up
+    }
+
+    /// OpenVPN's tunnel address from the last "/sbin/ifconfig utun6 10.8.0.6 …" (or
+    /// "net_addr_v4_add: 10.8.0.6/24 dev utun6") line.
+    public static func openVPNLocalIP(_ text: String) -> String? {
+        var found: String?
+        for line in text.split(whereSeparator: \.isNewline) {
+            var candidate: Substring?
+            if let r = line.range(of: "/sbin/ifconfig utun") {
+                let tokens = line[r.upperBound...].split(separator: " ")
+                if tokens.count >= 2 { candidate = tokens[1] }
+            } else if let r = line.range(of: "net_addr_v4_add: ") {
+                candidate = line[r.upperBound...].prefix { $0 != "/" && $0 != " " }
+            }
+            if let c = candidate, c.contains("."), c.allSatisfy({ $0.isNumber || $0 == "." }) { found = String(c) }
+        }
+        return found
+    }
+
     /// openfortivpn: "Tunnel is up and running" seen.
     public static func fortiIsUp(_ text: String) -> Bool {
         text.contains("Tunnel is up and running")

@@ -113,6 +113,7 @@ final class CLIRunner {
         var health: String?
         var error: String?
         var warning: String?
+        var statusUnavailable: Bool?
     }
 
     private func statusJSON(_ p: Profile) -> StatusJSON {
@@ -124,6 +125,7 @@ final class CLIRunner {
         case .connecting(let phase): s.state = "connecting"; s.phase = phase
         case let .connected(ip, since):
             s.state = "connected"; s.ip = ip; s.since = since; s.warning = m.warnings[p.id]
+            if m.statusUnavailable.contains(p.id) { s.statusUnavailable = true }
         }
         return s
     }
@@ -165,6 +167,9 @@ final class CLIRunner {
                 text = String(localized: "connected")
                 if !ip.isEmpty { text += "  " + ip }
                 if let since { text += "  " + CLIDurations.since(since) }
+                if manager.statusUnavailable.contains(p.id) {
+                    text += "  " + CLITerminal.dim(String(localized: "(status unavailable)"))
+                }
                 if let warning = manager.warnings[p.id] { text += "  " + CLITerminal.colored(warning, palette.color(.connecting)) }
             }
             if let error = manager.lastError[p.id], tone == .disconnected { text += "  " + error }

@@ -265,6 +265,12 @@ disconnect, so a 3 s one-shot poll grew the log by ~7 MB a day. OpenVPN serves o
 time, so while the app holds it a one-shot query finds it busy; the app therefore writes the state it
 sees (only on change) to `<profileDir>/.mgmt-state` with the OpenVPN pid and its own pid, and a busy query
 falls back to that file when the pid matches the helper's `status` and the writer is still alive.
+When the interface cannot be read and no live writer shares the state (another client holds it, or the
+app that wrote the file has quit) while the helper still runs that OpenVPN, the app and the CLI use the
+last state written for the same pid even from a dead writer, else the log ("Initialization Sequence
+Completed" with no restart after it; address from the `ifconfig` line), and mark the profile in
+`ConnectionManager.statusUnavailable` — shown as "Connected (status unavailable)" — instead of
+"Starting…". The app retries the interface on every poll and takes it over once it is free.
 Forti state comes from helper `status` + log (`Tunnel is up and running`, `Got addresses: [...]`). It resolves
 credentials (Keychain / TOTP / caller-supplied for `.ask`), builds what is sent with
 `OTPComposer` (Core, pure + unit-tested):
