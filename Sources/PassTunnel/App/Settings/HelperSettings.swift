@@ -59,6 +59,12 @@ struct HelperSettings: View {
     @State private var busy = false
     @State private var errorText: String?
     @State private var confirmRemove = false
+    /// Replacing the helper on request from outside the app (CLI, launch argument) asks first.
+    @State private var confirmReplace = false
+    /// Replacing a newer helper with this copy's older one always asks.
+    @State private var confirmDowngrade = false
+    /// The CLI request the open confirmation answers; it is told when the user cancels.
+    @State private var replyTo: HelperHandoff?
     @State private var showLicenses = false
     var tools: [BundledTool] = BundledTools.load()
     private let timer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
@@ -161,11 +167,25 @@ struct HelperSettings: View {
             model.refreshHelperStatus()
             runPendingAction()
         }
+        .onDisappear { declined() }
         .onChange(of: model.pendingHelperAction) { _ in runPendingAction() }
         .confirmationDialog(String(localized: "Remove the PassTunnel helper?"), isPresented: $confirmRemove) {
-            Button(String(localized: "Remove"), role: .destructive) { remove() }
+            Button(String(localized: "Remove"), role: .destructive) { replyTo = nil; remove() }
+            Button(String(localized: "Cancel"), role: .cancel) { declined() }
         } message: {
             Text(String(localized: "Active connections stop. You can install the helper again at any time."))
+        }
+        .confirmationDialog(String(localized: "Replace the PassTunnel helper?"), isPresented: $confirmReplace) {
+            Button(String(localized: "Replace Helper")) { replyTo = nil; performUpdate() }
+            Button(String(localized: "Cancel"), role: .cancel) { declined() }
+        } message: {
+            Text(String(localized: "The helper is replaced with the one inside this copy of PassTunnel (\(Bundle.main.bundlePath)). Active connections stop."))
+        }
+        .confirmationDialog(String(localized: "Replace the helper with an older version?"), isPresented: $confirmDowngrade) {
+            Button(String(localized: "Install Older Helper"), role: .destructive) { replyTo = nil; performUpdate() }
+            Button(String(localized: "Cancel"), role: .cancel) { declined() }
+        } message: {
+            Text(String(localized: "The installed helper is from a newer version of PassTunnel than this copy. Replacing it installs an older helper. Active connections stop."))
         }
         .sheet(isPresented: $showLicenses) { LicensesView() }
     }
@@ -188,6 +208,9 @@ struct HelperSettings: View {
     private var statusDetail: String {
         if updating {
             return String(localized: "Replacing the helper with the one from this copy of PassTunnel. Active connections stop.")
+        }
+        if outdated && model.helperRelation == .newer {
+            return String(localized: "This helper belongs to a newer version of PassTunnel. Update PassTunnel to connect, or replace the helper with the older one from this copy.")
         }
         if outdated && model.helperUpdateWaiting {
             return String(localized: "This helper belongs to another version of PassTunnel. It updates itself when all VPN connections are disconnected.")
@@ -223,33 +246,58 @@ struct HelperSettings: View {
         }
     }
 
-    /// Carries out what `passtunnel helper install|uninstall` asked for. Removal is never silent:
-    /// any local process can post the request, so the user confirms it here. An install request for
-    /// a helper that is enabled but outdated updates it (the user asked for a working helper; updating
-    /// stops active connections, as the status line says).
+    /// Carries out what `passtunnel helper install|update|uninstall` asked for (launch argument or
+    /// notification). Any local process can make the request, and registering points the root helper
+    /// at this copy, so: installing or updating only from /Applications, and replacing a running
+    /// helper or removing it only after the user confirms here (a newer helper with a warning).
+    /// The waiting CLI is told when the app asks, refuses, or the user cancels (`HelperHandoff.Outcome`).
     private func runPendingAction() {
         guard let action = model.pendingHelperAction else { return }
         model.pendingHelperAction = nil
         model.refreshHelperStatus()
+        if action != .uninstall, model.helperStatus != .requiresApproval,
+           !HelperSessions.isInApplicationsFolder(Bundle.main.bundlePath) {
+            errorText = String(localized: "Open PassTunnel from the Applications folder to install or update the helper from the command line.")
+            action.postReply(.refused)
+            return
+        }
         switch (action, model.helperStatus) {
         case (.install, .notRegistered), (.update, .notRegistered): install()
         case (.install, .requiresApproval), (.update, .requiresApproval): HelperInstaller.openSystemSettingsLoginItems()
-        case (.install, .enabled): updateIfOutdated(force: false)
-        case (.update, .enabled): updateIfOutdated(force: true)
+        case (.install, .enabled): confirmUpdateIfOutdated(force: false, for: action)
+        case (.update, .enabled): confirmUpdateIfOutdated(force: true, for: action)
         case (.install, _), (.update, _): break
-        case (.uninstall, .enabled), (.uninstall, .requiresApproval): confirmRemove = true
+        case (.uninstall, .enabled), (.uninstall, .requiresApproval): ask(for: action) { confirmRemove = true }
         case (.uninstall, _): break
         }
     }
 
-    /// Asks the running helper whether it is current (the cached `helperOutdated` may not be known
-    /// yet right after launch). `force`: also update a helper that does not answer.
-    private func updateIfOutdated(force: Bool) {
+    /// Asks the running helper how it relates to this copy (the cached `helperRelation` may not be
+    /// known yet right after launch) and asks before replacing it. `force`: also offer to replace a
+    /// helper that does not answer.
+    private func confirmUpdateIfOutdated(force: Bool, for action: HelperHandoff) {
         guard !isBusy else { return }
         Task {
-            let outdated = try? await HelperClient.shared.isOutdated()
-            if outdated == true || (force && outdated == nil) { update() }
+            switch try? await HelperClient.shared.relation() {
+            case .current?: break
+            case .newer?: ask(for: action) { confirmDowngrade = true }
+            case .older?, .different?: ask(for: action) { confirmReplace = true }
+            case nil: if force { ask(for: action) { confirmReplace = true } }
+            }
         }
+    }
+
+    /// Shows a confirmation for a CLI request and tells the CLI it now waits for the user.
+    private func ask(for action: HelperHandoff, _ show: () -> Void) {
+        if replyTo != action { declined() }      // a confirmation still open for another request
+        replyTo = action
+        show()
+        action.postReply(.asking)
+    }
+
+    private func declined() {
+        replyTo?.postReply(.declined)
+        replyTo = nil
     }
 
     private func install() {
@@ -268,8 +316,21 @@ struct HelperSettings: View {
         }
     }
 
-    /// Replaces a helper left running from another app version (see `AppModel.updateHelper`).
+    /// Update Helper button: the click is the confirmation, except for replacing a newer helper (asked
+    /// fresh: the cached relation may not be known yet).
     private func update() {
+        guard !isBusy else { return }
+        Task {
+            if (try? await HelperClient.shared.relation()) == .newer {
+                confirmDowngrade = true
+            } else {
+                performUpdate()
+            }
+        }
+    }
+
+    /// Replaces a helper left running from another app version (see `AppModel.updateHelper`).
+    private func performUpdate() {
         guard !isBusy else { return }
         errorText = nil
         Task {

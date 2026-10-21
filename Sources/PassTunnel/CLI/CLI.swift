@@ -17,8 +17,14 @@ enum PassTunnelCLI {
         return args.count > 1 && CLICommand.isCommand(args[1])
     }
 
+    /// Internal first argument of the process `CLIClipboard` leaves behind to clear a copied code.
+    static let clearClipboardArgument = "__clear-clipboard"
+
     /// Runs the command in `args` (argv including the program name) and returns the exit code.
     static func run(_ args: [String]) -> Int32 {
+        if args.count == 3, args[1] == clearClipboardArgument, let count = Int(args[2]) {
+            return CLIClipboard.clearLater(ifUnchangedSince: count)
+        }
         let command: CLICommand
         do {
             command = try CLICommand.parse(CLICommand.strippingSystemArguments(Array(args.dropFirst())))
@@ -97,13 +103,19 @@ enum CLIHelp {
         case "log": return String(localized: "Print the VPN log of a profile; -f keeps following it.")
         case "helper": return String(localized: "Show, install or remove the privileged helper.")
         case "completion": return String(localized: "Print a shell completion script.")
+        #if DEBUG
         case "debug": return String(localized: "Test hook: make a connected OpenVPN profile drop as if the server ended the session (not a user stop, so auto-reconnect runs).")
+        #endif
         default: return ""
         }
     }
 
-    /// Test hooks: `passtunnel help debug` shows them; the overview does not.
+    /// Test hooks (debug builds only): `passtunnel help debug` shows them; the overview does not.
+    #if DEBUG
     static let hiddenSynopsis = [("debug", "passtunnel debug drop ID")]
+    #else
+    static let hiddenSynopsis: [(String, String)] = []
+    #endif
 
     static func usage(for command: String?) -> String {
         if let command, let line = (synopsis + hiddenSynopsis).first(where: { $0.0 == command }) {

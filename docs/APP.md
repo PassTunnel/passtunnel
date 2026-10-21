@@ -24,7 +24,8 @@ One binary, two modes:
 `@MainActor final class ConnectionManager: ObservableObject`
 - `@Published private(set) var states: [String: ConnectionState]` and `lastError: [String: String]`.
 - Polls every 3 s while the app runs (and immediately after wake, after any action). OpenVPN state
-  from `ManagementSocket` (unix socket in the profile dir); Forti from helper `status` + log parsing.
+  from `ManagementSocket` (unix socket in the helper's run directory); Forti from helper `status` + log parsing.
+  Every poll (and `AppModel.reload`) also runs `revalidateDestinations` (see step 0 below).
   Apply results with a monotonically increasing sequence number so stale polls never overwrite newer
   state.
 - `connect(_ id:, given: [CredentialField: String]) async throws`:
@@ -32,12 +33,18 @@ One binary, two modes:
      encrypted and not unlocked, `vault.unlock` asks (Touch ID / Mac password) before anything starts;
      a cancel throws `PTError.userConfirmationCancelled` (no helper call, no `lastError`), a failure is
      recorded in `lastError` like any connect failure. Not asked when the profile is already
-     connecting or connected.
+     connecting or connected. The prompt names the server (`UserPresenceAction.reason(name, host:)`:
+     "connect to “Acme VPN” (vpn.example.com)"). Decrypted values are bound to the profile's
+     `ProfileDestination` (fingerprint of `config.ovpn`, or Forti host, port and trusted cert) when the
+     user confirms; values confirmed for another destination are dropped first
+     (`vault.forgetUnlessBound`), so a changed server always asks again.
   1. read profile; check `Secrets.has` for keychain password / TOTP secret → precise error if missing
   2. TOTP: if fewer than 8 s remain in the window, or this window's code was already sent (by the app
      or the CLI, `profiles/<id>/.last-otp`), wait for the next one ("Waiting for a fresh code…",
      at most one window, not counted against the timeout; `disconnect` ends the wait at once)
-  3. `OTPComposer.compose` → helper `startOpenVPN` / `startForti`
+  3. `OTPComposer.compose` → helper `startOpenVPN` (with `configSHA256` of the `config.ovpn` read for the
+     destination; a `config.ovpn` the app cannot read fails the connect with `missingConfig` before any
+     secret is read; a helper reply `config_changed` → `DestinationChangedError`, not retried) / `startForti`
   4. wait until connected (timeout 60 s OpenVPN, 120 s Forti); on auth failure read the log tail and throw
      `PTError.authFailed(details)`; on timeout stop the process.
 - `disconnect(_ id:)` → helper `stop`; marks the profile *user-stopped* so it is not treated as a drop.
@@ -48,7 +55,16 @@ One binary, two modes:
   secrets the manager keeps for a session it connected (dropped, overwritten, on user disconnect, final
   reconnect failure or when the profile is forgotten) or the reuse window; otherwise they fail with
   `PTError.confirmationRequired` (not retried; "Could not reconnect" with a Connect action), e.g. for a
-  session the CLI started.
+  session the CLI started. When the destination of a protected profile changed after the user
+  confirmed the session, its secrets are dropped and it is not reconnected (drop or forced health
+  reconnect): the event `destinationChanged` becomes the notification "“Acme VPN” was not
+  reconnected" / "Its server settings changed after you confirmed the connection. Click to connect
+  and confirm again." (shown even with drop notifications off; Connect action like
+  `droppedWhileAsleep`). A reconnect already running stops with `DestinationChangedError` the same way.
+  On the health path the tunnel is not stopped (`destinationChanged(stillConnected: true)`): the
+  notification is "“Acme VPN” server settings changed" / "It is still connected to the server you
+  confirmed, which is not responding. Reconnect to confirm the new settings." (no Connect action, a
+  click shows the profile; the badge is not marked as dropped).
 - Health: every 30 s for connected profiles with `healthHost`; 2 consecutive failures → "connected
   but unreachable" (amber) + one notification per outage; if auto-reconnect, one forced reconnect per
   outage. Success clears the outage.
@@ -70,6 +86,9 @@ Sidebar-less single list, one row per profile (drag to reorder → `order`):
 ```
 - The live code (if the profile has TOTP) is large, monospaced, grouped 3+3; a circular countdown
   ring; click copies it (toast "Copied"). Hidden behind "•••" when `Preferences.hideCodes`.
+  Every copied code and password + code goes through `Pasteboard.copySecret`: `.currentHostOnly` (no
+  Universal Clipboard), marked `org.nspasteboard.ConcealedType` and `…TransientType`, and cleared after
+  `Pasteboard.secretLifetime` (30 s) unless the pasteboard's change count moved meanwhile.
   When the TOTP secret is stored encrypted ("Confirm with Touch ID": `always`, or `connect` without a saved
   password) and not unlocked, the code is "••• •••" with a lock instead of the ring; click asks
   (`AppModel.revealCode`) and the code shows for the reuse window. Copy code, Copy password + code,
@@ -92,7 +111,10 @@ Sidebar-less single list, one row per profile (drag to reorder → `order`):
 Sections (only relevant rows visible — hide, don't disable):
 1. **General**: name, type (read-only after creation), icon picker (SF Symbols grid ~24 curated),
    badge letter, menu-bar style (letter / icon / both) with live preview, pin.
-2. **Connection**: OpenVPN → config file (choose / replace, shows remote host); Forti → host, port,
+2. **Connection**: OpenVPN → config file (choose / replace, shows the remote host, "+N more" when there are several
+   (`OVPNAnalyzer.serverDescription`); an inline
+   `<auth-user-pass>` block is removed from it, `OVPNInliner.strippingCredentials`, and its user name and
+   password fill empty Sign-in fields, saved to the profile and the Keychain on Save); Forti → host, port,
    trusted cert (with "Fetch fingerprint" that reads the server cert SHA-256 via a TLS handshake and
    asks to confirm), DNS / routes toggles. Session limit, health host with "Test", auto-reconnect
    (disabled with explanation when not unattended).
@@ -143,13 +165,24 @@ Connect/Disconnect, Copy code; then Open PassTunnel (⌘O), Settings… (⌘,), 
   ⌃⌥C type/copy code.
 - **Helper**: status (enabled / needs approval / not installed / needs an update / updating) with Install /
   Update / Open Login Items / Remove;
-  bundled tool versions; "Show licenses" (Resources/licenses).
+  bundled tool versions; "Show licenses" (Resources/licenses). "Needs an update" covers any helper
+  that is not this copy's (`AppModel.helperRelation`, from `HelperClient.relation()`); for a newer
+  helper the status line says it belongs to a newer version of PassTunnel. The Update Helper click is
+  the confirmation, except that replacing a newer helper (relation asked fresh) first shows "Replace
+  the helper with an older version?" (Install Older Helper, destructive). A request from
+  `passtunnel helper install|uninstall` (`HelperSettings.runPendingAction`) opens this tab; when it
+  shows a confirmation for it, it tells the waiting CLI (`asking`), and cancelling that confirmation
+  (or leaving the tab, or a newer request replacing it) tells it `declined`; a copy outside `/Applications` shows "Open
+  PassTunnel from the Applications folder to install or update the helper from the command line." and
+  tells it `refused` (see CLI).
 - **Updates**: Sparkle 2 (`AppUpdater`, `SPUStandardUpdaterController`): "Check for updates
   automatically" (Sparkle's own setting, default on via `SUEnableAutomaticChecks`; Sparkle checks once
   a day), current version, last check date, **Check Now**; the app menu has "Check for Updates…".
   `SUAutomaticallyUpdate` is false: an update is installed when the user clicks Install. Feed:
   `https://github.com/<GITHUB_REPO>/releases/latest/download/appcast.xml` (`SUFeedURL`, stamped by
-  build-app.sh from scripts/release.env), signed with EdDSA (`SUPublicEDKey`). The app is not
+  build-app.sh from scripts/release.env); the feed and the archives are signed with EdDSA
+  (`SUPublicEDKey`), and `SURequireSignedFeed` + `SUVerifyUpdateBeforeExtraction` make Sparkle refuse
+  an unsigned feed and check an archive before unpacking it. The app is not
   sandboxed, so Sparkle's installer launcher XPC service is off (`SUEnableInstallerLauncherService`
   false). The updater starts in `PassTunnelApp.init` only, so the CLI and the screenshot renderer
   never start it; unbundled runs show the tab disabled. A scheduled update in the menu-bar-only state
@@ -192,7 +225,7 @@ passtunnel default ID / pin ID / unpin ID
 passtunnel log ID [-f]
 passtunnel helper status|install|uninstall
 passtunnel completion zsh|bash|fish
-passtunnel debug drop ID                     test hook, not in help or completion (see below)
+passtunnel debug drop ID                     debug builds only: test hook, not in help or completion (see below)
 ```
 Exit codes: 0 ok, 1 error, 2 usage, 3 not connected (status of a single profile).
 
@@ -206,7 +239,15 @@ cancelled prompt prints "Cancelled." and exits 1; when no prompt can be shown (o
 `notInteractive` / `systemCancel`), the Touch ID lockout or a Mac without a login password, it prints why
 and exits 1. Nothing is ever done without the decrypt. `disconnect` never asks.
 
-`debug drop ID` (test hook, `DebugDrop`) makes a connected OpenVPN profile drop as if the server ended
+`code -c` copies like the app (`Pasteboard.copySecret`) and leaves a detached copy of the binary behind
+(`posix_spawn` with `POSIX_SPAWN_SETSID`, stdio to `/dev/null`, internal first argument
+`__clear-clipboard <changeCount>`, never parsed as a command) that clears the pasteboard after 30 s
+unless something else was copied; the command itself returns at once. `import FILE` of an `.ovpn` with
+an inline `<auth-user-pass>` block moves its user name to the profile and its password to the Keychain
+(`ProfileStore.importOVPN`) and says so.
+
+`debug drop ID` (test hook, `DebugDrop`; compiled only into debug builds, `#if DEBUG`, since any process
+in the login session can post the notification) makes a connected OpenVPN profile drop as if the server ended
 the session, so drop notifications and auto-reconnect can be tried for real: OpenVPN gets
 `signal SIGTERM` over its management interface and exits, and the profile is *not* marked user-stopped.
 OpenVPN serves one management client at a time and the app holds it, so the CLI posts
@@ -224,12 +265,31 @@ phases can arrive out of order); without one it prints only "Waiting for a fresh
 `helper install|uninstall` are carried out by the app: SMAppService refuses registrations from a
 process started in Terminal ("Operation not permitted"), so the CLI never calls it. It posts
 `HelperHandoff.notification` to a running app, or opens its own app bundle with `--install-helper` /
-`--uninstall-helper`; the app shows Settings → Helper, starts the registration (removal asks for
-confirmation there), and the CLI waits for the new status and prints it. `helper status` stays local.
-When the helper is enabled but outdated (another protocol or build), `helper install` hands off
-`--update-helper` (`HelperHandoff.update`) instead: the app runs the same update as Settings → Helper →
-Update Helper (active connections stop), and the CLI waits up to 60 s for the helper to report the
-current protocol and build. An `install` hand-off that finds an outdated helper updates it too.
+`--uninstall-helper`; the app shows Settings → Helper and carries the action out there, and the CLI
+waits for the new status and prints it. `helper status` stays local. Any local process can make such a
+request, and registering points the root helper at the registering copy, so
+(`HelperSettings.runPendingAction`): install and update are refused by a copy outside `/Applications`
+("Open PassTunnel from the Applications folder…"; a helper waiting for approval only opens Login
+Items); a missing helper is registered; replacing an enabled helper always asks ("Replace the
+PassTunnel helper?", naming this copy's path), and replacing a newer one asks with the downgrade
+warning instead; removal asks too. When the helper is enabled but outdated (another protocol or
+build), `helper install` hands off `--update-helper` (`HelperHandoff.update`) instead: after the user
+confirms, the app runs the same update as Settings → Helper → Update Helper (active connections
+stop), and the CLI waits for the helper to report the current protocol and build. An
+`install` hand-off that finds an outdated helper offers the update too; one that finds the current
+helper does nothing.
+
+The app answers each hand-off (`HelperHandoff.replyNotification`, `HelperHandoff.Outcome`): `asking`
+when it shows a confirmation, `declined` when the user cancels it, `refused` when this copy is not in
+`/Applications`. The CLI (`HandoffReplies`, `CLIRunner.wait(for:until:)`, deadline in `HelperHandoffWait`)
+polls every 0.5 s: 30 s for `install`, 60 s for `update` and `uninstall`. Once the app asks, it prints
+"Waiting for your confirmation in PassTunnel…" and waits up to 10 minutes for the decision. A cancel
+("The update was cancelled in PassTunnel. The helper was not replaced." / "The removal was cancelled in
+PassTunnel. The helper is still installed."; for `install` "The helper is not installed yet. Finish the
+installation in PassTunnel → Settings → Helper."), a refusal ("PassTunnel did not change the helper:
+open PassTunnel from the Applications folder, then try again.") or the deadline exits 1. Success is
+still decided by polling the helper, never by a reply: any local process can post one, so a forged
+reply only changes the message.
 
 The app and the CLI share the files and the Keychain. The app never acts on a cached profile:
 connect, copy code, copy password + code and auto-type re-read the stored profile and Keychain item

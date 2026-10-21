@@ -103,6 +103,95 @@ public enum OVPNInliner {
         return inlined
     }
 
+    // MARK: credentials
+
+    /// Inline blocks whose content is a user name and a password (one per line).
+    public enum CredentialBlock: String, CaseIterable {
+        /// The VPN sign-in. PassTunnel always supplies it itself (`--auth-user-pass`).
+        case authUserPass = "auth-user-pass"
+        /// Credentials for the HTTP proxy (embedded from a file on import).
+        case httpProxyUserPass = "http-proxy-user-pass"
+    }
+
+    public struct StrippedCredentials: Equatable {
+        public var text: String
+        /// From the `<auth-user-pass>` block, when it was removed and had them.
+        public var username: String?
+        public var password: String?
+        /// Which blocks were found and removed.
+        public var removed: Set<CredentialBlock>
+    }
+
+    /// Removes the `blocks` from a config, so no user name or password is stored or shared with it.
+    /// A removed `<auth-user-pass>` leaves a bare `auth-user-pass` line (the config still signs in with
+    /// a user name and password, which PassTunnel supplies), and `auth-user-pass [inline]` becomes
+    /// `auth-user-pass`; `http-proxy-user-pass [inline]` lines go with their block. Other blocks are
+    /// kept verbatim. Without any of these, `text` is returned unchanged.
+    public static func strippingCredentials(_ text: String, blocks: Set<CredentialBlock> = Set(CredentialBlock.allCases)) -> StrippedCredentials {
+        var result = StrippedCredentials(text: text, removed: [])
+        var out: [String] = []
+        var verbatimTag: String?
+        var removing: (block: CredentialBlock, lines: [String])?
+        var changed = false
+
+        for rawLine in text.components(separatedBy: "\n") {
+            var line = rawLine
+            if line.hasSuffix("\r") { line.removeLast() }
+            if let current = removing {
+                if isBlockEnd(line, tag: current.block.rawValue) {
+                    finish(current.block, current.lines, into: &result, out: &out)
+                    removing = nil
+                } else {
+                    removing?.lines.append(line)
+                }
+                continue
+            }
+            if let tag = verbatimTag {
+                out.append(rawLine)
+                if isBlockEnd(line, tag: tag) { verbatimTag = nil }
+                continue
+            }
+            guard let tokens = tokenize(line), let first = tokens.first else {
+                out.append(rawLine)
+                continue
+            }
+            if tokens.count == 1, let tag = blockTag(first) {
+                if let block = CredentialBlock(rawValue: tag.lowercased()), blocks.contains(block) {
+                    removing = (block, [])
+                    changed = true
+                    continue
+                }
+                if tag.lowercased() != "connection" { verbatimTag = tag }
+                out.append(rawLine)
+                continue
+            }
+            let name = String(first.drop(while: { $0 == "-" })).lowercased()
+            let inlineArg = tokens.count > 1 && tokens[1].lowercased() == "[inline]"
+            if inlineArg, let block = CredentialBlock(rawValue: name), blocks.contains(block) {
+                changed = true
+                if block == .authUserPass { out.append("auth-user-pass") }
+                continue
+            }
+            out.append(rawLine)
+        }
+        // An unterminated block is dropped with everything after it: none of it is kept.
+        if let current = removing { finish(current.block, current.lines, into: &result, out: &out) }
+        if changed { result.text = out.joined(separator: "\n") }
+        return result
+    }
+
+    private static func finish(_ block: CredentialBlock, _ lines: [String], into result: inout StrippedCredentials,
+                               out: inout [String]) {
+        result.removed.insert(block)
+        guard block == .authUserPass else { return }
+        out.append("auth-user-pass")
+        // As OpenVPN reads it: the first line is the user name, the second the password.
+        if let user = lines.first?.trimmingCharacters(in: .whitespaces), !user.isEmpty, result.username == nil {
+            result.username = user
+        }
+        if lines.count > 1, !lines[1].isEmpty, result.password == nil { result.password = lines[1] }
+    }
+
     /// Throws `PTError.ovpnNotAllowed` with every violation the sanitizer finds.
     public static func check(_ text: String) throws {
         do {
@@ -135,46 +224,20 @@ public enum OVPNInliner {
         return try FileIO.read(resolved, maxSize: maxReferencedFileSize)
     }
 
-    // MARK: parsing (same rules as OpenVPN: quotes, backslash escapes, `#`/`;` comments)
+    // MARK: parsing (`OVPNSanitizer`'s, so the two never read a line differently)
 
-    /// nil for blank/comment lines and unterminated quotes.
+    /// nil for blank and comment lines and for lines OpenVPN rejects (bad backslash escape,
+    /// unterminated quote): those are kept as they are and the sanitizer reports them.
     static func tokenize(_ line: String) -> [String]? {
-        var tokens: [String] = []
-        var cur = ""
-        var inToken = false
-        var quote: Character?
-        var escaped = false
-        for c in line {
-            if escaped { cur.append(c); escaped = false; inToken = true; continue }
-            if c == "\\" && quote != "'" { escaped = true; continue }
-            if let q = quote {
-                if c == q { quote = nil; tokens.append(cur); cur = ""; inToken = false } else { cur.append(c) }
-                continue
-            }
-            if c == " " || c == "\t" || c == "\r" || c == "\u{0B}" || c == "\u{0C}" {
-                if inToken { tokens.append(cur); cur = ""; inToken = false }
-                continue
-            }
-            if !inToken && (c == "#" || c == ";") { break }
-            if !inToken && (c == "\"" || c == "'") { quote = c; continue }
-            cur.append(c)
-            inToken = true
-        }
-        if quote != nil { return nil }
-        if inToken { tokens.append(cur) }
-        return tokens.isEmpty ? nil : tokens
+        guard let tokens = OVPNSanitizer.tokens(of: line), !tokens.isEmpty else { return nil }
+        return tokens
     }
 
     static func blockTag(_ token: String) -> String? {
-        var t = Substring(token)
-        if t.hasPrefix("--"), t.count >= 3 { t = t.dropFirst(2) }
-        guard t.count > 2, t.first == "<", t.last == ">", !t.dropFirst().hasPrefix("/") else { return nil }
-        return String(t.dropFirst().dropLast())
+        OVPNSanitizer.inlineBlockTag(token)
     }
 
-    /// Same rule as OpenVPN (and `OVPNSanitizer`): leading whitespace of any kind, then the close tag.
     static func isBlockEnd(_ line: String, tag: String) -> Bool {
-        line.drop(while: { $0.unicodeScalars.allSatisfy { [0x20, 0x09, 0x0B, 0x0C, 0x0D].contains($0.value) } })
-            .lowercased().hasPrefix("</\(tag.lowercased())>")
+        OVPNSanitizer.isInlineBlockEnd(line, tag: tag)
     }
 }

@@ -115,7 +115,8 @@ public enum HelperInstaller {
 
     /// Replaces a helper left running from another app version: unregistering stops it (launchd sends
     /// SIGTERM, which stops its tunnels), registering again points launchd at this copy. Waits for the
-    /// old registration to go away, then registers with `register(using:)`'s retries.
+    /// old registration to go away, then registers with `register(using:)`'s retries. Callers decide
+    /// whether this copy may take over (`HelperAutoUpdate`, or the user's confirmation).
     public static func update(using registrar: HelperRegistrar = SMAppServiceRegistrar(),
                               retryDelays: [TimeInterval] = retryDelays, unregisterWait: TimeInterval = unregisterWait,
                               sleep: Sleeper = realSleep) async throws {
@@ -168,7 +169,9 @@ public enum HelperInstaller {
 /// refuses (or misattributes) registrations from a process started in Terminal, so `passtunnel helper
 /// install|uninstall` opens the app with `argument`, or, when it already runs, posts `notification`
 /// with the raw value as the object. The app then shows Settings → Helper and starts the action
-/// there (removal still asks for confirmation). `update` replaces an outdated helper.
+/// there. Any local process can make the request, so install and update are only carried out by a
+/// copy in /Applications, and replacing or removing a running helper always asks the user first
+/// (replacing a newer helper with a warning). `update` replaces an outdated helper.
 public enum HelperHandoff: String, CaseIterable, Sendable {
     case install, update, uninstall
 
@@ -179,5 +182,73 @@ public enum HelperHandoff: String, CaseIterable, Sendable {
 
     public static func from(arguments: [String]) -> HelperHandoff? {
         allCases.first { arguments.dropFirst().contains($0.argument) }
+    }
+
+    /// The app's answer to a request, posted as `replyNotification` with `reply(_:)` as the object, so
+    /// the waiting CLI can tell a pending confirmation or a refusal from a slow app. Only what the CLI
+    /// prints depends on it: whether the action happened, the CLI reads from the helper itself.
+    public static let replyNotification = Notification.Name("com.furkanprlk.passtunnel.helperHandoffReply")
+
+    public enum Outcome: String, Sendable {
+        /// The app asks the user to confirm (replacing or removing a running helper).
+        case asking
+        /// The user cancelled.
+        case declined
+        /// Not carried out: this copy is not in /Applications.
+        case refused
+    }
+
+    public func reply(_ outcome: Outcome) -> String { "\(rawValue):\(outcome.rawValue)" }
+
+    /// The outcome in a reply to this action; nil for anything else (another action, garbage).
+    public func outcome(ofReply object: Any?) -> Outcome? {
+        guard let text = object as? String, text.hasPrefix(rawValue + ":") else { return nil }
+        return Outcome(rawValue: String(text.dropFirst(rawValue.count + 1)))
+    }
+
+    public func postReply(_ outcome: Outcome) {
+        DistributedNotificationCenter.default().postNotificationName(
+            Self.replyNotification, object: reply(outcome), userInfo: nil, deliverImmediately: true)
+    }
+}
+
+/// How `passtunnel helper install|uninstall` waits for the app: until the helper is in the wanted
+/// state, the app reports a decline or refusal, or the deadline passes. While the app asks the user
+/// (`Outcome.asking`), the deadline moves out to `confirmationTimeout`, so a slow click does not
+/// make the CLI give up on an update that then succeeds.
+public struct HelperHandoffWait: Sendable {
+    public enum Result: Equatable, Sendable { case done, declined, refused, timedOut }
+
+    public static let confirmationTimeout: TimeInterval = 600
+
+    public let action: HelperHandoff
+    public private(set) var deadline: Date
+    public private(set) var asking = false
+    private var answer: HelperHandoff.Outcome?
+
+    public init(action: HelperHandoff, timeout: TimeInterval, now: Date = Date()) {
+        self.action = action
+        deadline = now.addingTimeInterval(timeout)
+    }
+
+    /// Takes one reply notification's object. True when the app just started asking the user.
+    @discardableResult
+    public mutating func received(_ object: Any?, now: Date = Date()) -> Bool {
+        guard let outcome = action.outcome(ofReply: object) else { return false }
+        answer = outcome
+        guard outcome == .asking, !asking else { return false }
+        asking = true
+        deadline = max(deadline, now.addingTimeInterval(Self.confirmationTimeout))
+        return true
+    }
+
+    /// The result once there is one; nil: keep waiting. `done`: the helper is in the wanted state.
+    public func result(done: Bool, now: Date = Date()) -> Result? {
+        if done { return .done }
+        switch answer {
+        case .declined?: return .declined
+        case .refused?: return .refused
+        case .asking?, nil: return now > deadline ? .timedOut : nil
+        }
     }
 }

@@ -312,7 +312,7 @@ final class EditorModel: ObservableObject {
         let url = store.ovpnURL(draft.id)
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { hasConfig = false; return }
         hasConfig = true
-        configRemote = OVPNAnalyzer.analyze(text).remote
+        configRemote = OVPNAnalyzer.serverDescription(text)
     }
 
     /// Checks a chosen .ovpn now (referenced files, forbidden directives) so problems show
@@ -328,11 +328,23 @@ final class EditorModel: ObservableObject {
                   let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else {
                 throw PTError.invalidFile(url.lastPathComponent)
             }
-            let prepared = try OVPNInliner.prepare(text, baseDir: url.deletingLastPathComponent())
+            let inlined = try OVPNInliner.prepare(text, baseDir: url.deletingLastPathComponent())
+            // An inline <auth-user-pass> block is not stored with the config: its user name and
+            // password go into the fields, and from there into the profile and the Keychain on Save.
+            let stripped = OVPNInliner.strippingCredentials(inlined, blocks: [.authUserPass])
+            let prepared = stripped.text
             let analysis = OVPNAnalyzer.analyze(prepared)
             configURL = url
-            configRemote = analysis.remote
+            configRemote = OVPNAnalyzer.serverDescription(analysis.remotes)
             configError = nil
+            if let user = stripped.username, draft.username.trimmingCharacters(in: .whitespaces).isEmpty {
+                draft.username = user
+            }
+            if let password = stripped.password, newPassword.isEmpty {
+                draft.passwordMode = .keychain
+                newPassword = password
+                confirmPassword = password
+            }
             if isNew {
                 draft.passwordMode = analysis.passwordMode
                 draft.otpDelivery = analysis.otpDelivery

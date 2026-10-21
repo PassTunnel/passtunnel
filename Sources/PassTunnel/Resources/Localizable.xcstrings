@@ -1,6 +1,16 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "%@ +%lld more" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ +%2$lld tane daha"
+          }
+        }
+      }
+    },
     "%@ disconnected" : {
       "localizations" : {
         "tr" : {
@@ -397,6 +407,16 @@
         }
       }
     },
+    "connect to “%@” (%@)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” profiline bağlanmak (%@)"
+          }
+        }
+      }
+    },
     "Current code, hidden" : {
       "localizations" : {
         "tr" : {
@@ -427,6 +447,16 @@
         }
       }
     },
+    "Install Older Helper" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eski Yardımcıyı Yükle"
+          }
+        }
+      }
+    },
     "It is encrypted: using it asks for Touch ID or your Mac password." : {
       "localizations" : {
         "tr" : {
@@ -443,6 +473,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tüm VPN bağlantıları kesildiğinde kendiliğinden güncellenir. O zamana kadar yeni bağlantı başlatılamaz."
+          }
+        }
+      }
+    },
+    "It is still connected to the server you confirmed, which is not responding. Reconnect to confirm the new settings." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Onayladığınız sunucuya hâlâ bağlı, ancak sunucu yanıt vermiyor. Yeni ayarları onaylamak için yeniden bağlanın."
+          }
+        }
+      }
+    },
+    "Its server settings changed after you confirmed the connection. Click to connect and confirm again." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlantıyı onayladıktan sonra sunucu ayarları değişti. Bağlanmak ve yeniden onaylamak için tıklayın."
           }
         }
       }
@@ -487,6 +537,16 @@
         }
       }
     },
+    "Open PassTunnel from the Applications folder to install or update the helper from the command line." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcıyı komut satırından yüklemek veya güncellemek için PassTunnel’ı Uygulamalar klasöründen açın."
+          }
+        }
+      }
+    },
     "Opening PassTunnel to update the helper…" : {
       "localizations" : {
         "tr" : {
@@ -507,6 +567,16 @@
         }
       }
     },
+    "PassTunnel did not change the helper: open PassTunnel from the Applications folder, then try again." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel yardımcıyı değiştirmedi: PassTunnel'ı Uygulamalar klasöründen açıp yeniden deneyin."
+          }
+        }
+      }
+    },
     "PassTunnel looks for new versions on GitHub once a day and asks before installing one. Updates are signed and checked before they are installed." : {
       "localizations" : {
         "tr" : {
@@ -523,6 +593,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Yeniden bağlanmak için onayınız gerekiyor (Touch ID ya da Mac parolanız): bağlantıyı kendiniz yeniden kurun."
+          }
+        }
+      }
+    },
+    "Replace Helper" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcıyı Değiştir"
+          }
+        }
+      }
+    },
+    "Replace the helper with an older version?" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı daha eski bir sürümle değiştirilsin mi?"
+          }
+        }
+      }
+    },
+    "Replace the PassTunnel helper?" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel yardımcısı değiştirilsin mi?"
           }
         }
       }
@@ -577,12 +677,72 @@
         }
       }
     },
+    "The helper is replaced with the one inside this copy of PassTunnel (%@). Active connections stop." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı, PassTunnel’ın bu kopyasındakiyle (%@) değiştirilir. Etkin bağlantılar kesilir."
+          }
+        }
+      }
+    },
+    "The installed helper is from a newer version of PassTunnel than this copy. Replacing it installs an older helper. Active connections stop." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yüklü yardımcı, PassTunnel’ın bu kopyasından daha yeni bir sürümüne ait. Değiştirirseniz daha eski bir yardımcı yüklenir. Etkin bağlantılar kesilir."
+          }
+        }
+      }
+    },
+    "The Keychain item “PassTunnel (%@)” could not be replaced (%@), so nothing was saved. Delete it in Keychain Access, then try again." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“PassTunnel (%@)” Anahtar Zinciri öğesi değiştirilemedi (%@), bu yüzden hiçbir şey kaydedilmedi. Öğeyi Anahtar Zinciri Erişimi’nde silin, sonra yeniden deneyin."
+          }
+        }
+      }
+    },
     "The PassTunnel helper belongs to another version of PassTunnel (version %lld, expected %lld). Update it in Settings → Helper." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "PassTunnel yardımcısı başka bir PassTunnel sürümüne ait (sürüm %1$lld, beklenen %2$lld). Ayarlar → Yardımcı bölümünden güncelleyin."
+          }
+        }
+      }
+    },
+    "The protection key of profile “%@” does not match its Keychain record, so PassTunnel did not use it. Another app may have replaced the record. Delete the profile and set it up again." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” profilinin koruma anahtarı Anahtar Zinciri’ndeki kaydıyla eşleşmiyor, bu yüzden PassTunnel onu kullanmadı. Kaydı başka bir uygulama değiştirmiş olabilir. Profili silip yeniden kurun."
+          }
+        }
+      }
+    },
+    "The removal was cancelled in PassTunnel. The helper is still installed." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kaldırma PassTunnel'da iptal edildi. Yardımcı hâlâ kurulu."
+          }
+        }
+      }
+    },
+    "The server settings of this profile changed after you confirmed the connection. Connect it again yourself to confirm the new server." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlantıyı onayladıktan sonra bu profilin sunucu ayarları değişti. Yeni sunucuyu onaylamak için bağlantıyı kendiniz yeniden kurun."
           }
         }
       }
@@ -677,6 +837,36 @@
         }
       }
     },
+    "The update was cancelled in PassTunnel. The helper was not replaced." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Güncelleme PassTunnel'da iptal edildi. Yardımcı değiştirilmedi."
+          }
+        }
+      }
+    },
+    "The user name and password in the file were moved to the profile and the Keychain." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dosyadaki kullanıcı adı profile, parola Anahtar Zinciri’ne taşındı."
+          }
+        }
+      }
+    },
+    "This helper belongs to a newer version of PassTunnel. Update PassTunnel to connect, or replace the helper with the older one from this copy." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu yardımcı PassTunnel’ın daha yeni bir sürümüne ait. Bağlanmak için PassTunnel’ı güncelleyin ya da yardımcıyı bu kopyadaki eski yardımcıyla değiştirin."
+          }
+        }
+      }
+    },
     "This Mac has no Secure Enclave, so the saved secrets cannot be protected with Touch ID or your Mac password." : {
       "localizations" : {
         "tr" : {
@@ -763,6 +953,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Yeni kod bekleniyor (%lld sn)…"
+          }
+        }
+      }
+    },
+    "Waiting for your confirmation in PassTunnel…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel'da onayınız bekleniyor…"
           }
         }
       }
@@ -6075,6 +6275,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kurulum eksik"
+          }
+        }
+      }
+    },
+    "“%@” server settings changed" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” sunucu ayarları değişti"
+          }
+        }
+      }
+    },
+    "“%@” was not reconnected" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” yeniden bağlanmadı"
           }
         }
       }

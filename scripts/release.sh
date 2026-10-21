@@ -6,8 +6,9 @@
 #   VERSION          semantic version: 1.2.0, 1.3.0-rc.1, …
 #   --skip-notarize  sign only (no notarization, no stapling); never use for a published release
 #   --allow-branch   build from the current branch instead of main (local test runs; not with --publish)
-#   --publish        create and push the tag vVERSION, then create the GitHub release with the files
-#   --draft          with --publish: create the release as a draft
+#   --publish        create and push the tag vVERSION (signed when git has a signing key), then
+#                    create the GitHub release as a draft, upload the files and publish it
+#   --draft          with --publish: leave the release as a draft (publish it on GitHub later)
 #
 # Without --publish nothing leaves this Mac apart from the notarization uploads: no tag, no push, no
 # release. Output: dist/PassTunnel-VERSION.dmg, dist/PassTunnel-VERSION.zip (Sparkle update),
@@ -16,6 +17,7 @@
 #
 # Environment: PASSTUNNEL_SIGN_IDENTITY (default: the Developer ID Application identity of the Team ID
 # in Identifiers.swift), NOTARY_PROFILE (notarytool keychain profile, default: passtunnel).
+# PASSTUNNEL_ALLOW_UNPINNED_TOOLS is refused: bundled tool versions must match release.env.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -24,7 +26,7 @@ source "$ROOT/scripts/release.env"
 
 die() { echo "error: $*" >&2; exit 1; }
 step() { printf '\n==> %s\n' "$*"; }
-usage() { sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; }
 
 VERSION=""
 DRAFT=0
@@ -64,6 +66,8 @@ SPARKLE_BIN="$ROOT/.build/artifacts/sparkle/Sparkle/bin"
 ((PUBLISH && ALLOW_BRANCH)) && die "--publish releases from main only; drop --allow-branch"
 ((PUBLISH && SKIP_NOTARIZE)) && die "--publish needs a notarized build; drop --skip-notarize"
 ((DRAFT && !PUBLISH)) && echo "note: --draft only matters with --publish"
+[[ -z "${PASSTUNNEL_ALLOW_UNPINNED_TOOLS:-}" ]] \
+    || die "unset PASSTUNNEL_ALLOW_UNPINNED_TOOLS: releases bundle the tool versions pinned in scripts/release.env"
 
 # MARK: checks (all before the long build)
 
@@ -115,7 +119,7 @@ fi
 
 step "checking the Sparkle tools and key"
 swift package resolve >/dev/null
-for tool in generate_appcast generate_keys; do
+for tool in generate_appcast generate_keys sign_update; do
     [[ -x "$SPARKLE_BIN/$tool" ]] || die "$SPARKLE_BIN/$tool not found (swift package resolve)"
 done
 KEY="$("$SPARKLE_BIN/generate_keys" -p 2>/dev/null)" || die "no Sparkle signing key in the keychain (see docs/RELEASING.md)"
@@ -127,7 +131,13 @@ if ((PUBLISH)); then
     step "checking GitHub"
     command -v gh >/dev/null || die "gh is not installed"
     gh repo view "$GITHUB_REPO" >/dev/null || die "repository $GITHUB_REPO not found (or gh is not logged in)"
-    ! gh release view "$TAG" --repo "$GITHUB_REPO" >/dev/null 2>&1 || die "release $TAG already exists on $GITHUB_REPO"
+    # A draft left by an interrupted run is reused (its assets are replaced); a published release is final.
+    EXISTING_DRAFT=0
+    if IS_DRAFT="$(gh release view "$TAG" --repo "$GITHUB_REPO" --json isDraft --jq .isDraft 2>/dev/null)"; then
+        [[ "$IS_DRAFT" == "true" ]] || die "release $TAG already exists on $GITHUB_REPO"
+        EXISTING_DRAFT=1
+        echo "draft release $TAG exists; its assets will be replaced"
+    fi
     git fetch -q origin main
     git merge-base --is-ancestor HEAD origin/main || die "HEAD is not on origin/main; push main first"
 fi
@@ -268,6 +278,13 @@ APPCAST_ARGS=(--download-url-prefix "$DOWNLOAD_PREFIX" --embed-release-notes --m
 ((PRERELEASE)) && APPCAST_ARGS+=(--channel beta)
 "$SPARKLE_BIN/generate_appcast" "${APPCAST_ARGS[@]}" -o "$WORK/appcast.xml" "$FEED"
 grep -q 'sparkle:edSignature=' "$WORK/appcast.xml" || die "the appcast has no EdDSA signature"
+# The app sets SURequireSignedFeed, so the feed itself must carry an EdDSA signature (an XML comment
+# at the end). generate_appcast adds it when the archived app requires it; sign_update otherwise.
+if ! grep -q '<!-- sparkle-signatures:' "$WORK/appcast.xml"; then
+    "$SPARKLE_BIN/sign_update" "$WORK/appcast.xml"
+fi
+grep -q '<!-- sparkle-signatures:' "$WORK/appcast.xml" || die "the appcast feed is not signed"
+"$SPARKLE_BIN/sign_update" --verify "$WORK/appcast.xml" || die "the appcast feed signature does not verify"
 grep -q "url=\"$DOWNLOAD_PREFIX$ZIP_NAME\"" "$WORK/appcast.xml" || die "the appcast does not point at $DOWNLOAD_PREFIX$ZIP_NAME"
 rm -rf "$FEED"
 
@@ -290,18 +307,43 @@ rm -rf "$WORK"
 if ((PUBLISH)); then
     step "publishing $TAG on $GITHUB_REPO"
     if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-        git tag -a "$TAG" -m "PassTunnel $VERSION"
+        # Signed when git has a signing key (user.signingkey, or gpg.format ssh with a default key).
+        if [[ -n "$(git config --get user.signingkey || true)" || "$(git config --get gpg.format || true)" == ssh ]]; then
+            git tag -s "$TAG" -m "PassTunnel $VERSION"
+        else
+            echo "warning: no git signing key configured; creating an unsigned annotated tag (docs/RELEASING.md)" >&2
+            git tag -a "$TAG" -m "PassTunnel $VERSION"
+        fi
     fi
     git push origin "$TAG"
-    RELEASE_ARGS=(--repo "$GITHUB_REPO" --verify-tag --title "PassTunnel $VERSION"
-                  --notes-file "$DIST/release-notes-$VERSION.md")
-    ((DRAFT)) && RELEASE_ARGS+=(--draft)
-    ((PRERELEASE)) && RELEASE_ARGS+=(--prerelease)
-    gh release create "$TAG" "${RELEASE_ARGS[@]}" \
-        "$DIST/$DMG_NAME" "$DIST/$ZIP_NAME" "$DIST/appcast.xml" "$DIST/SHA256SUMS"
+    ASSETS=("$DIST/$DMG_NAME" "$DIST/$ZIP_NAME" "$DIST/appcast.xml" "$DIST/SHA256SUMS")
+    # Draft first, upload, check, then publish: with immutable releases a published release's assets
+    # can no longer be added or replaced, so it must be complete before it is published.
+    if ((EXISTING_DRAFT)); then
+        gh release upload "$TAG" --repo "$GITHUB_REPO" --clobber "${ASSETS[@]}"
+    else
+        CREATE_ARGS=(--repo "$GITHUB_REPO" --verify-tag --draft --title "PassTunnel $VERSION"
+                     --notes-file "$DIST/release-notes-$VERSION.md")
+        ((PRERELEASE)) && CREATE_ARGS+=(--prerelease)
+        gh release create "$TAG" "${CREATE_ARGS[@]}" "${ASSETS[@]}"
+    fi
+    UPLOADED="$(gh release view "$TAG" --repo "$GITHUB_REPO" --json assets --jq '.assets[].name')"
+    for f in "${ASSETS[@]}"; do
+        grep -qxF "$(basename "$f")" <<<"$UPLOADED" || die "$(basename "$f") is missing from the draft release $TAG"
+    done
     TAP_NAME="${TAP_REPO%%/*}/${TAP_REPO#*/homebrew-}"
-    echo
-    echo "Released. Copy dist/passtunnel.rb to Casks/passtunnel.rb in $TAP_REPO ($TAP_NAME) and push it."
+    if ((DRAFT)); then
+        echo
+        echo "Draft release $TAG is ready on GitHub; publish it there (or run this again without --draft)."
+    else
+        if ((PRERELEASE)); then
+            gh release edit "$TAG" --repo "$GITHUB_REPO" --draft=false --prerelease --latest=false
+        else
+            gh release edit "$TAG" --repo "$GITHUB_REPO" --draft=false --latest
+        fi
+        echo
+        echo "Released. Copy dist/passtunnel.rb to Casks/passtunnel.rb in $TAP_REPO ($TAP_NAME) and push it."
+    fi
 else
     echo
     echo "Built $VERSION (build $BUILD) in dist/. Nothing was published (use --publish)."

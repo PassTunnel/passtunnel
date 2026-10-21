@@ -76,7 +76,9 @@ final class CLIRunner {
         case let .unpin(id): return try pin(id, false)
         case let .log(id, follow): return try await log(id, follow: follow)
         case let .helper(action): return try await helper(action)
+        #if DEBUG
         case let .debug(.drop, id): return try await debugDrop(id)
+        #endif
         case let .completion(shell):
             FileHandle.standardOutput.write(Data(CLICompletions.script(for: shell).utf8))
             return Exit.ok
@@ -414,12 +416,13 @@ final class CLIRunner {
     private func show(_ id: String, json: Bool) throws -> Int32 {
         let p = try store.get(id)
         let hasConfig = p.type == .openvpn && FileManager.default.fileExists(atPath: store.ovpnURL(id).path)
-        let remote = hasConfig ? (try? String(contentsOf: store.ovpnURL(id), encoding: .utf8)).map { OVPNAnalyzer.analyze($0).remote } : nil
+        let remotes = hasConfig ? (try? String(contentsOf: store.ovpnURL(id), encoding: .utf8)).map { OVPNAnalyzer.analyze($0).remotes } : nil
         if json {
             try printJSON(ShowJSON(profile: p, isDefault: store.defaultID == id, passwordSaved: Secrets.has(id, .password),
                                    totpSaved: Secrets.has(id, .totp), passwordEncrypted: Secrets.isProtected(id, .password),
                                    totpEncrypted: Secrets.isProtected(id, .totp),
-                                   configFile: hasConfig ? store.ovpnURL(id).path : nil, remote: remote))
+                                   configFile: hasConfig ? store.ovpnURL(id).path : nil,
+                                   remote: remotes.map { $0.first ?? "" }))
             return Exit.ok
         }
         let missing = String(localized: "not saved")
@@ -434,7 +437,7 @@ final class CLIRunner {
         if p.otpMode == .totp { rows.append(("totp_secret", saved(.totp))) }
         if p.type == .openvpn {
             rows.append(("config", hasConfig ? store.ovpnURL(id).path : missing))
-            if let remote, !remote.isEmpty { rows.append(("remote", remote)) }
+            if let remotes, !remotes.isEmpty { rows.append(("remote", OVPNAnalyzer.serverDescription(remotes))) }
         }
         rows.append(("default", String(store.defaultID == id)))
         let width = rows.map(\.0.count).max() ?? 0
@@ -488,7 +491,10 @@ final class CLIRunner {
             p = try store.importOVPN(url, name: name)
         }
         CLITerminal.out(String(localized: "Imported “\(p.name)” as \(p.id)."))
-        if p.passwordMode == .keychain {
+        if p.passwordMode == .keychain && Secrets.has(p.id, .password) {
+            // Only from an inline <auth-user-pass> block: a new profile starts without Keychain items.
+            CLITerminal.err(CLITerminal.dim(String(localized: "The user name and password in the file were moved to the profile and the Keychain.")))
+        } else if p.passwordMode == .keychain {
             CLITerminal.err(CLITerminal.dim(String(localized: "Save the password with: passtunnel secret \(p.id) password")))
         }
         if p.otpMode == .totp {
@@ -656,30 +662,43 @@ final class CLIRunner {
             }
             // SMAppService refuses registrations from a process started in Terminal ("Operation not
             // permitted"), so the app does it: always, rather than trying here first.
+            let replies = HandoffReplies(.install, timeout: 30)
             try handOffToApp(.install)
             CLITerminal.out(String(localized: "Opening PassTunnel to install the helper…"))
             CLITerminal.out(String(localized: "Approve it in PassTunnel, then turn on PassTunnel in System Settings → General → Login Items."))
-            guard await waitForHelperStatus(timeout: 30, until: { $0 != .notRegistered }) else {
+            switch await wait(for: replies, until: { HelperInstaller.status != .notRegistered }) {
+            case .done:
+                return await printHelperStatus()
+            case .refused:
+                printRefused()
+                fallthrough
+            case .declined, .timedOut:
                 CLITerminal.out(String(localized: "The helper is not installed yet. Finish the installation in PassTunnel → Settings → Helper."))
                 return Exit.error
             }
-            return await printHelperStatus()
         case .uninstall:
             guard HelperInstaller.status != .notRegistered else {
                 CLITerminal.out(String(localized: "The helper is not installed."))
                 return Exit.ok
             }
+            let replies = HandoffReplies(.uninstall, timeout: 60)
             try handOffToApp(.uninstall)
             CLITerminal.out(String(localized: "Opening PassTunnel to remove the helper. Confirm the removal there."))
-            guard await waitForHelperStatus(timeout: 60, until: { $0 == .notRegistered }) else {
+            switch await wait(for: replies, until: { HelperInstaller.status == .notRegistered }) {
+            case .done:
+                CLITerminal.out(String(localized: "The helper was removed."))
+                return Exit.ok
+            case .declined:
+                CLITerminal.out(String(localized: "The removal was cancelled in PassTunnel. The helper is still installed."))
+                return Exit.error
+            case .refused, .timedOut:
                 CLITerminal.out(String(localized: "The helper is still installed. Confirm the removal in PassTunnel → Settings → Helper."))
                 return Exit.error
             }
-            CLITerminal.out(String(localized: "The helper was removed."))
-            return Exit.ok
         }
     }
 
+    #if DEBUG
     // MARK: debug
 
     /// `DebugDrop`: the running app sends the command over the management connection it holds;
@@ -716,26 +735,53 @@ final class CLIRunner {
         CLITerminal.out(String(localized: "\(p.name) is still connected."))
         return Exit.error
     }
+    #endif
 
     /// The helper is enabled but from another app version or build: the app replaces it (unregister,
     /// then register from its own bundle), which stops its connections. Waits for the current helper.
     private func updateHelper() async throws -> Int32 {
+        let replies = HandoffReplies(.update, timeout: 60)
         try handOffToApp(.update)
         CLITerminal.out(String(localized: "Opening PassTunnel to update the helper…"))
         CLITerminal.out(String(localized: "Active connections stop while the helper is replaced."))
-        let deadline = Date().addingTimeInterval(60)
         // Give the app time to unregister the old helper before asking the running one.
         try? await Task.sleep(nanoseconds: 2_000_000_000)
-        while Date() < deadline {
-            if HelperInstaller.status == .enabled, await helperIsOutdated() == false {
-                CLITerminal.out(String(localized: "The helper was updated."))
-                return await printHelperStatus()
-            }
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
+        let result = await wait(for: replies) {
+            guard HelperInstaller.status == .enabled else { return false }
+            return await self.helperIsOutdated() == false
         }
-        CLITerminal.out(String(localized: "The helper is not updated yet. Finish the update in PassTunnel → Settings → Helper."))
-        _ = await printHelperStatus()
-        return Exit.error
+        switch result {
+        case .done:
+            CLITerminal.out(String(localized: "The helper was updated."))
+            return await printHelperStatus()
+        case .declined:
+            CLITerminal.out(String(localized: "The update was cancelled in PassTunnel. The helper was not replaced."))
+            return Exit.error
+        case .refused:
+            printRefused()
+            return Exit.error
+        case .timedOut:
+            CLITerminal.out(String(localized: "The helper is not updated yet. Finish the update in PassTunnel → Settings → Helper."))
+            _ = await printHelperStatus()
+            return Exit.error
+        }
+    }
+
+    private func printRefused() {
+        CLITerminal.out(String(localized: "PassTunnel did not change the helper: open PassTunnel from the Applications folder, then try again."))
+    }
+
+    /// Polls `done` until it holds or the app answered the hand-off (`HelperHandoffWait`). Says so
+    /// once the app asks the user to confirm, and then waits for their decision.
+    private func wait(for replies: HandoffReplies, until done: () async -> Bool) async -> HelperHandoffWait.Result {
+        defer { replies.stop() }
+        while true {
+            if replies.takeAsking() {
+                CLITerminal.out(String(localized: "Waiting for your confirmation in PassTunnel…"))
+            }
+            if let result = replies.wait.result(done: await done()) { return result }
+            try? await Task.sleep(nanoseconds: 500_000_000)
+        }
     }
 
     /// Whether the running helper speaks another protocol or is another build; nil when it does not answer.
@@ -773,15 +819,6 @@ final class CLIRunner {
         }
     }
 
-    /// Polls the helper's registration until `condition` holds or `timeout` seconds pass.
-    private func waitForHelperStatus(timeout: TimeInterval, until condition: (HelperStatus) -> Bool) async -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while !condition(HelperInstaller.status) {
-            if Date() > deadline { return false }
-            try? await Task.sleep(nanoseconds: 500_000_000)
-        }
-        return true
-    }
 
     private func printHelperStatus() async -> Int32 {
         switch HelperInstaller.status {
@@ -823,13 +860,41 @@ private struct AnyEncodable: Encodable {
 }
 
 enum CLIClipboard {
-    /// Copies text and marks it concealed so clipboard managers skip it.
+    /// Copies a code like the app does (`Pasteboard.copySecret`: this Mac only, concealed, transient)
+    /// and leaves a detached copy of this binary behind that clears it after `Pasteboard.secretLifetime`
+    /// unless something else was copied meanwhile; the command itself returns at once.
     static func copyConcealed(_ text: String) {
-        let pb = NSPasteboard.general
-        pb.clearContents()
-        pb.declareTypes([.string, NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")], owner: nil)
-        pb.setString(text, forType: .string)
-        pb.setString("", forType: NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"))
+        let count = Pasteboard.copySecret(text)
+        scheduleClear(ifUnchangedSince: count)
+    }
+
+    /// Runs `passtunnel <PassTunnelCLI.clearClipboardArgument> COUNT` in a new session with no
+    /// terminal, so closing the terminal does not end it. It inherits no descriptor (a store lock
+    /// would otherwise stay held while it waits): stdin, stdout and stderr are /dev/null. Best effort.
+    private static func scheduleClear(ifUnchangedSince count: Int) {
+        guard let executable = Bundle.main.executablePath else { return }
+        let argv = ["passtunnel", PassTunnelCLI.clearClipboardArgument, String(count)]
+        var attr: posix_spawnattr_t?
+        posix_spawnattr_init(&attr)
+        defer { posix_spawnattr_destroy(&attr) }
+        posix_spawnattr_setflags(&attr, Int16(POSIX_SPAWN_SETSID | POSIX_SPAWN_CLOEXEC_DEFAULT))
+        var actions: posix_spawn_file_actions_t?
+        posix_spawn_file_actions_init(&actions)
+        defer { posix_spawn_file_actions_destroy(&actions) }
+        for fd in [STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO] {
+            posix_spawn_file_actions_addopen(&actions, fd, "/dev/null", fd == STDIN_FILENO ? O_RDONLY : O_WRONLY, 0)
+        }
+        var cArgs = argv.map { strdup($0) } + [nil]
+        defer { cArgs.forEach { free($0) } }
+        var pid: pid_t = 0
+        _ = posix_spawn(&pid, executable, &actions, &attr, &cArgs, environ)
+    }
+
+    /// The detached process: waits, then clears the pasteboard if it still holds the copied code.
+    static func clearLater(ifUnchangedSince count: Int) -> Int32 {
+        Thread.sleep(forTimeInterval: Pasteboard.secretLifetime)
+        Pasteboard.clear(ifUnchangedSince: count)
+        return PassTunnelCLI.Exit.ok
     }
 }
 
@@ -838,4 +903,36 @@ struct CLIFailure: LocalizedError {
     var message: String
     init(_ message: String) { self.message = message }
     var errorDescription: String? { message }
+}
+
+/// The app's replies to one helper hand-off (`HelperHandoff.replyNotification`), received on the main
+/// run loop the CLI keeps running. Created before the request goes out, so no reply is missed.
+@MainActor
+private final class HandoffReplies {
+    private(set) var wait: HelperHandoffWait
+    private var newlyAsking = false
+    private var observer: NSObjectProtocol?
+
+    init(_ action: HelperHandoff, timeout: TimeInterval) {
+        wait = HelperHandoffWait(action: action, timeout: timeout)
+        observer = DistributedNotificationCenter.default().addObserver(
+            forName: HelperHandoff.replyNotification, object: nil, queue: .main) { [weak self] note in
+            let object = note.object as? String
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if self.wait.received(object) { self.newlyAsking = true }
+            }
+        }
+    }
+
+    /// True once after the app started asking the user.
+    func takeAsking() -> Bool {
+        defer { newlyAsking = false }
+        return newlyAsking
+    }
+
+    func stop() {
+        if let observer { DistributedNotificationCenter.default().removeObserver(observer) }
+        observer = nil
+    }
 }

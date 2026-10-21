@@ -14,30 +14,37 @@ import Foundation
 ///
 /// Decrypted values are kept in memory for the reuse window (`Preferences.authReuseMinutes`) per
 /// profile, so a credential sheet or an immediate retry does not ask twice; sleep and screen lock end
-/// that early. Writing a secret to a protected profile only needs the public key: no prompt.
+/// that early. Each decrypted value remembers the destination (`ProfileDestination`) the profile had
+/// when the user confirmed; `forgetUnlessBound` drops it once the server settings change. Writing a
+/// secret to a protected profile only needs the public key: no prompt.
 @MainActor
 public final class SecretVault: ObservableObject {
     private struct Entry {
         var bytes: [UInt8]
         var at: Date
+        var destination: String        // `ProfileDestination.fingerprint` when the user confirmed
     }
 
     private let authenticator: UserAuthenticator
     private let now: () -> Date
     private let reuseWindow: () -> TimeInterval
+    private let destination: (Profile) -> ProfileDestination
     /// Decrypted values; not `@Published` itself so `forget` can overwrite the bytes in place.
     private var cache: [String: [SecretKind: Entry]] = [:]
     /// Bumped whenever `cache` changes, for views showing whether codes are unlocked.
     @Published private var revision = 0
     private var inFlight: [String: Task<Void, Error>] = [:]
 
-    /// `reuseWindow` is read on every check, so a changed preference applies at once.
+    /// `reuseWindow` is read on every check, so a changed preference applies at once. `destination`
+    /// reads where a profile sends its secrets (shown in the prompt and bound to what is decrypted).
     public init(authenticator: UserAuthenticator = SecureEnclaveAuthenticator(),
                 now: @escaping () -> Date = Date.init,
-                reuseWindow: @escaping () -> TimeInterval = { Preferences.load().authReuseInterval }) {
+                reuseWindow: @escaping () -> TimeInterval = { Preferences.load().authReuseInterval },
+                destination: @escaping (Profile) -> ProfileDestination = { ProfileDestination.of($0, store: ProfileStore()) }) {
         self.authenticator = authenticator
         self.now = now
         self.reuseWindow = reuseWindow
+        self.destination = destination
     }
 
     /// The protection can be turned on (this Mac has a Secure Enclave).
@@ -83,6 +90,9 @@ public final class SecretVault: ObservableObject {
         let age = now().timeIntervalSince(entry.at)
         return age >= 0 && age < reuseWindow()
     }
+
+    /// Some decrypted value of profile `id` is in memory (whether or not still within the window).
+    public func hasDecrypted(_ id: String) -> Bool { cache[id] != nil }
 
     /// Whether `kind` is stored encrypted.
     public func isProtected(_ id: String, _ kind: SecretKind) -> Bool { Secrets.isProtected(id, kind) }
@@ -151,12 +161,21 @@ public final class SecretVault: ObservableObject {
             if let first = encrypted.first { throw PTError.protectedSecretUnreadable(first.0) }
             return   // no key and nothing encrypted: nothing to protect
         }
+        // The record names the key secrets were encrypted to; a key that is not the one it names
+        // (record replaced or damaged) is never used: checked before asking when the key data can
+        // be read without a confirmation, and again on the unlocked key.
+        if let actual = try? authenticator.publicKey(keyData: record.key), actual.x963Representation != record.pub {
+            throw ProtectionKeyMismatch(profileID: id)
+        }
+        // Read before the prompt: the server it names is the one the user confirms.
+        let target = destination(p)
         let unlocked: UnlockedProtectionKey
         do {
-            unlocked = try await authenticator.unlock(keyData: record.key, reason: action.reason(p.name))
+            unlocked = try await authenticator.unlock(keyData: record.key, reason: action.reason(p.name, host: target.host))
         } catch is ProtectionKeyUnusable {
             throw discardUnusableKey(id, encrypted.map(\.0))
         }
+        guard unlocked.publicKey.x963Representation == record.pub else { throw ProtectionKeyMismatch(profileID: id) }
         if encrypted.isEmpty {
             // Nothing to decrypt: use the key once so the confirmation is real.
             _ = try await sharedSecret(unlocked, P256.KeyAgreement.PrivateKey().publicKey, id: id, kinds: [])
@@ -169,7 +188,7 @@ public final class SecretVault: ObservableObject {
             let shared = try await sharedSecret(unlocked, parsed.ephemeral, id: id, kinds: encrypted.map(\.0))
             let text = try SecretEnvelope.open(parsed, shared: shared, recipient: recipient,
                                                account: Secrets.account(id, kind), kind: kind)
-            values[kind] = Entry(bytes: Array(text.utf8), at: at)
+            values[kind] = Entry(bytes: Array(text.utf8), at: at, destination: target.fingerprint)
         }
         cache[id] = values
         revision += 1
@@ -266,9 +285,15 @@ public final class SecretVault: ObservableObject {
         }
     }
 
-    /// The profile's protection public key, made (and its record stored) when there is none.
+    /// The profile's protection public key, made (and its record stored) when there is none. Throws
+    /// `ProtectionKeyMismatch` instead of encrypting to a public key the stored key does not have.
+    /// Key data that cannot be loaded here (another Mac's) is left to the decrypt, which removes it.
     private func ensureKey(_ id: String) throws -> P256.KeyAgreement.PublicKey {
         if let record = Secrets.protectionKey(id).flatMap(ProtectionKeyRecord.decode), let pub = record.publicKey {
+            if let actual = try? authenticator.publicKey(keyData: record.key),
+               actual.x963Representation != record.pub {
+                throw ProtectionKeyMismatch(profileID: id)
+            }
             return pub
         }
         guard authenticator.isAvailable else { throw PTError.protectionUnavailable }
@@ -279,6 +304,22 @@ public final class SecretVault: ObservableObject {
     }
 
     // MARK: forgetting
+
+    /// Drops the decrypted values of `id` that were confirmed for another destination than
+    /// `fingerprint` (the server settings changed since). Returns whether any were dropped.
+    @discardableResult
+    public func forgetUnlessBound(_ id: String, to fingerprint: String) -> Bool {
+        let stale = (cache[id] ?? [:]).filter { $0.value.destination != fingerprint }.map(\.key)
+        for kind in stale { forget(id, kind) }
+        return !stale.isEmpty
+    }
+
+    /// `forgetUnlessBound` with the destination `p` has now; nothing is read unless values are held.
+    @discardableResult
+    public func forgetUnlessBound(_ p: Profile) -> Bool {
+        guard cache[p.id] != nil else { return false }
+        return forgetUnlessBound(p.id, to: destination(p).fingerprint)
+    }
 
     /// Drops decrypted values past the reuse window (overwriting them first, best effort).
     public func prune() {
@@ -302,5 +343,15 @@ public final class SecretVault: ObservableObject {
         cache[id]?[kind] = nil
         if cache[id]?.isEmpty == true { cache[id] = nil }
         revision += 1
+    }
+}
+
+/// The profile's protection key record names a public key its private key does not have (the record
+/// was replaced or damaged): PassTunnel neither encrypts to it nor decrypts with it.
+public struct ProtectionKeyMismatch: Error, Equatable, LocalizedError {
+    public var profileID: String
+
+    public var errorDescription: String? {
+        String(localized: "The protection key of profile “\(profileID)” does not match its Keychain record, so PassTunnel did not use it. Another app may have replaced the record. Delete the profile and set it up again.")
     }
 }

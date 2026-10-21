@@ -3,9 +3,10 @@ import XCTest
 import PassTunnelShared
 
 final class HelperAutoUpdateTests: XCTestCase {
-    private func situation(status: HelperStatus = .enabled, outdated: Bool? = true, sessions: Int = 0,
-                           updating: Bool = false, inApplications: Bool = true) -> HelperAutoUpdate.Situation {
-        .init(status: status, outdated: outdated, activeSessions: sessions, updating: updating,
+    private func situation(status: HelperStatus = .enabled, outdated: Bool? = true, older: Bool = true,
+                           sessions: Int = 0, updating: Bool = false,
+                           inApplications: Bool = true) -> HelperAutoUpdate.Situation {
+        .init(status: status, outdated: outdated, helperIsOlder: older, activeSessions: sessions, updating: updating,
               inApplicationsFolder: inApplications)
     }
 
@@ -51,6 +52,24 @@ final class HelperAutoUpdateTests: XCTestCase {
         var policy = HelperAutoUpdate()
         XCTAssertEqual(policy.next(situation(inApplications: false)), .none)
         XCTAssertEqual(policy.next(situation(sessions: 1, inApplications: false)), .none)
+    }
+
+    /// Never a downgrade, and never a same-number build: those only after the user confirms in Settings.
+    func testNewerOrNotComparableHelperIsNeverReplacedOnItsOwn() {
+        var policy = HelperAutoUpdate()
+        XCTAssertEqual(policy.next(situation(older: false)), .none)
+        XCTAssertEqual(policy.next(situation(older: false, sessions: 1)), .none, "no waiting, no notification")
+        XCTAssertFalse(policy.waiting)
+        XCTAssertFalse(policy.notified)
+        XCTAssertFalse(policy.attempted)
+    }
+
+    func testWaitingEndsWhenTheUpdateIsNoLongerAllowed() {
+        var policy = HelperAutoUpdate()
+        XCTAssertEqual(policy.next(situation(sessions: 1)), .wait(notify: true))
+        XCTAssertTrue(policy.waiting)
+        XCTAssertEqual(policy.next(situation(older: false, sessions: 1)), .none)
+        XCTAssertFalse(policy.waiting)
     }
 
     func testBecomingCurrentResetsTheState() {
@@ -124,11 +143,24 @@ final class HelperAutoUpdateTests: XCTestCase {
         XCTAssertTrue(processes.contains { $0.pid == 1 })
     }
 
-    func testApplicationsFolder() {
-        XCTAssertTrue(HelperSessions.isInApplicationsFolder("/Applications/PassTunnel.app", home: "/Users/alice"))
-        XCTAssertTrue(HelperSessions.isInApplicationsFolder("/Users/alice/Applications/PassTunnel.app", home: "/Users/alice"))
-        XCTAssertFalse(HelperSessions.isInApplicationsFolder("/Users/alice/src/build/PassTunnel.app", home: "/Users/alice"))
-        XCTAssertFalse(HelperSessions.isInApplicationsFolder("/Volumes/PassTunnel/PassTunnel.app", home: "/Users/alice"))
-        XCTAssertFalse(HelperSessions.isInApplicationsFolder("/ApplicationsX/PassTunnel.app", home: "/Users/alice"))
+    func testApplicationsFolder() throws {
+        XCTAssertTrue(HelperSessions.isInApplicationsFolder("/Applications/PassTunnel.app"))
+        XCTAssertTrue(HelperSessions.isInApplicationsFolder("/Applications/Utilities/PassTunnel.app"))
+        XCTAssertFalse(HelperSessions.isInApplicationsFolder(NSHomeDirectory() + "/Applications/PassTunnel.app"),
+                       "~/Applications is writable by any process of the user")
+        XCTAssertFalse(HelperSessions.isInApplicationsFolder("/Users/alice/Applications/PassTunnel.app"))
+        XCTAssertFalse(HelperSessions.isInApplicationsFolder("/Users/alice/src/build/PassTunnel.app"))
+        XCTAssertFalse(HelperSessions.isInApplicationsFolder("/Volumes/PassTunnel/PassTunnel.app"))
+        XCTAssertFalse(HelperSessions.isInApplicationsFolder("/ApplicationsX/PassTunnel.app"))
+        XCTAssertFalse(HelperSessions.isInApplicationsFolder("/Applications/../Users/alice/PassTunnel.app"))
+
+        // A symlink in /Applications to a copy elsewhere does not count.
+        let fm = FileManager.default
+        let dir = fm.temporaryDirectory.appendingPathComponent("pt-apps-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: dir) }
+        try fm.createDirectory(at: dir.appendingPathComponent("PassTunnel.app"), withIntermediateDirectories: true)
+        let link = dir.appendingPathComponent("Link.app")
+        try fm.createSymbolicLink(at: link, withDestinationURL: dir.appendingPathComponent("PassTunnel.app"))
+        XCTAssertFalse(HelperSessions.isInApplicationsFolder(link.path))
     }
 }

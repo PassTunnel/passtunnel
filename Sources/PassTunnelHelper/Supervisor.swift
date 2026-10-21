@@ -30,6 +30,7 @@ final class Supervisor {
 
     let queue = DispatchQueue(label: "com.furkanprlk.passtunnel.helper.supervisor")
     private let core: HelperCore
+    private let stager: ToolStager
     private let log = Logger(subsystem: PT.helperLabel, category: "supervisor")
     private var jobs: [Key: Job] = [:]
     private var logTimer: DispatchSourceTimer?
@@ -40,8 +41,9 @@ final class Supervisor {
         }
     }
 
-    init(core: HelperCore) {
+    init(core: HelperCore, stager: ToolStager) {
         self.core = core
+        self.stager = stager
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + Self.logCheckInterval, repeating: Self.logCheckInterval)
         timer.setEventHandler { [weak self] in self?.capLogs() }
@@ -88,18 +90,27 @@ final class Supervisor {
             plan = try prepare()
         } catch {
             log.error("start \(profileID, privacy: .public) rejected: \(String(describing: error), privacy: .public)")
-            return .failure(String(describing: error))
+            return .failure(error)
         }
         defer { close(plan.logFD) }
-        let executable = HelperBundle.toolPath(plan.tool)
+        let requirement = PT.toolRequirement(identifier: plan.tool.signingIdentifier)
         do {
-            try CodeSignature.verify(path: executable, requirement: PT.toolRequirement(identifier: plan.tool.signingIdentifier))
+            // The root-owned copy of the tools and their libraries, each file checked (requirement and
+            // pins) as copied; tools still running from another build's copy keep theirs.
+            let inUse = Set(jobs.values.compactMap { stager.buildDirectory(ofExecutable: $0.executable) })
+            let executable = try stager.stage(inUse: inUse).executable(plan.tool)
             if let dns = plan.dnsUpdownPath {
-                try CodeSignature.verify(path: dns, requirement: PT.toolRequirement(identifier: PT.dnsUpdownIdentifier))
+                // The root-owned copy openvpn runs; the release's own build only (`PinnedTools`).
+                let cdhash = try CodeSignature.verify(path: dns, requirement: PT.toolRequirement(identifier: PT.dnsUpdownIdentifier))
+                try PinnedTools.check("dns-updown", cdhash: cdhash, allowed: PinnedTools.allowed("dns-updown"))
             }
-            let pid = try Spawner.spawn(executable: executable, arguments: plan.arguments,
-                                        environment: HelperCore.fixedEnvironment,
-                                        workingDirectory: plan.runDir, outputFD: plan.logFD)
+            // Requirement, then the cdhashes this helper was built with, both on the started process
+            // (the staged file is root-owned; this also covers whatever posix_spawn actually opened).
+            let verifier = RequirementVerifier(requirement: requirement, cdhashes: PinnedTools.allowed(plan.tool.rawValue))
+            let pid = try Spawner.spawnVerified(executable: executable, arguments: plan.arguments,
+                                                environment: HelperCore.fixedEnvironment,
+                                                workingDirectory: plan.runDir, outputFD: plan.logFD,
+                                                verifier: verifier)
             writeState(plan: plan, pid: pid, executable: executable)
             let logCopy = fcntl(plan.logFD, F_DUPFD_CLOEXEC, 0)
             let job = Job(profileID: plan.profileID, ownerUID: plan.ownerUID, pid: pid, executable: executable,
@@ -233,6 +244,7 @@ final class Supervisor {
             guard lstat(root, &st) == 0, (st.st_mode & S_IFMT) == S_IFDIR, st.st_uid == geteuid() else { return }
             for entry in Self.entries(root) {
                 let path = root + "/" + entry
+                if entry == ToolStager.toolsDirName { continue }   // staged tools (`ToolStager`)
                 if let legacy = Self.readState(path + "/state") {
                     if Self.isAlive(legacy) {
                         log.notice("stopping \(entry, privacy: .public) (pid \(legacy.pid)) left by an older helper")
@@ -293,48 +305,5 @@ final class Supervisor {
         var buf = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
         let n = proc_pidpath(pid, &buf, UInt32(buf.count))
         return n > 0 ? String(cString: buf) : nil
-    }
-}
-
-enum Spawner {
-    struct Failure: Error, CustomStringConvertible {
-        let code: Int32
-        var description: String { "Could not launch the VPN tool: \(String(cString: strerror(code)))" }
-    }
-
-    /// posix_spawn in a new process group, stdin from /dev/null, stdout+stderr to `outputFD`,
-    /// default signal handlers, no inherited descriptors.
-    static func spawn(executable: String, arguments: [String], environment: [String],
-                      workingDirectory: String, outputFD: Int32) throws -> pid_t {
-        var actions: posix_spawn_file_actions_t?
-        posix_spawn_file_actions_init(&actions)
-        defer { posix_spawn_file_actions_destroy(&actions) }
-        posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
-        posix_spawn_file_actions_adddup2(&actions, outputFD, 1)
-        posix_spawn_file_actions_adddup2(&actions, outputFD, 2)
-        posix_spawn_file_actions_addchdir_np(&actions, workingDirectory)
-
-        var attr: posix_spawnattr_t?
-        posix_spawnattr_init(&attr)
-        defer { posix_spawnattr_destroy(&attr) }
-        posix_spawnattr_setflags(&attr, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGDEF
-                                                | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_CLOEXEC_DEFAULT))
-        posix_spawnattr_setpgroup(&attr, 0)
-        var all = sigset_t(), none = sigset_t()
-        sigfillset(&all)
-        sigemptyset(&none)
-        posix_spawnattr_setsigdefault(&attr, &all)
-        posix_spawnattr_setsigmask(&attr, &none)
-
-        let argv = ([executable] + arguments).map { strdup($0) } + [nil]
-        let envp = environment.map { strdup($0) } + [nil]
-        defer {
-            argv.forEach { free($0) }
-            envp.forEach { free($0) }
-        }
-        var pid: pid_t = 0
-        let rc = posix_spawn(&pid, executable, &actions, &attr, argv, envp)
-        guard rc == 0 else { throw Failure(code: rc) }
-        return pid
     }
 }

@@ -125,4 +125,39 @@ final class ExternalChangeTests: CoreTestCase {
         // Started with the argument, the binary must run as the app, not as the CLI.
         for action in HelperHandoff.allCases { XCTAssertFalse(CLICommand.isCommand(action.argument)) }
     }
+
+    func testHandOffReplies() {
+        XCTAssertEqual(HelperHandoff.update.reply(.asking), "update:asking")
+        XCTAssertEqual(HelperHandoff.update.outcome(ofReply: "update:declined"), .declined)
+        XCTAssertNil(HelperHandoff.update.outcome(ofReply: "uninstall:declined"), "another request's answer")
+        XCTAssertNil(HelperHandoff.update.outcome(ofReply: "update:maybe"))
+        XCTAssertNil(HelperHandoff.update.outcome(ofReply: nil))
+        XCTAssertNil(HelperHandoff.update.outcome(ofReply: 7))
+    }
+
+    /// The CLI used to give up after 60 s while the app still showed its confirmation.
+    func testHandOffWaitsForTheUsersDecision() {
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        var wait = HelperHandoffWait(action: .update, timeout: 60, now: t0)
+        XCTAssertNil(wait.result(done: false, now: t0.addingTimeInterval(59)))
+        XCTAssertEqual(wait.result(done: false, now: t0.addingTimeInterval(61)), .timedOut, "the app never answered")
+
+        XCTAssertFalse(wait.received("uninstall:asking", now: t0.addingTimeInterval(5)))
+        XCTAssertTrue(wait.received("update:asking", now: t0.addingTimeInterval(5)))
+        XCTAssertFalse(wait.received("update:asking", now: t0.addingTimeInterval(6)), "announced once")
+        XCTAssertTrue(wait.asking)
+        XCTAssertNil(wait.result(done: false, now: t0.addingTimeInterval(300)), "the user has not decided yet")
+        XCTAssertEqual(wait.result(done: true, now: t0.addingTimeInterval(300)), .done)
+        XCTAssertEqual(wait.result(done: false, now: t0.addingTimeInterval(5 + HelperHandoffWait.confirmationTimeout + 1)),
+                       .timedOut)
+
+        var declined = wait
+        declined.received("update:declined", now: t0.addingTimeInterval(20))
+        XCTAssertEqual(declined.result(done: false, now: t0.addingTimeInterval(20)), .declined)
+        XCTAssertEqual(declined.result(done: true, now: t0.addingTimeInterval(20)), .done, "what the helper says wins")
+
+        var refused = HelperHandoffWait(action: .install, timeout: 30, now: t0)
+        refused.received("install:refused", now: t0.addingTimeInterval(1))
+        XCTAssertEqual(refused.result(done: false, now: t0.addingTimeInterval(1)), .refused)
+    }
 }

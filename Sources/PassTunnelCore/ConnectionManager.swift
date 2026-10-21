@@ -1,4 +1,5 @@
 import Combine
+import CryptoKit
 import Foundation
 import PassTunnelShared
 #if canImport(AppKit)
@@ -44,13 +45,84 @@ public enum ConnectionEvent: Equatable, Sendable {
     /// Dropped while the Mac was asleep and would be reconnected, but the profile requires a
     /// confirmation to connect: the user is asked to reconnect instead of being prompted out of the blue.
     case droppedWhileAsleep(profileID: String)
+    /// Would be reconnected (after a drop or for an outage), but the profile's server settings changed
+    /// after the user confirmed the session: not reconnected; the user connects (and confirms) again.
+    /// `stillConnected`: found by the health check, so the old tunnel is still up (not responding).
+    case destinationChanged(profileID: String, stillConnected: Bool = false)
 
     public var profileID: String {
         switch self {
         case .dropped(let id, _), .reconnected(let id), .reconnectFailed(let id, _), .unreachable(let id),
-             .reachableAgain(let id), .sessionEnding(let id, _), .droppedWhileAsleep(let id):
+             .reachableAgain(let id), .sessionEnding(let id, _), .droppedWhileAsleep(let id),
+             .destinationChanged(let id, _):
             return id
         }
+    }
+}
+
+/// Where a profile sends its credentials, as one fingerprint: SHA-256 over the type and, for OpenVPN,
+/// the exact bytes of config.ovpn (servers, CA, proxies, everything the helper runs); for FortiGate,
+/// host, port and trusted certificate. Secrets the user confirmed are bound to the fingerprint the
+/// profile had then (`SecretVault`, session secrets) and are not sent anywhere else. The helper reads
+/// config.ovpn again later, so the start request carries `configSHA256` of the bytes fingerprinted
+/// here and the helper refuses any other file.
+public struct ProfileDestination: Equatable, Sendable {
+    public var fingerprint: String
+    /// The server for prompts and messages (OpenVPN: the first `remote`, with "+N more" when there are
+    /// several: `OVPNAnalyzer.serverDescription`); may be empty.
+    public var host: String
+    /// Hex SHA-256 of the config.ovpn read for `fingerprint` (OpenVPN; nil when it could not be read).
+    public var configSHA256: String?
+
+    public init(fingerprint: String, host: String, configSHA256: String? = nil) {
+        self.fingerprint = fingerprint
+        self.host = host
+        self.configSHA256 = configSHA256
+    }
+
+    public static func of(_ p: Profile, store: ProfileStore) -> ProfileDestination {
+        var hash = SHA256()
+        func field(_ text: String) {
+            hash.update(data: Data(text.utf8))
+            hash.update(data: Data([0]))
+        }
+        field("passtunnel-destination-1")
+        field(p.type.rawValue)
+        let host: String
+        var configSHA256: String?
+        switch p.type {
+        case .openvpn:
+            if let data = try? FileIO.read(store.ovpnURL(p.id), maxSize: ProfileStore.maxOVPNSize) {
+                field("config")
+                hash.update(data: data)
+                host = OVPNAnalyzer.serverDescription(String(decoding: data, as: UTF8.self))
+                configSHA256 = HelperCore.sha256Hex(data)
+            } else {
+                field("no-config")
+                host = ""
+            }
+        case .forti:
+            host = p.host.trimmingCharacters(in: .whitespacesAndNewlines)
+            field(host.lowercased())
+            field(String(p.port))
+            // As the editor saves it ("AB:CD:…" → "abcd…"), so its reformatting changes nothing.
+            let cert = p.trustedCert.trimmingCharacters(in: .whitespacesAndNewlines)
+            field(TLSFingerprint.normalize(cert) ?? cert.lowercased())
+        }
+        return ProfileDestination(fingerprint: hash.finalize().map { String(format: "%02x", $0) }.joined(), host: host,
+                                  configSHA256: configSHA256)
+    }
+}
+
+/// An automatic reconnect found the profile's server settings changed since the user confirmed the
+/// session: its secrets are not sent to the new destination without a new confirmation.
+public struct DestinationChangedError: Error, Equatable, LocalizedError {
+    public var host: String
+
+    public init(host: String) { self.host = host }
+
+    public var errorDescription: String? {
+        String(localized: "The server settings of this profile changed after you confirmed the connection. Connect it again yourself to confirm the new server.")
     }
 }
 
@@ -102,16 +174,18 @@ extension ManagementSocket {
     }
 }
 
-/// `passtunnel debug drop ID`: a test hook that makes a connected OpenVPN profile drop as if the server
-/// had ended the session, so drop notifications and auto-reconnect can be tried for real. The CLI posts
-/// `notification` (object: the profile ID) to a running app — distributed notifications stay within
-/// the user's login session — which sends it over the management connection it holds; without the app,
-/// the CLI sends it itself.
+#if DEBUG
+/// `passtunnel debug drop ID` (debug builds only): a test hook that makes a connected OpenVPN profile
+/// drop as if the server had ended the session, so drop notifications and auto-reconnect can be tried
+/// for real. The CLI posts `notification` (object: the profile ID) to a running app — distributed
+/// notifications stay within the user's login session — which sends it over the management connection
+/// it holds; without the app, the CLI sends it itself.
 public enum DebugDrop {
     public static let notification = Notification.Name("com.furkanprlk.passtunnel.debugDrop")
     /// OpenVPN exits as on a fatal server-side error; not a user stop.
     public static let command = "signal SIGTERM"
 }
+#endif
 
 /// `ManagementSocket` on a background queue (its I/O is blocking).
 public struct SocketManagementQuerier: ManagementQuerying {
@@ -298,8 +372,14 @@ public final class ConnectionManager: ObservableObject {
     private var reconnectTasks: [String: Task<Void, Never>] = [:]
     private var codeWaits: [String: Task<Void, Error>] = [:]   // waiting for a fresh code; disconnect cancels
     /// Decrypted protected secrets of a session the user confirmed, so an automatic reconnect after a
-    /// drop needs no prompt. Dropped (overwritten, best effort) when the session ends for good.
+    /// drop needs no prompt. Dropped (overwritten, best effort) when the session ends for good, and
+    /// when the profile's destination no longer is the one the session was confirmed for.
     private var sessionSecrets: [String: [SecretKind: [UInt8]]] = [:]
+    /// `ProfileDestination.fingerprint` each entry of `sessionSecrets` belongs to.
+    private var sessionDestinations: [String: String] = [:]
+    /// Sessions whose secrets were dropped because the destination changed: not reconnected
+    /// automatically (`destinationChanged`) until the user connects again.
+    private var changedDestinations: Set<String> = []
     private var connectTasks: [String: Task<Void, Error>] = [:]  // connects started through `connect`
     private var healthFailures: [String: Int] = [:]
     private var outage: Set<String> = []
@@ -331,7 +411,8 @@ public final class ConnectionManager: ObservableObject {
         self.timing = timing
         self.vault = vault ?? SecretVault(authenticator: authenticator ?? SecureEnclaveAuthenticator(),
                                           now: { [clock] in clock.now() },
-                                          reuseWindow: { preferences().authReuseInterval })
+                                          reuseWindow: { preferences().authReuseInterval },
+                                          destination: { [store] in ProfileDestination.of($0, store: store) })
     }
 
     nonisolated public static func defaultHealthProbe(_ host: String) async -> (ok: Bool, ms: Int) {
@@ -397,6 +478,7 @@ public final class ConnectionManager: ObservableObject {
         pollSeq += 1
         let seq = pollSeq
         let profiles = store.list()
+        revalidateDestinations(profiles)
 
         var running: [String: Int32]?
         do {
@@ -557,11 +639,14 @@ public final class ConnectionManager: ObservableObject {
     /// Protected secrets are decrypted first (`vault`: Touch ID or the Mac password); a cancel throws
     /// `PTError.userConfirmationCancelled` before anything starts. Automatic reconnects after a drop
     /// and health-forced reconnects do not ask again: they reuse the secrets of the session the user
-    /// confirmed.
+    /// confirmed, as long as the profile still points where it did then (`ProfileDestination`).
     public func connect(_ id: String, given: [CredentialField: String] = [:], force: Bool = false) async throws {
         cancelReconnect(id)
         if let inFlight = connectTasks[id] { return try await inFlight.value }
-        if !state(id).isActive, let p = try? store.get(id), vault.needsPrompt(p, for: .connect) {
+        let current = state(id).isActive ? nil : try? store.get(id)
+        // A confirmation given for other server settings does not count: ask now, naming the new server.
+        if let p = current { vault.forgetUnlessBound(p) }
+        if let p = current, vault.needsPrompt(p, for: .connect) {
             do {
                 try await vault.unlock(p, for: .connect)
             } catch {
@@ -590,6 +675,7 @@ public final class ConnectionManager: ObservableObject {
         actionToken[id, default: 0] += 1
         codeWaits.removeValue(forKey: id)?.cancel()
         endSessionSecrets(id)
+        changedDestinations.remove(id)
         userStopped.insert(id)
         setUserStoppedMarker(id, true)
         sessionActive.remove(id)
@@ -622,7 +708,8 @@ public final class ConnectionManager: ObservableObject {
     }
 
     /// `interactive` false (automatic reconnects): protected secrets come from the confirmed session or
-    /// the reuse window, never from a prompt (`PTError.confirmationRequired` otherwise).
+    /// the reuse window, never from a prompt (`PTError.confirmationRequired` otherwise), and never for
+    /// a destination other than the one they were confirmed for (`DestinationChangedError`).
     private func performConnect(_ id: String, given: [CredentialField: String], force: Bool = false,
                                 interactive: Bool = true) async throws {
         guard !isBusy(id), !state(id).isConnected else { return }
@@ -649,7 +736,11 @@ public final class ConnectionManager: ObservableObject {
             }
             if p.type == .openvpn && !force { try checkNoOtherFullTunnel(p, running: status?.running ?? [:]) }
             vault.reconcile(p)   // a setting edited by hand: encrypt what it protects before use
-            let stored = try await storedSecrets(p, interactive: interactive)
+            let destination = ProfileDestination.of(p, store: store)
+            // An unreadable config.ovpn has no hash for the helper to hold the file to, and no server
+            // to show in a prompt: nothing is sent.
+            if p.type == .openvpn && destination.configSHA256 == nil { throw PTError.missingConfig(id) }
+            let stored = try await storedSecrets(p, destination: destination, interactive: interactive)
             try checkToken(id, token)
             let creds = try resolveCredentials(p, given: given, stored: stored)
             // A helper left running from another app version would misplace or reject the session.
@@ -673,7 +764,8 @@ public final class ConnectionManager: ObservableObject {
             case .openvpn:
                 request = .startOpenVPN(OpenVPNStart(
                     profileID: id, profileDir: store.dir(id).path, username: creds.username,
-                    secret: creds.password == nil ? nil : composed.secret, logPath: store.logURL(id).path))
+                    secret: creds.password == nil ? nil : composed.secret, logPath: store.logURL(id).path,
+                    configSHA256: destination.configSHA256))
             case .forti:
                 request = .startForti(FortiStart(
                     profileID: id, profileDir: store.dir(id).path, host: p.host, port: p.port,
@@ -683,6 +775,10 @@ public final class ConnectionManager: ObservableObject {
             }
             let response = try await helper.perform(request, timeout: timing.helperTimeout)
             guard response.ok else {
+                // config.ovpn changed after the secrets were checked against it: not sent anywhere.
+                if response.errorCode == HelperResponse.ErrorCode.configChanged {
+                    throw DestinationChangedError(host: destination.host)
+                }
                 // Another process started it in the meantime: the helper refuses a second session.
                 if let session = session(id, in: await currentStatus()) {
                     return try await follow(p, token: token, session: session)
@@ -704,7 +800,7 @@ public final class ConnectionManager: ObservableObject {
             sessionActive.insert(id)
             connectedAt[id] = since
             healthFailures[id] = 0
-            keepSessionSecrets(p, stored)
+            keepSessionSecrets(p, stored, destination: destination)
             noteSetupProblems(p)
             if p.username.trimmingCharacters(in: .whitespaces).isEmpty, let u = creds.username, p.lastUsername != u {
                 // Only this field: the profile may have been edited (CLI, editor) while connecting.
@@ -736,6 +832,7 @@ public final class ConnectionManager: ObservableObject {
         return (socket, pid)
     }
 
+    #if DEBUG
     /// Test hook (`DebugDrop`): asks the OpenVPN of `id` to exit over its management interface. The
     /// profile is not marked user-stopped, so the exit is handled as a drop (notification,
     /// auto-reconnect). Returns false when the helper does not run the profile.
@@ -747,6 +844,7 @@ public final class ConnectionManager: ObservableObject {
         _ = try await management.send(DebugDrop.command, socketPath: session.socket, timeout: 3)
         return true
     }
+    #endif
 
     /// The check `connect` runs before starting `id` (without `force`), on its own, so a caller can
     /// report a refusal before it says it is connecting. Nothing to check when the helper already runs
@@ -802,8 +900,15 @@ public final class ConnectionManager: ObservableObject {
     }
 
     /// The stored secrets connecting `p` uses: from the vault without asking (plain, or unlocked), from
-    /// the confirmed session, or decrypted now (asking) when `interactive`.
-    private func storedSecrets(_ p: Profile, interactive: Bool) async throws -> [SecretKind: String] {
+    /// the confirmed session, or decrypted now (asking) when `interactive`. Decrypted values confirmed
+    /// for another destination are dropped first; an automatic reconnect then stops.
+    private func storedSecrets(_ p: Profile, destination: ProfileDestination,
+                               interactive: Bool) async throws -> [SecretKind: String] {
+        dropSecrets(p.id, unlessBoundTo: destination.fingerprint)
+        vault.forgetUnlessBound(p.id, to: destination.fingerprint)
+        if !interactive && changedDestinations.contains(p.id) && vault.requiresConfirmation(p) {
+            throw DestinationChangedError(host: destination.host)
+        }
         var out: [SecretKind: String] = [:]
         for kind in SecretVault.usedKinds(p) {
             if let value = vault.available(p.id, kind) {
@@ -817,13 +922,35 @@ public final class ConnectionManager: ObservableObject {
         return out
     }
 
-    private func keepSessionSecrets(_ p: Profile, _ stored: [SecretKind: String]) {
+    private func keepSessionSecrets(_ p: Profile, _ stored: [SecretKind: String], destination: ProfileDestination) {
         endSessionSecrets(p.id)
+        changedDestinations.remove(p.id)
         let protected = stored.filter { vault.isProtected(p.id, $0.key) }
-        if !protected.isEmpty { sessionSecrets[p.id] = protected.mapValues { Array($0.utf8) } }
+        guard !protected.isEmpty else { return }
+        sessionSecrets[p.id] = protected.mapValues { Array($0.utf8) }
+        sessionDestinations[p.id] = destination.fingerprint
+    }
+
+    /// Ends the session secrets of `id` when they were confirmed for another destination.
+    private func dropSecrets(_ id: String, unlessBoundTo fingerprint: String) {
+        guard let bound = sessionDestinations[id], bound != fingerprint else { return }
+        endSessionSecrets(id)
+        changedDestinations.insert(id)
+    }
+
+    /// Drops session secrets and confirmations of profiles whose destination is no longer the one the
+    /// user confirmed (profile.json or config.ovpn changed). Runs on every poll; the app also calls
+    /// it when the profile files change. Reads only profiles that hold such secrets.
+    public func revalidateDestinations(_ profiles: [Profile]? = nil) {
+        for p in profiles ?? store.list() where sessionDestinations[p.id] != nil || vault.hasDecrypted(p.id) {
+            let fingerprint = ProfileDestination.of(p, store: store).fingerprint
+            dropSecrets(p.id, unlessBoundTo: fingerprint)
+            vault.forgetUnlessBound(p.id, to: fingerprint)
+        }
     }
 
     private func endSessionSecrets(_ id: String) {
+        sessionDestinations[id] = nil
         guard var secrets = sessionSecrets.removeValue(forKey: id) else { return }
         for kind in Array(secrets.keys) {
             _ = secrets[kind]?.withUnsafeMutableBytes { $0.initializeMemory(as: UInt8.self, repeating: 0) }
@@ -1018,6 +1145,7 @@ public final class ConnectionManager: ObservableObject {
             events.send(.droppedWhileAsleep(profileID: p.id))
             return
         }
+        if willReconnect && stopsForChangedDestination(p) { return }
         events.send(.dropped(profileID: p.id, willReconnect: willReconnect))
         if willReconnect { scheduleReconnect(p.id, immediate: afterWake) } else { endSessionSecrets(p.id) }
     }
@@ -1069,6 +1197,7 @@ public final class ConnectionManager: ObservableObject {
                 }
             } catch {
                 guard reconnectGen[id] == gen else { return }
+                if error is DestinationChangedError { return reportChangedDestination(id) }
                 reason = error.localizedDescription
                 if !Self.isRetryable(error) { break }
             }
@@ -1078,8 +1207,26 @@ public final class ConnectionManager: ObservableObject {
         events.send(.reconnectFailed(profileID: id, reason: reason))
     }
 
+    /// The session's secrets were dropped because the destination changed and connecting needs a
+    /// confirmation: tells the user (`destinationChanged`) instead of reconnecting. Returns true then.
+    /// `stillConnected`: the health check asked, the tunnel was not stopped.
+    private func stopsForChangedDestination(_ p: Profile, stillConnected: Bool = false) -> Bool {
+        guard changedDestinations.contains(p.id), vault.requiresConfirmation(p) else { return false }
+        reportChangedDestination(p.id, stillConnected: stillConnected)
+        return true
+    }
+
+    private func reportChangedDestination(_ id: String, stillConnected: Bool = false) {
+        endSessionSecrets(id)
+        changedDestinations.remove(id)
+        events.send(.destinationChanged(profileID: id, stillConnected: stillConnected))
+    }
+
     /// Wrong credentials or missing secrets will not fix themselves; retrying could lock the account.
     static func isRetryable(_ error: Error) -> Bool {
+        if error is DestinationChangedError || error is ProtectionKeyMismatch || error is KeychainItemNotReplaced {
+            return false
+        }
         switch error as? PTError {
         case .authFailed, .missingPassword, .missingTOTPSecret, .missingCredential, .missingConfig,
              .missingHost, .invalidSecret, .profileNotFound, .otherVPNActive, .setupFailed,
@@ -1124,7 +1271,7 @@ public final class ConnectionManager: ObservableObject {
         if outage.insert(id).inserted {
             events.send(.unreachable(profileID: id))
         }
-        if canAutoReconnect(p), forcedReconnectDone.insert(id).inserted {
+        if canAutoReconnect(p), forcedReconnectDone.insert(id).inserted, !stopsForChangedDestination(p, stillConnected: true) {
             forceReconnect(id)
         }
     }
@@ -1149,6 +1296,7 @@ public final class ConnectionManager: ObservableObject {
                 self.events.send(.reconnected(profileID: id))
             } catch {
                 guard self.reconnectGen[id] == gen else { return }
+                if error is DestinationChangedError { return self.reportChangedDestination(id) }
                 self.events.send(.reconnectFailed(profileID: id, reason: error.localizedDescription))
             }
         }
@@ -1221,6 +1369,7 @@ public final class ConnectionManager: ObservableObject {
     private func forget(_ id: String) {
         cancelReconnect(id)
         endSessionSecrets(id)
+        changedDestinations.remove(id)
         vault.reset(id)
         endSession(id)
         sharedStates[id] = nil

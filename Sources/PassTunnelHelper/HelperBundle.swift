@@ -10,15 +10,16 @@ enum HelperBundle {
         return Bundle.main.executablePath ?? CommandLine.arguments[0]
     }
 
-    /// `Contents/Resources/bin` next to `Contents/MacOS/PassTunnelHelper`.
-    static var toolsDir: String {
+    /// The app's `Contents`, above `Contents/MacOS/PassTunnelHelper`. The tools are run from a staged
+    /// copy (`ToolStager`), never from here.
+    static var contentsDir: String {
         let macOS = (executablePath as NSString).deletingLastPathComponent
-        let contents = (macOS as NSString).deletingLastPathComponent
-        return (contents as NSString).appendingPathComponent("Resources/bin")
+        return (macOS as NSString).deletingLastPathComponent
     }
 
-    static func toolPath(_ tool: HelperCore.Tool) -> String {
-        (toolsDir as NSString).appendingPathComponent(tool.rawValue)
+    /// `Contents/Resources/bin`.
+    static var toolsDir: String {
+        (contentsDir as NSString).appendingPathComponent("Resources/bin")
     }
 
     static var dnsUpdownPath: String {

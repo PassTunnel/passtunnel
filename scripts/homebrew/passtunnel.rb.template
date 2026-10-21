@@ -25,22 +25,33 @@ cask "passtunnel" do
   uninstall launchctl: "com.furkanprlk.passtunnel.helper",
             quit:      "com.furkanprlk.passtunnel"
 
-  zap trash: [
-    "/usr/local/bin/passtunnel",
-    "~/.local/bin/passtunnel",
-    "~/Library/Application Support/PassTunnel",
-    "~/Library/Caches/com.furkanprlk.passtunnel",
-    "~/Library/HTTPStorages/com.furkanprlk.passtunnel",
-    "~/Library/Preferences/com.furkanprlk.passtunnel.plist",
-    "~/Library/Saved Application State/com.furkanprlk.passtunnel.savedState",
-  ]
+  # Passwords and TOTP secrets: generic-password items of the service "PassTunnel" in the login
+  # Keychain. Removed one per call, as the user (no sudo); bounded in case the Keychain misbehaves.
+  zap script: {
+        executable: "/bin/sh",
+        args:       [
+          "-c",
+          "i=0; while [ $i -lt 1000 ] && /usr/bin/security delete-generic-password -s PassTunnel " \
+          ">/dev/null 2>&1; do i=$((i + 1)); done",
+        ],
+      },
+      trash:  [
+        "/usr/local/bin/passtunnel",
+        "~/.local/bin/passtunnel",
+        "~/Library/Application Support/PassTunnel",
+        "~/Library/Caches/com.furkanprlk.passtunnel",
+        "~/Library/HTTPStorages/com.furkanprlk.passtunnel",
+        "~/Library/Preferences/com.furkanprlk.passtunnel.plist",
+        "~/Library/Saved Application State/com.furkanprlk.passtunnel.savedState",
+      ]
 
   caveats <<~EOS
     The helper's entry in System Settings → General → Login Items disappears the next time macOS
     cleans up its background items, at the latest after a restart.
 
-    Passwords and TOTP secrets stay in your login Keychain (service "PassTunnel") after
-    uninstalling. Remove them in Keychain Access, or with:
+    Passwords and TOTP secrets stay in your login Keychain (service "PassTunnel") after a plain
+    uninstall; `brew uninstall --zap passtunnel` removes them. To remove them by hand, use Keychain
+    Access or:
       while security delete-generic-password -s PassTunnel >/dev/null 2>&1; do :; done
   EOS
 end

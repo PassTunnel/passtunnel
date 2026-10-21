@@ -91,6 +91,22 @@ public final class HelperClient: @unchecked Sendable {
         }
     }
 
+    /// How the running helper relates to the one shipped with this app (`HelperBuild.relation`): whether
+    /// replacing it would be an upgrade or a downgrade. A helper that does not report its build number
+    /// (`HelperResponse.helperBuild`) predates it and counts as older.
+    public func relation() async throws -> HelperBuild.Relation {
+        let v = try await version()
+        guard v == PT.helperProtocolVersion, let expected = HelperBuild.bundled else {
+            return HelperBuild.relation(helperProtocol: v, helperDigest: nil, helperNumber: nil,
+                                        appDigest: HelperBuild.bundled, appNumber: HelperBuild.bundledNumber)
+        }
+        let digest = try await build()
+        if HelperBuild.matches(helper: digest, expected: expected) { return .current }
+        let number = try await perform(.status).helperBuild
+        return HelperBuild.relation(helperProtocol: v, helperDigest: digest, helperNumber: number,
+                                    appDigest: expected, appNumber: HelperBuild.bundledNumber)
+    }
+
     /// Sends a request. A response with `ok == false` is returned, not thrown; transport problems throw.
     /// `stop` can take up to ~6 s while the tool shuts down.
     public func perform(_ request: HelperRequest, timeout: TimeInterval? = nil) async throws -> HelperResponse {

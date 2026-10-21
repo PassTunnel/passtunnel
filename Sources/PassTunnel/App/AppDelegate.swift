@@ -65,7 +65,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.handleHelperHandoff(action)
             }
             .store(in: &bag)
-        // `passtunnel debug drop ID` (test hook): drop over the management connection the app holds.
+        #if DEBUG
+        // `passtunnel debug drop ID` (test hook, debug builds only: any process in the session can post
+        // it): drop over the management connection the app holds.
         DistributedNotificationCenter.default().publisher(for: DebugDrop.notification)
             .receive(on: DispatchQueue.main)
             .sink { note in
@@ -73,6 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 Task { @MainActor in _ = try? await model.connections.simulateDrop(id) }
             }
             .store(in: &bag)
+        #endif
         // Confirmations (Touch ID before connecting or showing codes) end when the screen locks;
         // ConnectionManager ends them on sleep.
         DistributedNotificationCenter.default().publisher(for: Notification.Name("com.apple.screenIsLocked"))
@@ -166,7 +169,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if NSApp.activationPolicy() != wanted { NSApp.setActivationPolicy(wanted) }
     }
 
-    /// Shows Settings → Helper, where the pending action is started (install) or confirmed (removal).
+    /// Shows Settings → Helper, where the pending action is checked and confirmed: only a copy in
+    /// /Applications installs or updates, and replacing or removing a running helper asks first.
     func handleHelperHandoff(_ action: HelperHandoff) {
         guard let model = AppModel.shared else { return }
         model.settingsTab = .helper

@@ -83,6 +83,8 @@ public struct FortiConfig: Equatable, CustomStringConvertible, CustomDebugString
             "password = \(password)",
         ]
         if let otp, !otp.isEmpty { lines.append("otp = \(otp)") }
+        // Explicit, so openfortivpn never falls back to OpenSSL's default store (a Homebrew prefix).
+        lines.append("ca-file = \(HelperCore.systemCAFile)")
         if !trustedCert.isEmpty { lines.append("trusted-cert = \(trustedCert.lowercased())") }
         lines.append("set-routes = \(setRoutes ? 1 : 0)")
         lines.append("set-dns = \(setDNS ? 1 : 0)")

@@ -46,7 +46,15 @@ public enum Secrets {
     }
 
     public static func delete(_ profileID: String, _ kind: SecretKind) {
-        SecItemDelete(baseQuery(account(profileID, kind)) as CFDictionary)
+        try? remove(account(profileID, kind))
+    }
+
+    /// Removes every item of the profile (secrets and protection key). Used before a new profile takes
+    /// an id, so it never inherits items left behind by a profile removed outside the app (or after
+    /// a reinstall). Throws when an item cannot be removed.
+    static func deleteAll(_ profileID: String) throws {
+        for kind in SecretKind.allCases { try remove(account(profileID, kind)) }
+        try remove(keyAccount(profileID))
     }
 
     /// The stored text as is: plain (possibly escaped) or an envelope.
@@ -65,34 +73,72 @@ public enum Secrets {
     static func setProtectionKey(_ profileID: String, _ text: String) throws { try write(keyAccount(profileID), text) }
 
     public static func deleteProtectionKey(_ profileID: String) {
-        SecItemDelete(baseQuery(keyAccount(profileID)) as CFDictionary)
+        try? remove(keyAccount(profileID))
     }
 
     // MARK: items
 
     private static func read(_ account: String) -> String? {
+        readData(account).flatMap { String(data: $0, encoding: .utf8) }
+    }
+
+    private static func readData(_ account: String) -> Data? {
         var q = baseQuery(account)
         q[kSecReturnData as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
         var out: CFTypeRef?
-        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let data = out as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
+        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess else { return nil }
+        return out as? Data
     }
 
+    /// Always delete, then add: an item that already exists may have been created by another app
+    /// (with an access list that lets it read the value), and updating it in place would put the
+    /// secret there. The added item gets the default access list, which trusts only PassTunnel. When
+    /// the old item cannot be removed, nothing is written. When the new item cannot be added, the
+    /// previous value (read before the delete) is added back the same way, so a transient failure
+    /// does not lose it.
     private static func write(_ account: String, _ value: String) throws {
-        let data = Data(value.utf8)
-        let q = baseQuery(account)
-        let status = SecItemUpdate(q as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-        if status == errSecSuccess { return }
-        guard status == errSecItemNotFound else { throw PTError.keychain(status) }
+        var previous = readData(account)
+        defer { _ = previous?.withUnsafeMutableBytes { $0.initializeMemory(as: UInt8.self, repeating: 0) } }
+        try remove(account)
+        let status = add(account, Data(value.utf8))
+        guard status == errSecSuccess else {
+            if let previous { _ = add(account, previous) }
+            throw PTError.keychain(status)
+        }
+    }
 
-        var add = q
+    /// Adds a new item (never updates one).
+    private static func add(_ account: String, _ data: Data) -> OSStatus {
+        var add = baseQuery(account)
         add[kSecValueData as String] = data
         add[kSecAttrLabel as String] = "PassTunnel (\(account))"
+        // Only the data-protection keychain honors this; the file-based login keychain used here
+        // ignores it (its items never sync, but can be copied with the keychain file). Kept for a move
+        // to the data-protection keychain.
         add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let addStatus = SecItemAdd(add as CFDictionary, nil)
-        guard addStatus == errSecSuccess else { throw PTError.keychain(addStatus) }
+        #if DEBUG
+        if let addOverride { return addOverride(add as CFDictionary) }
+        #endif
+        return SecItemAdd(add as CFDictionary, nil)
     }
+
+    #if DEBUG
+    /// Tests: replaces SecItemAdd (to make an add fail).
+    static var addOverride: ((CFDictionary) -> OSStatus)?
+    #endif
+
+    /// Deletes every item for `account` (legacy keychains may delete one match per call).
+    private static func remove(_ account: String) throws {
+        for _ in 0..<maxDeletes {
+            let status = SecItemDelete(baseQuery(account) as CFDictionary)
+            if status == errSecItemNotFound { return }
+            guard status == errSecSuccess else { throw KeychainItemNotReplaced(account: account, status: status) }
+        }
+        throw KeychainItemNotReplaced(account: account, status: errSecDuplicateItem)
+    }
+
+    private static let maxDeletes = 16
 
     /// Test cleanup: removes every item of the current (overridden) service.
     /// Refuses to touch the production service.
@@ -102,5 +148,17 @@ public enum Secrets {
         let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service]
         // Legacy keychains may delete one match per call.
         for _ in 0..<100 where SecItemDelete(q as CFDictionary) == errSecSuccess {}
+    }
+}
+
+/// An existing Keychain item could not be removed before a new value was written (or before a new
+/// profile took its id), so nothing was written to it.
+public struct KeychainItemNotReplaced: Error, Equatable, LocalizedError {
+    public var account: String
+    public var status: OSStatus
+
+    public var errorDescription: String? {
+        let message = SecCopyErrorMessageString(status, nil) as String? ?? "OSStatus \(status)"
+        return String(localized: "The Keychain item “PassTunnel (\(account))” could not be replaced (\(message)), so nothing was saved. Delete it in Keychain Access, then try again.")
     }
 }

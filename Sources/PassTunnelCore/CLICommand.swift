@@ -16,7 +16,9 @@ public struct CLIUsageError: Error, Equatable, LocalizedError {
 /// A parsed `passtunnel` command line. Pure, so it can be unit-tested; execution lives in the app target.
 public enum CLICommand: Equatable {
     public enum HelperAction: String, CaseIterable { case status, install, uninstall }
+    #if DEBUG
     public enum DebugAction: String, CaseIterable { case drop }
+    #endif
     public enum Shell: String, CaseIterable { case zsh, bash, fish }
 
     case status(id: String?, json: Bool)
@@ -37,7 +39,9 @@ public enum CLICommand: Equatable {
     case unpin(id: String)
     case log(id: String, follow: Bool)
     case helper(HelperAction)
+    #if DEBUG
     case debug(DebugAction, id: String)   // hidden test hooks, e.g. `debug drop ID` (see `DebugDrop`)
+    #endif
     case completion(Shell)
     case help(command: String?)
     case version
@@ -57,8 +61,13 @@ public enum CLICommand: Equatable {
         "rm", "secret", "default", "pin", "unpin", "log", "helper", "completion", "help",
     ]
 
-    /// Commands that select CLI mode but are left out of help and completion (test hooks).
+    /// Commands that select CLI mode but are left out of help and completion (test hooks, debug
+    /// builds only).
+    #if DEBUG
     public static let hiddenCommandNames = ["debug"]
+    #else
+    public static let hiddenCommandNames: [String] = []
+    #endif
 
     /// Also accepted as a first argument (`passtunnel --help`, `PassTunnel --version`).
     public static let globalFlags = ["--help", "-h", "--version", "-V"]
@@ -212,6 +221,7 @@ public enum CLICommand: Equatable {
                 throw CLIUsageError(String(localized: "Unknown helper action “\(actionText)” (use status, install or uninstall)."), command: name)
             }
             return .helper(action)
+        #if DEBUG
         case "debug":
             let actionText = try a.positional("drop")
             guard let action = DebugAction(rawValue: actionText) else {
@@ -220,6 +230,7 @@ public enum CLICommand: Equatable {
             let id = try a.positional(String(localized: "profile"))
             try a.finish()
             return .debug(action, id: id)
+        #endif
         case "completion":
             let shellText = try a.positional("zsh|bash|fish")
             try a.finish()

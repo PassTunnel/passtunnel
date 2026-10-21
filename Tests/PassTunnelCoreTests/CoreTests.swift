@@ -248,6 +248,35 @@ final class SecretsTests: CoreTestCase {
         XCTAssertEqual(Secrets.get("acme", .totp), "JBSWY3DPEHPK3PXP")
     }
 
+    /// The old item is deleted before the new one is added; a failed add puts the old value back.
+    func testFailedAddKeepsThePreviousValue() throws {
+        defer { Secrets.addOverride = nil }
+        try Secrets.set("acme", .password, "first")
+        var adds = 0
+        Secrets.addOverride = { query in
+            adds += 1
+            return adds == 1 ? errSecInteractionNotAllowed : SecItemAdd(query, nil)
+        }
+        XCTAssertThrowsError(try Secrets.set("acme", .password, "second")) {
+            XCTAssertEqual($0 as? PTError, .keychain(errSecInteractionNotAllowed))
+        }
+        XCTAssertEqual(adds, 2)
+        XCTAssertEqual(Secrets.get("acme", .password), "first")
+
+        // Nothing to restore for a new item; a failing restore leaves no item either.
+        adds = 0
+        XCTAssertThrowsError(try Secrets.set("acme", .totp, "JBSWY3DPEHPK3PXP"))
+        XCTAssertEqual(adds, 1)
+        XCTAssertFalse(Secrets.has("acme", .totp))
+        Secrets.addOverride = { _ in errSecIO }
+        XCTAssertThrowsError(try Secrets.set("acme", .password, "third"))
+        XCTAssertFalse(Secrets.has("acme", .password))
+
+        Secrets.addOverride = nil
+        try Secrets.set("acme", .password, "fourth")
+        XCTAssertEqual(Secrets.get("acme", .password), "fourth")
+    }
+
     func testTurkishAndUnicodeValues() throws {
         let value = "Şifre-ğüşıöç-İĞÜŞÖÇ-€-🔒"
         try Secrets.set("acme", .password, value)
@@ -314,6 +343,99 @@ final class OVPNAnalyzerTests: CoreTestCase {
 
     func testNoRemote() {
         XCTAssertEqual(OVPNAnalyzer.analyze("").remote, "")
+        XCTAssertEqual(OVPNAnalyzer.analyze("").remotes, [])
+        XCTAssertEqual(OVPNAnalyzer.serverDescription(""), "")
+    }
+
+    // Lines read as OpenVPN reads them, where splitting on whitespace would not.
+
+    func testQuotedAndEscapedHost() {
+        XCTAssertEqual(OVPNAnalyzer.analyze("remote \"vpn.example.com\" 1194\n").remote, "vpn.example.com")
+        XCTAssertEqual(OVPNAnalyzer.analyze("remote 'vpn.example.com' 1194\n").remote, "vpn.example.com")
+        XCTAssertEqual(OVPNAnalyzer.analyze("\"remote\" vpn.example.com\n").remote, "vpn.example.com")
+        XCTAssertEqual(OVPNAnalyzer.analyze("remote vpn\\ .example.com\n").remote, "vpn .example.com")
+    }
+
+    func testCommentAfterHost() {
+        let a = OVPNAnalyzer.analyze("remote vpn.example.com#other.example.com\nremote vpn2.example.com ;1194\n")
+        XCTAssertEqual(a.remotes, ["vpn.example.com#other.example.com", "vpn2.example.com"],
+                       "# and ; start a comment only where a token starts")
+        XCTAssertEqual(OVPNAnalyzer.analyze("remote vpn.example.com # 1194\n").remotes, ["vpn.example.com"])
+        XCTAssertEqual(OVPNAnalyzer.analyze("  # remote evil.example.com\n\t; remote evil.example.com\n").remotes, [])
+    }
+
+    func testDoubleDashAndCase() {
+        XCTAssertEqual(OVPNAnalyzer.analyze("--remote vpn.example.com\n").remote, "vpn.example.com")
+        XCTAssertEqual(OVPNAnalyzer.analyze("\u{FEFF}remote vpn.example.com\n").remote, "vpn.example.com", "BOM")
+        XCTAssertEqual(OVPNAnalyzer.analyze("client\r\nremote vpn.example.com\r\n").remote, "vpn.example.com")
+    }
+
+    func testRejectedLinesAreSkipped() {
+        // OpenVPN refuses these lines; they must not supply the host shown.
+        XCTAssertEqual(OVPNAnalyzer.analyze("remote \"evil.example.com\nremote vpn.example.com\n").remotes, ["vpn.example.com"])
+        XCTAssertEqual(OVPNAnalyzer.analyze("remote evil\\x.example.com\nremote vpn.example.com\n").remotes, ["vpn.example.com"])
+    }
+
+    func testInlineBlockContentsIgnored() {
+        let a = OVPNAnalyzer.analyze("""
+        <ca>
+        remote evil.example.com
+        </ca>
+        --<tls-crypt>
+        remote evil.example.com
+          </tls-crypt> trailing
+        <cert>
+        remote evil.example.com
+        </CERT>
+        remote vpn.example.com
+        """)
+        XCTAssertEqual(a.remotes, ["vpn.example.com"])
+        // A comment after the tag still opens the block for OpenVPN.
+        XCTAssertEqual(OVPNAnalyzer.analyze("<ca> # pem\nremote evil.example.com\n</ca>\nremote vpn.example.com\n").remotes,
+                       ["vpn.example.com"])
+    }
+
+    func testMultipleRemotes() {
+        let text = "client\nremote-random\nremote vpn.example.com 1194\nremote vpn2.example.com 443 tcp\nremote 203.0.113.5\n"
+        let a = OVPNAnalyzer.analyze(text)
+        XCTAssertEqual(a.remote, "vpn.example.com")
+        XCTAssertEqual(a.remotes, ["vpn.example.com", "vpn2.example.com", "203.0.113.5"])
+        XCTAssertEqual(OVPNAnalyzer.serverDescription(text), "vpn.example.com +2 more")
+        XCTAssertEqual(OVPNAnalyzer.serverDescription(["vpn.example.com"]), "vpn.example.com")
+        XCTAssertEqual(UserPresenceAction.connect.reason("Work", host: OVPNAnalyzer.serverDescription(text)),
+                       "connect to “Work” (vpn.example.com +2 more)")
+    }
+
+    func testConnectionBlockRemotes() {
+        let a = OVPNAnalyzer.analyze("""
+        client
+        <connection>
+        remote vpn.example.com 1194 udp
+        <ca>
+        remote evil.example.com
+        </ca>
+        </connection>
+        <CONNECTION>
+        remote "vpn2.example.com" 443 tcp
+        </CONNECTION>
+        """)
+        XCTAssertEqual(a.remotes, ["vpn.example.com", "vpn2.example.com"])
+    }
+
+    func testSetenvOpt() {
+        // OpenVPN applies `setenv opt <directive>` when it knows the (exact) name and ignores it otherwise.
+        XCTAssertEqual(OVPNAnalyzer.analyze("setenv opt remote vpn.example.com\n").remotes, ["vpn.example.com"])
+        XCTAssertEqual(OVPNAnalyzer.analyze("setenv opt REMOTE evil.example.com\nsetenv opt --remote evil.example.com\n").remotes, [])
+        XCTAssertEqual(OVPNAnalyzer.redirectsGateway("setenv opt redirect-gateway def1\n"), true)
+        XCTAssertEqual(OVPNAnalyzer.analyze("setenv REMOTE evil.example.com\n").remotes, [])
+    }
+
+    func testRedirectGatewayParity() {
+        XCTAssertEqual(OVPNAnalyzer.redirectsGateway("<ca>\nredirect-gateway def1\n</ca>\n"), nil)
+        XCTAssertEqual(OVPNAnalyzer.redirectsGateway("\"redirect-gateway\" def1\n"), true)
+        XCTAssertEqual(OVPNAnalyzer.redirectsGateway("<connection>\nremote vpn.example.com\n</connection>\nredirect-gateway\n"), true)
+        XCTAssertEqual(OVPNAnalyzer.redirectsGateway("pull-filter ignore 'redirect-gateway'\n"), false)
+        XCTAssertEqual(OVPNAnalyzer.redirectsGateway("pull-filter ignore \"redirect-gateway\n"), nil, "rejected line")
     }
 }
 

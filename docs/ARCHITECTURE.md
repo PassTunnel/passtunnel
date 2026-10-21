@@ -14,12 +14,30 @@ PassTunnel.app/Contents/
   Frameworks/Sparkle.framework  app updates (Autoupdate, Updater.app, XPCServices signed inside-out)
 ```
 
+`build-app.sh` deletes the build-machine rpaths SwiftPM leaves in both executables: the app keeps only
+`@executable_path/../Frameworks` (Sparkle), the helper none (the Swift runtime is loaded from
+`/usr/lib/swift`). It fails when an executable has any other rpath or an `@rpath` load that does not
+resolve inside the bundle. `bundle-tools.sh` bundles only the Homebrew versions pinned in
+`scripts/release.env` (docs/RELEASING.md). The tools load their dylibs by
+`@executable_path/../../Frameworks/<name>`, the dylibs each other by `@loader_path/<name>` (no
+`LC_RPATH`), so the tools and dylibs can be copied elsewhere with the same relative layout (the helper
+does, `ToolStager`). `build-app.sh` signs the tools and their dylibs **before**
+compiling: it writes the cdhash of every architecture of `openvpn`, `openfortivpn` and `dns-updown`
+(`generatedCDHashes`) and of every `Contents/Frameworks/*.dylib` (`generatedLibraryCDHashes`)
+(`codesign -dvvv`, `CDHash=`) to `Sources/PassTunnelShared/PinnedTools+Generated.swift` (removed on exit,
+never committed) and builds with `-Xswiftc -DPASSTUNNEL_TOOL_PINS`, so the helper carries them in its own
+signed code (`PinnedTools`, below). The tools are not signed again afterwards (that would change the
+cdhashes); the script checks that each bundled tool's and dylib's cdhashes are in the pins and in the
+`PassTunnelHelper` binary, and a signed (non-ad-hoc) build fails when `openvpn`, `openfortivpn` or any
+bundled dylib has no pin (or there is no dylib at all).
+A bundle without `dns-updown` pins an empty set for it, so the helper refuses any `dns-updown`.
+
 ## Targets
 
 | Target | Owns | Depends on |
 |---|---|---|
-| `PassTunnelShared` | XPC protocol, request/response types, `HelperCore` (request decoding, path checks), `SessionPolicy`, `CodeSignature`, `OVPNSanitizer`, `FortiConfig`, identifiers | — |
-| `PassTunnelCore` | model, `ProfileStore`, `ProfilesWatcher`, `Secrets` (Keychain), `SecretVault` + `SecretEnvelope` + `UserAuthenticator` (Secure Enclave protection), `TOTP`, `OTPAuthURI`, `OVPNAnalyzer`, `ShareFile`, `Preferences`, `HealthCheck`, `HelperClient`, `ConnectionManager` | Shared |
+| `PassTunnelShared` | XPC protocol, request/response types, `HelperCore` (request decoding, path checks, tool environment), `SessionPolicy`, `CodeSignature`, `Spawner` (verified, suspended launch), `PinnedTools`, `ToolStager` (root-owned copy of the tools and their dylibs), `HelperBuild`, `OVPNSanitizer`, `FortiConfig`, identifiers | — |
+| `PassTunnelCore` | model, `ProfileStore`, `ProfilesWatcher`, `Secrets` (Keychain), `SecretVault` + `SecretEnvelope` + `UserAuthenticator` (Secure Enclave protection), `TOTP`, `OTPAuthURI`, `OVPNAnalyzer`, `OVPNInliner`, `ShareFile`, `Preferences`, `HealthCheck`, `HelperClient`, `HelperAutoUpdate`, `ConnectionManager` + `ProfileDestination` | Shared |
 | `PassTunnelHelper` | `main.swift` XPC listener, process supervision | Shared |
 | `PassTunnel` | SwiftUI app, menu bar, onboarding, CLI, updates (`AppUpdater`) | Core, Shared, Sparkle |
 
@@ -49,8 +67,17 @@ public enum PT {
     (the OpenVPN management socket is in the helper's run directory, see below)
 - Keychain: generic password, service `PT.keychainService` (env `PASSTUNNEL_KEYCHAIN_SERVICE` overrides
   for tests), account `"<profileID>/password"` and `"<profileID>/totp"`. Use the Security framework
-  (`SecItemAdd/CopyMatching/Update/Delete`), never the `security` CLI. App and CLI are the same binary,
-  so Keychain ACLs never prompt between them. A value is plain text, or, for profiles with
+  (`SecItemAdd/CopyMatching/Delete`), never the `security` CLI. App and CLI are the same binary,
+  so Keychain ACLs never prompt between them. Items live in the file-based login keychain (no
+  `kSecUseDataProtectionKeychain`): not synced to iCloud Keychain, but carried by Migration Assistant and
+  backups (`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` is set on add but does not apply there).
+  Every write deletes the item, then adds it (`Secrets.write`), never `SecItemUpdate`: an existing item may
+  have been created by another app with an ACL that lets it read the value, and the added item gets the
+  default ACL (only PassTunnel). `remove` repeats `SecItemDelete` until `errSecItemNotFound` (at most 16
+  times); when the old item cannot be removed nothing is written (`KeychainItemNotReplaced`, not retried
+  by reconnects). The previous value is read before the delete; when `SecItemAdd` of the new value fails,
+  it is added back as a new item (best effort) and `PTError.keychain(status)` is thrown. `ProfileStore.create` first removes every item under the new id (`Secrets.deleteAll`:
+  password, totp, sekey), so a new profile never inherits orphaned items. A value is plain text, or, for profiles with
   `requireAuth` ("Confirm with Touch ID"), an envelope `ptse1:…` (`SecretEnvelope`); plain values that start
   with `ptse`/`ptpl` are stored as `ptpl1:<value>`. `"<profileID>/sekey"` holds the profile's protection
   key (`ProtectionKeyRecord`, JSON: Secure Enclave `dataRepresentation` + X9.63 public key); it is never a
@@ -128,7 +155,7 @@ public struct ProfileStore {                       // all methods throw PTError 
     public init(paths: AppPaths = .default)
     public func list() -> [Profile]                // sorted by (order, name)
     public func get(_ id: String) throws -> Profile
-    public func create(name: String, type: VPNType) throws -> Profile   // slug id (Turkish chars folded), unique (no mgmtPort any more)
+    public func create(name: String, type: VPNType) throws -> Profile   // slug id (Turkish chars folded), unique; deletes Keychain items left under the id
     public func save(_ p: Profile) throws
     public func update(_ id: String, _ change: (inout Profile) throws -> Void) throws -> Profile   // re-read, change, save (locked)
     // ProfileMerge.merge(original:edited:current:) → current + the fields edited changed vs original (editor Save)
@@ -136,10 +163,21 @@ public struct ProfileStore {                       // all methods throw PTError 
     public var defaultID: String? { get }; public func setDefault(_ id: String?) throws
     public func dir(_ id: String) -> URL
     public func ovpnURL(_ id: String) -> URL
-    public func setOVPN(_ id: String, from: URL) throws   // copy, 0600
-    public func importOVPN(_ url: URL, name: String?) throws -> Profile   // uses OVPNAnalyzer
-    public func exportShare(_ id: String, to: URL) throws                 // ShareFile, 0600
-    public func importShare(_ url: URL, name: String?) throws -> Profile
+    public func setOVPN(_ id: String, from: URL) throws   // inlined, <auth-user-pass> stripped, sanitized, 0600
+    public func importOVPN(_ url: URL, name: String?) throws -> Profile   // uses OVPNAnalyzer; <auth-user-pass> → username + Keychain password
+    public func exportShare(_ id: String, to: URL) throws                 // ShareFile, 0600; config without credential blocks
+    public func importShare(_ url: URL, name: String?) throws -> Profile  // drops an <auth-user-pass> block
+}
+public enum OVPNInliner {
+    public static func prepare(_ text: String, baseDir: URL?) throws -> String   // referenced files inlined, then OVPNSanitizer
+    public static func strippingCredentials(_ text: String, blocks: Set<CredentialBlock> = all) -> StrippedCredentials
+    // CredentialBlock: .authUserPass, .httpProxyUserPass. A removed <auth-user-pass> leaves a bare
+    // `auth-user-pass` line and yields its user name (line 1) and password (line 2); `auth-user-pass [inline]`
+    // becomes `auth-user-pass`; `http-proxy-user-pass [inline]` goes with its block; an unterminated block
+    // drops the rest of the file. Import and the editor strip [.authUserPass] (proxy credentials stay in the
+    // local config); share export strips both.
+    // Lines are read with OVPNSanitizer's tokenizer (`tokens(of:)`, `inlineBlockTag`, `isInlineBlockEnd`), so
+    // import and the helper never read a line differently; lines it rejects are kept for the sanitizer to report.
 }
 public enum Secrets {                               // Keychain
     public static func get(_ profileID: String, _ kind: SecretKind) -> String?   // plain text only; nil if encrypted
@@ -156,14 +194,22 @@ public enum TOTP {
     public static func decodeSecret(_ s: String) throws -> Data         // base32 (case/space/padding tolerant) or hex
 }
 public struct OTPAuthURI { label, issuer, secret: Data, params: TOTPParams; init(_ uri: String) throws }   // otpauth://totp/...
-public enum OVPNAnalyzer { public static func analyze(_ text: String) -> (passwordMode, otpMode, otpDelivery, remote: String) }
+public enum OVPNAnalyzer {
+    public static func analyze(_ text: String) -> (passwordMode, otpMode, otpDelivery, remote: String, remotes: [String])
+    public static func serverDescription(_ remotes: [String]) -> String   // "vpn.example.com +2 more"; also (_ text:)
+    public static func redirectsGateway(_ text: String) -> Bool?
+}
 // static-challenge in the file → otpMode .ask, otpDelivery .separate; otherwise .combined
+// Lines are read with OVPNSanitizer.tokens(of:) / inlineBlockTag / isInlineBlockEnd, as the helper's
+// sanitizer and OpenVPN read them: quotes and escapes resolved, comments dropped, lines OpenVPN rejects
+// skipped, inline block contents skipped (<connection> blocks read), `setenv opt <directive>` applied
+// when the name is exact. `remotes` = every `remote` host in file order, `remote` = the first.
 public enum OTPComposer {
     public static func validate(template: String) throws               // must contain "{otp}"
     public static func compose(password: String, otp: String?, delivery: OTPDelivery, template: String,
                                type: VPNType) -> (secret: String, separateOTP: String?)
 }
-public struct ShareFile: Codable              // {"passtunnel_profile":1, "profile":{…minus username,last_username,order,mgmt_port,pinned}, "files":{"config.ovpn": base64}}
+public struct ShareFile: Codable              // {"passtunnel_profile":1, "profile":{…minus username,last_username,order,mgmt_port,pinned}, "files":{"config.ovpn": base64}} (config without credential blocks)
 public struct Preferences: Codable { defaultProfile, theme, showLock, notifyOnDrop, sessionWarnMin=30,
     sessionNotifyMin=10, hotkeys=false, autoType=false, launchAtLogin=true,
     authReuseMinutes=1 /* 1, 5 or 15; others → 1 */ }
@@ -179,9 +225,11 @@ per-profile Secure Enclave key, and decrypting them is the user's confirmation.
 public protocol UserAuthenticator: AnyObject {          // SecureEnclaveAuthenticator; a software P-256 key in tests
     var isAvailable: Bool { get }                        // SecureEnclave.isAvailable
     func createKey() throws -> ProtectionKey             // no prompt; .protectionUnavailable without a Secure Enclave
-    func unlock(keyData: Data, reason: String) async throws -> UnlockedProtectionKey   // the prompt
+    func publicKey(keyData: Data) throws -> P256.KeyAgreement.PublicKey   // no prompt; ProtectionKeyUnusable
+    func unlock(keyData: Data, reason: String) async throws -> UnlockedProtectionKey   // the prompt; .publicKey of the unlocked key
 }
 @MainActor public final class SecretVault: ObservableObject {   // ConnectionManager.vault (app: shared with the editor)
+    init(authenticator:, now:, reuseWindow:, destination: (Profile) -> ProfileDestination)
     static func protectedKinds(_ p: Profile) -> Set<SecretKind>   // connect: [.password], or [.totp] without a keychain password; always: both
     func needsPrompt(_ p: Profile, _ kinds: Set<SecretKind>) -> Bool   // a kind is encrypted and not unlocked
     func unlock(_ p: Profile, _ kinds: Set<SecretKind>, for: UserPresenceAction, fresh: Bool = false) async throws
@@ -190,16 +238,22 @@ public protocol UserAuthenticator: AnyObject {          // SecureEnclaveAuthenti
     func store(_ p: Profile, _ kind: SecretKind, _ value: String) throws          // encrypts when protected (public key only)
     func applyProtection(from old: Profile?, to new: Profile) async throws        // after a setting/mode change
     func reconcile(_ p: Profile) -> Bool                                          // hand-edited setting: encrypt plain protected items
+    func forgetUnlessBound(_ p: Profile) / forgetUnlessBound(_ id, to: fingerprint) -> Bool   // drop values confirmed for another destination
+    func hasDecrypted(_ id: String) -> Bool
     func reset() / reset(_ id) / prune()
 }
+public struct ProfileDestination { fingerprint: String; host: String; static func of(_ p: Profile, store: ProfileStore) -> ProfileDestination }
 public enum ConfirmationWording { static let hasTouchID: Bool; static var settingName: String }   // "Confirm with Touch ID" / "Confirm with your password"
 ```
 
 - `SecureEnclaveAuthenticator`: `SecureEnclave.P256.KeyAgreement.PrivateKey(accessControl:)` with
   `[.privateKeyUsage, .userPresence]` (Touch ID or the login password / Apple Watch; not
   `biometryCurrentSet`, so a new fingerprint does not lock the key). `unlock` evaluates one `LAContext`
-  (`evaluateAccessControl(…, operation: .useKeyKeyExchange)`, `localizedReason` = "connect to “Acme
-  VPN”" etc., macOS prefixes "PassTunnel is trying to"; `touchIDAuthenticationAllowableReuseDuration` = 0, so a
+  (`evaluateAccessControl(…, operation: .useKeyKeyExchange)`, `localizedReason` =
+  `UserPresenceAction.reason(name, host:)`: "connect to “Acme VPN” (vpn.example.com)" with the host of the
+  destination read before the prompt ("vpn.example.com +2 more" when an OpenVPN config has several
+  `remote` lines, which OpenVPN may try in any order with `remote-random`; without one "connect to “Acme VPN”"), "show the code for …" etc.,
+  macOS prefixes "PassTunnel is trying to"; `touchIDAuthenticationAllowableReuseDuration` = 0, so a
   recent Touch ID unlock of the Mac never stands in for the prompt) and loads the key with it, so all key agreements of one unlock share
   one prompt. LAError → `PTError`: user/app cancel → `.userConfirmationCancelled`; `notInteractive`,
   `systemCancel` (no GUI session, e.g. SSH), lockout, no password → `.userConfirmationFailed(reason)`.
@@ -227,6 +281,25 @@ public enum ConfirmationWording { static let hasTouchID: Bool; static var settin
 - Lost key (another Mac, an erased Secure Enclave): `ProtectionKeyUnusable` → the undecryptable items and
   the key record are deleted and `.protectedSecretUnreadable(kind)` asks the user to enter the secret
   again (a new key is made then). A tampered item is kept (the key still works) and reported the same way.
+- Key record check (`ProtectionKeyMismatch`, not retried by reconnects): the record's X9.63 public key must
+  be the public key of its Secure Enclave blob. Checked before encrypting (`ensureKey`, via
+  `publicKey(keyData:)`) and before the prompt when the blob loads, and always on the unlocked key
+  (`UnlockedProtectionKey.publicKey`), so secrets are never encrypted to, or decrypted with, a key a
+  replaced record names.
+- Destination binding: `ProfileDestination.of` is SHA-256 over a version tag, the type and, for OpenVPN,
+  the exact bytes of `config.ovpn` (`host` = first `remote` plus "+N more" for the others,
+  `OVPNAnalyzer.serverDescription`; `configSHA256` = the plain
+  SHA-256 of those bytes, sent in `OpenVPNStart` so the helper runs no other file; nil when the file
+  cannot be read, and then `performConnect` fails with `PTError.missingConfig` before any secret is read);
+  for Forti, the trimmed lowercased host, the port and the trusted cert as `TLSFingerprint.normalize`
+  gives it (separators and whitespace removed, lowercase, as the editor saves it; else trimmed lowercased). Each decrypted value stores the fingerprint
+  read before its prompt; `forgetUnlessBound` overwrites and drops values whose fingerprint differs.
+  `ConnectionManager` does the same for its session secrets (`sessionDestinations`): `connect` (before
+  `needsPrompt`), `storedSecrets` (before use) and `revalidateDestinations` (every poll, `AppModel.reload`;
+  reads only profiles holding such values) drop them, and the profile is marked in `changedDestinations`.
+  An automatic or health-forced reconnect of such a profile, when it still needs a confirmation
+  (`vault.requiresConfirmation`), does not run: `DestinationChangedError` (not retried) /
+  `ConnectionEvent.destinationChanged`. A successful connect, a disconnect or that event clears the mark.
 
 ## Privileged helper
 
@@ -244,15 +317,18 @@ stays tiny and versionable:
     func perform(_ request: Data, reply: @escaping (Data) -> Void)    // HelperRequest → HelperResponse
 }
 public enum HelperRequest: Codable {
-    case startOpenVPN(OpenVPNStart)        // profileID, profileDir, username?, secret? (password+otp already formatted), logPath
+    case startOpenVPN(OpenVPNStart)        // profileID, profileDir, username?, secret? (password+otp already formatted), logPath,
+                                           // configSHA256? ("config_sha256": hex SHA-256 of the config.ovpn the app checked)
                                            // (mgmtPort: Int? still decodes for protocol 1 payloads but is ignored)
     case startForti(FortiStart)            // profileID, profileDir, host, port, username, password, otp?, trustedCert, setDNS, setRoutes, logPath
     case stop(profileID: String)
     case status                            // → running profile IDs with pid
 }
-public struct HelperResponse: Codable { ok: Bool; error: String?; pid: Int32?; running: [String: Int32]?
+public struct HelperResponse: Codable { ok: Bool; error: String?; errorCode: String?   // "error_code": ErrorCode.configChanged
+                                         pid: Int32?; running: [String: Int32]?
                                          mgmtSocket: String?               // startOpenVPN → PT.mgmtSocketPath(uid, id)
-                                         mgmtSockets: [String: String]? }  // status → id → socket (caller's OpenVPN sessions)
+                                         mgmtSockets: [String: String]?    // status → id → socket (caller's OpenVPN sessions)
+                                         helperBuild: Int? }               // "helper_build", every reply (see below)
 ```
 
 Requests carry `"protocol_version"`; the helper decodes them with `HelperCore.decodeRequest`, which
@@ -266,20 +342,32 @@ hashes itself once at launch (a running helper keeps reporting the build it was 
 app bundle is replaced), the app/CLI hash `Contents/MacOS/PassTunnelHelper` next to their own executable
 (no stamping in `build-app.sh` needed; skipped when there is no bundled helper, e.g. tests). `build` is a
 separate call rather than a second `version` reply value so a protocol-2 helper is still recognized as
-outdated. The app then shows Settings → Helper as "Needs an update", whose
+outdated. Digests only say "different"; which side is newer comes from build numbers: the helper reads
+`CFBundleVersion` of the bundle it runs from once at launch (`HelperBuild.buildNumber(ofBundleContaining:)`)
+and puts it in every `HelperResponse` as `helper_build` (an optional key, so the protocol version stayed
+3; older helpers omit it). `HelperClient.relation()` (version, build, then a `status` for the number) feeds
+`HelperBuild.relation(helperProtocol:helperDigest:helperNumber:appDigest:appNumber:)` →
+`.current` (same digest, or no bundled helper), `.older` (lower protocol or number, or no number
+reported), `.newer` (higher protocol or number) or `.different` (same number, or the app's own number
+unknown). The app keeps it in `AppModel.helperRelation`; any relation but `.current` shows Settings →
+Helper as "Needs an update", whose
 **Update Helper** button unregisters the daemon (launchd stops it, which stops its tunnels) and
 registers it again from the running app bundle (`HelperInstaller.update`, Core, behind the
 `HelperRegistrar` protocol so it is unit-tested with a fake). Right after the unregister, launchd may
 refuse the new registration with EPERM ("Operation not permitted") for a few seconds, so `update` waits
 up to 1.5 s for the old job to leave `.enabled` and retries EPERM after 0.5, 1, 2 and 3 s; only then does
 it fail (`HelperInstallError.notPermitted`). `kSMErrorLaunchDeniedByUser` (switched off in Login Items)
-is not retried (`.deniedByUser`); `kSMErrorAlreadyRegistered` counts as success.
+is not retried (`.deniedByUser`); `kSMErrorAlreadyRegistered` counts as success. The button click is the
+confirmation, except for a `.newer` helper (asked fresh), which first shows a downgrade warning.
+`HelperInstaller.update` itself does not decide who may take over; its callers do.
 
 After an app update (Sparkle replaces the bundle; the running helper keeps its old build) the app
 runs that update by itself (`AppModel.updateHelper`, the same flow as the button), decided by
-`HelperAutoUpdate` (Core, unit-tested): only for an enabled helper known to be outdated, only when
-the app runs from `/Applications` or `~/Applications` (a test build elsewhere never takes the helper
-over), at most once per outdated helper (a failure is left to the button), and only while no
+`HelperAutoUpdate` (Core, unit-tested): only for an enabled helper known to be outdated **and** older
+(`Situation.helperIsOlder`, relation `.older`: a newer or not comparable helper stays until the user
+replaces it), only when the app runs from `/Applications` (`HelperSessions.isInApplicationsFolder`,
+symlinks resolved; not `~/Applications`, which any process of the user can write, and never a test build
+elsewhere), at most once per outdated helper (a failure is left to the button), and only while no
 PassTunnel session is active. Sessions are counted by `HelperSessions` from the process list
 (`sysctl KERN_PROC_ALL` + `proc_pidpath`): children of a `PassTunnelHelper` process, and
 `openvpn`/`openfortivpn` inside an app bundle whose identifier is PassTunnel's (or that is gone,
@@ -287,6 +375,21 @@ replaced by the update), so other users' sessions and tools adopted by a restart
 plus the profiles the app itself sees as active. While sessions are active it notifies once ("The
 helper needs an update"), Settings → Helper says it updates itself, and the app re-evaluates on every
 5 s reload, so the update runs right after the last session ends.
+
+Hand-offs from outside the app (`HelperHandoff`: `passtunnel helper install|uninstall`, the
+`--install-helper` / `--update-helper` / `--uninstall-helper` launch arguments or the distributed
+notification) can come from any local process, so `HelperSettings.runPendingAction` installs or updates
+only from `/Applications` and asks before replacing an enabled helper (`.older`/`.different`, or no
+answer for `update`: "Replace the PassTunnel helper?"; `.newer`: the downgrade warning) or removing it
+(docs/APP.md, CLI). The app answers the waiting CLI on `HelperHandoff.replyNotification` (object
+`"<action>:<outcome>"`, `HelperHandoff.Outcome`): `asking` when it shows a confirmation, `declined` when
+the user cancels it (or a newer request replaces it), `refused` when this copy is not in
+`/Applications`. `HelperHandoffWait` (Core, unit-tested) holds the CLI's deadline: 30 s for `install`,
+60 s for `update` / `uninstall`, moved out to 10 minutes (`confirmationTimeout`) once the app asks; a
+decline or refusal ends the wait at once. The replies are distributed notifications any local process
+can post, so they only choose the message: whether the action happened is always read from the helper
+itself (`SMAppService` status, and for `update` the running helper's protocol and build), and a forged
+reply can at most make the CLI give up early or report the wrong reason.
 
 Run directory layout (all root-owned; `HelperCore.makeRunDir`):
 
@@ -296,6 +399,10 @@ Run directory layout (all root-owned; `HelperCore.makeRunDir`):
     <profileID>/                0711   one per session, recreated on start, removed when the tool exits
       config.ovpn | openfortivpn.conf, auth, dns-updown, state   0600/0700 root
       mgmt.sock                 0600   owned by <uid> (OpenVPN only)
+  tools/                        0755   staged tools (`ToolStager`), root:wheel
+    <helper build>/             0755   hex SHA-256 of the helper executable (`HelperBuild.digest`)
+      Resources/bin/openvpn, openfortivpn   0555
+      Frameworks/*.dylib        0444
 ```
 
 Users can traverse to their socket by name but cannot list, rename or replace entries, so handing the
@@ -305,17 +412,67 @@ tools recorded in `<uid>/<id>/state`; tools recorded by a protocol-2 helper (`<r
 stopped, since their socket is in the profile directory.
 
 Security rules (helper):
-- Runs **only** the tools inside its own app bundle (`Contents/Resources/bin/…`), after verifying their code
-  signature has our Team ID. Never a path supplied by the client.
+- Runs **only** the tools inside its own app bundle (`Contents/Resources/bin/…`), never a path supplied by
+  the client, and only code signed with the tool's identifier and our Team ID (`PT.toolRequirement`).
+  It runs them from a root-owned copy (`ToolStager`, Shared): the bundle is writable (and renamable) by
+  the user who installed it, and a tool started there would load its dylibs from there after `SIGCONT`,
+  checked only for the Team ID by library validation. `ToolStager.stage(inUse:)` (on every start, on the
+  supervisor queue): `<runRoot>/tools/<buildID>` (run root realpath'd, so the path matches
+  `proc_pidpath` for adoption) is checked (`check`: exactly `Resources/bin/{openvpn,openfortivpn}` and
+  the expected dylibs in `Frameworks/`, no other entries, every entry `lstat`-ed: not a symlink, owned by
+  the helper's euid, one link, mode exactly 0755/0555/0444; each file `CodeSignature.verify(path:)` with
+  `PT.toolRequirement` or, for dylibs, `PT.teamRequirement`, then its cdhash against `PinnedTools`).
+  If that fails it is removed and staged again: copied into `.<buildID>.partial` (`open` with
+  `O_NOFOLLOW`, regular file, ≤ 256 MB, `fcopyfile` data only into an `O_EXCL` file, `fchown` 0:0 as root,
+  `fchmod`), checked the same way, then renamed into place; a failure removes the partial copy. Expected
+  dylibs: the keys of `PinnedTools.libraryCDHashes` in a pinned build, else every `*.dylib` entry in
+  `Contents/Frameworks` (a symlink is listed and then refused by the copy). Then every other entry of
+  `tools/` is removed except the build directories of running jobs (`buildDirectory(ofExecutable:)`), so
+  adopting a tool after a helper update still finds its executable. The build ID is the helper's
+  `HelperBuild.digest` (must be 16–64 lowercase hex). `adoptOrphans` skips `tools/`.
+  `Spawner.spawnVerified` (Shared) then starts the staged tool with `POSIX_SPAWN_START_SUSPENDED` and runs the
+  `LaunchVerifier` (`RequirementVerifier` → `CodeSignature.verify(pid:)`: `SecCodeCopyGuestWithAttributes`
+  by pid + `SecCodeCheckValidity` with `kSecCSStrictValidate`, which also fails with
+  `errSecCSStaticCodeChanged` when the file no longer is what the kernel mapped) on the stopped process;
+  only then `SIGCONT`. A failed check (or a failed `SIGCONT`) → `SIGKILL` + `waitpid` before it ran; the
+  pid is our unreaped child, so it cannot have been reused. The file check alone would race: posix_spawn
+  opens the path again. Security finds the process's code through its path (`proc_pidpath`): if the file
+  was unlinked meanwhile, `SecCodeCopyGuestWithAttributes` fails with ESRCH (`100003`) instead, also a
+  refusal; the staged files are root-owned, so this only happens when they are tampered with. The
+  `dns-updown` copy is still checked by path (OpenVPN runs it, not the helper).
+- cdhash pins (`PinnedTools`, Shared): `PT.toolRequirement` accepts any build the team ever signed, so a
+  pinned helper also requires the exact tool and dylib builds of its release. `PinnedTools.libraryCDHashes`
+  (file name in `Contents/Frameworks` → cdhashes) is checked by `ToolStager` on the staged dylibs (only
+  when tools are pinned; a dylib without an entry is refused). `PinnedTools.cdhashes` (file name in
+  `Contents/Resources/bin` → accepted lowercase-hex cdhashes, one per architecture) comes from
+  `generatedCDHashes` (written by `build-app.sh`, see above); without the compile flag
+  `PASSTUNNEL_TOOL_PINS` it is empty and nothing is pinned (`swift build`, tests). `allowed(tool)` → nil when nothing is pinned, else the tool's set (empty for a
+  tool without an entry: refused). `RequirementVerifier(requirement:cdhashes:)` checks the cdhash
+  `CodeSignature.verify(pid:)` returns (`kSecCodeInfoUnique` of the static code the kernel-matched
+  validation used, not read from disk again); the `dns-updown` copy's cdhash from `verify(path:)` is checked
+  the same way. A mismatch → `PinnedTools.Mismatch` ("… is not the build this PassTunnel was released
+  with").
+- `Spawner.spawn`: new process group, stdin `/dev/null`, stdout+stderr to the log descriptor, all signals
+  default, empty mask, `POSIX_SPAWN_CLOEXEC_DEFAULT`, environment `HelperCore.fixedEnvironment`:
+  `PATH=/usr/bin:/bin:/usr/sbin:/sbin`, `LC_ALL=C`, `OPENSSL_CONF=/dev/null`,
+  `OPENSSL_MODULES` = `OPENSSL_ENGINES` = `/var/empty/passtunnel-none` (`HelperCore.missingDirectory`,
+  never created), `SSL_CERT_FILE=/etc/ssl/cert.pem` (`HelperCore.systemCAFile`), `SSL_CERT_DIR=/var/empty`,
+  so the bundled libcrypto loads no config, providers or engines from its compiled-in Homebrew prefix and
+  trusts the system CA bundle by default.
 - `profileDir` must be a real directory under the *calling user's* home `Library/Application Support/PassTunnel/profiles/`
   (resolve symlinks; check owner uid == caller's euid from the audit token), not group- or world-writable.
   `config.ovpn` must be a regular, single-link file owned by the user and not group- or world-writable.
   Profile IDs: ASCII letters, digits, `-`, `_`, `.`, 1–64 bytes, no leading `.`/`-`, no trailing `.`.
-- OpenVPN: reads `config.ovpn` from profileDir, runs it through `OVPNSanitizer` (rejects `up`, `down`,
+- OpenVPN: reads `config.ovpn` from profileDir; when the request has `configSHA256` (always from this app
+  version; optional so older requests decode) and the bytes read hash differently, fails with
+  `HelperCore.Failure.configChanged` (`errorCode` `config_changed`), which `ConnectionManager` turns into
+  `DestinationChangedError`. It then runs the file through `OVPNSanitizer` (rejects `up`, `down`,
   `route-up`, `route-pre-down`, `ipchange`, `learn-address`, `client-connect`, `client-disconnect`,
   `tls-verify`, `auth-user-pass-verify`, `plugin`, `script-security` > 1, `management*`, `log*`, `daemon`,
   `writepid`, `cd`, `chroot`, `user`/`group`, `config`, `show-pkcs11-ids`, `genkey`, `port-share`,
-  external files incl. a `socks-proxy` credentials file; strips `static-challenge`), writes the sanitized copy and the auth file
+  external files incl. a `socks-proxy` credentials file, and, like OpenVPN's own parser, a backslash
+  outside single quotes that does not escape `\`, `"` or whitespace, or ends the line; strips
+  `static-challenge`), writes the sanitized copy and the auth file
   into the session's run directory, then runs openvpn with fixed flags (`--management <runDir>/mgmt.sock unix`
   `--management-client-user <caller's user name>` so only the calling user can talk to it, no
   `--management-hold`; `--auth-nocache`, `--remap-usr1 SIGTERM`, `--connect-retry-max 3`, stdout/stderr to
@@ -323,7 +480,8 @@ Security rules (helper):
   with the run directory when the process exits. The socket path must fit in `sun_path` (103 bytes):
   `/var/run/passtunnel/<uid>/<id>/mgmt.sock` fits 64-byte IDs for uids up to 8 digits.
 - Forti: the helper writes the openfortivpn config itself from the typed fields (no user-supplied raw config;
-  no pppd options). OTP is passed in the config (`otp = …`), so no pinentry is needed.
+  no pppd options). OTP is passed in the config (`otp = …`), so no pinentry is needed. Every config sets
+  `ca-file = /etc/ssl/cert.pem`, so openfortivpn never uses OpenSSL's compiled-in default store.
 - Tracks the pid it started per profile; `stop` only signals that pid (SIGTERM, then SIGKILL after 5 s).
   Several Forti/OpenVPN profiles may run at once, at most `SessionPolicy.maxSessionsPerUser` (8) per user.
   `SessionPolicy` decides, keyed by (caller uid, profile ID): two users may run the same ID; starting one of

@@ -251,7 +251,7 @@ extension FortiConfigTests {
         for value in ["a=b", "#alice", "alice#x", "=alice", "a = b # c", "alice;x", "x=pppd-plugin = /tmp/evil"] {
             let c = config { $0.username = value; $0.password = value }
             let pairs = parseLikeOpenfortivpn(try c.render())
-            XCTAssertEqual(pairs.map(\.0), ["host", "port", "username", "password", "otp", "trusted-cert",
+            XCTAssertEqual(pairs.map(\.0), ["host", "port", "username", "password", "otp", "ca-file", "trusted-cert",
                                             "set-routes", "set-dns", "pppd-use-peerdns"], value)
             XCTAssertEqual(pairs.first { $0.0 == "username" }?.1, value)
             XCTAssertEqual(pairs.first { $0.0 == "password" }?.1, value)

@@ -55,6 +55,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var helperStatus: HelperStatus = .notRegistered
     /// The registered helper is running but speaks another protocol version (left from another app version).
     @Published private(set) var helperOutdated = false
+    /// How the running helper relates to this copy's (older, newer…); nil while unknown.
+    @Published private(set) var helperRelation: HelperBuild.Relation?
     private var checkingHelperVersion = false
     /// `HelperInstaller.update` is running (Settings → Helper, or the automatic update).
     @Published private(set) var helperUpdating = false
@@ -156,6 +158,8 @@ final class AppModel: ObservableObject {
         let fresh = store.list()
         // A "Confirm with Touch ID" setting edited by hand: encrypt what it protects (no prompt).
         for p in fresh where p.requireAuth != .off { vault.reconcile(p) }
+        // Server settings changed (editor, CLI, a file edit): secrets confirmed for the old ones are dropped.
+        connections.revalidateDestinations(fresh)
         let secretsChanged = refreshSecrets(for: fresh)
         if fresh != profiles {
             profiles = fresh
@@ -237,6 +241,7 @@ final class AppModel: ObservableObject {
         if changed { helperStatus = s }
         if s != .enabled {
             helperOutdated = false
+            helperRelation = nil
         } else if changed || helperOutdated {
             checkHelperVersion()
         }
@@ -249,9 +254,12 @@ final class AppModel: ObservableObject {
         guard previewHelperStatus == nil, !checkingHelperVersion else { return }
         checkingHelperVersion = true
         Task {
-            let outdated = try? await HelperClient.shared.isOutdated()
+            let relation = try? await HelperClient.shared.relation()
             checkingHelperVersion = false
-            if let outdated { helperOutdated = outdated }
+            if let relation {
+                helperRelation = relation
+                helperOutdated = relation != .current
+            }
             autoUpdateHelperIfIdle()
         }
     }
@@ -273,7 +281,9 @@ final class AppModel: ObservableObject {
     }
 
     /// After the app was updated, the helper still runs the previous build. Update it right away when
-    /// no PassTunnel session is active (no approval needed), else as soon as the last one ends.
+    /// no PassTunnel session is active (no approval needed), else as soon as the last one ends. Only
+    /// an older helper, and only from /Applications (`HelperAutoUpdate`); anything else is left to
+    /// Settings → Helper, which asks first.
     private func autoUpdateHelperIfIdle() {
         guard previewHelperStatus == nil, Bundle.main.bundleURL.pathExtension == "app" else { return }
         let outdated = helperStatus == .enabled && helperOutdated
@@ -282,7 +292,7 @@ final class AppModel: ObservableObject {
             : 0
         let situation = HelperAutoUpdate.Situation(
             status: helperStatus, outdated: checkingHelperVersion && !helperOutdated ? nil : helperOutdated,
-            activeSessions: sessions, updating: helperUpdating,
+            helperIsOlder: helperRelation == .older, activeSessions: sessions, updating: helperUpdating,
             inApplicationsFolder: HelperSessions.isInApplicationsFolder(Bundle.main.bundlePath))
         let action = helperAutoUpdate.next(situation)
         if helperAutoUpdate.waiting != helperUpdateWaiting { helperUpdateWaiting = helperAutoUpdate.waiting }
@@ -702,7 +712,7 @@ final class AppModel: ObservableObject {
 
     private func handle(_ event: ConnectionEvent) {
         switch event {
-        case .dropped(let id, _), .droppedWhileAsleep(let id):
+        case .dropped(let id, _), .droppedWhileAsleep(let id), .destinationChanged(let id, false):
             droppedUnseen.insert(id)
         case .reconnected(let id):
             droppedUnseen.remove(id)
@@ -714,13 +724,39 @@ final class AppModel: ObservableObject {
 }
 
 enum Pasteboard {
+    /// How long a copied code (or password + code) stays on the pasteboard.
+    static let secretLifetime: TimeInterval = 30
+    /// nspasteboard.org markers: clipboard managers skip concealed entries and do not keep transient ones.
+    static let concealedType = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
+    static let transientType = NSPasteboard.PasteboardType("org.nspasteboard.TransientType")
+
+    /// `concealed`: a secret (`copySecret`), cleared again after `secretLifetime`.
     static func copy(_ text: String, concealed: Bool) {
-        let pb = NSPasteboard.general
-        pb.clearContents()
-        pb.setString(text, forType: .string)
-        if concealed {
-            // Clipboard managers honour this marker and skip the entry.
-            pb.setString("", forType: NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"))
+        guard concealed else {
+            let pb = NSPasteboard.general
+            pb.clearContents()
+            pb.setString(text, forType: .string)
+            return
         }
+        let count = copySecret(text)
+        DispatchQueue.main.asyncAfter(deadline: .now() + secretLifetime) { clear(ifUnchangedSince: count) }
+    }
+
+    /// Puts a secret on the general pasteboard for this Mac only (not Universal Clipboard), marked
+    /// concealed and transient. Returns the pasteboard's change count after the copy.
+    @discardableResult
+    static func copySecret(_ text: String) -> Int {
+        let pb = NSPasteboard.general
+        pb.prepareForNewContents(with: .currentHostOnly)
+        pb.setString(text, forType: .string)
+        pb.setString("", forType: concealedType)
+        pb.setString("", forType: transientType)
+        return pb.changeCount
+    }
+
+    /// Empties the pasteboard unless something else was copied after `changeCount`.
+    static func clear(ifUnchangedSince changeCount: Int) {
+        let pb = NSPasteboard.general
+        if pb.changeCount == changeCount { pb.clearContents() }
     }
 }

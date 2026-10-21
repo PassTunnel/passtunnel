@@ -41,14 +41,18 @@ public struct ProfileStore {
     // MARK: create / save / delete
 
     /// New profile with a unique slug id ("acme", "acme-2", …) of at most `Slug.maxIDLength`
-    /// characters. Forti profiles default to `.separate` OTP delivery.
+    /// characters. Forti profiles default to `.separate` OTP delivery. Keychain items still stored
+    /// under the new id (left by a profile removed outside the app, or from before a reinstall) are
+    /// deleted first, so the new profile never uses secrets it was not given.
     public func create(name: String, type: VPNType) throws -> Profile {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw PTError.emptyName }
         try paths.ensureDirectories()
         return try withLock {
             let existing = list()
-            var p = Profile(id: try uniqueID(for: trimmed), name: trimmed, type: type)
+            let id = try uniqueID(for: trimmed)
+            try Secrets.deleteAll(id)
+            var p = Profile(id: id, name: trimmed, type: type)
             p.order = (existing.map(\.order).max() ?? -1) + 1
             p.otpDelivery = type == .forti ? .separate : .combined
             try save(p)
@@ -133,13 +137,14 @@ public struct ProfileStore {
     func profileURL(_ id: String) -> URL { dir(id).appendingPathComponent(Self.profileFile) }
 
     /// Replaces the profile's config (0600) with a self-contained copy of `url`: referenced files
-    /// (ca, cert, key, tls-auth, …) are inlined and the result must pass `OVPNSanitizer`.
+    /// (ca, cert, key, tls-auth, …) are inlined and the result must pass `OVPNSanitizer`. An inline
+    /// `<auth-user-pass>` block is not stored (the editor offers its contents for the Keychain).
     /// Records the source file name and import time in the profile and returns the saved profile.
     @discardableResult
     public func setOVPN(_ id: String, from url: URL, now: Date = Date()) throws -> Profile {
         var p = try get(id)
         guard p.type == .openvpn else { throw PTError.wrongProfileType(id) }
-        let text = try preparedOVPN(url)
+        let text = try preparedOVPN(url).text
         try FileIO.writeAtomically(Data(text.utf8), to: ovpnURL(id), mode: 0o600)
         p.configSourceName = url.lastPathComponent
         p.configImportedAt = Self.wholeSeconds(now)
@@ -148,9 +153,12 @@ public struct ProfileStore {
     }
 
     /// Creates an OpenVPN profile from an .ovpn file (made self-contained and checked as in `setOVPN`;
-    /// nothing is created if that fails). Name defaults to the file name.
+    /// nothing is created if that fails). Name defaults to the file name. A user name and password in
+    /// an inline `<auth-user-pass>` block move to the profile and the Keychain; the stored config
+    /// keeps a bare `auth-user-pass`.
     public func importOVPN(_ url: URL, name: String?) throws -> Profile {
-        let text = try preparedOVPN(url)
+        let prepared = try preparedOVPN(url)
+        let text = prepared.text
         let a = OVPNAnalyzer.analyze(text)
         let fallback = url.deletingPathExtension().lastPathComponent
         var p = try create(name: Self.pick(name, fallback), type: .openvpn)
@@ -160,8 +168,11 @@ public struct ProfileStore {
             p.otpDelivery = a.otpDelivery
             p.configSourceName = url.lastPathComponent
             p.configImportedAt = Self.wholeSeconds(Date())
+            if let user = prepared.username { p.username = user }
             try FileIO.writeAtomically(Data(text.utf8), to: ovpnURL(p.id), mode: 0o600)
             try save(p)
+            // A new profile: `requireAuth` is off, so the plain item is what `SecretVault.store` writes.
+            if let password = prepared.password { try Secrets.set(p.id, .password, password) }
         } catch {
             try? delete(p.id)
             throw error
@@ -169,18 +180,23 @@ public struct ProfileStore {
         return p
     }
 
-    /// Writes a share file (0600). Never includes Keychain secrets.
+    /// Writes a share file (0600). Never includes Keychain secrets, nor user names and passwords
+    /// embedded in the config (`<auth-user-pass>`, `<http-proxy-user-pass>`); certificates and keys
+    /// are kept.
     public func exportShare(_ id: String, to url: URL) throws {
         let p = try get(id)
         var files: [String: Data] = [:]
         if FileManager.default.fileExists(atPath: ovpnURL(id).path) {
-            files[Self.ovpnFile] = try FileIO.read(ovpnURL(id), maxSize: Self.maxOVPNSize)
+            let data = try FileIO.read(ovpnURL(id), maxSize: Self.maxOVPNSize)
+            guard let text = String(data: data, encoding: .utf8) else { throw PTError.invalidFile(Self.ovpnFile) }
+            files[Self.ovpnFile] = Data(OVPNInliner.strippingCredentials(text).text.utf8)
         }
         try ShareFile(profile: p, files: files).write(to: url)
     }
 
     /// Creates a profile from a share file. A new id is assigned; only
     /// `ShareFile.knownFiles` are written, under fixed names (never a path taken from the file).
+    /// An `<auth-user-pass>` block (someone else's sign-in, from an older export) is dropped.
     public func importShare(_ url: URL, name: String?) throws -> Profile {
         let share = try ShareFile.read(from: url)
         let src = share.profile
@@ -189,7 +205,7 @@ public struct ProfileStore {
             guard ovpn.count <= Self.maxOVPNSize else { throw PTError.fileTooLarge(Self.ovpnFile) }
             guard let text = String(data: ovpn, encoding: .utf8) else { throw PTError.invalidFile(Self.ovpnFile) }
             try OVPNInliner.check(text)   // share files are already self-contained
-            sharedOVPN = ovpn
+            sharedOVPN = Data(OVPNInliner.strippingCredentials(text, blocks: [.authUserPass]).text.utf8)
         }
         var p = try create(name: Self.pick(name, src.name.isEmpty ? url.deletingPathExtension().lastPathComponent : src.name),
                            type: src.type)
@@ -225,9 +241,12 @@ public struct ProfileStore {
 
     // MARK: helpers
 
-    private func preparedOVPN(_ url: URL) throws -> String {
+    /// The config to store, and the user name and password of an inline `<auth-user-pass>` block,
+    /// which is never stored with it.
+    private func preparedOVPN(_ url: URL) throws -> OVPNInliner.StrippedCredentials {
         let text = try FileIO.readText(url, maxSize: Self.maxOVPNSize)
-        return try OVPNInliner.prepare(text, baseDir: url.deletingLastPathComponent())
+        let prepared = try OVPNInliner.prepare(text, baseDir: url.deletingLastPathComponent())
+        return OVPNInliner.strippingCredentials(prepared, blocks: [.authUserPass])
     }
 
     private func load(_ id: String) throws -> Profile {

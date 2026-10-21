@@ -150,6 +150,11 @@ final class FakeHelper: HelperClienting, @unchecked Sendable {
             return .success(running: snapshot, mgmtSockets: socks)
         case .startOpenVPN(let s):
             onStart?(request)
+            // Like the helper: only the config.ovpn the app checked is started.
+            if let expected = s.configSHA256 {
+                let data = (try? Data(contentsOf: URL(fileURLWithPath: s.profileDir + "/config.ovpn"))) ?? Data()
+                if HelperCore.sha256Hex(data) != expected { return .failure(HelperCore.Failure.configChanged) }
+            }
             if let failure = takeFailure() { return failure }
             write(startLog, to: s.logPath)
             let sock = s.profileDir + "/" + PT.mgmtSocketName
@@ -470,6 +475,25 @@ final class ConnectionManagerTests: XCTestCase {
         XCTAssertEqual(s.username, "bob")
         XCTAssertEqual(s.secret, "pw123456")
         XCTAssertEqual(try store.get(q.id).lastUsername, "bob")
+    }
+
+    /// A config.ovpn the app cannot read has no hash to hold the helper to: the connect fails before
+    /// any secret is read or sent.
+    func testUnreadableConfigFailsTheConnect() async throws {
+        let p = try makeOpenVPN()
+        let m = makeManager()
+        let url = store.ovpnURL(p.id)
+        try Data(repeating: 0x41, count: ProfileStore.maxOVPNSize + 1).write(to: url)
+        do { try await m.connect(p.id); XCTFail() } catch { XCTAssertEqual(error as? PTError, .missingConfig(p.id)) }
+        XCTAssertTrue(helper.starts.isEmpty)
+
+        if geteuid() != 0 {
+            try Data("client\nremote vpn.example.com 1194\n".utf8).write(to: url)
+            XCTAssertEqual(chmod(url.path, 0), 0)
+            defer { chmod(url.path, 0o600) }
+            do { try await m.connect(p.id); XCTFail() } catch { XCTAssertEqual(error as? PTError, .missingConfig(p.id)) }
+            XCTAssertTrue(helper.starts.isEmpty)
+        }
     }
 
     /// The app keeps a loaded copy of its profiles; the CLI may change the file and the Keychain

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Validation and file preparation done by the privileged helper before it launches a tool.
@@ -22,6 +23,7 @@ public struct HelperCore {
         case invalidCredential(String)
         case socketPathTooLong(String)
         case notASocket(String)
+        case configChanged
         case system(String, Int32)
 
         public var description: String {
@@ -43,10 +45,17 @@ public struct HelperCore {
             case .invalidCredential(let f): return "Invalid \(f): it must be a single line."
             case .socketPathTooLong(let p): return "The management socket path is too long (use a shorter profile ID): \(p)"
             case .notASocket(let p): return "Refusing to replace \(p): it is not a socket."
+            case .configChanged:
+                return "\(HelperCore.configFileName) changed after PassTunnel checked it. Connect again to confirm the new settings."
             case .system(let what, let err): return "\(what): \(String(cString: strerror(err)))"
             }
         }
         public var errorDescription: String? { description }
+
+        /// `HelperResponse.ErrorCode` the app gets with this failure.
+        public var code: String? {
+            self == .configChanged ? HelperResponse.ErrorCode.configChanged : nil
+        }
     }
 
     public enum Tool: String, CaseIterable {
@@ -84,7 +93,22 @@ public struct HelperCore {
     public static let maxSocketPathBytes = 103
     /// Run root, per-user and per-session directories: root-owned, searchable but not listable.
     public static let runDirMode: mode_t = 0o711
-    public static let fixedEnvironment = ["PATH=/usr/bin:/bin:/usr/sbin:/sbin", "LC_ALL=C"]
+    /// The system's CA bundle (root-owned, writable only by root). The bundled OpenSSL's default store is the
+    /// build machine's Homebrew prefix, which its owner (or any admin) can change.
+    public static let systemCAFile = "/etc/ssl/cert.pem"
+    /// Inside root-owned `/var/empty`, and never created.
+    public static let missingDirectory = "/var/empty/passtunnel-none"
+    /// The tools' only environment. The OpenSSL variables keep the bundled libcrypto from loading a
+    /// config file, providers or engines from its compiled-in (Homebrew) prefix, and point its default
+    /// trust store at the system's CA bundle.
+    public static let fixedEnvironment = [
+        "PATH=/usr/bin:/bin:/usr/sbin:/sbin", "LC_ALL=C",
+        "OPENSSL_CONF=/dev/null",
+        "OPENSSL_MODULES=\(missingDirectory)",
+        "OPENSSL_ENGINES=\(missingDirectory)",
+        "SSL_CERT_FILE=\(systemCAFile)",
+        "SSL_CERT_DIR=/var/empty",
+    ]
 
     public var runRoot: String
     public var dnsUpdownSource: String?
@@ -200,6 +224,8 @@ public struct HelperCore {
         let dir = try openProfileDir(s.profileDir, profileID: s.profileID, uid: uid)
         let logName = try logFileName(s.logPath, in: dir)
         let data = try dir.readFile(Self.configFileName, maxBytes: Self.maxConfigBytes)
+        // The app checked (and the user confirmed) one exact file; run nothing else.
+        if let expected = s.configSHA256, Self.sha256Hex(data) != expected.lowercased() { throw Failure.configChanged }
         guard let text = String(data: data, encoding: .utf8) else { throw Failure.invalidText(Self.configFileName) }
         let sanitized = try OVPNSanitizer.sanitize(text)
         let socketPath = PT.mgmtSocketPath(uid: uid, profileID: s.profileID, runRoot: runRoot)
@@ -276,6 +302,11 @@ public struct HelperCore {
         ["-c", configPath]
     }
 
+    /// Lowercase hex SHA-256, as `OpenVPNStart.configSHA256` carries it.
+    public static func sha256Hex(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
     static func checkCredential(_ s: String, field: String, maxBytes: Int) throws {
         guard s.utf8.count <= maxBytes,
               !s.unicodeScalars.contains(where: { $0 == "\n" || $0 == "\r" || $0.value == 0 }) else {
@@ -334,8 +365,8 @@ public struct HelperCore {
         try? FileManager.default.removeItem(atPath: path)
     }
 
-    /// `path` must be a real directory owned by us with mode exactly `runDirMode`; created if missing.
-    static func ensureRootOwnedDir(_ path: String) throws {
+    /// `path` must be a real directory owned by us with mode exactly `mode`; created if missing.
+    static func ensureRootOwnedDir(_ path: String, mode: mode_t = runDirMode) throws {
         var st = stat()
         if lstat(path, &st) != 0 {
             guard errno == ENOENT else { throw Failure.system("stat \(path)", errno) }
@@ -345,7 +376,7 @@ public struct HelperCore {
         guard (st.st_mode & S_IFMT) != S_IFLNK else { throw Failure.symlinkNotAllowed(path) }
         guard (st.st_mode & S_IFMT) == S_IFDIR else { throw Failure.notADirectory(path) }
         guard st.st_uid == geteuid() else { throw Failure.wrongOwner(path: path, expected: geteuid(), actual: st.st_uid) }
-        if st.st_mode & 0o7777 != runDirMode, chmod(path, runDirMode) != 0 {
+        if st.st_mode & 0o7777 != mode, chmod(path, mode) != 0 {
             throw Failure.system("chmod \(path)", errno)
         }
     }

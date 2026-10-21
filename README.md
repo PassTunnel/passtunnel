@@ -40,7 +40,8 @@ secret in the Keychain and fills in the current code (and your password) every t
   template with any literal text, or send the code separately (OpenVPN static challenge, FortiGate
   OTP field). See [Configuring the code format](#configuring-the-code-format).
 - **Authenticator-style main window.** Every profile shows its live code in large digits with a
-  countdown ring. Click to copy. Codes can be hidden until copied.
+  countdown ring. Click to copy; the clipboard is cleared again after 30 seconds. Codes can be
+  hidden until copied.
 - **QR import.** Drop a screenshot of your provider's QR code, choose an image or paste from the
   clipboard. Digits, period and algorithm (SHA-1/256/512) are read from the `otpauth://` link.
   Pasting a Base32 secret or an `otpauth://` link works too.
@@ -82,8 +83,8 @@ PassTunnel.app ──XPC──▶ PassTunnelHelper (root) ──▶ bundled open
    the current code and builds what the server expects (for example `secret123456`).
 2. The app hands the request to the privileged helper over XPC. The helper accepts only the signed
    PassTunnel app, checks that the profile folder belongs to you, sanitizes the OpenVPN config (or
-   writes the openfortivpn config itself from typed fields) and starts the bundled tool, whose
-   signature it verifies first.
+   writes the openfortivpn config itself from typed fields) and starts the bundled tool, which it
+   lets run only after checking the signature of the code that was actually loaded.
 3. The app follows the connection state (OpenVPN through a management socket that only your user
    can open, FortiGate through the log) and shows it in the window and the menu bar.
 
@@ -101,8 +102,9 @@ Download `PassTunnel-<version>.dmg` from
 PassTunnel to **Applications**. Launch it from there: the helper can only be installed from the
 Applications folder. The app is signed with a Developer ID and notarized by Apple.
 
-PassTunnel keeps itself up to date (Settings → Updates). After an update, the helper is updated
-automatically as soon as no VPN connection is active.
+PassTunnel keeps itself up to date (Settings → Updates); updates are signed and checked before
+they are installed. After an update, the helper is updated automatically as soon as no VPN
+connection is active (only when PassTunnel runs from the Applications folder).
 
 ### Homebrew
 
@@ -128,8 +130,9 @@ scripts/build-app.sh                  # → build/PassTunnel.app (ad-hoc signed)
 ```
 
 `build-app.sh` builds a release binary, assembles the bundle, copies `openvpn`, `openfortivpn` and
-their libraries in (`scripts/bundle-tools.sh`, with their license files) and signs everything
-inside-out with the hardened runtime.
+their libraries in (`scripts/bundle-tools.sh`, with their license files), compiles the helper with
+the code-signature hashes of exactly these tools and libraries, and signs everything inside-out with
+the hardened runtime.
 
 > [!IMPORTANT]
 > The helper only talks to an app, and only runs tools, signed with the project's Developer ID Team ID.
@@ -241,7 +244,7 @@ are derived from the profile name (`Work` → `work`).
 passtunnel                          # status of all profiles
 passtunnel connect                  # connect the default profile
 passtunnel connect work             # connect a specific profile
-passtunnel code work -c             # print the live code and seconds left, copy it
+passtunnel code work -c             # print the live code and seconds left, copy it (for 30 s)
 passtunnel status work --json       # exit code 3 when not connected
 passtunnel disconnect --all
 
@@ -269,8 +272,9 @@ the keys and `passtunnel help` lists all commands. Exit codes: `0` ok, `1` error
 **⋯ → Share…** (or `passtunnel export work -o work.passtunnel`) writes a `.passtunnel` file with
 the connection settings, appearance, code format and, for OpenVPN, the configuration file.
 
-It never contains your password, your TOTP secret or your user name. The recipient imports it and
-adds their own. The embedded OpenVPN configuration can contain certificates and keys, so the file is
+It never contains your password, your TOTP secret or your user name; a user name and password or
+proxy credentials embedded in the OpenVPN configuration are removed too. The recipient imports it
+and adds their own. The embedded OpenVPN configuration can contain certificates and keys, so the file is
 written with `0600` permissions; share it the way you would share the `.ovpn` itself.
 
 ## FAQ
@@ -282,16 +286,18 @@ Creating a tunnel interface and changing routes and DNS requires root. Instead o
 admin password at every connect or adding a sudoers rule, PassTunnel registers a small launchd
 daemon with `SMAppService`, which you approve once in System Settings → General → Login Items. The
 helper accepts requests only from the signed PassTunnel app, only runs the `openvpn` and
-`openfortivpn` copies inside the app bundle after verifying their signature, and rejects dangerous
-OpenVPN directives. Details in [SECURITY.md](SECURITY.md).
+`openfortivpn` that come with it (from a root-owned copy, together with their libraries), lets them
+run only after checking their signature, and rejects dangerous OpenVPN directives. Details in [SECURITY.md](SECURITY.md).
 </details>
 
 <details>
 <summary><b>Where are my password and TOTP secret stored?</b></summary>
 
 In your login Keychain, as generic passwords with the service name `PassTunnel` (accounts
-`<profile-id>/password` and `<profile-id>/totp`), marked *this device only*, so they do not sync to
-iCloud. Profile settings and OpenVPN configurations are in
+`<profile-id>/password` and `<profile-id>/totp`). They do not sync to iCloud Keychain; Migration
+Assistant and backups carry them to a new Mac like the rest of your login keychain. A user name and
+password embedded in an imported `.ovpn` are moved there too. Profile settings and OpenVPN
+configurations are in
 `~/Library/Application Support/PassTunnel/`, readable only by your user. Nothing is sent anywhere
 except to your VPN server.
 </details>
@@ -312,6 +318,25 @@ read and write arbitrary files: for example `up`, `down`, `plugin`, `script-secu
 `management` or a `ca` that points at an external file. Files referenced at import time are embedded
 automatically. The error lists every offending line. The complete list is in
 [SECURITY.md](SECURITY.md#openvpn-configuration-sanitizer).
+</details>
+
+<details>
+<summary><b>My .p12 certificate does not load ("unsupported", "RC2-40-CBC"). Why?</b></summary>
+
+Older PKCS#12 files are encrypted with RC2, which OpenSSL 3 only reads through its legacy provider.
+PassTunnel's OpenVPN loads no OpenSSL providers or modules (they would come from paths outside the
+app), so such a file cannot be used as it is. Re-export it once with modern encryption, using
+OpenSSL 3 (for example Homebrew's, `brew install openssl@3`; macOS's own `/usr/bin/openssl` is
+LibreSSL and has no `-legacy` option):
+
+```sh
+OPENSSL="$(brew --prefix openssl@3)/bin/openssl"
+"$OPENSSL" pkcs12 -legacy -in old.p12 -nodes -out temp.pem   # asks for the old password
+"$OPENSSL" pkcs12 -export -in temp.pem -out new.p12          # asks for a new password
+rm temp.pem                                                  # holds the unencrypted key
+```
+
+Then use `new.p12` in the configuration (or import the `.ovpn` again so it is embedded).
 </details>
 
 <details>
@@ -345,6 +370,9 @@ each time* if you use a hardware token or SMS.
    ```
 
    (Deleting a profile inside the app also removes its Keychain items.)
+
+**With Homebrew**, `brew uninstall --zap --cask passtunnel` also deletes your data and the Keychain
+items (steps 5 and 6). A plain `brew uninstall --cask passtunnel` keeps both.
 
 The helper's runtime folder `/var/run/passtunnel` is root-owned and cleared at restart.
 </details>

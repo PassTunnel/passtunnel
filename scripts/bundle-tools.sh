@@ -8,7 +8,8 @@
 #   Contents/Resources/bin/{openvpn,openfortivpn,dns-updown}
 #   Contents/Frameworks/*.dylib
 #   Contents/Resources/licenses/*
-# Binaries are ad-hoc signed here so they stay runnable; build-app.sh re-signs them.
+# Binaries are ad-hoc signed here so they stay runnable; build-app.sh re-signs them. The Homebrew
+# versions must match the pins in scripts/release.env (see "pinned versions" below).
 set -euo pipefail
 
 APP="${1:?usage: $0 <App.app>}"
@@ -93,6 +94,54 @@ while ((i < ${#queue[@]})); do
     done < <(deps_of "$file")
 done
 rm -f "$seen_list"
+
+# --- pinned versions ------------------------------------------------------------------------------
+# Every bundled formula must have the Cellar version pinned in release.env (openssl@3 →
+# OPENSSL3_VERSION, pkcs11-helper → PKCS11_HELPER_VERSION, …), and every pin must be bundled.
+# PASSTUNNEL_ALLOW_UNPINNED_TOOLS=1 only warns (local builds; release.sh refuses it).
+source "$(dirname "$0")/release.env"
+pin_var() { echo "$(tr '[:lower:]-' '[:upper:]_' <<<"${1//@/}")_VERSION"; }
+pin_errors=0
+pinned_vars=" "
+echo "Bundled Homebrew formulae (pins in scripts/release.env):"
+for src in "${sources[@]}"; do
+    cellar=$(cellar_dir_of "$src")
+    if [[ -z "$cellar" ]]; then
+        echo "  error: $src is not from a formula in $BREW/Cellar" >&2
+        pin_errors=1
+        continue
+    fi
+    formula=$(basename "$(dirname "$cellar")")
+    version=$(basename "$cellar")
+    var=$(pin_var "$formula")
+    [[ "$pinned_vars" == *" $var "* ]] && continue
+    pinned_vars+="$var "
+    want="${!var:-}"
+    if [[ "$version" == "$want" ]]; then
+        status="ok"
+    elif [[ -z "$want" ]]; then
+        status="NOT PINNED: add $var=$version"
+        pin_errors=1
+    else
+        status="MISMATCH: $var=$want"
+        pin_errors=1
+    fi
+    printf '  %-16s %-10s %s\n' "$formula" "$version" "$status"
+done
+for var in $(sed -n 's/^\([A-Z0-9_]*_VERSION\)=.*/\1/p' "$(dirname "$0")/release.env"); do
+    if [[ "$pinned_vars" != *" $var "* ]]; then
+        echo "  $var=${!var} is pinned but not bundled; remove it from release.env" >&2
+        pin_errors=1
+    fi
+done
+if ((pin_errors)); then
+    if [[ "${PASSTUNNEL_ALLOW_UNPINNED_TOOLS:-}" == 1 ]]; then
+        echo "warning: bundled versions differ from scripts/release.env (PASSTUNNEL_ALLOW_UNPINNED_TOOLS=1)" >&2
+    else
+        echo "error: bundled versions differ from scripts/release.env; see docs/RELEASING.md (Bundled tools)" >&2
+        exit 1
+    fi
+fi
 
 # --- rewrite load paths ---------------------------------------------------------------------------
 rewrite() {

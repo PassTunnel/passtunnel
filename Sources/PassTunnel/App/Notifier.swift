@@ -63,6 +63,17 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             post(title: String(localized: "“\(name(id))” disconnected while the Mac was asleep."),
                  body: String(localized: "Click to reconnect."),
                  profileID: id, category: Self.reconnectCategory, connectOnClick: true)
+        case .destinationChanged(let id, true):
+            // The forced reconnect of a health outage, not done: the old tunnel is still up. Connecting
+            // on click would do nothing while it is; a click shows the profile.
+            post(title: String(localized: "“\(name(id))” server settings changed"),
+                 body: String(localized: "It is still connected to the server you confirmed, which is not responding. Reconnect to confirm the new settings."),
+                 profileID: id)
+        case .destinationChanged(let id, false):
+            // Replaces the automatic reconnect too: shown even without drop notifications.
+            post(title: String(localized: "“\(name(id))” was not reconnected"),
+                 body: String(localized: "Its server settings changed after you confirmed the connection. Click to connect and confirm again."),
+                 profileID: id, category: Self.reconnectCategory, connectOnClick: true)
         }
     }
 

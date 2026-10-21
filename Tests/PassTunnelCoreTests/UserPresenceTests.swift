@@ -15,6 +15,8 @@ final class FakeAuthenticator: UserAuthenticator, @unchecked Sendable {
     var isAvailable = true
     /// Seconds each prompt stays open (real time).
     var delay: TimeInterval = 0
+    /// False: the public key of stored key data cannot be read without unlocking it.
+    var canReadPublicKey = true
 
     var results: [Error?] {
         get { lock.lock(); defer { lock.unlock() }; return _results }
@@ -32,6 +34,11 @@ final class FakeAuthenticator: UserAuthenticator, @unchecked Sendable {
         return ProtectionKey(data: key.rawRepresentation, publicKey: key.publicKey)
     }
 
+    func publicKey(keyData: Data) throws -> P256.KeyAgreement.PublicKey {
+        guard canReadPublicKey, let key = try? P256.KeyAgreement.PrivateKey(rawRepresentation: keyData) else { throw ProtectionKeyUnusable() }
+        return key.publicKey
+    }
+
     func unlock(keyData: Data, reason: String) async throws -> UnlockedProtectionKey {
         let result: Error? = {
             lock.lock(); defer { lock.unlock() }
@@ -47,6 +54,7 @@ final class FakeAuthenticator: UserAuthenticator, @unchecked Sendable {
     private final class Unlocked: UnlockedProtectionKey {
         let key: P256.KeyAgreement.PrivateKey
         init(key: P256.KeyAgreement.PrivateKey) { self.key = key }
+        var publicKey: P256.KeyAgreement.PublicKey { key.publicKey }
         func sharedSecret(with peer: P256.KeyAgreement.PublicKey) async throws -> SharedSecret {
             try key.sharedSecretFromKeyAgreement(with: peer)
         }
@@ -86,7 +94,7 @@ extension ConnectionManagerTests {
 
         try await m.connect(p.id)
         XCTAssertTrue(m.state(p.id).isConnected)
-        XCTAssertEqual(authenticator.reasons, ["connect to “Acme VPN”"])
+        XCTAssertEqual(authenticator.reasons, ["connect to “Acme VPN” (vpn.example.com)"], "names the server")
         XCTAssertEqual(startedSecret(p.id), "pw" + (try code(at: t0)))
     }
 

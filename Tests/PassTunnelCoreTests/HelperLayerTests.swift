@@ -166,6 +166,7 @@ final class FortiConfigTests: XCTestCase {
         username = alice
         password = s3cret p#ss=word
         otp = 123456
+        ca-file = /etc/ssl/cert.pem
         trusted-cert = \(digest)
         set-routes = 0
         set-dns = 1
@@ -175,6 +176,8 @@ final class FortiConfigTests: XCTestCase {
         let noOptional = try config { $0.otp = nil; $0.trustedCert = "" }.render()
         XCTAssertFalse(noOptional.contains("otp"))
         XCTAssertFalse(noOptional.contains("trusted-cert"))
+        XCTAssertTrue(noOptional.contains("\nca-file = /etc/ssl/cert.pem\n"),
+                      "always the system CA bundle, never OpenSSL's default store")
     }
 
     func testInjectionRejectedInEveryField() {
@@ -192,8 +195,8 @@ final class FortiConfigTests: XCTestCase {
     func testRenderedConfigHasOnlyExpectedKeys() throws {
         let text = try config { $0.password = "a = b # c ; d" }.render()
         let keys = text.split(separator: "\n").filter { !$0.hasPrefix("#") }.map { $0.components(separatedBy: " = ")[0] }
-        XCTAssertEqual(keys, ["host", "port", "username", "password", "otp", "trusted-cert", "set-routes", "set-dns",
-                              "pppd-use-peerdns"])
+        XCTAssertEqual(keys, ["host", "port", "username", "password", "otp", "ca-file", "trusted-cert", "set-routes",
+                              "set-dns", "pppd-use-peerdns"])
     }
 
     func testFieldValidation() {
@@ -255,6 +258,27 @@ final class HelperMessageTests: XCTestCase {
         guard case .startForti(let f) = decoded else { return XCTFail() }
         XCTAssertNil(f.otp)
         XCTAssertThrowsError(try HelperRequest(jsonData: Data(#"{"type":"reboot"}"#.utf8)))
+    }
+
+    /// `config_sha256` and `error_code` are optional keys: older apps and helpers still understand each other.
+    func testConfigHashAndErrorCodeAreOptional() throws {
+        let hash = String(repeating: "ab", count: 32)
+        let start = HelperRequest.startOpenVPN(OpenVPNStart(profileID: "a", profileDir: "/d", logPath: "/l",
+                                                            configSHA256: hash))
+        XCTAssertTrue(String(decoding: try start.jsonData(), as: UTF8.self).contains(#""config_sha256":"\#(hash)""#))
+        XCTAssertEqual(try HelperCore.decodeRequest(try start.jsonData()), start)
+        let old = try HelperCore.decodeRequest(Data(#"{"type":"start_openvpn","protocol_version":3,"profile_id":"a","profile_dir":"/d","log_path":"/l"}"#.utf8))
+        guard case .startOpenVPN(let o) = old else { return XCTFail() }
+        XCTAssertNil(o.configSHA256)
+        XCTAssertFalse(String(decoding: try HelperRequest.startOpenVPN(o).jsonData(), as: UTF8.self).contains("config_sha256"))
+
+        let refused = HelperResponse.failure(HelperCore.Failure.configChanged)
+        XCTAssertEqual(refused.errorCode, HelperResponse.ErrorCode.configChanged)
+        XCTAssertEqual(try HelperResponse(jsonData: refused.jsonData()), refused)
+        XCTAssertNil(HelperResponse.failure(HelperCore.Failure.fileTooLarge("x")).errorCode)
+        XCTAssertNil(HelperResponse.failure(FortiConfig.ValidationError.invalidHost).errorCode)
+        XCTAssertNil(try HelperResponse(jsonData: Data(#"{"ok":false,"error":"boom"}"#.utf8)).errorCode)
+        XCTAssertFalse(String(decoding: try HelperResponse.failure("boom").jsonData(), as: UTF8.self).contains("error_code"))
     }
 
     func testResponseRoundTrip() throws {
@@ -498,6 +522,27 @@ final class HelperCoreTests: XCTestCase {
             XCTAssertEqual((error as? OVPNSanitizer.Failure)?.violations.map(\.line), [2])
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: acmeRunDir))
+    }
+
+    /// The app sends the SHA-256 of the config.ovpn it checked; the helper starts only that file.
+    func testConfigHashMustMatchTheFileRead() throws {
+        let data = try Data(contentsOf: profiles.appendingPathComponent("acme/config.ovpn"))
+        var s = openVPNStart()
+        s.configSHA256 = HelperCore.sha256Hex(data).uppercased()
+        let plan = try core().prepareOpenVPN(s, uid: me)
+        close(plan.logFD)
+        core().removeRunDir(profileID: "acme", uid: me)
+
+        s.configSHA256 = HelperCore.sha256Hex(data + Data("\n".utf8))
+        assertFails(try self.core().prepareOpenVPN(s, uid: self.me)) { $0 == .configChanged }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: acmeRunDir), "nothing written")
+        s.configSHA256 = ""
+        assertFails(try self.core().prepareOpenVPN(s, uid: self.me)) { $0 == .configChanged }
+
+        // Older apps send no hash: the file is used as read.
+        s.configSHA256 = nil
+        let unchecked = try core().prepareOpenVPN(s, uid: me)
+        close(unchecked.logFD)
     }
 
     func testCredentialValidation() {

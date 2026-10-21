@@ -51,6 +51,10 @@
 	<string>https://github.com/__GITHUB_REPO__/releases/latest/download/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>ir1bD2hehY/dSmtfLzPpcTGD+cHqoHQA4KoGXaIbzcw=</string>
+	<key>SURequireSignedFeed</key>
+	<true/>
+	<key>SUVerifyUpdateBeforeExtraction</key>
+	<true/>
 	<key>SUEnableInstallerLauncherService</key>
 	<false/>
 	<key>SUEnableAutomaticChecks</key>

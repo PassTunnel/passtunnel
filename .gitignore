@@ -4,3 +4,16 @@
 /dist/
 *.xcodeproj
 .DS_Store
+
+# Signing material: never in the repository (docs/RELEASING.md exports keys outside of it). .key and
+# .pem only at the top level, so test fixtures elsewhere stay visible.
+sparkle-private-key.txt
+*.p8
+*.p12
+*.mobileprovision
+*.provisionprofile
+/*.key
+/*.pem
+
+# Tool cdhash pins, written by scripts/build-app.sh for the build it makes (see PinnedTools.swift).
+/Sources/PassTunnelShared/PinnedTools+Generated.swift

@@ -3,9 +3,12 @@ import Foundation
 import PassTunnelShared
 
 /// Decides when the app replaces an outdated helper on its own, e.g. right after the app itself was
-/// updated (the helper still runs the build it was started from). Updating unregisters the helper,
-/// which stops every tunnel it runs, so it only happens while no PassTunnel session is active;
-/// otherwise the app keeps showing "Needs an update" and updates as soon as the last session ends.
+/// updated (the helper still runs the build it was started from). Only an older helper is replaced,
+/// and only by a copy in /Applications: re-registering points the root helper at this copy, so a copy
+/// elsewhere (user-writable) or an older build (a downgrade) needs the user's explicit confirmation.
+/// Updating unregisters the helper, which stops every tunnel it runs, so it only happens while no
+/// PassTunnel session is active; otherwise the app keeps showing "Needs an update" and updates as soon
+/// as the last session ends.
 ///
 /// Feed it the current situation every time something may have changed; it remembers whether it
 /// already notified and whether it already tried (one automatic attempt per outdated helper, so a
@@ -23,18 +26,21 @@ public struct HelperAutoUpdate: Equatable, Sendable {
         public var status: HelperStatus
         /// nil while unknown (the helper has not answered yet).
         public var outdated: Bool?
+        /// The helper is an earlier build than this copy's (`HelperBuild.Relation.older`).
+        public var helperIsOlder: Bool
         /// Active PassTunnel sessions on this Mac, from any user or process (see `HelperSessions`).
         public var activeSessions: Int
         /// An update (automatic or from Settings → Helper) is running.
         public var updating: Bool
-        /// The app runs from an Applications folder. A copy elsewhere (a test build, a mounted disk
-        /// image) never takes over the helper on its own.
+        /// The app runs from /Applications. A copy elsewhere (a test build, a mounted disk image,
+        /// ~/Applications) never takes over the helper on its own.
         public var inApplicationsFolder: Bool
 
-        public init(status: HelperStatus, outdated: Bool?, activeSessions: Int, updating: Bool,
+        public init(status: HelperStatus, outdated: Bool?, helperIsOlder: Bool, activeSessions: Int, updating: Bool,
                     inApplicationsFolder: Bool) {
             self.status = status
             self.outdated = outdated
+            self.helperIsOlder = helperIsOlder
             self.activeSessions = activeSessions
             self.updating = updating
             self.inApplicationsFolder = inApplicationsFolder
@@ -58,7 +64,11 @@ public struct HelperAutoUpdate: Equatable, Sendable {
             }
             return .none
         }
-        guard s.inApplicationsFolder, !s.updating, !attempted else { return .none }
+        // A newer (or not comparable) helper stays until the user replaces it in Settings → Helper.
+        guard s.helperIsOlder, s.inApplicationsFolder, !s.updating, !attempted else {
+            waiting = false
+            return .none
+        }
         if s.activeSessions > 0 {
             waiting = true
             let notify = !notified
@@ -159,9 +169,9 @@ public enum HelperSessions {
         }
     }
 
-    /// True when `appPath` is inside `/Applications` or `~/Applications`.
-    public static func isInApplicationsFolder(_ appPath: String, home: String = NSHomeDirectory()) -> Bool {
-        let path = URL(fileURLWithPath: appPath).standardizedFileURL.path
-        return ["/Applications/", home + "/Applications/"].contains { path.hasPrefix($0) }
+    /// True when `appPath` (symlinks resolved) is inside `/Applications`. Not `~/Applications`: any
+    /// process of the user can put a copy there.
+    public static func isInApplicationsFolder(_ appPath: String) -> Bool {
+        URL(fileURLWithPath: appPath).resolvingSymlinksInPath().standardizedFileURL.path.hasPrefix("/Applications/")
     }
 }

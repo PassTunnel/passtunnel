@@ -10,6 +10,7 @@ Implementation details are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - [OpenVPN configuration sanitizer](#openvpn-configuration-sanitizer)
 - [Secrets and files](#secrets-and-files)
 - [Confirm with Touch ID (Secure Enclave)](#confirm-with-touch-id-secure-enclave)
+- [Updates](#updates)
 - [What is not protected](#what-is-not-protected)
 
 ## Reporting a vulnerability
@@ -49,8 +50,10 @@ FortiGate, stop, and status. It enforces the following rules on every request.
 - **Client code-signing requirement.** The XPC connection is restricted with
   `NSXPCConnection.setCodeSigningRequirement` to
   `identifier "com.furkanprlk.passtunnel" and anchor apple generic and certificate leaf[subject.OU] = "YH4NUPFH74"`:
-  only the PassTunnel app signed with the project's Developer ID Team ID. Other processes,
-  including other apps running as you, cannot send requests.
+  only the PassTunnel app signed with the project's Developer ID Team ID. Other programs cannot
+  connect. Any process running as you can, however, run the `passtunnel` command, which is that
+  same signed binary: the helper serves it like the app, and it acts on your own profiles only (see
+  [What is not protected](#what-is-not-protected)).
 - **Caller identity from the kernel.** The calling user is taken from the connection's audit token
   (effective UID), never from the request.
 - **Per-user isolation.** A user can only stop or see the status of tunnels they started.
@@ -70,24 +73,57 @@ FortiGate, stop, and status. It enforces the following rules on every request.
 
 ### Which programs it runs
 
-- **Only the tools bundled in its own app.** The helper starts `Contents/Resources/bin/openvpn` or
-  `Contents/Resources/bin/openfortivpn` next to its own executable (located through the kernel,
-  not `argv[0]`). A path supplied by the client is never executed.
-- **Signature verified before every launch.** Each tool must satisfy a code-signing requirement
-  with its own identifier (`com.furkanprlk.passtunnel.openvpn`, `…openfortivpn`) and the project's
-  Team ID, checked with strict validation across all architectures.
+- **Only the tools bundled in its own app, run from a root-owned copy.** The helper takes
+  `Contents/Resources/bin/openvpn` and `Contents/Resources/bin/openfortivpn` and the libraries in
+  `Contents/Frameworks` that they load (OpenSSL's `libcrypto` and `libssl`, `lzo`, `lz4`,
+  `pkcs11-helper`) from its own app bundle (located through the kernel, not `argv[0]`). The bundle can
+  be changed or renamed by the user who installed it, so the helper does not run the tools from there:
+  it copies them, without following symlinks, into `/var/run/passtunnel/tools/<helper build>/`
+  (directories `root:wheel` 0755, tools 0555, libraries 0444), with the bundle's layout, so the
+  tools' load paths (`@executable_path/../../Frameworks/…`, `@loader_path/…`) resolve to the copied
+  libraries and never back into the bundle. Every copied file is checked as copied (below); a copy
+  that fails the check, or has an unexpected or missing file, is made again; copies of other helper
+  builds are removed unless a tool still runs from them. macOS empties `/var/run` when it starts. A
+  path supplied by the client is never executed. System libraries come from macOS.
+- **Signature checked on the copies and on the code that runs.** Each tool must satisfy a
+  code-signing requirement with its own identifier (`com.furkanprlk.passtunnel.openvpn`,
+  `…openfortivpn`) and the project's Team ID; each library must be signed with the project's Team ID.
+  The helper checks every copied file (strict validation across all architectures), so a file
+  replaced in the bundle while it was being copied gives a copy that is refused. It then starts the
+  copied tool **suspended**, before its first instruction, checks the code the kernel actually loaded
+  for that process against the same requirement (strict validation, which also fails when the file
+  on disk no longer matches what was loaded), and only then lets it run. If that check fails, the
+  process is killed before it ran.
+- **Only the builds it was released with.** The identifier and Team ID requirements accept every
+  build the project ever signed, including an older release's `openvpn` or `libcrypto`. A released
+  helper also carries the cdhashes (the hash of a code signature, which the kernel records for the
+  running process) of the exact tools and libraries it ships with, compiled into its own signed code.
+  It copies only those libraries, and refuses a copied tool or library, a started tool, or a
+  `dns-updown` copy with any other cdhash. Every app bundle made by `scripts/build-app.sh` is pinned
+  this way, and a signed build fails unless both tools and every bundled library are pinned. Only
+  plain development builds (`swift build`, tests) pin nothing: they copy every `.dylib` in
+  `Contents/Frameworks` and accept any tool or library that satisfies the requirement.
 - **DNS script.** OpenVPN's `dns-updown` script is copied into the root-only run directory and the
   *copy* is signature-checked before OpenVPN may use it. OpenVPN's compiled-in default script path
   (which points into a build machine's Homebrew prefix) is never used. If no script is bundled,
   DNS hooks are disabled and `script-security` is set to 1.
-- Tools are started with `posix_spawn` in their own process group, with a fixed environment
-  (`PATH=/usr/bin:/bin:/usr/sbin:/sbin`, `LC_ALL=C`), stdin from `/dev/null`, default signal
-  handling and no inherited file descriptors.
+- Tools are started with `posix_spawn` in their own process group, stdin from `/dev/null`, default
+  signal handling, no inherited file descriptors and a fixed environment: `PATH=/usr/bin:/bin:/usr/sbin:/sbin`,
+  `LC_ALL=C`, and settings that keep the bundled OpenSSL away from the Homebrew paths compiled into
+  it (on your Mac they may exist and belong to whoever installed Homebrew): `OPENSSL_CONF=/dev/null` (no
+  configuration file), `OPENSSL_MODULES` and `OPENSSL_ENGINES` set to `/var/empty/passtunnel-none`
+  (a directory that does not exist inside the root-owned `/var/empty`, so no providers or engines are
+  loaded), `SSL_CERT_FILE=/etc/ssl/cert.pem` (the system's root-owned CA bundle) and
+  `SSL_CERT_DIR=/var/empty`.
 - `stop` only signals the process the helper started for that profile (SIGTERM, then SIGKILL to
   its process group after 5 seconds).
 
 ### How OpenVPN is started
 
+- **Only the file the app checked.** The start request carries the SHA-256 of the exact
+  `config.ovpn` the app read when it decided where your secrets go (see [Bound to the
+  server](#confirm-with-touch-id-secure-enclave)). The helper hashes the file it reads and refuses to
+  start a different one, so the file cannot be swapped between that check and the start.
 - The user's `config.ovpn` is passed through the [sanitizer](#openvpn-configuration-sanitizer).
   The sanitized copy and the credentials file (user name plus password/code, single lines only) are
   written as new `0600` files into a **root-owned run directory**, `/var/run/passtunnel/<uid>/<profile-id>`
@@ -114,7 +150,8 @@ FortiGate, stop, and status. It enforces the following rules on every request.
   64-character SHA-256 hex digest, and credentials may not contain line breaks, control characters
   or surrounding whitespace.
 - The file is written into the same root-only run directory and the tool always gets `-c <file>`,
-  so no default configuration is read.
+  so no default configuration is read. It always sets `ca-file = /etc/ssl/cert.pem`, so
+  openfortivpn never falls back to OpenSSL's compiled-in default store.
 - The *Fetch fingerprint* button in the editor reads the gateway certificate's SHA-256 digest with
   a TLS handshake that is aborted right after the certificate is received. You confirm the digest
   before it is saved.
@@ -134,7 +171,9 @@ Before running a config as root, the helper parses it with a tokenizer that mirr
 (quotes, backslash escapes, `#`/`;` comments, leading `--`, `<tag>…</tag>` inline blocks,
 `<connection>` blocks, `setenv opt` prefixes). Where the two could disagree it errs on the strict
 side: names are compared case-insensitively with all leading dashes removed. Every violation is
-reported with its line number, and nothing is run until the config is clean.
+reported with its line number, and nothing is run until the config is clean. The app reads configs
+with the same tokenizer when it imports them (embedding referenced files, removing credential
+blocks), so the app and the helper never read a line differently.
 
 **Rejected directives** (they run programs, load code, write files as root, or override the
 helper's settings):
@@ -164,31 +203,63 @@ script-security N            (when N > 1)
   script.
 - `setenv opt <directive>` is checked like the directive itself.
 - Lines longer than 254 bytes (OpenVPN would silently split them), NUL bytes, unterminated quotes
-  and unclosed blocks are rejected.
+  and unclosed blocks are rejected, and so is a backslash outside single quotes that does not escape
+  `\`, `"` or whitespace. OpenVPN refuses those too, except a backslash at the end of a line, which
+  it would take as escaping the line break; PassTunnel rejects that as well.
 - **`static-challenge` is stripped** (lines or blocks), because PassTunnel answers the challenge
   itself.
 
 ## Secrets and files
 
 - **Keychain.** Passwords and TOTP secrets are stored only in the macOS Keychain as generic
-  passwords (service `PassTunnel`, accounts `<profile-id>/password` and `<profile-id>/totp`) with
-  the accessibility class *after first unlock, this device only*: they are not synced to iCloud
-  Keychain and not included in migrations to another Mac. The app uses the Security framework
-  directly. App and CLI are the same signed binary, so the Keychain does not prompt between them.
+  passwords (service `PassTunnel`, accounts `<profile-id>/password` and `<profile-id>/totp`) in
+  your login keychain. They are not synced to iCloud Keychain, but Migration Assistant and backups
+  carry them to another Mac together with the rest of the login keychain (items encrypted with
+  [Confirm with Touch ID](#confirm-with-touch-id-secure-enclave) move too, but cannot be decrypted
+  there). The app uses the Security framework directly. App and CLI are the same signed binary, so
+  the Keychain does not prompt between them.
+- **Every write replaces the item.** An existing item may have been created by another app, with
+  an access list that lets that app read it, so PassTunnel never updates an item in place: it
+  deletes it and adds a new one, which gets the default access list (only PassTunnel may read it
+  without asking). If the old item cannot be deleted, nothing is written and PassTunnel says so. If
+  the new item cannot be added, the previous value (read before the delete) is added back the same
+  way, as a new item.
+- **A new profile starts without Keychain items.** Items still stored under its ID (left by a
+  profile removed outside the app, or from before a reinstall) are deleted when the profile is
+  created, so it never uses a secret you did not give it.
+- **Uninstalling** keeps the Keychain items, unless you use `brew uninstall --zap --cask passtunnel`,
+  which deletes them. The [README's FAQ](README.md#faq) has the manual steps.
 - **Secrets go to the helper only at connect time**, over the code-signature-checked XPC
   connection, and are written only into the root-only run directory, which is removed when the
   tunnel stops. OpenVPN runs with `--auth-nocache`.
 - **Support folder.** `~/Library/Application Support/PassTunnel` (`0700`) holds `config.json`
   (preferences) and one folder per profile with `profile.json`, `config.ovpn` and `vpn.log`.
-  Files are written with `0600`. These files contain no passwords or
-  TOTP secrets, but `config.ovpn` may contain certificates and private keys from your VPN provider.
+  Files are written with `0600`. These files contain no VPN passwords or TOTP secrets, but
+  `config.ovpn` may contain certificates and private keys from your VPN provider, and proxy
+  credentials (see below).
+- **Credentials in an imported `.ovpn`.** A user name and password in an inline `<auth-user-pass>`
+  block are not stored with the configuration: on import the user name moves to the profile and the
+  password to the Keychain, and the stored `config.ovpn` keeps a bare `auth-user-pass`. Choosing a
+  configuration in the editor fills empty Sign-in fields with them instead, saved with the profile. A
+  configuration imported by an earlier version keeps its block until you import it again (sharing
+  removes it anyway). Proxy credentials (`<http-proxy-user-pass>`, also embedded from a referenced
+  file on import) stay in the local `config.ovpn`.
 - **Share files (`.passtunnel`) never contain credentials.** No password, no TOTP secret, no user
-  name. They do contain the connection settings and, for OpenVPN, the configuration file with any
-  embedded certificates and keys, so they are written with `0600` and should be shared like the
-  original `.ovpn`. On import, only `config.ovpn` is taken from the file, and it must already be
-  self-contained.
+  name, and no `<auth-user-pass>` or `<http-proxy-user-pass>` block: both are removed from the
+  configuration on export. They do contain the connection settings and, for OpenVPN, the
+  configuration file with any embedded certificates and keys, so they are written with `0600` and
+  should be shared like the original `.ovpn`. On import, only `config.ovpn` is taken from the file,
+  it must already be self-contained, and an `<auth-user-pass>` block (the sender's sign-in, in a file
+  exported by an earlier version) is dropped.
+- **Clipboard.** A copied code, or password + code, is put on the clipboard for this Mac only (not
+  Universal Clipboard), marked concealed and transient so clipboard managers skip it, and cleared
+  after 30 seconds unless something else was copied meanwhile. `passtunnel code -c` does the same:
+  it leaves a small detached process behind that clears the clipboard.
 - **Auto-type** (off by default) needs Accessibility permission, which is requested only when you
   enable it. Global shortcuts use Carbon hotkeys and do not need any permission.
+- **No test hooks in releases.** `passtunnel debug drop`, which ends a connection as if the server
+  had (and which any process in your login session could trigger through the running app), exists
+  only in debug builds.
 
 ## Confirm with Touch ID (Secure Enclave)
 
@@ -215,7 +286,11 @@ account name as authenticated data, so an envelope cannot be moved to another it
 **Decrypting is the confirmation.** There is no separate yes/no check that could be skipped: without
 the Secure Enclave operation, PassTunnel has no password or TOTP secret to send. A cancelled or failed
 prompt means no connection; nothing falls back to a plain copy. Saving a new secret to a protected
-profile only needs the public key (no prompt). Turning the option off, or lowering `always` to
+profile only needs the public key (no prompt). Before PassTunnel encrypts to the public key in
+`<profile-id>/sekey`, and again before and after it unlocks the key, it checks that the record's public
+key belongs to the Secure Enclave key in the same record: a record replaced by another app (to have new
+secrets encrypted to its own key) is never used, and PassTunnel stops with an error asking you to set
+the profile up again. Turning the option off, or lowering `always` to
 `connect`, needs a successful decrypt; the encrypted items are then rewritten in plain text and the key
 item is deleted. Deleting the profile deletes its key item.
 
@@ -228,6 +303,18 @@ decrypted secrets in memory so an automatic reconnect after a drop needs no prom
 overwritten (best effort) when you disconnect or the session ends. After the Mac was asleep, a
 dropped protected profile is not reconnected on its own: a notification asks you to reconnect. The CLI
 is a separate process and asks every time it needs a protected secret.
+
+**Bound to the server.** The connect prompt names the server the secrets go to ("connect to “Acme VPN”
+(vpn.example.com)"; for OpenVPN the first `remote` of the configuration, read exactly as OpenVPN reads
+it, followed by "+2 more" when the configuration lists other servers OpenVPN may use). What you
+confirm is bound to the profile's destination at that moment: for OpenVPN the exact contents of `config.ovpn` (servers, CA,
+proxy, everything the helper runs), for FortiGate the host, port and trusted certificate. When that
+changes, in the editor, with `passtunnel set` or by editing the files, the decrypted values held for the
+reuse window and for a connected session are dropped. The next connect asks again and names the new
+server, and an automatic reconnect (after a drop or a failed health check) does not happen: a
+notification "“Acme VPN” was not reconnected" asks you to connect and confirm again. For OpenVPN the
+helper also refuses a `config.ovpn` that is not the one the app checked, so a file replaced at the last
+moment is not used either: the connect fails and asks you to connect again.
 
 **Limits.**
 - It needs a Secure Enclave (Apple silicon or a T2 Mac). Without one (e.g. a virtual machine), the
@@ -245,9 +332,34 @@ is a separate process and asks every time it needs a protected secret.
 - It protects against other people at your unlocked Mac and against other processes or apps reading
   the Keychain items (they get ciphertext). It does **not** protect against malware running as you
   that waits for you to confirm, drives the prompt you then approve, or reads the app's memory while a
-  session or the reuse window holds the decrypted values. The settings in `profile.json` are not
-  protected either: editing them does not decrypt anything, but someone with your account can delete
-  the items or the profile.
+  session or the reuse window holds the decrypted values. The profile's files (`profile.json`,
+  `config.ovpn`) are not protected either: editing them does not decrypt anything and does not
+  redirect secrets you already confirmed, but someone with your account can delete the items or the
+  profile.
+
+## Updates
+
+- **App updates** come through Sparkle from the feed on the GitHub releases. The feed
+  (`appcast.xml`) and every update archive are signed with the project's EdDSA key. The app refuses
+  a feed without a valid signature (`SURequireSignedFeed`) and checks an archive's signature before
+  unpacking it (`SUVerifyUpdateBeforeExtraction`). An update is installed only when you click
+  Install.
+- **Releases** are uploaded to a draft release and published only once every file is attached. The
+  release tag is signed when the release machine has a signing key. The bundled `openvpn`,
+  `openfortivpn` and their libraries come in pinned versions (`scripts/release.env`); a release
+  build stops when Homebrew provides any other version. Details: [docs/RELEASING.md](docs/RELEASING.md).
+- **Replacing the helper.** Registering the helper points the root daemon at the copy of PassTunnel
+  that registers it, so this is limited:
+  - After an app update, the app replaces the running helper on its own only when it runs from
+    `/Applications` (symlinks resolved; not `~/Applications`, where any process of yours can put a
+    copy) and only when the running helper is an older build. The helper reports the build number of
+    the app it was started from in every reply, so a newer helper is never downgraded on its own.
+  - `passtunnel helper install` and the `--install-helper` / `--update-helper` launch arguments can
+    be used by any local process. A copy outside `/Applications` refuses them, and replacing a running
+    helper this way always asks you first.
+  - Replacing a newer helper with an older one (Settings → Helper → Update Helper, or the above) shows
+    a separate warning first.
+  - Removing the helper on request from outside the app always asks.
 
 ## What is not protected
 
@@ -258,7 +370,24 @@ PassTunnel cannot defend against an attacker who already controls your account o
 - **Malware running as your user** can read your profile folder (configs and embedded keys) and
   logs, can ask the Keychain for PassTunnel's items (macOS shows a consent prompt because the
   requester is not PassTunnel; if you allow it, the secrets are disclosed), and can watch your
-  screen or clipboard, where codes appear when you copy or auto-type them.
+  screen or clipboard, where codes appear when you copy (for 30 seconds) or auto-type them. It can
+  also run the `passtunnel` command, the same signed binary as the app, so the Keychain and the
+  helper treat it like the app: it reads secrets that are not protected by Confirm with Touch ID
+  without any prompt, and it can change a profile's settings and connect it, which sends your
+  password to the server it chose. [Confirm with Touch ID](#confirm-with-touch-id-secure-enclave)
+  prevents this for the secrets it protects: using them asks, the prompt names the server, and a
+  changed destination always asks again.
+- **Other accounts on this Mac.** Every local account can use the helper. Sessions are kept apart (a
+  user can only stop or see their own), but a VPN changes routes and DNS for the whole Mac: any
+  local account can start a full-tunnel profile whose routes and DNS then apply to every logged-in
+  user. This is how a VPN client works; PassTunnel does not restrict it further.
+- **Older copies of PassTunnel.** Version 1.0.0 lacks the checks under [Updates](#updates) and
+  the suspended start of the tools. A copy of it can still register its own helper in place of a
+  newer one, without asking. Delete old copies, including disk images and downloads.
+- **The helper's build number** is read from the `Info.plist` of the app bundle it was started from.
+  Whoever can change that file can make a helper claim another build. The only effect is on
+  replacing it: a helper that claims to be newer is not replaced automatically (Settings → Helper
+  still offers to, with the warning).
 - **A TOTP secret on the same machine as your password** turns two factors into something closer
   to one: anyone who gets your unlocked Mac and Keychain has both ([Confirm with Touch
   ID](#confirm-with-touch-id-secure-enclave) adds Touch ID or your password in front of them). This is the trade-off PassTunnel

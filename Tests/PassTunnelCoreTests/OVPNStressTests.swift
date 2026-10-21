@@ -86,6 +86,25 @@ final class OVPNSanitizerFuzzTests: XCTestCase {
         XCTAssertEqual(violations("remote 'vpn.example.com\n").map(\.reason), ["unterminated quote"])
     }
 
+    /// OpenVPN rejects a backslash before anything but `\`, `"` or whitespace (outside single quotes)
+    /// and aborts on that line; reading it as a literal could make the two parsers disagree, e.g.
+    /// `<c\a>` would open a verbatim block for the sanitizer only.
+    func testBadBackslashIsRejectedLikeOpenVPN() {
+        for line in ["remote vpn\\.example.com", "<c\\a>", "verify-x509-name \"CN=Acme\\x\" name",
+                     "remote \\'vpn.example.com'", "\\#remote x", "\\;remote x", "remote vpn.example.com\\",
+                     "setenv opt foo\\q"] {
+            XCTAssertEqual(violations(line + "\n").map(\.reason), [OVPNSanitizer.badBackslash], line)
+        }
+        // The escapes OpenVPN accepts, and backslashes inside single quotes (no escaping there).
+        for line in ["remote vpn\\ example.com 1194", "verify-x509-name \"CN=Acme \\\"VPN\\\"\" name",
+                     "verify-x509-name 'C:\\vpn\\x' name", "remote vpn\\\\.example.com",
+                     "remote vpn.example.com\\\r", "remote \\\"vpn\" 1194"] {
+            XCTAssertTrue(violations(line + "\n").isEmpty, line)
+        }
+        XCTAssertEqual(try OVPNSanitizer.sanitize("<ca>\nC:\\x\\y\n</ca>\n"), "<ca>\nC:\\x\\y\n</ca>\n",
+                       "inline blocks are not tokenized")
+    }
+
     func testLineLengthAndNULs() {
         let at = "remote " + String(repeating: "a", count: OVPNSanitizer.maxLineBytes - 7)
         XCTAssertEqual(at.utf8.count, OVPNSanitizer.maxLineBytes)
@@ -155,7 +174,7 @@ final class FortiConfigFuzzTests: XCTestCase {
         }.render()
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
         XCTAssertEqual(lines.filter { $0.hasPrefix("username = ") }, ["username = a = b # c"])
-        XCTAssertEqual(lines.count, 10, "header, 8 settings, final newline")
+        XCTAssertEqual(lines.count, 11, "header, 9 settings, final newline")
         XCTAssertNoThrow(try config { $0.username = "ålice şifre" }.render())
         // A zone id is part of a valid IPv6 literal for inet_pton and cannot leave its line.
         XCTAssertNoThrow(try config { $0.host = "fe80::1%en0" }.render())
@@ -243,5 +262,74 @@ final class OVPNInlinerStressTests: CoreTestCase {
             XCTAssertThrowsError(try store.importOVPN(url, name: "Acme"), text)
         }
         XCTAssertEqual(store.list(), [])
+    }
+}
+
+// MARK: - Inliner and sanitizer read lines alike
+
+/// The inliner rewrites and strips configs before the sanitizer sees them: a line the two tokenized
+/// differently could be rewritten into something the sanitizer never checked.
+final class OVPNTokenizerParityTests: CoreTestCase {
+    /// What the inliner must see for `line`: the sanitizer's tokens, nil when it has none or rejects the line.
+    func expected(_ line: String) -> [String]? {
+        guard case .success(let tokens) = OVPNSanitizer.tokenize(line), !tokens.isEmpty else { return nil }
+        return tokens
+    }
+
+    static let samples = [
+        "", "   ", "\t\r", "# ca ca.crt", "; ca ca.crt", "  # x", "ca ca.crt", "--ca ca.crt", "ca ca.crt # note",
+        "ca ca.crt;x", "ca \"my ca.crt\"", "ca 'my ca.crt'", "ca my\\ ca.crt", "ca \"my \\\"ca\\\".crt\"",
+        "ca my\\\\ca.crt", "ca 'back\\slash'", "ca c\\a.crt", "ca \\x", "ca ca.crt\\", "ca \"open",
+        "ca 'open", "ca \"a\"\"b\"", "ca a\"b\"", "ca \\#x", "ca \\;x", "\\#ca x", "ca\u{0B}x\u{0C}y",
+        "<ca>", "</ca>", "<auth-user-pass>", "--<auth-user-pass>", "auth-user-pass [inline]",
+        "auth-user-pass\\q [inline]", "auth-user-pass\\ [inline]", "http-proxy-user-pass \"[inline]\"",
+        "remote vpn.example.com 1194 \\u0041", "setenv opt up\\ /tmp/x", "key \"a b\" 'c d' e\\ f",
+        "\u{FEFF}client", "ca ca.crt\u{00A0}x", "ca \"tab\there\"",
+    ]
+
+    func testSameTokensAsTheSanitizer() {
+        for line in Self.samples {
+            XCTAssertEqual(OVPNInliner.tokenize(line), expected(line), line.debugDescription)
+        }
+    }
+
+    func testSameTokensForRandomLines() {
+        var rng = SystemRandomNumberGenerator()
+        let alphabet: [Character] = ["a", "b", " ", "\t", "\r", "\\", "\"", "'", "#", ";", "<", ">", "/", "\u{0B}"]
+        for _ in 0..<5000 {
+            let line = String((0..<Int.random(in: 0...12, using: &rng)).map { _ in alphabet.randomElement(using: &rng)! })
+            XCTAssertEqual(OVPNInliner.tokenize(line), expected(line), line.debugDescription)
+        }
+    }
+
+    func testBlockTagsAndEndsAlike() {
+        for token in ["<ca>", "--<ca>", "<", "<>", "</ca>", "<a b>", "-<ca>", "<CA>"] {
+            XCTAssertEqual(OVPNInliner.blockTag(token), OVPNSanitizer.blockTag(token), token)
+        }
+        for line in ["</ca>", "  </ca>", "\t\r</CA> x", "x</ca>", "</ca", "\u{0B}</ca>"] {
+            XCTAssertEqual(OVPNInliner.isBlockEnd(line, tag: "ca"), OVPNSanitizer.isBlockEnd(line, tag: "ca"), line)
+        }
+    }
+
+    /// OpenVPN refuses `\a`: the inliner used to read it as `a` and embed ca.crt, hiding the line.
+    func testRejectedEscapeIsLeftForTheSanitizer() throws {
+        let dir = home.appendingPathComponent("escape", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data("-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n".utf8).write(to: dir.appendingPathComponent("ca.crt"))
+        let text = "client\nca c\\a.crt\n"
+        XCTAssertEqual(try OVPNInliner.inline(text, baseDir: dir), "client\nca c\\a.crt\n")
+        XCTAssertThrowsError(try OVPNInliner.prepare(text, baseDir: dir)) { error in
+            guard case .ovpnNotAllowed(let lines)? = error as? PTError else { return XCTFail("\(error)") }
+            XCTAssertEqual(lines.count, 1)
+            XCTAssertTrue(lines[0].hasPrefix("line 2:"), lines[0])
+        }
+        // Escapes OpenVPN accepts still work.
+        try Data("x\n".utf8).write(to: dir.appendingPathComponent("my ca.crt"))
+        XCTAssertEqual(try OVPNInliner.inline("ca my\\ ca.crt", baseDir: dir), "<ca>\nx\n</ca>")
+
+        // Credential stripping keeps a line it cannot read; the sanitizer then rejects it.
+        let odd = "client\nauth-user-pass\\q [inline]\n"
+        XCTAssertEqual(OVPNInliner.strippingCredentials(odd).text, odd)
+        XCTAssertThrowsError(try OVPNSanitizer.sanitize(odd))
     }
 }

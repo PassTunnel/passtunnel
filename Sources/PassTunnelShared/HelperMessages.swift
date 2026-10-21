@@ -3,7 +3,9 @@ import Foundation
 /// Start an OpenVPN profile. `secret` is the password with the OTP already formatted in.
 /// The management interface is the unix socket `PT.mgmtSocketPath(uid:profileID:)` in the helper's
 /// root-owned session directory (returned in `HelperResponse.mgmtSocket`); `mgmtPort` is ignored and
-/// only kept so protocol-1 payloads decode.
+/// only kept so protocol-1 payloads decode. `configSHA256` is the hex SHA-256 of the exact config.ovpn
+/// the app checked (`ProfileDestination`): the helper refuses to start any other file
+/// (`HelperResponse.ErrorCode.configChanged`). Optional, so requests of older apps still decode.
 public struct OpenVPNStart: Codable, Equatable, CustomStringConvertible, CustomDebugStringConvertible,
                             CustomReflectable {
     public var profileID: String
@@ -12,32 +14,36 @@ public struct OpenVPNStart: Codable, Equatable, CustomStringConvertible, CustomD
     public var username: String?
     public var secret: String?
     public var logPath: String
+    public var configSHA256: String?
 
     public init(profileID: String, profileDir: String, mgmtPort: Int? = nil,
-                username: String? = nil, secret: String? = nil, logPath: String) {
+                username: String? = nil, secret: String? = nil, logPath: String, configSHA256: String? = nil) {
         self.profileID = profileID
         self.profileDir = profileDir
         self.mgmtPort = mgmtPort
         self.username = username
         self.secret = secret
         self.logPath = logPath
+        self.configSHA256 = configSHA256
     }
 
     enum CodingKeys: String, CodingKey {
         case profileID = "profile_id", profileDir = "profile_dir", mgmtPort = "mgmt_port"
-        case username, secret, logPath = "log_path"
+        case username, secret, logPath = "log_path", configSHA256 = "config_sha256"
     }
 
     public var description: String {
         "OpenVPNStart(profileID: \(profileID), profileDir: \(profileDir), "
-            + "username: \(username ?? "nil"), secret: \(secret == nil ? "nil" : "<redacted>"), logPath: \(logPath))"
+            + "username: \(username ?? "nil"), secret: \(secret == nil ? "nil" : "<redacted>"), logPath: \(logPath), "
+            + "configSHA256: \(configSHA256 ?? "nil"))"
     }
     public var debugDescription: String { description }
 
     /// Keeps `dump()` and other Mirror-based printing from revealing the secret.
     public var customMirror: Mirror {
         Mirror(self, children: ["profileID": profileID, "profileDir": profileDir, "username": username as Any,
-                                "secret": secret == nil ? "nil" : "<redacted>", "logPath": logPath])
+                                "secret": secret == nil ? "nil" : "<redacted>", "logPath": logPath,
+                                "configSHA256": configSHA256 as Any])
     }
 }
 
@@ -146,17 +152,29 @@ public enum HelperRequest: Codable, Equatable {
 
 /// Reply from the helper. `running` maps the caller's profile IDs to pids and `mgmtSockets` maps
 /// its OpenVPN profile IDs to their management sockets (only for `status`); `mgmtSocket` is the
-/// socket of a just-started OpenVPN (only for `startOpenVPN`).
+/// socket of a just-started OpenVPN (only for `startOpenVPN`). `helperBuild` is the build number
+/// (`CFBundleVersion`) of the app the answering helper was started from, in every reply; helpers
+/// before it was added omit it (an optional key, so the protocol version stays the same).
+/// `errorCode` names failures the app handles specially (`ErrorCode`); also optional.
 public struct HelperResponse: Codable, Equatable {
     public var ok: Bool
     public var error: String?
+    public var errorCode: String?
     public var pid: Int32?
     public var running: [String: Int32]?
     public var mgmtSocket: String?
     public var mgmtSockets: [String: String]?
+    public var helperBuild: Int?
+
+    public enum ErrorCode {
+        /// config.ovpn is not the file the app checked (`OpenVPNStart.configSHA256`). Not retryable:
+        /// the user confirms the new settings by connecting again.
+        public static let configChanged = "config_changed"
+    }
 
     enum CodingKeys: String, CodingKey {
-        case ok, error, pid, running, mgmtSocket = "mgmt_socket", mgmtSockets = "mgmt_sockets"
+        case ok, error, errorCode = "error_code", pid, running, mgmtSocket = "mgmt_socket", mgmtSockets = "mgmt_sockets"
+        case helperBuild = "helper_build"
     }
 
     public init(ok: Bool, error: String? = nil, pid: Int32? = nil, running: [String: Int32]? = nil,
@@ -174,8 +192,15 @@ public struct HelperResponse: Codable, Equatable {
         HelperResponse(ok: true, pid: pid, running: running, mgmtSocket: mgmtSocket, mgmtSockets: mgmtSockets)
     }
 
-    public static func failure(_ message: String) -> HelperResponse {
-        HelperResponse(ok: false, error: message)
+    public static func failure(_ message: String, code: String? = nil) -> HelperResponse {
+        var response = HelperResponse(ok: false, error: message)
+        response.errorCode = code
+        return response
+    }
+
+    /// A failed start, with the `ErrorCode` of errors the app handles specially.
+    public static func failure(_ error: Error) -> HelperResponse {
+        failure(String(describing: error), code: (error as? HelperCore.Failure)?.code)
     }
 
     public func jsonData() throws -> Data { try HelperJSON.encoder.encode(self) }

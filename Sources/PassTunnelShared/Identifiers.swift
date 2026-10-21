@@ -30,7 +30,8 @@ public enum PT {
     public static let dnsUpdownIdentifier = "com.furkanprlk.passtunnel.dns-updown"
 
     /// Root-owned directory where the helper keeps per-session runtime files:
-    /// `<root>/<uid>/<profileID>/` (all 0711, so users can reach their socket but list nothing).
+    /// `<root>/<uid>/<profileID>/` (all 0711, so users can reach their socket but list nothing), and
+    /// the staged tools in `<root>/tools/<build>/` (`ToolStager`).
     public static let helperRunRoot = "/var/run/passtunnel"
 
     /// OpenVPN management socket inside the session directory (owned by the user, 0600).

@@ -17,6 +17,8 @@ public struct ProtectionKey {
 
 /// A protection key the user has unlocked (confirmed) for a series of key agreements.
 public protocol UnlockedProtectionKey: AnyObject {
+    /// The public key of the private key that was unlocked (checked against the stored record).
+    var publicKey: P256.KeyAgreement.PublicKey { get }
     func sharedSecret(with peer: P256.KeyAgreement.PublicKey) async throws -> SharedSecret
 }
 
@@ -35,6 +37,9 @@ public protocol UserAuthenticator: AnyObject {
     /// A new key-agreement key whose private half can only be used after the user confirms.
     /// Creating it asks nothing. Throws `PTError.protectionUnavailable` when that is not possible.
     func createKey() throws -> ProtectionKey
+    /// The public key of stored key data, without asking (using the key is what asks). Throws
+    /// `ProtectionKeyUnusable` when the data is not a key this Mac can use.
+    func publicKey(keyData: Data) throws -> P256.KeyAgreement.PublicKey
     /// Asks the user ("PassTunnel is trying to `reason`") and returns the key ready for use.
     /// Throws `PTError.userConfirmationCancelled` / `.userConfirmationFailed`, or
     /// `ProtectionKeyUnusable` when the key data cannot be used.
@@ -64,6 +69,14 @@ public final class SecureEnclaveAuthenticator: UserAuthenticator {
         return ProtectionKey(data: key.dataRepresentation, publicKey: key.publicKey)
     }
 
+    /// Loading the wrapped blob needs no confirmation; only key agreements do.
+    public func publicKey(keyData: Data) throws -> P256.KeyAgreement.PublicKey {
+        guard isAvailable, let key = try? SecureEnclave.P256.KeyAgreement.PrivateKey(dataRepresentation: keyData) else {
+            throw ProtectionKeyUnusable()
+        }
+        return key.publicKey
+    }
+
     /// One `LAContext` is confirmed first (`evaluateAccessControl` for a key exchange with the key's own
     /// access control), then handed to the key, so all key agreements of this unlock share one prompt.
     /// `touchIDAuthenticationAllowableReuseDuration` stays 0: it would accept a recent Touch ID unlock of
@@ -91,6 +104,8 @@ public final class SecureEnclaveAuthenticator: UserAuthenticator {
     private final class Unlocked: UnlockedProtectionKey {
         let key: SecureEnclave.P256.KeyAgreement.PrivateKey
         init(key: SecureEnclave.P256.KeyAgreement.PrivateKey) { self.key = key }
+
+        var publicKey: P256.KeyAgreement.PublicKey { key.publicKey }
 
         func sharedSecret(with peer: P256.KeyAgreement.PublicKey) async throws -> SharedSecret {
             let key = self.key
@@ -154,10 +169,14 @@ public enum UserPresenceAction: String, CaseIterable, Sendable {
     /// Lowering `requireAuth` (editor or `passtunnel set`).
     case lowerProtection
 
-    /// The end of the system prompt's sentence "PassTunnel is trying to …".
-    public func reason(_ name: String) -> String {
+    /// The end of the system prompt's sentence "PassTunnel is trying to …". `host`: the server a
+    /// connect sends the secrets to (from the profile as it is when the prompt is shown).
+    public func reason(_ name: String, host: String = "") -> String {
         switch self {
-        case .connect: return String(localized: "connect to “\(name)”")
+        case .connect:
+            let host = host.trimmingCharacters(in: .whitespacesAndNewlines)
+            if host.isEmpty { return String(localized: "connect to “\(name)”") }
+            return String(localized: "connect to “\(name)” (\(host))")
         case .code: return String(localized: "show the code for “\(name)”")
         case .lowerProtection: return String(localized: "change the confirmation setting for “\(name)”")
         }

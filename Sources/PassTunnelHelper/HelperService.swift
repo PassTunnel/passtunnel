@@ -7,11 +7,13 @@ final class HelperService: NSObject, PassTunnelHelperProtocol {
     private let supervisor: Supervisor
     private let callerUID: uid_t
     private let buildID: String
+    private let buildNumber: Int?
 
-    init(supervisor: Supervisor, callerUID: uid_t, buildID: String) {
+    init(supervisor: Supervisor, callerUID: uid_t, buildID: String, buildNumber: Int?) {
         self.supervisor = supervisor
         self.callerUID = callerUID
         self.buildID = buildID
+        self.buildNumber = buildNumber
     }
 
     func version(reply: @escaping (Int) -> Void) {
@@ -24,7 +26,9 @@ final class HelperService: NSObject, PassTunnelHelperProtocol {
 
     func perform(_ request: Data, reply: @escaping (Data) -> Void) {
         let uid = NSXPCConnection.current()?.effectiveUserIdentifier ?? callerUID
-        let send: (HelperResponse) -> Void = { response in
+        let send: (HelperResponse) -> Void = { [buildNumber] response in
+            var response = response
+            response.helperBuild = buildNumber
             reply((try? response.jsonData()) ?? Data(#"{"ok":false,"error":"encoding failed"}"#.utf8))
         }
         let decoded: HelperRequest
@@ -40,11 +44,13 @@ final class HelperService: NSObject, PassTunnelHelperProtocol {
 final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
     private let supervisor: Supervisor
     private let buildID: String
+    private let buildNumber: Int?
     private let log = Logger(subsystem: PT.helperLabel, category: "xpc")
 
-    init(supervisor: Supervisor, buildID: String) {
+    init(supervisor: Supervisor, buildID: String, buildNumber: Int?) {
         self.supervisor = supervisor
         self.buildID = buildID
+        self.buildNumber = buildNumber
     }
 
     func listener(_ listener: NSXPCListener, shouldAcceptNewConnection connection: NSXPCConnection) -> Bool {
@@ -52,7 +58,7 @@ final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
         connection.setCodeSigningRequirement(PT.clientRequirement)
         connection.exportedInterface = NSXPCInterface(with: PassTunnelHelperProtocol.self)
         connection.exportedObject = HelperService(supervisor: supervisor, callerUID: connection.effectiveUserIdentifier,
-                                                  buildID: buildID)
+                                                  buildID: buildID, buildNumber: buildNumber)
         connection.resume()
         log.info("connection from pid \(connection.processIdentifier), uid \(connection.effectiveUserIdentifier)")
         return true

@@ -235,6 +235,18 @@ public enum OVPNSanitizer {
 
     enum TokenizeResult { case success([String]), failure(String) }
 
+    /// The tokens of one line exactly as `sanitize` reads them, for code in the app that must agree
+    /// with it (`OVPNInliner`). Empty for blank and comment lines, nil for lines OpenVPN rejects
+    /// (bad escape, unterminated quote; `sanitize` reports those).
+    public static func tokens(of line: String) -> [String]? {
+        guard case .success(let tokens) = tokenize(line) else { return nil }
+        return tokens
+    }
+
+    /// `blockTag` and `isBlockEnd` for the app's parsers.
+    public static func inlineBlockTag(_ token: String) -> String? { blockTag(token) }
+    public static func isInlineBlockEnd(_ line: String, tag: String) -> Bool { isBlockEnd(line, tag: tag) }
+
     static func isSpace(_ c: Character) -> Bool {
         c.unicodeScalars.allSatisfy(isSpace)
     }
@@ -245,6 +257,8 @@ public enum OVPNSanitizer {
         default: return false
         }
     }
+
+    static let badBackslash = "a backslash may only escape \\, \" or whitespace"
 
     static func tokenize(_ line: String) -> TokenizeResult {
         enum State { case initial, unquoted, quoted, squoted }
@@ -258,6 +272,8 @@ public enum OVPNSanitizer {
                 backslash = true
                 continue
             }
+            // OpenVPN aborts on any other escape; reading it as a literal would let the two disagree.
+            if backslash, c != "\\", c != "\"", !isSpace(c) { return .failure(badBackslash) }
             switch state {
             case .initial:
                 if !isSpace(c) {
@@ -287,6 +303,7 @@ public enum OVPNSanitizer {
             }
             backslash = false
         }
+        if backslash { return .failure(badBackslash) }
         switch state {
         case .initial: break
         case .unquoted: tokens.append(String(cur))
