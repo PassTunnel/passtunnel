@@ -41,11 +41,14 @@ public enum ConnectionEvent: Equatable, Sendable {
     case unreachable(profileID: String)
     case reachableAgain(profileID: String)
     case sessionEnding(profileID: String, minutes: Int)
+    /// Dropped while the Mac was asleep and would be reconnected, but the profile requires a
+    /// confirmation to connect: the user is asked to reconnect instead of being prompted out of the blue.
+    case droppedWhileAsleep(profileID: String)
 
     public var profileID: String {
         switch self {
         case .dropped(let id, _), .reconnected(let id), .reconnectFailed(let id, _), .unreachable(let id),
-             .reachableAgain(let id), .sessionEnding(let id, _):
+             .reachableAgain(let id), .sessionEnding(let id, _), .droppedWhileAsleep(let id):
             return id
         }
     }
@@ -272,6 +275,8 @@ public final class ConnectionManager: ObservableObject {
     public let events = PassthroughSubject<ConnectionEvent, Never>()
 
     public let store: ProfileStore
+    /// Protected secrets (`Profile.requireAuth`): decrypting them is the user's confirmation.
+    public let vault: SecretVault
     public var timing: Timing
     private let helper: HelperClienting
     private let management: ManagementQuerying
@@ -292,6 +297,9 @@ public final class ConnectionManager: ObservableObject {
     private var reconnectGen: [String: Int] = [:]
     private var reconnectTasks: [String: Task<Void, Never>] = [:]
     private var codeWaits: [String: Task<Void, Error>] = [:]   // waiting for a fresh code; disconnect cancels
+    /// Decrypted protected secrets of a session the user confirmed, so an automatic reconnect after a
+    /// drop needs no prompt. Dropped (overwritten, best effort) when the session ends for good.
+    private var sessionSecrets: [String: [SecretKind: [UInt8]]] = [:]
     private var connectTasks: [String: Task<Void, Error>] = [:]  // connects started through `connect`
     private var healthFailures: [String: Int] = [:]
     private var outage: Set<String> = []
@@ -310,7 +318,9 @@ public final class ConnectionManager: ObservableObject {
                 healthProbe: @escaping HealthProbe = ConnectionManager.defaultHealthProbe,
                 preferences: @escaping () -> Preferences = { Preferences.load() },
                 routes: @escaping () -> [RoutingTable.Route] = RoutingTable.ipv4Routes,
-                timing: Timing = Timing()) {
+                timing: Timing = Timing(),
+                vault: SecretVault? = nil,
+                authenticator: UserAuthenticator? = nil) {
         self.store = store
         self.helper = helper
         self.management = management
@@ -319,6 +329,9 @@ public final class ConnectionManager: ObservableObject {
         self.preferences = preferences
         self.routes = routes
         self.timing = timing
+        self.vault = vault ?? SecretVault(authenticator: authenticator ?? SecureEnclaveAuthenticator(),
+                                          now: { [clock] in clock.now() },
+                                          reuseWindow: { preferences().authReuseInterval })
     }
 
     nonisolated public static func defaultHealthProbe(_ host: String) async -> (ok: Bool, ms: Int) {
@@ -380,6 +393,7 @@ public final class ConnectionManager: ObservableObject {
     }
 
     private func refresh(wakeIDs: Set<String>) async {
+        vault.prune()
         pollSeq += 1
         let seq = pollSeq
         let profiles = store.list()
@@ -529,7 +543,7 @@ public final class ConnectionManager: ObservableObject {
             guard sessionActive.remove(id) != nil else { break }
             endSession(id)
             if userStopped.remove(id) != nil || hasUserStoppedMarker(id) { break }
-            handleDrop(p, immediate: immediateReconnect)
+            handleDrop(p, afterWake: immediateReconnect)
         }
     }
 
@@ -540,9 +554,26 @@ public final class ConnectionManager: ObservableObject {
     /// of this manager is in flight waits for that one; when another process (app ↔ CLI) is already
     /// starting the profile, its session is followed instead of starting a second one.
     /// `force` skips the check for another VPN that already takes all traffic.
+    /// Protected secrets are decrypted first (`vault`: Touch ID or the Mac password); a cancel throws
+    /// `PTError.userConfirmationCancelled` before anything starts. Automatic reconnects after a drop
+    /// and health-forced reconnects do not ask again: they reuse the secrets of the session the user
+    /// confirmed.
     public func connect(_ id: String, given: [CredentialField: String] = [:], force: Bool = false) async throws {
         cancelReconnect(id)
         if let inFlight = connectTasks[id] { return try await inFlight.value }
+        if !state(id).isActive, let p = try? store.get(id), vault.needsPrompt(p, for: .connect) {
+            do {
+                try await vault.unlock(p, for: .connect)
+            } catch {
+                // Shown like any connect failure; a cancel is not a failure.
+                if (error as? PTError) != .userConfirmationCancelled {
+                    lastError[id] = error.localizedDescription
+                    lastErrorLog[id] = ""
+                }
+                throw error
+            }
+            if let inFlight = connectTasks[id] { return try await inFlight.value }
+        }
         let task = Task { try await self.performConnect(id, given: given, force: force) }
         connectTasks[id] = task
         defer { if connectTasks[id] == task { connectTasks[id] = nil } }
@@ -558,6 +589,7 @@ public final class ConnectionManager: ObservableObject {
         cancelReconnect(id)
         actionToken[id, default: 0] += 1
         codeWaits.removeValue(forKey: id)?.cancel()
+        endSessionSecrets(id)
         userStopped.insert(id)
         setUserStoppedMarker(id, true)
         sessionActive.remove(id)
@@ -589,7 +621,10 @@ public final class ConnectionManager: ObservableObject {
         if let firstError { throw firstError }
     }
 
-    private func performConnect(_ id: String, given: [CredentialField: String], force: Bool = false) async throws {
+    /// `interactive` false (automatic reconnects): protected secrets come from the confirmed session or
+    /// the reuse window, never from a prompt (`PTError.confirmationRequired` otherwise).
+    private func performConnect(_ id: String, given: [CredentialField: String], force: Bool = false,
+                                interactive: Bool = true) async throws {
         guard !isBusy(id), !state(id).isConnected else { return }
         actionToken[id, default: 0] += 1
         let token = actionToken[id]!
@@ -613,7 +648,10 @@ public final class ConnectionManager: ObservableObject {
                 return try await follow(p, token: token, session: session)
             }
             if p.type == .openvpn && !force { try checkNoOtherFullTunnel(p, running: status?.running ?? [:]) }
-            let creds = try resolveCredentials(p, given: given)
+            vault.reconcile(p)   // a setting edited by hand: encrypt what it protects before use
+            let stored = try await storedSecrets(p, interactive: interactive)
+            try checkToken(id, token)
+            let creds = try resolveCredentials(p, given: given, stored: stored)
             // A helper left running from another app version would misplace or reject the session.
             try await helper.ensureCompatible()
 
@@ -666,6 +704,7 @@ public final class ConnectionManager: ObservableObject {
             sessionActive.insert(id)
             connectedAt[id] = since
             healthFailures[id] = 0
+            keepSessionSecrets(p, stored)
             noteSetupProblems(p)
             if p.username.trimmingCharacters(in: .whitespaces).isEmpty, let u = creds.username, p.lastUsername != u {
                 // Only this field: the profile may have been edited (CLI, editor) while connecting.
@@ -675,7 +714,7 @@ public final class ConnectionManager: ObservableObject {
             let cancelled = actionToken[id] != token
             if cancelled { throw PTError.connectCancelled }
             setState(id, .disconnected)
-            if (error as? PTError) == .connectCancelled { throw error }
+            if (error as? PTError) == .connectCancelled || (error as? PTError) == .userConfirmationCancelled { throw error }
             lastError[id] = error.localizedDescription
             lastErrorLog[id] = (error as? PTError)?.logTail ?? ""
             throw error
@@ -762,7 +801,37 @@ public final class ConnectionManager: ObservableObject {
         var totpSecret: Data?
     }
 
-    func resolveCredentials(_ p: Profile, given: [CredentialField: String]) throws -> Credentials {
+    /// The stored secrets connecting `p` uses: from the vault without asking (plain, or unlocked), from
+    /// the confirmed session, or decrypted now (asking) when `interactive`.
+    private func storedSecrets(_ p: Profile, interactive: Bool) async throws -> [SecretKind: String] {
+        var out: [SecretKind: String] = [:]
+        for kind in SecretVault.usedKinds(p) {
+            if let value = vault.available(p.id, kind) {
+                out[kind] = value
+            } else if let bytes = sessionSecrets[p.id]?[kind] {
+                out[kind] = String(decoding: bytes, as: UTF8.self)
+            } else if let value = try await vault.secret(p, kind, for: .connect, prompt: interactive) {
+                out[kind] = value
+            }
+        }
+        return out
+    }
+
+    private func keepSessionSecrets(_ p: Profile, _ stored: [SecretKind: String]) {
+        endSessionSecrets(p.id)
+        let protected = stored.filter { vault.isProtected(p.id, $0.key) }
+        if !protected.isEmpty { sessionSecrets[p.id] = protected.mapValues { Array($0.utf8) } }
+    }
+
+    private func endSessionSecrets(_ id: String) {
+        guard var secrets = sessionSecrets.removeValue(forKey: id) else { return }
+        for kind in Array(secrets.keys) {
+            secrets[kind]?.withUnsafeMutableBytes { $0.initializeMemory(as: UInt8.self, repeating: 0) }
+        }
+    }
+
+    /// `stored`: the Keychain secrets `p` uses, already decrypted (`storedSecrets`).
+    func resolveCredentials(_ p: Profile, given: [CredentialField: String], stored: [SecretKind: String]) throws -> Credentials {
         let id = p.id
         switch p.type {
         case .openvpn:
@@ -786,7 +855,7 @@ public final class ConnectionManager: ObservableObject {
 
         switch p.passwordMode {
         case .keychain:
-            guard let pw = Secrets.get(id, .password) else { throw PTError.missingPassword(id) }
+            guard let pw = stored[.password] else { throw PTError.missingPassword(id) }
             c.password = pw
         case .ask:
             guard let pw = given[.password], !pw.isEmpty else { throw PTError.missingCredential(.password) }
@@ -799,7 +868,7 @@ public final class ConnectionManager: ObservableObject {
         case .none:
             break
         case .totp:
-            guard let text = Secrets.get(id, .totp) else { throw PTError.missingTOTPSecret(id) }
+            guard let text = stored[.totp] else { throw PTError.missingTOTPSecret(id) }
             c.totpSecret = try TOTP.decodeSecret(text)
         case .ask:
             guard let code = value(.otp) else { throw PTError.missingCredential(.otp) }
@@ -940,10 +1009,17 @@ public final class ConnectionManager: ObservableObject {
         return true
     }
 
-    private func handleDrop(_ p: Profile, immediate: Bool) {
+    /// `afterWake`: the drop was found right after the Mac woke up; reconnect at once, or, for a profile
+    /// that requires a confirmation to connect, ask the user (`droppedWhileAsleep`) rather than prompt.
+    private func handleDrop(_ p: Profile, afterWake: Bool) {
         let willReconnect = canAutoReconnect(p)
+        if afterWake && willReconnect && vault.requiresConfirmation(p) {
+            endSessionSecrets(p.id)
+            events.send(.droppedWhileAsleep(profileID: p.id))
+            return
+        }
         events.send(.dropped(profileID: p.id, willReconnect: willReconnect))
-        if willReconnect { scheduleReconnect(p.id, immediate: immediate) }
+        if willReconnect { scheduleReconnect(p.id, immediate: afterWake) } else { endSessionSecrets(p.id) }
     }
 
     /// Cancels a pending automatic reconnect (any manual action does this).
@@ -985,7 +1061,7 @@ public final class ConnectionManager: ObservableObject {
                 return
             }
             do {
-                try await performConnect(id, given: [:])
+                try await performConnect(id, given: [:], interactive: false)
                 guard reconnectGen[id] == gen else { return }
                 if state(id).isConnected {
                     events.send(.reconnected(profileID: id))
@@ -998,6 +1074,7 @@ public final class ConnectionManager: ObservableObject {
             }
         }
         guard reconnectGen[id] == gen else { return }
+        endSessionSecrets(id)
         events.send(.reconnectFailed(profileID: id, reason: reason))
     }
 
@@ -1005,7 +1082,9 @@ public final class ConnectionManager: ObservableObject {
     static func isRetryable(_ error: Error) -> Bool {
         switch error as? PTError {
         case .authFailed, .missingPassword, .missingTOTPSecret, .missingCredential, .missingConfig,
-             .missingHost, .invalidSecret, .profileNotFound, .otherVPNActive, .setupFailed:
+             .missingHost, .invalidSecret, .profileNotFound, .otherVPNActive, .setupFailed,
+             .userConfirmationCancelled, .userConfirmationFailed, .confirmationRequired, .protectedSecretUnreadable,
+             .protectionUnavailable:
             return false
         default:
             return true
@@ -1065,7 +1144,7 @@ public final class ConnectionManager: ObservableObject {
             guard self.reconnectGen[id] == gen else { return }
             self.setState(id, .disconnected)
             do {
-                try await self.performConnect(id, given: [:])
+                try await self.performConnect(id, given: [:], interactive: false)
                 guard self.reconnectGen[id] == gen else { return }
                 self.events.send(.reconnected(profileID: id))
             } catch {
@@ -1077,22 +1156,36 @@ public final class ConnectionManager: ObservableObject {
 
     // MARK: sleep / wake
 
+    /// Remembers what is connected and forgets every confirmation: whoever is at the Mac after it
+    /// wakes up confirms again.
     public func handleWillSleep() {
         connectedBeforeSleep = Set(states.filter { $0.value.isConnected }.map(\.key))
         sleeping = true
+        vault.reset()
     }
 
     /// Polls after `wakeDelay`, probes health and reconnects eligible profiles that were connected
-    /// before sleep.
+    /// before sleep. Profiles that require a confirmation to connect are not reconnected: the user
+    /// gets `droppedWhileAsleep` and reconnects (and confirms) from there.
     public func handleDidWake() async {
         try? await clock.sleep(timing.wakeDelay)
         sleeping = false
         let before = connectedBeforeSleep
         connectedBeforeSleep = []
+        var asked = Set<String>()
+        let sub = events.sink { event in
+            if case .droppedWhileAsleep(let id) = event { asked.insert(id) }
+        }
         await refresh(wakeIDs: before)
+        sub.cancel()
         await runHealthChecks()
         for id in before where state(id) == .disconnected && reconnectTasks[id] == nil && !isBusy(id) {
             guard let p = try? store.get(id), canAutoReconnect(p), !hasUserStoppedMarker(id) else { continue }
+            if vault.requiresConfirmation(p) {
+                endSessionSecrets(id)
+                if !asked.contains(id) { events.send(.droppedWhileAsleep(profileID: id)) }
+                continue
+            }
             scheduleReconnect(id, immediate: true)
         }
     }
@@ -1127,6 +1220,8 @@ public final class ConnectionManager: ObservableObject {
 
     private func forget(_ id: String) {
         cancelReconnect(id)
+        endSessionSecrets(id)
+        vault.reset(id)
         endSession(id)
         sharedStates[id] = nil
         management.release(socketPath: mgmtSockets[id] ?? socketPath(id))

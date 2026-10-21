@@ -74,6 +74,11 @@ final class AppModel: ObservableObject {
 
     private var secretCache: [String: Data] = [:]
     private var missingSecret: Set<String> = []
+    /// Profiles whose TOTP secret is stored encrypted ("Confirm with Touch ID"): its code shows only while
+    /// the vault has it unlocked.
+    private var protectedTOTP: Set<String> = []
+    /// Render override: profiles whose code is shown locked.
+    var previewLockedCodes: Set<String> = []
     private var bag = Set<AnyCancellable>()
     private var toastTask: Task<Void, Never>?
     private var reloadTimer: Timer?
@@ -90,6 +95,9 @@ final class AppModel: ObservableObject {
         Self.shared = self
         reload()
         connections.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &bag)
+        connections.vault.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &bag)
         guard live else { return }
@@ -146,6 +154,8 @@ final class AppModel: ObservableObject {
     /// so it is safe to call after the app's own writes.
     func reload() {
         let fresh = store.list()
+        // A "Confirm with Touch ID" setting edited by hand: encrypt what it protects (no prompt).
+        for p in fresh where p.requireAuth != .off { vault.reconcile(p) }
         let secretsChanged = refreshSecrets(for: fresh)
         if fresh != profiles {
             profiles = fresh
@@ -170,16 +180,20 @@ final class AppModel: ObservableObject {
     private func refreshSecrets(for list: [Profile]) -> Bool {
         var cache: [String: Data] = [:]
         var missing: Set<String> = []
+        var protected: Set<String> = []
         for p in list where p.otpMode != .none {
-            if let raw = Secrets.get(p.id, .totp), let data = try? TOTP.decodeSecret(raw) {
+            if Secrets.isProtected(p.id, .totp) {
+                protected.insert(p.id)
+            } else if let raw = Secrets.get(p.id, .totp), let data = try? TOTP.decodeSecret(raw) {
                 cache[p.id] = data
             } else {
                 missing.insert(p.id)
             }
         }
-        let changed = cache != secretCache || missing != missingSecret
+        let changed = cache != secretCache || missing != missingSecret || protected != protectedTOTP
         secretCache = cache
         missingSecret = missing
+        protectedTOTP = protected
         return changed
     }
 
@@ -346,6 +360,9 @@ final class AppModel: ObservableObject {
     // MARK: codes
 
     private func totpSecret(_ p: Profile) -> Data? {
+        if protectedTOTP.contains(p.id) {
+            return vault.available(p.id, .totp).flatMap { try? TOTP.decodeSecret($0) }
+        }
         if let s = secretCache[p.id] { return s }
         if missingSecret.contains(p.id) { return nil }
         guard let raw = Secrets.get(p.id, .totp), let data = try? TOTP.decodeSecret(raw) else {
@@ -356,13 +373,17 @@ final class AppModel: ObservableObject {
         return data
     }
 
-    func hasCode(_ p: Profile) -> Bool { p.otpMode == .totp && totpSecret(p) != nil }
+    /// The profile has a TOTP secret (shown, or locked behind a confirmation).
+    func hasCode(_ p: Profile) -> Bool {
+        p.otpMode == .totp && (protectedTOTP.contains(p.id) || previewLockedCodes.contains(p.id) || totpSecret(p) != nil)
+    }
 
     /// Current code for profiles with a stored TOTP secret (also used for `.ask` profiles to prefill),
     /// for display. Uses the latest loaded settings even when the caller holds an older copy.
+    /// Nil while the code is locked (`isCodeLocked`).
     func code(for p: Profile, at date: Date = Date()) -> (code: String, remaining: Int)? {
         let p = previewStates == nil ? (profile(p.id) ?? p) : p
-        guard p.otpMode != .none, let secret = totpSecret(p) else { return nil }
+        guard p.otpMode != .none, !isCodeLocked(p), let secret = totpSecret(p) else { return nil }
         return (TOTP.code(secret: secret, params: p.totp, at: date), TOTP.remaining(params: p.totp, at: date))
     }
 
@@ -370,13 +391,61 @@ final class AppModel: ObservableObject {
     /// Keychain item as they are now, bypassing every cache.
     func currentCode(for p: Profile, at date: Date = Date()) -> String? {
         guard let stored = storedProfile(p), stored.otpMode != .none,
-              let raw = Secrets.get(stored.id, .totp), let secret = try? TOTP.decodeSecret(raw) else { return nil }
+              let raw = vault.available(stored.id, .totp), let secret = try? TOTP.decodeSecret(raw) else { return nil }
         return TOTP.code(secret: secret, params: stored.totp, at: date)
     }
 
     func forgetSecrets(_ id: String) {
         secretCache[id] = nil
         missingSecret.remove(id)
+    }
+
+    // MARK: confirmation (Touch ID / password)
+
+    var vault: SecretVault { connections.vault }
+
+    /// The TOTP secret of `p` is stored encrypted and not unlocked: its code is hidden; clicking it asks
+    /// (`revealCode`), and it stays visible for the reuse window.
+    func isCodeLocked(_ p: Profile) -> Bool {
+        if previewStates != nil { return previewLockedCodes.contains(p.id) }
+        return protectedTOTP.contains(p.id) && !vault.isUnlocked(p.id, .totp)
+    }
+
+    /// Asks for the confirmation that shows the code of `p` (nothing else happens).
+    func revealCode(_ p: Profile) {
+        guard let p = storedProfile(p) else { return }
+        whenUnlocked(p, [.totp], .code) { _ in }
+    }
+
+    /// Runs `body` once the secrets `kinds` of `p` are readable: at once when they are stored in plain
+    /// text or unlocked, else after the user confirms (which decrypts them). `body` gets whether a
+    /// prompt was shown. A cancel does nothing; a failure is shown.
+    private func whenUnlocked(_ p: Profile, _ kinds: Set<SecretKind>, _ action: UserPresenceAction,
+                              _ body: @escaping (_ prompted: Bool) -> Void) {
+        guard vault.needsPrompt(p, kinds) else { return body(false) }
+        Task {
+            do {
+                try await vault.unlock(p, kinds, for: action)
+                body(true)
+            } catch {
+                handleConfirmationError(error)
+            }
+        }
+    }
+
+    /// Cancelling is silent; anything else (no GUI session, Touch ID locked out, undecryptable item) is shown.
+    private func handleConfirmationError(_ error: Error) {
+        if error is CancellationError || (error as? PTError) == .userConfirmationCancelled { return }
+        if case PTError.userConfirmationFailed = error {
+            alert = AppAlert(title: String(localized: "Confirmation failed"), message: error.localizedDescription)
+        } else {
+            showError(error)
+        }
+        reload()
+    }
+
+    private var mainWindowVisible: Bool {
+        NSApp.windows.contains(where: { $0.isVisible && $0.identifier?.rawValue.hasPrefix("main") == true })
     }
 
     // MARK: actions
@@ -388,15 +457,18 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Protected secrets are decrypted (the user confirms) by `ConnectionManager.connect`; when a
+    /// credential sheet is needed, before it, so the sheet and the connect after it share the confirmation.
     func connect(_ p: Profile) {
         droppedUnseen.remove(p.id)
         guard let p = storedProfile(p) else { return showError(PTError.profileNotFound(p.id)) }
         let needs = p.needs
-        if !needs.isEmpty {
+        guard !needs.isEmpty else { return connect(p, given: [:]) }
+        whenUnlocked(p, SecretVault.kinds(for: .connect, p), .connect) { [self] prompted in
             credentialRequest = CredentialRequest(profile: p, needs: needs)
-            return
+            // The sheet lives in the main window (asked from the menu bar, a shortcut or a notification).
+            if prompted && !mainWindowVisible { AppDelegate.shared?.showMainWindow() }
         }
-        connect(p, given: [:])
     }
 
     /// `given` holds what the credential sheet asked for. The profile is re-read first; if it now
@@ -451,33 +523,39 @@ final class AppModel: ObservableObject {
             }
         }
         if error is CancellationError || (error as? PTError) == .connectCancelled { return }
+        if (error as? PTError) == .userConfirmationCancelled { return }
         // Other failures are shown in the row (ConnectionManager.lastError); surface them when no window is open.
-        if !NSApp.windows.contains(where: { $0.isVisible && $0.identifier?.rawValue.hasPrefix("main") == true }) {
+        if !mainWindowVisible {
             Notifier.shared.post(title: String(localized: "Could not connect \(p.name)"),
                                  body: error.localizedDescription, profileID: p.id)
         }
     }
 
     func copyCode(_ p: Profile) {
-        guard let c = currentCode(for: p) else {
-            showToast(String(localized: "No code available"), symbol: "exclamationmark.circle.fill")
-            return
+        guard let stored = storedProfile(p) else { return showError(PTError.profileNotFound(p.id)) }
+        whenUnlocked(stored, [.totp], .code) { [self] _ in
+            guard let c = currentCode(for: stored) else {
+                showToast(String(localized: "No code available"), symbol: "exclamationmark.circle.fill")
+                return
+            }
+            Pasteboard.copy(c, concealed: true)
+            showToast(String(localized: "Code copied"))
         }
-        Pasteboard.copy(c, concealed: true)
-        showToast(String(localized: "Code copied"))
     }
 
     func copyPasswordAndCode(_ p: Profile) {
         guard let p = storedProfile(p) else { return showError(PTError.profileNotFound(p.id)) }
-        guard let password = Secrets.get(p.id, .password) else {
-            showToast(String(localized: "No password saved in Keychain"), symbol: "exclamationmark.circle.fill")
-            return
+        whenUnlocked(p, [.password, .totp], .code) { [self] _ in
+            guard let password = vault.available(p.id, .password) else {
+                showToast(String(localized: "No password saved in Keychain"), symbol: "exclamationmark.circle.fill")
+                return
+            }
+            let otp = currentCode(for: p)
+            let composed = OTPComposer.compose(password: password, otp: otp, delivery: .combined,
+                                               template: p.otpTemplate, type: p.type)
+            Pasteboard.copy(composed.secret, concealed: true)
+            showToast(String(localized: "Password and code copied"))
         }
-        let otp = currentCode(for: p)
-        let composed = OTPComposer.compose(password: password, otp: otp, delivery: .combined,
-                                           template: p.otpTemplate, type: p.type)
-        Pasteboard.copy(composed.secret, concealed: true)
-        showToast(String(localized: "Password and code copied"))
     }
 
     /// Hotkey / menu action: types the code when auto-type is on and permitted, else copies it.
@@ -491,6 +569,15 @@ final class AppModel: ObservableObject {
     }
 
     func typeCode(_ p: Profile) {
+        guard let stored = storedProfile(p) else { NSSound.beep(); return }
+        whenUnlocked(stored, [.totp], .code) { [self] prompted in
+            guard prompted else { return type(stored) }
+            // Let the focus go back to the field the code is for once the system prompt has closed.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.type(stored) }
+        }
+    }
+
+    private func type(_ p: Profile) {
         guard let c = currentCode(for: p) else { NSSound.beep(); return }
         guard AutoType.isTrusted else {
             AutoType.requestTrust()
@@ -615,7 +702,7 @@ final class AppModel: ObservableObject {
 
     private func handle(_ event: ConnectionEvent) {
         switch event {
-        case .dropped(let id, _):
+        case .dropped(let id, _), .droppedWhileAsleep(let id):
             droppedUnseen.insert(id)
         case .reconnected(let id):
             droppedUnseen.remove(id)

@@ -140,7 +140,8 @@ struct CountdownRing: View {
     }
 }
 
-/// Large live code with countdown; click copies.
+/// Large live code with countdown; click copies. A locked code (stored encrypted, "Confirm with Touch ID")
+/// is masked with a lock; click asks for Touch ID or the Mac password and shows it.
 struct LiveCodeView: View {
     @EnvironmentObject private var model: AppModel
     let profile: Profile
@@ -149,7 +150,28 @@ struct LiveCodeView: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.25)) { context in
             let date = model.previewNow ?? context.date
-            if let c = model.code(for: profile, at: date) {
+            if model.isCodeLocked(profile) {
+                Button {
+                    model.revealCode(profile)
+                } label: {
+                    HStack(spacing: 8) {
+                        CodeText(code: String(repeating: "0", count: max(6, profile.totp.digits)), hidden: true, fontSize: fontSize)
+                            .foregroundStyle(Color.secondary)
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: fontSize * 0.6, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .frame(width: fontSize * 0.95, height: fontSize * 0.95)
+                    }
+                    .fixedSize()
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(CodeButtonStyle())
+                .help(String(localized: "Click to show the code"))
+                .accessibilityLabel(String(localized: "One-time code, hidden. Click to show it."))
+                .accessibilityIdentifier("profile.\(profile.id).code")
+            } else if let c = model.code(for: profile, at: date) {
                 let period = Double(max(1, profile.totp.period))
                 let remaining = period - date.timeIntervalSince1970.truncatingRemainder(dividingBy: period)
                 Button {

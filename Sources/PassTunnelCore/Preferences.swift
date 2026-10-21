@@ -23,12 +23,20 @@ public struct Preferences: Codable, Equatable {
     // Shortcuts
     public var hotkeys = false
     public var autoType = false
+    // Security
+    /// How long one confirmation (Touch ID or password) is valid for the same profile and action.
+    public var authReuseMinutes = 1
+
+    /// Choices offered for `authReuseMinutes`; other stored values fall back to the default.
+    public static let authReuseChoices = [1, 5, 15]
+
+    public var authReuseInterval: TimeInterval { TimeInterval(authReuseMinutes * 60) }
 
     public init() {}
 
     enum CodingKeys: String, CodingKey {
         case defaultProfile, appearance, badgePalette, showLock, hideCodes, showInDock, launchAtLogin, autoUpdate
-        case notifyOnDrop, notifyHealth, sessionNotifyMin, sessionWarnMin, hotkeys, autoType
+        case notifyOnDrop, notifyHealth, sessionNotifyMin, sessionWarnMin, hotkeys, autoType, authReuseMinutes
         case theme   // legacy, read only
     }
 
@@ -50,6 +58,8 @@ public struct Preferences: Codable, Equatable {
         sessionWarnMin = c.lenient(Int.self, .sessionWarnMin) ?? d.sessionWarnMin
         hotkeys = c.lenient(Bool.self, .hotkeys) ?? d.hotkeys
         autoType = c.lenient(Bool.self, .autoType) ?? d.autoType
+        let reuse = c.lenient(Int.self, .authReuseMinutes) ?? d.authReuseMinutes
+        authReuseMinutes = Self.authReuseChoices.contains(reuse) ? reuse : d.authReuseMinutes
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -68,6 +78,7 @@ public struct Preferences: Codable, Equatable {
         try c.encode(sessionWarnMin, forKey: .sessionWarnMin)
         try c.encode(hotkeys, forKey: .hotkeys)
         try c.encode(autoType, forKey: .autoType)
+        try c.encode(authReuseMinutes, forKey: .authReuseMinutes)
     }
 
     /// Missing or unreadable file → defaults (never throws).

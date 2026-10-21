@@ -63,6 +63,17 @@ enum RenderSnapshots {
                      dark: false, to: out, name: "main-hidden-codes", window: true)
             model.prefs.hideCodes = false
 
+            // "Confirm with Touch ID" protecting the TOTP secret: the first row's code is locked until confirmed
+            // (no Secure Enclave key is made for screenshots).
+            if let first = sample.ids.first {
+                model.previewLockedCodes = [first]
+                for dark in [false, true] {
+                    snapshot(MainView().environmentObject(model), size: CGSize(width: 680, height: 470),
+                             dark: dark, to: out, name: "main-code-locked", window: true)
+                }
+                model.previewLockedCodes = []
+            }
+
             if let needy = model.profiles.first(where: { !$0.needs.isEmpty }) {
                 let req = CredentialRequest(profile: needy, needs: needy.needs)
                 for dark in [false, true] {

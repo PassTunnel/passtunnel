@@ -149,6 +149,16 @@
         }
       }
     },
+    "%lld minutes" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld dakika"
+          }
+        }
+      }
+    },
     "%lld s left" : {
       "localizations" : {
         "tr" : {
@@ -217,12 +227,42 @@
         }
       }
     },
+    "1 minute" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 dakika"
+          }
+        }
+      }
+    },
     "10.0.0.5 or host:port" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "10.0.0.5 ya da sunucu:port"
+          }
+        }
+      }
+    },
+    "15 minutes" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "15 dakika"
+          }
+        }
+      }
+    },
+    "5 minutes" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "5 dakika"
           }
         }
       }
@@ -237,12 +277,62 @@
         }
       }
     },
+    "Anyone using this Mac while you are logged in can connect with one click." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oturumunuz açıkken bu Mac’i kullanan herkes tek tıkla bağlanabilir."
+          }
+        }
+      }
+    },
+    "Ask again after" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeniden sorma süresi"
+          }
+        }
+      }
+    },
     "Asked PassTunnel to drop %@ as if the server ended the session…" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "PassTunnel’dan %@ bağlantısını, oturumu sunucu sonlandırmış gibi düşürmesi istendi…"
+          }
+        }
+      }
+    },
+    "Before connecting" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlanmadan önce"
+          }
+        }
+      }
+    },
+    "Before connecting and showing codes" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlanmadan ve kodları göstermeden önce"
+          }
+        }
+      }
+    },
+    "Cancelled." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "İptal edildi."
           }
         }
       }
@@ -257,12 +347,92 @@
         }
       }
     },
+    "Click to reconnect." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeniden bağlanmak için tıklayın."
+          }
+        }
+      }
+    },
+    "Click to show the code" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kodu göstermek için tıklayın"
+          }
+        }
+      }
+    },
+    "Confirm with Touch ID" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Touch ID ile onayla"
+          }
+        }
+      }
+    },
+    "Confirm with your password" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parolanızla onaylayın"
+          }
+        }
+      }
+    },
+    "Confirmation failed" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Doğrulama başarısız"
+          }
+        }
+      }
+    },
+    "Current code, hidden" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geçerli kod, gizli"
+          }
+        }
+      }
+    },
     "Dropping %@ as if the server ended the session…" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ bağlantısı, oturumu sunucu sonlandırmış gibi düşürülüyor…"
+          }
+        }
+      }
+    },
+    "For profiles set to “%@”, one confirmation with Touch ID or your Mac password is valid this long for the same profile. Sleep and locking the screen end it." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” ayarlı profillerde Touch ID ya da Mac parolanızla verilen bir onay, aynı profil için bu süre boyunca geçerlidir. Uyku ve ekran kilidi onayı sona erdirir."
+          }
+        }
+      }
+    },
+    "It is encrypted: using it asks for Touch ID or your Mac password." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Şifreli olarak saklanıyor: kullanmak için Touch ID ya da Mac parolanız istenir."
           }
         }
       }
@@ -307,12 +477,32 @@
         }
       }
     },
+    "One-time code, hidden. Click to show it." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tek kullanımlık kod gizli. Göstermek için tıklayın."
+          }
+        }
+      }
+    },
     "Opening PassTunnel to update the helper…" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Yardımcıyı güncellemek için PassTunnel açılıyor…"
+          }
+        }
+      }
+    },
+    "PassTunnel could not confirm it’s you: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel kimliğinizi doğrulayamadı: %@"
           }
         }
       }
@@ -327,12 +517,42 @@
         }
       }
     },
+    "Reconnecting needs your confirmation (Touch ID or your Mac password): connect it again yourself." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeniden bağlanmak için onayınız gerekiyor (Touch ID ya da Mac parolanız): bağlantıyı kendiniz yeniden kurun."
+          }
+        }
+      }
+    },
     "Replacing the helper with the one from this copy of PassTunnel. Active connections stop." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Yardımcı, PassTunnel’ın bu kopyasındakiyle değiştiriliyor. Etkin bağlantılar kesilir."
+          }
+        }
+      }
+    },
+    "Security" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Güvenlik"
+          }
+        }
+      }
+    },
+    "Show" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Göster"
           }
         }
       }
@@ -363,6 +583,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "PassTunnel yardımcısı başka bir PassTunnel sürümüne ait (sürüm %1$lld, beklenen %2$lld). Ayarlar → Yardımcı bölümünden güncelleyin."
+          }
+        }
+      }
+    },
+    "The TOTP secret is encrypted with a key in this Mac’s Secure Enclave. PassTunnel asks for Touch ID or your Mac password before it connects or shows the code." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TOTP gizli anahtarı, bu Mac’in Secure Enclave’indeki bir anahtarla şifrelenir. PassTunnel bağlanmadan veya kodu göstermeden önce Touch ID ya da Mac parolanızla onay ister."
           }
         }
       }
@@ -407,6 +637,66 @@
         }
       }
     },
+    "The password and the TOTP secret are encrypted. PassTunnel asks for Touch ID or your Mac password before it connects and before it shows, copies or types the code; codes stay hidden until you confirm." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parola ve TOTP gizli anahtarı şifrelenir. PassTunnel bağlanmadan ve kodu göstermeden, kopyalamadan veya yazmadan önce Touch ID ya da Mac parolanızla onay ister; siz onaylayana kadar kodlar gizli kalır."
+          }
+        }
+      }
+    },
+    "The password is encrypted with a key in this Mac’s Secure Enclave. PassTunnel asks for Touch ID or your Mac password before it connects. Reconnecting after a drop does not ask again." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parola, bu Mac’in Secure Enclave’indeki bir anahtarla şifrelenir. PassTunnel bağlanmadan önce Touch ID ya da Mac parolanızla onay ister. Bağlantı düştükten sonra yeniden bağlanırken tekrar sormaz."
+          }
+        }
+      }
+    },
+    "The saved TOTP secret cannot be decrypted: its key is from another Mac, or the item was damaged. Add the secret again in the profile editor." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kayıtlı TOTP gizli anahtarının şifresi çözülemiyor: anahtarı başka bir Mac’e ait ya da kayıt bozulmuş. Gizli anahtarı profil düzenleyicisinde yeniden ekleyin."
+          }
+        }
+      }
+    },
+    "The saved password cannot be decrypted: its key is from another Mac, or the item was damaged. Enter the password again in the profile editor." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kayıtlı parolanın şifresi çözülemiyor: anahtarı başka bir Mac’e ait ya da kayıt bozulmuş. Parolayı profil düzenleyicisinde yeniden girin."
+          }
+        }
+      }
+    },
+    "This Mac has no Secure Enclave, so the saved secrets cannot be protected with Touch ID or your Mac password." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu Mac’te Secure Enclave olmadığından kayıtlı gizli bilgiler Touch ID ya da Mac parolanızla korunamıyor."
+          }
+        }
+      }
+    },
+    "This Mac has no Secure Enclave, so this protection is not available." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu Mac’te Secure Enclave olmadığından bu koruma kullanılamıyor."
+          }
+        }
+      }
+    },
     "This helper belongs to another version of PassTunnel. It updates itself when all VPN connections are disconnected." : {
       "localizations" : {
         "tr" : {
@@ -423,6 +713,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bu yardımcı PassTunnel’ın başka bir sürümüne ait. Bağlanmak için güncelleyin; etkin bağlantılar kesilir."
+          }
+        }
+      }
+    },
+    "Touch ID is locked after too many attempts. Unlock it with your Mac password, then try again." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Touch ID çok fazla denemeden sonra kilitlendi. Mac parolanızla kilidini açıp yeniden deneyin."
           }
         }
       }
@@ -1274,6 +1574,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "VPN’inize bir daha hiç tek kullanımlık kod yazmadan bağlanın."
+          }
+        }
+      }
+    },
+    "change the confirmation setting for “%@”" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” için doğrulama ayarını değiştirmek"
+          }
+        }
+      }
+    },
+    "connect to “%@”" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” profiline bağlanmak"
           }
         }
       }
@@ -4424,6 +4744,46 @@
         }
       }
     },
+    "saved in Keychain, encrypted (Touch ID)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anahtar Zinciri’nde, şifreli (Touch ID)"
+          }
+        }
+      }
+    },
+    "show the code for “%@”" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” kodunu göstermek"
+          }
+        }
+      }
+    },
+    "the confirmation cannot be shown in this session (for example over SSH). Use PassTunnel on the Mac itself." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "doğrulama bu oturumda gösterilemiyor (örneğin SSH üzerinden). PassTunnel’ı Mac’in başında kullanın."
+          }
+        }
+      }
+    },
+    "the confirmation failed." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "doğrulama başarısız oldu."
+          }
+        }
+      }
+    },
     "the connection was interrupted" : {
       "localizations" : {
         "tr" : {
@@ -5218,6 +5578,16 @@
         }
       }
     },
+    "this Mac user has no login password." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "bu Mac kullanıcısının giriş parolası yok."
+          }
+        }
+      }
+    },
     "unknown code type “%@”" : {
       "localizations" : {
         "tr" : {
@@ -5595,6 +5965,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Daha sonra Ayarlar → Genel bölümünden açabilirsiniz."
+          }
+        }
+      }
+    },
+    "“%@” disconnected while the Mac was asleep." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mac uykudayken “%@” bağlantısı kesildi."
           }
         }
       }

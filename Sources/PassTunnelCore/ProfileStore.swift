@@ -99,6 +99,7 @@ public struct ProfileStore {
             do { try FileManager.default.removeItem(at: d) } catch { throw PTError.fileError(d.path) }
         }
         for kind in SecretKind.allCases { Secrets.delete(id, kind) }
+        Secrets.deleteProtectionKey(id)
         var prefs = Preferences.load(paths: paths)
         if prefs.defaultProfile == id {
             prefs.defaultProfile = nil

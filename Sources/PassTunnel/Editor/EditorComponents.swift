@@ -223,6 +223,42 @@ struct EditorLiveCode: View {
     }
 }
 
+/// The saved, encrypted TOTP secret's code: hidden until the user confirms (which decrypts it), then
+/// live for the reuse window.
+struct EditorLockedCode: View {
+    let profile: Profile
+    let params: TOTPParams
+    @ObservedObject var vault: SecretVault
+    /// A failure (not a cancel), for display.
+    var onError: (String) -> Void = { _ in }
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { _ in
+            if vault.isUnlocked(profile.id, .totp),
+               let secret = vault.available(profile.id, .totp).flatMap({ try? TOTP.decodeSecret($0) }) {
+                EditorLiveCode(secret: secret, params: params)
+            } else {
+                HStack(spacing: 12) {
+                    Text(verbatim: EditorLiveCode.grouped(String(repeating: "•", count: max(6, params.digits))))
+                        .font(.system(size: 26, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel(Text("Current code, hidden"))
+                    Button("Show") { reveal() }
+                        .accessibilityIdentifier("editor.revealCode")
+                }
+            }
+        }
+    }
+
+    private func reveal() {
+        Task { @MainActor in
+            do { try await vault.unlock(profile, [.totp], for: .code) } catch {
+                if (error as? PTError) != .userConfirmationCancelled { onError(error.localizedDescription) }
+            }
+        }
+    }
+}
+
 struct EditorCountdownRing: View {
     let remaining: Int
     let period: Int

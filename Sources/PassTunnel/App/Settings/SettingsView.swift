@@ -126,6 +126,20 @@ struct GeneralSettings: View {
             }
 
             Section {
+                Picker(String(localized: "Ask again after"), selection: $model.prefs.authReuseMinutes) {
+                    ForEach(Preferences.authReuseChoices, id: \.self) { minutes in
+                        Text(Self.reuseLabel(minutes)).tag(minutes)
+                    }
+                }
+                .accessibilityIdentifier("settings.authReuse")
+            } header: {
+                Text(String(localized: "Security"))
+            } footer: {
+                Text(String(localized: "For profiles set to “\(ConfirmationWording.settingName)”, one confirmation with Touch ID or your Mac password is valid this long for the same profile. Sleep and locking the screen end it."))
+                    .settingsFooter()
+            }
+
+            Section {
                 LabeledContent {
                     Button(cliLocation == nil ? String(localized: "Install…") : String(localized: "Reinstall")) { installCLI() }
                 } label: {
@@ -205,6 +219,15 @@ struct GeneralSettings: View {
         if loginStatus != .unavailable {
             let on = loginStatus == .enabled || loginStatus == .requiresApproval
             if model.prefs.launchAtLogin != on { model.prefs.launchAtLogin = on }
+        }
+    }
+
+    static func reuseLabel(_ minutes: Int) -> String {
+        switch minutes {
+        case 1: return String(localized: "1 minute")
+        case 5: return String(localized: "5 minutes")
+        case 15: return String(localized: "15 minutes")
+        default: return String(localized: "\(minutes) minutes")
         }
     }
 

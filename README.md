@@ -47,6 +47,9 @@ secret in the Keychain and fills in the current code (and your password) every t
 - **Auto-type (optional, off by default).** With global shortcuts on, ⌃⌥C types the current code into
   the focused field (also in the menu bar menu), for web portals and other places that still ask for it. Needs Accessibility
   permission, which is only requested when you turn the feature on.
+- **Confirm with Touch ID (optional, per profile).** Touch ID or your Mac password before connecting,
+  or also before showing codes; the saved secrets are then encrypted with a key in the Mac's Secure
+  Enclave, so a one-click connect needs you, not just your unlocked Mac.
 
 **VPN client**
 
@@ -411,7 +414,9 @@ Kodun nasıl gönderileceğini profil başına seçebilirsiniz: parolanın sonun
 authenticator uygulaması gibi canlı kodları gösterir. Menü çubuğunda her profil için renkli bir rozet
 vardır. QR kodu ekran görüntüsünden okunur. Profilleri kimlik bilgisi içermeyen `.passtunnel`
 dosyalarıyla ekibinizle paylaşabilir, aynı işlemleri `passtunnel` komut satırı aracıyla da
-yapabilirsiniz. Arayüz Türkçe ve İngilizcedir ve macOS dilinizi izler.
+yapabilirsiniz. İsterseniz profil başına “Touch ID ile onayla” seçeneğini açın: PassTunnel bağlanmadan
+(ya da kodları göstermeden) önce Touch ID ya da Mac parolanızla onay ister ve kayıtlı parola ile TOTP anahtarını
+Mac'in Secure Enclave'indeki bir anahtarla şifreler. Arayüz Türkçe ve İngilizcedir ve macOS dilinizi izler.
 
 **Kurulum:** İmzalı ve notarize edilmiş `.dmg` dosyasını
 [GitHub Releases](https://github.com/passtunnel/passtunnel/releases/latest) sayfasından indirip

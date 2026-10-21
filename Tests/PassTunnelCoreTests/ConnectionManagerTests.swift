@@ -268,6 +268,8 @@ final class ConnectionManagerTests: XCTestCase {
     var healthResults: [Bool] = []
     /// What the manager sees as the routing table (never the real one).
     var routeTable: [RoutingTable.Route] = []
+    /// Stands in for Touch ID: no test ever shows a real prompt.
+    var authenticator = FakeAuthenticator()
     var store: ProfileStore { ProfileStore() }
 
     /// 1_700_000_000 is 20 s into a 30 s window: 10 s left.
@@ -289,6 +291,7 @@ final class ConnectionManagerTests: XCTestCase {
         healthResults = []
         routeTable = []
         prefs = Preferences()
+        authenticator = FakeAuthenticator()
     }
 
     override func tearDown() async throws {
@@ -307,7 +310,8 @@ final class ConnectionManagerTests: XCTestCase {
                                   },
                                   preferences: { [weak self] in self?.prefs ?? Preferences() },
                                   routes: { [weak self] in self?.routeTable ?? [] },
-                                  timing: timing)
+                                  timing: timing,
+                                  authenticator: authenticator)
         m.events.sink { [weak self] in self?.events.append($0) }.store(in: &bag)
         return m
     }

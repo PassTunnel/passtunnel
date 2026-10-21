@@ -7,7 +7,7 @@ public enum ProfileFields {
     public static let keys = [
         "name", "badge", "icon", "badge_style", "pinned", "order",
         "username", "password_mode", "otp_mode", "digits", "period", "algorithm", "otp_delivery", "otp_template",
-        "session_limit_min", "auto_reconnect", "health_host",
+        "require_auth", "session_limit_min", "auto_reconnect", "health_host",
         "host", "port", "trusted_cert", "set_dns", "set_routes",
     ]
 
@@ -18,6 +18,7 @@ public enum ProfileFields {
         "totp.algorithm": "algorithm", "totp_algorithm": "algorithm", "session_limit": "session_limit_min",
         "badge_letter": "badge", "user": "username", "template": "otp_template", "delivery": "otp_delivery",
         "dns": "set_dns", "routes": "set_routes", "health": "health_host", "cert": "trusted_cert",
+        "auth": "require_auth",
     ]
 
     /// Lowercased, dashes → underscores, aliases resolved; nil for unknown keys.
@@ -79,6 +80,7 @@ public enum ProfileFields {
             let template = preset?.rawValue ?? raw
             try OTPComposer.validate(template: template)
             p.otpTemplate = template
+        case "require_auth": p.requireAuth = try choice(AuthRequirement.self)
         case "session_limit_min":
             let v = try int()
             guard v >= 0 else { throw bad() }
@@ -116,6 +118,7 @@ public enum ProfileFields {
         case "algorithm": return p.totp.algorithm.rawValue
         case "otp_delivery": return p.otpDelivery.rawValue
         case "otp_template": return p.otpTemplate
+        case "require_auth": return p.requireAuth.rawValue
         case "session_limit_min": return String(p.sessionLimitMin)
         case "auto_reconnect": return String(p.autoReconnect)
         case "health_host": return p.healthHost

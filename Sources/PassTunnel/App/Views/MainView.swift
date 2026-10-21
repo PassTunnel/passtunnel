@@ -179,7 +179,12 @@ struct ProfileList: View {
             if let id = ids.first, let p = model.profile(id) { model.primaryAction(p) }
         }
         .onCopyCommand {
-            guard let id = model.selection, let p = model.profile(id), let c = model.code(for: p) else { return [] }
+            guard let id = model.selection, let p = model.profile(id) else { return [] }
+            if model.isCodeLocked(p) {
+                model.copyCode(p)   // asks first, then copies
+                return []
+            }
+            guard let c = model.code(for: p) else { return [] }
             model.showToast(String(localized: "Code copied"))
             return [NSItemProvider(object: c.code as NSString)]
         }
@@ -202,7 +207,7 @@ struct ProfileMenuItems: View {
         Button(String(localized: "Edit…")) { model.edit(p) }
         Divider()
         Button(String(localized: "Copy Code")) { model.copyCode(p) }
-            .disabled(model.code(for: p) == nil)
+            .disabled(model.code(for: p) == nil && !model.isCodeLocked(p))
         Button(String(localized: "Copy Password + Code")) { model.copyPasswordAndCode(p) }
             .disabled(p.passwordMode != .keychain)
         Divider()

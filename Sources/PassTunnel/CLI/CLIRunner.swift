@@ -30,6 +30,10 @@ final class CLIRunner {
             CLITerminal.fail(e.message)
             CLITerminal.err(CLIHelp.usage(for: e.command))
             return Exit.usage
+        } catch PTError.userConfirmationCancelled {
+            // The user cancelled the Touch ID / password prompt: nothing happened, nothing to explain.
+            CLITerminal.err(PTError.userConfirmationCancelled.localizedDescription)
+            return Exit.error
         } catch {
             report(error)
             return Exit.error
@@ -58,15 +62,15 @@ final class CLIRunner {
         case let .connect(id, force): return try await connect(id, force: force)
         case let .disconnect(id, all): return try await disconnect(id, all: all)
         case let .toggle(id): return try await toggle(id)
-        case let .code(id, copy, json): return try code(id, copy: copy, json: json)
+        case let .code(id, copy, json): return try await code(id, copy: copy, json: json)
         case let .list(json, quiet): return try list(json: json, quiet: quiet)
         case let .show(id, json): return try show(id, json: json)
-        case let .set(id, assignments): return try set(id, assignments)
+        case let .set(id, assignments): return try await set(id, assignments)
         case let .add(name, type): return try add(name, type: type)
         case let .importFile(path, name): return try importFile(path, name: name)
         case let .export(id, output): return try export(id, output: output)
         case let .remove(id, yes): return try await remove(id, yes: yes)
-        case let .secret(id, kind): return try secret(id, kind: kind)
+        case let .secret(id, kind): return try await secret(id, kind: kind)
         case let .setDefault(id): return try setDefault(id)
         case let .pin(id): return try pin(id, true)
         case let .unpin(id): return try pin(id, false)
@@ -198,6 +202,7 @@ final class CLIRunner {
         do {
             // Before "Connecting …" and before asking for credentials.
             if !force { try await manager.checkCanStart(p.id) }
+            try await manager.vault.unlock(p, for: .connect)
             let given = try askForNeeds(p)
             try await connectShowingProgress(p, given: given, force: force)
         } catch PTError.otherVPNActive(let other) {
@@ -302,6 +307,7 @@ final class CLIRunner {
             try await manager.disconnect(p.id)
             CLITerminal.out(String(localized: "Disconnected: \(p.name)"))
         } else {
+            try await manager.vault.unlock(p, for: .connect)
             try await connectShowingProgress(p, given: try askForNeeds(p))
         }
         return Exit.ok
@@ -316,12 +322,13 @@ final class CLIRunner {
         var period: Int
     }
 
-    private func code(_ id: String?, copy: Bool, json: Bool) throws -> Int32 {
+    private func code(_ id: String?, copy: Bool, json: Bool) async throws -> Int32 {
         let p = try resolveTOTPProfile(id)
         guard p.otpMode == .totp else {
             throw CLIFailure(String(localized: "Profile “\(p.id)” does not use a TOTP secret."))
         }
-        guard let text = Secrets.get(p.id, .totp) else { throw PTError.missingTOTPSecret(p.id) }
+        // Encrypted ("Confirm with Touch ID"): decrypting asks for Touch ID or the Mac password.
+        guard let text = try await manager.vault.secret(p, .totp, for: .code) else { throw PTError.missingTOTPSecret(p.id) }
         let secret = try TOTP.decodeSecret(text)
         let now = Date()
         let code = TOTP.code(secret: secret, params: p.totp, at: now)
@@ -398,6 +405,8 @@ final class CLIRunner {
         var isDefault: Bool
         var passwordSaved: Bool
         var totpSaved: Bool
+        var passwordEncrypted: Bool
+        var totpEncrypted: Bool
         var configFile: String?
         var remote: String?
     }
@@ -408,16 +417,21 @@ final class CLIRunner {
         let remote = hasConfig ? (try? String(contentsOf: store.ovpnURL(id), encoding: .utf8)).map { OVPNAnalyzer.analyze($0).remote } : nil
         if json {
             try printJSON(ShowJSON(profile: p, isDefault: store.defaultID == id, passwordSaved: Secrets.has(id, .password),
-                                   totpSaved: Secrets.has(id, .totp), configFile: hasConfig ? store.ovpnURL(id).path : nil,
-                                   remote: remote))
+                                   totpSaved: Secrets.has(id, .totp), passwordEncrypted: Secrets.isProtected(id, .password),
+                                   totpEncrypted: Secrets.isProtected(id, .totp),
+                                   configFile: hasConfig ? store.ovpnURL(id).path : nil, remote: remote))
             return Exit.ok
         }
-        let saved = String(localized: "saved in Keychain")
         let missing = String(localized: "not saved")
+        func saved(_ kind: SecretKind) -> String {
+            guard Secrets.has(id, kind) else { return missing }
+            return Secrets.isProtected(id, kind) ? String(localized: "saved in Keychain, encrypted (Touch ID)")
+                                                 : String(localized: "saved in Keychain")
+        }
         var rows: [(String, String)] = [("id", p.id), ("type", p.type.rawValue)]
         rows += ProfileFields.keys(for: p.type).map { ($0, ProfileFields.value(p, key: $0)) }
-        rows.append(("password", Secrets.has(id, .password) ? saved : missing))
-        if p.otpMode == .totp { rows.append(("totp_secret", Secrets.has(id, .totp) ? saved : missing)) }
+        rows.append(("password", saved(.password)))
+        if p.otpMode == .totp { rows.append(("totp_secret", saved(.totp))) }
         if p.type == .openvpn {
             rows.append(("config", hasConfig ? store.ovpnURL(id).path : missing))
             if let remote, !remote.isEmpty { rows.append(("remote", remote)) }
@@ -430,15 +444,22 @@ final class CLIRunner {
         return Exit.ok
     }
 
-    private func set(_ id: String, _ assignments: [CLICommand.Assignment]) throws -> Int32 {
-        var p = try store.get(id)
+    private func set(_ id: String, _ assignments: [CLICommand.Assignment]) async throws -> Int32 {
+        let original = try store.get(id)
+        var p = original
         for a in assignments {
             guard ProfileFields.canonicalKey(a.key) != nil else {
                 throw CLIUsageError(String(localized: "Unknown key “\(a.key)”."), command: "set")
             }
             try ProfileFields.set(&p, key: a.key, value: a.value)
         }
-        try store.save(p)
+        // Encrypts or decrypts the saved secrets for require_auth; weakening it asks for Touch ID or the
+        // Mac password (the decrypt is the confirmation).
+        try await manager.vault.applyProtection(from: original, to: p)
+        // A prompt may have been open for a while: apply the same changes to the profile as stored now.
+        _ = try store.update(id) { current in
+            for a in assignments { try ProfileFields.set(&current, key: a.key, value: a.value) }
+        }
         CLITerminal.out(String(localized: "Saved."))
         return Exit.ok
     }
@@ -509,8 +530,9 @@ final class CLIRunner {
 
     // MARK: secrets / default / pin
 
-    private func secret(_ id: String, kind: SecretKind) throws -> Int32 {
-        var p = try store.get(id)
+    private func secret(_ id: String, kind: SecretKind) async throws -> Int32 {
+        let original = try store.get(id)
+        var p = original
         let value: String
         if CLITerminal.stdinIsTTY {
             let prompt = kind == .password ? String(localized: "Password for \(p.name): ")
@@ -523,13 +545,18 @@ final class CLIRunner {
 
         switch kind {
         case .password:
-            try Secrets.set(id, .password, value)
-            if p.passwordMode != .keychain {
-                p.passwordMode = .keychain
+            p.passwordMode = .keychain
+            // Encrypted with the profile's public key when require_auth protects it: no prompt.
+            try await manager.vault.applyProtection(from: original, to: p)
+            try manager.vault.store(p, .password, value)
+            if original.passwordMode != .keychain {
                 try store.save(p)
                 CLITerminal.err(CLITerminal.dim(String(localized: "The password is now taken from the Keychain.")))
             }
             CLITerminal.out(String(localized: "Password saved in the Keychain."))
+            if Secrets.isProtected(id, .password) {
+                CLITerminal.err(CLITerminal.dim(String(localized: "It is encrypted: using it asks for Touch ID or your Mac password.")))
+            }
         case .totp:
             let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
             let secret: Data
@@ -540,10 +567,14 @@ final class CLIRunner {
             } else {
                 secret = try TOTP.decodeSecret(text)
             }
-            try Secrets.set(id, .totp, TOTP.base32Encode(secret))
             if p.otpMode != .totp { p.otpMode = .totp }
+            try await manager.vault.applyProtection(from: original, to: p)
+            try manager.vault.store(p, .totp, TOTP.base32Encode(secret))
             try store.save(p)
             CLITerminal.out(String(localized: "TOTP secret saved in the Keychain."))
+            if Secrets.isProtected(id, .totp) {
+                CLITerminal.err(CLITerminal.dim(String(localized: "It is encrypted: using it asks for Touch ID or your Mac password.")))
+            }
             let code = TOTP.code(secret: secret, params: p.totp)
             CLITerminal.out(String(localized: "Current code: \(Self.grouped(code)) (compare it with your authenticator app)"))
         }

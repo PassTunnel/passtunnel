@@ -15,6 +15,19 @@ public enum OTPTemplatePreset: String, CaseIterable {
 }
 
 public enum BadgeStyle: String, Codable, CaseIterable { case letter, icon, both }
+
+/// When PassTunnel asks the user to confirm (Touch ID, the Mac password or an Apple Watch) before it
+/// uses the profile's stored secrets. Ordered from weakest to strongest.
+public enum AuthRequirement: String, Codable, CaseIterable, Comparable {
+    case off
+    /// Before connecting.
+    case connect
+    /// Before connecting and before showing, copying or typing the code.
+    case always
+
+    private var rank: Int { Self.allCases.firstIndex(of: self) ?? 0 }
+    public static func < (a: AuthRequirement, b: AuthRequirement) -> Bool { a.rank < b.rank }
+}
 public enum TOTPAlgorithm: String, Codable, CaseIterable { case sha1, sha256, sha512 }
 public enum CredentialField: String, Codable {
     case username, password, otp
@@ -66,6 +79,8 @@ public struct Profile: Codable, Identifiable, Equatable {
     public var passwordMode = PasswordMode.keychain
     public var otpMode = OTPMode.none
     public var totp = TOTPParams()
+    /// Confirmation before the stored secrets are used (only matters when `usesStoredSecrets`).
+    public var requireAuth = AuthRequirement.off
     // behaviour
     public var sessionLimitMin = 0
     public var autoReconnect = false
@@ -115,11 +130,15 @@ public struct Profile: Codable, Identifiable, Equatable {
     /// True when the profile can connect without asking anything (required for auto-reconnect).
     public var unattended: Bool { needs.isEmpty }
 
+    /// True when connecting or showing the code uses a secret from the Keychain (a saved password or
+    /// a TOTP secret): only then does `requireAuth` matter.
+    public var usesStoredSecrets: Bool { passwordMode == .keychain || otpMode == .totp }
+
     // MARK: coding
 
     enum CodingKeys: String, CodingKey {
         case id, name, type, order, badge, icon, badgeStyle, pinned
-        case username, lastUsername, passwordMode, otpMode, totp
+        case username, lastUsername, passwordMode, otpMode, totp, requireAuth
         case sessionLimitMin, autoReconnect, healthHost, otpDelivery, otpTemplate
         case mgmtPort, host, port, trustedCert, setRoutes
         case configSourceName, configImportedAt
@@ -128,7 +147,8 @@ public struct Profile: Codable, Identifiable, Equatable {
     }
 
     /// Keys left out of share files.
-    static let shareExcludedKeys: Set<CodingKeys> = [.username, .lastUsername, .order, .mgmtPort, .pinned, .configImportedAt]
+    static let shareExcludedKeys: Set<CodingKeys> = [.username, .lastUsername, .order, .mgmtPort, .pinned, .configImportedAt,
+                                                     .requireAuth]
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -145,6 +165,7 @@ public struct Profile: Codable, Identifiable, Equatable {
         passwordMode = c.lenientEnum(PasswordMode.self, .passwordMode) ?? .keychain
         otpMode = c.lenientEnum(OTPMode.self, .otpMode) ?? .none
         totp = c.lenient(TOTPParams.self, .totp) ?? TOTPParams()
+        requireAuth = c.lenientEnum(AuthRequirement.self, .requireAuth) ?? .off
         sessionLimitMin = c.lenient(Int.self, .sessionLimitMin) ?? 0
         autoReconnect = c.lenient(Bool.self, .autoReconnect) ?? false
         healthHost = c.lenient(String.self, .healthHost) ?? ""
@@ -180,6 +201,7 @@ public struct Profile: Codable, Identifiable, Equatable {
         try put(badge, .badge); try put(icon, .icon); try put(badgeStyle, .badgeStyle); try put(pinned, .pinned)
         try put(username, .username); try put(lastUsername, .lastUsername)
         try put(passwordMode, .passwordMode); try put(otpMode, .otpMode); try put(totp, .totp)
+        try put(requireAuth, .requireAuth)
         try put(sessionLimitMin, .sessionLimitMin); try put(autoReconnect, .autoReconnect)
         try put(healthHost, .healthHost); try put(otpDelivery, .otpDelivery); try put(otpTemplate, .otpTemplate)
         try put(mgmtPort, .mgmtPort); try put(host, .host); try put(port, .port)

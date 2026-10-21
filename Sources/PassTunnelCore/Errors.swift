@@ -32,6 +32,12 @@ public enum PTError: Error, Equatable, LocalizedError {
     case connectCancelled
     case otherVPNActive(String)            // interface of the VPN that already takes all traffic
     case setupFailed(reason: String, log: String)   // DNS hook or all-traffic routes failed; log tail
+    // confirming the user (Touch ID / password) before stored secrets are used
+    case userConfirmationCancelled
+    case userConfirmationFailed(String)    // localized reason
+    case confirmationRequired              // protected secrets, but asking is not possible now (automatic reconnect)
+    case protectionUnavailable             // no Secure Enclave: the protection cannot be turned on
+    case protectedSecretUnreadable(SecretKind)  // encrypted item that cannot be decrypted (key lost or data damaged)
 
     public var errorDescription: String? {
         switch self {
@@ -97,6 +103,21 @@ public enum PTError: Error, Equatable, LocalizedError {
             return String(localized: "Another VPN is already routing all traffic (\(interface)). Disconnect it first.")
         case .setupFailed(let reason, _):
             return String(localized: "The tunnel came up, but setting up the network failed, so it was disconnected: \(reason)")
+        case .userConfirmationCancelled:
+            return String(localized: "Cancelled.")
+        case .userConfirmationFailed(let reason):
+            return String(localized: "PassTunnel could not confirm it’s you: \(reason)")
+        case .confirmationRequired:
+            return String(localized: "Reconnecting needs your confirmation (Touch ID or your Mac password): connect it again yourself.")
+        case .protectionUnavailable:
+            return String(localized: "This Mac has no Secure Enclave, so the saved secrets cannot be protected with Touch ID or your Mac password.")
+        case .protectedSecretUnreadable(let kind):
+            switch kind {
+            case .password:
+                return String(localized: "The saved password cannot be decrypted: its key is from another Mac, or the item was damaged. Enter the password again in the profile editor.")
+            case .totp:
+                return String(localized: "The saved TOTP secret cannot be decrypted: its key is from another Mac, or the item was damaged. Add the secret again in the profile editor.")
+            }
         }
     }
 }
