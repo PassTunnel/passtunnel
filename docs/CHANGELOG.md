@@ -4,7 +4,7 @@ All notable changes to PassTunnel. Versions follow Semantic Versioning.
 `scripts/release.sh` uses the section of the version it releases as the release notes (GitHub
 release and the update window), so write it for users.
 
-## [Unreleased]
+## [1.1.1] - 2026-10-21
 
 ### Added
 
