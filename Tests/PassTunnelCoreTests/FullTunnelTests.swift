@@ -133,6 +133,69 @@ final class FullTunnelTests: XCTestCase {
                                            allTraffic: false))
     }
 
+    /// A session killed without cleanup (e.g. its helper was unregistered) leaves the host route to the
+    /// server via the original gateway; the next connect's "File exists" for it is harmless.
+    static let leftoverServerRouteLog = """
+    2026-01-01 10:00:00 TCP/UDP: Preserving recently used remote address: [AF_INET]203.0.113.10:1194
+    2026-01-01 10:00:00 UDPv4 link remote: [AF_INET]203.0.113.10:1194
+    2026-01-01 10:00:01 ROUTE_GATEWAY 192.0.2.1/255.255.255.0 IFACE=en0 HWADDR=aa:bb:cc:dd:ee:ff
+    2026-01-01 10:00:01 Opened utun device utun6
+    2026-01-01 10:00:01 /sbin/route add -net 203.0.113.10 192.0.2.1 255.255.255.255
+                                    route: writing to routing socket: File exists
+    add net 203.0.113.10: gateway 192.0.2.1: File exists
+    2026-01-01 10:00:01 ERROR: OS X route add command failed: external program exited with error status: 1
+    2026-01-01 10:00:01 /sbin/route add -net 0.0.0.0 10.8.0.1 128.0.0.0
+    add net 0.0.0.0: gateway 10.8.0.1
+    2026-01-01 10:00:01 /sbin/route add -net 128.0.0.0 10.8.0.1 128.0.0.0
+    add net 128.0.0.0: gateway 10.8.0.1
+    2026-01-01 10:00:02 Initialization Sequence Completed
+
+    """
+
+    func testRemoteAddressesAndDefaultGateway() {
+        XCTAssertEqual(VPNLog.remoteAddresses(Self.leftoverServerRouteLog), ["203.0.113.10"])
+        XCTAssertEqual(VPNLog.remoteAddresses("2026-01-01 10:00:00 TCP connection established with [AF_INET]203.0.113.20:443\n"),
+                       ["203.0.113.20"])
+        XCTAssertEqual(VPNLog.remoteAddresses("TCPv4_CLIENT link remote: [AF_INET]203.0.113.21:443\n"), ["203.0.113.21"])
+        XCTAssertEqual(VPNLog.remoteAddresses("UDPv6 link remote: [AF_INET6]2001:db8::5:1194\n"), ["2001:db8::5"])
+        XCTAssertEqual(VPNLog.remoteAddresses("[vpn.example.com] Peer Connection Initiated with [AF_INET]203.0.113.22:1194\n"),
+                       ["203.0.113.22"])
+        XCTAssertEqual(VPNLog.remoteAddresses("UDPv4 link local: (not bound)\n"), [])
+        XCTAssertEqual(VPNLog.defaultGateway(Self.leftoverServerRouteLog), "192.0.2.1")
+        XCTAssertNil(VPNLog.defaultGateway("ROUTE: default_gateway=UNDEF\n"))
+    }
+
+    func testLeftoverServerRouteIsNotASetupProblem() {
+        XCTAssertNil(VPNLog.setupProblem(Self.leftoverServerRouteLog))
+        // The same without the "command failed" line (route's own error line only).
+        XCTAssertNil(VPNLog.setupProblem(Self.leftoverServerRouteLog.replacingOccurrences(
+            of: "2026-01-01 10:00:01 ERROR: OS X route add command failed: external program exited with error status: 1\n", with: "")))
+    }
+
+    func testOtherRouteFailuresStillCount() {
+        // Another host than the server.
+        let otherHost = Self.leftoverServerRouteLog.replacingOccurrences(of: "add net 203.0.113.10:", with: "add net 203.0.113.99:")
+        XCTAssertEqual(VPNLog.setupProblem(otherHost),
+                       VPNLog.SetupProblem(reason: "add net 203.0.113.99: gateway 192.0.2.1: File exists", allTraffic: false))
+        // The server, but through another gateway than the default one.
+        let otherGateway = Self.leftoverServerRouteLog.replacingOccurrences(of: "add net 203.0.113.10: gateway 192.0.2.1",
+                                                                            with: "add net 203.0.113.10: gateway 192.0.2.9")
+        XCTAssertEqual(VPNLog.setupProblem(otherGateway)?.reason, "add net 203.0.113.10: gateway 192.0.2.9: File exists")
+        // The server, but another error than "File exists".
+        let unreachable = Self.leftoverServerRouteLog.replacingOccurrences(of: "gateway 192.0.2.1: File exists",
+                                                                           with: "gateway 192.0.2.1: Network is unreachable")
+        XCTAssertEqual(VPNLog.setupProblem(unreachable)?.reason, "add net 203.0.113.10: gateway 192.0.2.1: Network is unreachable")
+        // A later route command that fails is still reported, even after the ignored one.
+        let laterFailure = Self.leftoverServerRouteLog.replacingOccurrences(
+            of: "add net 128.0.0.0: gateway 10.8.0.1\n",
+            with: "add net 128.0.0.0: gateway 10.8.0.1\n2026-01-01 10:00:01 /sbin/route add -net 10.20.0.0 10.8.0.1 255.255.0.0\n"
+                + "2026-01-01 10:00:01 ERROR: OS X route add command failed: external program exited with error status: 1\n")
+        XCTAssertEqual(VPNLog.setupProblem(laterFailure)?.reason,
+                       "ERROR: OS X route add command failed: external program exited with error status: 1")
+        // Without a known server address nothing is excused.
+        XCTAssertEqual(VPNLog.setupProblem("add net 203.0.113.10: gateway 192.0.2.1: File exists\n")?.allTraffic, false)
+    }
+
     func testTimestampIsDropped() {
         XCTAssertEqual(VPNLog.withoutTimestamp("2026-01-01 10:00:00 WARNING: x"), "WARNING: x")
         XCTAssertEqual(VPNLog.withoutTimestamp("setting DNS failed"), "setting DNS failed")

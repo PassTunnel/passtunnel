@@ -76,8 +76,13 @@ public enum VPNLog {
                                                        "2000::", "3000::", "fc00::"]
 
     /// The first DNS-hook failure or all-traffic route failure, else the first other route failure.
+    /// Not counted: "File exists" for the host route to the server itself via the original default
+    /// gateway (`isLeftoverServerRoute`), and the "route add command failed" line that follows it.
     public static func setupProblem(_ text: String) -> SetupProblem? {
+        let servers = remoteAddresses(text)
+        let gateway = defaultGateway(text)
         var routeProblem: SetupProblem?
+        var skipCommandFailure = false
         for raw in text.split(whereSeparator: \.isNewline) {
             let line = withoutTimestamp(raw)
             let lower = line.lowercased()
@@ -85,22 +90,83 @@ public enum VPNLog {
                 || (lower.contains("dns updown") && (lower.contains("failed") || lower.contains("error status"))) {
                 return SetupProblem(reason: line, allTraffic: true)
             }
-            if let destination = failedRouteDestination(line) {
-                if allTrafficDestinations.contains(destination) { return SetupProblem(reason: line, allTraffic: true) }
+            if line.hasPrefix("/sbin/route ") { skipCommandFailure = false }
+            if let route = failedRoute(line) {
+                if allTrafficDestinations.contains(route.destination) { return SetupProblem(reason: line, allTraffic: true) }
+                if isLeftoverServerRoute(route, servers: servers, defaultGateway: gateway) {
+                    skipCommandFailure = true
+                    continue
+                }
                 if routeProblem == nil { routeProblem = SetupProblem(reason: line, allTraffic: false) }
-            } else if lower.contains("route add command failed"), routeProblem == nil {
-                routeProblem = SetupProblem(reason: line, allTraffic: false)
+            } else if lower.contains("route add command failed") {
+                if skipCommandFailure {
+                    skipCommandFailure = false
+                    continue
+                }
+                if routeProblem == nil { routeProblem = SetupProblem(reason: line, allTraffic: false) }
             }
         }
         return routeProblem
     }
 
-    /// `route`'s own error line, "add net 0.0.0.0: gateway 10.8.0.1: File exists" → "0.0.0.0".
-    static func failedRouteDestination(_ line: String) -> String? {
+    /// A failed `route add`, parsed from `route`'s own error line.
+    struct FailedRoute: Equatable {
+        var destination: String
+        var gateway: String
+        var error: String
+    }
+
+    /// "add net 0.0.0.0: gateway 10.8.0.1: File exists" → ("0.0.0.0", "10.8.0.1", "File exists").
+    static func failedRoute(_ line: String) -> FailedRoute? {
         for kind in ["add net ", "add host "] {
-            guard let start = line.range(of: kind), let gateway = line.range(of: ": gateway ", range: start.upperBound..<line.endIndex),
-                  line[gateway.upperBound...].contains(": ") else { continue }
-            return String(line[start.upperBound..<gateway.lowerBound])
+            guard let start = line.range(of: kind),
+                  let gateway = line.range(of: ": gateway ", range: start.upperBound..<line.endIndex),
+                  let error = line.range(of: ": ", range: gateway.upperBound..<line.endIndex) else { continue }
+            return FailedRoute(destination: String(line[start.upperBound..<gateway.lowerBound]),
+                               gateway: String(line[gateway.upperBound..<error.lowerBound]),
+                               error: String(line[error.upperBound...]))
+        }
+        return nil
+    }
+
+    /// With `redirect-gateway`, OpenVPN first adds a host route to the server via the original default
+    /// gateway. A session that was killed without cleaning up (e.g. an older helper unregistered while
+    /// connected) leaves that route behind, so the next connect gets "File exists" for it. The route
+    /// that is there already is the one OpenVPN wanted, so this is harmless. Counted as harmless only
+    /// when the destination is the server this session connected to and the gateway is the default
+    /// gateway OpenVPN found (when the log names it).
+    static func isLeftoverServerRoute(_ route: FailedRoute, servers: Set<String>, defaultGateway: String?) -> Bool {
+        guard route.error.lowercased().contains("file exists"), servers.contains(route.destination) else { return false }
+        guard let defaultGateway else { return true }
+        return route.gateway == defaultGateway
+    }
+
+    /// Addresses of the server OpenVPN talked to: "TCP connection established with [AF_INET]203.0.113.10:443",
+    /// "UDPv4 link remote: [AF_INET]203.0.113.10:1194", "Peer Connection Initiated with [AF_INET]…".
+    public static func remoteAddresses(_ text: String) -> Set<String> {
+        let markers = ["link remote: ", "connection established with ", "Peer Connection Initiated with "]
+        var out: Set<String> = []
+        for line in text.split(whereSeparator: \.isNewline) {
+            guard let marker = markers.lazy.compactMap({ line.range(of: $0) }).first else { continue }
+            var rest = line[marker.upperBound...]
+            if let family = rest.range(of: "]"), rest.hasPrefix("[AF_INET") { rest = rest[family.upperBound...] }
+            var address = String(rest.prefix { !$0.isWhitespace && $0 != "," })
+            if let colon = address.lastIndex(of: ":"), address[address.index(after: colon)...].allSatisfy(\.isNumber),
+               address.index(after: colon) < address.endIndex {
+                address = String(address[..<colon])
+            }
+            if address.hasPrefix("::ffff:"), address.contains(".") { address.removeFirst(7) }
+            if !address.isEmpty { out.insert(address) }
+        }
+        return out
+    }
+
+    /// "ROUTE_GATEWAY 192.168.1.1/255.255.255.0 IFACE=en0 HWADDR=…" → "192.168.1.1".
+    static func defaultGateway(_ text: String) -> String? {
+        for line in text.split(whereSeparator: \.isNewline) {
+            guard let r = line.range(of: "ROUTE_GATEWAY ") else { continue }
+            let value = line[r.upperBound...].prefix { !$0.isWhitespace && $0 != "/" }
+            if !value.isEmpty, value.first?.isNumber == true { return String(value) }
         }
         return nil
     }

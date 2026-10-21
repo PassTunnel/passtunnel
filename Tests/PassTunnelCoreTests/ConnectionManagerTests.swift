@@ -817,6 +817,15 @@ final class ConnectionManagerTests: XCTestCase {
         XCTAssertNil(m.warnings[p.id])
     }
 
+    func testLeftoverServerRouteLeavesNoWarning() async throws {
+        let p = try makeOpenVPN()
+        helper.startLog = FullTunnelTests.leftoverServerRouteLog
+        let m = makeManager()
+        try await m.connect(p.id)
+        XCTAssertTrue(m.state(p.id).isConnected)
+        XCTAssertNil(m.warnings[p.id])
+    }
+
     // MARK: concurrent connects
 
     func testSecondConnectInTheSameProcessWaitsForTheFirst() async throws {

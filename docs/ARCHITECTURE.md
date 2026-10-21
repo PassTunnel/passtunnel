@@ -302,7 +302,11 @@ tunnel. Hence:
   instead of being reported connected (with the caveat above about OpenVPN's teardown; the pre-connect
   check is what keeps the other tunnel intact). Any other failed route leaves the session connected with
   `ConnectionManager.warnings[id]` ("Connected, but part of the network setup failed: …"), shown as
-  "Setup incomplete" in the app and after the status in the CLI.
+  "Setup incomplete" in the app and after the status in the CLI. Not counted: "File exists" for the
+  host route to the server itself (an address from "link remote: …" / "TCP connection established
+  with …" / "Peer Connection Initiated with …") via the default gateway from `ROUTE_GATEWAY`, and the
+  "route add command failed" line after it. A session killed without cleanup (e.g. the helper was
+  unregistered while connected) leaves that route behind; it is the route OpenVPN wanted anyway.
 
 ## Rules for all code
 

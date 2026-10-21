@@ -223,6 +223,9 @@ final class Supervisor {
     /// Adopts tools left running by a previous helper instance (`<root>/<uid>/<id>/state`) and removes
     /// stale run directories. Tools started by a protocol-2 helper (`<root>/<id>/state`) are stopped:
     /// their management socket is in the profile directory, where this version never looks.
+    /// A tool that was killed rather than stopped cleanly (also when launchd stops an unregistered
+    /// helper) may leave the host route to its server via the default gateway behind. Nothing to clean
+    /// up: the next connect's "File exists" for that route is harmless (`VPNLog.setupProblem` ignores it).
     func adoptOrphans() {
         queue.sync {
             let root = core.runRoot
