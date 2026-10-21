@@ -4,6 +4,41 @@ All notable changes to PassTunnel. Versions follow Semantic Versioning.
 `scripts/release.sh` uses the section of the version it releases as the release notes (GitHub
 release and the update window), so write it for users.
 
+## [1.1.0] - 2026-10-21
+
+### Added
+
+- **Use PassTunnel from AI assistants.** `passtunnel mcp` is a Model Context Protocol server for
+  Claude Code, Claude Desktop and other MCP clients: it lists profiles, reports their state and the
+  helper's, reads VPN logs (with credentials redacted) and diagnoses problems. It is read-only
+  unless started with `--allow-connect`, which adds connecting and disconnecting; protected profiles
+  still ask for Touch ID on your Mac. It never returns passwords, TOTP secrets, codes or
+  configuration files. Setup in the README, details in SECURITY.md.
+- **`--json` on every command with a result** (`connect`, `disconnect`, `toggle`, `set`, `add`,
+  `import`, `export`, `rm`, `secret`, `default`, `pin`, `unpin`, `log`, `helper status`, `version`),
+  in addition to `status`, `code`, `list` and `show`. Failures print
+  `{"error":{"code":…,"message":…}}` with a stable code. See docs/CLI-JSON.md.
+- `connect --wait --timeout SECONDS` and `disconnect --wait`: bounded waits for scripts.
+- `--no-input` (or `PASSTUNNEL_NO_INPUT=1`): never ask on the terminal, fail instead.
+  `--no-auth-prompt`: fail instead of showing Touch ID.
+- `passtunnel version` and `passtunnel log ID -n N` (only the last N lines).
+- `list --json` and `status --json` also report `require_auth`, `protected` and `auto_reconnect`;
+  `status --json` adds `duration_seconds`.
+
+### Changed
+
+- **More specific exit codes.** `2` invalid argument (also invalid values such as a bad TOTP
+  secret, and no default profile), `3` profile not found, `4` confirmation cancelled or not possible
+  (a cancelled Touch ID prompt exited 1 before), or input needed without a terminal, `5` helper
+  missing or outdated (`helper status` now exits 5 also when the helper is enabled but outdated or
+  not answering), `6` connection failed, `7` timeout. `0`, `1`, `2`, `3` (not connected, for
+  `status ID`) and `130` keep their meaning.
+- `passtunnel rm` without `--yes` now fails with `input_required` (exit 4) instead of deleting when
+  standard input is not a terminal (a script, a pipe) or with `--no-input`; declining the question
+  now exits 4.
+- OpenVPN now always runs with `verb` at most 4 (3 when the configuration sets none). Higher levels
+  write data-channel keys and packet contents into the log.
+
 ## [1.0.1] - 2026-10-21
 
 ### Security
