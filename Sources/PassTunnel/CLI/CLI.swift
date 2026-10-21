@@ -56,7 +56,7 @@ enum PassTunnelCLI {
 enum CLIHelp {
     static let synopsis: [(String, String)] = [
         ("status", "passtunnel status [ID] [--json]"),
-        ("connect", "passtunnel connect [ID]"),
+        ("connect", "passtunnel connect [ID] [--force]"),
         ("disconnect", "passtunnel disconnect [ID] | --all"),
         ("toggle", "passtunnel toggle [ID]"),
         ("code", "passtunnel code [ID] [-c|--copy] [--json]"),

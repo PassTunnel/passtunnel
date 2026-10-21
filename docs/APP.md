@@ -143,6 +143,7 @@ passtunnel                                   status of all profiles (= status)
 passtunnel status [ID] [--json]
 passtunnel connect|disconnect|toggle [ID]    ID default: default profile; asks on TTY for `needs`
 passtunnel disconnect --all
+passtunnel connect [ID] --force              even if another VPN already takes all traffic
 passtunnel code [ID] [-c|--copy] [--json]    live code + seconds left
 passtunnel list [--json] / show ID / set ID key=value…   (keys as in the editor)
 passtunnel add NAME --type openvpn|forti / import FILE [--name N] / export ID [-o FILE] / rm ID

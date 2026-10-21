@@ -256,6 +256,8 @@ final class ConnectionManagerTests: XCTestCase {
     var events: [ConnectionEvent] = []
     var bag: Set<AnyCancellable> = []
     var healthResults: [Bool] = []
+    /// What the manager sees as the routing table (never the real one).
+    var routeTable: [RoutingTable.Route] = []
     var store: ProfileStore { ProfileStore() }
 
     /// 1_700_000_000 is 20 s into a 30 s window: 10 s left.
@@ -275,6 +277,7 @@ final class ConnectionManagerTests: XCTestCase {
         events = []
         bag = []
         healthResults = []
+        routeTable = []
         prefs = Preferences()
     }
 
@@ -293,6 +296,7 @@ final class ConnectionManagerTests: XCTestCase {
                                       }
                                   },
                                   preferences: { [weak self] in self?.prefs ?? Preferences() },
+                                  routes: { [weak self] in self?.routeTable ?? [] },
                                   timing: timing)
         m.events.sink { [weak self] in self?.events.append($0) }.store(in: &bag)
         return m
@@ -685,6 +689,132 @@ final class ConnectionManagerTests: XCTestCase {
         await m.refresh()
         XCTAssertTrue(m.state(p.id).isConnected, "\(m.state(p.id))")
         XCTAssertFalse(FileManager.default.fileExists(atPath: store.dir(p.id).appendingPathComponent(PT.mgmtSocketName).path))
+    }
+
+    // MARK: another VPN
+
+    /// Another app's OpenVPN with redirect-gateway: 0/1 and 128/1 via its utun.
+    let otherVPNRoutes = [
+        RoutingTable.Route(destination: "0.0.0.0", prefixLength: 0, interface: "en0"),
+        RoutingTable.Route(destination: "0.0.0.0", prefixLength: 1, interface: "utun9"),
+        RoutingTable.Route(destination: "128.0.0.0", prefixLength: 1, interface: "utun9"),
+    ]
+
+    func makeFullTunnel(_ name: String = "Acme") throws -> Profile {
+        let p = try makeOpenVPN(name)
+        try Data("client\nremote vpn.example.com 1194\nauth-user-pass\nredirect-gateway def1\n".utf8)
+            .write(to: store.ovpnURL(p.id))
+        return p
+    }
+
+    func testFullTunnelProfileRefusesToStartOverAnotherFullTunnel() async throws {
+        let p = try makeFullTunnel()
+        routeTable = otherVPNRoutes
+        let m = makeManager()
+        do {
+            try await m.connect(p.id)
+            XCTFail("connected over another VPN")
+        } catch {
+            XCTAssertEqual(error as? PTError, .otherVPNActive("utun9"))
+            XCTAssertEqual(error.localizedDescription,
+                           "Another VPN is already routing all traffic (utun9). Disconnect it first.")
+        }
+        XCTAssertTrue(helper.starts.isEmpty)
+        XCTAssertEqual(m.state(p.id), .disconnected)
+        XCTAssertNotNil(m.lastError[p.id])
+        XCTAssertFalse(ConnectionManager.isRetryable(PTError.otherVPNActive("utun9")))
+
+        try await m.connect(p.id, force: true)
+        XCTAssertTrue(m.state(p.id).isConnected)
+    }
+
+    func testRedirectPushedLastTimeCountsToo() async throws {
+        let p = try makeOpenVPN()                                  // no redirect-gateway in the config
+        routeTable = otherVPNRoutes
+        try Data("PUSH: Received control message: 'PUSH_REPLY,redirect-gateway def1,dhcp-option DNS 10.8.0.1'\n".utf8)
+            .write(to: store.logURL(p.id))
+        let m = makeManager()
+        do {
+            try await m.connect(p.id)
+            XCTFail("connected over another VPN")
+        } catch {
+            XCTAssertEqual(error as? PTError, .otherVPNActive("utun9"))
+        }
+    }
+
+    func testSplitTunnelAndOwnSessionsAreNotBlocked() async throws {
+        routeTable = otherVPNRoutes
+        let split = try makeOpenVPN("Split")
+        let m = makeManager()
+        try await m.connect(split.id)                              // does not redirect: fine next to it
+        XCTAssertTrue(m.state(split.id).isConnected)
+
+        // utun9 belongs to a PassTunnel session: not "another VPN".
+        try Data("2026-01-01 10:00:00 Opened utun device utun9\n".utf8).write(to: store.logURL(split.id))
+        let full = try makeFullTunnel("Full")
+        try await m.connect(full.id)
+        XCTAssertTrue(m.state(full.id).isConnected)
+    }
+
+    func testFailedDNSStepIsAnErrorAndStopsTheSession() async throws {
+        let p = try makeOpenVPN()
+        helper.startLog = """
+        2026-01-01 10:00:00 Opened utun device utun10
+        setting DNS failed, already redirecting to another tunnel
+        2026-01-01 10:00:01 WARNING: Failed running dns updown
+        2026-01-01 10:00:01 Initialization Sequence Completed
+
+        """
+        let m = makeManager()
+        do {
+            try await m.connect(p.id)
+            XCTFail("reported connected")
+        } catch {
+            XCTAssertEqual(error as? PTError, .setupFailed(reason: "setting DNS failed, already redirecting to another tunnel",
+                                                           log: VPNLog.tail(helper.startLog)))
+            XCTAssertFalse((error as? PTError)?.logTail.isEmpty ?? true)
+        }
+        XCTAssertEqual(helper.stops, [p.id])
+        XCTAssertEqual(m.state(p.id), .disconnected)
+        XCTAssertNotNil(m.lastError[p.id])
+    }
+
+    func testFailedAllTrafficRouteIsAnError() async throws {
+        let p = try makeOpenVPN()
+        helper.startLog = """
+        2026-01-01 10:00:00 /sbin/route add -net 0.0.0.0 10.8.0.1 128.0.0.0
+        route: writing to routing socket: File exists
+        add net 0.0.0.0: gateway 10.8.0.1: File exists
+
+        """
+        let m = makeManager()
+        do {
+            try await m.connect(p.id)
+            XCTFail("reported connected")
+        } catch {
+            XCTAssertEqual((error as? PTError).map { if case .setupFailed = $0 { return true }; return false }, true, "\(error)")
+        }
+        XCTAssertEqual(helper.stops, [p.id])
+    }
+
+    func testOtherFailedRouteLeavesAWarning() async throws {
+        let p = try makeOpenVPN()
+        helper.startLog = """
+        2026-01-01 10:00:00 /sbin/route add -net 203.0.113.5 192.168.1.1 255.255.255.255
+        add net 203.0.113.5: gateway 192.168.1.1: File exists
+
+        """
+        let m = makeManager()
+        try await m.connect(p.id)
+        XCTAssertTrue(m.state(p.id).isConnected)
+        XCTAssertEqual(m.warnings[p.id],
+                       "Connected, but part of the network setup failed: add net 203.0.113.5: gateway 192.168.1.1: File exists")
+        // Another process (the CLI after connecting elsewhere) sees the same.
+        let cli = ConnectionManager(store: store, helper: helper, clock: clock, routes: { [] })
+        await cli.refresh()
+        XCTAssertNotNil(cli.warnings[p.id])
+        try await m.disconnect(p.id)
+        XCTAssertNil(m.warnings[p.id])
     }
 
     // MARK: concurrent connects

@@ -279,6 +279,26 @@ the manager follows that session until it is up and never stops it on failure; t
 "Already connecting …; waiting for it…" and exits 0 once it is connected. `disconnect` returns whether
 anything was stopped (the helper's `stop` reply names the pid), so the CLI says "X is not connected." otherwise.
 
+Another VPN that already takes all traffic (e.g. another OpenVPN client with `redirect-gateway`) and a
+PassTunnel profile that does the same cannot run together: OpenVPN's route adds for `0/1` and `128/1` fail
+with "File exists", the DNS hook (`dns-updown`) refuses with "setting DNS failed, already redirecting to
+another tunnel", and — inherent to OpenVPN — on teardown it deletes `0/1` and `128/1` anyway (the
+`redirect-gateway def1` undo does not check whether its own adds succeeded), which breaks the other
+tunnel. Hence:
+- Before starting an OpenVPN profile that redirects the gateway (`OVPNAnalyzer.redirectsGateway`: a
+  local `redirect-gateway`; unknown → the last session's log shows it was pushed), `ConnectionManager`
+  reads the IPv4 routing table (`RoutingTable.ipv4Routes`, `sysctl NET_RT_DUMP`) and refuses with
+  `PTError.otherVPNActive("utunN")` when `default`, `0/1` or `128/1` (unscoped) goes through a VPN
+  interface (`utun`, `ppp`, `ipsec`, `tun`, `tap`) that is not one of PassTunnel's running sessions (their
+  interface comes from "Opened utun device …" / "Interface pppN is UP" in their logs).
+  `passtunnel connect --force` skips the check.
+- While connecting, the log is checked (`VPNLog.setupProblem`): a failed DNS hook or a failed route for
+  `0/1`, `128/1`, `default` (or the IPv6 equivalents) is `PTError.setupFailed` — the session is stopped
+  instead of being reported connected (with the caveat above about OpenVPN's teardown; the pre-connect
+  check is what keeps the other tunnel intact). Any other failed route leaves the session connected with
+  `ConnectionManager.warnings[id]` ("Connected, but part of the network setup failed: …"), shown as
+  "Setup incomplete" in the app and after the status in the CLI.
+
 ## Rules for all code
 
 - English identifiers, English comments (sparse). User-facing strings via `String(localized:)` with

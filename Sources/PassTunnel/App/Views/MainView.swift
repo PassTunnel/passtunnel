@@ -347,7 +347,7 @@ struct StatusLine: View {
                 Text(verbatim: "·").foregroundStyle(.tertiary)
                 statusText
             }
-            if kind == .error || kind == .dropped {
+            if kind == .error || kind == .dropped || model.warning(profile.id) != nil {
                 Button(String(localized: "Show log")) { model.showLog(profile) }
                     .buttonStyle(.link)
                     .controlSize(.small)
@@ -372,7 +372,9 @@ struct StatusLine: View {
         case .connected(let ip, let since):
             let duration = since.map { DurationFormat.since($0, now: model.now) }
             let base = duration.map { String(localized: "Connected \($0)") } ?? String(localized: "Connected")
-            let line = [kind == .degraded ? String(localized: "Not responding") : base, ip].filter { !$0.isEmpty }
+            let degraded = model.isUnreachable(profile.id) ? String(localized: "Not responding")
+                                                           : String(localized: "Setup incomplete")
+            let line = [kind == .degraded ? degraded : base, ip].filter { !$0.isEmpty }
             Text(line.joined(separator: " · ")).foregroundStyle(kind.tint)
         case .connecting(let detail):
             Text(detail.isEmpty ? String(localized: "Connecting…") : detail).foregroundStyle(kind.tint)
@@ -399,6 +401,7 @@ struct StatusLine: View {
             if let tail = model.errorLog(profile.id) { return "\(err)\n\n\(tail)" }
             return err
         }
+        if let warning = model.warning(profile.id) { return warning }
         if kind == .degraded {
             return String(localized: "Connected, but the health check host \(profile.healthHost) is not responding.")
         }

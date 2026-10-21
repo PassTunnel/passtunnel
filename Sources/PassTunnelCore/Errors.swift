@@ -30,6 +30,8 @@ public enum PTError: Error, Equatable, LocalizedError {
     case connectFailed(String)             // the VPN tool exited; log tail
     case connectTimeout(Int)               // seconds
     case connectCancelled
+    case otherVPNActive(String)            // interface of the VPN that already takes all traffic
+    case setupFailed(reason: String, log: String)   // DNS hook or all-traffic routes failed; log tail
 
     public var errorDescription: String? {
         switch self {
@@ -91,6 +93,10 @@ public enum PTError: Error, Equatable, LocalizedError {
             return String(localized: "The VPN did not connect within \(seconds) seconds.")
         case .connectCancelled:
             return String(localized: "The connection attempt was cancelled.")
+        case .otherVPNActive(let interface):
+            return String(localized: "Another VPN is already routing all traffic (\(interface)). Disconnect it first.")
+        case .setupFailed(let reason, _):
+            return String(localized: "The tunnel came up, but setting up the network failed, so it was disconnected: \(reason)")
         }
     }
 }
@@ -99,7 +105,7 @@ extension PTError {
     /// Log excerpt attached to connection failures (empty for other errors).
     public var logTail: String {
         switch self {
-        case .authFailed(let tail), .connectFailed(let tail): return tail
+        case .authFailed(let tail), .connectFailed(let tail), .setupFailed(_, let tail): return tail
         default: return ""
         }
     }

@@ -207,6 +207,8 @@ public final class ConnectionManager: ObservableObject {
     @Published public private(set) var reconnecting: [String: ReconnectInfo] = [:]
     /// Why the last helper `status` call failed (nil when it worked).
     @Published public private(set) var helperError: String?
+    /// Connected, but part of the tunnel set-up failed (e.g. a route OpenVPN could not add).
+    @Published public private(set) var warnings: [String: String] = [:]
 
     public let events = PassthroughSubject<ConnectionEvent, Never>()
 
@@ -217,6 +219,7 @@ public final class ConnectionManager: ObservableObject {
     private let clock: ConnectionClock
     private let healthProbe: HealthProbe
     private let preferences: () -> Preferences
+    private let routes: () -> [RoutingTable.Route]
 
     private var pollSeq = 0
     private var appliedSeq = 0
@@ -247,6 +250,7 @@ public final class ConnectionManager: ObservableObject {
                 clock: ConnectionClock = SystemClock(),
                 healthProbe: @escaping HealthProbe = ConnectionManager.defaultHealthProbe,
                 preferences: @escaping () -> Preferences = { Preferences.load() },
+                routes: @escaping () -> [RoutingTable.Route] = RoutingTable.ipv4Routes,
                 timing: Timing = Timing()) {
         self.store = store
         self.helper = helper
@@ -254,6 +258,7 @@ public final class ConnectionManager: ObservableObject {
         self.clock = clock
         self.healthProbe = healthProbe
         self.preferences = preferences
+        self.routes = routes
         self.timing = timing
     }
 
@@ -433,6 +438,7 @@ public final class ConnectionManager: ObservableObject {
                 // Connected by someone else (e.g. the CLI) or found running at launch.
                 sessionActive.insert(id)
                 userStopped.remove(id)
+                noteSetupProblems(p)
             }
             let start = connectedAt[id] ?? since ?? clock.now()
             connectedAt[id] = start
@@ -453,10 +459,11 @@ public final class ConnectionManager: ObservableObject {
     /// Returns once connected; cancels any pending automatic reconnect. A second call while a connect
     /// of this manager is in flight waits for that one; when another process (app ↔ CLI) is already
     /// starting the profile, its session is followed instead of starting a second one.
-    public func connect(_ id: String, given: [CredentialField: String] = [:]) async throws {
+    /// `force` skips the check for another VPN that already takes all traffic.
+    public func connect(_ id: String, given: [CredentialField: String] = [:], force: Bool = false) async throws {
         cancelReconnect(id)
         if let inFlight = connectTasks[id] { return try await inFlight.value }
-        let task = Task { try await self.performConnect(id, given: given) }
+        let task = Task { try await self.performConnect(id, given: given, force: force) }
         connectTasks[id] = task
         defer { if connectTasks[id] == task { connectTasks[id] = nil } }
         try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
@@ -502,7 +509,7 @@ public final class ConnectionManager: ObservableObject {
         if let firstError { throw firstError }
     }
 
-    private func performConnect(_ id: String, given: [CredentialField: String]) async throws {
+    private func performConnect(_ id: String, given: [CredentialField: String], force: Bool = false) async throws {
         guard !isBusy(id), !state(id).isConnected else { return }
         actionToken[id, default: 0] += 1
         let token = actionToken[id]!
@@ -515,14 +522,17 @@ public final class ConnectionManager: ObservableObject {
         setUserStoppedMarker(id, false)
         lastError[id] = nil
         lastErrorLog[id] = nil
+        warnings[id] = nil
         setState(id, .connecting(Phase.preparing))
 
         do {
             // Always the profile as stored now (the CLI may have changed it), never a cached copy.
             let p = try store.get(id)
-            if let session = await runningElsewhere(id) {
+            let status = await currentStatus()
+            if let session = session(id, in: status) {
                 return try await follow(p, token: token, session: session)
             }
+            if p.type == .openvpn && !force { try checkNoOtherFullTunnel(p, running: status?.running ?? [:]) }
             let creds = try resolveCredentials(p, given: given)
             // A helper left running from another app version would misplace or reject the session.
             try await helper.ensureCompatible()
@@ -556,7 +566,7 @@ public final class ConnectionManager: ObservableObject {
             let response = try await helper.perform(request, timeout: timing.helperTimeout)
             guard response.ok else {
                 // Another process started it in the meantime: the helper refuses a second session.
-                if let session = await runningElsewhere(id) {
+                if let session = session(id, in: await currentStatus()) {
                     return try await follow(p, token: token, session: session)
                 }
                 throw PTError.helperFailed(response.error ?? "")
@@ -576,6 +586,7 @@ public final class ConnectionManager: ObservableObject {
             sessionActive.insert(id)
             connectedAt[id] = since
             healthFailures[id] = 0
+            noteSetupProblems(p)
             if p.username.trimmingCharacters(in: .whitespaces).isEmpty, let u = creds.username, p.lastUsername != u {
                 // Only this field: the profile may have been edited (CLI, editor) while connecting.
                 _ = try? store.update(id) { $0.lastUsername = u }
@@ -591,14 +602,42 @@ public final class ConnectionManager: ObservableObject {
         }
     }
 
-    /// The management socket of `id` when the helper already runs it (started by another process,
-    /// or left from before), else nil.
-    private func runningElsewhere(_ id: String) async -> (socket: String, pid: Int32)? {
-        guard let r = try? await helper.perform(.status, timeout: timing.helperTimeout), r.ok,
-              let pid = r.running?[id] else { return nil }
-        let socket = r.mgmtSockets?[id] ?? socketPath(id)
+    /// The helper's `status` reply, nil when it failed.
+    private func currentStatus() async -> HelperResponse? {
+        guard let r = try? await helper.perform(.status, timeout: timing.helperTimeout), r.ok else { return nil }
+        return r
+    }
+
+    /// The management socket and pid of `id` when the helper already runs it (started by another
+    /// process, or left from before), else nil.
+    private func session(_ id: String, in status: HelperResponse?) -> (socket: String, pid: Int32)? {
+        guard let pid = status?.running?[id] else { return nil }
+        let socket = status?.mgmtSockets?[id] ?? socketPath(id)
         mgmtSockets[id] = socket
         return (socket, pid)
+    }
+
+    /// Refuses to start a profile that takes all traffic while another VPN (not one of ours) already
+    /// does: its routes would collide, and OpenVPN's teardown would then delete the other tunnel's.
+    /// Whether the profile redirects is read from its config, else from its last log (pushed option).
+    private func checkNoOtherFullTunnel(_ p: Profile, running: [String: Int32]) throws {
+        guard let config = try? String(contentsOf: store.ovpnURL(p.id), encoding: .utf8) else { return }
+        let redirects = OVPNAnalyzer.redirectsGateway(config)
+            ?? VPNLog.pushedRedirectGateway(VPNLog.readHead(store.logURL(p.id)))
+        guard redirects else { return }
+        let own = Set(running.keys.filter { $0 != p.id }.compactMap { VPNLog.tunnelInterface(VPNLog.readHead(store.logURL($0))) })
+        if let other = FullTunnelCheck.foreignFullTunnel(in: routes(), own: own) {
+            throw PTError.otherVPNActive(other)
+        }
+    }
+
+    /// Publishes a warning when the log shows a failed set-up step (see `VPNLog.setupProblem`).
+    private func noteSetupProblems(_ p: Profile) {
+        guard p.type == .openvpn, let problem = VPNLog.setupProblem(VPNLog.readHead(store.logURL(p.id), maxBytes: 256 * 1024)) else {
+            warnings[p.id] = nil
+            return
+        }
+        warnings[p.id] = String(localized: "Connected, but part of the network setup failed: \(problem.reason)")
     }
 
     /// Waits for a session this manager did not start to come up. Failures are reported but the
@@ -728,11 +767,16 @@ public final class ConnectionManager: ObservableObject {
                 if owned { await stopQuietly(id) }
                 throw PTError.connectFailed(VPNLog.tail(log))
             }
+            try await checkSetup(p, log: log, owned: owned)
             switch p.type {
             case .openvpn:
                 if let s = await managementState(id, socketPath: socketPath, pid: pid) {
                     try checkToken(id, token)
-                    if s.isConnected { return (s.localIP.isEmpty ? s.localIPv6 : s.localIP, s.since) }
+                    if s.isConnected {
+                        // Routes and DNS are set up before CONNECTED: their errors are in the log by now.
+                        try await checkSetup(p, log: VPNLog.read(logURL), owned: owned)
+                        return (s.localIP.isEmpty ? s.localIPv6 : s.localIP, s.since)
+                    }
                     if s.name == "RECONNECTING" && s.detail.lowercased().contains("auth") {
                         if owned { await stopQuietly(id) }
                         throw PTError.authFailed(VPNLog.tail(VPNLog.read(logURL)))
@@ -762,6 +806,14 @@ public final class ConnectionManager: ObservableObject {
             }
             do { try await clock.sleep(timing.connectCheckInterval) } catch { throw PTError.connectCancelled }
         }
+    }
+
+    /// An OpenVPN session whose DNS hook or all-traffic routes failed is unusable (another VPN is in
+    /// the way): stop it (when ours) and fail instead of reporting it connected.
+    private func checkSetup(_ p: Profile, log: String, owned: Bool) async throws {
+        guard p.type == .openvpn, let problem = VPNLog.setupProblem(log), problem.allTraffic else { return }
+        if owned { await stopQuietly(p.id) }
+        throw PTError.setupFailed(reason: problem.reason, log: VPNLog.tail(log))
     }
 
     private func checkToken(_ id: String, _ token: Int) throws {
@@ -847,7 +899,7 @@ public final class ConnectionManager: ObservableObject {
     static func isRetryable(_ error: Error) -> Bool {
         switch error as? PTError {
         case .authFailed, .missingPassword, .missingTOTPSecret, .missingCredential, .missingConfig,
-             .missingHost, .invalidSecret, .profileNotFound:
+             .missingHost, .invalidSecret, .profileNotFound, .otherVPNActive, .setupFailed:
             return false
         default:
             return true
@@ -959,6 +1011,7 @@ public final class ConnectionManager: ObservableObject {
 
     private func endSession(_ id: String) {
         connectedAt[id] = nil
+        warnings[id] = nil
         sessionWarned[id] = nil
         health[id] = nil
         healthFailures[id] = nil

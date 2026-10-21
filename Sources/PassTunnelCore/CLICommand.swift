@@ -19,7 +19,7 @@ public enum CLICommand: Equatable {
     public enum Shell: String, CaseIterable { case zsh, bash, fish }
 
     case status(id: String?, json: Bool)
-    case connect(id: String?)
+    case connect(id: String?, force: Bool = false)   // force: even if another VPN takes all traffic
     case disconnect(id: String?, all: Bool)
     case toggle(id: String?)
     case code(id: String?, copy: Bool, json: Bool)
@@ -114,9 +114,10 @@ public enum CLICommand: Equatable {
             try a.finish()
             return .status(id: id, json: json)
         case "connect", "toggle":
+            let force = name == "connect" && a.flag("--force", "-f")
             let id = try a.optionalPositional()
             try a.finish()
-            return name == "connect" ? .connect(id: id) : .toggle(id: id)
+            return name == "connect" ? .connect(id: id, force: force) : .toggle(id: id)
         case "disconnect":
             let all = a.flag("--all", "-a")
             let id = try a.optionalPositional()

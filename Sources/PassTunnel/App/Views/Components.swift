@@ -18,7 +18,7 @@ enum StatusKind: Equatable {
 extension AppModel {
     func statusKind(_ p: Profile) -> StatusKind {
         switch state(p.id) {
-        case .connected: return isUnreachable(p.id) ? .degraded : .connected
+        case .connected: return isUnreachable(p.id) || warning(p.id) != nil ? .degraded : .connected
         case .connecting: return .connecting
         case .disconnected:
             if reconnectInfo(p.id) != nil { return .connecting }

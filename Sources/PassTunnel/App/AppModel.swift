@@ -245,6 +245,12 @@ final class AppModel: ObservableObject {
         return connections.lastError[id]
     }
 
+    /// Connected, but part of the tunnel set-up failed.
+    func warning(_ id: String) -> String? {
+        if previewStates != nil { return nil }
+        return connections.warnings[id]
+    }
+
     func isUnreachable(_ id: String) -> Bool {
         if previewStates != nil { return previewUnreachable.contains(id) }
         return connections.health[id] == .unreachable

@@ -55,7 +55,7 @@ final class CLIRunner {
     private func execute(_ command: CLICommand) async throws -> Int32 {
         switch command {
         case let .status(id, json): return try await status(id, json: json)
-        case let .connect(id): return try await connect(id)
+        case let .connect(id, force): return try await connect(id, force: force)
         case let .disconnect(id, all): return try await disconnect(id, all: all)
         case let .toggle(id): return try await toggle(id)
         case let .code(id, copy, json): return try code(id, copy: copy, json: json)
@@ -112,6 +112,7 @@ final class CLIRunner {
         var isDefault: Bool
         var health: String?
         var error: String?
+        var warning: String?
     }
 
     private func statusJSON(_ p: Profile) -> StatusJSON {
@@ -121,7 +122,8 @@ final class CLIRunner {
         switch m.state(p.id) {
         case .disconnected: break
         case .connecting(let phase): s.state = "connecting"; s.phase = phase
-        case let .connected(ip, since): s.state = "connected"; s.ip = ip; s.since = since
+        case let .connected(ip, since):
+            s.state = "connected"; s.ip = ip; s.since = since; s.warning = m.warnings[p.id]
         }
         return s
     }
@@ -163,6 +165,7 @@ final class CLIRunner {
                 text = String(localized: "connected")
                 if !ip.isEmpty { text += "  " + ip }
                 if let since { text += "  " + CLIDurations.since(since) }
+                if let warning = manager.warnings[p.id] { text += "  " + CLITerminal.colored(warning, palette.color(.connecting)) }
             }
             if let error = manager.lastError[p.id], tone == .disconnected { text += "  " + error }
             let mark = p.id == def ? "*" : " "
@@ -174,7 +177,7 @@ final class CLIRunner {
 
     // MARK: connect / disconnect
 
-    private func connect(_ id: String?) async throws -> Int32 {
+    private func connect(_ id: String?, force: Bool = false) async throws -> Int32 {
         let p = try resolve(id)
         await manager.refresh()
         if manager.state(p.id).isConnected {
@@ -187,11 +190,18 @@ final class CLIRunner {
             return Exit.ok
         }
         let given = try askForNeeds(p)
-        try await connectShowingProgress(p, given: given)
+        do {
+            try await connectShowingProgress(p, given: given, force: force)
+        } catch PTError.otherVPNActive(let other) {
+            CLITerminal.fail(PTError.otherVPNActive(other).localizedDescription)
+            CLITerminal.err(CLITerminal.dim(String(localized: "Use --force to connect anyway.")))
+            return Exit.error
+        }
         return Exit.ok
     }
 
-    private func connectShowingProgress(_ p: Profile, given: [CredentialField: String], joining: Bool = false) async throws {
+    private func connectShowingProgress(_ p: Profile, given: [CredentialField: String], joining: Bool = false,
+                                        force: Bool = false) async throws {
         CLITerminal.err(joining ? String(localized: "Already connecting \(p.name); waiting for it…")
                                 : String(localized: "Connecting \(p.name)…"))
         var lastPhase = ""
@@ -221,10 +231,11 @@ final class CLIRunner {
             signal(SIGINT, SIG_DFL)
             bag.removeAll()
         }
-        try await manager.connect(p.id, given: given)
+        try await manager.connect(p.id, given: given, force: force)
         if case let .connected(ip, _) = manager.state(p.id) {
             CLITerminal.out(ip.isEmpty ? String(localized: "Connected: \(p.name)")
                                     : String(localized: "Connected: \(p.name) (\(ip))"))
+            if let warning = manager.warnings[p.id] { CLITerminal.err(warning) }
         }
     }
 

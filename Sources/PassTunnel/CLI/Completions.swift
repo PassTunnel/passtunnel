@@ -40,7 +40,7 @@ enum CLICompletions {
               elif [[ $cmd == set ]]; then
                 _values -S = 'key' \(ProfileFields.keys.joined(separator: " "))
               else
-                _arguments '--json' '--all' '--copy' '--follow' '--yes'
+                _arguments '--json' '--all' '--copy' '--follow' '--yes' '--force'
               fi
               ;;
             import) _files ;;
@@ -76,7 +76,7 @@ enum CLICompletions {
                 compopt -o nospace 2>/dev/null
                 COMPREPLY=($(compgen -S = -W "\(ProfileFields.keys.joined(separator: " "))" -- "$cur"))
               else
-                COMPREPLY=($(compgen -W "--json --all --copy --follow --yes" -- "$cur"))
+                COMPREPLY=($(compgen -W "--json --all --copy --follow --yes --force" -- "$cur"))
               fi
               ;;
             import) COMPREPLY=($(compgen -f -- "$cur")) ;;
@@ -107,7 +107,7 @@ enum CLICompletions {
             "complete -c passtunnel -n '__fish_seen_subcommand_from help' -a '\(commands)'",
         ]
         for (flag, cmds) in [("json", "status code list show"), ("all", "disconnect"), ("copy", "code"),
-                             ("follow", "log"), ("yes", "rm"), ("name", "import"), ("output", "export")] {
+                             ("follow", "log"), ("yes", "rm"), ("force", "connect"), ("name", "import"), ("output", "export")] {
             lines.append("complete -c passtunnel -n '__fish_seen_subcommand_from \(cmds)' -l \(flag)")
         }
         return lines.joined(separator: "\n") + "\n"

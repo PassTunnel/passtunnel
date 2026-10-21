@@ -5408,6 +5408,56 @@
           }
         }
       }
+    },
+    "Another VPN is already routing all traffic (%@). Disconnect it first." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Başka bir VPN zaten tüm trafiği yönlendiriyor (%@). Önce onun bağlantısını kesin."
+          }
+        }
+      }
+    },
+    "The tunnel came up, but setting up the network failed, so it was disconnected: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tünel açıldı ancak ağ ayarları yapılamadığı için bağlantı kesildi: %@"
+          }
+        }
+      }
+    },
+    "Connected, but part of the network setup failed: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlandı, ancak ağ ayarlarının bir kısmı yapılamadı: %@"
+          }
+        }
+      }
+    },
+    "Use --force to connect anyway." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yine de bağlanmak için --force kullanın."
+          }
+        }
+      }
+    },
+    "Setup incomplete" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kurulum eksik"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"
