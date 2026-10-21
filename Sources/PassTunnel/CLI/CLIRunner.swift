@@ -189,8 +189,10 @@ final class CLIRunner {
             try await connectShowingProgress(p, given: [:], joining: true)
             return Exit.ok
         }
-        let given = try askForNeeds(p)
         do {
+            // Before "Connecting …" and before asking for credentials.
+            if !force { try await manager.checkCanStart(p.id) }
+            let given = try askForNeeds(p)
             try await connectShowingProgress(p, given: given, force: force)
         } catch PTError.otherVPNActive(let other) {
             CLITerminal.fail(PTError.otherVPNActive(other).localizedDescription)
@@ -204,13 +206,20 @@ final class CLIRunner {
                                         force: Bool = false) async throws {
         CLITerminal.err(joining ? String(localized: "Already connecting \(p.name); waiting for it…")
                                 : String(localized: "Connecting \(p.name)…"))
-        var lastPhase = ""
+        var progress = ConnectionManager.PhaseProgress()
+        let isTTY = CLITerminal.stderrIsTTY
         manager.$states
             .compactMap { $0[p.id] }
-            .sink { state in
-                guard CLITerminal.stderrIsTTY, case .connecting(let phase) = state, phase != lastPhase else { return }
-                lastPhase = phase
-                CLITerminal.err(CLITerminal.dim("  " + phase))
+            .sink { [weak self] state in
+                guard case .connecting(let phase) = state, progress.shouldPrint(phase) else { return }
+                if isTTY {
+                    CLITerminal.err(CLITerminal.dim("  " + phase))
+                } else if phase == ConnectionManager.Phase.waitingForCode {
+                    // Without a terminal only this one: otherwise the wait (up to a code window) is silent.
+                    let until = self?.manager.codeWaitUntil[p.id] ?? Date()
+                    let seconds = max(1, Int(until.timeIntervalSinceNow.rounded(.up)))
+                    CLITerminal.err(String(localized: "Waiting for a fresh code (\(seconds) s)…"))
+                }
             }
             .store(in: &bag)
         // Ctrl-C while connecting stops the half-started connection (only stops waiting when joining).

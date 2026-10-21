@@ -156,6 +156,12 @@ passtunnel completion zsh|bash|fish
 ```
 Exit codes: 0 ok, 1 error, 2 usage, 3 not connected (status of a single profile).
 
+`connect` runs the other-VPN check (`ConnectionManager.checkCanStart`) before it prints
+"Connecting …" or asks for credentials. On a terminal it prints each connecting phase once and only
+forward (`ConnectionManager.PhaseProgress`: a session followed from another process is polled, so its
+phases can arrive out of order); without one it prints only "Waiting for a fresh code (N s)…"
+(`ConnectionManager.codeWaitUntil`).
+
 `helper install|uninstall` are carried out by the app: SMAppService refuses registrations from a
 process started in Terminal ("Operation not permitted"), so the CLI never calls it. It posts
 `HelperHandoff.notification` to a running app, or opens its own app bundle with `--install-helper` /

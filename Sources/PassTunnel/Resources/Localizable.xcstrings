@@ -317,6 +317,16 @@
         }
       }
     },
+    "Waiting for a fresh code (%lld s)…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni kod bekleniyor (%lld sn)…"
+          }
+        }
+      }
+    },
     "Working…" : {
       "localizations" : {
         "tr" : {

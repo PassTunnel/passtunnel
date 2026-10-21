@@ -514,6 +514,30 @@ final class ConnectionManagerTests: XCTestCase {
         XCTAssertTrue(seen.contains(.connecting(ConnectionManager.Phase.waitingForCode)))
     }
 
+    func testCodeWaitEndIsPublishedDuringTheWait() async throws {
+        let p = try makeOpenVPN(otp: .totp)
+        clock = FakeClock(t0.addingTimeInterval(7))
+        let m = makeManager()
+        var waits: [Date] = []
+        m.$states.compactMap { $0[p.id] }.sink { state in
+            if state == .connecting(ConnectionManager.Phase.waitingForCode), let until = m.codeWaitUntil[p.id] {
+                waits.append(until)
+            }
+        }.store(in: &bag)
+        try await m.connect(p.id)
+        XCTAssertEqual(waits.count, 1)
+        XCTAssertEqual(waits.first?.timeIntervalSince(t0.addingTimeInterval(7)) ?? 0, 3.25, accuracy: 0.01)
+        XCTAssertNil(m.codeWaitUntil[p.id])
+    }
+
+    func testPhasesOnlyMoveForward() {
+        typealias P = ConnectionManager.Phase
+        var progress = ConnectionManager.PhaseProgress()
+        let seen = [P.preparing, P.starting, P.configuring, P.preparing, P.configuring, P.signingIn, P.reconnecting,
+                    P.reconnecting, P.connecting].filter { progress.shouldPrint($0) }
+        XCTAssertEqual(seen, [P.preparing, P.starting, P.configuring, P.reconnecting])
+    }
+
     func testDisconnectReportsWhetherAnythingWasRunning() async throws {
         let p = try makeOpenVPN()
         let m = makeManager()
@@ -726,6 +750,26 @@ final class ConnectionManagerTests: XCTestCase {
 
         try await m.connect(p.id, force: true)
         XCTAssertTrue(m.state(p.id).isConnected)
+    }
+
+    func testCheckCanStartRefusesBeforeAnythingStarts() async throws {
+        let p = try makeFullTunnel()
+        routeTable = otherVPNRoutes
+        let m = makeManager()
+        do {
+            try await m.checkCanStart(p.id)
+            XCTFail("allowed over another VPN")
+        } catch {
+            XCTAssertEqual(error as? PTError, .otherVPNActive("utun9"))
+        }
+        XCTAssertEqual(m.state(p.id), .disconnected)
+        XCTAssertTrue(helper.starts.isEmpty)
+        routeTable = []
+        try await m.checkCanStart(p.id)
+        // Already running (started elsewhere): connect follows that session, nothing to check.
+        routeTable = otherVPNRoutes
+        helper.simulateExternalStart(p.id, profileDir: store.dir(p.id).path, since: t0)
+        try await m.checkCanStart(p.id)
     }
 
     func testRedirectPushedLastTimeCountsToo() async throws {

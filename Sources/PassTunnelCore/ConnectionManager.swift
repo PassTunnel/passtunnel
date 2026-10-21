@@ -151,6 +151,29 @@ public final class ConnectionManager: ObservableObject {
         public static var reconnecting: String { String(localized: "Reconnecting…") }
     }
 
+    /// Filters connecting phases for display so they only move forward: a session followed from
+    /// another process is polled, and its phases can be seen out of order (Configuring… → Preparing…).
+    /// Phases outside the usual order (Reconnecting…) are shown whenever they change.
+    public struct PhaseProgress {
+        static var order: [String] {
+            [Phase.preparing, Phase.waitingForCode, Phase.starting, Phase.connecting, Phase.signingIn, Phase.configuring]
+        }
+        private var last = ""
+        private var rank = -1
+
+        public init() {}
+
+        public mutating func shouldPrint(_ phase: String) -> Bool {
+            guard phase != last else { return false }
+            if let r = Self.order.firstIndex(of: phase) {
+                guard r > rank else { return false }
+                rank = r
+            }
+            last = phase
+            return true
+        }
+    }
+
     static let userStoppedMarker = ".user-stopped"
     /// TOTP window whose code was last sent (`UsedOTPWindow`), shared by the app and the CLI.
     static let usedOTPFile = ".last-otp"
@@ -209,6 +232,8 @@ public final class ConnectionManager: ObservableObject {
     @Published public private(set) var helperError: String?
     /// Connected, but part of the tunnel set-up failed (e.g. a route OpenVPN could not add).
     @Published public private(set) var warnings: [String: String] = [:]
+    /// While a connect waits for a fresh TOTP code: when that wait ends.
+    @Published public private(set) var codeWaitUntil: [String: Date] = [:]
 
     public let events = PassthroughSubject<ConnectionEvent, Never>()
 
@@ -619,6 +644,17 @@ public final class ConnectionManager: ObservableObject {
         return (socket, pid)
     }
 
+    /// The check `connect` runs before starting `id` (without `force`), on its own, so a caller can
+    /// report a refusal before it says it is connecting. Nothing to check when the helper already runs
+    /// the profile (`connect` then follows that session).
+    public func checkCanStart(_ id: String) async throws {
+        let p = try store.get(id)
+        guard p.type == .openvpn else { return }
+        let status = await currentStatus()
+        guard status?.running?[id] == nil else { return }
+        try checkNoOtherFullTunnel(p, running: status?.running ?? [:])
+    }
+
     /// Refuses to start a profile that takes all traffic while another VPN (not one of ours) already
     /// does: its routes would collide, and OpenVPN's teardown would then delete the other tunnel's.
     /// Whether the profile redirects is read from its config, else from its last log (pushed option).
@@ -717,8 +753,11 @@ public final class ConnectionManager: ObservableObject {
         let left = period - (now.timeIntervalSince1970 - Double(TOTP.counter(params: p.totp, at: now)) * period)
         let reused = usedCode(p.id) == UsedOTPWindow(counter: TOTP.counter(params: p.totp, at: now), period: Int(period))
         guard reused || (period > timing.minCodeSeconds && left < timing.minCodeSeconds) else { return }
+        let wait = max(0, left) + 0.25
+        codeWaitUntil[p.id] = now.addingTimeInterval(wait)
+        defer { codeWaitUntil[p.id] = nil }
         setState(p.id, .connecting(Phase.waitingForCode))
-        try await waitCancellably(p.id, max(0, left) + 0.25)
+        try await waitCancellably(p.id, wait)
         try checkToken(p.id, token)
     }
 
