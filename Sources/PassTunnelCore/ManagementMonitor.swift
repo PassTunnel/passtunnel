@@ -8,6 +8,7 @@ import Foundation
 public final class PersistentManagementQuerier: ManagementQuerying, @unchecked Sendable {
     private let lock = NSLock()
     private var sessions: [String: Session] = [:]       // by socket path
+    private var opening: [String: Task<Session, Error>] = [:]   // one open at a time per socket
     /// Wait for the banner when opening (OpenVPN sends it at once unless another client is served).
     var bannerTimeout: TimeInterval = 1
 
@@ -20,20 +21,34 @@ public final class PersistentManagementQuerier: ManagementQuerying, @unchecked S
         guard FileManager.default.fileExists(atPath: socketPath) else {
             throw ManagementError.connectFailed(socketPath, ENOENT)
         }
-        let bannerTimeout = self.bannerTimeout
-        let session = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Session, Error>) in
-            DispatchQueue.global(qos: .userInitiated).async {
-                cont.resume(with: Result { try Session.open(socketPath, bannerTimeout: bannerTimeout, timeout: timeout) })
-            }
-        }
-        let replaced = lock.withLock { () -> Session? in
-            let old = sessions[socketPath]
-            sessions[socketPath] = session
-            return old
-        }
-        replaced?.close()
+        let session = try await openSession(socketPath, timeout: timeout).value
         guard let state = session.latest else { throw ManagementError.closed }
         return state
+    }
+
+    /// The open in progress for `path`, or a new one (a second one would only wait in OpenVPN's backlog).
+    private func openSession(_ path: String, timeout: TimeInterval) -> Task<Session, Error> {
+        lock.withLock {
+            if let pending = opening[path] { return pending }
+            let bannerTimeout = self.bannerTimeout
+            let task = Task<Session, Error> { [weak self] in
+                defer { self?.lock.withLock { self?.opening[path] = nil } }
+                let session = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Session, Error>) in
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        cont.resume(with: Result { try Session.open(path, bannerTimeout: bannerTimeout, timeout: timeout) })
+                    }
+                }
+                let replaced = self?.lock.withLock { () -> Session? in
+                    let old = self?.sessions[path]
+                    self?.sessions[path] = session
+                    return old
+                }
+                replaced?.close()
+                return session
+            }
+            opening[path] = task
+            return task
+        }
     }
 
     /// Closes the connection to `socketPath` (e.g. the profile went away).

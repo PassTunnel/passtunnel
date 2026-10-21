@@ -379,6 +379,8 @@ public final class ConnectionManager: ObservableObject {
     /// OpenVPN's state from its management socket, or, while another process holds the interface (the
     /// app keeps a connection open), the state that process shares for the same OpenVPN `pid`.
     private func managementState(_ id: String, socketPath: String, pid: Int32?) async -> ManagementState? {
+        // A live holder keeps the interface busy anyway: don't wait for the busy timeout.
+        if !management.sharesState, let pid, let shared = sharedState(id, pid: pid) { return shared }
         do {
             let s = try await management.state(socketPath: socketPath, timeout: 2)
             if management.sharesState, let pid { share(id, SharedState(pid: pid, writer: getpid(), s)) }

@@ -128,8 +128,12 @@ final class StubQuerier: ManagementQuerying, @unchecked Sendable {
         self.result = result
         self.shares = shares
     }
+    private(set) var calls = 0
     var sharesState: Bool { shares }
-    func state(socketPath: String, timeout: TimeInterval) async throws -> ManagementState { try result.get() }
+    func state(socketPath: String, timeout: TimeInterval) async throws -> ManagementState {
+        calls += 1
+        return try result.get()
+    }
 }
 
 @MainActor
@@ -175,7 +179,8 @@ final class SharedStateTests: XCTestCase {
         helper.openVPNStateLine = nil
         helper.simulateExternalStart(p.id, profileDir: store.dir(p.id).path, since: since)
         let app = manager(StubQuerier(.success(connected), shares: true))
-        let cli = manager(StubQuerier(.failure(ManagementError.busy), shares: false))
+        let cliQuerier = StubQuerier(.failure(ManagementError.busy), shares: false)
+        let cli = manager(cliQuerier)
 
         await cli.refresh()
         XCTAssertEqual(cli.state(p.id), .connecting(ConnectionManager.Phase.starting), "nothing shared yet")
@@ -184,8 +189,10 @@ final class SharedStateTests: XCTestCase {
         let url = store.dir(p.id).appendingPathComponent(ConnectionManager.sharedStateFile)
         XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
         XCTAssertFalse(ProfilesWatcher.isRelevant(path: url.path))
+        let queried = cliQuerier.calls
         await cli.refresh()
         XCTAssertEqual(cli.state(p.id), .connected(ip: "10.8.0.6", since: since))
+        XCTAssertEqual(cliQuerier.calls, queried, "a live holder's state is used without waiting for the busy socket")
 
         // Unchanged state: no rewrite on every poll.
         let written = try FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date
@@ -217,5 +224,33 @@ final class SharedStateTests: XCTestCase {
         child.waitUntilExit()
         try JSONCoding.write(ConnectionManager.SharedState(pid: 4242, writer: child.processIdentifier, connected), to: url)
         XCTAssertNil(cli.sharedState(p.id, pid: 4242), "writer gone")
+    }
+}
+
+extension PersistentManagementQuerierTests {
+    /// Two callers at once (a poll and a connect) share one open instead of queueing a second client.
+    func testConcurrentQueriesOpenOnce() async throws {
+        var accepted = 0
+        let server = FakeManagementServer(path: sock, handlers: [
+            { fd in
+                accepted += 1
+                Self.open(fd, state: Self.connected)
+                var b: UInt8 = 0
+                while read(fd, &b, 1) == 1 {}
+            },
+            { _ in accepted += 1 },
+        ])
+        waitForSocket()
+        let q = PersistentManagementQuerier()
+        async let a = q.state(socketPath: sock, timeout: 2)
+        async let b = q.state(socketPath: sock, timeout: 2)
+        let (x, y) = try await (a, b)
+        XCTAssertEqual(x, y)
+        XCTAssertEqual(accepted, 1)
+        q.releaseAll()
+        // Let the server finish: the second handler only runs if someone connects again.
+        let close = ManagementSocket(path: sock)
+        _ = try? close.command("state", timeout: 0.5)
+        server.wait()
     }
 }
