@@ -4,18 +4,26 @@
 //   swift scripts/make-icon.swift                      # writes Resources/AppIcon.icns
 //   swift scripts/make-icon.swift --iconset DIR        # also keeps the .iconset PNGs in DIR
 //   swift scripts/make-icon.swift --icns PATH          # different output file
+//   swift scripts/make-icon.swift --preview DIR        # only writes PNG previews (16…1024 px) to DIR
 //
-// Artwork: a macOS-style squircle with a deep teal → blue gradient, a white shield-and-lock
-// (the tunnel) and a code badge cut out of it (the one-time code). Small sizes get a simplified
-// badge (dots instead of digits) so the icon stays legible at 16 px.
+// Artwork: flat, solid fills only (no gradients, highlights or shadows). A blue squircle with a white
+// shield, a lock knocked out of it, and an amber one-time-code pill across its base. Small sizes are
+// simplified so the icon stays legible: dots instead of digits at 32–64 px, and at 16 px the plain
+// shield with an amber code bar.
 import AppKit
 
 let canvas: CGFloat = 1024
 
-struct Palette {
-    static let top = NSColor(srgbRed: 0.06, green: 0.62, blue: 0.62, alpha: 1)      // deep teal
-    static let bottom = NSColor(srgbRed: 0.11, green: 0.29, blue: 0.80, alpha: 1)   // blue
-    static let glyphShadow = NSColor(srgbRed: 0.02, green: 0.12, blue: 0.35, alpha: 0.35)
+func rgb(_ hex: UInt32) -> CGColor {
+    CGColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255,
+            blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
+}
+
+enum Palette {
+    static let tile = rgb(0x2563EB)     // blue
+    static let shield = rgb(0xFFFFFF)
+    static let code = rgb(0xFFB224)     // amber
+    static let digits = rgb(0x0B1636)   // ink
 }
 
 /// Rounded rectangle with continuous ("squircle") corners, close to the macOS app icon shape.
@@ -49,137 +57,111 @@ func squircle(in rect: CGRect, radius: CGFloat) -> CGPath {
     return path
 }
 
-/// A white SF Symbol (monochrome, so cut-outs such as the lock in "lock.shield.fill" stay transparent).
-func symbol(_ name: String, pointSize: CGFloat, weight: NSFont.Weight) -> NSImage {
-    let config = NSImage.SymbolConfiguration(pointSize: pointSize, weight: weight)
-    guard let template = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
-        .withSymbolConfiguration(config) else {
-        fatalError("SF Symbol \(name) is not available on this system")
-    }
-    return NSImage(size: template.size, flipped: false) { rect in
-        template.draw(in: rect)
-        NSColor.white.set()
-        rect.fill(using: .sourceAtop)
-        return true
-    }
+/// Shield centred on x = 0: gently domed top, straight sides, curving to a point at `bottom`.
+func shieldPath(width w: CGFloat, top: CGFloat, bottom: CGFloat) -> CGPath {
+    let h = top - bottom
+    let r = w / 2
+    let p = CGMutablePath()
+    p.move(to: CGPoint(x: 0, y: top))
+    p.addCurve(to: CGPoint(x: r, y: top - h * 0.10),
+               control1: CGPoint(x: r * 0.45, y: top), control2: CGPoint(x: r * 0.80, y: top - h * 0.04))
+    p.addLine(to: CGPoint(x: r, y: top - h * 0.40))
+    p.addCurve(to: CGPoint(x: 0, y: bottom),
+               control1: CGPoint(x: r, y: top - h * 0.78), control2: CGPoint(x: r * 0.42, y: bottom + h * 0.06))
+    p.addCurve(to: CGPoint(x: -r, y: top - h * 0.40),
+               control1: CGPoint(x: -r * 0.42, y: bottom + h * 0.06), control2: CGPoint(x: -r, y: top - h * 0.78))
+    p.addLine(to: CGPoint(x: -r, y: top - h * 0.10))
+    p.addCurve(to: CGPoint(x: 0, y: top),
+               control1: CGPoint(x: -r * 0.80, y: top - h * 0.04), control2: CGPoint(x: -r * 0.45, y: top))
+    p.closeSubpath()
+    return p
+}
+
+func fill(_ ctx: CGContext, _ path: CGPath, _ color: CGColor) {
+    ctx.addPath(path)
+    ctx.setFillColor(color)
+    ctx.fillPath()
+}
+
+func capsule(_ rect: CGRect) -> CGPath {
+    let r = min(rect.width, rect.height) / 2
+    return CGPath(roundedRect: rect, cornerWidth: r, cornerHeight: r, transform: nil)
+}
+
+func drawDigits(_ string: String, in ctx: CGContext, center: CGPoint, size: CGFloat, color: CGColor) {
+    let base = NSFont.systemFont(ofSize: size, weight: .heavy)
+    let font = base.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: size) } ?? base
+    let text = NSAttributedString(string: string, attributes: [
+        .font: font, .foregroundColor: NSColor(cgColor: color) ?? .black, .kern: size * 0.06,
+    ])
+    let line = CTLineCreateWithAttributedString(text)
+    ctx.textPosition = .zero
+    let box = CTLineGetImageBounds(line, ctx)
+    ctx.textPosition = CGPoint(x: center.x - box.midX, y: center.y - box.midY)
+    CTLineDraw(line, ctx)
 }
 
 /// Draws the icon into the current context, in a 1024 × 1024 coordinate space.
-/// `pixels` is the final pixel size (used to scale shadows and pick the small-size badge).
+/// `pixels` is the final pixel size, used to pick the small-size simplifications.
 func drawIcon(in ctx: CGContext, pixels: Int) {
-    let s = CGFloat(pixels) / canvas
     let small = pixels <= 64
-    // Small sizes use more of the canvas, as Apple's own small icons do.
+    let tiny = pixels <= 16
+
+    // Tile: the standard 824 px body; small sizes use more of the canvas, as Apple's own small icons do.
     let inset: CGFloat = small ? 64 : 100
     let body = CGRect(x: inset, y: inset, width: canvas - 2 * inset, height: canvas - 2 * inset)
-    let shape = squircle(in: body, radius: body.width * 0.225)
-
-    // Drop shadow under the tile.
-    ctx.saveGState()
-    ctx.setShadow(offset: CGSize(width: 0, height: -10 * s), blur: 26 * s,
-                  color: NSColor(white: 0, alpha: small ? 0.22 : 0.32).cgColor)
-    ctx.addPath(shape)
-    ctx.setFillColor(Palette.bottom.cgColor)
-    ctx.fillPath()
-    ctx.restoreGState()
-
-    // Gradient body.
-    ctx.saveGState()
-    ctx.addPath(shape)
+    let tile = squircle(in: body, radius: body.width * 0.225)
+    fill(ctx, tile, Palette.tile)
+    ctx.addPath(tile)
     ctx.clip()
-    let space = CGColorSpace(name: CGColorSpace.sRGB)!
-    let gradient = CGGradient(colorsSpace: space, colors: [Palette.top.cgColor, Palette.bottom.cgColor] as CFArray,
-                              locations: [0, 1])!
-    ctx.drawLinearGradient(gradient, start: CGPoint(x: 0, y: body.maxY), end: CGPoint(x: 0, y: body.minY), options: [])
 
-    // Soft highlight across the top.
-    let highlight = CGGradient(colorsSpace: space,
-                               colors: [NSColor(white: 1, alpha: 0.26).cgColor, NSColor(white: 1, alpha: 0).cgColor] as CFArray,
-                               locations: [0, 1])!
-    ctx.drawRadialGradient(highlight,
-                           startCenter: CGPoint(x: body.midX, y: body.maxY + body.height * 0.15), startRadius: 0,
-                           endCenter: CGPoint(x: body.midX, y: body.maxY + body.height * 0.15), endRadius: body.height * 0.85,
-                           options: [])
-    // Slight darkening at the bottom for depth.
-    let shade = CGGradient(colorsSpace: space,
-                           colors: [NSColor(white: 0, alpha: 0).cgColor, NSColor(white: 0, alpha: 0.12).cgColor] as CFArray,
-                           locations: [0, 1])!
-    ctx.drawLinearGradient(shade, start: CGPoint(x: 0, y: body.midY), end: CGPoint(x: 0, y: body.minY), options: [])
-    ctx.restoreGState()
+    // Glyph space: origin at the tile centre, the tile spans -412…412; small sizes enlarge the glyph a bit.
+    ctx.translateBy(x: canvas / 2, y: canvas / 2)
+    let scale = body.width / 824 * (small ? 1.1 : 1)
+    ctx.scaleBy(x: scale, y: scale)
 
-    // Hairline edge: lighter at the top.
-    if !small {
-        ctx.saveGState()
-        ctx.addPath(shape)
-        ctx.setLineWidth(3)
-        ctx.replacePathWithStrokedPath()
-        ctx.clip()
-        let edge = CGGradient(colorsSpace: space,
-                              colors: [NSColor(white: 1, alpha: 0.35).cgColor, NSColor(white: 1, alpha: 0.04).cgColor] as CFArray,
-                              locations: [0, 1])!
-        ctx.drawLinearGradient(edge, start: CGPoint(x: 0, y: body.maxY), end: CGPoint(x: 0, y: body.midY), options: [])
-        ctx.restoreGState()
+    if tiny {
+        // 16 px: the whole shield silhouette with an amber code bar inside; lock and digits would blur.
+        fill(ctx, shieldPath(width: 560, top: 350, bottom: -370), Palette.shield)
+        fill(ctx, capsule(CGRect(x: -190, y: -20, width: 380, height: 150)), Palette.code)
+        return
     }
 
-    // Glyph group: shield + badge, with the badge outline and digits knocked out.
-    ctx.saveGState()
-    ctx.setShadow(offset: CGSize(width: 0, height: -8 * s), blur: 18 * s, color: Palette.glyphShadow.cgColor)
+    // Shield with the lock (shackle + body) knocked out.
     ctx.beginTransparencyLayer(auxiliaryInfo: nil)
-
-    // Target height of the symbol image (it carries some padding around the visible shield).
-    let shieldHeight: CGFloat = small ? 760 : 600
-    // At 16 px the lock is only noise; a plain shield reads better.
-    let shield = symbol(pixels <= 16 ? "shield.fill" : "lock.shield.fill", pointSize: shieldHeight, weight: .regular)
-    let fit = shield.size
-    let scale = shieldHeight / fit.height
-    let shieldRect = CGRect(x: 0, y: 0, width: fit.width * scale, height: fit.height * scale)
-    let center = small ? CGPoint(x: 440, y: 590) : CGPoint(x: 458, y: 570)
-    let placed = shieldRect.offsetBy(dx: center.x - shieldRect.width / 2, dy: center.y - shieldRect.height / 2)
-    NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
-    shield.draw(in: placed, from: .zero, operation: .sourceOver, fraction: 1)
-
-    // Code badge, bottom right, overlapping the shield.
-    let badgeSize = small ? CGSize(width: 500, height: 270) : CGSize(width: 390, height: 200)
-    let badgeCenter = small ? CGPoint(x: 664, y: 290) : CGPoint(x: 666, y: 300)
-    let badge = CGRect(x: badgeCenter.x - badgeSize.width / 2, y: badgeCenter.y - badgeSize.height / 2,
-                       width: badgeSize.width, height: badgeSize.height)
-    let gap: CGFloat = small ? 44 : 26
-    let ring = badge.insetBy(dx: -gap, dy: -gap)
+    fill(ctx, shieldPath(width: 520, top: 330, bottom: -290), Palette.shield)
     ctx.setBlendMode(.clear)
-    ctx.addPath(CGPath(roundedRect: ring, cornerWidth: ring.height / 2, cornerHeight: ring.height / 2, transform: nil))
+    let shackle = CGMutablePath()
+    shackle.move(to: CGPoint(x: -78, y: 110))
+    shackle.addLine(to: CGPoint(x: -78, y: 160))
+    shackle.addArc(center: CGPoint(x: 0, y: 160), radius: 78, startAngle: .pi, endAngle: 0, clockwise: true)
+    shackle.addLine(to: CGPoint(x: 78, y: 110))
+    ctx.addPath(shackle.copy(strokingWithWidth: small ? 58 : 50, lineCap: .butt, lineJoin: .round, miterLimit: 10))
+    ctx.fillPath()
+    ctx.addPath(CGPath(roundedRect: CGRect(x: -132, y: -40, width: 264, height: 170),
+                       cornerWidth: 36, cornerHeight: 36, transform: nil))
     ctx.fillPath()
     ctx.setBlendMode(.normal)
-    ctx.setFillColor(NSColor.white.cgColor)
-    ctx.addPath(CGPath(roundedRect: badge, cornerWidth: badge.height / 2, cornerHeight: badge.height / 2, transform: nil))
-    ctx.fillPath()
-
-    ctx.setBlendMode(.clear)
-    if small {
-        // Three dots read better than digits at 16–32 px.
-        let r: CGFloat = 50
-        let spacing: CGFloat = 136
-        for i in -1...1 {
-            let c = CGPoint(x: badge.midX + CGFloat(i) * spacing, y: badge.midY)
-            ctx.fillEllipse(in: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r))
-        }
-    } else {
-        let base = NSFont.systemFont(ofSize: 150, weight: .heavy)
-        let font = base.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: 150) } ?? base
-        let text = NSAttributedString(string: "123", attributes: [
-            .font: font, .foregroundColor: NSColor.black, .kern: 4,
-        ])
-        let bounds = text.boundingRect(with: .zero, options: [.usesLineFragmentOrigin, .usesFontLeading])
-        let glyphBox = CTLineGetImageBounds(CTLineCreateWithAttributedString(text), ctx)
-        let origin = CGPoint(x: badge.midX - bounds.width / 2,
-                             y: badge.midY - glyphBox.midY)
-        let line = CTLineCreateWithAttributedString(text)
-        ctx.textPosition = origin
-        CTLineDraw(line, ctx)
-    }
-    ctx.setBlendMode(.normal)
-
     ctx.endTransparencyLayer()
-    ctx.restoreGState()
+
+    // Code pill across the shield's base, separated from it by a gap in the tile colour.
+    let pill = small ? CGRect(x: -290, y: -330, width: 580, height: 190)
+                     : CGRect(x: -250, y: -300, width: 500, height: 160)
+    let gap: CGFloat = small ? 36 : 26
+    fill(ctx, capsule(pill.insetBy(dx: -gap, dy: -gap)), Palette.tile)
+    fill(ctx, capsule(pill), Palette.code)
+    let mid = CGPoint(x: pill.midX, y: pill.midY)
+    if small {
+        // Three dots read better than digits at 32–64 px.
+        let r: CGFloat = 34
+        let dots = CGMutablePath()
+        for i in -1...1 {
+            dots.addEllipse(in: CGRect(x: mid.x + CGFloat(i) * 130 - r, y: mid.y - r, width: 2 * r, height: 2 * r))
+        }
+        fill(ctx, dots, Palette.digits)
+    } else {
+        drawDigits("123", in: ctx, center: mid, size: 132, color: Palette.digits)
+    }
 }
 
 func renderPNG(pixels: Int) -> Data {
@@ -206,21 +188,35 @@ func renderPNG(pixels: Int) -> Data {
 let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
 var icnsURL = repoRoot.appendingPathComponent("Resources/AppIcon.icns")
 var keepIconset: URL?
+var previewDir: URL?
+let usage = "usage: swift scripts/make-icon.swift [--iconset DIR] [--icns PATH] [--preview DIR]"
 var args = CommandLine.arguments.dropFirst()
 while let arg = args.popFirst() {
     switch arg {
     case "--iconset": keepIconset = args.popFirst().map { URL(fileURLWithPath: $0) }
     case "--icns": if let p = args.popFirst() { icnsURL = URL(fileURLWithPath: p) }
+    case "--preview": previewDir = args.popFirst().map { URL(fileURLWithPath: $0) }
     case "-h", "--help":
-        print("usage: swift scripts/make-icon.swift [--iconset DIR] [--icns PATH]")
+        print(usage)
         exit(0)
     default:
-        FileHandle.standardError.write(Data("unknown argument: \(arg)\n".utf8))
+        FileHandle.standardError.write(Data("unknown argument: \(arg)\n\(usage)\n".utf8))
         exit(2)
     }
 }
 
 let fm = FileManager.default
+
+if let dir = previewDir {
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    for pixels in [16, 32, 64, 128, 256, 512, 1024] {
+        let url = dir.appendingPathComponent("icon-\(pixels).png")
+        try renderPNG(pixels: pixels).write(to: url)
+        print(url.path)
+    }
+    exit(0)
+}
+
 let iconset = keepIconset ?? fm.temporaryDirectory.appendingPathComponent("PassTunnel-\(UUID().uuidString).iconset")
 let iconsetDir = iconset.pathExtension == "iconset" ? iconset : iconset.appendingPathComponent("AppIcon.iconset")
 try? fm.removeItem(at: iconsetDir)
