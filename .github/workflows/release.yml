@@ -121,11 +121,13 @@ jobs:
           persist-credentials: false
 
       # bundle-tools.sh stops when a version differs from its pin in scripts/release.env; the fix is a
-      # pull request that moves the pins.
+      # pull request that moves the pins. Homebrew verifies the bottles' attestations with the GitHub API
+      # and reads the token for that from HOMEBREW_GITHUB_API_TOKEN, not GH_TOKEN.
       - name: Install the bundled tools
         env:
           HOMEBREW_NO_INSTALL_CLEANUP: 1
           HOMEBREW_VERIFY_ATTESTATIONS: 1
+          HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ github.token }}
         run: |
           brew install openvpn openfortivpn
