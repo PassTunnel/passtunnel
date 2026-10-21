@@ -17,6 +17,7 @@ Closes #
 ## Checklist
 
 - [ ] `swift build` and `swift test` pass
+- [ ] New functionality or the fixed bug is covered by a test
 - [ ] New user-facing strings use `String(localized:)` and have a Turkish translation in `Localizable.xcstrings`
 - [ ] Changes to the helper or the config sanitizer keep the rules in `docs/ARCHITECTURE.md` and `SECURITY.md` (and update them if needed)
 - [ ] No real host names, company names or credentials in code, tests or screenshots

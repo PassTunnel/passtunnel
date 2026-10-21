@@ -22,9 +22,12 @@ backends, localized strings, no third-party dependencies besides Sparkle.
    commits; GitHub signs the squash commit when the pull request is merged).
 3. Open a pull request into `dev`. Link the issue in the description with `Closes #123` (or
    `Fixes`, `Resolves`; `Refs #123` when the issue stays open).
-4. The checks must pass: `Build and test` (`swift build` and `swift test` on macOS), `Release
+4. New functionality and bug fixes come with tests (XCTest, in `Tests/`) that fail without the
+   change; `swift test` must pass. Tests never touch real data: see the README section
+   "Building and testing".
+5. The checks must pass: `Build and test` (`swift build` and `swift test` on macOS), `Release
    scripts` and `PR title`. Review comments must be resolved.
-5. The pull request is **squash-merged**: its title becomes the one commit on `dev`.
+6. The pull request is **squash-merged**: its title becomes the one commit on `dev`.
 
 Releases are made by merging `dev` into `main` (a pull request from `dev`, merged with a merge
 commit). See [Releases](#releases).
