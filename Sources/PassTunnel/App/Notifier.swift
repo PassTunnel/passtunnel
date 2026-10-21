@@ -9,6 +9,8 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
 
     static let connectAction = "connect"
     static let reconnectCategory = "reconnect"
+    /// userInfo key: clicking the notification itself connects (and confirms) the profile.
+    nonisolated static let connectOnClickKey = "connectOnClick"
 
     private var authorization: Task<Bool, Never>?
 
@@ -56,10 +58,15 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             guard prefs.sessionNotifyMin > 0 else { return }
             post(title: String(localized: "\(name(id)) session is ending"),
                  body: String(localized: "The session limit is reached in \(minutes) minutes."), profileID: id)
+        case .droppedWhileAsleep(let id):
+            // Replaces the automatic reconnect the user turned on, so it is shown even without drop notifications.
+            post(title: String(localized: "“\(name(id))” disconnected while the Mac was asleep."),
+                 body: String(localized: "Click to reconnect."),
+                 profileID: id, category: Self.reconnectCategory, connectOnClick: true)
         }
     }
 
-    func post(title: String, body: String, profileID: String?, category: String? = nil) {
+    func post(title: String, body: String, profileID: String?, category: String? = nil, connectOnClick: Bool = false) {
         guard available else { return }
         Task {
             guard await authorized() else { return }
@@ -69,7 +76,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             content.sound = .default
             if let category { content.categoryIdentifier = category }
             if let profileID {
-                content.userInfo = ["profileID": profileID]
+                content.userInfo = ["profileID": profileID, Self.connectOnClickKey: connectOnClick]
                 content.threadIdentifier = profileID
             }
             let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
@@ -103,12 +110,15 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                             withCompletionHandler completionHandler: @escaping () -> Void) {
-        let id = response.notification.request.content.userInfo["profileID"] as? String
+        let info = response.notification.request.content.userInfo
+        let id = info["profileID"] as? String
+        let connectOnClick = info[Self.connectOnClickKey] as? Bool == true
         let action = response.actionIdentifier
         Task { @MainActor in
             defer { completionHandler() }
             guard let model = AppModel.shared else { return }
-            if action == Self.connectAction, let id, let p = model.profile(id) {
+            if action == Self.connectAction || (action == UNNotificationDefaultActionIdentifier && connectOnClick),
+               let id, let p = model.profile(id) {
                 model.connect(p)
             } else if action == UNNotificationDefaultActionIdentifier {
                 model.selection = id

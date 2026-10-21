@@ -73,6 +73,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 Task { @MainActor in _ = try? await model.connections.simulateDrop(id) }
             }
             .store(in: &bag)
+        // Confirmations (Touch ID before connecting or showing codes) end when the screen locks;
+        // ConnectionManager ends them on sleep.
+        DistributedNotificationCenter.default().publisher(for: Notification.Name("com.apple.screenIsLocked"))
+            .receive(on: DispatchQueue.main)
+            .sink { _ in AppModel.shared?.vault.reset() }
+            .store(in: &bag)
         if let action = HelperHandoff.from(arguments: CommandLine.arguments) {
             DispatchQueue.main.async { self.handleHelperHandoff(action) }
         }

@@ -18,13 +18,15 @@ final class EditorModel: ObservableObject {
 
     let isNew: Bool
     let store: ProfileStore
+    /// Writes secrets encrypted when the profile's "Confirm it’s you" setting protects them.
+    let vault: SecretVault
     /// Preview models (renderer) never read or write the store or the Keychain.
     let isPreview: Bool
     let palette: BadgePalette
 
     @Published var draft: Profile
     /// The stored profile when the sheet opened; Save applies only the differences to it.
-    private let original: Profile?
+    let original: Profile?
     @Published var attemptedSave = false
     @Published var saveErrors: [Field: String] = [:]
 
@@ -47,6 +49,8 @@ final class EditorModel: ObservableObject {
     @Published var scanMessage: String?
     private var clearingInput = false
     let storedTOTPSecret: Data?
+    /// A TOTP secret is saved, encrypted: its code shows only after a confirmation.
+    let storedTOTPProtected: Bool
     @Published var customTemplate: Bool
 
     // Forti fingerprint
@@ -61,8 +65,9 @@ final class EditorModel: ObservableObject {
     /// True when a new profile was started without a type, so the type can still be picked.
     let allowsTypeChange: Bool
 
-    init(profileID: String?, newType: VPNType?, store: ProfileStore = ProfileStore()) {
+    init(profileID: String?, newType: VPNType?, store: ProfileStore = ProfileStore(), vault: SecretVault) {
         self.store = store
+        self.vault = vault
         self.allowsTypeChange = profileID == nil && newType == nil
         self.isPreview = false
         self.palette = Preferences.load(paths: store.paths).badgePalette
@@ -72,11 +77,13 @@ final class EditorModel: ObservableObject {
             initial = existing
             passwordStored = Secrets.has(id, .password)
             storedTOTPSecret = Secrets.get(id, .totp).flatMap { try? TOTP.decodeSecret($0) }
+            storedTOTPProtected = Secrets.isProtected(id, .totp)
         } else {
             isNew = true
             initial = Self.blank(newType ?? .openvpn)
             passwordStored = false
             storedTOTPSecret = nil
+            storedTOTPProtected = false
         }
         draft = initial
         original = isNew ? nil : initial
@@ -90,9 +97,11 @@ final class EditorModel: ObservableObject {
 
     /// For `EditorPreviewRenderer`: a fixed state with no store or Keychain access.
     init(preview profile: Profile, isNew: Bool, passwordStored: Bool = false, storedTOTP: Data? = nil,
-         configRemote: String = "", now: Date? = nil) {
+         storedTOTPProtected: Bool = false, configRemote: String = "", now: Date? = nil) {
         self.store = ProfileStore(paths: AppPaths(root: FileManager.default.temporaryDirectory
             .appendingPathComponent("PassTunnelPreview-\(UUID().uuidString)")))
+        self.vault = SecretVault()
+        self.storedTOTPProtected = storedTOTPProtected
         self.isPreview = true
         self.allowsTypeChange = false
         self.palette = .pastel
@@ -150,6 +159,15 @@ final class EditorModel: ObservableObject {
     }
 
     var usesCredentials: Bool { draft.passwordMode != .none }
+
+    /// The saved TOTP secret is encrypted: its code shows only after a confirmation (a secret entered in
+    /// this sheet is the user's own input and always shown).
+    var storedCodeNeedsConfirmation: Bool { newTOTPSecret == nil && storedTOTPProtected }
+
+    /// "Confirm it’s you" is being turned on where it cannot work (no Secure Enclave).
+    var protectionUnavailable: Bool {
+        draft.requireAuth != .off && (original?.requireAuth ?? .off) == .off && !isPreview && !vault.isAvailable
+    }
 
     /// The profile as it would be saved (used for `unattended`).
     var normalized: Profile { Self.normalize(draft) }
@@ -234,7 +252,7 @@ final class EditorModel: ObservableObject {
 
         if p.otpMode == .totp {
             if let totpInputError { e[.totpSecret] = totpInputError }
-            else if attemptedSave && effectiveTOTPSecret == nil {
+            else if attemptedSave && effectiveTOTPSecret == nil && !storedTOTPProtected {
                 e[.totpSecret] = String(localized: "Scan the QR code or paste the secret to generate codes.")
             }
         }
@@ -243,6 +261,7 @@ final class EditorModel: ObservableObject {
                 e[.template] = error.localizedDescription
             }
         }
+        if protectionUnavailable && p.usesStoredSecrets { e[.general] = PTError.protectionUnavailable.localizedDescription }
         for (field, message) in saveErrors where e[field] == nil { e[field] = message }
         return e
     }
@@ -452,6 +471,13 @@ final class EditorModel: ObservableObject {
 
     // MARK: save
 
+    /// Validates without writing (before asking for a confirmation). False shows the errors.
+    func validateForSave() -> Bool {
+        attemptedSave = true
+        saveErrors = [:]
+        return errors.isEmpty && !isPreview
+    }
+
     /// Validates, writes the profile and then the Keychain items. Returns the saved id, or nil
     /// (errors are shown inline).
     func save() -> String? {
@@ -496,13 +522,13 @@ final class EditorModel: ObservableObject {
 
     private func writeSecrets(_ p: Profile) throws {
         if p.passwordMode == .keychain {
-            if !newPassword.isEmpty { try Secrets.set(p.id, .password, newPassword) }
+            if !newPassword.isEmpty { try vault.store(p, .password, newPassword) }
         } else if passwordStored {
             Secrets.delete(p.id, .password)
         }
         if p.otpMode == .totp {
-            if let secret = newTOTPSecret { try Secrets.set(p.id, .totp, TOTP.base32Encode(secret)) }
-        } else if storedTOTPSecret != nil {
+            if let secret = newTOTPSecret { try vault.store(p, .totp, TOTP.base32Encode(secret)) }
+        } else if storedTOTPSecret != nil || storedTOTPProtected {
             Secrets.delete(p.id, .totp)
         }
     }
@@ -514,6 +540,7 @@ final class EditorModel: ObservableObject {
         case .invalidTemplate: return .template
         case .ovpnNotAllowed, .ovpnReferencedFile, .fileTooLarge, .invalidFile: return .config
         case .invalidSecret, .invalidOTPAuthURI, .hotpNotSupported: return .totpSecret
+        case .protectedSecretUnreadable(let kind): return kind == .password ? .password : .totpSecret
         case .invalidField(let name):
             switch name {
             case "port": return .port

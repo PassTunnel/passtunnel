@@ -20,7 +20,8 @@ struct ProfileEditorView: View {
     @FocusState private var focus: Field?
 
     init(profileID: String?, newType: VPNType?, onClose: @escaping () -> Void) {
-        _model = StateObject(wrappedValue: EditorModel(profileID: profileID, newType: newType))
+        _model = StateObject(wrappedValue: EditorModel(profileID: profileID, newType: newType,
+                                                       vault: AppModel.shared?.vault ?? SecretVault()))
         self.onClose = onClose
     }
 
@@ -98,15 +99,39 @@ struct ProfileEditorView: View {
         .padding(.vertical, 12)
     }
 
+    /// For a saved profile, the stored secrets are brought in line with "Confirm it’s you" first
+    /// (`SecretVault.applyProtection`): turning it on encrypts them; lowering it decrypts them, which
+    /// asks for Touch ID or the Mac password (otherwise the protection would be one click away).
     private func save() {
+        guard model.validateForSave() else { return showFirstError() }
+        guard !model.isNew, let original = model.original else { return finishSave() }
+        let edited = model.normalized
+        Task {
+            do {
+                try await model.vault.applyProtection(from: original, to: edited)
+                finishSave()
+            } catch {
+                if (error as? PTError) != .userConfirmationCancelled {
+                    model.saveErrors[EditorModel.field(for: error)] = error.localizedDescription
+                    showFirstError()
+                }
+            }
+        }
+    }
+
+    private func showFirstError() {
+        scrollTarget = model.firstErrorField
+        if let f = model.firstErrorField, f != .general { focus = f }
+    }
+
+    private func finishSave() {
         if let id = model.save() {
             let info: [String: Any] = ["id": id, "profileID": id]
             NotificationCenter.default.post(name: Self.didSave, object: nil, userInfo: info)
             NotificationCenter.default.post(name: ImportActions.didImport, object: nil, userInfo: info)
             onClose()
         } else {
-            scrollTarget = model.firstErrorField
-            if let f = model.firstErrorField, f != .general { focus = f }
+            showFirstError()
         }
     }
 
@@ -356,6 +381,7 @@ struct ProfileEditorView: View {
             }
 
             if p.passwordMode == .keychain { passwordRows }
+            if model.normalized.usesStoredSecrets { requireAuthRow }
         } header: {
             Text("Sign-in")
         }
@@ -400,6 +426,31 @@ struct ProfileEditorView: View {
                 EditorInlineError(message: model.error(.confirmPassword))
             }
             .id(Field.confirmPassword)
+        }
+    }
+
+    /// Touch ID (or the Mac password) before the stored password or code is used.
+    private var requireAuthRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Picker("Confirm it’s you", selection: $model.draft.requireAuth) {
+                Text("Off").tag(AuthRequirement.off)
+                Text("Before connecting").tag(AuthRequirement.connect)
+                Text("Before connecting and showing the code").tag(AuthRequirement.always)
+            }
+            .accessibilityIdentifier("editor.requireAuth")
+            .disabled(p.requireAuth == .off && !model.isPreview && !model.vault.isAvailable)
+            switch p.requireAuth {
+            case .off where !model.isPreview && !model.vault.isAvailable:
+                EditorHint("This Mac has no Secure Enclave, so this protection is not available.")
+            case .off:
+                EditorHint("Anyone using this Mac while you are logged in can connect with one click.")
+            case .connect where model.normalized.passwordMode != .keychain:
+                EditorHint("The TOTP secret is encrypted with a key in this Mac’s Secure Enclave. PassTunnel asks for Touch ID or your Mac password before it connects or shows the code.")
+            case .connect:
+                EditorHint("The password is encrypted with a key in this Mac’s Secure Enclave. PassTunnel asks for Touch ID or your Mac password before it connects. Reconnecting after a drop does not ask again.")
+            case .always:
+                EditorHint("The password and the TOTP secret are encrypted. PassTunnel also asks before it shows, copies or types the code; codes stay hidden until you confirm.")
+            }
         }
     }
 
@@ -458,10 +509,16 @@ struct ProfileEditorView: View {
             }
             .id(Field.totpSecret)
 
-            if let secret = model.effectiveTOTPSecret {
+            if model.effectiveTOTPSecret != nil || model.storedCodeNeedsConfirmation {
                 VStack(alignment: .leading, spacing: 4) {
                     LabeledContent {
-                        EditorLiveCode(secret: secret, params: p.totp)
+                        if let secret = model.effectiveTOTPSecret {
+                            EditorLiveCode(secret: secret, params: p.totp)
+                        } else if let original = model.original {
+                            EditorLockedCode(profile: original, params: p.totp, vault: model.vault) { error in
+                                model.saveErrors[.totpSecret] = error
+                            }
+                        }
                     } label: {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Current code")

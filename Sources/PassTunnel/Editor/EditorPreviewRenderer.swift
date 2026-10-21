@@ -48,6 +48,10 @@ enum EditorPreviewRenderer {
         let typing = totpModel()
         typing.newPassword = "new-secret"
         out.append(State(name: "editor-password-typing", model: typing, height: 1800))
+
+        // "Confirm it’s you" set to always: the stored code stays hidden until confirmed.
+        out.append(State(name: "editor-require-auth", model: protectedModel(), height: 1800))
+        out.append(State(name: "editor-require-auth-dark", model: protectedModel(), dark: true, height: 1800))
         return out
     }
 
@@ -71,6 +75,18 @@ enum EditorPreviewRenderer {
             model.apply(uri)
         }
         return model
+    }
+
+    /// A saved profile that asks for Touch ID before connecting and before showing its code.
+    @MainActor private static func protectedModel() -> EditorModel {
+        var p = Profile(id: "acme", name: "Acme VPN", type: .openvpn)
+        p.icon = "building.2"
+        p.badgeStyle = .both
+        p.username = "alice"
+        p.otpMode = .totp
+        p.requireAuth = .always
+        return EditorModel(preview: p, isNew: false, passwordStored: true, storedTOTPProtected: true,
+                           configRemote: "vpn.example.com")
     }
 
     /// Writes one PNG per state into `dir` and returns their URLs.

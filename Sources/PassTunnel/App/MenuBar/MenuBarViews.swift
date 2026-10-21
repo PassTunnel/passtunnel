@@ -126,7 +126,11 @@ private struct ProfileMenuSection: View {
         case .connected:
             Button(String(localized: "Disconnect")) { model.disconnect(p) }
         }
-        if let c = model.code(for: p) {
+        if model.isCodeLocked(p) {
+            // Stored encrypted ("Confirm it’s you"): hidden; copying asks first.
+            let shown = CodeFormat.hidden(max(6, p.totp.digits))
+            Button(String(localized: "Copy Code  \(shown)")) { model.copyCode(p) }
+        } else if let c = model.code(for: p) {
             let shown = model.prefs.hideCodes ? CodeFormat.hidden(c.code.count) : CodeFormat.grouped(c.code)
             Button(String(localized: "Copy Code  \(shown)")) { model.copyCode(p) }
         }
