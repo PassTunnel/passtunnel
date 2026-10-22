@@ -1,0 +1,8 @@
+client
+dev tun
+proto udp
+remote vpn.example.com 1194
+remote-cert-tls server
+auth-user-pass
+cipher AES-256-GCM
+verb 3

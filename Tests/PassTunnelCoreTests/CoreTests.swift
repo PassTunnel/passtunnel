@@ -120,7 +120,8 @@ final class ModelTests: CoreTestCase {
                               .invalidTemplate("x"), .unsupportedShareFile,
                               .missingPassword("a"), .missingTOTPSecret("a"), .missingCredential(.otp),
                               .missingConfig("a"), .missingHost("a"), .helperFailed("x"), .authFailed("x"),
-                              .connectFailed("x"), .connectTimeout(60), .connectCancelled]
+                              .connectFailed("x"), .connectTimeout(60), .connectCancelled,
+                              .usernameTooLong(maxBytes: 64)]
         for e in all {
             XCTAssertFalse((e.errorDescription ?? "").isEmpty)
             XCTAssertFalse(e.localizedDescription.contains("PassTunnelCore.PTError"))
@@ -494,6 +495,27 @@ final class ProfileStoreTests: CoreTestCase {
         XCTAssertEqual(try store.get("moved").name, "moved")
     }
 
+    /// A FortiGate user name openfortivpn would cut off is refused when the profile is saved (editor,
+    /// `passtunnel set`), counted in UTF-8 bytes. OpenVPN profiles have no such limit.
+    func testFortiUsernameLimitOnSave() throws {
+        var p = try store.create(name: "Lab", type: .forti)
+        p.host = "vpn.example.com"
+        p.username = String(repeating: "ş", count: 32)       // 64 bytes
+        try store.save(p)
+        p.username = String(repeating: "ş", count: 33)       // 33 characters, 66 bytes
+        assertThrows(.usernameTooLong(maxBytes: 64)) { try store.save(p) }
+        assertThrows(.usernameTooLong(maxBytes: 64)) {
+            try store.update(p.id) { try ProfileFields.set(&$0, key: "username", value: String(repeating: "a", count: 65)) }
+        }
+        XCTAssertEqual(try store.get(p.id).username, String(repeating: "ş", count: 32))
+        XCTAssertEqual(AutomationErrorCode.of(PTError.usernameTooLong(maxBytes: 64)), .invalidArgument)
+        XCTAssertTrue(PTError.usernameTooLong(maxBytes: 64).localizedDescription.contains("64"))
+
+        var o = try store.create(name: "Office", type: .openvpn)
+        o.username = String(repeating: "a", count: 200)
+        XCTAssertNoThrow(try store.save(o))
+    }
+
     func testSaveValidation() throws {
         var p = try store.create(name: "Acme", type: .openvpn)
         p.name = "Acme Prod"
@@ -680,6 +702,9 @@ final class HealthCheckTests: CoreTestCase {
     func testRoundTripParsing() {
         XCTAssertEqual(HealthCheck.roundTripMS("round-trip min/avg/max/stddev = 0.067/12.6/0.067/0.000 ms"), 13)
         XCTAssertNil(HealthCheck.roundTripMS("nothing"))
+        for avg in ["nan", "inf", "-inf", "1e300", "-1"] {
+            XCTAssertNil(HealthCheck.roundTripMS("round-trip min/avg/max/stddev = 0.067/\(avg)/0.067/0.000 ms"), avg)
+        }
     }
 
     func testTCPOpenAndClosed() throws {

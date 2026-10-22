@@ -1,0 +1,2 @@
+vpn.example.com443alices3cret
+host = evil.example.com

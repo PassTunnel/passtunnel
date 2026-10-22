@@ -145,13 +145,13 @@ public final class MCPServer {
     }
 
     /// Strings and integers; never null, never a boolean or fraction.
-    static func isValidID(_ id: Any) -> Bool {
+    public nonisolated static func isValidID(_ id: Any) -> Bool {
         if id is String { return true }
         guard let n = id as? NSNumber, !MCPTools.isBool(n) else { return false }
         return n.doubleValue == n.doubleValue.rounded()
     }
 
-    static func key(_ id: Any) -> String {
+    public nonisolated static func key(_ id: Any) -> String {
         if let s = id as? String { return "s:" + s }
         return "n:\((id as? NSNumber)?.int64Value ?? 0)"
     }

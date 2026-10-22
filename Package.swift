@@ -8,6 +8,10 @@ let package = Package(
     products: [
         .executable(name: "PassTunnel", targets: ["PassTunnel"]),
         .executable(name: "PassTunnelHelper", targets: ["PassTunnelHelper"]),
+        // Parsing libraries, so the out-of-tree fuzz package (fuzz/) can link the exact
+        // sources that run in the app. Not part of any shipped binary.
+        .library(name: "PassTunnelShared", targets: ["PassTunnelShared"]),
+        .library(name: "PassTunnelCore", targets: ["PassTunnelCore"]),
     ],
     dependencies: [
         // App updates. The `passtunnel` CLI never starts the updater.

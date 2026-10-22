@@ -529,7 +529,11 @@ Security rules (helper):
   with the run directory when the process exits. The socket path must fit in `sun_path` (103 bytes):
   `/var/run/passtunnel/<uid>/<id>/mgmt.sock` fits 64-byte IDs for uids up to 8 digits.
 - Forti: the helper writes the openfortivpn config itself from the typed fields (no user-supplied raw config;
-  no pppd options). OTP is passed in the config (`otp = …`), so no pinentry is needed. Every config sets
+  no pppd options). Values longer than openfortivpn's buffers (`src/config.h`: host 253, user name 64,
+  password 256, code 64 bytes; it cuts them off silently) are refused: `FortiConfig.maxHostBytes`,
+  `maxUsernameBytes` (64), `maxPasswordBytes` (255), `maxOTPBytes`; `ProfileStore.save` and
+  `ConnectionManager` refuse a longer user name first (`PTError.usernameTooLong`, counted in UTF-8 bytes).
+  OTP is passed in the config (`otp = …`), so no pinentry is needed. Every config sets
   `ca-file = /etc/ssl/cert.pem`, so openfortivpn never uses OpenSSL's compiled-in default store.
 - Tracks the pid it started per profile; `stop` only signals that pid (SIGTERM, then SIGKILL after 5 s).
   Several Forti/OpenVPN profiles may run at once, at most `SessionPolicy.maxSessionsPerUser` (8) per user.
@@ -548,7 +552,8 @@ the socket is not there yet or another client is connected); `state()` returns
 `ManagementState(name, localIP, since, …)`. `ConnectionManager` (Core) owns state per profile: OpenVPN
 state via `ManagementSocket` on the socket the helper reports (`HelperResponse.mgmtSocket` after start,
 `mgmtSockets` in each `status` poll, so sessions started by the CLI or before an app restart are found;
-`PT.mgmtSocketPath(uid: geteuid(), …)` only as a fallback) (`state` command; first field = since;
+`PT.mgmtSocketPath(uid: geteuid(), …)` only as a fallback) (`state` command; first field = since,
+refused unless it is a finite time between 1970 and 2100, also when read back from `.mgmt-state`;
 disconnect = helper `stop`). The CLI uses one-shot queries (`SocketManagementQuerier`). The app uses
 `PersistentManagementQuerier`: one held connection per socket with `state on`, following `>STATE:`
 notifications and reopened on the next poll after a drop — OpenVPN logs every client connect, command and

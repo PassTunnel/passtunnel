@@ -127,7 +127,8 @@ public enum HealthCheck {
         guard let line = output.split(separator: "\n").first(where: { $0.contains("round-trip") }),
               let eq = line.firstIndex(of: "=") else { return nil }
         let fields = line[line.index(after: eq)...].trimmingCharacters(in: .whitespaces).split(separator: "/")
-        guard fields.count >= 2, let avg = Double(fields[1]) else { return nil }
+        // A round trip is under a minute (the probe times out long before); anything else is not a time.
+        guard fields.count >= 2, let avg = Double(fields[1]), (0...60_000).contains(avg) else { return nil }
         return Int(avg.rounded())
     }
 }

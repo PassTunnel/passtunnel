@@ -291,6 +291,38 @@ extension FortiConfigTests {
         XCTAssertNoThrow(try config { $0.username = "alice smith" }.render())
     }
 
+    /// openfortivpn keeps 64 bytes of the user name (USERNAME_SIZE) and cuts off the rest without a
+    /// word, so a longer one is refused. Counted in UTF-8 bytes: 33 × "ş" is 33 characters but 66 bytes.
+    func testUsernameLimitIsOpenfortivpnsInBytes() {
+        XCTAssertEqual(FortiConfig.maxUsernameBytes, 64)
+        for u in [String(repeating: "a", count: 64), String(repeating: "ş", count: 32), String(repeating: "a", count: 62) + "é"] {
+            XCTAssertNoThrow(try config { $0.username = u }.render(), u)
+        }
+        for u in [String(repeating: "a", count: 65), String(repeating: "ş", count: 33), String(repeating: "a", count: 63) + "é",
+                  String(repeating: "a", count: 255)] {
+            XCTAssertThrowsError(try config { $0.username = u }.render(), u) {
+                guard case .invalidValue(let field, _)? = $0 as? FortiConfig.ValidationError else { return XCTFail("\($0)") }
+                XCTAssertEqual(field, "username")
+            }
+        }
+    }
+
+    /// The other values stay within what openfortivpn keeps (config.h): host 253, password 256, code 64.
+    func testOtherValuesStayWithinOpenfortivpnsBuffers() {
+        XCTAssertLessThanOrEqual(FortiConfig.maxHostBytes, 253)
+        XCTAssertLessThanOrEqual(FortiConfig.maxPasswordBytes, 256)
+        XCTAssertLessThanOrEqual(FortiConfig.maxOTPBytes, 64)
+        let label = String(repeating: "a", count: 63)
+        let host253 = [label, label, label, String(repeating: "a", count: 61)].joined(separator: ".")
+        XCTAssertEqual(host253.utf8.count, 253)
+        XCTAssertNoThrow(try config { $0.host = host253 }.render())
+        XCTAssertThrowsError(try config { $0.host = host253 + "a" }.render())
+        XCTAssertNoThrow(try config { $0.password = String(repeating: "p", count: 255) }.render())
+        XCTAssertThrowsError(try config { $0.password = String(repeating: "p", count: 256) }.render())
+        XCTAssertNoThrow(try config { $0.otp = String(repeating: "1", count: 64) }.render())
+        XCTAssertThrowsError(try config { $0.otp = String(repeating: "1", count: 65) }.render())
+    }
+
     func testPortBounds() {
         for p in [Int.min, -1, 0, 65536, 70000, Int.max] {
             XCTAssertThrowsError(try config { $0.port = p }.render(), "\(p)") {

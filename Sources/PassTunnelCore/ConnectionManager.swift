@@ -583,7 +583,8 @@ public final class ConnectionManager: ObservableObject {
     /// The state another live process shared for OpenVPN process `pid`, if any.
     /// `requireLiveWriter: false`: also when the process that wrote it has exited (last known state).
     func sharedState(_ id: String, pid: Int32, requireLiveWriter: Bool = true) -> ManagementState? {
-        guard let s = try? JSONCoding.read(SharedState.self, from: sharedStateURL(id)), s.pid == pid else { return nil }
+        guard let s = try? JSONCoding.read(SharedState.self, from: sharedStateURL(id)), s.pid == pid,
+              ManagementState.isPlausible(s.since) else { return nil }
         guard !requireLiveWriter || kill(s.writer, 0) == 0 || errno == EPERM else { return nil }
         return s.state
     }
@@ -998,6 +999,7 @@ public final class ConnectionManager: ObservableObject {
 
         let fixed = p.username.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let username = fixed.isEmpty ? value(.username) : fixed else { throw PTError.missingCredential(.username) }
+        try Profile.checkUsername(username, type: p.type)
         c.username = username
 
         switch p.passwordMode {
@@ -1249,7 +1251,7 @@ public final class ConnectionManager: ObservableObject {
         }
         switch error as? PTError {
         case .authFailed, .missingPassword, .missingTOTPSecret, .missingCredential, .missingConfig,
-             .missingHost, .invalidSecret, .profileNotFound, .otherVPNActive, .setupFailed,
+             .missingHost, .usernameTooLong, .invalidSecret, .profileNotFound, .otherVPNActive, .setupFailed,
              .userConfirmationCancelled, .userConfirmationFailed, .confirmationRequired, .protectedSecretUnreadable,
              .protectionUnavailable:
             return false

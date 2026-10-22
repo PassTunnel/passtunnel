@@ -47,7 +47,7 @@ public final class AutomationService {
         case .connecting(let phase): s.state = "connecting"; s.phase = phase
         case let .connected(ip, since):
             s.state = "connected"; s.ip = ip; s.since = since; s.warning = m.warnings[p.id]
-            if let since { s.durationSeconds = max(0, Int(now.timeIntervalSince(since))) }
+            if let since { s.durationSeconds = Self.wholeSeconds(from: since, to: now) }
             if m.statusUnavailable.contains(p.id) { s.statusUnavailable = true }
             switch m.health[p.id] {
             case .reachable?: s.health = "reachable"
@@ -56,6 +56,14 @@ public final class AutomationService {
             }
         }
         return s
+    }
+
+    /// Whole seconds from `start` to `end`: 0 when `end` is not later or the difference is not finite,
+    /// `Int.max` when it does not fit. Never traps, whatever date a state file or reply carried.
+    static func wholeSeconds(from start: Date, to end: Date) -> Int {
+        let seconds = end.timeIntervalSince(start)
+        guard seconds.isFinite, seconds > 0 else { return 0 }
+        return seconds < Double(Int.max) ? Int(seconds) : Int.max
     }
 
     /// Refreshes, then the helper and every profile (or the one asked for).
@@ -218,6 +226,7 @@ public final class AutomationService {
             }
         case .forti:
             if p.host.trimmingCharacters(in: .whitespaces).isEmpty { problems.append(PTError.missingHost(p.id)) }
+            do { try Profile.checkUsername(p.username, type: p.type) } catch { problems.append(error) }
         }
         var passwordSaved: Bool?
         var totpSaved: Bool?

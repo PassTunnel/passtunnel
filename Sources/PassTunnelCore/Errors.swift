@@ -25,6 +25,7 @@ public enum PTError: Error, Equatable, LocalizedError {
     case missingCredential(CredentialField) // `.ask` value not supplied by the caller
     case missingConfig(String)             // profile id: OpenVPN profile without config.ovpn
     case missingHost(String)               // profile id: FortiGate profile without a host
+    case usernameTooLong(maxBytes: Int)    // FortiGate user name longer than openfortivpn keeps
     case helperFailed(String)              // the helper refused the request
     case authFailed(String)                // log tail
     case connectFailed(String)             // the VPN tool exited; log tail
@@ -89,6 +90,8 @@ public enum PTError: Error, Equatable, LocalizedError {
             return String(localized: "This profile has no OpenVPN configuration file. Choose one in the profile editor.")
         case .missingHost:
             return String(localized: "This profile has no server address. Enter one in the profile editor.")
+        case .usernameTooLong(let maxBytes):
+            return String(localized: "The user name is too long for FortiGate: at most \(maxBytes) bytes (characters such as ş or é count as 2).")
         case .helperFailed(let reason):
             return String(localized: "The PassTunnel helper could not start the connection: \(reason)")
         case .authFailed:

@@ -390,10 +390,13 @@ struct ProfileEditorView: View {
     private var usernameRow: some View {
         VStack(alignment: .leading, spacing: 4) {
             TextField("Username", text: $model.draft.username, prompt: Text("Ask each time"))
+                .focused($focus, equals: .username)
+            EditorInlineError(message: model.error(.username))
             if p.username.trimmingCharacters(in: .whitespaces).isEmpty {
                 EditorHint("Leave empty to be asked each time you connect.")
             }
         }
+        .id(Field.username)
     }
 
     /// One line under the mode picker: what is in the Keychain now.

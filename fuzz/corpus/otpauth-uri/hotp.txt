@@ -1,0 +1,1 @@
+otpauth://hotp/x?secret=JBSWY3DPEHPK3PXP&counter=1
