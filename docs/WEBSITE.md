@@ -12,8 +12,8 @@ maintained. The code in `site/` is the source of truth for the exact look.
 - **Static and self-contained.** Plain HTML, one stylesheet, two small vanilla scripts. No
   framework, no build step, no package manager, no CDN, no web fonts, no trackers, analytics,
   cookies or third-party requests of any kind. Everything the page loads comes from `site/`.
-- **Strict Content Security Policy** (meta tag): `default-src 'none'`, and `'self'` only for
-  scripts, styles and images. That means no inline `<script>`, no `style="…"` attributes and no
+- **Strict Content Security Policy** (meta tag): `default-src 'none'; script-src 'self';
+  style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'`. That means no inline `<script>`, no `style="…"` attributes and no
   `on…=` handlers anywhere; SVG presentation attributes (`fill`, `stroke`, …) are fine.
 - **Facts only.** Every claim must match the app (`docs/APP.md`, `docs/ARCHITECTURE.md`,
   `SECURITY.md`). No testimonials, user counts, download numbers, ratings, logos or "trusted by".
