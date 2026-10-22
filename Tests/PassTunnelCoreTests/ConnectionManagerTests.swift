@@ -423,6 +423,25 @@ final class ConnectionManagerTests: XCTestCase {
         XCTAssertEqual(m.state(p.id), .disconnected)
     }
 
+    /// A user name asked at connect time that openfortivpn would cut off is refused before anything
+    /// is sent to the helper.
+    func testFortiUsernameTooLongIsRefusedBeforeStarting() async throws {
+        var p = try store.create(name: "Acme Forti", type: .forti)
+        p.host = "vpn.example.com"
+        p.username = ""
+        try store.save(p)
+        try Secrets.set(p.id, .password, "pw")
+        let m = makeManager()
+        do {
+            try await m.connect(p.id, given: [.username: String(repeating: "ş", count: 33)])
+            XCTFail("connected")
+        } catch {
+            XCTAssertEqual(error as? PTError, .usernameTooLong(maxBytes: 64))
+        }
+        XCTAssertTrue(helper.starts.isEmpty)
+        XCTAssertFalse(ConnectionManager.isRetryable(PTError.usernameTooLong(maxBytes: 64)))
+    }
+
     func testAuthFailureFromLog() async throws {
         let p = try makeOpenVPN()
         helper.openVPNStateLine = nil

@@ -1,4 +1,5 @@
 import Foundation
+import PassTunnelShared
 
 public enum VPNType: String, Codable, CaseIterable { case openvpn, forti }
 public enum PasswordMode: String, Codable, CaseIterable { case keychain, ask, none }   // none = certificate only
@@ -115,6 +116,16 @@ public struct Profile: Codable, Identifiable, Equatable {
         let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let first = n.first else { return "?" }
         return String(first).uppercased()
+    }
+
+    /// Throws `PTError.usernameTooLong` for a FortiGate user name (trimmed, as it is sent) longer than
+    /// openfortivpn keeps: it would cut the name off and the sign-in would fail without a reason.
+    public static func checkUsername(_ username: String, type: VPNType) throws {
+        guard type == .forti else { return }
+        let sent = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard sent.utf8.count <= FortiConfig.maxUsernameBytes else {
+            throw PTError.usernameTooLong(maxBytes: FortiConfig.maxUsernameBytes)
+        }
     }
 
     /// What must be asked from the user before connecting. Empty for certificate-only profiles.

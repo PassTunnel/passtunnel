@@ -152,6 +152,10 @@ FortiGate, stop, and status. It enforces the following rules on every request.
   characters or an IPv6 literal, the port must be 1–65535, the trusted certificate must be a
   64-character SHA-256 hex digest, and credentials may not contain line breaks, control characters
   or surrounding whitespace.
+- No value is longer than openfortivpn keeps (it copies each into a fixed buffer and silently drops
+  the rest): host at most 253 bytes, user name 64, password 255, one-time code 64 (UTF-8 bytes, not
+  characters). The app refuses a longer FortiGate user name already when the profile is saved or a
+  user name is entered to connect.
 - The file is written into the same root-only run directory and the tool always gets `-c <file>`,
   so no default configuration is read. It always sets `ca-file = /etc/ssl/cert.pem`, so
   openfortivpn never falls back to OpenSSL's compiled-in default store.

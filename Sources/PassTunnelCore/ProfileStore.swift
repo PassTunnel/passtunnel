@@ -69,6 +69,7 @@ public struct ProfileStore {
         guard (1...65535).contains(p.port) else { throw PTError.invalidField("port") }
         guard (0...65535).contains(p.mgmtPort) else { throw PTError.invalidField("mgmt_port") }
         guard p.sessionLimitMin >= 0 else { throw PTError.invalidField("session_limit_min") }
+        try Profile.checkUsername(p.username, type: p.type)
         if p.otpDelivery == .combined && p.otpMode != .none {
             try OTPComposer.validate(template: p.otpTemplate)
         }

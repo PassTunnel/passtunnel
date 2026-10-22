@@ -529,7 +529,11 @@ Security rules (helper):
   with the run directory when the process exits. The socket path must fit in `sun_path` (103 bytes):
   `/var/run/passtunnel/<uid>/<id>/mgmt.sock` fits 64-byte IDs for uids up to 8 digits.
 - Forti: the helper writes the openfortivpn config itself from the typed fields (no user-supplied raw config;
-  no pppd options). OTP is passed in the config (`otp = …`), so no pinentry is needed. Every config sets
+  no pppd options). Values longer than openfortivpn's buffers (`src/config.h`: host 253, user name 64,
+  password 256, code 64 bytes; it cuts them off silently) are refused: `FortiConfig.maxHostBytes`,
+  `maxUsernameBytes` (64), `maxPasswordBytes` (255), `maxOTPBytes`; `ProfileStore.save` and
+  `ConnectionManager` refuse a longer user name first (`PTError.usernameTooLong`, counted in UTF-8 bytes).
+  OTP is passed in the config (`otp = …`), so no pinentry is needed. Every config sets
   `ca-file = /etc/ssl/cert.pem`, so openfortivpn never uses OpenSSL's compiled-in default store.
 - Tracks the pid it started per profile; `stop` only signals that pid (SIGTERM, then SIGKILL after 5 s).
   Several Forti/OpenVPN profiles may run at once, at most `SessionPolicy.maxSessionsPerUser` (8) per user.

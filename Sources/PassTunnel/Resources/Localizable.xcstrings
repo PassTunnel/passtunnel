@@ -987,6 +987,16 @@
         }
       }
     },
+    "The user name is too long for FortiGate: at most %lld bytes (characters such as ş or é count as 2)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kullanıcı adı FortiGate için çok uzun: en fazla %lld bayt olabilir (ş veya é gibi karakterler 2 bayt sayılır)."
+          }
+        }
+      }
+    },
     "The user name and password in the file were moved to the profile and the Keychain." : {
       "localizations" : {
         "tr" : {

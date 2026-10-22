@@ -5,9 +5,10 @@ import PassTunnelShared
 // Fuzzes the FortiGate (openfortivpn) config rendering. The helper writes this file itself from
 // typed fields; openfortivpn reads it as `key = value` lines with no quoting, so the only real
 // danger is a field value that smuggles in a newline or a second directive. Property: whatever
-// FortiConfig agrees to render, re-reading that text the way openfortivpn does recovers each value
-// byte-for-byte, with no injected key. A field that cannot be represented must be rejected, not
-// emitted. The harness never crashes or hangs on any bytes.
+// FortiConfig agrees to render, re-reading that text the way openfortivpn does (including the fixed
+// buffers that cut long values off) recovers each value byte-for-byte, with no injected key. A field
+// that cannot be represented, or that openfortivpn would shorten, must be rejected, not emitted.
+// The harness never crashes or hangs on any bytes.
 @_cdecl("LLVMFuzzerTestOneInput")
 func LLVMFuzzerTestOneInput(_ data: UnsafePointer<UInt8>?, _ size: Int) -> CInt {
     // Split the input into fields on 0x1F (Unit Separator); decode each as (lossy) UTF-8. 0x1F is
@@ -36,10 +37,15 @@ func LLVMFuzzerTestOneInput(_ data: UnsafePointer<UInt8>?, _ size: Int) -> CInt 
     return 0
 }
 
+/// Buffer sizes openfortivpn 1.24 copies these values into (src/config.h: GATEWAY_HOST_SIZE,
+/// USERNAME_SIZE, PASSWORD_SIZE, OTP_SIZE); `strncpy` keeps that many bytes and drops the rest.
+let openfortivpnBufferBytes: [String: Int] = ["host": 253, "username": 64, "password": 256, "otp": 64]
+
 /// `load_config()` in openfortivpn, byte for byte (it works on C `char`s, not Unicode): split on
 /// '\n', ignore lines under two bytes and `#` lines, take the bytes before the first '=' as the key
 /// and the rest as the value, then strip leading and trailing C `isspace` bytes from both. The last
-/// value for a key wins, matching its `strcpy`.
+/// value for a key wins, matching its `strncpy` into a fixed buffer, which keeps at most
+/// `openfortivpnBufferBytes[key]` bytes.
 func parseLikeOpenfortivpn(_ bytes: [UInt8]) -> [String: [UInt8]] {
     func isCSpace(_ b: UInt8) -> Bool { b == 0x20 || (0x09...0x0D).contains(b) }
     func trim(_ s: ArraySlice<UInt8>) -> [UInt8] {
@@ -55,7 +61,8 @@ func parseLikeOpenfortivpn(_ bytes: [UInt8]) -> [String: [UInt8]] {
         if line.count < 2 || line.first == 0x23 /* # */ { return }
         guard let eq = line.firstIndex(of: 0x3D /* = */) else { return }
         let key = String(decoding: trim(line[line.startIndex..<eq]), as: UTF8.self)
-        out[key] = trim(line[(eq + 1)..<line.endIndex])
+        let value = trim(line[(eq + 1)..<line.endIndex])
+        out[key] = openfortivpnBufferBytes[key].map { Array(value.prefix($0)) } ?? value
     }
     while i < bytes.count {
         if bytes[i] == 0x0A { handle(bytes[start..<i]); start = i + 1 }

@@ -226,6 +226,7 @@ public final class AutomationService {
             }
         case .forti:
             if p.host.trimmingCharacters(in: .whitespaces).isEmpty { problems.append(PTError.missingHost(p.id)) }
+            do { try Profile.checkUsername(p.username, type: p.type) } catch { problems.append(error) }
         }
         var passwordSaved: Bool?
         var totpSaved: Bool?

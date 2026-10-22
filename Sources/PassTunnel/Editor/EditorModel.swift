@@ -8,7 +8,7 @@ import PassTunnelShared
 final class EditorModel: ObservableObject {
     enum Field: Hashable {
         case name, config, host, port, trustedCert, sessionLimit, healthHost
-        case password, confirmPassword, totpSecret, template, general
+        case username, password, confirmPassword, totpSecret, template, general
     }
 
     enum TemplateChoice: Hashable {
@@ -239,6 +239,10 @@ final class EditorModel: ObservableObject {
             e[.healthHost] = String(localized: "Use an address (10.0.0.5) or host:port (intranet.example.com:443).")
         }
 
+        if p.passwordMode != .none {
+            do { try Profile.checkUsername(p.username, type: p.type) } catch { e[.username] = error.localizedDescription }
+        }
+
         if p.passwordMode == .keychain {
             if !newPassword.isEmpty && !confirmPassword.isEmpty && newPassword != confirmPassword {
                 e[.confirmPassword] = String(localized: "The passwords do not match.")
@@ -270,7 +274,7 @@ final class EditorModel: ObservableObject {
 
     /// Order used to scroll to the first problem.
     static let fieldOrder: [Field] = [.name, .config, .host, .port, .trustedCert, .sessionLimit, .healthHost,
-                                      .password, .confirmPassword, .totpSecret, .template, .general]
+                                      .username, .password, .confirmPassword, .totpSecret, .template, .general]
 
     var firstErrorField: Field? {
         let e = errors
@@ -550,6 +554,7 @@ final class EditorModel: ObservableObject {
         switch e {
         case .emptyName, .invalidProfileID: return .name
         case .invalidTemplate: return .template
+        case .usernameTooLong: return .username
         case .ovpnNotAllowed, .ovpnReferencedFile, .fileTooLarge, .invalidFile: return .config
         case .invalidSecret, .invalidOTPAuthURI, .hotpNotSupported: return .totpSecret
         case .protectedSecretUnreadable(let kind): return kind == .password ? .password : .totpSecret
