@@ -1,0 +1,8 @@
+client
+remote vpn.example.com 1194
+<ca>
+MIIB...
+</ca>
+<connection>
+remote vpn2.example.com 443 tcp
+</connection>

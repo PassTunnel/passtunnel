@@ -1,0 +1,4 @@
+client
+remote "vpn example" 1194
+verify-x509-name 'CN=Acme, O=Acme' subject
+push "redirect-gateway def1"

@@ -74,3 +74,34 @@ Details are in [docs/RELEASING.md](docs/RELEASING.md).
 
 Dependabot opens pull requests into `dev` for GitHub Actions (`ci: …`, no release) and for Swift
 packages (`fix(deps): …`, a patch release, since those ship in the app). They need no issue link.
+
+## Fuzzing
+
+The code that parses untrusted text is fuzzed with libFuzzer. The harnesses live in their own
+package under [`fuzz/`](fuzz/) (one per target: the OpenVPN config sanitizer, FortiGate config
+rendering, the OpenVPN management-interface parser, `otpauth://` URIs and MCP JSON-RPC decoding).
+That package is not part of the app: `swift build` and `swift test` at the repository root never
+build it, and nothing in it ships in any binary. It links the parsing libraries of the main package
+so the fuzzers run the exact sources the app and the helper use.
+
+libFuzzer needs the open-source Swift toolchain — the one in Xcode has no libFuzzer runtime on
+macOS. Install a toolchain from [swift.org/install](https://www.swift.org/install/macos/), then:
+
+```sh
+# Use the open-source toolchain for this shell (id from: ls /Library/Developer/Toolchains).
+export TOOLCHAINS=$(plutil -extract CFBundleIdentifier raw \
+    /Library/Developer/Toolchains/swift-latest.xctoolchain/Info.plist)
+
+fuzz/run.sh                     # 60 s per fuzzer
+fuzz/run.sh 300                 # 300 s per fuzzer
+fuzz/run.sh 300 FuzzOVPNSanitizer   # just one
+```
+
+`run.sh` builds with `-sanitize=fuzzer,address` and runs each harness against the seed corpus in
+`fuzz/corpus/`. A failing input is copied into `fuzz/findings/` and the run exits non-zero. The
+`Fuzz` workflow runs the same script briefly on pull requests that touch the parsers and longer on a
+weekly schedule.
+
+A crash is a bug: fix it in its own commit with a regression test (an XCTest in `Tests/`), add the
+reproducing input to the seed corpus, and — if the fix changes the sanitizer — keep the rules in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [SECURITY.md](SECURITY.md) true.

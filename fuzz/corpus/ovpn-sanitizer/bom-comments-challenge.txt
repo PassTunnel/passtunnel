@@ -1,0 +1,3 @@
+﻿# comment
+;plugin x
+static-challenge "Enter code" 1

@@ -1,0 +1,5 @@
+client
+up /tmp/x
+--DOWN /tmp/y
+"plugin" z
+setenv opt --management 127.0.0.1 7505
