@@ -111,6 +111,16 @@ final class ManagementSocketTests: XCTestCase {
         }
     }
 
+    /// A non-finite or absurd timestamp is a damaged reply: refused here, so no later duration
+    /// computation can trap on it.
+    func testParseRejectsNonFiniteAndImplausibleTimestamps() {
+        for epoch in ["nan", "NaN", "inf", "-inf", "infinity", "1e300", "-1e300", "1e20", "-1", "4102444801"] {
+            XCTAssertThrowsError(try ManagementSocket.parseState("\(epoch),CONNECTED,SUCCESS,10.8.0.6,,,,,"), epoch)
+        }
+        XCTAssertEqual(try ManagementSocket.parseState("0,WAIT").since, Date(timeIntervalSince1970: 0))
+        XCTAssertEqual(try ManagementSocket.parseState("4102444800,WAIT").since, Date(timeIntervalSince1970: 4_102_444_800))
+    }
+
     // MARK: Client
 
     func testStateCommand() throws {

@@ -680,6 +680,9 @@ final class HealthCheckTests: CoreTestCase {
     func testRoundTripParsing() {
         XCTAssertEqual(HealthCheck.roundTripMS("round-trip min/avg/max/stddev = 0.067/12.6/0.067/0.000 ms"), 13)
         XCTAssertNil(HealthCheck.roundTripMS("nothing"))
+        for avg in ["nan", "inf", "-inf", "1e300", "-1"] {
+            XCTAssertNil(HealthCheck.roundTripMS("round-trip min/avg/max/stddev = 0.067/\(avg)/0.067/0.000 ms"), avg)
+        }
     }
 
     func testTCPOpenAndClosed() throws {

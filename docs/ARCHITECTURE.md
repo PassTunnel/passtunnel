@@ -548,7 +548,8 @@ the socket is not there yet or another client is connected); `state()` returns
 `ManagementState(name, localIP, since, …)`. `ConnectionManager` (Core) owns state per profile: OpenVPN
 state via `ManagementSocket` on the socket the helper reports (`HelperResponse.mgmtSocket` after start,
 `mgmtSockets` in each `status` poll, so sessions started by the CLI or before an app restart are found;
-`PT.mgmtSocketPath(uid: geteuid(), …)` only as a fallback) (`state` command; first field = since;
+`PT.mgmtSocketPath(uid: geteuid(), …)` only as a fallback) (`state` command; first field = since,
+refused unless it is a finite time between 1970 and 2100, also when read back from `.mgmt-state`;
 disconnect = helper `stop`). The CLI uses one-shot queries (`SocketManagementQuerier`). The app uses
 `PersistentManagementQuerier`: one held connection per socket with `state on`, following `>STATE:`
 notifications and reopened on the next poll after a drop — OpenVPN logs every client connect, command and
