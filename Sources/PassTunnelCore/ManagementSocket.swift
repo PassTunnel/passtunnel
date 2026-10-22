@@ -45,6 +45,15 @@ public struct ManagementState: Equatable {
     }
 
     public var isConnected: Bool { name == "CONNECTED" }
+
+    /// Seconds since 1970 a state change can plausibly carry: 1970 up to 2100. OpenVPN writes the
+    /// current time; anything else (`nan`, `inf`, `1e300`, a negative value) is a damaged reply or file.
+    public static let plausibleEpochs: ClosedRange<TimeInterval> = 0...4_102_444_800
+
+    /// Whether `since` lies in `plausibleEpochs` (false for non-finite values).
+    public static func isPlausible(_ since: Date) -> Bool {
+        plausibleEpochs.contains(since.timeIntervalSince1970)
+    }
 }
 
 /// Minimal client for OpenVPN's management interface on a unix socket. One connection per command;
@@ -112,7 +121,8 @@ public struct ManagementSocket {
         let line = reply.split(whereSeparator: \.isNewline).map(String.init)
             .first { !$0.hasPrefix(">") && !$0.isEmpty } ?? ""
         let f = line.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
-        guard f.count >= 2, let epoch = TimeInterval(f[0]), !f[1].isEmpty else {
+        guard f.count >= 2, let epoch = TimeInterval(f[0]), ManagementState.plausibleEpochs.contains(epoch),
+              !f[1].isEmpty else {
             throw ManagementError.unexpectedReply(line)
         }
         func field(_ i: Int) -> String { i < f.count ? f[i] : "" }

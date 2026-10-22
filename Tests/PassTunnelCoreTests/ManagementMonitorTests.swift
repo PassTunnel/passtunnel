@@ -252,6 +252,40 @@ final class SharedStateTests: XCTestCase {
 }
 
 extension SharedStateTests {
+    /// A damaged shared state file with an absurd timestamp is ignored, like a missing one.
+    func testSharedStateWithAnImplausibleTimestampIsIgnored() throws {
+        let p = try makeProfile()
+        let url = store.dir(p.id).appendingPathComponent(ConnectionManager.sharedStateFile)
+        let cli = manager(StubQuerier(.failure(ManagementError.busy), shares: false))
+        for epoch in [1e300, -1e300, -1, 1e20] {
+            var damaged = connected
+            damaged.since = Date(timeIntervalSince1970: epoch)
+            try JSONCoding.write(ConnectionManager.SharedState(pid: 4242, writer: getpid(), damaged), to: url)
+            XCTAssertNil(cli.sharedState(p.id, pid: 4242), "\(epoch)")
+            XCTAssertNil(cli.sharedState(p.id, pid: 4242, requireLiveWriter: false), "\(epoch)")
+        }
+        try JSONCoding.write(ConnectionManager.SharedState(pid: 4242, writer: getpid(), connected), to: url)
+        XCTAssertEqual(cli.sharedState(p.id, pid: 4242), connected)
+    }
+
+    /// `status` (CLI and MCP `get_status`) reports instead of trapping, whatever `since` the state carries.
+    func testStatusDurationNeverTraps() async throws {
+        let p = try makeProfile()
+        helper.openVPNStateLine = nil
+        helper.simulateExternalStart(p.id, profileDir: store.dir(p.id).path, since: since)
+        let cases: [(TimeInterval, Int)] = [(1e300, 0), (.infinity, 0), (.nan, 0), (since.timeIntervalSince1970 + 60, 0),
+                                            (-1e300, Int.max), (-.infinity, 0), (since.timeIntervalSince1970 - 90, 90)]
+        for (epoch, expected) in cases {
+            var state = connected
+            state.since = Date(timeIntervalSince1970: epoch)
+            let m = manager(StubQuerier(.success(state), shares: true))
+            await m.refresh()
+            let status = AutomationService(store: store, manager: m).status(p, now: since)
+            XCTAssertEqual(status.state, "connected", "\(epoch)")
+            XCTAssertEqual(status.durationSeconds, expected, "\(epoch)")
+        }
+    }
+
     static let upLog = """
     2026-01-01 10:00:00 UDPv4 link remote: [AF_INET]203.0.113.10:1194
     2026-01-01 10:00:01 /sbin/ifconfig utun6 10.8.0.6 10.8.0.6 netmask 255.255.255.0 mtu 1500 up
