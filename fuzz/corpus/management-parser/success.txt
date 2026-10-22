@@ -1,0 +1,1 @@
+SUCCESS: real-time state notification set to ON

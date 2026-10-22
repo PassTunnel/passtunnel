@@ -1,0 +1,1 @@
+otpauth://totp/Acme:alice?secret=JBSWY3DPEHPK3PXP&issuer=Acme&digits=6&period=30&algorithm=SHA1

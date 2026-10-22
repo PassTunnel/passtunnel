@@ -1,0 +1,86 @@
+# Runs the libFuzzer harnesses in fuzz/ against the code that parses untrusted text (the OpenVPN
+# config sanitizer, FortiGate config rendering, the management-interface parser, otpauth:// URIs and
+# MCP JSON-RPC decoding). A short pass on every pull request that touches the parsers or the
+# harnesses, a longer one weekly. The job name is not a required status check, so it can be added
+# or renamed without touching the branch rulesets.
+#
+# The open-source Swift toolchain is installed from swift.org because the Xcode toolchain ships no
+# libFuzzer runtime on macOS; the download is pinned by version and verified by SHA-256.
+name: Fuzz
+
+on:
+  pull_request:
+    branches: [dev, main]
+    paths:
+      - fuzz/**
+      - .github/workflows/fuzz.yml
+      - Package.swift
+      - Sources/PassTunnelShared/OVPNSanitizer.swift
+      - Sources/PassTunnelShared/FortiConfig.swift
+      - Sources/PassTunnelShared/HelperCore.swift
+      - Sources/PassTunnelCore/ManagementSocket.swift
+      - Sources/PassTunnelCore/OTPAuthURI.swift
+      - Sources/PassTunnelCore/TOTP.swift
+      - Sources/PassTunnelCore/MCPServer.swift
+      - Sources/PassTunnelCore/MCPTools.swift
+  schedule:
+    - cron: "41 5 * * 1"
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Time budget per fuzzer, in seconds
+        required: false
+        default: "120"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  fuzz:
+    name: Fuzz the parsers
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      # 60 s per fuzzer on a pull request, 300 s on the weekly schedule, or the dispatch input.
+      SECONDS_PER_FUZZER: ${{ github.event_name == 'pull_request' && '60' || github.event_name == 'schedule' && '300' || inputs.seconds }}
+      SWIFT_VERSION: swift-6.4.1-RELEASE
+      SWIFT_PKG_SHA256: c34e7e5fb0be4bcd61decfd40db1766434d8952d68e37aed90bcff4e8547951c
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the open-source Swift toolchain
+        run: |
+          # The download stream is the lower-cased version, e.g. "swift-6.4.1-release".
+          stream="$(echo "$SWIFT_VERSION" | tr '[:upper:]' '[:lower:]')"
+          url="https://download.swift.org/${stream}/xcode/${SWIFT_VERSION}/${SWIFT_VERSION}-osx.pkg"
+          echo "Downloading $url"
+          curl -fsSL -o swift.pkg "$url"
+          echo "${SWIFT_PKG_SHA256}  swift.pkg" | shasum -a 256 -c -
+          sudo installer -pkg swift.pkg -target /
+          rm -f swift.pkg
+          echo "/Library/Developer/Toolchains/${SWIFT_VERSION}.xctoolchain/usr/bin" >> "$GITHUB_PATH"
+
+      - name: Show the toolchain
+        run: swift --version
+
+      - name: Run the fuzzers
+        run: fuzz/run.sh "$SECONDS_PER_FUZZER"
+
+      - name: Upload any findings
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-findings
+          path: fuzz/findings
+          if-no-files-found: ignore
+          retention-days: 7
