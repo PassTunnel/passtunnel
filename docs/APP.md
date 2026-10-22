@@ -118,7 +118,8 @@ Sections (only relevant rows visible — hide, don't disable):
    trusted cert (with "Fetch fingerprint" that reads the server cert SHA-256 via a TLS handshake and
    asks to confirm), DNS / routes toggles. Session limit, health host with "Test", auto-reconnect
    (disabled with explanation when not unattended).
-3. **Sign-in**: username (empty = ask), password: Keychain / ask / none (cert only; OpenVPN only).
+3. **Sign-in**: username (empty = ask; FortiGate: at most 64 bytes, openfortivpn's limit, checked inline),
+   password: Keychain / ask / none (cert only; OpenVPN only).
    **Confirm with Touch ID** (`requireAuth`, picker `editor.requireAuth`: Off / Before connecting /
    Before connecting and showing codes; named "Confirm with your password" on a Mac without Touch ID,
    `ConfirmationWording`, where `LAContext.biometryType == .none`), shown only when the profile uses a stored secret

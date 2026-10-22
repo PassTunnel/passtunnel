@@ -29,7 +29,12 @@ public struct FortiConfig: Equatable, CustomStringConvertible, CustomDebugString
         public var errorDescription: String? { description }
     }
 
-    public static let maxValueBytes = 255
+    // openfortivpn (src/config.h) copies each value into a fixed buffer and silently drops what does
+    // not fit: GATEWAY_HOST_SIZE 253, USERNAME_SIZE 64, PASSWORD_SIZE 256, OTP_SIZE 64 bytes. A longer
+    // value is refused here instead of being sent cut off. Bytes, not characters: "ş" is two.
+    public static let maxHostBytes = 253
+    public static let maxUsernameBytes = 64
+    public static let maxPasswordBytes = 255
     public static let maxOTPBytes = 64
 
     public init(host: String, port: Int = 443, username: String, password: String, otp: String? = nil,
@@ -65,8 +70,8 @@ public struct FortiConfig: Equatable, CustomStringConvertible, CustomDebugString
         guard Self.isValidHost(host) else { throw ValidationError.invalidHost }
         guard (1...65535).contains(port) else { throw ValidationError.invalidPort(port) }
         if !trustedCert.isEmpty, !Self.isValidDigest(trustedCert) { throw ValidationError.invalidTrustedCert }
-        try Self.checkValue(username, field: "username", maxBytes: Self.maxValueBytes, allowEmpty: false)
-        try Self.checkValue(password, field: "password", maxBytes: Self.maxValueBytes, allowEmpty: false)
+        try Self.checkValue(username, field: "username", maxBytes: Self.maxUsernameBytes, allowEmpty: false)
+        try Self.checkValue(password, field: "password", maxBytes: Self.maxPasswordBytes, allowEmpty: false)
         if let otp, !otp.isEmpty {
             try Self.checkValue(otp, field: "one-time code", maxBytes: Self.maxOTPBytes, allowEmpty: false)
         }
@@ -100,7 +105,7 @@ public struct FortiConfig: Equatable, CustomStringConvertible, CustomDebugString
 
     /// Host name, IPv4 or IPv6 literal (no brackets, no port).
     public static func isValidHost(_ s: String) -> Bool {
-        guard !s.isEmpty, s.utf8.count <= 253, !s.hasPrefix("-"), !s.hasPrefix(".") else { return false }
+        guard !s.isEmpty, s.utf8.count <= maxHostBytes, !s.hasPrefix("-"), !s.hasPrefix(".") else { return false }
         if s.contains(":") {
             var addr = in6_addr()
             return inet_pton(AF_INET6, s, &addr) == 1

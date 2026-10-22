@@ -998,6 +998,7 @@ public final class ConnectionManager: ObservableObject {
 
         let fixed = p.username.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let username = fixed.isEmpty ? value(.username) : fixed else { throw PTError.missingCredential(.username) }
+        try Profile.checkUsername(username, type: p.type)
         c.username = username
 
         switch p.passwordMode {
@@ -1249,7 +1250,7 @@ public final class ConnectionManager: ObservableObject {
         }
         switch error as? PTError {
         case .authFailed, .missingPassword, .missingTOTPSecret, .missingCredential, .missingConfig,
-             .missingHost, .invalidSecret, .profileNotFound, .otherVPNActive, .setupFailed,
+             .missingHost, .usernameTooLong, .invalidSecret, .profileNotFound, .otherVPNActive, .setupFailed,
              .userConfirmationCancelled, .userConfirmationFailed, .confirmationRequired, .protectedSecretUnreadable,
              .protectionUnavailable:
             return false

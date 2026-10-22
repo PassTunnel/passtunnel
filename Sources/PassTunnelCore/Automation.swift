@@ -84,7 +84,7 @@ public enum AutomationErrorCode: String, Codable, CaseIterable, Sendable {
         switch e {
         case .profileNotFound: return .profileNotFound
         case .invalidProfileID, .emptyName, .invalidField, .wrongProfileType, .invalidSecret, .invalidOTPAuthURI,
-             .hotpNotSupported, .invalidTemplate:
+             .hotpNotSupported, .invalidTemplate, .usernameTooLong:
             return .invalidArgument
         case .fileError, .fileTooLarge: return .fileError
         case .invalidFile, .unsupportedShareFile, .ovpnReferencedFile, .ovpnNotAllowed, .missingConfig, .missingHost:
