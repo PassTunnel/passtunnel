@@ -177,7 +177,7 @@ GitHub account behind a passkey or security key, and keep the offline backup of 
 
 The branch rulesets (Settings → Rules): `dev` and `main` refuse direct pushes, force pushes,
 deletion and unsigned commits; `dev` takes squash merges, `main` merge commits; the required checks
-are `Build and test`, `Release scripts` and `PR title`, plus `Source branch` on `main`. Actions must be
+are `Build and test`, `Release scripts`, `Site` and `PR title`, plus `Source branch` on `main`. Actions must be
 pinned to full commit SHAs.
 
 ## Releasing from a Mac
