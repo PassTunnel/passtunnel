@@ -2,7 +2,8 @@
 
 The project website is a single static page in [`site/`](../site), published with GitHub Pages at
 <https://passtunnel.github.io/passtunnel/>. It explains what PassTunnel does, how to install it, the
-CLI and MCP setup and the security model, and it serves `llms.txt` for tools that read it.
+CLI and MCP setup and the security model, and it serves `llms.txt` for tools that read it (also at
+<https://passtunnel.github.io/llms.txt>, see [Preview and deploy](#preview-and-deploy)).
 
 This document is the spec for the site: what is on it, the rules it follows and how it is
 maintained. The code in `site/` is the source of truth for the exact look.
@@ -44,8 +45,8 @@ maintained. The code in `site/` is the source of truth for the exact look.
 | `site/assets/theme.js` | Loaded in `<head>` before the stylesheet paints: applies the saved theme (no flash) |
 | `site/assets/main.js` | Theme button, mobile menu, copy buttons, format picker, palette picker, live code demo |
 | `site/assets/img/` | Generated images (do not edit by hand) |
-| `site/llms.txt` | Plain-text summary for language-model tools: what it is, install, CLI, MCP setup, links |
-| `site/404.html`, `site/robots.txt`, `site/sitemap.xml` | The usual |
+| `site/llms.txt` | Plain-text summary for language-model tools: what it is, install, CLI, MCP setup, links; also served at the root of the host |
+| `site/404.html`, `site/sitemap.xml` | The usual (`robots.txt` only works at the root of the host, see [Preview and deploy](#preview-and-deploy)) |
 | `scripts/site-assets.sh` | Regenerates everything in `site/assets/img/` |
 | `scripts/site/og.html` | Source of the social preview image (not published) |
 | `scripts/check-site.sh` | Static checks run by CI (see [Checks](#checks)) |
@@ -154,3 +155,7 @@ Preview: `python3 -m http.server -d site 8000` and open <http://localhost:8000>.
 `pages.yml` deploys `site/` on every push to `main` that touches `site/` (and on demand), so the
 site always describes the released app; site changes go out with the next release merge, or by
 running the workflow by hand. Repository setting: Pages → Source → GitHub Actions.
+
+The root of passtunnel.github.io (`/llms.txt`, `/robots.txt` and the redirect from `/` to
+`/passtunnel/`) comes from the [PassTunnel/passtunnel.github.io](https://github.com/PassTunnel/passtunnel.github.io)
+repository, which copies `site/llms.txt` from `main` on every deploy and once a day.
