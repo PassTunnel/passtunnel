@@ -543,6 +543,12 @@ Security rules (helper):
   password 256, code 64 bytes; it cuts them off silently) are refused: `FortiConfig.maxHostBytes`,
   `maxUsernameBytes` (64), `maxPasswordBytes` (255), `maxOTPBytes`; `ProfileStore.save` and
   `ConnectionManager` refuse a longer user name first (`PTError.usernameTooLong`, counted in UTF-8 bytes).
+  The host (`FortiConfig.isValidHost`) is a name of ASCII letters, digits, `.` and `-`, or an IPv6 literal
+  of hex digits, `:` and `.` with an optional zone id of letters and digits (`fe80::1%en0`); every character
+  is checked in Swift before `inet_pton` sees the address, so a NUL, a control character or whitespace can
+  neither end the C string early nor start another config line. `ProfileStore.save` (editor, `passtunnel
+  set`, share-file import) and `ConnectionManager` refuse such a host before the helper does
+  (`PTError.invalidField("host")`).
   OTP is passed in the config (`otp = …`), so no pinentry is needed. Every config sets
   `ca-file = /etc/ssl/cert.pem`, so openfortivpn never uses OpenSSL's compiled-in default store.
 - Tracks the pid it started per profile; `stop` only signals that pid (SIGTERM, then SIGKILL after 5 s).

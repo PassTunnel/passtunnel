@@ -102,19 +102,47 @@ public struct FortiConfig: Equatable, CustomStringConvertible, CustomDebugString
         s.utf8.count == 64 && s.utf8.allSatisfy { (48...57).contains($0) || (65...70).contains($0) || (97...102).contains($0) }
     }
 
-    /// Host name, IPv4 or IPv6 literal (no brackets, no port).
+    /// Host name, IPv4 or IPv6 literal (no brackets, no port). Every character is checked here, in
+    /// Swift, before anything reaches a C function: C reads a string only up to its first NUL, so a
+    /// C-level check alone would pass whatever follows one.
     public static func isValidHost(_ s: String) -> Bool {
-        guard !s.isEmpty, s.utf8.count <= maxHostBytes, !s.hasPrefix("-"), !s.hasPrefix(".") else { return false }
-        if s.contains(":") {
-            var addr = in6_addr()
-            return inet_pton(AF_INET6, s, &addr) == 1
+        guard !s.isEmpty, s.utf8.count <= maxHostBytes, !s.hasPrefix("-"), !s.hasPrefix("."),
+              !s.unicodeScalars.contains(where: { isForbiddenScalar($0) || $0.properties.isWhitespace }) else {
+            return false
         }
-        return s.unicodeScalars.allSatisfy { c in
-            switch c {
-            case "a"..."z", "A"..."Z", "0"..."9", ".", "-": return true
-            default: return false
-            }
+        if s.utf8.contains(UInt8(ascii: ":")) { return isValidIPv6(s) }
+        return s.utf8.allSatisfy { isASCIIAlphanumeric($0) || $0 == UInt8(ascii: ".") || $0 == UInt8(ascii: "-") }
+    }
+
+    /// Longest zone id ("%en0", "%utun10", "%4"): an interface name is at most IFNAMSIZ - 1 bytes.
+    static let maxZoneIDBytes = 15
+
+    /// An IPv6 literal: hex digits, `:` and `.` (for an IPv4-mapped tail) that `inet_pton` accepts,
+    /// optionally followed by a zone id of ASCII letters and digits. The zone id is checked here
+    /// because macOS `inet_pton` accepts any bytes after `%`, and only the address part is passed to it.
+    static func isValidIPv6(_ s: String) -> Bool {
+        let bytes = Array(s.utf8)
+        let percent = bytes.firstIndex(of: UInt8(ascii: "%"))
+        let address = bytes[..<(percent ?? bytes.endIndex)]
+        guard !address.isEmpty, address.allSatisfy({
+            isASCIIHexDigit($0) || $0 == UInt8(ascii: ":") || $0 == UInt8(ascii: ".")
+        }) else { return false }
+        if let percent {
+            let zone = bytes[(percent + 1)...]
+            guard (1...maxZoneIDBytes).contains(zone.count), zone.allSatisfy(isASCIIAlphanumeric) else { return false }
         }
+        var addr = in6_addr()
+        return String(decoding: address, as: UTF8.self).withCString { inet_pton(AF_INET6, $0, &addr) } == 1
+    }
+
+    static func isASCIIAlphanumeric(_ b: UInt8) -> Bool {
+        (UInt8(ascii: "a")...UInt8(ascii: "z")).contains(b) || (UInt8(ascii: "A")...UInt8(ascii: "Z")).contains(b)
+            || (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(b)
+    }
+
+    static func isASCIIHexDigit(_ b: UInt8) -> Bool {
+        (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(b) || (UInt8(ascii: "a")...UInt8(ascii: "f")).contains(b)
+            || (UInt8(ascii: "A")...UInt8(ascii: "F")).contains(b)
     }
 
     static func checkValue(_ s: String, field: String, maxBytes: Int, allowEmpty: Bool) throws {
