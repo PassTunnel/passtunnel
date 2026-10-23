@@ -1,0 +1,190 @@
+{
+  "about": "Profile identifiers made from names (Turkish letters folded, at most 24 characters), numbered duplicates, and which identifiers are valid.",
+  "make": [
+    {
+      "profile_name": "Acme",
+      "id": "acme"
+    },
+    {
+      "profile_name": "Şirket VPN İç Ağ",
+      "id": "sirket-vpn-ic-ag"
+    },
+    {
+      "profile_name": "IĞDIR ÇÖZÜM ışık",
+      "id": "igdir-cozum-isik"
+    },
+    {
+      "profile_name": "  Acme -- Prod (EU) ",
+      "id": "acme-prod-eu"
+    },
+    {
+      "profile_name": "Café Zoë",
+      "id": "cafe-zoe"
+    },
+    {
+      "profile_name": "../../etc/passwd",
+      "id": "etc-passwd"
+    },
+    {
+      "profile_name": "!!!",
+      "id": ""
+    },
+    {
+      "profile_name": "",
+      "id": ""
+    },
+    {
+      "profile_name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "profile_name": "Acme Office VPN With A Long Name",
+      "id": "acme-office-vpn-with-a-l"
+    },
+    {
+      "profile_name": "Acme Office VPN With-A Long",
+      "id": "acme-office-vpn-with-a-l"
+    },
+    {
+      "profile_name": "Ärger Über Öl",
+      "id": "arger-uber-ol"
+    },
+    {
+      "profile_name": "Straße",
+      "id": "strasse"
+    },
+    {
+      "profile_name": "ﬁle Ｆｕｌｌ",
+      "id": "file-full"
+    },
+    {
+      "profile_name": "Москва VPN",
+      "id": "moskva-vpn"
+    },
+    {
+      "profile_name": "Αθήνα",
+      "id": "athena"
+    },
+    {
+      "profile_name": "VPN 2",
+      "id": "vpn-2"
+    },
+    {
+      "profile_name": "123",
+      "id": "123"
+    },
+    {
+      "profile_name": "acme_prod.eu",
+      "id": "acme-prod-eu"
+    },
+    {
+      "profile_name": "ǅemal",
+      "id": "dzemal"
+    },
+    {
+      "name": "shorter maximum",
+      "profile_name": "Acme Office",
+      "max_length": 4,
+      "id": "acme"
+    },
+    {
+      "name": "a cut that ends on a dash",
+      "profile_name": "Acme Office",
+      "max_length": 5,
+      "id": "acme"
+    }
+  ],
+  "suffixed": [
+    {
+      "base": "aaaaaaaaaaaaaaaaaaaaaaaa",
+      "n": 2,
+      "id": "aaaaaaaaaaaaaaaaaaaaaa-2"
+    },
+    {
+      "base": "acme-office-vpn-with-a-l",
+      "n": 12,
+      "id": "acme-office-vpn-with-12"
+    },
+    {
+      "base": "acme",
+      "n": 2,
+      "id": "acme-2"
+    },
+    {
+      "base": "acme-office-vpn-with-a-l",
+      "n": 3,
+      "id": "acme-office-vpn-with-a-3"
+    },
+    {
+      "base": "acme-office-vpn-with-ab",
+      "n": 100,
+      "id": "acme-office-vpn-with-100"
+    }
+  ],
+  "is_valid": [
+    {
+      "id": "acme",
+      "valid": true
+    },
+    {
+      "id": "acme-2",
+      "valid": true
+    },
+    {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "valid": true
+    },
+    {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "valid": true
+    },
+    {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "valid": false
+    },
+    {
+      "id": "",
+      "valid": false
+    },
+    {
+      "id": "-a",
+      "valid": false
+    },
+    {
+      "id": "a-",
+      "valid": false
+    },
+    {
+      "id": "a--b",
+      "valid": false
+    },
+    {
+      "id": "A",
+      "valid": false
+    },
+    {
+      "id": "a/b",
+      "valid": false
+    },
+    {
+      "id": "..",
+      "valid": false
+    },
+    {
+      "id": "a b",
+      "valid": false
+    },
+    {
+      "id": "ş",
+      "valid": false
+    },
+    {
+      "id": "a_b",
+      "valid": false
+    },
+    {
+      "id": "0",
+      "valid": true
+    }
+  ]
+}

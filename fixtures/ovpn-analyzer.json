@@ -1,0 +1,464 @@
+{
+  "about": "What import reads from an OpenVPN config: password and code modes, servers, and whether all traffic goes through the tunnel.",
+  "analyze": [
+    {
+      "name": "certificate only (comments and block contents do not count)",
+      "config": "client\ndev tun\n# auth-user-pass\n; static-challenge \"Code\" 1\nremote vpn.example.com 1194 udp\n<ca>\nauth-user-pass\nremote evil.example.com\n</ca>",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": null,
+      "remote": "vpn.example.com",
+      "remotes": [
+        "vpn.example.com"
+      ],
+      "server_description": "vpn.example.com"
+    },
+    {
+      "name": "password only",
+      "config": "client\r\n  auth-user-pass\r\nremote 203.0.113.5 443 tcp\r\nremote vpn2.example.com\r\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "keychain",
+      "redirects_gateway": null,
+      "remote": "203.0.113.5",
+      "remotes": [
+        "203.0.113.5",
+        "vpn2.example.com"
+      ],
+      "server_description": "203.0.113.5 +1 more"
+    },
+    {
+      "name": "static challenge: the code is asked and sent apart",
+      "config": "<tls-auth>\n-----BEGIN OpenVPN Static key V1-----\nremote nope.example.com\n-----END OpenVPN Static key V1-----\n</tls-auth>\nAUTH-USER-PASS\nstatic-challenge \"Enter code\" 1\n<connection>\nremote vpn.example.com 1194\n</connection>",
+      "otp_delivery": "separate",
+      "otp_mode": "ask",
+      "password_mode": "keychain",
+      "redirects_gateway": null,
+      "remote": "vpn.example.com",
+      "remotes": [
+        "vpn.example.com"
+      ],
+      "server_description": "vpn.example.com"
+    },
+    {
+      "name": "static challenge without auth-user-pass: certificate only",
+      "config": "client\nstatic-challenge \"Enter code\" 1\nremote vpn.example.com\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": null,
+      "remote": "vpn.example.com",
+      "remotes": [
+        "vpn.example.com"
+      ],
+      "server_description": "vpn.example.com"
+    },
+    {
+      "name": "no remote",
+      "config": "",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": null,
+      "remote": "",
+      "remotes": [],
+      "server_description": ""
+    },
+    {
+      "name": "double-quoted host",
+      "config": "remote \"vpn.example.com\" 1194\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": null,
+      "remote": "vpn.example.com",
+      "remotes": [
+        "vpn.example.com"
+      ],
+      "server_description": "vpn.example.com"
+    },
+    {
+      "name": "single-quoted host",
+      "config": "remote 'vpn.example.com' 1194\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": null,
+      "remote": "vpn.example.com",
+      "remotes": [
+        "vpn.example.com"
+      ],
+      "server_description": "vpn.example.com"
+    },
+    {
+      "name": "quoted directive",
+      "config": "\"remote\" vpn.example.com\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": null,
+      "remote": "vpn.example.com",
+      "remotes": [
+        "vpn.example.com"
+      ],
+      "server_description": "vpn.example.com"
+    },
+    {
+      "name": "escaped space in the host",
+      "config": "remote vpn\\ .example.com\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": null,
+      "remote": "vpn .example.com",
+      "remotes": [
+        "vpn .example.com"
+      ],
+      "server_description": "vpn .example.com"
+    },
+    {
+      "name": "# and ; start a comment only where a token starts",
+      "config": "remote vpn.example.com#other.example.com\nremote vpn2.example.com ;1194\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": null,
+      "remote": "vpn.example.com#other.example.com",
+      "remotes": [
+        "vpn.example.com#other.example.com",
+        "vpn2.example.com"
+      ],
+      "server_description": "vpn.example.com#other.example.com +1 more"
+    },
+    {
+      "name": "comment after the host",
+      "config": "remote vpn.example.com # 1194\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": null,
+      "remote": "vpn.example.com",
+      "remotes": [
+        "vpn.example.com"
+      ],
+      "server_description": "vpn.example.com"
+    },
+    {
+      "name": "commented remotes",
+      "config": "  # remote evil.example.com\n\t; remote evil.example.com\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": null,
+      "remote": "",
+      "remotes": [],
+      "server_description": ""
+    },
+    {
+      "name": "double dash",
+      "config": "--remote vpn.example.com\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": null,
+      "remote": "vpn.example.com",
+      "remotes": [
+        "vpn.example.com"
+      ],
+      "server_description": "vpn.example.com"
+    },
+    {
+      "name": "BOM",
+      "config": "\ufeffremote vpn.example.com\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": null,
+      "remote": "vpn.example.com",
+      "remotes": [
+        "vpn.example.com"
+      ],
+      "server_description": "vpn.example.com"
+    },
+    {
+      "name": "CR LF",
+      "config": "client\r\nremote vpn.example.com\r\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": null,
+      "remote": "vpn.example.com",
+      "remotes": [
+        "vpn.example.com"
+      ],
+      "server_description": "vpn.example.com"
+    },
+    {
+      "name": "a line with an unterminated quote is skipped",
+      "config": "remote \"evil.example.com\nremote vpn.example.com\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": null,
+      "remote": "vpn.example.com",
+      "remotes": [
+        "vpn.example.com"
+      ],
+      "server_description": "vpn.example.com"
+    },
+    {
+      "name": "a line with a bad escape is skipped",
+      "config": "remote evil\\x.example.com\nremote vpn.example.com\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": null,
+      "remote": "vpn.example.com",
+      "remotes": [
+        "vpn.example.com"
+      ],
+      "server_description": "vpn.example.com"
+    },
+    {
+      "name": "inline blocks are skipped",
+      "config": "<ca>\nremote evil.example.com\n</ca>\n--<tls-crypt>\nremote evil.example.com\n  </tls-crypt> trailing\n<cert>\nremote evil.example.com\n</CERT>\nremote vpn.example.com",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": null,
+      "remote": "vpn.example.com",
+      "remotes": [
+        "vpn.example.com"
+      ],
+      "server_description": "vpn.example.com"
+    },
+    {
+      "name": "a comment after the tag still opens the block",
+      "config": "<ca> # pem\nremote evil.example.com\n</ca>\nremote vpn.example.com\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": null,
+      "remote": "vpn.example.com",
+      "remotes": [
+        "vpn.example.com"
+      ],
+      "server_description": "vpn.example.com"
+    },
+    {
+      "name": "several remotes",
+      "config": "client\nremote-random\nremote vpn.example.com 1194\nremote vpn2.example.com 443 tcp\nremote 203.0.113.5\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": null,
+      "remote": "vpn.example.com",
+      "remotes": [
+        "vpn.example.com",
+        "vpn2.example.com",
+        "203.0.113.5"
+      ],
+      "server_description": "vpn.example.com +2 more"
+    },
+    {
+      "name": "two remotes",
+      "config": "remote vpn.example.com\nremote vpn2.example.com\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": null,
+      "remote": "vpn.example.com",
+      "remotes": [
+        "vpn.example.com",
+        "vpn2.example.com"
+      ],
+      "server_description": "vpn.example.com +1 more"
+    },
+    {
+      "name": "connection blocks",
+      "config": "client\n<connection>\nremote vpn.example.com 1194 udp\n<ca>\nremote evil.example.com\n</ca>\n</connection>\n<CONNECTION>\nremote \"vpn2.example.com\" 443 tcp\n</CONNECTION>",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": null,
+      "remote": "vpn.example.com",
+      "remotes": [
+        "vpn.example.com",
+        "vpn2.example.com"
+      ],
+      "server_description": "vpn.example.com +1 more"
+    },
+    {
+      "name": "setenv opt with the exact name applies",
+      "config": "setenv opt remote vpn.example.com\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": null,
+      "remote": "vpn.example.com",
+      "remotes": [
+        "vpn.example.com"
+      ],
+      "server_description": "vpn.example.com"
+    },
+    {
+      "name": "setenv opt with another spelling is ignored",
+      "config": "setenv opt REMOTE evil.example.com\nsetenv opt --remote evil.example.com\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": null,
+      "remote": "",
+      "remotes": [],
+      "server_description": ""
+    },
+    {
+      "name": "setenv without opt",
+      "config": "setenv REMOTE evil.example.com\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": null,
+      "remote": "",
+      "remotes": [],
+      "server_description": ""
+    },
+    {
+      "name": "remote without a host",
+      "config": "remote\nremote vpn.example.com\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": null,
+      "remote": "vpn.example.com",
+      "remotes": [
+        "vpn.example.com"
+      ],
+      "server_description": "vpn.example.com"
+    },
+    {
+      "name": "redirect-gateway",
+      "config": "client\nredirect-gateway def1\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": true,
+      "remote": "",
+      "remotes": [],
+      "server_description": ""
+    },
+    {
+      "name": "setenv opt redirect-gateway",
+      "config": "setenv opt redirect-gateway def1\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": true,
+      "remote": "",
+      "remotes": [],
+      "server_description": ""
+    },
+    {
+      "name": "redirect-gateway in a block does not count",
+      "config": "<ca>\nredirect-gateway def1\n</ca>\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": null,
+      "remote": "",
+      "remotes": [],
+      "server_description": ""
+    },
+    {
+      "name": "quoted redirect-gateway",
+      "config": "\"redirect-gateway\" def1\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": true,
+      "remote": "",
+      "remotes": [],
+      "server_description": ""
+    },
+    {
+      "name": "redirect-gateway after a connection block",
+      "config": "<connection>\nremote vpn.example.com\n</connection>\nredirect-gateway\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": true,
+      "remote": "vpn.example.com",
+      "remotes": [
+        "vpn.example.com"
+      ],
+      "server_description": "vpn.example.com"
+    },
+    {
+      "name": "pushed routes refused with pull-filter",
+      "config": "pull-filter ignore 'redirect-gateway'\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": false,
+      "remote": "",
+      "remotes": [],
+      "server_description": ""
+    },
+    {
+      "name": "pull-filter with a prefix",
+      "config": "pull-filter ignore redirect\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": false,
+      "remote": "",
+      "remotes": [],
+      "server_description": ""
+    },
+    {
+      "name": "pull-filter accept does not refuse",
+      "config": "pull-filter accept redirect-gateway\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": null,
+      "remote": "",
+      "remotes": [],
+      "server_description": ""
+    },
+    {
+      "name": "pushed routes refused with route-nopull",
+      "config": "route-nopull\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": false,
+      "remote": "",
+      "remotes": [],
+      "server_description": ""
+    },
+    {
+      "name": "route-nopull and redirect-gateway",
+      "config": "route-nopull\nredirect-gateway def1\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": true,
+      "remote": "",
+      "remotes": [],
+      "server_description": ""
+    },
+    {
+      "name": "a rejected pull-filter line",
+      "config": "pull-filter ignore \"redirect-gateway\n",
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password_mode": "none",
+      "redirects_gateway": null,
+      "remote": "",
+      "remotes": [],
+      "server_description": ""
+    }
+  ]
+}

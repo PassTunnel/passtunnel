@@ -1,0 +1,1599 @@
+{
+  "about": "OpenVPN config lines read as OpenVPN reads them (tokens), configs the sanitizer accepts (with the text it returns) or refuses (with every violation), and the verb level it reads.",
+  "tokens": [
+    {
+      "line": "",
+      "tokens": []
+    },
+    {
+      "line": "   ",
+      "tokens": []
+    },
+    {
+      "line": "\t\r",
+      "tokens": []
+    },
+    {
+      "line": "# ca ca.crt",
+      "tokens": []
+    },
+    {
+      "line": "; ca ca.crt",
+      "tokens": []
+    },
+    {
+      "line": "  # x",
+      "tokens": []
+    },
+    {
+      "line": "ca ca.crt",
+      "tokens": [
+        "ca",
+        "ca.crt"
+      ]
+    },
+    {
+      "line": "--ca ca.crt",
+      "tokens": [
+        "--ca",
+        "ca.crt"
+      ]
+    },
+    {
+      "line": "ca ca.crt # note",
+      "tokens": [
+        "ca",
+        "ca.crt"
+      ]
+    },
+    {
+      "line": "ca ca.crt;x",
+      "tokens": [
+        "ca",
+        "ca.crt;x"
+      ]
+    },
+    {
+      "line": "ca \"my ca.crt\"",
+      "tokens": [
+        "ca",
+        "my ca.crt"
+      ]
+    },
+    {
+      "line": "ca 'my ca.crt'",
+      "tokens": [
+        "ca",
+        "my ca.crt"
+      ]
+    },
+    {
+      "line": "ca my\\ ca.crt",
+      "tokens": [
+        "ca",
+        "my ca.crt"
+      ]
+    },
+    {
+      "line": "ca \"my \\\"ca\\\".crt\"",
+      "tokens": [
+        "ca",
+        "my \"ca\".crt"
+      ]
+    },
+    {
+      "line": "ca my\\\\ca.crt",
+      "tokens": [
+        "ca",
+        "my\\ca.crt"
+      ]
+    },
+    {
+      "line": "ca 'back\\slash'",
+      "tokens": [
+        "ca",
+        "back\\slash"
+      ]
+    },
+    {
+      "line": "ca c\\a.crt",
+      "tokens": null
+    },
+    {
+      "line": "ca \\x",
+      "tokens": null
+    },
+    {
+      "line": "ca ca.crt\\",
+      "tokens": null
+    },
+    {
+      "line": "ca \"open",
+      "tokens": null
+    },
+    {
+      "line": "ca 'open",
+      "tokens": null
+    },
+    {
+      "line": "ca \"a\"\"b\"",
+      "tokens": [
+        "ca",
+        "a",
+        "b"
+      ]
+    },
+    {
+      "line": "ca a\"b\"",
+      "tokens": [
+        "ca",
+        "a\"b\""
+      ]
+    },
+    {
+      "line": "ca \\#x",
+      "tokens": null
+    },
+    {
+      "line": "ca \\;x",
+      "tokens": null
+    },
+    {
+      "line": "\\#ca x",
+      "tokens": null
+    },
+    {
+      "line": "ca\u000bx\fy",
+      "tokens": [
+        "ca",
+        "x",
+        "y"
+      ]
+    },
+    {
+      "line": "<ca>",
+      "tokens": [
+        "<ca>"
+      ]
+    },
+    {
+      "line": "</ca>",
+      "tokens": [
+        "</ca>"
+      ]
+    },
+    {
+      "line": "<auth-user-pass>",
+      "tokens": [
+        "<auth-user-pass>"
+      ]
+    },
+    {
+      "line": "--<auth-user-pass>",
+      "tokens": [
+        "--<auth-user-pass>"
+      ]
+    },
+    {
+      "line": "auth-user-pass [inline]",
+      "tokens": [
+        "auth-user-pass",
+        "[inline]"
+      ]
+    },
+    {
+      "line": "auth-user-pass\\q [inline]",
+      "tokens": null
+    },
+    {
+      "line": "auth-user-pass\\ [inline]",
+      "tokens": [
+        "auth-user-pass [inline]"
+      ]
+    },
+    {
+      "line": "http-proxy-user-pass \"[inline]\"",
+      "tokens": [
+        "http-proxy-user-pass",
+        "[inline]"
+      ]
+    },
+    {
+      "line": "remote vpn.example.com 1194 \\u0041",
+      "tokens": null
+    },
+    {
+      "line": "setenv opt up\\ /tmp/x",
+      "tokens": [
+        "setenv",
+        "opt",
+        "up /tmp/x"
+      ]
+    },
+    {
+      "line": "key \"a b\" 'c d' e\\ f",
+      "tokens": [
+        "key",
+        "a b",
+        "c d",
+        "e f"
+      ]
+    },
+    {
+      "line": "\ufeffclient",
+      "tokens": [
+        "\ufeffclient"
+      ]
+    },
+    {
+      "line": "ca ca.crt\u00a0x",
+      "tokens": [
+        "ca",
+        "ca.crt\u00a0x"
+      ]
+    },
+    {
+      "line": "ca \"tab\there\"",
+      "tokens": [
+        "ca",
+        "tab\there"
+      ]
+    },
+    {
+      "line": "remote vpn.example.com#other.example.com",
+      "tokens": [
+        "remote",
+        "vpn.example.com#other.example.com"
+      ]
+    },
+    {
+      "line": "remote vpn.example.com # 1194",
+      "tokens": [
+        "remote",
+        "vpn.example.com"
+      ]
+    },
+    {
+      "line": "'u'p /tmp/x",
+      "tokens": [
+        "u",
+        "p",
+        "/tmp/x"
+      ]
+    },
+    {
+      "line": "pl\"\"ugin x",
+      "tokens": [
+        "pl\"\"ugin",
+        "x"
+      ]
+    }
+  ],
+  "sanitize": [
+    {
+      "name": "a typical client config passes unchanged",
+      "config": "# Acme VPN\nclient\ndev tun\nproto udp\nremote vpn.example.com 1194\nresolv-retry infinite\nnobind\npersist-key\npersist-tun\nremote-cert-tls server\nauth-user-pass\nscript-security 1\nsetenv FORWARD_COMPATIBLE 1\nsetenv opt block-outside-dns\nverb 3\n<ca>\n-----BEGIN CERTIFICATE-----\nMIIBszCCAVmgAwIBAgIUJ\nup /tmp/not-a-directive-inside-a-block\n-----END CERTIFICATE-----\n</ca>\nkey-direction 1\n<tls-auth>\n-----BEGIN OpenVPN Static key V1-----\n0123456789abcdef\n-----END OpenVPN Static key V1-----\n</tls-auth>\n",
+      "output": "# Acme VPN\nclient\ndev tun\nproto udp\nremote vpn.example.com 1194\nresolv-retry infinite\nnobind\npersist-key\npersist-tun\nremote-cert-tls server\nauth-user-pass\nscript-security 1\nsetenv FORWARD_COMPATIBLE 1\nsetenv opt block-outside-dns\nverb 3\n<ca>\n-----BEGIN CERTIFICATE-----\nMIIBszCCAVmgAwIBAgIUJ\nup /tmp/not-a-directive-inside-a-block\n-----END CERTIFICATE-----\n</ca>\nkey-direction 1\n<tls-auth>\n-----BEGIN OpenVPN Static key V1-----\n0123456789abcdef\n-----END OpenVPN Static key V1-----\n</tls-auth>\n"
+    },
+    {
+      "name": "CR LF line endings pass unchanged",
+      "config": "# Acme VPN\r\nclient\r\ndev tun\r\nproto udp\r\nremote vpn.example.com 1194\r\nresolv-retry infinite\r\nnobind\r\npersist-key\r\npersist-tun\r\nremote-cert-tls server\r\nauth-user-pass\r\nscript-security 1\r\nsetenv FORWARD_COMPATIBLE 1\r\nsetenv opt block-outside-dns\r\nverb 3\r\n<ca>\r\n-----BEGIN CERTIFICATE-----\r\nMIIBszCCAVmgAwIBAgIUJ\r\nup /tmp/not-a-directive-inside-a-block\r\n-----END CERTIFICATE-----\r\n</ca>\r\nkey-direction 1\r\n<tls-auth>\r\n-----BEGIN OpenVPN Static key V1-----\r\n0123456789abcdef\r\n-----END OpenVPN Static key V1-----\r\n</tls-auth>\r\n",
+      "output": "# Acme VPN\r\nclient\r\ndev tun\r\nproto udp\r\nremote vpn.example.com 1194\r\nresolv-retry infinite\r\nnobind\r\npersist-key\r\npersist-tun\r\nremote-cert-tls server\r\nauth-user-pass\r\nscript-security 1\r\nsetenv FORWARD_COMPATIBLE 1\r\nsetenv opt block-outside-dns\r\nverb 3\r\n<ca>\r\n-----BEGIN CERTIFICATE-----\r\nMIIBszCCAVmgAwIBAgIUJ\r\nup /tmp/not-a-directive-inside-a-block\r\n-----END CERTIFICATE-----\r\n</ca>\r\nkey-direction 1\r\n<tls-auth>\r\n-----BEGIN OpenVPN Static key V1-----\r\n0123456789abcdef\r\n-----END OpenVPN Static key V1-----\r\n</tls-auth>\r\n"
+    },
+    {
+      "name": "comments, BOM and blank lines pass byte for byte",
+      "config": "\ufeff# up /tmp/x\n;plugin x\n   #down\nremote vpn.example.com 1194 # up /tmp/x\n\n\r\n \t \n",
+      "output": "\ufeff# up /tmp/x\n;plugin x\n   #down\nremote vpn.example.com 1194 # up /tmp/x\n\n\r\n \t \n"
+    },
+    {
+      "name": "empty config",
+      "config": "",
+      "output": ""
+    },
+    {
+      "name": "only a BOM",
+      "config": "\ufeff",
+      "output": "\ufeff"
+    },
+    {
+      "name": "static-challenge is removed",
+      "config": "client\nstatic-challenge \"Enter code\" 1\nremote vpn.example.com\n--Static-Challenge 'x' 0\n",
+      "output": "client\nremote vpn.example.com\n"
+    },
+    {
+      "name": "a static-challenge block is removed",
+      "config": "client\n<static-challenge>\nx\n</static-challenge>\nremote vpn.example.com\n",
+      "output": "client\nremote vpn.example.com\n"
+    },
+    {
+      "name": "inline block contents are not directives",
+      "config": "<ca>\nup /tmp/x\nplugin y\n</ca>\n",
+      "output": "<ca>\nup /tmp/x\nplugin y\n</ca>\n"
+    },
+    {
+      "name": "inline block contents are not tokenized",
+      "config": "<ca>\nC:\\x\\y\n</ca>\n",
+      "output": "<ca>\nC:\\x\\y\n</ca>\n"
+    },
+    {
+      "name": "connection blocks are read",
+      "config": "<connection>\nremote vpn.example.com 1194\n</connection>\n",
+      "output": "<connection>\nremote vpn.example.com 1194\n</connection>\n"
+    },
+    {
+      "name": "a verbatim block inside a connection block",
+      "config": "<connection>\nremote vpn.example.com\n<ca>\nx\n</ca>\n</connection>\n",
+      "output": "<connection>\nremote vpn.example.com\n<ca>\nx\n</ca>\n</connection>\n"
+    },
+    {
+      "name": "script-security 0",
+      "config": "script-security 0\n",
+      "output": "script-security 0\n"
+    },
+    {
+      "name": "script-security 1",
+      "config": "script-security 1\n",
+      "output": "script-security 1\n"
+    },
+    {
+      "name": "script-security -1",
+      "config": "script-security -1\n",
+      "output": "script-security -1\n"
+    },
+    {
+      "name": "script-security 01",
+      "config": "script-security 01\n",
+      "output": "script-security 01\n"
+    },
+    {
+      "name": "inline files, dh none, http-proxy auto",
+      "config": "ca [inline]\nauth-user-pass\ndh none\nhttp-proxy p.example.com 8080 auto\n",
+      "output": "ca [inline]\nauth-user-pass\ndh none\nhttp-proxy p.example.com 8080 auto\n"
+    },
+    {
+      "name": "client metadata setenv",
+      "config": "setenv CLIENT_CERT 0\nsetenv IV_GUI_VER Acme\nsetenv-safe X 1\n",
+      "output": "setenv CLIENT_CERT 0\nsetenv IV_GUI_VER Acme\nsetenv-safe X 1\n"
+    },
+    {
+      "name": "socks-proxy without a credentials file",
+      "config": "socks-proxy proxy.example.com 1080\nsocks-proxy proxy.example.com\n",
+      "output": "socks-proxy proxy.example.com 1080\nsocks-proxy proxy.example.com\n"
+    },
+    {
+      "name": "auth-gen-token-secret inline",
+      "config": "auth-gen-token-secret [inline]\n<auth-gen-token-secret>\nk\n</auth-gen-token-secret>\n",
+      "output": "auth-gen-token-secret [inline]\n<auth-gen-token-secret>\nk\n</auth-gen-token-secret>\n"
+    },
+    {
+      "name": "quoted arguments",
+      "config": "remote \"vpn example\" 1194\nverify-x509-name 'CN=Acme, O=Acme' subject\n",
+      "output": "remote \"vpn example\" 1194\nverify-x509-name 'CN=Acme, O=Acme' subject\n"
+    },
+    {
+      "name": "a closing quote ends the token: options \"u\" and pl\"\"ugin are not forbidden ones",
+      "config": "'u'p /tmp/x\npl\"\"ugin x\n",
+      "output": "'u'p /tmp/x\npl\"\"ugin x\n"
+    },
+    {
+      "name": "a lone CR is whitespace: up is an argument of remote",
+      "config": "remote vpn.example.com\rup /tmp/x\n",
+      "output": "remote vpn.example.com\rup /tmp/x\n"
+    },
+    {
+      "name": "a line of exactly 254 bytes",
+      "config": "remote aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+      "output": "remote aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+    },
+    {
+      "name": "not blocks (OpenVPN rejects them as unknown options)",
+      "config": "</connection>\n< ca >\n",
+      "output": "</connection>\n< ca >\n"
+    },
+    {
+      "name": "accepted escapes",
+      "config": "remote vpn\\ example.com 1194\nverify-x509-name \"CN=Acme \\\"VPN\\\"\" name\nverify-x509-name 'C:\\vpn\\x' name\nremote vpn\\\\.example.com\nremote vpn.example.com\\\r\nremote \\\"vpn\" 1194\n",
+      "output": "remote vpn\\ example.com 1194\nverify-x509-name \"CN=Acme \\\"VPN\\\"\" name\nverify-x509-name 'C:\\vpn\\x' name\nremote vpn\\\\.example.com\nremote vpn.example.com\\\r\nremote \\\"vpn\" 1194\n"
+    },
+    {
+      "name": "setenv opt with an allowed option",
+      "config": "setenv opt block-outside-dns\nsetenv opt\n",
+      "output": "setenv opt block-outside-dns\nsetenv opt\n"
+    },
+    {
+      "name": "refused: up /tmp/x.sh",
+      "config": "client\nup /tmp/x.sh\n",
+      "violations": [
+        {
+          "directive": "up",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: down /tmp/x.sh",
+      "config": "client\ndown /tmp/x.sh\n",
+      "violations": [
+        {
+          "directive": "down",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: route-up /tmp/x",
+      "config": "client\nroute-up /tmp/x\n",
+      "violations": [
+        {
+          "directive": "route-up",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: route-pre-down /tmp/x",
+      "config": "client\nroute-pre-down /tmp/x\n",
+      "violations": [
+        {
+          "directive": "route-pre-down",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: ipchange /tmp/x",
+      "config": "client\nipchange /tmp/x\n",
+      "violations": [
+        {
+          "directive": "ipchange",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: learn-address /tmp/x",
+      "config": "client\nlearn-address /tmp/x\n",
+      "violations": [
+        {
+          "directive": "learn-address",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: client-connect /tmp/x",
+      "config": "client\nclient-connect /tmp/x\n",
+      "violations": [
+        {
+          "directive": "client-connect",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: client-disconnect /tmp/x",
+      "config": "client\nclient-disconnect /tmp/x\n",
+      "violations": [
+        {
+          "directive": "client-disconnect",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: tls-verify /tmp/x",
+      "config": "client\ntls-verify /tmp/x\n",
+      "violations": [
+        {
+          "directive": "tls-verify",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: auth-user-pass-verify /tmp/x via-env",
+      "config": "client\nauth-user-pass-verify /tmp/x via-env\n",
+      "violations": [
+        {
+          "directive": "auth-user-pass-verify",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: plugin /tmp/evil.so",
+      "config": "client\nplugin /tmp/evil.so\n",
+      "violations": [
+        {
+          "directive": "plugin",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: script-security 2",
+      "config": "client\nscript-security 2\n",
+      "violations": [
+        {
+          "directive": "script-security",
+          "line": 2,
+          "reason": "level above 1 allows scripts"
+        }
+      ]
+    },
+    {
+      "name": "refused: script-security 3",
+      "config": "client\nscript-security 3\n",
+      "violations": [
+        {
+          "directive": "script-security",
+          "line": 2,
+          "reason": "level above 1 allows scripts"
+        }
+      ]
+    },
+    {
+      "name": "refused: script-security",
+      "config": "client\nscript-security\n",
+      "violations": [
+        {
+          "directive": "script-security",
+          "line": 2,
+          "reason": "invalid level"
+        }
+      ]
+    },
+    {
+      "name": "refused: script-security x",
+      "config": "client\nscript-security x\n",
+      "violations": [
+        {
+          "directive": "script-security",
+          "line": 2,
+          "reason": "invalid level"
+        }
+      ]
+    },
+    {
+      "name": "refused: script-security \"2\"",
+      "config": "client\nscript-security \"2\"\n",
+      "violations": [
+        {
+          "directive": "script-security",
+          "line": 2,
+          "reason": "level above 1 allows scripts"
+        }
+      ]
+    },
+    {
+      "name": "refused: script-security 2 system",
+      "config": "client\nscript-security 2 system\n",
+      "violations": [
+        {
+          "directive": "script-security",
+          "line": 2,
+          "reason": "level above 1 allows scripts"
+        }
+      ]
+    },
+    {
+      "name": "refused: management 127.0.0.1 7505",
+      "config": "client\nmanagement 127.0.0.1 7505\n",
+      "violations": [
+        {
+          "directive": "management",
+          "line": 2,
+          "reason": "managed by PassTunnel"
+        }
+      ]
+    },
+    {
+      "name": "refused: management-query-passwords",
+      "config": "client\nmanagement-query-passwords\n",
+      "violations": [
+        {
+          "directive": "management-query-passwords",
+          "line": 2,
+          "reason": "managed by PassTunnel"
+        }
+      ]
+    },
+    {
+      "name": "refused: management-hold",
+      "config": "client\nmanagement-hold\n",
+      "violations": [
+        {
+          "directive": "management-hold",
+          "line": 2,
+          "reason": "managed by PassTunnel"
+        }
+      ]
+    },
+    {
+      "name": "refused: log /etc/passwd",
+      "config": "client\nlog /etc/passwd\n",
+      "violations": [
+        {
+          "directive": "log",
+          "line": 2,
+          "reason": "managed by PassTunnel"
+        }
+      ]
+    },
+    {
+      "name": "refused: log-append /tmp/x",
+      "config": "client\nlog-append /tmp/x\n",
+      "violations": [
+        {
+          "directive": "log-append",
+          "line": 2,
+          "reason": "managed by PassTunnel"
+        }
+      ]
+    },
+    {
+      "name": "refused: daemon",
+      "config": "client\ndaemon\n",
+      "violations": [
+        {
+          "directive": "daemon",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: writepid /etc/x",
+      "config": "client\nwritepid /etc/x\n",
+      "violations": [
+        {
+          "directive": "writepid",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: cd /",
+      "config": "client\ncd /\n",
+      "violations": [
+        {
+          "directive": "cd",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: chroot /tmp",
+      "config": "client\nchroot /tmp\n",
+      "violations": [
+        {
+          "directive": "chroot",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: user nobody",
+      "config": "client\nuser nobody\n",
+      "violations": [
+        {
+          "directive": "user",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: group nobody",
+      "config": "client\ngroup nobody\n",
+      "violations": [
+        {
+          "directive": "group",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: config /tmp/other.ovpn",
+      "config": "client\nconfig /tmp/other.ovpn\n",
+      "violations": [
+        {
+          "directive": "config",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: dns-updown /tmp/x",
+      "config": "client\ndns-updown /tmp/x\n",
+      "violations": [
+        {
+          "directive": "dns-updown",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: dns-updown force",
+      "config": "client\ndns-updown force\n",
+      "violations": [
+        {
+          "directive": "dns-updown",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: status /etc/x",
+      "config": "client\nstatus /etc/x\n",
+      "violations": [
+        {
+          "directive": "status",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: dev-node /etc/x",
+      "config": "client\ndev-node /etc/x\n",
+      "violations": [
+        {
+          "directive": "dev-node",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: engine dynamic",
+      "config": "client\nengine dynamic\n",
+      "violations": [
+        {
+          "directive": "engine",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: providers legacy",
+      "config": "client\nproviders legacy\n",
+      "violations": [
+        {
+          "directive": "providers",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: pkcs11-providers /tmp/x.dylib",
+      "config": "client\npkcs11-providers /tmp/x.dylib\n",
+      "violations": [
+        {
+          "directive": "pkcs11-providers",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: tls-crypt-v2-verify /tmp/x",
+      "config": "client\ntls-crypt-v2-verify /tmp/x\n",
+      "violations": [
+        {
+          "directive": "tls-crypt-v2-verify",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: iproute /tmp/ip",
+      "config": "client\niproute /tmp/ip\n",
+      "violations": [
+        {
+          "directive": "iproute",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: tmp-dir /tmp",
+      "config": "client\ntmp-dir /tmp\n",
+      "violations": [
+        {
+          "directive": "tmp-dir",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: replay-persist /etc/x",
+      "config": "client\nreplay-persist /etc/x\n",
+      "violations": [
+        {
+          "directive": "replay-persist",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: tls-export-cert /tmp",
+      "config": "client\ntls-export-cert /tmp\n",
+      "violations": [
+        {
+          "directive": "tls-export-cert",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: capath /etc/ssl",
+      "config": "client\ncapath /etc/ssl\n",
+      "violations": [
+        {
+          "directive": "capath",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: client-config-dir /etc/x",
+      "config": "client\nclient-config-dir /etc/x\n",
+      "violations": [
+        {
+          "directive": "client-config-dir",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: ifconfig-pool-persist /etc/x",
+      "config": "client\nifconfig-pool-persist /etc/x\n",
+      "violations": [
+        {
+          "directive": "ifconfig-pool-persist",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: show-pkcs11-ids /tmp/evil.dylib",
+      "config": "client\nshow-pkcs11-ids /tmp/evil.dylib\n",
+      "violations": [
+        {
+          "directive": "show-pkcs11-ids",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: genkey secret /etc/sudoers",
+      "config": "client\ngenkey secret /etc/sudoers\n",
+      "violations": [
+        {
+          "directive": "genkey",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: port-share 127.0.0.1 443 /etc/journal",
+      "config": "client\nport-share 127.0.0.1 443 /etc/journal\n",
+      "violations": [
+        {
+          "directive": "port-share",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: socks-proxy proxy.example.com 1080 /var/root/creds",
+      "config": "client\nsocks-proxy proxy.example.com 1080 /var/root/creds\n",
+      "violations": [
+        {
+          "directive": "socks-proxy",
+          "line": 2,
+          "reason": "references an external credentials file"
+        }
+      ]
+    },
+    {
+      "name": "refused: auth-gen-token-secret /var/root/key",
+      "config": "client\nauth-gen-token-secret /var/root/key\n",
+      "violations": [
+        {
+          "directive": "auth-gen-token-secret",
+          "line": 2,
+          "reason": "references an external file; embed it inline as <auth-gen-token-secret>…</auth-gen-token-secret>"
+        }
+      ]
+    },
+    {
+      "name": "refused: ca /etc/ssl/ca.pem",
+      "config": "client\nca /etc/ssl/ca.pem\n",
+      "violations": [
+        {
+          "directive": "ca",
+          "line": 2,
+          "reason": "references an external file; embed it inline as <ca>…</ca>"
+        }
+      ]
+    },
+    {
+      "name": "refused: auth-user-pass /var/root/secret",
+      "config": "client\nauth-user-pass /var/root/secret\n",
+      "violations": [
+        {
+          "directive": "auth-user-pass",
+          "line": 2,
+          "reason": "references an external file; embed it inline as <auth-user-pass>…</auth-user-pass>"
+        }
+      ]
+    },
+    {
+      "name": "refused: tls-auth ta.key 1",
+      "config": "client\ntls-auth ta.key 1\n",
+      "violations": [
+        {
+          "directive": "tls-auth",
+          "line": 2,
+          "reason": "references an external file; embed it inline as <tls-auth>…</tls-auth>"
+        }
+      ]
+    },
+    {
+      "name": "refused: http-proxy proxy.example.com 8080 /etc/creds",
+      "config": "client\nhttp-proxy proxy.example.com 8080 /etc/creds\n",
+      "violations": [
+        {
+          "directive": "http-proxy",
+          "line": 2,
+          "reason": "references an external credentials file; embed it inline"
+        }
+      ]
+    },
+    {
+      "name": "refused: askpass pass.txt",
+      "config": "client\naskpass pass.txt\n",
+      "violations": [
+        {
+          "directive": "askpass",
+          "line": 2,
+          "reason": "references an external file; embed it inline as <askpass>…</askpass>"
+        }
+      ]
+    },
+    {
+      "name": "refused: setenv BASH_ENV /tmp/x",
+      "config": "client\nsetenv BASH_ENV /tmp/x\n",
+      "violations": [
+        {
+          "directive": "setenv BASH_ENV",
+          "line": 2,
+          "reason": "only client metadata variables may be set"
+        }
+      ]
+    },
+    {
+      "name": "refused: setenv PATH /tmp",
+      "config": "client\nsetenv PATH /tmp\n",
+      "violations": [
+        {
+          "directive": "setenv PATH",
+          "line": 2,
+          "reason": "only client metadata variables may be set"
+        }
+      ]
+    },
+    {
+      "name": "refused spelling: --up /tmp/x",
+      "config": "--up /tmp/x\n",
+      "violations": [
+        {
+          "directive": "up",
+          "line": 1,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused spelling: ---up /tmp/x",
+      "config": "---up /tmp/x\n",
+      "violations": [
+        {
+          "directive": "up",
+          "line": 1,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused spelling: UP /tmp/x",
+      "config": "UP /tmp/x\n",
+      "violations": [
+        {
+          "directive": "up",
+          "line": 1,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused spelling:   \t Up /tmp/x",
+      "config": "  \t Up /tmp/x\n",
+      "violations": [
+        {
+          "directive": "up",
+          "line": 1,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused spelling: \"up\" /tmp/x",
+      "config": "\"up\" /tmp/x\n",
+      "violations": [
+        {
+          "directive": "up",
+          "line": 1,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused spelling: 'up' /tmp/x",
+      "config": "'up' /tmp/x\n",
+      "violations": [
+        {
+          "directive": "up",
+          "line": 1,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused spelling: --Route-Up /tmp/x",
+      "config": "--Route-Up /tmp/x\n",
+      "violations": [
+        {
+          "directive": "route-up",
+          "line": 1,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused spelling: \ufeffup /tmp/x",
+      "config": "\ufeffup /tmp/x\n",
+      "violations": [
+        {
+          "directive": "up",
+          "line": 1,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused spelling: setenv opt up /tmp/x",
+      "config": "setenv opt up /tmp/x\n",
+      "violations": [
+        {
+          "directive": "up",
+          "line": 1,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused spelling: setenv opt setenv opt plugin /x",
+      "config": "setenv opt setenv opt plugin /x\n",
+      "violations": [
+        {
+          "directive": "plugin",
+          "line": 1,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused spelling: --setenv opt --down /x",
+      "config": "--setenv opt --down /x\n",
+      "violations": [
+        {
+          "directive": "down",
+          "line": 1,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused spelling: Management 127.0.0.1 1",
+      "config": "Management 127.0.0.1 1\n",
+      "violations": [
+        {
+          "directive": "management",
+          "line": 1,
+          "reason": "managed by PassTunnel"
+        }
+      ]
+    },
+    {
+      "name": "refused spelling: LOG-APPEND /tmp/x",
+      "config": "LOG-APPEND /tmp/x\n",
+      "violations": [
+        {
+          "directive": "log-append",
+          "line": 1,
+          "reason": "managed by PassTunnel"
+        }
+      ]
+    },
+    {
+      "name": "refused spelling: \\up /tmp/x",
+      "config": "\\up /tmp/x\n",
+      "violations": [
+        {
+          "directive": "(line)",
+          "line": 1,
+          "reason": "a backslash may only escape \\, \" or whitespace"
+        }
+      ]
+    },
+    {
+      "name": "refused spelling: u\\p /tmp/x",
+      "config": "u\\p /tmp/x\n",
+      "violations": [
+        {
+          "directive": "(line)",
+          "line": 1,
+          "reason": "a backslash may only escape \\, \" or whitespace"
+        }
+      ]
+    },
+    {
+      "name": "refused spelling: \"--plugin\" x",
+      "config": "\"--plugin\" x\n",
+      "violations": [
+        {
+          "directive": "plugin",
+          "line": 1,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused spelling: \\-\\-down x",
+      "config": "\\-\\-down x\n",
+      "violations": [
+        {
+          "directive": "(line)",
+          "line": 1,
+          "reason": "a backslash may only escape \\, \" or whitespace"
+        }
+      ]
+    },
+    {
+      "name": "refused spelling: \"up\" \"/tmp/x y\"",
+      "config": "\"up\" \"/tmp/x y\"\n",
+      "violations": [
+        {
+          "directive": "up",
+          "line": 1,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "every violation is reported with its line",
+      "config": "client\nup /tmp/a\nremote vpn.example.com\ndown /tmp/b\n",
+      "violations": [
+        {
+          "directive": "up",
+          "line": 2,
+          "reason": "not allowed"
+        },
+        {
+          "directive": "down",
+          "line": 4,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "a forbidden option as a block",
+      "config": "<up>\n#!/bin/sh\n</up>\n",
+      "violations": [
+        {
+          "directive": "<up>",
+          "line": 1,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "a block opened with dashes",
+      "config": "--<plugin>\nx\n</plugin>\n",
+      "violations": [
+        {
+          "directive": "<plugin>",
+          "line": 1,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "a block that is never closed",
+      "config": "<ca>\nabc\n",
+      "violations": [
+        {
+          "directive": "<ca>",
+          "line": 1,
+          "reason": "block is never closed"
+        }
+      ]
+    },
+    {
+      "name": "a block ends at the first line starting with its end tag, even with trailing text",
+      "config": "<ca>\nabc\n  </ca> trailing\nup /tmp/x\n",
+      "violations": [
+        {
+          "directive": "up",
+          "line": 4,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "block ends are matched without case",
+      "config": "<ca>\nabc\n</CA>\nup /tmp/x\n",
+      "violations": [
+        {
+          "directive": "up",
+          "line": 4,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "a forbidden option inside a connection block",
+      "config": "<connection>\nremote vpn.example.com\nup /tmp/x\n</connection>\n",
+      "violations": [
+        {
+          "directive": "up",
+          "line": 3,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "nested connection blocks",
+      "config": "<connection>\n<connection>\nup /tmp/x\n</connection>\n</connection>\n",
+      "violations": [
+        {
+          "directive": "up",
+          "line": 3,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "a connection block that is never closed",
+      "config": "<connection>\nremote vpn.example.com\n",
+      "violations": [
+        {
+          "directive": "<connection>",
+          "line": 1,
+          "reason": "block is never closed"
+        }
+      ]
+    },
+    {
+      "name": "tags inside a verbatim block are content",
+      "config": "<ca>\n<cert>\nup /tmp/x\n</cert>\n",
+      "violations": [
+        {
+          "directive": "<ca>",
+          "line": 1,
+          "reason": "block is never closed"
+        }
+      ]
+    },
+    {
+      "name": "the rest of a closing line is ignored",
+      "config": "<ca>\nx\n</ca>up /tmp/x\nplugin y\n",
+      "violations": [
+        {
+          "directive": "plugin",
+          "line": 4,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "whitespace before the end tag",
+      "config": "<ca>\nx\n\u000b\f\r </ca>\nup /tmp/x\n",
+      "violations": [
+        {
+          "directive": "up",
+          "line": 4,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "after a static-challenge block",
+      "config": "<static-challenge>\nx\n</static-challenge>\nup /tmp/x\n",
+      "violations": [
+        {
+          "directive": "up",
+          "line": 4,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "unterminated quote",
+      "config": "remote \"vpn.example.com\n",
+      "violations": [
+        {
+          "directive": "(line)",
+          "line": 1,
+          "reason": "unterminated quote"
+        }
+      ]
+    },
+    {
+      "name": "unterminated single quote",
+      "config": "remote 'vpn.example.com\n",
+      "violations": [
+        {
+          "directive": "(line)",
+          "line": 1,
+          "reason": "unterminated quote"
+        }
+      ]
+    },
+    {
+      "name": "a line longer than 254 bytes",
+      "config": "remote aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+      "violations": [
+        {
+          "directive": "(line)",
+          "line": 1,
+          "reason": "longer than 254 characters"
+        }
+      ]
+    },
+    {
+      "name": "length counts bytes, not characters",
+      "config": "remote şşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşşş\n",
+      "violations": [
+        {
+          "directive": "(line)",
+          "line": 1,
+          "reason": "longer than 254 characters"
+        }
+      ]
+    },
+    {
+      "name": "NUL byte",
+      "config": "remote vpn.example.com\u0000\n",
+      "violations": [
+        {
+          "directive": "(line)",
+          "line": 1,
+          "reason": "contains a NUL byte"
+        }
+      ]
+    },
+    {
+      "name": "NUL byte inside a block",
+      "config": "<ca>\nabc\u0000up\n</ca>\n",
+      "violations": [
+        {
+          "directive": "(line)",
+          "line": 2,
+          "reason": "contains a NUL byte"
+        }
+      ]
+    },
+    {
+      "name": "a show-pkcs11-ids block",
+      "config": "<show-pkcs11-ids>\n/tmp/evil.dylib\n</show-pkcs11-ids>\n",
+      "violations": [
+        {
+          "directive": "<show-pkcs11-ids>",
+          "line": 1,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "forbidden option inside a connection block, spelled as a block",
+      "config": "<connection>\nremote vpn.example.com\n<plugin>\nx\n</plugin>\n</connection>\n",
+      "violations": [
+        {
+          "directive": "<plugin>",
+          "line": 3,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "BOM before a dashed directive with CR LF",
+      "config": "\ufeff--up /tmp/x\r\n",
+      "violations": [
+        {
+          "directive": "up",
+          "line": 1,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused escape: remote vpn\\.example.com",
+      "config": "remote vpn\\.example.com\n",
+      "violations": [
+        {
+          "directive": "(line)",
+          "line": 1,
+          "reason": "a backslash may only escape \\, \" or whitespace"
+        }
+      ]
+    },
+    {
+      "name": "refused escape: <c\\a>",
+      "config": "<c\\a>\n",
+      "violations": [
+        {
+          "directive": "(line)",
+          "line": 1,
+          "reason": "a backslash may only escape \\, \" or whitespace"
+        }
+      ]
+    },
+    {
+      "name": "refused escape: verify-x509-name \"CN=Acme\\x\" name",
+      "config": "verify-x509-name \"CN=Acme\\x\" name\n",
+      "violations": [
+        {
+          "directive": "(line)",
+          "line": 1,
+          "reason": "a backslash may only escape \\, \" or whitespace"
+        }
+      ]
+    },
+    {
+      "name": "refused escape: remote \\'vpn.example.com'",
+      "config": "remote \\'vpn.example.com'\n",
+      "violations": [
+        {
+          "directive": "(line)",
+          "line": 1,
+          "reason": "a backslash may only escape \\, \" or whitespace"
+        }
+      ]
+    },
+    {
+      "name": "refused escape: \\#remote x",
+      "config": "\\#remote x\n",
+      "violations": [
+        {
+          "directive": "(line)",
+          "line": 1,
+          "reason": "a backslash may only escape \\, \" or whitespace"
+        }
+      ]
+    },
+    {
+      "name": "refused escape: \\;remote x",
+      "config": "\\;remote x\n",
+      "violations": [
+        {
+          "directive": "(line)",
+          "line": 1,
+          "reason": "a backslash may only escape \\, \" or whitespace"
+        }
+      ]
+    },
+    {
+      "name": "refused escape: remote vpn.example.com\\",
+      "config": "remote vpn.example.com\\\n",
+      "violations": [
+        {
+          "directive": "(line)",
+          "line": 1,
+          "reason": "a backslash may only escape \\, \" or whitespace"
+        }
+      ]
+    },
+    {
+      "name": "refused escape: setenv opt foo\\q",
+      "config": "setenv opt foo\\q\n",
+      "violations": [
+        {
+          "directive": "(line)",
+          "line": 1,
+          "reason": "a backslash may only escape \\, \" or whitespace"
+        }
+      ]
+    }
+  ],
+  "verbosity": [
+    {
+      "config": "client\n",
+      "verb": null
+    },
+    {
+      "config": "verb 2\n",
+      "verb": 2
+    },
+    {
+      "config": "verb 11\n",
+      "verb": 11
+    },
+    {
+      "config": "verb 7\nverb 1\n",
+      "verb": 1
+    },
+    {
+      "config": "verb 1\n--verb 9\n",
+      "verb": 9
+    },
+    {
+      "config": "VERB 0\n",
+      "verb": 0
+    },
+    {
+      "config": "setenv opt verb 8\n",
+      "verb": 8
+    },
+    {
+      "config": "verb 2\n<ca>\nverb 9\n</ca>\n",
+      "verb": 2
+    },
+    {
+      "config": "verb 2\n# verb 9\n; verb 9\n",
+      "verb": 2
+    },
+    {
+      "config": "verb\nverb high\n",
+      "verb": null
+    },
+    {
+      "config": "verb -3\n",
+      "verb": 0
+    }
+  ]
+}

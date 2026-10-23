@@ -1,0 +1,408 @@
+{
+  "about": "Making OpenVPN configs self-contained (referenced files become inline blocks), the same followed by the sanitizer check (prepare), and removing credential blocks.",
+  "inline": [
+    {
+      "name": "a folder with separate key files",
+      "config": "client\r\ndev tun\r\nremote vpn.example.com 1194 udp\r\n# ca commented.crt\r\nca ca.crt\r\ncert client.crt\r\nkey \"client key.pem\"\r\ntls-auth ta.key 1\r\nauth-user-pass creds.txt\r\naskpass pass.txt\r\ndh none\r\n",
+      "files": {
+        "ca.crt": "-----BEGIN CERTIFICATE-----\nMIIBCA==\n-----END CERTIFICATE-----\n",
+        "client.crt": "-----BEGIN CERTIFICATE-----\nMIIBCB==\n-----END CERTIFICATE-----\n",
+        "client key.pem": "-----BEGIN PRIVATE KEY-----\nMIIBCC==\n-----END PRIVATE KEY-----\n",
+        "ta.key": "-----BEGIN OpenVPN Static key V1-----\n0123abcd\n-----END OpenVPN Static key V1-----\n"
+      },
+      "output": "client\ndev tun\nremote vpn.example.com 1194 udp\n# ca commented.crt\n<ca>\n-----BEGIN CERTIFICATE-----\nMIIBCA==\n-----END CERTIFICATE-----\n</ca>\n<cert>\n-----BEGIN CERTIFICATE-----\nMIIBCB==\n-----END CERTIFICATE-----\n</cert>\n<key>\n-----BEGIN PRIVATE KEY-----\nMIIBCC==\n-----END PRIVATE KEY-----\n</key>\n<tls-auth>\n-----BEGIN OpenVPN Static key V1-----\n0123abcd\n-----END OpenVPN Static key V1-----\n</tls-auth>\nkey-direction 1\nauth-user-pass\ndh none\n"
+    },
+    {
+      "name": "tls-auth without direction, secret with direction, tls-crypt",
+      "config": "client\ntls-auth ta.key\nsecret ta.key 0\ntls-crypt ta.key\n",
+      "files": {
+        "ca.crt": "-----BEGIN CERTIFICATE-----\nMIIBCA==\n-----END CERTIFICATE-----\n",
+        "client.crt": "-----BEGIN CERTIFICATE-----\nMIIBCB==\n-----END CERTIFICATE-----\n",
+        "client key.pem": "-----BEGIN PRIVATE KEY-----\nMIIBCC==\n-----END PRIVATE KEY-----\n",
+        "ta.key": "-----BEGIN OpenVPN Static key V1-----\n0123abcd\n-----END OpenVPN Static key V1-----\n"
+      },
+      "output": "client\n<tls-auth>\n-----BEGIN OpenVPN Static key V1-----\n0123abcd\n-----END OpenVPN Static key V1-----\n</tls-auth>\n<secret>\n-----BEGIN OpenVPN Static key V1-----\n0123abcd\n-----END OpenVPN Static key V1-----\n</secret>\nkey-direction 0\n<tls-crypt>\n-----BEGIN OpenVPN Static key V1-----\n0123abcd\n-----END OpenVPN Static key V1-----\n</tls-crypt>\n"
+    },
+    {
+      "name": "pkcs12 is embedded as Base64 in lines of 64",
+      "config": "client\npkcs12 bundle.p12\n",
+      "binary_files": {
+        "bundle.p12": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P3+/wABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fICEiIyQlJicoKSor"
+      },
+      "output": "client\n<pkcs12>\nAAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4v\nMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5f\nYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6P\nkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/\nwMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v\n8PHy8/T19vf4+fr7/P3+/wABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f\nICEiIyQlJicoKSor\n</pkcs12>\n"
+    },
+    {
+      "name": "a file in another folder",
+      "config": "client\nca ../shared/root.crt\n",
+      "files": {
+        "../shared/root.crt": "-----BEGIN CERTIFICATE-----\nMIIBCA==\n-----END CERTIFICATE-----\n"
+      },
+      "output": "client\n<ca>\n-----BEGIN CERTIFICATE-----\nMIIBCA==\n-----END CERTIFICATE-----\n</ca>\n"
+    },
+    {
+      "name": "a missing file",
+      "config": "client\nca ca.crt\ncert missing.crt\n",
+      "files": {
+        "ca.crt": "-----BEGIN CERTIFICATE-----\nMIIBCA==\n-----END CERTIFICATE-----\n"
+      },
+      "error": {
+        "detail": "missing.crt",
+        "kind": "ovpn_referenced_file"
+      }
+    },
+    {
+      "name": "a missing file in another folder",
+      "config": "client\nca ../../nowhere/ca.crt\n",
+      "error": {
+        "detail": "../../nowhere/ca.crt",
+        "kind": "ovpn_referenced_file"
+      }
+    },
+    {
+      "name": "a directory",
+      "config": "ca ..\n",
+      "error": {
+        "detail": "..",
+        "kind": "ovpn_referenced_file"
+      }
+    },
+    {
+      "name": "a CRL directory cannot be embedded",
+      "config": "crl-verify . dir\n",
+      "error": {
+        "detail": ".",
+        "kind": "ovpn_referenced_file"
+      }
+    },
+    {
+      "name": "a file that would close the block early",
+      "config": "client\nca evil.crt\n",
+      "files": {
+        "evil.crt": "x\n</ca>\nup /tmp/x.sh\n"
+      },
+      "error": {
+        "detail": "evil.crt",
+        "kind": "ovpn_referenced_file"
+      }
+    },
+    {
+      "name": "end tag with leading spaces and other case",
+      "config": "ca ca.crt\n",
+      "files": {
+        "ca.crt": "A\n  </CA>\nB"
+      },
+      "error": {
+        "detail": "ca.crt",
+        "kind": "ovpn_referenced_file"
+      }
+    },
+    {
+      "name": "end tag after a CR line",
+      "config": "ca ca.crt\n",
+      "files": {
+        "ca.crt": "A\n\r</ca>\nB"
+      },
+      "error": {
+        "detail": "ca.crt",
+        "kind": "ovpn_referenced_file"
+      }
+    },
+    {
+      "name": "end tag after a vertical tab",
+      "config": "ca ca.crt\n",
+      "files": {
+        "ca.crt": "A\n\u000b</ca>\nB"
+      },
+      "error": {
+        "detail": "ca.crt",
+        "kind": "ovpn_referenced_file"
+      }
+    },
+    {
+      "name": "an inline config is kept as it is",
+      "config": "client\nremote vpn.example.com\n<ca>\nca ca.crt\n</ca>\n<connection>\nremote vpn2.example.com\n</connection>\nauth-user-pass\n",
+      "output": "client\nremote vpn.example.com\n<ca>\nca ca.crt\n</ca>\n<connection>\nremote vpn2.example.com\n</connection>\nauth-user-pass\n"
+    },
+    {
+      "name": "[inline] is kept",
+      "config": "ca [inline]\n<ca>\nx\n</ca>\n",
+      "output": "ca [inline]\n<ca>\nx\n</ca>\n"
+    },
+    {
+      "name": "proxy credentials outside the config folder are refused",
+      "config": "client\nhttp-proxy proxy.example.com 8080\nhttp-proxy-user-pass ../private-creds.txt\n",
+      "files": {
+        "../private-creds.txt": "alice\nhunter2\n"
+      },
+      "error": {
+        "detail": "../private-creds.txt",
+        "kind": "ovpn_referenced_file"
+      }
+    },
+    {
+      "name": "proxy credentials below the config folder",
+      "config": "http-proxy-user-pass sub/proxy.txt\n",
+      "files": {
+        "sub/proxy.txt": "bob\npw\n"
+      },
+      "output": "<http-proxy-user-pass>\nbob\npw\n</http-proxy-user-pass>\n"
+    },
+    {
+      "name": "certificates may live elsewhere",
+      "config": "ca ../shared/ca.crt\n",
+      "files": {
+        "../shared/ca.crt": "-----BEGIN CERTIFICATE-----\nAAA\n-----END CERTIFICATE-----\n"
+      },
+      "output": "<ca>\n-----BEGIN CERTIFICATE-----\nAAA\n-----END CERTIFICATE-----\n</ca>\n"
+    },
+    {
+      "name": "a line OpenVPN rejects is left for the sanitizer",
+      "config": "client\nca c\\a.crt\n",
+      "files": {
+        "ca.crt": "-----BEGIN CERTIFICATE-----\nMIIBCA==\n-----END CERTIFICATE-----\n"
+      },
+      "output": "client\nca c\\a.crt\n"
+    },
+    {
+      "name": "an escaped space in the file name, no final newline",
+      "config": "ca my\\ ca.crt",
+      "files": {
+        "my ca.crt": "x\n"
+      },
+      "output": "<ca>\nx\n</ca>"
+    },
+    {
+      "name": "BOM and CR LF",
+      "config": "\ufeffca ca.crt\r\nremote vpn.example.com 1194\r\n",
+      "files": {
+        "ca.crt": "CERT\r\n"
+      },
+      "output": "<ca>\nCERT\n</ca>\nremote vpn.example.com 1194\n"
+    },
+    {
+      "name": "auth-user-pass [inline] is kept",
+      "config": "auth-user-pass [inline]\n<auth-user-pass>\nalice\npw\n</auth-user-pass>\n",
+      "output": "auth-user-pass [inline]\n<auth-user-pass>\nalice\npw\n</auth-user-pass>\n"
+    },
+    {
+      "name": "dh none is not a file",
+      "config": "dh none\ndh NONE\n",
+      "output": "dh none\ndh NONE\n"
+    },
+    {
+      "name": "a file referenced twice",
+      "config": "ca ca.crt\nextra-certs ca.crt\n",
+      "files": {
+        "ca.crt": "-----BEGIN CERTIFICATE-----\nMIIBCA==\n-----END CERTIFICATE-----\n"
+      },
+      "output": "<ca>\n-----BEGIN CERTIFICATE-----\nMIIBCA==\n-----END CERTIFICATE-----\n</ca>\n<extra-certs>\n-----BEGIN CERTIFICATE-----\nMIIBCA==\n-----END CERTIFICATE-----\n</extra-certs>\n"
+    }
+  ],
+  "prepare": [
+    {
+      "name": "inlined and accepted",
+      "config": "client\nca ca.crt\nremote vpn.example.com\n",
+      "files": {
+        "ca.crt": "-----BEGIN CERTIFICATE-----\nMIIBCA==\n-----END CERTIFICATE-----\n"
+      },
+      "output": "client\n<ca>\n-----BEGIN CERTIFICATE-----\nMIIBCA==\n-----END CERTIFICATE-----\n</ca>\nremote vpn.example.com\n"
+    },
+    {
+      "name": "BOM and CR LF",
+      "config": "\ufeffca ca.crt\r\nremote vpn.example.com 1194\r\n",
+      "files": {
+        "ca.crt": "CERT\r\n"
+      },
+      "output": "<ca>\nCERT\n</ca>\nremote vpn.example.com 1194\n"
+    },
+    {
+      "name": "forbidden options are reported",
+      "config": "client\nca ca.crt\nscript-security 2\nup /tmp/x.sh\n",
+      "files": {
+        "ca.crt": "-----BEGIN CERTIFICATE-----\nMIIBCA==\n-----END CERTIFICATE-----\n"
+      },
+      "error": {
+        "kind": "ovpn_not_allowed",
+        "violations": [
+          "line 7: script-security (level above 1 allows scripts)",
+          "line 8: up (not allowed)"
+        ]
+      }
+    },
+    {
+      "name": "a line OpenVPN rejects",
+      "config": "client\nca c\\a.crt\n",
+      "files": {
+        "ca.crt": "-----BEGIN CERTIFICATE-----\nMIIBCA==\n-----END CERTIFICATE-----\n"
+      },
+      "error": {
+        "kind": "ovpn_not_allowed",
+        "violations": [
+          "line 2: (line) (a backslash may only escape \\, \" or whitespace)"
+        ]
+      }
+    },
+    {
+      "name": "a missing file",
+      "config": "client\nca ca.crt\n",
+      "error": {
+        "detail": "ca.crt",
+        "kind": "ovpn_referenced_file"
+      }
+    },
+    {
+      "name": "a referenced credentials file is dropped, askpass removed",
+      "config": "client\nauth-user-pass creds.txt\naskpass pass.txt\n",
+      "output": "client\nauth-user-pass\n"
+    }
+  ],
+  "strip_credentials": [
+    {
+      "name": "an auth-user-pass block",
+      "config": "client\n<auth-user-pass>\nalice\nhunter2\n</auth-user-pass>\nremote vpn.example.com\n",
+      "output": "client\nauth-user-pass\nremote vpn.example.com\n",
+      "password": "hunter2",
+      "removed": [
+        "auth-user-pass"
+      ],
+      "username": "alice"
+    },
+    {
+      "name": "auth-user-pass [inline] becomes auth-user-pass",
+      "config": "client\nauth-user-pass [inline]\n<auth-user-pass>\nalice\nhunter2\n</auth-user-pass>\n",
+      "output": "client\nauth-user-pass\nauth-user-pass\n",
+      "password": "hunter2",
+      "removed": [
+        "auth-user-pass"
+      ],
+      "username": "alice"
+    },
+    {
+      "name": "only the user name",
+      "config": "<auth-user-pass>\n  alice  \n</auth-user-pass>\n",
+      "output": "auth-user-pass\n",
+      "password": null,
+      "removed": [
+        "auth-user-pass"
+      ],
+      "username": "alice"
+    },
+    {
+      "name": "an empty password line",
+      "config": "<auth-user-pass>\nalice\n\n</auth-user-pass>\n",
+      "output": "auth-user-pass\n",
+      "password": null,
+      "removed": [
+        "auth-user-pass"
+      ],
+      "username": "alice"
+    },
+    {
+      "name": "an empty block",
+      "config": "<auth-user-pass>\n</auth-user-pass>\n",
+      "output": "auth-user-pass\n",
+      "password": null,
+      "removed": [
+        "auth-user-pass"
+      ],
+      "username": null
+    },
+    {
+      "name": "proxy credentials go with their [inline] line",
+      "config": "http-proxy proxy.example.com 8080\nhttp-proxy-user-pass [inline]\n<http-proxy-user-pass>\nbob\npw\n</http-proxy-user-pass>\n",
+      "output": "http-proxy proxy.example.com 8080\n",
+      "password": null,
+      "removed": [
+        "http-proxy-user-pass"
+      ],
+      "username": null
+    },
+    {
+      "name": "only auth-user-pass: proxy credentials stay",
+      "config": "http-proxy-user-pass [inline]\n<http-proxy-user-pass>\nbob\npw\n</http-proxy-user-pass>\n<auth-user-pass>\nalice\npw\n</auth-user-pass>\n",
+      "blocks": [
+        "auth-user-pass"
+      ],
+      "output": "http-proxy-user-pass [inline]\n<http-proxy-user-pass>\nbob\npw\n</http-proxy-user-pass>\nauth-user-pass\n",
+      "password": "pw",
+      "removed": [
+        "auth-user-pass"
+      ],
+      "username": "alice"
+    },
+    {
+      "name": "an unterminated block drops the rest of the file",
+      "config": "client\n<auth-user-pass>\nalice\nhunter2\nremote vpn.example.com\n",
+      "output": "client\nauth-user-pass",
+      "password": "hunter2",
+      "removed": [
+        "auth-user-pass"
+      ],
+      "username": "alice"
+    },
+    {
+      "name": "nothing to strip: unchanged",
+      "config": "client\nauth-user-pass\nremote vpn.example.com\n",
+      "output": "client\nauth-user-pass\nremote vpn.example.com\n",
+      "password": null,
+      "removed": [],
+      "username": null
+    },
+    {
+      "name": "CR LF",
+      "config": "client\r\n<auth-user-pass>\r\nalice\r\nhunter2\r\n</auth-user-pass>\r\nremote vpn.example.com\r\n",
+      "output": "client\r\nauth-user-pass\nremote vpn.example.com\r\n",
+      "password": "hunter2",
+      "removed": [
+        "auth-user-pass"
+      ],
+      "username": "alice"
+    },
+    {
+      "name": "a line OpenVPN rejects is kept",
+      "config": "client\nauth-user-pass\\q [inline]\n",
+      "output": "client\nauth-user-pass\\q [inline]\n",
+      "password": null,
+      "removed": [],
+      "username": null
+    },
+    {
+      "name": "inside another inline block nothing is stripped",
+      "config": "<ca>\n<auth-user-pass>\nalice\n</auth-user-pass>\n</ca>\n",
+      "output": "<ca>\n<auth-user-pass>\nalice\n</auth-user-pass>\n</ca>\n",
+      "password": null,
+      "removed": [],
+      "username": null
+    },
+    {
+      "name": "inside a connection block",
+      "config": "<connection>\nremote vpn.example.com\n<auth-user-pass>\nalice\npw\n</auth-user-pass>\n</connection>\n",
+      "output": "<connection>\nremote vpn.example.com\nauth-user-pass\n</connection>\n",
+      "password": "pw",
+      "removed": [
+        "auth-user-pass"
+      ],
+      "username": "alice"
+    },
+    {
+      "name": "two blocks: the first user name and password win",
+      "config": "<auth-user-pass>\nalice\npw1\n</auth-user-pass>\n<auth-user-pass>\nbob\npw2\n</auth-user-pass>\n",
+      "output": "auth-user-pass\nauth-user-pass\n",
+      "password": "pw1",
+      "removed": [
+        "auth-user-pass"
+      ],
+      "username": "alice"
+    },
+    {
+      "name": "block tag with dashes and other case",
+      "config": "--<Auth-User-Pass>\nalice\npw\n</auth-user-pass>\n",
+      "output": "auth-user-pass\n",
+      "password": "pw",
+      "removed": [
+        "auth-user-pass"
+      ],
+      "username": "alice"
+    }
+  ]
+}

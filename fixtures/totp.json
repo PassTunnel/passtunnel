@@ -1,0 +1,698 @@
+{
+  "about": "TOTP codes (RFC 6238 and PassTunnel cases), seconds left in a window, secret decoding and Base32.",
+  "code": [
+    {
+      "name": "RFC 6238 Appendix B, SHA1 at 59",
+      "secret_hex": "3132333435363738393031323334353637383930",
+      "digits": 8,
+      "period": 30,
+      "algorithm": "sha1",
+      "time": 59,
+      "code": "94287082"
+    },
+    {
+      "name": "RFC 6238 Appendix B, SHA256 at 59",
+      "secret_hex": "3132333435363738393031323334353637383930313233343536373839303132",
+      "digits": 8,
+      "period": 30,
+      "algorithm": "sha256",
+      "time": 59,
+      "code": "46119246"
+    },
+    {
+      "name": "RFC 6238 Appendix B, SHA512 at 59",
+      "secret_hex": "31323334353637383930313233343536373839303132333435363738393031323334353637383930313233343536373839303132333435363738393031323334",
+      "digits": 8,
+      "period": 30,
+      "algorithm": "sha512",
+      "time": 59,
+      "code": "90693936"
+    },
+    {
+      "name": "RFC 6238 Appendix B, SHA1 at 1111111109",
+      "secret_hex": "3132333435363738393031323334353637383930",
+      "digits": 8,
+      "period": 30,
+      "algorithm": "sha1",
+      "time": 1111111109,
+      "code": "07081804"
+    },
+    {
+      "name": "RFC 6238 Appendix B, SHA256 at 1111111109",
+      "secret_hex": "3132333435363738393031323334353637383930313233343536373839303132",
+      "digits": 8,
+      "period": 30,
+      "algorithm": "sha256",
+      "time": 1111111109,
+      "code": "68084774"
+    },
+    {
+      "name": "RFC 6238 Appendix B, SHA512 at 1111111109",
+      "secret_hex": "31323334353637383930313233343536373839303132333435363738393031323334353637383930313233343536373839303132333435363738393031323334",
+      "digits": 8,
+      "period": 30,
+      "algorithm": "sha512",
+      "time": 1111111109,
+      "code": "25091201"
+    },
+    {
+      "name": "RFC 6238 Appendix B, SHA1 at 1111111111",
+      "secret_hex": "3132333435363738393031323334353637383930",
+      "digits": 8,
+      "period": 30,
+      "algorithm": "sha1",
+      "time": 1111111111,
+      "code": "14050471"
+    },
+    {
+      "name": "RFC 6238 Appendix B, SHA256 at 1111111111",
+      "secret_hex": "3132333435363738393031323334353637383930313233343536373839303132",
+      "digits": 8,
+      "period": 30,
+      "algorithm": "sha256",
+      "time": 1111111111,
+      "code": "67062674"
+    },
+    {
+      "name": "RFC 6238 Appendix B, SHA512 at 1111111111",
+      "secret_hex": "31323334353637383930313233343536373839303132333435363738393031323334353637383930313233343536373839303132333435363738393031323334",
+      "digits": 8,
+      "period": 30,
+      "algorithm": "sha512",
+      "time": 1111111111,
+      "code": "99943326"
+    },
+    {
+      "name": "RFC 6238 Appendix B, SHA1 at 1234567890",
+      "secret_hex": "3132333435363738393031323334353637383930",
+      "digits": 8,
+      "period": 30,
+      "algorithm": "sha1",
+      "time": 1234567890,
+      "code": "89005924"
+    },
+    {
+      "name": "RFC 6238 Appendix B, SHA256 at 1234567890",
+      "secret_hex": "3132333435363738393031323334353637383930313233343536373839303132",
+      "digits": 8,
+      "period": 30,
+      "algorithm": "sha256",
+      "time": 1234567890,
+      "code": "91819424"
+    },
+    {
+      "name": "RFC 6238 Appendix B, SHA512 at 1234567890",
+      "secret_hex": "31323334353637383930313233343536373839303132333435363738393031323334353637383930313233343536373839303132333435363738393031323334",
+      "digits": 8,
+      "period": 30,
+      "algorithm": "sha512",
+      "time": 1234567890,
+      "code": "93441116"
+    },
+    {
+      "name": "RFC 6238 Appendix B, SHA1 at 2000000000",
+      "secret_hex": "3132333435363738393031323334353637383930",
+      "digits": 8,
+      "period": 30,
+      "algorithm": "sha1",
+      "time": 2000000000,
+      "code": "69279037"
+    },
+    {
+      "name": "RFC 6238 Appendix B, SHA256 at 2000000000",
+      "secret_hex": "3132333435363738393031323334353637383930313233343536373839303132",
+      "digits": 8,
+      "period": 30,
+      "algorithm": "sha256",
+      "time": 2000000000,
+      "code": "90698825"
+    },
+    {
+      "name": "RFC 6238 Appendix B, SHA512 at 2000000000",
+      "secret_hex": "31323334353637383930313233343536373839303132333435363738393031323334353637383930313233343536373839303132333435363738393031323334",
+      "digits": 8,
+      "period": 30,
+      "algorithm": "sha512",
+      "time": 2000000000,
+      "code": "38618901"
+    },
+    {
+      "name": "RFC 6238 Appendix B, SHA1 at 20000000000",
+      "secret_hex": "3132333435363738393031323334353637383930",
+      "digits": 8,
+      "period": 30,
+      "algorithm": "sha1",
+      "time": 20000000000,
+      "code": "65353130"
+    },
+    {
+      "name": "RFC 6238 Appendix B, SHA256 at 20000000000",
+      "secret_hex": "3132333435363738393031323334353637383930313233343536373839303132",
+      "digits": 8,
+      "period": 30,
+      "algorithm": "sha256",
+      "time": 20000000000,
+      "code": "77737706"
+    },
+    {
+      "name": "RFC 6238 Appendix B, SHA512 at 20000000000",
+      "secret_hex": "31323334353637383930313233343536373839303132333435363738393031323334353637383930313233343536373839303132333435363738393031323334",
+      "digits": 8,
+      "period": 30,
+      "algorithm": "sha512",
+      "time": 20000000000,
+      "code": "47863826"
+    },
+    {
+      "name": "6 digits are the last 6 of the 8-digit RFC value (SHA1)",
+      "secret_hex": "3132333435363738393031323334353637383930",
+      "digits": 6,
+      "period": 30,
+      "algorithm": "sha1",
+      "time": 1111111109,
+      "code": "081804"
+    },
+    {
+      "name": "7 digits are the last 7 of the 8-digit RFC value (SHA1)",
+      "secret_hex": "3132333435363738393031323334353637383930",
+      "digits": 7,
+      "period": 30,
+      "algorithm": "sha1",
+      "time": 1111111109,
+      "code": "7081804"
+    },
+    {
+      "name": "6 digits are the last 6 of the 8-digit RFC value (SHA256)",
+      "secret_hex": "3132333435363738393031323334353637383930313233343536373839303132",
+      "digits": 6,
+      "period": 30,
+      "algorithm": "sha256",
+      "time": 1111111109,
+      "code": "084774"
+    },
+    {
+      "name": "7 digits are the last 7 of the 8-digit RFC value (SHA256)",
+      "secret_hex": "3132333435363738393031323334353637383930313233343536373839303132",
+      "digits": 7,
+      "period": 30,
+      "algorithm": "sha256",
+      "time": 1111111109,
+      "code": "8084774"
+    },
+    {
+      "name": "6 digits are the last 6 of the 8-digit RFC value (SHA512)",
+      "secret_hex": "31323334353637383930313233343536373839303132333435363738393031323334353637383930313233343536373839303132333435363738393031323334",
+      "digits": 6,
+      "period": 30,
+      "algorithm": "sha512",
+      "time": 1234567890,
+      "code": "441116"
+    },
+    {
+      "name": "7 digits are the last 7 of the 8-digit RFC value (SHA512)",
+      "secret_hex": "31323334353637383930313233343536373839303132333435363738393031323334353637383930313233343536373839303132333435363738393031323334",
+      "digits": 7,
+      "period": 30,
+      "algorithm": "sha512",
+      "time": 1234567890,
+      "code": "3441116"
+    },
+    {
+      "name": "period 60 at 2T equals period 30 at T (SHA1)",
+      "secret_hex": "3132333435363738393031323334353637383930",
+      "digits": 8,
+      "period": 60,
+      "algorithm": "sha1",
+      "time": 118,
+      "code": "94287082"
+    },
+    {
+      "name": "period 60 at 2T equals period 30 at T (SHA256)",
+      "secret_hex": "3132333435363738393031323334353637383930313233343536373839303132",
+      "digits": 8,
+      "period": 60,
+      "algorithm": "sha256",
+      "time": 2222222218,
+      "code": "68084774"
+    },
+    {
+      "name": "period 60 at 2T equals period 30 at T (SHA512)",
+      "secret_hex": "31323334353637383930313233343536373839303132333435363738393031323334353637383930313233343536373839303132333435363738393031323334",
+      "digits": 8,
+      "period": 60,
+      "algorithm": "sha512",
+      "time": 2469135780,
+      "code": "93441116"
+    },
+    {
+      "name": "digits below 6 are treated as 6",
+      "secret_hex": "3132333435363738393031323334353637383930",
+      "digits": 3,
+      "period": 30,
+      "algorithm": "sha1",
+      "time": 59,
+      "code": "287082"
+    },
+    {
+      "name": "digits above 8 are treated as 8",
+      "secret_hex": "3132333435363738393031323334353637383930",
+      "digits": 12,
+      "period": 30,
+      "algorithm": "sha1",
+      "time": 59,
+      "code": "94287082"
+    },
+    {
+      "name": "period 0 is treated as 1",
+      "secret_hex": "3132333435363738393031323334353637383930",
+      "digits": 6,
+      "period": 0,
+      "algorithm": "sha1",
+      "time": 1111111109,
+      "code": "510233"
+    },
+    {
+      "name": "a negative period is treated as 1",
+      "secret_hex": "3132333435363738393031323334353637383930",
+      "digits": 6,
+      "period": -30,
+      "algorithm": "sha1",
+      "time": 1111111109,
+      "code": "510233"
+    },
+    {
+      "name": "before 1970 the time step is 0",
+      "secret_hex": "3132333435363738393031323334353637383930",
+      "digits": 6,
+      "period": 30,
+      "algorithm": "sha1",
+      "time": -12345,
+      "code": "755224"
+    },
+    {
+      "name": "time step 0",
+      "secret_hex": "3132333435363738393031323334353637383930",
+      "digits": 6,
+      "period": 30,
+      "algorithm": "sha1",
+      "time": 0,
+      "code": "755224"
+    },
+    {
+      "name": "fractions of a second are dropped",
+      "secret_hex": "3132333435363738393031323334353637383930",
+      "digits": 6,
+      "period": 30,
+      "algorithm": "sha1",
+      "time": 1111111109.999,
+      "code": "081804"
+    },
+    {
+      "name": "last second of a window",
+      "secret_hex": "3132333435363738393031323334353637383930",
+      "digits": 6,
+      "period": 30,
+      "algorithm": "sha1",
+      "time": 1699999979,
+      "code": "276857"
+    },
+    {
+      "name": "first second of the next window",
+      "secret_hex": "3132333435363738393031323334353637383930",
+      "digits": 6,
+      "period": 30,
+      "algorithm": "sha1",
+      "time": 1699999980,
+      "code": "921300"
+    },
+    {
+      "name": "secret JBSWY3DPEHPK3PXP, SHA1, 6 digits, period 30",
+      "secret_hex": "48656c6c6f21deadbeef",
+      "digits": 6,
+      "period": 30,
+      "algorithm": "sha1",
+      "time": 1760000000,
+      "code": "885822"
+    },
+    {
+      "name": "secret JBSWY3DPEHPK3PXP, SHA1, 8 digits, period 60",
+      "secret_hex": "48656c6c6f21deadbeef",
+      "digits": 8,
+      "period": 60,
+      "algorithm": "sha1",
+      "time": 1760000000,
+      "code": "84766605"
+    },
+    {
+      "name": "secret JBSWY3DPEHPK3PXP, SHA1, 7 digits, period 15",
+      "secret_hex": "48656c6c6f21deadbeef",
+      "digits": 7,
+      "period": 15,
+      "algorithm": "sha1",
+      "time": 1760000000,
+      "code": "2145778"
+    },
+    {
+      "name": "secret JBSWY3DPEHPK3PXP, SHA256, 6 digits, period 30",
+      "secret_hex": "48656c6c6f21deadbeef",
+      "digits": 6,
+      "period": 30,
+      "algorithm": "sha256",
+      "time": 1760000000,
+      "code": "483721"
+    },
+    {
+      "name": "secret JBSWY3DPEHPK3PXP, SHA256, 8 digits, period 60",
+      "secret_hex": "48656c6c6f21deadbeef",
+      "digits": 8,
+      "period": 60,
+      "algorithm": "sha256",
+      "time": 1760000000,
+      "code": "53800283"
+    },
+    {
+      "name": "secret JBSWY3DPEHPK3PXP, SHA256, 7 digits, period 15",
+      "secret_hex": "48656c6c6f21deadbeef",
+      "digits": 7,
+      "period": 15,
+      "algorithm": "sha256",
+      "time": 1760000000,
+      "code": "8167120"
+    },
+    {
+      "name": "secret JBSWY3DPEHPK3PXP, SHA512, 6 digits, period 30",
+      "secret_hex": "48656c6c6f21deadbeef",
+      "digits": 6,
+      "period": 30,
+      "algorithm": "sha512",
+      "time": 1760000000,
+      "code": "727906"
+    },
+    {
+      "name": "secret JBSWY3DPEHPK3PXP, SHA512, 8 digits, period 60",
+      "secret_hex": "48656c6c6f21deadbeef",
+      "digits": 8,
+      "period": 60,
+      "algorithm": "sha512",
+      "time": 1760000000,
+      "code": "62363487"
+    },
+    {
+      "name": "secret JBSWY3DPEHPK3PXP, SHA512, 7 digits, period 15",
+      "secret_hex": "48656c6c6f21deadbeef",
+      "digits": 7,
+      "period": 15,
+      "algorithm": "sha512",
+      "time": 1760000000,
+      "code": "1296973"
+    }
+  ],
+  "remaining": [
+    {
+      "name": "start of a window",
+      "period": 30,
+      "time": 60,
+      "remaining": 30
+    },
+    {
+      "name": "last second of a window",
+      "period": 30,
+      "time": 59,
+      "remaining": 1
+    },
+    {
+      "name": "fractions of a second are dropped",
+      "period": 30,
+      "time": 75.9,
+      "remaining": 15
+    },
+    {
+      "name": "period 60",
+      "period": 60,
+      "time": 61,
+      "remaining": 59
+    },
+    {
+      "name": "before 1970",
+      "period": 30,
+      "time": -1,
+      "remaining": 1
+    },
+    {
+      "name": "before 1970, window boundary",
+      "period": 30,
+      "time": -30,
+      "remaining": 30
+    },
+    {
+      "name": "before 1970, inside a window",
+      "period": 30,
+      "time": -29,
+      "remaining": 29
+    },
+    {
+      "name": "period 0 is treated as 1",
+      "period": 0,
+      "time": 1111111109,
+      "remaining": 1
+    }
+  ],
+  "decode_secret": [
+    {
+      "name": "Base32",
+      "input": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+      "hex": "3132333435363738393031323334353637383930"
+    },
+    {
+      "name": "Base32, lower case",
+      "input": "gezdgnbvgy3tqojqgezdgnbvgy3tqojq",
+      "hex": "3132333435363738393031323334353637383930"
+    },
+    {
+      "name": "Base32 with spaces",
+      "input": "gezd gnbv gy3t qojq gezd gnbv gy3t qojq",
+      "hex": "3132333435363738393031323334353637383930"
+    },
+    {
+      "name": "Base32 with dashes",
+      "input": "jbsw-y3dp-ehpk-3pxp",
+      "hex": "48656c6c6f21deadbeef"
+    },
+    {
+      "name": "Base32 with surrounding whitespace",
+      "input": "  JBSWY3DPEHPK3PXP\n",
+      "hex": "48656c6c6f21deadbeef"
+    },
+    {
+      "name": "Base32 with a tab",
+      "input": "JBSWY3DP\tEHPK3PXP",
+      "hex": "48656c6c6f21deadbeef"
+    },
+    {
+      "name": "Base32 with CR LF",
+      "input": "JbSwY3dPeHpK3pXp\r\n",
+      "hex": "48656c6c6f21deadbeef"
+    },
+    {
+      "name": "Base32 with padding",
+      "input": "JBSWY3DPEHPK3PXP====",
+      "hex": "48656c6c6f21deadbeef"
+    },
+    {
+      "name": "Base32, no-break and em space count as whitespace",
+      "input": "JBSW\u00a0Y3DP\u2003EHPK3PXP",
+      "hex": "48656c6c6f21deadbeef"
+    },
+    {
+      "name": "Base32 padding",
+      "input": "MFRGG===",
+      "hex": "616263"
+    },
+    {
+      "name": "Base32 without padding",
+      "input": "mfrgg",
+      "hex": "616263"
+    },
+    {
+      "name": "valid hex but not Base32",
+      "input": "3132333435363738393031323334353637383930",
+      "hex": "3132333435363738393031323334353637383930"
+    },
+    {
+      "name": "0x prefix: hex",
+      "input": "0x3132333435363738393031323334353637383930",
+      "hex": "3132333435363738393031323334353637383930"
+    },
+    {
+      "name": "0x prefix, mixed case",
+      "input": "0xDEADbeef",
+      "hex": "deadbeef"
+    },
+    {
+      "name": "0X prefix",
+      "input": "0XDEADBEEF",
+      "hex": "deadbeef"
+    },
+    {
+      "name": "valid Base32 and valid hex: read as Base32",
+      "input": "DEADBEEF",
+      "hex": "1900309085"
+    },
+    {
+      "name": "empty",
+      "input": "",
+      "error": {
+        "kind": "invalid_secret"
+      }
+    },
+    {
+      "name": "only whitespace",
+      "input": "   ",
+      "error": {
+        "kind": "invalid_secret"
+      }
+    },
+    {
+      "name": "only padding",
+      "input": "====",
+      "error": {
+        "kind": "invalid_secret"
+      }
+    },
+    {
+      "name": "one padding character",
+      "input": "=",
+      "error": {
+        "kind": "invalid_secret"
+      }
+    },
+    {
+      "name": "0x without digits",
+      "input": "0x",
+      "error": {
+        "kind": "invalid_secret"
+      }
+    },
+    {
+      "name": "0X without digits",
+      "input": "0X",
+      "error": {
+        "kind": "invalid_secret"
+      }
+    },
+    {
+      "name": "0x with an odd number of digits",
+      "input": "0xABC",
+      "error": {
+        "kind": "invalid_secret"
+      }
+    },
+    {
+      "name": "0x with non-hex digits",
+      "input": "0xGG",
+      "error": {
+        "kind": "invalid_secret"
+      }
+    },
+    {
+      "name": "0x with non-hex letters",
+      "input": "0xZZ",
+      "error": {
+        "kind": "invalid_secret"
+      }
+    },
+    {
+      "name": "punctuation",
+      "input": "JBSWY3DP!EHPK3PXP",
+      "error": {
+        "kind": "invalid_secret"
+      }
+    },
+    {
+      "name": "padding in the middle",
+      "input": "MF=RGG",
+      "error": {
+        "kind": "invalid_secret"
+      }
+    },
+    {
+      "name": "a single character gives no byte",
+      "input": "A",
+      "error": {
+        "kind": "invalid_secret"
+      }
+    },
+    {
+      "name": "zero-width space is not whitespace",
+      "input": "JBSWY3DPEHPK3PXP\u200b",
+      "error": {
+        "kind": "invalid_secret"
+      }
+    },
+    {
+      "name": "non-ASCII letters",
+      "input": "ünïcödé",
+      "error": {
+        "kind": "invalid_secret"
+      }
+    },
+    {
+      "name": "odd-length digits: neither Base32 nor hex",
+      "input": "189",
+      "error": {
+        "kind": "invalid_secret"
+      }
+    },
+    {
+      "name": "emoji",
+      "input": "🔑🔑🔑🔑",
+      "error": {
+        "kind": "invalid_secret"
+      }
+    },
+    {
+      "name": "words",
+      "input": "not a secret!",
+      "error": {
+        "kind": "invalid_secret"
+      }
+    }
+  ],
+  "base32_encode": [
+    {
+      "name": "empty",
+      "hex": "",
+      "base32": ""
+    },
+    {
+      "name": "one zero byte",
+      "hex": "00",
+      "base32": "AA"
+    },
+    {
+      "name": "Hello! and DEADBEEF",
+      "hex": "48656c6c6f21deadbeef",
+      "base32": "JBSWY3DPEHPK3PXP"
+    },
+    {
+      "name": "all ones",
+      "hex": "ffffffffff",
+      "base32": "77777777"
+    },
+    {
+      "name": "abc",
+      "hex": "616263",
+      "base32": "MFRGG"
+    },
+    {
+      "name": "ten bytes",
+      "hex": "0102030405060708090a",
+      "base32": "AEBAGBAFAYDQQCIK"
+    },
+    {
+      "name": "RFC 6238 SHA-1 seed",
+      "hex": "3132333435363738393031323334353637383930",
+      "base32": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
+    }
+  ]
+}

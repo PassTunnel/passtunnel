@@ -41,5 +41,7 @@ let package = Package(
                           resources: [.process("Resources")]),
         .testTarget(name: "PassTunnelCoreTests",
                     dependencies: ["PassTunnelCore", "PassTunnelKit", "PassTunnelVPNConfig", "PassTunnelShared"]),
+        // The golden cases in fixtures/ (also read by the Android port), against PassTunnelKit alone.
+        .testTarget(name: "PassTunnelKitTests", dependencies: ["PassTunnelKit", "PassTunnelVPNConfig"]),
     ]
 )
