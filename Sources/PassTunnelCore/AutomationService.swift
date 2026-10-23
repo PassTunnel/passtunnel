@@ -227,7 +227,11 @@ public final class AutomationService {
                 problems.append(PTError.invalidFile(ProfileStore.ovpnFile))
             }
         case .forti:
-            if p.host.trimmingCharacters(in: .whitespaces).isEmpty { problems.append(PTError.missingHost(p.id)) }
+            if p.host.trimmingCharacters(in: .whitespaces).isEmpty {
+                problems.append(PTError.missingHost(p.id))
+            } else if !FortiConfig.isValidHost(p.host) {
+                problems.append(PTError.invalidField("host"))
+            }
             do { try Profile.checkUsername(p.username, type: p.type) } catch { problems.append(error) }
         }
         var passwordSaved: Bool?

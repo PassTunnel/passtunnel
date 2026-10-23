@@ -343,6 +343,142 @@
         "detail": "port",
         "kind": "invalid_field"
       }
+    },
+    {
+      "name": "IPv6 host with a NUL and a line break",
+      "type": "forti",
+      "key": "host",
+      "value": "2001:db8::1\u0000\nuser-cert = /tmp/x",
+      "error": {
+        "detail": "host",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "name": "zone id with a line break",
+      "type": "forti",
+      "key": "host",
+      "value": "fe80::1%en0\npinentry = /tmp/x",
+      "error": {
+        "detail": "host",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "name": "host name with a NUL",
+      "type": "forti",
+      "key": "host",
+      "value": "vpn.example.com\u0000",
+      "error": {
+        "detail": "host",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "name": "IPv4 host with a NUL",
+      "type": "forti",
+      "key": "host",
+      "value": "203.0.113.5\u0000x",
+      "error": {
+        "detail": "host",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "name": "host with a line separator",
+      "type": "forti",
+      "key": "host",
+      "value": "vpn.example.com\u2028x",
+      "error": {
+        "detail": "host",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "name": "host with a form feed",
+      "type": "forti",
+      "key": "host",
+      "value": "2001:db8::1\fx",
+      "error": {
+        "detail": "host",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "name": "host with a port",
+      "type": "forti",
+      "key": "host",
+      "value": "vpn.example.com:443",
+      "error": {
+        "detail": "host",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "name": "host with a scheme",
+      "type": "forti",
+      "key": "host",
+      "value": "https://vpn.example.com",
+      "error": {
+        "detail": "host",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "name": "zone id that is not letters and digits",
+      "type": "forti",
+      "key": "host",
+      "value": "fe80::1%en0.x",
+      "error": {
+        "detail": "host",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "name": "IPv6 host with a zone id",
+      "type": "forti",
+      "key": "host",
+      "value": "fe80::1%en0",
+      "canonical_key": "host",
+      "stored": "fe80::1%en0"
+    },
+    {
+      "name": "IPv4-mapped IPv6 host",
+      "type": "forti",
+      "key": "host",
+      "value": "::ffff:203.0.113.5",
+      "canonical_key": "host",
+      "stored": "::ffff:203.0.113.5"
+    },
+    {
+      "name": "health check host with a NUL",
+      "type": "forti",
+      "key": "health_host",
+      "value": "10.0.0.5\u0000x",
+      "error": {
+        "detail": "health_host",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "name": "health check host with an escape character",
+      "type": "forti",
+      "key": "health_host",
+      "value": "10.0.0.5\u001bx",
+      "error": {
+        "detail": "health_host",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "name": "bracketed health check host starting with a dash",
+      "type": "forti",
+      "key": "health_host",
+      "value": "[-c::1]",
+      "error": {
+        "detail": "health_host",
+        "kind": "invalid_field"
+      }
     }
   ]
 }

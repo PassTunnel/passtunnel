@@ -173,6 +173,8 @@ public struct HelperCore {
     public func openProfileDir(_ path: String, profileID: String, uid: uid_t) throws -> ProfileDirectory {
         guard Self.isValidProfileID(profileID) else { throw Failure.invalidProfileID(profileID) }
         guard path.hasPrefix("/") else { throw Failure.notAbsolute(path) }
+        // realpath() would stop at a NUL and resolve only what comes before it.
+        guard !Self.containsNUL(path) else { throw Failure.outsideProfilesRoot(path) }
         let root = try profilesRoot(for: uid)
         guard let resolved = Self.realPath(path) else { throw Failure.outsideProfilesRoot(path) }
         guard resolved.hasPrefix(root + "/") else { throw Failure.outsideProfilesRoot(path) }
@@ -202,7 +204,7 @@ public struct HelperCore {
 
     /// The log file name, if `logPath` is a `.log` file directly inside the profile directory.
     public func logFileName(_ logPath: String, in dir: ProfileDirectory) throws -> String {
-        guard logPath.hasPrefix("/") else { throw Failure.invalidLogPath(logPath) }
+        guard logPath.hasPrefix("/"), !Self.containsNUL(logPath) else { throw Failure.invalidLogPath(logPath) }
         let name = (logPath as NSString).lastPathComponent
         let parent = (logPath as NSString).deletingLastPathComponent
         guard ProfileDirectory.isPlainName(name), name.hasSuffix(".log"), name.count > 4,
@@ -319,6 +321,9 @@ public struct HelperCore {
     public static func sha256Hex(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
+
+    /// A path for a C call: anything after a NUL would be silently ignored there.
+    static func containsNUL(_ s: String) -> Bool { s.utf8.contains(0) }
 
     static func checkCredential(_ s: String, field: String, maxBytes: Int) throws {
         guard s.utf8.count <= maxBytes,
@@ -505,7 +510,8 @@ public final class ProfileDirectory {
     deinit { close(fd) }
 
     static func isPlainName(_ name: String) -> Bool {
-        !name.isEmpty && name != "." && name != ".." && !name.contains("/") && !name.contains("\0")
+        !name.isEmpty && name != "." && name != ".." && !name.utf8.contains(UInt8(ascii: "/"))
+            && !name.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7F })
     }
 
     /// Reads a regular, single-link file owned by the user and writable only by them. Symlinks,

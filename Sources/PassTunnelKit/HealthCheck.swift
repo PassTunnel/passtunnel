@@ -9,15 +9,19 @@ public enum HealthCheck {
     }
 
     /// "10.0.0.5" / "vpn.example.com" → ICMP, "fe80::1" → ICMPv6 (a bare IPv6 is never host:port),
-    /// "host:port" / "[v6]:port" → TCP connect. Returns nil for empty or malformed input.
+    /// "host:port" / "[v6]:port" → TCP connect. Returns nil for empty or malformed input, and for any
+    /// whitespace or control character (the host goes to getaddrinfo and to ping's arguments, which
+    /// end at a NUL).
     public static func parse(_ raw: String) -> Target? {
         let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !s.isEmpty, !s.hasPrefix("-"), !s.contains(where: { $0.isWhitespace }) else { return nil }
+        guard !s.isEmpty, !s.hasPrefix("-"), !s.contains(where: { $0.isWhitespace }),
+              !s.unicodeScalars.contains(where: isControl) else { return nil }
 
         if s.hasPrefix("[") {
             guard let close = s.firstIndex(of: "]") else { return nil }
             let host = String(s[s.index(after: s.startIndex)..<close])
-            guard !host.isEmpty, host.contains(":") else { return nil }
+            // A leading "-" would reach ping6 as an option.
+            guard !host.isEmpty, host.contains(":"), !host.hasPrefix("-") else { return nil }
             let rest = s[s.index(after: close)...]
             if rest.isEmpty { return .icmp6(host: host) }
             guard rest.hasPrefix(":"), let port = portNumber(rest.dropFirst()) else { return nil }
@@ -30,6 +34,14 @@ public enum HealthCheck {
         let parts = s.split(separator: ":", omittingEmptySubsequences: false)
         guard !parts[0].isEmpty, let port = portNumber(parts[1]) else { return nil }
         return .tcp(host: String(parts[0]), port: port)
+    }
+
+    /// C0 and C1 controls, DEL, and the Unicode line and paragraph separators.
+    static func isControl(_ c: Unicode.Scalar) -> Bool {
+        switch c.value {
+        case 0x00...0x1F, 0x7F...0x9F, 0x2028, 0x2029: return true
+        default: return false
+        }
     }
 
     private static func portNumber<S: StringProtocol>(_ s: S) -> UInt16? {

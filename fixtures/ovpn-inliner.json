@@ -51,6 +51,17 @@
       }
     },
     {
+      "name": "a NUL byte in a file path",
+      "config": "client\nca \"ca.crt\u0000x\"\n",
+      "files": {
+        "ca.crt": "-----BEGIN CERTIFICATE-----\nMIIBCA==\n-----END CERTIFICATE-----\n"
+      },
+      "error": {
+        "detail": "ca.crt\u0000x",
+        "kind": "ovpn_referenced_file"
+      }
+    },
+    {
       "name": "a missing file in another folder",
       "config": "client\nca ../../nowhere/ca.crt\n",
       "error": {

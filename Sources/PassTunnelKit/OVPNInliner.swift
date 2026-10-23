@@ -204,6 +204,8 @@ public enum OVPNInliner {
     // MARK: files
 
     static func readReferenced(_ path: String, baseDir: URL, insideBaseDir: Bool = false) throws -> Data {
+        // No file name has a NUL; the file system calls below would read only the part before it.
+        guard !path.utf8.contains(0) else { throw PTError.ovpnReferencedFile(path) }
         let url = path.hasPrefix("/")
             ? URL(fileURLWithPath: path)
             : baseDir.appendingPathComponent(path)

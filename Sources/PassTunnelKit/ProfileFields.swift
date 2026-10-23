@@ -1,4 +1,5 @@
 import Foundation
+import PassTunnelVPNConfig
 
 /// Text access to the editable profile fields, keyed like the JSON file (`passtunnel set ID key=value`,
 /// `passtunnel show ID`).
@@ -89,7 +90,9 @@ public enum ProfileFields {
         case "health_host":
             guard value.isEmpty || HealthCheck.parse(value) != nil else { throw bad() }
             p.healthHost = value
-        case "host": p.host = value
+        case "host":
+            guard value.isEmpty || FortiConfig.isValidHost(value) else { throw bad() }
+            p.host = value
         case "port":
             let v = try int()
             guard (1...65535).contains(v) else { throw bad() }

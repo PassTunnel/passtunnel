@@ -37,8 +37,8 @@ A failure is the output `error`: `{"kind": "…", "detail": "…"}`, `detail` on
 Conventions: times are seconds since 1970 (fractions and negative values allowed); bytes are lower-case
 hex (`secret_hex`, `hex`) or Base64 (`binary_files`); profiles use the keys of `profile.json`
 (snake_case, see [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md), "Model"), and a profile in an output
-lists every field; `null` is "none". Invisible characters (BOM, no-break space, zero-width space) are
-written as `\uXXXX` escapes. Example hosts and names follow the repository's rules (`vpn.example.com`,
+lists every field; `null` is "none". Invisible characters (BOM, no-break space, zero-width space, NUL
+and other control characters, line separator) are written as `\uXXXX` escapes. Example hosts and names follow the repository's rules (`vpn.example.com`,
 `203.0.113.x`, `Acme`, `alice`).
 
 ## Files
