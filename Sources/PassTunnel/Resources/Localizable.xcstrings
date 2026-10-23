@@ -617,12 +617,32 @@
         }
       }
     },
+    "Nothing was imported. Open the .passtunnel files one by one." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hiçbir şey içe aktarılmadı. .passtunnel dosyalarını tek tek açın."
+          }
+        }
+      }
+    },
     "One-time code, hidden. Click to show it." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tek kullanımlık kod gizli. Göstermek için tıklayın."
+          }
+        }
+      }
+    },
+    "Open one shared profile at a time" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paylaşılan profilleri tek tek açın"
           }
         }
       }
@@ -683,6 +703,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "PassTunnel yeni sürümleri günde bir kez GitHub’da arar ve kurmadan önce size sorar. Güncellemeler imzalıdır ve kurulmadan önce doğrulanır."
+          }
+        }
+      }
+    },
+    "PassTunnel opens .passtunnel files. To add an OpenVPN configuration, use File → Import .ovpn…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel .passtunnel dosyalarını açar. Bir OpenVPN yapılandırması eklemek için Dosya → .ovpn İçe Aktar… komutunu kullanın."
           }
         }
       }
@@ -6315,6 +6345,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mac uykudayken “%@” bağlantısı kesildi."
+          }
+        }
+      }
+    },
+    "“%@” is not a shared profile" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” paylaşılan bir profil değil"
           }
         }
       }
