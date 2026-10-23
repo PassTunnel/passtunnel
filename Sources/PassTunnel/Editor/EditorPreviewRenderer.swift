@@ -11,6 +11,7 @@ enum EditorPreviewRenderer {
         var dark = false
         var height: CGFloat
         var showAdvanced = false
+        var codeSectionOnly = false
     }
 
     static let width: CGFloat = 580
@@ -34,6 +35,12 @@ enum EditorPreviewRenderer {
 
         out.append(State(name: "editor-totp", model: totpModel(), height: 1800, showAdvanced: true))
         out.append(State(name: "editor-totp-dark", model: totpModel(), dark: true, height: 1800, showAdvanced: true))
+
+        // Just the One-time code section (website screenshot).
+        for dark in [false, true] {
+            out.append(State(name: "editor-one-time-code\(dark ? "-dark" : "")", model: totpModel(), dark: dark,
+                             height: 640, showAdvanced: true, codeSectionOnly: true))
+        }
 
         let custom = totpModel()
         custom.templateChoice = .custom
@@ -103,7 +110,7 @@ enum EditorPreviewRenderer {
 
     @MainActor static func render(_ state: State) -> Data? {
         let size = NSSize(width: width, height: state.height)
-        let root = ProfileEditorView(model: state.model, showAdvanced: state.showAdvanced)
+        let root = ProfileEditorView(model: state.model, showAdvanced: state.showAdvanced, codeSectionOnly: state.codeSectionOnly)
             .frame(width: size.width, height: size.height)
             .background(Color(nsColor: .windowBackgroundColor))
             .environment(\.colorScheme, state.dark ? .dark : .light)
@@ -119,7 +126,13 @@ enum EditorPreviewRenderer {
         RunLoop.current.run(until: Date().addingTimeInterval(0.3))   // let SwiftUI finish its first update
         hosting.layoutSubtreeIfNeeded()
 
-        guard let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { return nil }
+        let rep: NSBitmapImageRep
+        if let scale = RenderSnapshots.scaleOverride {
+            rep = RenderSnapshots.bitmap(size, scale: scale)
+        } else {
+            guard let cached = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { return nil }
+            rep = cached
+        }
         hosting.cacheDisplay(in: hosting.bounds, to: rep)
         return rep.representation(using: .png, properties: [:])
     }

@@ -1,0 +1,45 @@
+<!doctype html>
+<!-- Source of site/assets/img/og.png (1200x630), the image link previews show. Not published:
+     scripts/site-assets.sh renders it with headless Chrome after converting the screenshots it uses. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PassTunnel social preview</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1200px; height: 630px; overflow: hidden; background: #ffffff; }
+  body {
+    position: relative;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif;
+    color: #0a0a0a;
+    -webkit-font-smoothing: antialiased;
+  }
+  .glow {
+    position: absolute; inset: -10% -10% -20% 20%;
+    background:
+      radial-gradient(34% 44% at 40% 62%, rgba(52, 211, 153, 0.42), transparent 70%),
+      radial-gradient(30% 40% at 66% 30%, rgba(56, 189, 248, 0.36), transparent 70%),
+      radial-gradient(38% 44% at 86% 74%, rgba(129, 140, 248, 0.34), transparent 72%);
+  }
+  .text { position: absolute; left: 72px; top: 72px; width: 560px; }
+  .brand { display: flex; align-items: center; gap: 16px; font-size: 30px; font-weight: 600; letter-spacing: -0.02em; }
+  .brand img { width: 64px; height: 64px; }
+  h1 { margin-top: 56px; font-size: 58px; line-height: 1.04; font-weight: 500; letter-spacing: -0.045em; }
+  p { margin-top: 28px; font-size: 22px; line-height: 1.45; color: #454545; }
+  .shot {
+    position: absolute; left: 664px; top: 112px; width: 600px; height: auto;
+    border-radius: 16px;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 40px 80px -30px rgba(0, 0, 0, 0.35);
+  }
+</style>
+</head>
+<body>
+  <div class="glow"></div>
+  <div class="text">
+    <div class="brand"><img src="../../site/assets/img/app-icon-72@2x.webp" alt="">PassTunnel</div>
+    <h1>Connect your VPN without ever typing a one-time code again.</h1>
+    <p>OpenVPN and FortiGate SSL VPN on macOS.<br>Free and open source.</p>
+  </div>
+  <img class="shot" src="../../site/assets/img/main-light@2x.webp" alt="">
+</body>
+</html>

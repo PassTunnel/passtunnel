@@ -5,8 +5,27 @@ import SwiftUI
 /// `PASSTUNNEL_RENDER=<dir> PassTunnel` renders the main screens to PNGs offscreen and exits.
 /// Uses a throwaway support directory and Keychain service; nothing is shown on screen and no
 /// VPN, helper or system setting is touched. Handy for README screenshots and design checks.
+/// `PASSTUNNEL_RENDER_SCALE=4` renders at that backing scale instead of 2 (the website uses 4).
 @MainActor
 enum RenderSnapshots {
+    /// Backing scale from `PASSTUNNEL_RENDER_SCALE` (1–8), if set.
+    static let scaleOverride: CGFloat? = {
+        guard let raw = ProcessInfo.processInfo.environment["PASSTUNNEL_RENDER_SCALE"], let value = Double(raw),
+              (1...8).contains(value) else { return nil }
+        return CGFloat(value)
+    }()
+
+    static var scale: CGFloat { scaleOverride ?? 2 }
+
+    static func bitmap(_ size: CGSize, scale: CGFloat) -> NSBitmapImageRep {
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int((size.width * scale).rounded()),
+                                   pixelsHigh: Int((size.height * scale).rounded()),
+                                   bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                   colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        rep.size = size
+        return rep
+    }
+
     static func run(outputDirectory: String) -> Int32 {
         let out = URL(fileURLWithPath: (outputDirectory as NSString).expandingTildeInPath, isDirectory: true)
         try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
@@ -89,12 +108,19 @@ enum RenderSnapshots {
                 let badges = MenuBarIcon.badges(for: model)
                 for dark in [false, true] {
                     let img = MenuBarIcon.rendered(badges: badges, palette: palette, showLock: true,
-                                                   locked: true, dark: dark, scale: 4)
+                                                   locked: true, dark: dark, scale: max(4, scale))
                     let view = Image(nsImage: img)
                         .padding(.horizontal, 10)
                         .frame(height: 30)
                         .background(dark ? Color(white: 0.12) : Color(white: 0.95))
                     snapshot(view, size: nil, dark: dark, to: out, name: "menubar-\(palette.rawValue)")
+                    // The badges alone on a transparent background, at the render scale.
+                    let bare = MenuBarIcon.rendered(badges: badges, palette: palette, showLock: true,
+                                                    locked: true, dark: dark, scale: scale)
+                    if let rep = bare.representations.first as? NSBitmapImageRep,
+                       let png = rep.representation(using: .png, properties: [:]) {
+                        try? png.write(to: out.appendingPathComponent("menubar-badges-\(palette.rawValue)\(dark ? "-dark" : "").png"))
+                    }
                 }
             }
             model.prefs.badgePalette = .pastel
@@ -251,9 +277,9 @@ enum RenderSnapshots {
         window.appearance = appearance
         window.isReleasedWhenClosed = false
         if titled, #available(macOS 14, *) {
-            // Lets .navigationTitle / .toolbar reach the NSWindow as they do in a scene.
-            // Toolbar glass renders as a white blob offscreen in dark mode; keep only the title there.
-            host.sceneBridgingOptions = dark ? [.title] : [.title, .toolbars]
+            // Lets .navigationTitle / .toolbar reach the NSWindow as they do in a scene, in both
+            // appearances so light and dark renders have the same size.
+            host.sceneBridgingOptions = [.title, .toolbars]
             // Offscreen, the content view sits below the title bar already; no extra inset.
             host.safeAreaRegions = []
             window.toolbarStyle = .unified
@@ -281,14 +307,7 @@ enum RenderSnapshots {
             }
         }
         let size = titled ? (host.superview?.bounds.size ?? frame.size) : frame.size
-        let scale: CGFloat = 2
-        func bitmap(_ size: CGSize) -> NSBitmapImageRep {
-            let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * scale), pixelsHigh: Int(size.height * scale),
-                                       bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-                                       colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
-            rep.size = size
-            return rep
-        }
+        func bitmap(_ size: CGSize) -> NSBitmapImageRep { Self.bitmap(size, scale: scale) }
         let content = bitmap(host.bounds.size)
         host.cacheDisplay(in: host.bounds, to: content)
         var titleBar: NSBitmapImageRep?
@@ -296,6 +315,9 @@ enum RenderSnapshots {
         if titled, let frameView = host.superview {
             // The frame view supplies the title bar and toolbar strip above the content.
             titleBarHeight = max(0, size.height - host.bounds.height)
+            // Toolbar glass (the platter behind toolbar items) needs the window server and draws as an
+            // opaque white capsule offscreen; leave it out so light and dark look alike.
+            hideToolbarGlass(in: frameView)
             let rep = bitmap(size)
             frameView.cacheDisplay(in: frameView.bounds, to: rep)
             titleBar = rep
@@ -327,5 +349,13 @@ enum RenderSnapshots {
         }
         window.contentView = nil
         window.close()
+    }
+
+    private static func hideToolbarGlass(in view: NSView) {
+        if String(describing: type(of: view)) == "NSToolbarPlatterView" {
+            view.isHidden = true
+            return
+        }
+        for sub in view.subviews { hideToolbarGlass(in: sub) }
     }
 }
