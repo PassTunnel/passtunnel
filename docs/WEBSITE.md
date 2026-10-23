@@ -1,8 +1,9 @@
 # Website
 
-The project website is a single static page in [`site/`](../site), published with GitHub Pages at
-<https://passtunnel.github.io/>. It explains what PassTunnel does, how to install it, the CLI and
-MCP setup and the security model, and it serves `llms.txt` for tools that read it.
+The project website is a static site in [`site/`](../site), published with GitHub Pages at
+<https://passtunnel.github.io/>. Its main page explains what PassTunnel does, how to install it, the
+CLI and MCP setup and the security model; a second page holds the privacy policy
+(<https://passtunnel.github.io/privacy/>), and the site serves `llms.txt` for tools that read it.
 
 This document is the spec for the site: what is on it, the rules it follows and how it is
 maintained. The code in `site/` is the source of truth for the exact look.
@@ -11,13 +12,13 @@ maintained. The code in `site/` is the source of truth for the exact look.
 
 - **Static and self-contained.** Plain HTML, one stylesheet, two small vanilla scripts. No
   framework, no build step, no package manager, no CDN, no web fonts, no trackers, analytics,
-  cookies or third-party requests of any kind. Everything the page loads comes from `site/`.
+  cookies or third-party requests of any kind. Everything a page loads comes from `site/`.
 - **Strict Content Security Policy** (meta tag): `default-src 'none'; script-src 'self';
   style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'`. That means no inline `<script>`, no `style="…"` attributes and no
   `on…=` handlers anywhere; SVG presentation attributes (`fill`, `stroke`, …) are fine.
 - **Facts only.** Every claim must match the app (`docs/APP.md`, `docs/ARCHITECTURE.md`,
   `SECURITY.md`). No testimonials, user counts, download numbers, ratings, logos or "trusted by".
-  No version numbers either, so the page never goes stale between releases.
+  No version numbers either, so the site never goes stale between releases.
 - **Generic examples only**: profile names like Work, Lab, Data Center; hosts like
   `vpn.example.com`, `203.0.113.10`.
 - **Real app visuals only.** Screenshots come from the app's own renderer (see
@@ -48,13 +49,14 @@ maintained. The code in `site/` is the source of truth for the exact look.
 
 | Path | What |
 |---|---|
-| `site/index.html` | The page |
+| `site/index.html` | The main page |
+| `site/privacy/index.html` | The privacy policy (see [Privacy policy](#privacy-policy)) |
 | `site/assets/style.css` | All styles; design tokens as custom properties on `:root` |
 | `site/assets/theme.js` | Loaded in `<head>` before the stylesheet paints: applies the saved theme (no flash) |
 | `site/assets/main.js` | Theme button, mobile menu, copy buttons, format picker, palette picker, live code demo |
 | `site/assets/img/` | Generated images (do not edit by hand) |
 | `site/llms.txt` | Plain-text summary for language-model tools: what it is, install, CLI, MCP setup, links |
-| `site/404.html`, `site/robots.txt`, `site/sitemap.xml` | The usual |
+| `site/404.html`, `site/robots.txt`, `site/sitemap.xml` | The usual (the sitemap lists both pages) |
 | `scripts/site-assets.sh` | Regenerates everything in `site/assets/img/` |
 | `scripts/site/og.html` | Source of the social preview image (not published) |
 | `scripts/check-site.sh` | Static checks run by CI (see [Checks](#checks)) |
@@ -114,9 +116,24 @@ closes on Escape, on outside click and when a link is chosen).
    commands, copyable), build from source (README).
 7. **FAQ** (`<details>`): why a privileged helper, where secrets are stored, which VPN types,
    does it work without TOTP ("None" or "Ask each time").
-8. **Call to action**, then **footer**: GitHub, Releases, Security, License (MIT), and "PassTunnel
-   is not affiliated with OpenVPN Inc. or Fortinet. OpenVPN and FortiGate are trademarks of their
-   respective owners."
+8. **Call to action**, then **footer**: GitHub, Releases, Security, Privacy, License (MIT), and
+   "PassTunnel is not affiliated with OpenVPN Inc. or Fortinet. OpenVPN and FortiGate are trademarks
+   of their respective owners." The privacy page and the 404 page carry the same footer.
+
+## Privacy policy
+
+`site/privacy/index.html`, linked from the footer of every page; both app stores and both mobile
+apps link to it ([MOBILE.md](MOBILE.md), phase 0). The same header (section links point to `/#…`) and footer as
+the main page, then one readable column (`.doc`): eyebrow "Privacy", `h1`, a one-sentence summary,
+"Last updated" with a `<time>`, an "In short" card, and short sections: who publishes PassTunnel,
+what the policy covers (the Mac app and CLI, the Android and iPhone apps, described as in
+development, and this website), information collected (none), what stays on the device (per
+platform), network connections (per platform: the user's VPN servers, the Mac's health check and
+*Fetch fingerprint*, Sparkle update checks to GitHub, the local MCP server), permissions (per
+platform), this website, children, changes (the public repository history) and contact (GitHub
+issues and the security policy; no email address). Every statement must match `SECURITY.md`,
+`docs/APP.md`, `docs/ARCHITECTURE.md` and `docs/MOBILE.md`: a change to what the apps store, send or
+ask for updates this page and its date in the same pull request.
 
 ## Live code demo
 
