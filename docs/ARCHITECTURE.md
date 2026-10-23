@@ -36,10 +36,20 @@ A bundle without `dns-updown` pins an empty set for it, so the helper refuses an
 
 | Target | Owns | Depends on |
 |---|---|---|
-| `PassTunnelShared` | XPC protocol, request/response types, `HelperCore` (request decoding, path checks, tool environment), `SessionPolicy`, `CodeSignature`, `Spawner` (verified, suspended launch), `PinnedTools`, `ToolStager` (root-owned copy of the tools and their dylibs), `HelperBuild`, `OVPNSanitizer`, `FortiConfig`, identifiers | — |
-| `PassTunnelCore` | model, `ProfileStore`, `ProfilesWatcher`, `Secrets` (Keychain), `SecretVault` + `SecretEnvelope` + `UserAuthenticator` (Secure Enclave protection), `TOTP`, `OTPAuthURI`, `OVPNAnalyzer`, `OVPNInliner`, `ShareFile`, `Preferences`, `HealthCheck`, `HelperClient`, `HelperAutoUpdate`, `ConnectionManager` + `ProfileDestination`, CLI parsing (`CLICommand`, `CLIInvocation`), automation objects + `AutomationService`, `MCPServer` + `MCPTools` | Shared |
-| `PassTunnelHelper` | `main.swift` XPC listener, process supervision | Shared |
-| `PassTunnel` | SwiftUI app, menu bar, onboarding, CLI, updates (`AppUpdater`) | Core, Shared, Sparkle |
+| `PassTunnelVPNConfig` | `OVPNSanitizer`, `FortiConfig`: the configurations the helper runs as root | — |
+| `PassTunnelKit` | the portable logic (Foundation, CryptoKit and Security only; builds for macOS 13 and iOS 17): model, `PTError`, `JSONCoding`, `TOTP`, `OTPAuthURI`, `OTPComposer`, `OVPNAnalyzer`, `OVPNInliner`, `ShareFile`, `Slug`, `ProfileFields`, `ProfileMerge`, `SecretEnvelope`, `HealthCheck` (parsing) | VPNConfig |
+| `PassTunnelShared` | XPC protocol, request/response types, `HelperCore` (request decoding, path checks, tool environment), `SessionPolicy`, `CodeSignature`, `Spawner` (verified, suspended launch), `PinnedTools`, `ToolStager` (root-owned copy of the tools and their dylibs), `HelperBuild`, identifiers | VPNConfig |
+| `PassTunnelCore` | `ProfileStore`, `ProfilesWatcher`, `Secrets` (Keychain), `SecretVault` + `UserAuthenticator` (Secure Enclave protection), `Preferences`, `HealthCheck.check` (the probe), `QRDecoder`, `TLSFingerprint`, `HelperClient`, `HelperAutoUpdate`, `ConnectionManager` + `ProfileDestination`, CLI parsing (`CLICommand`, `CLIInvocation`), automation objects + `AutomationService`, `MCPServer` + `MCPTools` | Kit, VPNConfig, Shared |
+| `PassTunnelHelper` | `main.swift` XPC listener, process supervision | Shared (and through it VPNConfig) |
+| `PassTunnel` | SwiftUI app, menu bar, onboarding, CLI, updates (`AppUpdater`) | Core, Kit, VPNConfig, Shared, Sparkle |
+
+The library product `PassTunnelKit` (targets `PassTunnelKit` and `PassTunnelVPNConfig`) is what the
+iPhone app uses ([MOBILE.md](MOBILE.md)); `xcodebuild -scheme PassTunnelKit -destination
+'generic/platform=iOS Simulator' build` builds it for iOS. The sanitizer and `FortiConfig` are a
+target of their own so that the helper links them and nothing else of PassTunnelKit. Internals that
+Core needs from Kit (`FileIO`, the lenient decoding helpers, the envelope parts, `ProtectionKeyRecord`)
+are `package`, not `public`. The golden cases in [`fixtures/`](../fixtures/README.md) are read by the
+`PassTunnelKitTests` test target (and, as a pinned copy, by the Android port).
 
 ## Identifiers (`PassTunnelShared/Identifiers.swift`)
 
@@ -84,7 +94,7 @@ public enum PT {
   `SecretKind` (the CLI's `secret` command cannot name it). `ProfileStore.delete` removes all three.
 - JSON uses snake_case keys (`JSONEncoder.keyEncodingStrategy = .convertToSnakeCase`), pretty, sorted.
 
-## Model (`PassTunnelCore/Model.swift`)
+## Model (`PassTunnelKit/Model.swift`)
 
 ```swift
 public enum VPNType: String, Codable, CaseIterable { case openvpn, forti }

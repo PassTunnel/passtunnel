@@ -1,5 +1,6 @@
 import AppKit
 import PassTunnelCore
+import PassTunnelKit
 
 enum ShareActions {
     /// Saves `<id>.passtunnel` where the user chooses and reveals it in Finder.

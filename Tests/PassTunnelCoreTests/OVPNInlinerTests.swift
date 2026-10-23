@@ -1,7 +1,8 @@
 import Foundation
 import XCTest
 @testable import PassTunnelCore
-import PassTunnelShared
+@testable import PassTunnelKit
+@testable import PassTunnelVPNConfig
 
 final class OVPNInlinerTests: CoreTestCase {
     let caPEM = "-----BEGIN CERTIFICATE-----\nMIIBCA==\n-----END CERTIFICATE-----\n"

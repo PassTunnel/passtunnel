@@ -1,0 +1,401 @@
+{
+  "about": "otpauth:// links (QR codes): what parses, and the error for what does not.",
+  "parse": [
+    {
+      "name": "every parameter",
+      "uri": "otpauth://totp/Acme:alice@example.com?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&issuer=Acme&digits=8&period=60&algorithm=SHA256",
+      "account": "alice@example.com",
+      "algorithm": "sha256",
+      "digits": 8,
+      "issuer": "Acme",
+      "label": "Acme:alice@example.com",
+      "period": 60,
+      "secret_hex": "3132333435363738393031323334353637383930"
+    },
+    {
+      "name": "percent-encoded label, defaults",
+      "uri": "otpauth://totp/Acme%20VPN%3Aalice%C5%9F?secret=jbswy3dpehpk3pxp",
+      "account": "aliceş",
+      "algorithm": "sha1",
+      "digits": 6,
+      "issuer": "Acme VPN",
+      "label": "Acme VPN:aliceş",
+      "period": 30,
+      "secret_hex": "48656c6c6f21deadbeef"
+    },
+    {
+      "name": "issuer parameter wins over the label prefix; + is a space in the query",
+      "uri": "OTPAUTH://TOTP/Old:alice?issuer=Acme+Corp&secret=JBSWY3DPEHPK3PXP&algorithm=sha512",
+      "account": "alice",
+      "algorithm": "sha512",
+      "digits": 6,
+      "issuer": "Acme Corp",
+      "label": "Old:alice",
+      "period": 30,
+      "secret_hex": "48656c6c6f21deadbeef"
+    },
+    {
+      "name": "label without issuer",
+      "uri": "otpauth://totp/alice?secret=JBSWY3DPEHPK3PXP",
+      "account": "alice",
+      "algorithm": "sha1",
+      "digits": 6,
+      "issuer": "",
+      "label": "alice",
+      "period": 30,
+      "secret_hex": "48656c6c6f21deadbeef"
+    },
+    {
+      "name": "label without issuer, issuer parameter",
+      "uri": "otpauth://totp/alice?secret=JBSWY3DPEHPK3PXP&issuer=Acme",
+      "account": "alice",
+      "algorithm": "sha1",
+      "digits": 6,
+      "issuer": "Acme",
+      "label": "alice",
+      "period": 30,
+      "secret_hex": "48656c6c6f21deadbeef"
+    },
+    {
+      "name": "empty issuer parameter: the label prefix is used",
+      "uri": "otpauth://totp/Acme:alice?secret=JBSWY3DPEHPK3PXP&issuer=",
+      "account": "alice",
+      "algorithm": "sha1",
+      "digits": 6,
+      "issuer": "Acme",
+      "label": "Acme:alice",
+      "period": 30,
+      "secret_hex": "48656c6c6f21deadbeef"
+    },
+    {
+      "name": "percent-encoded padding, dashed algorithm, limits",
+      "uri": "otpauth://totp/Acme:alice?secret=JBSWY3DPEHPK3PXP%3D%3D%3D%3D&algorithm=sha-512&digits=8&period=600",
+      "account": "alice",
+      "algorithm": "sha512",
+      "digits": 8,
+      "issuer": "Acme",
+      "label": "Acme:alice",
+      "period": 600,
+      "secret_hex": "48656c6c6f21deadbeef"
+    },
+    {
+      "name": "spaces in the secret",
+      "uri": "otpauth://totp/Acme:alice?secret=jbsw+y3dp%20ehpk+3pxp",
+      "account": "alice",
+      "algorithm": "sha1",
+      "digits": 6,
+      "issuer": "Acme",
+      "label": "Acme:alice",
+      "period": 30,
+      "secret_hex": "48656c6c6f21deadbeef"
+    },
+    {
+      "name": "the first value of a repeated parameter wins",
+      "uri": "otpauth://totp/Acme:alice?secret=JBSWY3DPEHPK3PXP&secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+      "account": "alice",
+      "algorithm": "sha1",
+      "digits": 6,
+      "issuer": "Acme",
+      "label": "Acme:alice",
+      "period": 30,
+      "secret_hex": "48656c6c6f21deadbeef"
+    },
+    {
+      "name": "no label",
+      "uri": "otpauth://TOTP?secret=JBSWY3DPEHPK3PXP",
+      "account": "",
+      "algorithm": "sha1",
+      "digits": 6,
+      "issuer": "",
+      "label": "",
+      "period": 30,
+      "secret_hex": "48656c6c6f21deadbeef"
+    },
+    {
+      "name": "encoded colon and spaces around it",
+      "uri": "otpauth://totp/Acme%3A%20alice%40example.com?secret=JBSWY3DPEHPK3PXP",
+      "account": "alice@example.com",
+      "algorithm": "sha1",
+      "digits": 6,
+      "issuer": "Acme",
+      "label": "Acme: alice@example.com",
+      "period": 30,
+      "secret_hex": "48656c6c6f21deadbeef"
+    },
+    {
+      "name": "an invalid escape is kept as written",
+      "uri": "otpauth://totp/Acme%ZZ?secret=JBSWY3DPEHPK3PXP",
+      "account": "Acme%ZZ",
+      "algorithm": "sha1",
+      "digits": 6,
+      "issuer": "",
+      "label": "Acme%ZZ",
+      "period": 30,
+      "secret_hex": "48656c6c6f21deadbeef"
+    },
+    {
+      "name": "7 digits, period 1, upper-case parameter names",
+      "uri": "otpauth://totp/Acme:alice?SECRET=JBSWY3DPEHPK3PXP&DIGITS=7&PERIOD=1&ALGORITHM=SHA1",
+      "account": "alice",
+      "algorithm": "sha1",
+      "digits": 7,
+      "issuer": "Acme",
+      "label": "Acme:alice",
+      "period": 1,
+      "secret_hex": "48656c6c6f21deadbeef"
+    },
+    {
+      "name": "hex secret",
+      "uri": "otpauth://totp/Acme:alice?secret=0x3132333435363738393031323334353637383930",
+      "account": "alice",
+      "algorithm": "sha1",
+      "digits": 6,
+      "issuer": "Acme",
+      "label": "Acme:alice",
+      "period": 30,
+      "secret_hex": "3132333435363738393031323334353637383930"
+    },
+    {
+      "name": "unknown parameters are ignored",
+      "uri": "otpauth://totp/Acme:alice?secret=JBSWY3DPEHPK3PXP&image=https%3A%2F%2Fexample.com%2Flogo.png&color=red",
+      "account": "alice",
+      "algorithm": "sha1",
+      "digits": 6,
+      "issuer": "Acme",
+      "label": "Acme:alice",
+      "period": 30,
+      "secret_hex": "48656c6c6f21deadbeef"
+    },
+    {
+      "name": "surrounding whitespace",
+      "uri": "  otpauth://totp/Acme:alice?secret=JBSWY3DPEHPK3PXP\n",
+      "account": "alice",
+      "algorithm": "sha1",
+      "digits": 6,
+      "issuer": "Acme",
+      "label": "Acme:alice",
+      "period": 30,
+      "secret_hex": "48656c6c6f21deadbeef"
+    },
+    {
+      "name": "HOTP is refused",
+      "uri": "otpauth://hotp/Acme:alice?secret=JBSWY3DPEHPK3PXP&counter=1",
+      "error": {
+        "kind": "hotp_not_supported"
+      }
+    },
+    {
+      "name": "not an otpauth link",
+      "uri": "https://vpn.example.com",
+      "error": {
+        "detail": "it does not start with otpauth://",
+        "kind": "invalid_otpauth_uri"
+      }
+    },
+    {
+      "name": "missing secret",
+      "uri": "otpauth://totp/Acme:alice?issuer=Acme",
+      "error": {
+        "detail": "the secret is missing",
+        "kind": "invalid_otpauth_uri"
+      }
+    },
+    {
+      "name": "empty secret",
+      "uri": "otpauth://totp/Acme:alice?secret=",
+      "error": {
+        "detail": "the secret is missing",
+        "kind": "invalid_otpauth_uri"
+      }
+    },
+    {
+      "name": "secret without a value",
+      "uri": "otpauth://totp/Acme:alice?secret",
+      "error": {
+        "detail": "the secret is missing",
+        "kind": "invalid_otpauth_uri"
+      }
+    },
+    {
+      "name": "invalid escape in the secret",
+      "uri": "otpauth://totp/Acme:alice?secret=%ZZ",
+      "error": {
+        "kind": "invalid_secret"
+      }
+    },
+    {
+      "name": "secret that is not Base32 or hex",
+      "uri": "otpauth://totp/Acme:alice?secret=!!!!",
+      "error": {
+        "kind": "invalid_secret"
+      }
+    },
+    {
+      "name": "the secret is checked before the digits",
+      "uri": "otpauth://totp/Acme:alice?secret=!!!!&digits=10",
+      "error": {
+        "kind": "invalid_secret"
+      }
+    },
+    {
+      "name": "digits 0",
+      "uri": "otpauth://totp/Acme:alice?secret=JBSWY3DPEHPK3PXP&digits=0",
+      "error": {
+        "detail": "digits must be 6, 7 or 8",
+        "kind": "invalid_otpauth_uri"
+      }
+    },
+    {
+      "name": "digits 5",
+      "uri": "otpauth://totp/Acme:alice?secret=JBSWY3DPEHPK3PXP&digits=5",
+      "error": {
+        "detail": "digits must be 6, 7 or 8",
+        "kind": "invalid_otpauth_uri"
+      }
+    },
+    {
+      "name": "digits 9",
+      "uri": "otpauth://totp/Acme:alice?secret=JBSWY3DPEHPK3PXP&digits=9",
+      "error": {
+        "detail": "digits must be 6, 7 or 8",
+        "kind": "invalid_otpauth_uri"
+      }
+    },
+    {
+      "name": "digits 10",
+      "uri": "otpauth://totp/Acme:alice?secret=JBSWY3DPEHPK3PXP&digits=10",
+      "error": {
+        "detail": "digits must be 6, 7 or 8",
+        "kind": "invalid_otpauth_uri"
+      }
+    },
+    {
+      "name": "digits as a word",
+      "uri": "otpauth://totp/Acme:alice?secret=JBSWY3DPEHPK3PXP&digits=six",
+      "error": {
+        "detail": "digits must be 6, 7 or 8",
+        "kind": "invalid_otpauth_uri"
+      }
+    },
+    {
+      "name": "empty digits",
+      "uri": "otpauth://totp/Acme:alice?secret=JBSWY3DPEHPK3PXP&digits=",
+      "error": {
+        "detail": "digits must be 6, 7 or 8",
+        "kind": "invalid_otpauth_uri"
+      }
+    },
+    {
+      "name": "period 0",
+      "uri": "otpauth://totp/Acme:alice?secret=JBSWY3DPEHPK3PXP&period=0",
+      "error": {
+        "detail": "the period is not valid",
+        "kind": "invalid_otpauth_uri"
+      }
+    },
+    {
+      "name": "negative period",
+      "uri": "otpauth://totp/Acme:alice?secret=JBSWY3DPEHPK3PXP&period=-30",
+      "error": {
+        "detail": "the period is not valid",
+        "kind": "invalid_otpauth_uri"
+      }
+    },
+    {
+      "name": "period over 600",
+      "uri": "otpauth://totp/Acme:alice?secret=JBSWY3DPEHPK3PXP&period=601",
+      "error": {
+        "detail": "the period is not valid",
+        "kind": "invalid_otpauth_uri"
+      }
+    },
+    {
+      "name": "period that does not fit an integer",
+      "uri": "otpauth://totp/Acme:alice?secret=JBSWY3DPEHPK3PXP&period=99999999999999999999999",
+      "error": {
+        "detail": "the period is not valid",
+        "kind": "invalid_otpauth_uri"
+      }
+    },
+    {
+      "name": "fractional period",
+      "uri": "otpauth://totp/Acme:alice?secret=JBSWY3DPEHPK3PXP&period=30.5",
+      "error": {
+        "detail": "the period is not valid",
+        "kind": "invalid_otpauth_uri"
+      }
+    },
+    {
+      "name": "unsupported algorithm",
+      "uri": "otpauth://totp/Acme:alice?secret=JBSWY3DPEHPK3PXP&algorithm=MD5",
+      "error": {
+        "detail": "unsupported algorithm “MD5”",
+        "kind": "invalid_otpauth_uri"
+      }
+    },
+    {
+      "name": "empty algorithm",
+      "uri": "otpauth://totp/Acme:alice?secret=JBSWY3DPEHPK3PXP&algorithm=",
+      "error": {
+        "detail": "unsupported algorithm “”",
+        "kind": "invalid_otpauth_uri"
+      }
+    },
+    {
+      "name": "digits are checked before the period",
+      "uri": "otpauth://totp/Acme:alice?secret=JBSWY3DPEHPK3PXP&period=0&digits=5",
+      "error": {
+        "detail": "digits must be 6, 7 or 8",
+        "kind": "invalid_otpauth_uri"
+      }
+    },
+    {
+      "name": "one slash after the scheme",
+      "uri": "otpauth:/totp/Acme?secret=JBSWY3DPEHPK3PXP",
+      "error": {
+        "detail": "it does not start with otpauth://",
+        "kind": "invalid_otpauth_uri"
+      }
+    },
+    {
+      "name": "unknown code type",
+      "uri": "otpauth://steam/Acme?secret=JBSWY3DPEHPK3PXP",
+      "error": {
+        "detail": "unknown code type “steam”",
+        "kind": "invalid_otpauth_uri"
+      }
+    },
+    {
+      "name": "migration links are not otpauth links",
+      "uri": "otpauth-migration://offline?data=AAAA",
+      "error": {
+        "detail": "it does not start with otpauth://",
+        "kind": "invalid_otpauth_uri"
+      }
+    },
+    {
+      "name": "scheme only",
+      "uri": "otpauth://",
+      "error": {
+        "detail": "unknown code type “”",
+        "kind": "invalid_otpauth_uri"
+      }
+    },
+    {
+      "name": "empty",
+      "uri": "",
+      "error": {
+        "detail": "it does not start with otpauth://",
+        "kind": "invalid_otpauth_uri"
+      }
+    },
+    {
+      "name": "whitespace",
+      "uri": "   ",
+      "error": {
+        "detail": "it does not start with otpauth://",
+        "kind": "invalid_otpauth_uri"
+      }
+    }
+  ]
+}

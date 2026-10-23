@@ -1,7 +1,8 @@
 import AppKit
 import Foundation
 import PassTunnelCore
-import PassTunnelShared
+import PassTunnelKit
+import PassTunnelVPNConfig
 
 /// State of one editor sheet. Nothing is written to disk or the Keychain until `save()`.
 @MainActor

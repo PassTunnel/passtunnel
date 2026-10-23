@@ -1,7 +1,8 @@
 # Builds and tests every pull request into dev or main and every push to them. The job names are
 # required status checks in the branch rulesets, so renaming a job means updating the rulesets too:
 #
-#   Build and test    swift build and swift test on macOS (Apple silicon)
+#   Build and test    swift build and swift test on macOS (Apple silicon), and the PassTunnelKit
+#                     library built for iOS (the iPhone app uses it)
 #   Release scripts   shellcheck of next-version.sh and its test, and the self-test of
 #                     scripts/next-version.sh (in a temporary repository)
 #   Site              shellcheck of the site scripts and scripts/check-site.sh, the static checks
@@ -51,6 +52,10 @@ jobs:
       # The tests isolate themselves (PASSTUNNEL_HOME and PASSTUNNEL_KEYCHAIN_SERVICE per test).
       - name: Test
         run: swift test
+
+      # The portable library must keep building for the iPhone app (docs/MOBILE.md).
+      - name: Build PassTunnelKit for iOS
+        run: xcodebuild -scheme PassTunnelKit -destination 'generic/platform=iOS Simulator' -quiet build
 
   scripts:
     name: Release scripts

@@ -1,0 +1,690 @@
+{
+  "about": "Code formats: the template presets, template validation, and what is sent for each delivery and VPN type.",
+  "presets": [
+    {
+      "preset": "append",
+      "template": "{password}{otp}"
+    },
+    {
+      "preset": "prepend",
+      "template": "{otp}{password}"
+    },
+    {
+      "preset": "colon",
+      "template": "{password}:{otp}"
+    },
+    {
+      "preset": "comma",
+      "template": "{password},{otp}"
+    }
+  ],
+  "validate_template": [
+    {
+      "template": "{password}{otp}",
+      "valid": true
+    },
+    {
+      "template": "{otp}{password}",
+      "valid": true
+    },
+    {
+      "template": "{password}:{otp}",
+      "valid": true
+    },
+    {
+      "template": "{password},{otp}",
+      "valid": true
+    },
+    {
+      "template": "{otp}",
+      "valid": true
+    },
+    {
+      "template": "x{otp}{password}y",
+      "valid": true
+    },
+    {
+      "template": "{password}-{otp}!",
+      "valid": true
+    },
+    {
+      "template": "pin{otp}",
+      "valid": true
+    },
+    {
+      "template": "{otp}{otp}",
+      "valid": true
+    },
+    {
+      "template": "{password}{password}{otp}",
+      "valid": true
+    },
+    {
+      "template": "{{otp}}",
+      "valid": true
+    },
+    {
+      "template": "{otp}}",
+      "valid": true
+    },
+    {
+      "template": "{ {otp}",
+      "valid": true
+    },
+    {
+      "template": "a{b{otp}",
+      "valid": true
+    },
+    {
+      "template": "🔐{password}·{otp}✓",
+      "valid": true
+    },
+    {
+      "template": "{ {password}} {otp}",
+      "valid": true
+    },
+    {
+      "template": "",
+      "error": {
+        "detail": "it is empty",
+        "kind": "invalid_template"
+      }
+    },
+    {
+      "template": "{password}",
+      "error": {
+        "detail": "it must contain {otp}",
+        "kind": "invalid_template"
+      }
+    },
+    {
+      "template": "plain",
+      "error": {
+        "detail": "it must contain {otp}",
+        "kind": "invalid_template"
+      }
+    },
+    {
+      "template": "{password}{code}",
+      "error": {
+        "detail": "unknown placeholder {code}",
+        "kind": "invalid_template"
+      }
+    },
+    {
+      "template": "{otp}{user}",
+      "error": {
+        "detail": "unknown placeholder {user}",
+        "kind": "invalid_template"
+      }
+    },
+    {
+      "template": "{OTP}",
+      "error": {
+        "detail": "unknown placeholder {OTP}",
+        "kind": "invalid_template"
+      }
+    },
+    {
+      "template": "{ otp }",
+      "error": {
+        "detail": "unknown placeholder { otp }",
+        "kind": "invalid_template"
+      }
+    },
+    {
+      "template": "{}{otp}",
+      "error": {
+        "detail": "unknown placeholder {}",
+        "kind": "invalid_template"
+      }
+    },
+    {
+      "template": "{x}{otp}",
+      "error": {
+        "detail": "unknown placeholder {x}",
+        "kind": "invalid_template"
+      }
+    },
+    {
+      "template": "{otp",
+      "error": {
+        "detail": "it must contain {otp}",
+        "kind": "invalid_template"
+      }
+    },
+    {
+      "template": "otp}",
+      "error": {
+        "detail": "it must contain {otp}",
+        "kind": "invalid_template"
+      }
+    },
+    {
+      "template": "{Otp}",
+      "error": {
+        "detail": "unknown placeholder {Otp}",
+        "kind": "invalid_template"
+      }
+    },
+    {
+      "template": "{password}{otp}{pass}",
+      "error": {
+        "detail": "unknown placeholder {pass}",
+        "kind": "invalid_template"
+      }
+    }
+  ],
+  "compose": [
+    {
+      "name": "preset {password}{otp}, combined, openvpn",
+      "password": "s3cret",
+      "otp": "123456",
+      "delivery": "combined",
+      "template": "{password}{otp}",
+      "type": "openvpn",
+      "secret": "s3cret123456",
+      "separate_otp": null
+    },
+    {
+      "name": "preset {password}{otp}, separate, openvpn: the template is not used",
+      "password": "pw",
+      "otp": "123456",
+      "delivery": "separate",
+      "template": "{password}{otp}",
+      "type": "openvpn",
+      "secret": "SCRV1:cHc=:MTIzNDU2",
+      "separate_otp": null
+    },
+    {
+      "name": "preset {password}{otp}, combined, forti",
+      "password": "s3cret",
+      "otp": "123456",
+      "delivery": "combined",
+      "template": "{password}{otp}",
+      "type": "forti",
+      "secret": "s3cret123456",
+      "separate_otp": null
+    },
+    {
+      "name": "preset {password}{otp}, separate, forti: the template is not used",
+      "password": "pw",
+      "otp": "123456",
+      "delivery": "separate",
+      "template": "{password}{otp}",
+      "type": "forti",
+      "secret": "pw",
+      "separate_otp": "123456"
+    },
+    {
+      "name": "preset {otp}{password}, combined, openvpn",
+      "password": "s3cret",
+      "otp": "123456",
+      "delivery": "combined",
+      "template": "{otp}{password}",
+      "type": "openvpn",
+      "secret": "123456s3cret",
+      "separate_otp": null
+    },
+    {
+      "name": "preset {otp}{password}, separate, openvpn: the template is not used",
+      "password": "pw",
+      "otp": "123456",
+      "delivery": "separate",
+      "template": "{otp}{password}",
+      "type": "openvpn",
+      "secret": "SCRV1:cHc=:MTIzNDU2",
+      "separate_otp": null
+    },
+    {
+      "name": "preset {otp}{password}, combined, forti",
+      "password": "s3cret",
+      "otp": "123456",
+      "delivery": "combined",
+      "template": "{otp}{password}",
+      "type": "forti",
+      "secret": "123456s3cret",
+      "separate_otp": null
+    },
+    {
+      "name": "preset {otp}{password}, separate, forti: the template is not used",
+      "password": "pw",
+      "otp": "123456",
+      "delivery": "separate",
+      "template": "{otp}{password}",
+      "type": "forti",
+      "secret": "pw",
+      "separate_otp": "123456"
+    },
+    {
+      "name": "preset {password}:{otp}, combined, openvpn",
+      "password": "s3cret",
+      "otp": "123456",
+      "delivery": "combined",
+      "template": "{password}:{otp}",
+      "type": "openvpn",
+      "secret": "s3cret:123456",
+      "separate_otp": null
+    },
+    {
+      "name": "preset {password}:{otp}, separate, openvpn: the template is not used",
+      "password": "pw",
+      "otp": "123456",
+      "delivery": "separate",
+      "template": "{password}:{otp}",
+      "type": "openvpn",
+      "secret": "SCRV1:cHc=:MTIzNDU2",
+      "separate_otp": null
+    },
+    {
+      "name": "preset {password}:{otp}, combined, forti",
+      "password": "s3cret",
+      "otp": "123456",
+      "delivery": "combined",
+      "template": "{password}:{otp}",
+      "type": "forti",
+      "secret": "s3cret:123456",
+      "separate_otp": null
+    },
+    {
+      "name": "preset {password}:{otp}, separate, forti: the template is not used",
+      "password": "pw",
+      "otp": "123456",
+      "delivery": "separate",
+      "template": "{password}:{otp}",
+      "type": "forti",
+      "secret": "pw",
+      "separate_otp": "123456"
+    },
+    {
+      "name": "preset {password},{otp}, combined, openvpn",
+      "password": "s3cret",
+      "otp": "123456",
+      "delivery": "combined",
+      "template": "{password},{otp}",
+      "type": "openvpn",
+      "secret": "s3cret,123456",
+      "separate_otp": null
+    },
+    {
+      "name": "preset {password},{otp}, separate, openvpn: the template is not used",
+      "password": "pw",
+      "otp": "123456",
+      "delivery": "separate",
+      "template": "{password},{otp}",
+      "type": "openvpn",
+      "secret": "SCRV1:cHc=:MTIzNDU2",
+      "separate_otp": null
+    },
+    {
+      "name": "preset {password},{otp}, combined, forti",
+      "password": "s3cret",
+      "otp": "123456",
+      "delivery": "combined",
+      "template": "{password},{otp}",
+      "type": "forti",
+      "secret": "s3cret,123456",
+      "separate_otp": null
+    },
+    {
+      "name": "preset {password},{otp}, separate, forti: the template is not used",
+      "password": "pw",
+      "otp": "123456",
+      "delivery": "separate",
+      "template": "{password},{otp}",
+      "type": "forti",
+      "secret": "pw",
+      "separate_otp": "123456"
+    },
+    {
+      "name": "custom template {password}-{otp}!",
+      "password": "pw",
+      "otp": "123456",
+      "delivery": "combined",
+      "template": "{password}-{otp}!",
+      "type": "openvpn",
+      "secret": "pw-123456!",
+      "separate_otp": null
+    },
+    {
+      "name": "custom template pin{otp}",
+      "password": "pw",
+      "otp": "123456",
+      "delivery": "combined",
+      "template": "pin{otp}",
+      "type": "openvpn",
+      "secret": "pin123456",
+      "separate_otp": null
+    },
+    {
+      "name": "custom template {otp}{otp}",
+      "password": "pw",
+      "otp": "123456",
+      "delivery": "combined",
+      "template": "{otp}{otp}",
+      "type": "openvpn",
+      "secret": "123456123456",
+      "separate_otp": null
+    },
+    {
+      "name": "custom template {password}{password}{otp}",
+      "password": "pw",
+      "otp": "123456",
+      "delivery": "combined",
+      "template": "{password}{password}{otp}",
+      "type": "openvpn",
+      "secret": "pwpw123456",
+      "separate_otp": null
+    },
+    {
+      "name": "custom template {{otp}}",
+      "password": "pw",
+      "otp": "123456",
+      "delivery": "combined",
+      "template": "{{otp}}",
+      "type": "openvpn",
+      "secret": "{123456}",
+      "separate_otp": null
+    },
+    {
+      "name": "custom template {otp}}",
+      "password": "pw",
+      "otp": "123456",
+      "delivery": "combined",
+      "template": "{otp}}",
+      "type": "openvpn",
+      "secret": "123456}",
+      "separate_otp": null
+    },
+    {
+      "name": "custom template { {otp}",
+      "password": "pw",
+      "otp": "123456",
+      "delivery": "combined",
+      "template": "{ {otp}",
+      "type": "openvpn",
+      "secret": "{ 123456",
+      "separate_otp": null
+    },
+    {
+      "name": "custom template a{b{otp}",
+      "password": "pw",
+      "otp": "123456",
+      "delivery": "combined",
+      "template": "a{b{otp}",
+      "type": "openvpn",
+      "secret": "a{b123456",
+      "separate_otp": null
+    },
+    {
+      "name": "custom template 🔐{password}·{otp}✓",
+      "password": "pw",
+      "otp": "123456",
+      "delivery": "combined",
+      "template": "🔐{password}·{otp}✓",
+      "type": "openvpn",
+      "secret": "🔐pw·123456✓",
+      "separate_otp": null
+    },
+    {
+      "name": "custom template { {password}} {otp}",
+      "password": "pw",
+      "otp": "123456",
+      "delivery": "combined",
+      "template": "{ {password}} {otp}",
+      "type": "openvpn",
+      "secret": "{ pw} 123456",
+      "separate_otp": null
+    },
+    {
+      "name": "values are not scanned for placeholders",
+      "password": "a{otp}b",
+      "otp": "99",
+      "delivery": "combined",
+      "template": "{password}{otp}",
+      "type": "openvpn",
+      "secret": "a{otp}b99",
+      "separate_otp": null
+    },
+    {
+      "name": "placeholders in the password are inserted literally",
+      "password": "{otp}{password}",
+      "otp": "9",
+      "delivery": "combined",
+      "template": "{password}{otp}",
+      "type": "openvpn",
+      "secret": "{otp}{password}9",
+      "separate_otp": null
+    },
+    {
+      "name": "a placeholder in the code is inserted literally",
+      "password": "pw",
+      "otp": "{password}",
+      "delivery": "combined",
+      "template": "{otp}-{password}",
+      "type": "openvpn",
+      "secret": "{password}-pw",
+      "separate_otp": null
+    },
+    {
+      "name": "Turkish password",
+      "password": "Şifre-ğüıöçİ",
+      "otp": "123456",
+      "delivery": "combined",
+      "template": "{password}:{otp}",
+      "type": "openvpn",
+      "secret": "Şifre-ğüıöçİ:123456",
+      "separate_otp": null
+    },
+    {
+      "name": "empty password",
+      "password": "",
+      "otp": "123456",
+      "delivery": "combined",
+      "template": "{password}{otp}",
+      "type": "openvpn",
+      "secret": "123456",
+      "separate_otp": null
+    },
+    {
+      "name": "combined without a code: the plain password",
+      "password": "pass",
+      "otp": null,
+      "delivery": "combined",
+      "template": "{password}:{otp}",
+      "type": "openvpn",
+      "secret": "pass",
+      "separate_otp": null
+    },
+    {
+      "name": "combined with an empty code: the plain password",
+      "password": "pass",
+      "otp": "",
+      "delivery": "combined",
+      "template": "x{otp}y{password}",
+      "type": "openvpn",
+      "secret": "pass",
+      "separate_otp": null
+    },
+    {
+      "name": "static challenge (SCRV1)",
+      "password": "pass",
+      "otp": "123456",
+      "delivery": "separate",
+      "template": "{password}{otp}",
+      "type": "openvpn",
+      "secret": "SCRV1:cGFzcw==:MTIzNDU2",
+      "separate_otp": null
+    },
+    {
+      "name": "SCRV1 with an empty password",
+      "password": "",
+      "otp": "1",
+      "delivery": "separate",
+      "template": "{password}{otp}",
+      "type": "openvpn",
+      "secret": "SCRV1::MQ==",
+      "separate_otp": null
+    },
+    {
+      "name": "SCRV1 with a Turkish password",
+      "password": "Şifre-ğüıöçİ",
+      "otp": "123456",
+      "delivery": "separate",
+      "template": "{password}{otp}",
+      "type": "openvpn",
+      "secret": "SCRV1:xZ5pZnJlLcSfw7zEscO2w6fEsA==:MTIzNDU2",
+      "separate_otp": null
+    },
+    {
+      "name": "SCRV1 with colons in the password",
+      "password": "a:b:c",
+      "otp": "000000",
+      "delivery": "separate",
+      "template": "{password}{otp}",
+      "type": "openvpn",
+      "secret": "SCRV1:YTpiOmM=:MDAwMDAw",
+      "separate_otp": null
+    },
+    {
+      "name": "SCRV1 with emoji",
+      "password": "şifre🔥",
+      "otp": "12345678",
+      "delivery": "separate",
+      "template": "{password}{otp}",
+      "type": "openvpn",
+      "secret": "SCRV1:xZ9pZnJl8J+UpQ==:MTIzNDU2Nzg=",
+      "separate_otp": null
+    },
+    {
+      "name": "separate without a code (OpenVPN): the plain password",
+      "password": "pass",
+      "otp": null,
+      "delivery": "separate",
+      "template": "{password}{otp}",
+      "type": "openvpn",
+      "secret": "pass",
+      "separate_otp": null
+    },
+    {
+      "name": "separate with an empty code (OpenVPN): the plain password",
+      "password": "pass",
+      "otp": "",
+      "delivery": "separate",
+      "template": "{password}{otp}",
+      "type": "openvpn",
+      "secret": "pass",
+      "separate_otp": null
+    },
+    {
+      "name": "FortiGate separate: password and code apart",
+      "password": "pass",
+      "otp": "654321",
+      "delivery": "separate",
+      "template": "{password}:{otp}",
+      "type": "forti",
+      "secret": "pass",
+      "separate_otp": "654321"
+    },
+    {
+      "name": "FortiGate separate without a code",
+      "password": "pass",
+      "otp": null,
+      "delivery": "separate",
+      "template": "{password}{otp}",
+      "type": "forti",
+      "secret": "pass",
+      "separate_otp": null
+    },
+    {
+      "name": "FortiGate separate with an empty code: no code is sent",
+      "password": "pw",
+      "otp": "",
+      "delivery": "separate",
+      "template": "",
+      "type": "forti",
+      "secret": "pw",
+      "separate_otp": null
+    },
+    {
+      "name": "invalid template '{password}' falls back to {password}{otp}",
+      "password": "pw",
+      "otp": "12",
+      "delivery": "combined",
+      "template": "{password}",
+      "type": "openvpn",
+      "secret": "pw12",
+      "separate_otp": null
+    },
+    {
+      "name": "invalid template '' falls back to {password}{otp}",
+      "password": "pw",
+      "otp": "12",
+      "delivery": "combined",
+      "template": "",
+      "type": "openvpn",
+      "secret": "pw12",
+      "separate_otp": null
+    },
+    {
+      "name": "invalid template '{}{otp}' falls back to {password}{otp}",
+      "password": "pw",
+      "otp": "12",
+      "delivery": "combined",
+      "template": "{}{otp}",
+      "type": "openvpn",
+      "secret": "pw12",
+      "separate_otp": null
+    },
+    {
+      "name": "invalid template '{x}{otp}' falls back to {password}{otp}",
+      "password": "pw",
+      "otp": "12",
+      "delivery": "combined",
+      "template": "{x}{otp}",
+      "type": "openvpn",
+      "secret": "pw12",
+      "separate_otp": null
+    },
+    {
+      "name": "invalid template '{otp' falls back to {password}{otp}",
+      "password": "pw",
+      "otp": "12",
+      "delivery": "combined",
+      "template": "{otp",
+      "type": "openvpn",
+      "secret": "pw12",
+      "separate_otp": null
+    },
+    {
+      "name": "invalid template 'otp}' falls back to {password}{otp}",
+      "password": "pw",
+      "otp": "12",
+      "delivery": "combined",
+      "template": "otp}",
+      "type": "openvpn",
+      "secret": "pw12",
+      "separate_otp": null
+    },
+    {
+      "name": "invalid template '{Otp}' falls back to {password}{otp}",
+      "password": "pw",
+      "otp": "12",
+      "delivery": "combined",
+      "template": "{Otp}",
+      "type": "openvpn",
+      "secret": "pw12",
+      "separate_otp": null
+    },
+    {
+      "name": "invalid template '{password}{otp}{pass}' falls back to {password}{otp}",
+      "password": "pw",
+      "otp": "12",
+      "delivery": "combined",
+      "template": "{password}{otp}{pass}",
+      "type": "openvpn",
+      "secret": "pw12",
+      "separate_otp": null
+    }
+  ]
+}

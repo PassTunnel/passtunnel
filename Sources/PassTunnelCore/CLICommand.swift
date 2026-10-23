@@ -1,4 +1,5 @@
 import Foundation
+import PassTunnelKit
 
 /// Invalid command line; the CLI prints the message plus usage and exits with 2.
 public struct CLIUsageError: Error, Equatable, LocalizedError {

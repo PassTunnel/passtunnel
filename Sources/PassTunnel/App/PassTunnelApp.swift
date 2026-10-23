@@ -1,4 +1,5 @@
 import PassTunnelCore
+import PassTunnelKit
 import SwiftUI
 
 /// Entry point is `main.swift` (CLI check, single instance), which calls `PassTunnelApp.main()`.

@@ -1,5 +1,6 @@
 import XCTest
 @testable import PassTunnelCore
+@testable import PassTunnelKit
 import PassTunnelShared
 
 /// The agent-facing CLI options, error codes and result objects (`Automation.swift`).

@@ -31,7 +31,9 @@ FortiGate config, share files, slugs, profile fields and merging, and the secret
 - **`PassTunnelKit`** is a new library target and product in this repository's `Package.swift`
   holding exactly that code, buildable for macOS 13 and iOS 17. `PassTunnelCore` depends on it, so
   the Mac app behaves exactly as before; the move is a pure refactor with no behavior change. The
-  iPhone app depends on the product `PassTunnelKit` of this repository, pinned to a commit.
+  OpenVPN sanitizer and the FortiGate config are in `PassTunnelVPNConfig`, a second target of the
+  same product, because the privileged helper uses them and must not link the rest. The iPhone app
+  depends on the product `PassTunnelKit` of this repository, pinned to a commit.
 - **Android** has its own Kotlin port of the same code (`core` module). There is one behavior, so
   the two implementations must not drift:
 - **`fixtures/`** in this repository is a corpus of golden cases in JSON: RFC 6238 vectors and

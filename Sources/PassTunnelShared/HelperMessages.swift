@@ -1,4 +1,5 @@
 import Foundation
+import PassTunnelVPNConfig
 
 /// Start an OpenVPN profile. `secret` is the password with the OTP already formatted in.
 /// The management interface is the unix socket `PT.mgmtSocketPath(uid:profileID:)` in the helper's
@@ -95,6 +96,13 @@ public struct FortiStart: Codable, Equatable, CustomStringConvertible, CustomDeb
                                 "username": username, "password": "<redacted>",
                                 "otp": otp == nil ? "nil" : "<redacted>", "trustedCert": trustedCert,
                                 "setDNS": setDNS, "setRoutes": setRoutes, "logPath": logPath])
+    }
+}
+
+extension FortiConfig {
+    public init(_ start: FortiStart) {
+        self.init(host: start.host, port: start.port, username: start.username, password: start.password,
+                  otp: start.otp, trustedCert: start.trustedCert, setDNS: start.setDNS, setRoutes: start.setRoutes)
     }
 }
 

@@ -1,6 +1,7 @@
 import CoreServices
 import XCTest
 @testable import PassTunnelCore
+@testable import PassTunnelKit
 
 /// Changes made by another process (the CLI) while the app runs: read-modify-write saves, the
 /// support-directory watcher, and the helper hand-off arguments.

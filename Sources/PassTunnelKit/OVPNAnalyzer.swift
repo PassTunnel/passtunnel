@@ -1,5 +1,5 @@
 import Foundation
-import PassTunnelShared
+import PassTunnelVPNConfig
 
 /// Reads an .ovpn file and guesses how the profile authenticates.
 public enum OVPNAnalyzer {

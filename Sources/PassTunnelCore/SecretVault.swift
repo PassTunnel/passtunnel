@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import PassTunnelKit
 #if canImport(AppKit)
 import AppKit
 #endif

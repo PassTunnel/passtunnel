@@ -1,5 +1,7 @@
 import Foundation
+import PassTunnelKit
 import PassTunnelShared
+import PassTunnelVPNConfig
 
 /// Builds the automation result objects (`Automation.swift`) and runs the waiting connect and
 /// disconnect behind `connect --wait`, `disconnect --wait` and the MCP tools. One instance per CLI

@@ -1,4 +1,5 @@
 import PassTunnelCore
+import PassTunnelKit
 import SwiftUI
 
 /// Asks only for what the profile needs before connecting; the code is prefilled when a TOTP secret exists.

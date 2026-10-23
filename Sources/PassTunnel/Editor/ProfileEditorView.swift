@@ -1,6 +1,7 @@
 import AppKit
 import PassTunnelCore
-import PassTunnelShared
+import PassTunnelKit
+import PassTunnelVPNConfig
 import SwiftUI
 import UniformTypeIdentifiers
 

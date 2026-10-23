@@ -1,5 +1,6 @@
 import AppKit
 import PassTunnelCore
+import PassTunnelKit
 import UniformTypeIdentifiers
 
 /// Import entry points used by the main window, the "+" menu, onboarding and drag & drop.

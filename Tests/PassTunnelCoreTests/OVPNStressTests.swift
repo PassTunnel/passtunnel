@@ -1,7 +1,8 @@
 import Foundation
 import XCTest
 @testable import PassTunnelCore
-@testable import PassTunnelShared
+@testable import PassTunnelKit
+@testable import PassTunnelVPNConfig
 
 /// Hostile OpenVPN configs: the sanitizer is the last gate before the helper runs openvpn as root.
 final class OVPNSanitizerFuzzTests: XCTestCase {

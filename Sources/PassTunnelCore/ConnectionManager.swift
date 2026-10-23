@@ -1,6 +1,7 @@
 import Combine
 import CryptoKit
 import Foundation
+import PassTunnelKit
 import PassTunnelShared
 #if canImport(AppKit)
 import AppKit

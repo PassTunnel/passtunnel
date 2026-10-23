@@ -29,11 +29,11 @@ public enum SecretEnvelope {
     /// Text written by `seal` (any version, so newer ones are recognized and refused, not misread).
     public static func isEnvelope(_ text: String) -> Bool { text.hasPrefix(markerFamily) }
 
-    static func encodePlain(_ value: String) -> String {
+    package static func encodePlain(_ value: String) -> String {
         value.hasPrefix(markerFamily) || value.hasPrefix("ptpl") ? plainEscape + value : value
     }
 
-    static func decodePlain(_ text: String) -> String {
+    package static func decodePlain(_ text: String) -> String {
         text.hasPrefix(plainEscape) ? String(text.dropFirst(plainEscape.count)) : text
     }
 
@@ -52,12 +52,12 @@ public enum SecretEnvelope {
     }
 
     /// The parts of a stored envelope; nil when it is not one this version can read.
-    struct Parsed {
-        var ephemeral: P256.KeyAgreement.PublicKey
+    package struct Parsed {
+        package var ephemeral: P256.KeyAgreement.PublicKey
         var box: AES.GCM.SealedBox
     }
 
-    static func parse(_ text: String) -> Parsed? {
+    package static func parse(_ text: String) -> Parsed? {
         guard text.hasPrefix(marker), let blob = Data(base64Encoded: String(text.dropFirst(marker.count))),
               blob.count >= 1 + publicKeyLength + nonceLength + tagLength, blob.first == version else { return nil }
         let bytes = [UInt8](blob)
@@ -73,7 +73,7 @@ public enum SecretEnvelope {
 
     /// Decrypts with the shared secret the protection key computed for `parsed.ephemeral`.
     /// Throws `PTError.protectedSecretUnreadable` when the data was changed or belongs elsewhere.
-    static func open(_ parsed: Parsed, shared: SharedSecret, recipient: P256.KeyAgreement.PublicKey,
+    package static func open(_ parsed: Parsed, shared: SharedSecret, recipient: P256.KeyAgreement.PublicKey,
                      account: String, kind: SecretKind) throws -> String {
         let key = symmetricKey(shared, ephemeral: parsed.ephemeral, recipient: recipient)
         guard let data = try? AES.GCM.open(parsed.box, using: key, authenticating: Data(account.utf8)),
@@ -93,19 +93,25 @@ public enum SecretEnvelope {
 
 /// The Keychain record of a profile's protection key (account "<profileID>/sekey"): the private key
 /// as the Secure Enclave's wrapped blob (`dataRepresentation`, useless on another Mac) and the public key.
-struct ProtectionKeyRecord: Codable, Equatable {
-    var v = 1
-    var key: Data          // SecureEnclave.P256.KeyAgreement.PrivateKey.dataRepresentation
-    var pub: Data          // X9.63 public key
+package struct ProtectionKeyRecord: Codable, Equatable {
+    package var v = 1
+    package var key: Data  // SecureEnclave.P256.KeyAgreement.PrivateKey.dataRepresentation
+    package var pub: Data  // X9.63 public key
 
-    var publicKey: P256.KeyAgreement.PublicKey? { try? P256.KeyAgreement.PublicKey(x963Representation: pub) }
+    package var publicKey: P256.KeyAgreement.PublicKey? { try? P256.KeyAgreement.PublicKey(x963Representation: pub) }
 
-    func encoded() throws -> String {
+    package func encoded() throws -> String {
         String(decoding: try JSONEncoder().encode(self), as: UTF8.self)
     }
 
-    static func decode(_ text: String) -> ProtectionKeyRecord? {
+    package static func decode(_ text: String) -> ProtectionKeyRecord? {
         guard let r = try? JSONDecoder().decode(ProtectionKeyRecord.self, from: Data(text.utf8)), r.v == 1 else { return nil }
         return r
+    }
+}
+
+extension ProtectionKeyRecord {
+    package init(key: Data, pub: Data) {
+        self.init(v: 1, key: key, pub: pub)
     }
 }

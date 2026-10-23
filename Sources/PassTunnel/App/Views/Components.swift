@@ -1,4 +1,5 @@
 import PassTunnelCore
+import PassTunnelKit
 import SwiftUI
 
 /// Visual state of a profile, derived from the connection state plus errors and health.

@@ -4,7 +4,8 @@ import PackageDescription
 let package = Package(
     name: "PassTunnel",
     defaultLocalization: "en",
-    platforms: [.macOS(.v13)],
+    // iOS only for PassTunnelKit (and PassTunnelVPNConfig, which it uses); everything else is macOS.
+    platforms: [.macOS(.v13), .iOS(.v17)],
     products: [
         .executable(name: "PassTunnel", targets: ["PassTunnel"]),
         .executable(name: "PassTunnelHelper", targets: ["PassTunnelHelper"]),
@@ -12,23 +13,35 @@ let package = Package(
         // sources that run in the app. Not part of any shipped binary.
         .library(name: "PassTunnelShared", targets: ["PassTunnelShared"]),
         .library(name: "PassTunnelCore", targets: ["PassTunnelCore"]),
+        // The portable logic (macOS 13, iOS 17), for the iPhone app and the fuzzers.
+        .library(name: "PassTunnelKit", targets: ["PassTunnelKit", "PassTunnelVPNConfig"]),
     ],
     dependencies: [
         // App updates. The `passtunnel` CLI never starts the updater.
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0"),
     ],
     targets: [
-        // Shared by the app and the privileged helper: XPC protocol, request types, config sanitizer.
-        .target(name: "PassTunnelShared"),
-        // Everything that is not UI: profiles, keychain, TOTP, connections, preferences.
-        .target(name: "PassTunnelCore", dependencies: ["PassTunnelShared"]),
+        // The OpenVPN config sanitizer and the openfortivpn config renderer: the only portable code the
+        // privileged helper runs, kept apart so the helper links nothing else from PassTunnelKit.
+        .target(name: "PassTunnelVPNConfig"),
+        // Portable logic, Foundation, CryptoKit and Security only: model, errors, TOTP, otpauth links,
+        // code composition, OpenVPN analyzer and inliner, share files, slugs, profile fields and
+        // merging, secret envelope.
+        .target(name: "PassTunnelKit", dependencies: ["PassTunnelVPNConfig"]),
+        // Shared by the app and the privileged helper: XPC protocol, request types, tool launching.
+        .target(name: "PassTunnelShared", dependencies: ["PassTunnelVPNConfig"]),
+        // Everything else that is not UI: profile store, keychain, connections, preferences, CLI, MCP.
+        .target(name: "PassTunnelCore", dependencies: ["PassTunnelKit", "PassTunnelVPNConfig", "PassTunnelShared"]),
         // Root helper registered with SMAppService; starts/stops the bundled VPN tools.
         .executableTarget(name: "PassTunnelHelper", dependencies: ["PassTunnelShared"]),
         // The app (SwiftUI) and the `passtunnel` CLI are the same binary.
         .executableTarget(name: "PassTunnel",
-                          dependencies: ["PassTunnelCore", "PassTunnelShared",
+                          dependencies: ["PassTunnelCore", "PassTunnelKit", "PassTunnelVPNConfig", "PassTunnelShared",
                                          .product(name: "Sparkle", package: "Sparkle")],
                           resources: [.process("Resources")]),
-        .testTarget(name: "PassTunnelCoreTests", dependencies: ["PassTunnelCore", "PassTunnelShared"]),
+        .testTarget(name: "PassTunnelCoreTests",
+                    dependencies: ["PassTunnelCore", "PassTunnelKit", "PassTunnelVPNConfig", "PassTunnelShared"]),
+        // The golden cases in fixtures/ (also read by the Android port), against PassTunnelKit alone.
+        .testTarget(name: "PassTunnelKitTests", dependencies: ["PassTunnelKit", "PassTunnelVPNConfig"]),
     ]
 )

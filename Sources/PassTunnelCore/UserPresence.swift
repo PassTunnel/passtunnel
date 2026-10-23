@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import LocalAuthentication
+import PassTunnelKit
 import Security
 
 /// A profile's protection key as created: the private key's opaque data (for the Secure Enclave, its

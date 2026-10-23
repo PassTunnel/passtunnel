@@ -1,0 +1,1023 @@
+{
+  "about": ".passtunnel share files: how a file decodes (the profile with every field, and its files), what fails, and what export writes.",
+  "decode": [
+    {
+      "name": "minimal: every other field takes its default",
+      "file": {
+        "passtunnel_profile": 1,
+        "profile": {
+          "name": "Acme",
+          "type": "openvpn"
+        }
+      },
+      "files": {},
+      "profile": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "health_host": "",
+        "host": "",
+        "icon": "",
+        "id": "",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "Acme",
+        "order": 0,
+        "otp_delivery": "combined",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "openvpn",
+        "username": ""
+      }
+    },
+    {
+      "name": "an OpenVPN profile with its config",
+      "file": {
+        "passtunnel_profile": 1,
+        "profile": {
+          "badge": "AC",
+          "badge_style": "both",
+          "config_source_name": "acme.ovpn",
+          "health_host": "10.0.0.5",
+          "icon": "globe",
+          "id": "acme",
+          "name": "Acme",
+          "otp_delivery": "combined",
+          "otp_mode": "totp",
+          "otp_template": "{password}:{otp}",
+          "password_mode": "keychain",
+          "session_limit_min": 480,
+          "auto_reconnect": true,
+          "totp": {
+            "algorithm": "sha256",
+            "digits": 8,
+            "period": 60
+          },
+          "type": "openvpn"
+        },
+        "files": {
+          "config.ovpn": "Y2xpZW50CnJlbW90ZSB2cG4uZXhhbXBsZS5jb20gMTE5NAo8Y2E+CngKPC9jYT4K"
+        }
+      },
+      "files": {
+        "config.ovpn": "client\nremote vpn.example.com 1194\n<ca>\nx\n</ca>\n"
+      },
+      "profile": {
+        "auto_reconnect": true,
+        "badge": "AC",
+        "badge_style": "both",
+        "config_source_name": "acme.ovpn",
+        "health_host": "10.0.0.5",
+        "host": "",
+        "icon": "globe",
+        "id": "acme",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "Acme",
+        "order": 0,
+        "otp_delivery": "combined",
+        "otp_mode": "totp",
+        "otp_template": "{password}:{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 480,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha256",
+          "digits": 8,
+          "period": 60
+        },
+        "trusted_cert": "",
+        "type": "openvpn",
+        "username": ""
+      }
+    },
+    {
+      "name": "a FortiGate profile: the code is sent apart by default",
+      "file": {
+        "passtunnel_profile": 1,
+        "profile": {
+          "name": "Acme Forti",
+          "type": "forti",
+          "host": "vpn.example.com",
+          "port": 10443,
+          "trusted_cert": "ab12",
+          "set_dns": true,
+          "set_routes": false
+        }
+      },
+      "files": {},
+      "profile": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "health_host": "",
+        "host": "vpn.example.com",
+        "icon": "",
+        "id": "",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "Acme Forti",
+        "order": 0,
+        "otp_delivery": "separate",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 10443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": true,
+        "set_routes": false,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "ab12",
+        "type": "forti",
+        "username": ""
+      }
+    },
+    {
+      "name": "unknown values and keys are tolerated",
+      "file": {
+        "passtunnel_profile": 1,
+        "profile": {
+          "id": "x",
+          "name": "X",
+          "type": "forti",
+          "badge_style": "sparkle",
+          "otp_mode": "push",
+          "port": "oops",
+          "future_key": [
+            1,
+            2
+          ],
+          "totp": {
+            "digits": 8
+          },
+          "require_auth": "retina"
+        }
+      },
+      "files": {},
+      "profile": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "health_host": "",
+        "host": "",
+        "icon": "",
+        "id": "x",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "X",
+        "order": 0,
+        "otp_delivery": "separate",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 8,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "forti",
+        "username": ""
+      }
+    },
+    {
+      "name": "an unknown type is OpenVPN",
+      "file": {
+        "passtunnel_profile": 1,
+        "profile": {
+          "name": "A",
+          "type": "wireguard"
+        }
+      },
+      "files": {},
+      "profile": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "health_host": "",
+        "host": "",
+        "icon": "",
+        "id": "",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "A",
+        "order": 0,
+        "otp_delivery": "combined",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "openvpn",
+        "username": ""
+      }
+    },
+    {
+      "name": "legacy otp_format scrv1",
+      "file": {
+        "passtunnel_profile": 1,
+        "profile": {
+          "name": "A",
+          "type": "openvpn",
+          "otp_format": "scrv1"
+        }
+      },
+      "files": {},
+      "profile": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "health_host": "",
+        "host": "",
+        "icon": "",
+        "id": "",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "A",
+        "order": 0,
+        "otp_delivery": "separate",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "openvpn",
+        "username": ""
+      }
+    },
+    {
+      "name": "legacy otp_format append",
+      "file": {
+        "passtunnel_profile": 1,
+        "profile": {
+          "name": "A",
+          "type": "openvpn",
+          "otp_format": "append"
+        }
+      },
+      "files": {},
+      "profile": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "health_host": "",
+        "host": "",
+        "icon": "",
+        "id": "",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "A",
+        "order": 0,
+        "otp_delivery": "combined",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "openvpn",
+        "username": ""
+      }
+    },
+    {
+      "name": "otp_delivery wins over otp_format",
+      "file": {
+        "passtunnel_profile": 1,
+        "profile": {
+          "name": "A",
+          "otp_format": "scrv1",
+          "otp_delivery": "combined"
+        }
+      },
+      "files": {},
+      "profile": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "health_host": "",
+        "host": "",
+        "icon": "",
+        "id": "",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "A",
+        "order": 0,
+        "otp_delivery": "combined",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "openvpn",
+        "username": ""
+      }
+    },
+    {
+      "name": "an empty template is the default one",
+      "file": {
+        "passtunnel_profile": 1,
+        "profile": {
+          "name": "A",
+          "otp_template": ""
+        }
+      },
+      "files": {},
+      "profile": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "health_host": "",
+        "host": "",
+        "icon": "",
+        "id": "",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "A",
+        "order": 0,
+        "otp_delivery": "combined",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "openvpn",
+        "username": ""
+      }
+    },
+    {
+      "name": "null values take the default",
+      "file": {
+        "passtunnel_profile": 1,
+        "profile": {
+          "name": "A",
+          "port": null,
+          "set_routes": null,
+          "totp": null
+        }
+      },
+      "files": {},
+      "profile": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "health_host": "",
+        "host": "",
+        "icon": "",
+        "id": "",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "A",
+        "order": 0,
+        "otp_delivery": "combined",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "openvpn",
+        "username": ""
+      }
+    },
+    {
+      "name": "dates: ISO 8601",
+      "file": {
+        "passtunnel_profile": 1,
+        "profile": {
+          "name": "A",
+          "config_source_name": "acme.ovpn",
+          "config_imported_at": "2026-10-03T08:00:00Z"
+        }
+      },
+      "files": {},
+      "profile": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "config_imported_at": "2026-10-03T08:00:00Z",
+        "config_source_name": "acme.ovpn",
+        "health_host": "",
+        "host": "",
+        "icon": "",
+        "id": "",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "A",
+        "order": 0,
+        "otp_delivery": "combined",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "openvpn",
+        "username": ""
+      }
+    },
+    {
+      "name": "dates: seconds since 1970",
+      "file": {
+        "passtunnel_profile": 1,
+        "profile": {
+          "name": "A",
+          "config_imported_at": 1791014400
+        }
+      },
+      "files": {},
+      "profile": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "config_imported_at": "2026-10-03T08:00:00Z",
+        "health_host": "",
+        "host": "",
+        "icon": "",
+        "id": "",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "A",
+        "order": 0,
+        "otp_delivery": "combined",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "openvpn",
+        "username": ""
+      }
+    },
+    {
+      "name": "dates and names that cannot be read are dropped",
+      "file": {
+        "passtunnel_profile": 1,
+        "profile": {
+          "name": "A",
+          "config_source_name": 42,
+          "config_imported_at": "yesterday"
+        }
+      },
+      "files": {},
+      "profile": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "health_host": "",
+        "host": "",
+        "icon": "",
+        "id": "",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "A",
+        "order": 0,
+        "otp_delivery": "combined",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "openvpn",
+        "username": ""
+      }
+    },
+    {
+      "name": "an empty config source name is none",
+      "file": {
+        "passtunnel_profile": 1,
+        "profile": {
+          "name": "A",
+          "config_source_name": ""
+        }
+      },
+      "files": {},
+      "profile": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "health_host": "",
+        "host": "",
+        "icon": "",
+        "id": "",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "A",
+        "order": 0,
+        "otp_delivery": "combined",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "openvpn",
+        "username": ""
+      }
+    },
+    {
+      "name": "per-user fields in the file are decoded (import does not take them)",
+      "file": {
+        "passtunnel_profile": 1,
+        "profile": {
+          "id": "../../escape",
+          "name": "Acme",
+          "username": "mallory",
+          "last_username": "mallory",
+          "pinned": true,
+          "order": 3,
+          "mgmt_port": 7505,
+          "require_auth": "always",
+          "session_limit_min": -10
+        }
+      },
+      "files": {},
+      "profile": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "health_host": "",
+        "host": "",
+        "icon": "",
+        "id": "../../escape",
+        "last_username": "mallory",
+        "mgmt_port": 7505,
+        "name": "Acme",
+        "order": 3,
+        "otp_delivery": "combined",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": true,
+        "port": 443,
+        "require_auth": "always",
+        "session_limit_min": -10,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "openvpn",
+        "username": "mallory"
+      }
+    },
+    {
+      "name": "every file is decoded (import uses only config.ovpn)",
+      "file": {
+        "passtunnel_profile": 1,
+        "profile": {
+          "name": "Evil"
+        },
+        "files": {
+          "config.ovpn": "Y2xpZW50Cg==",
+          "../../escape.txt": "cHduZWQ=",
+          "profile.json": "cHduZWQ="
+        }
+      },
+      "files": {
+        "../../escape.txt": "pwned",
+        "config.ovpn": "client\n",
+        "profile.json": "pwned"
+      },
+      "profile": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "health_host": "",
+        "host": "",
+        "icon": "",
+        "id": "",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "Evil",
+        "order": 0,
+        "otp_delivery": "combined",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "openvpn",
+        "username": ""
+      }
+    },
+    {
+      "name": "files that are not Base64 are dropped",
+      "file": {
+        "passtunnel_profile": 1,
+        "profile": {
+          "name": "A"
+        },
+        "files": {
+          "config.ovpn": "%%%"
+        }
+      },
+      "files": {},
+      "profile": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "health_host": "",
+        "host": "",
+        "icon": "",
+        "id": "",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "A",
+        "order": 0,
+        "otp_delivery": "combined",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "openvpn",
+        "username": ""
+      }
+    },
+    {
+      "name": "a profile that is not an object",
+      "file": {
+        "passtunnel_profile": 1,
+        "profile": 5
+      },
+      "error": {
+        "kind": "unsupported_share_file"
+      }
+    },
+    {
+      "name": "no profile",
+      "file": {
+        "passtunnel_profile": 1
+      },
+      "error": {
+        "kind": "unsupported_share_file"
+      }
+    },
+    {
+      "name": "version 2 (newer)",
+      "file": {
+        "passtunnel_profile": 2,
+        "profile": {
+          "name": "A"
+        }
+      },
+      "error": {
+        "kind": "unsupported_share_file"
+      }
+    },
+    {
+      "name": "version 0",
+      "file": {
+        "passtunnel_profile": 0,
+        "profile": {
+          "name": "A"
+        }
+      },
+      "error": {
+        "kind": "unsupported_share_file"
+      }
+    },
+    {
+      "name": "version as a string",
+      "file": {
+        "passtunnel_profile": "1",
+        "profile": {
+          "name": "A"
+        }
+      },
+      "error": {
+        "kind": "unsupported_share_file"
+      }
+    },
+    {
+      "name": "no version",
+      "file": {
+        "profile": {
+          "name": "A"
+        }
+      },
+      "error": {
+        "kind": "unsupported_share_file"
+      }
+    },
+    {
+      "name": "an empty object",
+      "file": {},
+      "error": {
+        "kind": "unsupported_share_file"
+      }
+    },
+    {
+      "name": "an array",
+      "file": [],
+      "error": {
+        "kind": "unsupported_share_file"
+      }
+    },
+    {
+      "name": "not JSON",
+      "file": "not json",
+      "error": {
+        "kind": "unsupported_share_file"
+      }
+    },
+    {
+      "name": "text",
+      "file": "hello",
+      "error": {
+        "kind": "unsupported_share_file"
+      }
+    }
+  ],
+  "encode": [
+    {
+      "name": "an OpenVPN profile: per-user fields are left out",
+      "profile": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "openvpn",
+        "username": "alice",
+        "last_username": "alice",
+        "pinned": true,
+        "order": 7,
+        "otp_mode": "totp",
+        "totp": {
+          "digits": 8,
+          "period": 60,
+          "algorithm": "sha256"
+        },
+        "otp_template": "{password}:{otp}",
+        "health_host": "10.0.0.5",
+        "badge": "AC",
+        "require_auth": "connect",
+        "config_source_name": "acme.ovpn",
+        "config_imported_at": "2026-10-03T08:00:00Z"
+      },
+      "files": {
+        "config.ovpn": "client\nremote vpn.example.com 1194\n<ca>\nx\n</ca>\n"
+      },
+      "file": {
+        "files": {
+          "config.ovpn": "Y2xpZW50CnJlbW90ZSB2cG4uZXhhbXBsZS5jb20gMTE5NAo8Y2E+CngKPC9jYT4K"
+        },
+        "passtunnel_profile": 1,
+        "profile": {
+          "auto_reconnect": false,
+          "badge": "AC",
+          "badge_style": "letter",
+          "config_source_name": "acme.ovpn",
+          "health_host": "10.0.0.5",
+          "host": "",
+          "icon": "",
+          "id": "acme",
+          "name": "Acme",
+          "otp_delivery": "combined",
+          "otp_mode": "totp",
+          "otp_template": "{password}:{otp}",
+          "password_mode": "keychain",
+          "port": 443,
+          "session_limit_min": 0,
+          "set_dns": false,
+          "set_routes": true,
+          "totp": {
+            "algorithm": "sha256",
+            "digits": 8,
+            "period": 60
+          },
+          "trusted_cert": "",
+          "type": "openvpn"
+        }
+      }
+    },
+    {
+      "name": "a FortiGate profile without files",
+      "profile": {
+        "id": "acme-forti",
+        "name": "Acme Forti",
+        "type": "forti",
+        "host": "vpn.example.com",
+        "port": 10443,
+        "trusted_cert": "ab12",
+        "set_dns": true,
+        "set_routes": false
+      },
+      "files": {},
+      "file": {
+        "files": {},
+        "passtunnel_profile": 1,
+        "profile": {
+          "auto_reconnect": false,
+          "badge": "",
+          "badge_style": "letter",
+          "health_host": "",
+          "host": "vpn.example.com",
+          "icon": "",
+          "id": "acme-forti",
+          "name": "Acme Forti",
+          "otp_delivery": "separate",
+          "otp_mode": "none",
+          "otp_template": "{password}{otp}",
+          "password_mode": "keychain",
+          "port": 10443,
+          "session_limit_min": 0,
+          "set_dns": true,
+          "set_routes": false,
+          "totp": {
+            "algorithm": "sha1",
+            "digits": 6,
+            "period": 30
+          },
+          "trusted_cert": "ab12",
+          "type": "forti"
+        }
+      }
+    },
+    {
+      "name": "legacy mgmt_port is left out",
+      "profile": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "openvpn",
+        "mgmt_port": 27505
+      },
+      "files": {},
+      "file": {
+        "files": {},
+        "passtunnel_profile": 1,
+        "profile": {
+          "auto_reconnect": false,
+          "badge": "",
+          "badge_style": "letter",
+          "health_host": "",
+          "host": "",
+          "icon": "",
+          "id": "acme",
+          "name": "Acme",
+          "otp_delivery": "combined",
+          "otp_mode": "none",
+          "otp_template": "{password}{otp}",
+          "password_mode": "keychain",
+          "port": 443,
+          "session_limit_min": 0,
+          "set_dns": false,
+          "set_routes": true,
+          "totp": {
+            "algorithm": "sha1",
+            "digits": 6,
+            "period": 30
+          },
+          "trusted_cert": "",
+          "type": "openvpn"
+        }
+      }
+    }
+  ]
+}

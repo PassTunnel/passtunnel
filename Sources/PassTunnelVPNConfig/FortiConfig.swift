@@ -37,6 +37,10 @@ public struct FortiConfig: Equatable, CustomStringConvertible, CustomDebugString
     public static let maxPasswordBytes = 255
     public static let maxOTPBytes = 64
 
+    /// The system's CA bundle (root-owned, writable only by root). The bundled OpenSSL's default store is the
+    /// build machine's Homebrew prefix, which its owner (or any admin) can change.
+    public static let systemCAFile = "/etc/ssl/cert.pem"
+
     public init(host: String, port: Int = 443, username: String, password: String, otp: String? = nil,
                 trustedCert: String = "", setDNS: Bool = false, setRoutes: Bool = true) {
         self.host = host
@@ -59,11 +63,6 @@ public struct FortiConfig: Equatable, CustomStringConvertible, CustomDebugString
         Mirror(self, children: ["host": host, "port": port, "username": username, "password": "<redacted>",
                                 "otp": otp == nil ? "nil" : "<redacted>", "trustedCert": trustedCert,
                                 "setDNS": setDNS, "setRoutes": setRoutes])
-    }
-
-    public init(_ start: FortiStart) {
-        self.init(host: start.host, port: start.port, username: start.username, password: start.password,
-                  otp: start.otp, trustedCert: start.trustedCert, setDNS: start.setDNS, setRoutes: start.setRoutes)
     }
 
     public func validate() throws {
@@ -89,7 +88,7 @@ public struct FortiConfig: Equatable, CustomStringConvertible, CustomDebugString
         ]
         if let otp, !otp.isEmpty { lines.append("otp = \(otp)") }
         // Explicit, so openfortivpn never falls back to OpenSSL's default store (a Homebrew prefix).
-        lines.append("ca-file = \(HelperCore.systemCAFile)")
+        lines.append("ca-file = \(Self.systemCAFile)")
         if !trustedCert.isEmpty { lines.append("trusted-cert = \(trustedCert.lowercased())") }
         lines.append("set-routes = \(setRoutes ? 1 : 0)")
         lines.append("set-dns = \(setDNS ? 1 : 0)")

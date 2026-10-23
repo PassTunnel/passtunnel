@@ -1,5 +1,6 @@
 import AppKit
 import PassTunnelCore
+import PassTunnelKit
 import SwiftUI
 
 /// `PASSTUNNEL_RENDER=<dir> PassTunnel` renders the main screens to PNGs offscreen and exits.

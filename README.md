@@ -470,6 +470,9 @@ The helper's runtime folder `/var/run/passtunnel` is root-owned and cleared at r
 swift build                 # debug build of the app, CLI and helper
 swift test                  # unit tests
 scripts/build-app.sh        # full app bundle in build/PassTunnel.app
+
+# The portable library (PassTunnelKit) for iOS
+xcodebuild -scheme PassTunnelKit -destination 'generic/platform=iOS Simulator' build
 ```
 
 Releases (signing, notarization, the Sparkle feed and the Homebrew cask) are described in
@@ -508,6 +511,8 @@ Merging `dev` into `main` releases. The workflow, title rules and checks are in
   `ConnectionManager`. Never let the helper run a client-supplied path or raw config.
 - User-facing strings go through `String(localized:)` with a Turkish translation in
   `Sources/PassTunnel/Resources/Localizable.xcstrings`.
+- A change to behavior the phone apps share (codes, otpauth links, OpenVPN configs, share files,
+  slugs, profile merging) updates the golden cases in [`fixtures/`](fixtures/README.md) too.
 - No third-party Swift dependencies besides Sparkle (updates). Run `swift test` before sending a PR.
 
 ## License

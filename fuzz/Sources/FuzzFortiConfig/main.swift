@@ -1,6 +1,6 @@
 import Foundation
 import FuzzSupport
-import PassTunnelShared
+import PassTunnelVPNConfig
 
 // Fuzzes the FortiGate (openfortivpn) config rendering. The helper writes this file itself from
 // typed fields; openfortivpn reads it as `key = value` lines with no quoting, so the only real

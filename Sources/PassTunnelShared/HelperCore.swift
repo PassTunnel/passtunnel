@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import PassTunnelVPNConfig
 
 /// Validation and file preparation done by the privileged helper before it launches a tool.
 /// Everything here works without root so it can be unit-tested with injected paths and uids;
@@ -93,9 +94,8 @@ public struct HelperCore {
     public static let maxSocketPathBytes = 103
     /// Run root, per-user and per-session directories: root-owned, searchable but not listable.
     public static let runDirMode: mode_t = 0o711
-    /// The system's CA bundle (root-owned, writable only by root). The bundled OpenSSL's default store is the
-    /// build machine's Homebrew prefix, which its owner (or any admin) can change.
-    public static let systemCAFile = "/etc/ssl/cert.pem"
+    /// The system's CA bundle (`FortiConfig.systemCAFile`, which openfortivpn's config names too).
+    public static let systemCAFile = FortiConfig.systemCAFile
     /// Inside root-owned `/var/empty`, and never created.
     public static let missingDirectory = "/var/empty/passtunnel-none"
     /// The tools' only environment. The OpenSSL variables keep the bundled libcrypto from loading a

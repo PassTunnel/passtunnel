@@ -4,6 +4,7 @@ import ImageIO
 import UniformTypeIdentifiers
 import XCTest
 @testable import PassTunnelCore
+@testable import PassTunnelKit
 
 final class QRDecoderTests: XCTestCase {
     let uri = "otpauth://totp/Acme:alice?secret=JBSWY3DPEHPK3PXP&issuer=Acme&digits=8&period=60&algorithm=SHA256"
