@@ -1,5 +1,6 @@
 import Foundation
 import PassTunnelCore
+import PassTunnelKit
 
 /// `passtunnel` command-line mode of the app binary.
 enum PassTunnelCLI {

@@ -1,4 +1,5 @@
 import PassTunnelCore
+import PassTunnelKit
 import SwiftUI
 
 struct EmptyStateView: View {

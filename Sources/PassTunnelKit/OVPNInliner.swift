@@ -1,5 +1,5 @@
 import Foundation
-import PassTunnelShared
+import PassTunnelVPNConfig
 
 /// Makes an .ovpn self-contained: directives that point at files (`ca ca.crt`, `tls-auth ta.key 1`, …)
 /// are replaced by inline blocks, because the helper only accepts inline content.

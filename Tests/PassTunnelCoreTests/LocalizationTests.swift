@@ -108,7 +108,7 @@ final class LocalizationTests: XCTestCase {
             ".navigationTitle(", "Menu(", "CommandMenu(",
         ]
         var result: [Literal] = []
-        let dirs = ["Sources/PassTunnel", "Sources/PassTunnelCore"]
+        let dirs = ["Sources/PassTunnel", "Sources/PassTunnelCore", "Sources/PassTunnelKit"]
         for dir in dirs {
             let base = root.appendingPathComponent(dir)
             let files = FileManager.default.enumerator(at: base, includingPropertiesForKeys: nil)?

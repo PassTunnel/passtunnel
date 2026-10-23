@@ -1,5 +1,6 @@
 import XCTest
 @testable import PassTunnelCore
+@testable import PassTunnelKit
 
 final class CLICommandTests: XCTestCase {
     func parse(_ line: String) throws -> CLICommand {

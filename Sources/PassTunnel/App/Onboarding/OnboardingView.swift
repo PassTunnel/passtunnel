@@ -1,4 +1,5 @@
 import PassTunnelCore
+import PassTunnelKit
 import SwiftUI
 
 /// First-launch walkthrough: welcome, helper installation, first profile.

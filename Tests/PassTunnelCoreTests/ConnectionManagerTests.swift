@@ -1,6 +1,7 @@
 import Combine
 import XCTest
 @testable import PassTunnelCore
+@testable import PassTunnelKit
 import PassTunnelShared
 
 // MARK: - Fakes

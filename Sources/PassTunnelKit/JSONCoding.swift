@@ -42,10 +42,10 @@ public enum JSONCoding {
 }
 
 /// Small file helpers that map failures to PTError.
-enum FileIO {
-    static let maxReadSize = 8 * 1024 * 1024
+package enum FileIO {
+    package static let maxReadSize = 8 * 1024 * 1024
 
-    static func read(_ url: URL, maxSize: Int = maxReadSize) throws -> Data {
+    package static func read(_ url: URL, maxSize: Int = maxReadSize) throws -> Data {
         let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
         if let size = attrs?[.size] as? NSNumber, size.intValue > maxSize {
             throw PTError.fileTooLarge(url.lastPathComponent)
@@ -54,14 +54,14 @@ enum FileIO {
     }
 
     /// Reads a text file as UTF-8, falling back to Latin-1.
-    static func readText(_ url: URL, maxSize: Int = maxReadSize) throws -> String {
+    package static func readText(_ url: URL, maxSize: Int = maxReadSize) throws -> String {
         let data = try read(url, maxSize: maxSize)
         if let s = String(data: data, encoding: .utf8) { return s }
         if let s = String(data: data, encoding: .isoLatin1) { return s }
         throw PTError.invalidFile(url.lastPathComponent)
     }
 
-    static func makeDirectory(_ url: URL, mode: Int = 0o700) throws {
+    package static func makeDirectory(_ url: URL, mode: Int = 0o700) throws {
         do {
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true,
                                                     attributes: [.posixPermissions: mode])
@@ -71,7 +71,7 @@ enum FileIO {
     }
 
     /// Writes `data` to a temp file in the same directory, sets `mode`, then renames over `url`.
-    static func writeAtomically(_ data: Data, to url: URL, mode: mode_t) throws {
+    package static func writeAtomically(_ data: Data, to url: URL, mode: mode_t) throws {
         let dir = url.deletingLastPathComponent()
         try makeDirectory(dir)
         let tmp = dir.appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString).tmp")

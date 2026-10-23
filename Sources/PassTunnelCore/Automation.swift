@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import PassTunnelKit
 import PassTunnelShared
 
 // The structured layer shared by `passtunnel … --json` and the MCP server (`passtunnel mcp`): result

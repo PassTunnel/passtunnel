@@ -3,6 +3,7 @@ import CryptoKit
 import LocalAuthentication
 import XCTest
 @testable import PassTunnelCore
+@testable import PassTunnelKit
 
 /// Stands in for the Secure Enclave: a software P-256 key behind the same protocol. Each `unlock` is
 /// one "prompt"; results are consumed in order (none left = confirmed).

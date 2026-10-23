@@ -1,5 +1,6 @@
 import AppKit
 import PassTunnelCore
+import PassTunnelKit
 import SwiftUI
 
 enum SettingsTab: String, CaseIterable, Identifiable {

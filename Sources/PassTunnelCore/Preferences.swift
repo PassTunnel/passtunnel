@@ -1,4 +1,5 @@
 import Foundation
+import PassTunnelKit
 
 /// Light / dark mode of the app windows.
 public enum AppAppearance: String, Codable, CaseIterable, Sendable { case system, light, dark }

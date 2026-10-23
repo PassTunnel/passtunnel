@@ -1,6 +1,6 @@
 import Foundation
 import FuzzSupport
-import PassTunnelShared
+import PassTunnelVPNConfig
 
 // Fuzzes the OpenVPN configuration sanitizer: the last gate before the helper runs a config as
 // root. Properties checked on every input (a trap here is a libFuzzer finding):

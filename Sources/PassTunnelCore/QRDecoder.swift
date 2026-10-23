@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import ImageIO
+import PassTunnelKit
 import Vision
 
 /// Finds QR codes in images (screenshots, photos, clipboard images) and turns an

@@ -1,4 +1,5 @@
 import Foundation
+import PassTunnelKit
 
 /// Profiles on disk: `profiles/<id>/profile.json` (+ `config.ovpn`, `vpn.log`).
 /// Stateless and synchronous; every call re-reads the file system and the environment.

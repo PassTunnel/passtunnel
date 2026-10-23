@@ -1,6 +1,7 @@
 import Foundation
 import XCTest
 @testable import PassTunnelCore
+@testable import PassTunnelKit
 
 /// Isolates every test: temp support dir and a private Keychain service.
 class CoreTestCase: XCTestCase {

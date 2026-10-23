@@ -1,6 +1,7 @@
 import Foundation
 import XCTest
 @testable import PassTunnelCore
+@testable import PassTunnelKit
 
 final class TOTPTests: CoreTestCase {
     // RFC 6238 Appendix B

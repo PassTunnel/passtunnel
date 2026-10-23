@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import Foundation
 import PassTunnelCore
+import PassTunnelKit
 import PassTunnelShared
 
 /// Executes parsed CLI commands against the same Core APIs the app uses. With `--json`, results are

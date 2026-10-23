@@ -1,7 +1,8 @@
 import CryptoKit
 import Foundation
 import Network
-import PassTunnelShared
+import PassTunnelKit
+import PassTunnelVPNConfig
 import Security
 
 /// Reads a TLS server's leaf certificate and returns its SHA-256 digest, the format openfortivpn

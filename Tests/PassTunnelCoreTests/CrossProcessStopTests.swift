@@ -1,5 +1,6 @@
 import XCTest
 @testable import PassTunnelCore
+@testable import PassTunnelKit
 
 /// A connect in one process (app or CLI) that another process disconnects.
 extension ConnectionManagerTests {
