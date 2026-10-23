@@ -26,7 +26,7 @@ backends, localized strings, no third-party dependencies besides Sparkle.
    change; `swift test` must pass. Tests never touch real data: see the README section
    "Building and testing".
 5. The checks must pass: `Build and test` (`swift build` and `swift test` on macOS), `Release
-   scripts` and `PR title`. Review comments must be resolved.
+   scripts`, `Site` (the website's static checks) and `PR title`. Review comments must be resolved.
 6. The pull request is **squash-merged**: its title becomes the one commit on `dev`.
 
 Releases are made by merging `dev` into `main` (a pull request from `dev`, merged with a merge
