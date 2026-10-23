@@ -106,10 +106,11 @@ Requires **macOS 13 Ventura or later** on a Mac with **Apple silicon**.
 
 ### Download
 
-Download `PassTunnel-<version>.dmg` from
-[GitHub Releases](https://github.com/passtunnel/passtunnel/releases/latest), open it and drag
-PassTunnel to **Applications**. Launch it from there: the helper can only be installed from the
-Applications folder. The app is signed with a Developer ID and notarized by Apple.
+[Download the disk image](https://github.com/PassTunnel/passtunnel/releases/latest/download/PassTunnel.dmg),
+open it and drag PassTunnel to **Applications**. Launch it from there: the helper can only be
+installed from the Applications folder. The app is signed with a Developer ID and notarized by
+Apple. What changed is in the
+[release notes](https://github.com/PassTunnel/passtunnel/releases/latest).
 
 PassTunnel keeps itself up to date (Settings → Updates); updates are signed and checked before
 they are installed. After an update, the helper is updated automatically as soon as no VPN
@@ -177,7 +178,7 @@ Use the **+** button in the toolbar, or drop a file onto the window:
 |---|---|
 | An OpenVPN file (`.ovpn` / `.conf`) | **+ → Import .ovpn…** Files it references (`ca ca.crt`, `tls-auth ta.key 1`, …) are embedded automatically. |
 | A FortiGate gateway | **+ → New FortiGate…** Enter host and port, then **Fetch fingerprint** to pin the gateway certificate (SHA-256). |
-| A `.passtunnel` file from a colleague | **+ → Import shared profile…** Then add your own user name, password and TOTP secret. |
+| A `.passtunnel` file from a colleague | Double-click it (or open it from AirDrop), or **+ → Import shared profile…** Then add your own user name, password and TOTP secret. |
 | A QR code for your authenticator | **+ → Add code from QR…**, or drop the screenshot onto the window or the editor. |
 
 Then open the profile editor (**⋯ → Edit…**):
@@ -360,9 +361,10 @@ server speaks MCP 2026-07-28 and, for clients that start with an `initialize` ha
 the connection settings, appearance, code format and, for OpenVPN, the configuration file.
 
 It never contains your password, your TOTP secret or your user name; a user name and password or
-proxy credentials embedded in the OpenVPN configuration are removed too. The recipient imports it
-and adds their own. The embedded OpenVPN configuration can contain certificates and keys, so the file is
-written with `0600` permissions; share it the way you would share the `.ovpn` itself.
+proxy credentials embedded in the OpenVPN configuration are removed too. The recipient double-clicks
+it (or opens it from AirDrop) and adds their own. The embedded OpenVPN configuration can contain
+certificates and keys, so the file is written with `0600` permissions; share it the way you would
+share the `.ovpn` itself.
 
 ## FAQ
 
@@ -547,9 +549,10 @@ sorunları teşhis edebilir (varsayılan olarak yalnızca okur; parola, anahtar 
 (ya da kodları göstermeden) önce Touch ID ya da Mac parolanızla onay ister ve kayıtlı parola ile TOTP anahtarını
 Mac'in Secure Enclave'indeki bir anahtarla şifreler. Arayüz Türkçe ve İngilizcedir ve macOS dilinizi izler.
 
-**Kurulum:** İmzalı ve notarize edilmiş `.dmg` dosyasını
-[GitHub Releases](https://github.com/passtunnel/passtunnel/releases/latest) sayfasından indirip
-PassTunnel’ı **Uygulamalar** klasörüne sürükleyin ya da Homebrew ile kurun:
+**Kurulum:** İmzalı ve notarize edilmiş
+[disk görüntüsünü indirin](https://github.com/PassTunnel/passtunnel/releases/latest/download/PassTunnel.dmg),
+açın ve PassTunnel’ı **Uygulamalar** klasörüne sürükleyin
+([sürüm notları](https://github.com/PassTunnel/passtunnel/releases/latest)) ya da Homebrew ile kurun:
 `brew trust passtunnel/tap`, ardından `brew install --cask passtunnel/tap/passtunnel` (Homebrew 6
 ve sonrası, üçüncü taraf bir tap'teki cask'ı ancak o tap'e güvendiğinizde yükler). Uygulama kendini
 güncel tutar (Ayarlar → Güncellemeler). Kaynaktan derlemek için yukarıdaki

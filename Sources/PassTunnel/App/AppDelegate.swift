@@ -17,6 +17,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private(set) var launchedInBackground = false
     /// Until this moment, a main window that SwiftUI opens on its own is closed again.
     private var suppressMainWindowUntil: Date?
+    /// Files opened before launch finished (the app was started to open them) wait for the model and
+    /// the main window.
+    private var finishedLaunching = false
+    private var pendingOpenURLs: [URL] = []
 
     override init() {
         super.init()
@@ -98,6 +102,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         DispatchQueue.main.async { self.updateActivationPolicy() }
+        finishedLaunching = true
+        DispatchQueue.main.async { self.openPendingFiles() }
+    }
+
+    /// `.passtunnel` files from Finder, AirDrop, the Dock icon or `open` (CFBundleDocumentTypes). The
+    /// CLI never gets here: it runs before NSApplication starts.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        pendingOpenURLs += urls
+        if finishedLaunching { openPendingFiles() }
+    }
+
+    private func openPendingFiles() {
+        let urls = pendingOpenURLs
+        pendingOpenURLs = []
+        ImportActions.open(urls)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }

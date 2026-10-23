@@ -17,6 +17,8 @@ One binary, two modes:
   command. The app installs the symlink `/usr/local/bin/passtunnel` (or `~/.local/bin` if not
   writable, with a hint to add it to PATH) from Settings → General → "Install command-line tool".
 - Single instance for GUI (`NSRunningApplication` check → activate the existing one and exit).
+- Opened files (`.passtunnel`, below) arrive as Apple events to the GUI only: CLI mode returns
+  before `NSApplication` starts, and the app never treats its arguments as files to open.
 - Resources: use `Bundle.main` (never `Bundle.module`, it crashes in a signed .app).
 
 ## ConnectionManager (Core, `Sources/PassTunnelCore/ConnectionManager.swift`)
@@ -105,6 +107,17 @@ Sidebar-less single list, one row per profile (drag to reorder → `order`):
   code from QR…; search field when > 6 profiles.
 - Empty state: big call to action "Add your first VPN" with the three import options.
 - Drag & drop onto the window: `.ovpn`, `.conf`, `.passtunnel`, or an image containing a QR code.
+- Opening a `.passtunnel` file (double-click in Finder, AirDrop, the Dock icon, `open`) imports it
+  exactly like Import shared profile… (`ImportActions.importShared(at:)`: `ProfileStore.importShare`
+  with all its checks, then the new profile's editor), with the main window brought forward. The
+  app exports the type `com.furkanprlk.passtunnel.profile` (`ShareFile.typeIdentifier`, conforms
+  to `public.json`, extension `passtunnel`) in `UTExportedTypeDeclarations` and claims it in
+  `CFBundleDocumentTypes` as Viewer with `LSHandlerRank` Owner: PassTunnel imports the file and never
+  edits it in place. `AppDelegate.application(_:open:)` hands the files to `ImportActions.open`
+  (`OpenedFiles.route`, Core): one file at a time like the import panel, so several files import
+  nothing and say so, and anything that is not a `.passtunnel` file is refused with a message.
+  Files that start the app wait until launch has finished. The save panel of Share… and the import
+  panel use the exported type (the extension's dynamic type in an unbundled `swift run`).
 
 ## Profile editor (sheet)
 

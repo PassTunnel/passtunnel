@@ -13,7 +13,7 @@ brew trust passtunnel/tap
 brew install --cask passtunnel/tap/passtunnel
 ```
 
-Or download the DMG from https://github.com/PassTunnel/passtunnel/releases/latest and drag PassTunnel to Applications (the helper installs only from there). Open it once and approve the helper in System Settings → General → Login Items. Profiles, passwords and TOTP secrets are set up by the user in the app.
+Or download the disk image from https://github.com/PassTunnel/passtunnel/releases/latest/download/PassTunnel.dmg, open it and drag PassTunnel to Applications (the helper installs only from there; release notes: https://github.com/PassTunnel/passtunnel/releases/latest). Open it once and approve the helper in System Settings → General → Login Items. Profiles, passwords and TOTP secrets are set up by the user in the app.
 
 ## CLI
 
