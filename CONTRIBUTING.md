@@ -72,11 +72,14 @@ Details are in [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Website
 
-The website at <https://passtunnel.github.io/passtunnel/> is the static page in [`site/`](site/). Its
+The website at <https://passtunnel.github.io/> is the static page in [`site/`](site/). Its
 rules (no scripts or styles inline, facts only, real screenshots from the app's renderer), the
 checks and how to preview it and regenerate its images are in [docs/WEBSITE.md](docs/WEBSITE.md).
 Site changes follow the same flow as code (a `docs:` pull request into `dev`); the `Site` check runs
-`scripts/check-site.sh`, and the site is deployed with the next release merge into `main`.
+`scripts/check-site.sh`, and the site is deployed with the next release merge into `main`: the
+`Publish site` workflow hands that commit to
+[PassTunnel/passtunnel.github.io](https://github.com/PassTunnel/passtunnel.github.io), which serves
+the root of the host.
 
 ## Dependabot
 

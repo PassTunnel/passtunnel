@@ -20,7 +20,7 @@ secret in the Keychain and fills in the current code (and your password) every t
   <img src="docs/images/main-light.png" width="680" alt="PassTunnel main window: one row per VPN profile with its live one-time code, a countdown ring and a Connect button">
 </picture>
 
-[Website](https://passtunnel.github.io/passtunnel/) ·
+[Website](https://passtunnel.github.io/) ·
 [Features](#features) ·
 [Install](#install) ·
 [Quick start](#quick-start) ·
