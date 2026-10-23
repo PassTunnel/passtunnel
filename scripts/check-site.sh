@@ -1,6 +1,7 @@
 #!/bin/bash
-# Static checks of the website in site/ (docs/WEBSITE.md, "Checks"). Run by the CI job "Site"; fine to
-# run locally. Bash and standard tools only, on Linux and macOS:
+# Static checks of the website in site/ (docs/WEBSITE.md, "Checks"). Run by the CI job "Site", before
+# publishing (site.yml here, and the Pages workflow of PassTunnel/passtunnel.github.io on the published
+# commit); fine to run locally. Bash and standard tools only, on Linux and macOS:
 #
 #   scripts/check-site.sh [SITE_DIR]          # SITE_DIR defaults to site/
 #
@@ -19,9 +20,10 @@ SITE="$(cd "${1:-$ROOT/site}" && pwd)"
 
 # The policy every page carries. Changing it means changing it here, in every page and in the spec.
 CSP="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'"
-# GitHub Pages serves site/ at this address; absolute paths below BASE_PATH map to site/.
-SITE_URL="https://passtunnel.github.io/passtunnel/"
-BASE_PATH="/passtunnel/"
+# The site is served at this address (PassTunnel/passtunnel.github.io deploys it); absolute paths
+# below BASE_PATH (with a trailing slash; "/" is the root of the host) map to site/.
+SITE_URL="https://passtunnel.github.io/"
+BASE_PATH="/"
 LINK_HOSTS_RE='^https://(github\.com|passtunnel\.github\.io)(/|$)'
 
 errors=0
@@ -36,6 +38,7 @@ check_local() {
     path="${url%%#*}"
     path="${path%%\?*}"
     if [[ "$path" == /* ]]; then
+        # With BASE_PATH "/" every absolute path qualifies; "/" itself maps to site/index.html below.
         if [[ "$path" != "$BASE_PATH"* && "$path" != "${BASE_PATH%/}" ]]; then
             error "$file" "absolute path outside $BASE_PATH: $url"
             return

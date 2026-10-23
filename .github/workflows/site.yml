@@ -1,0 +1,93 @@
+# Publishes the website (site/, described in docs/WEBSITE.md) at https://passtunnel.github.io/.
+# GitHub serves the root of that host only from PassTunnel/passtunnel.github.io, so that repository
+# deploys it: its Pages workflow checks out site/ of this repository at the commit in its file
+# site.ref, checks it and deploys it. This workflow runs on every push to main that touches site/, so
+# the site always describes the released app (site changes go out with the next release merge), and
+# by hand (Actions → Publish site → Run workflow, on main):
+#
+#   check     scripts/check-site.sh, with read-only access.
+#   publish   writes the pushed commit into site.ref of PassTunnel/passtunnel.github.io and pushes it
+#             to that repository's main, which starts its deploy. Nothing is committed when site.ref
+#             already holds the commit, so a re-run is safe.
+#
+# publish runs in the environment "website" (deployments from main only), which holds the secret
+# SITE_DEPLOY_KEY: the ed25519 private key of a write deploy key on PassTunnel/passtunnel.github.io.
+# The key is written to RUNNER_TEMP with umask 077 and deleted at the end whatever happened. This
+# repository has no GitHub Pages of its own.
+name: Publish site
+
+on:
+  push:
+    branches: [main]
+    paths: ['site/**', '.github/workflows/site.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: site
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  SITE_REPO: PassTunnel/passtunnel.github.io
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check the site
+        run: scripts/check-site.sh
+
+  publish:
+    name: Publish
+    needs: check
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: website
+    steps:
+      # Over SSH with the deploy key and GitHub's ed25519 host key pinned (api.github.com/meta,
+      # SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU).
+      - name: Point site.ref at this commit
+        env:
+          SITE_DEPLOY_KEY: ${{ secrets.SITE_DEPLOY_KEY }}
+        run: |
+          [[ -n "$SITE_DEPLOY_KEY" ]] || { echo "::error::the secret SITE_DEPLOY_KEY is not set in the environment 'website'"; exit 1; }
+          ssh_dir="$RUNNER_TEMP/site-ssh"
+          (
+            umask 077
+            mkdir -p "$ssh_dir"
+            printf '%s\n' "$SITE_DEPLOY_KEY" > "$ssh_dir/deploy-key"
+          )
+          echo "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl" \
+            > "$ssh_dir/known_hosts"
+          export GIT_SSH_COMMAND="ssh -i '$ssh_dir/deploy-key' -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile='$ssh_dir/known_hosts' -o HostKeyAlgorithms=ssh-ed25519"
+          repo="$RUNNER_TEMP/site-repo"
+          git clone -q --depth 1 --branch main "git@github.com:$SITE_REPO.git" "$repo"
+          cd "$repo"
+          printf '%s\n' "$GITHUB_SHA" > site.ref
+          git add site.ref    # staged, so a site.ref that does not exist yet counts as a change
+          if git diff --cached --quiet; then
+            echo "::notice title=Site::$SITE_REPO already publishes $GITHUB_REPOSITORY@${GITHUB_SHA::12}"
+            exit 0
+          fi
+          git -c user.name=Furkanprlk -c user.email=18267444+Furkanprlk@users.noreply.github.com \
+            -c commit.gpgsign=false commit -q -m "Publish site/ of $GITHUB_REPOSITORY@${GITHUB_SHA::12}"
+          git push -q origin HEAD:main
+          echo "::notice title=Site::$SITE_REPO: $(git log -1 --format='%h %s')"
+
+      - name: Remove the deploy key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/site-ssh" "$RUNNER_TEMP/site-repo"

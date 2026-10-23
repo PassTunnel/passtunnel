@@ -1,9 +1,8 @@
 # Website
 
 The project website is a single static page in [`site/`](../site), published with GitHub Pages at
-<https://passtunnel.github.io/passtunnel/>. It explains what PassTunnel does, how to install it, the
-CLI and MCP setup and the security model, and it serves `llms.txt` for tools that read it (also at
-<https://passtunnel.github.io/llms.txt>, see [Preview and deploy](#preview-and-deploy)).
+<https://passtunnel.github.io/>. It explains what PassTunnel does, how to install it, the CLI and
+MCP setup and the security model, and it serves `llms.txt` for tools that read it.
 
 This document is the spec for the site: what is on it, the rules it follows and how it is
 maintained. The code in `site/` is the source of truth for the exact look.
@@ -45,12 +44,12 @@ maintained. The code in `site/` is the source of truth for the exact look.
 | `site/assets/theme.js` | Loaded in `<head>` before the stylesheet paints: applies the saved theme (no flash) |
 | `site/assets/main.js` | Theme button, mobile menu, copy buttons, format picker, palette picker, live code demo |
 | `site/assets/img/` | Generated images (do not edit by hand) |
-| `site/llms.txt` | Plain-text summary for language-model tools: what it is, install, CLI, MCP setup, links; also served at the root of the host |
-| `site/404.html`, `site/sitemap.xml` | The usual (`robots.txt` only works at the root of the host, see [Preview and deploy](#preview-and-deploy)) |
+| `site/llms.txt` | Plain-text summary for language-model tools: what it is, install, CLI, MCP setup, links |
+| `site/404.html`, `site/robots.txt`, `site/sitemap.xml` | The usual |
 | `scripts/site-assets.sh` | Regenerates everything in `site/assets/img/` |
 | `scripts/site/og.html` | Source of the social preview image (not published) |
 | `scripts/check-site.sh` | Static checks run by CI (see [Checks](#checks)) |
-| `.github/workflows/pages.yml` | Deploys `site/` to GitHub Pages |
+| `.github/workflows/site.yml` | Hands a new `site/` on `main` to the deploying repository (see [Preview and deploy](#preview-and-deploy)) |
 
 ## Look
 
@@ -152,10 +151,21 @@ Google Chrome. Rerun it after UI changes that show up in these screens.
 
 Preview: `python3 -m http.server -d site 8000` and open <http://localhost:8000>.
 
-`pages.yml` deploys `site/` on every push to `main` that touches `site/` (and on demand), so the
-site always describes the released app; site changes go out with the next release merge, or by
-running the workflow by hand. Repository setting: Pages → Source → GitHub Actions.
+The site is served from the root of the host, so every absolute path and URL in `site/` starts at
+`/` (`https://passtunnel.github.io/…`). GitHub serves the root only from the repository named after
+the host, so [PassTunnel/passtunnel.github.io](https://github.com/PassTunnel/passtunnel.github.io)
+deploys it, while `site/` here stays the source:
 
-The root of passtunnel.github.io (`/llms.txt`, `/robots.txt` and the redirect from `/` to
-`/passtunnel/`) comes from the [PassTunnel/passtunnel.github.io](https://github.com/PassTunnel/passtunnel.github.io)
-repository, which copies `site/llms.txt` from `main` on every deploy and once a day.
+- That repository's `site.ref` holds the commit of this repository's `main` whose `site/` is live.
+  Its Pages workflow (on every push to its `main`, and by hand) checks out `site/` and
+  `scripts/check-site.sh` at that commit, runs the checks, and deploys `site/` together with the
+  few files of its own: the Search Console verification file and a redirect from the old address
+  `/passtunnel/` to `/` that keeps the `#section`.
+- `site.yml` here runs on every push to `main` that touches `site/` (and by hand, on `main`): it runs
+  `scripts/check-site.sh`, then writes the pushed commit into `site.ref` and pushes it with a write
+  deploy key of that repository (secret `SITE_DEPLOY_KEY` in the environment `website`, which allows
+  only `main`). So the site always describes the released app: site changes go out with the next
+  release merge, or by running `site.yml` by hand.
+- To publish an older or newer `site/` by hand, change `site.ref` in that repository.
+
+This repository has no GitHub Pages of its own.
