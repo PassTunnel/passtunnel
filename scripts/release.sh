@@ -22,10 +22,11 @@
 #                    the name of a file this script builds
 #
 # Without --publish or --publish-draft nothing leaves this Mac apart from the notarization uploads:
-# no tag, no push, no release. Output: dist/PassTunnel-VERSION.dmg, dist/PassTunnel-VERSION.zip
-# (Sparkle update), dist/PassTunnel-mcp-VERSION.mcpb (MCP bundle), dist/SHA256SUMS,
-# dist/appcast.xml, dist/passtunnel.rb (Homebrew cask), dist/server.json (MCP Registry entry,
-# published by the publish-mcp workflow), dist/release-notes-VERSION.md.
+# no tag, no push, no release. Output: dist/PassTunnel-VERSION.dmg, dist/PassTunnel.dmg (the same
+# disk image under a name without the version, for the …/releases/latest/download/PassTunnel.dmg
+# link), dist/PassTunnel-VERSION.zip (Sparkle update), dist/PassTunnel-mcp-VERSION.mcpb (MCP
+# bundle), dist/SHA256SUMS, dist/appcast.xml, dist/passtunnel.rb (Homebrew cask), dist/server.json
+# (MCP Registry entry, published by the publish-mcp workflow), dist/release-notes-VERSION.md.
 # Repository slugs and tool versions come from scripts/release.env. Setup and the whole procedure:
 # docs/RELEASING.md.
 #
@@ -43,7 +44,7 @@ source "$ROOT/scripts/release.env"
 
 die() { echo "error: $*" >&2; exit 1; }
 step() { printf '\n==> %s\n' "$*"; }
-usage() { sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'; }
 
 VERSION=""
 DRAFT=0
@@ -86,6 +87,8 @@ DOWNLOAD_PREFIX="https://github.com/$GITHUB_REPO/releases/download/$TAG/"
 DIST="$ROOT/dist"
 WORK="$DIST/.work-$VERSION"
 DMG_NAME="PassTunnel-$VERSION.dmg"
+# The same bytes as DMG_NAME; …/releases/latest/download/PassTunnel.dmg is always the latest one.
+STABLE_DMG_NAME="PassTunnel.dmg"
 ZIP_NAME="PassTunnel-$VERSION.zip"
 MCPB_NAME="PassTunnel-mcp-$VERSION.mcpb"
 SPARKLE_BIN="$ROOT/.build/artifacts/sparkle/Sparkle/bin"
@@ -102,7 +105,7 @@ fi
     || die "unset PASSTUNNEL_ALLOW_UNPINNED_TOOLS: releases bundle the tool versions pinned in scripts/release.env"
 
 # The files of every release, in the order they are uploaded.
-RELEASE_ASSETS=("$DMG_NAME" "$ZIP_NAME" "$MCPB_NAME" appcast.xml SHA256SUMS)
+RELEASE_ASSETS=("$DMG_NAME" "$STABLE_DMG_NAME" "$ZIP_NAME" "$MCPB_NAME" appcast.xml SHA256SUMS)
 
 # Fails unless the draft release of TAG has every asset named in the arguments.
 check_draft_assets() {
@@ -268,6 +271,9 @@ fi
 
 rm -rf "$WORK"
 mkdir -p "$WORK"
+# The stable-named copy carries no version, so one left in dist/ by an earlier build must not
+# survive this one (it is written again below, from this build's disk image).
+rm -f "$DIST/$STABLE_DMG_NAME"
 NOTARY_LOG="$WORK/notarization.txt"
 : > "$NOTARY_LOG"
 
@@ -343,6 +349,11 @@ else
         || die "Gatekeeper does not accept the disk image as notarized"
 fi
 
+# The disk image again under the name without the version: the same bytes, so the same checksum
+# and the same provenance digest.
+cp "$WORK/$DMG_NAME" "$WORK/$STABLE_DMG_NAME"
+cmp -s "$WORK/$DMG_NAME" "$WORK/$STABLE_DMG_NAME" || die "$STABLE_DMG_NAME differs from $DMG_NAME"
+
 step "building the MCP bundle"
 "$ROOT/scripts/build-mcpb.sh" "$VERSION" "$WORK"
 MCPB_SHA="$(shasum -a 256 "$WORK/$MCPB_NAME" | awk '{print $1}')"
@@ -357,7 +368,7 @@ else
 fi
 
 step "writing checksums and release notes"
-(cd "$WORK" && shasum -a 256 "$DMG_NAME" "$ZIP_NAME" "$MCPB_NAME" > SHA256SUMS)
+(cd "$WORK" && shasum -a 256 "$DMG_NAME" "$STABLE_DMG_NAME" "$ZIP_NAME" "$MCPB_NAME" > SHA256SUMS)
 cat "$WORK/SHA256SUMS"
 printf '%s\n' "$NOTES" > "$WORK/release-notes-$VERSION.md"
 
@@ -434,7 +445,7 @@ fi
 
 step "moving the results to dist/"
 rm -rf "$WORK/PassTunnel.app"
-for f in "$DMG_NAME" "$ZIP_NAME" "$MCPB_NAME" SHA256SUMS appcast.xml passtunnel.rb server.json "release-notes-$VERSION.md"; do
+for f in "$DMG_NAME" "$STABLE_DMG_NAME" "$ZIP_NAME" "$MCPB_NAME" SHA256SUMS appcast.xml passtunnel.rb server.json "release-notes-$VERSION.md"; do
     mv -f "$WORK/$f" "$DIST/$f"
 done
 mv -f "$NOTARY_LOG" "$DIST/notarization-$VERSION.txt"
