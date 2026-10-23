@@ -11,6 +11,8 @@
 #   - lacks the exact Content Security Policy meta tag below,
 #   - links to, or loads src/srcset from, a local file that does not exist, or has an in-page #anchor
 #     without a matching id,
+#   - has a srcset with a malformed descriptor, with both width (640w) and density (2x) descriptors,
+#     or with width descriptors but no sizes,
 #   - loads anything from another origin (links to github.com and the site's own address are fine),
 #   - has an <img> without alt, width or height.
 set -euo pipefail
@@ -116,11 +118,26 @@ while IFS= read -r -d '' file; do
             value="${BASH_REMATCH[2]}"
             rest="${rest#*"${BASH_REMATCH[0]}"}"
             if [[ "$attr" == srcset ]]; then
+                # Candidates are "URL", "URL 2x" (density) or "URL 640w" (width, which needs sizes);
+                # one srcset uses one kind.
                 IFS=',' read -ra candidates <<<"$value"
+                kinds=""
                 for candidate in "${candidates[@]}"; do
-                    read -r url _ <<<"$candidate"
+                    descriptor=""
+                    read -r url descriptor <<<"$candidate"
                     check_url "$file" "$tag" srcset "$url" "$ids"
+                    if [[ "$descriptor" =~ ^[0-9]+w$ ]]; then
+                        kinds="${kinds/w/}w"
+                    elif [[ -z "$descriptor" || "$descriptor" =~ ^[0-9]+(\.[0-9]+)?x$ ]]; then
+                        kinds="${kinds/x/}x"
+                    else
+                        error "$file" "bad srcset descriptor \"$descriptor\" for $url"
+                    fi
                 done
+                [[ ${#kinds} -le 1 ]] || error "$file" "srcset mixes width and density descriptors: $value"
+                if [[ "$kinds" == *w* && ! "$TAG_TEXT" =~ [[:space:]]sizes=\"[^\"]+\" ]]; then
+                    error "$file" "srcset with width descriptors but no sizes: $TAG_TEXT"
+                fi
             else
                 check_url "$file" "$tag" "$attr" "$value" "$ids"
             fi

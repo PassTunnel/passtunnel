@@ -5,14 +5,15 @@
 #
 # Builds the app and runs its offscreen renderer (PASSTUNNEL_RENDER, at backing scale 4) with sample
 # profiles, a temporary support folder and a throwaway Keychain service: nothing is shown on screen,
-# and no real profile, secret, VPN or helper is touched. The screens the site uses are written as
-# lossless WebP at the size they are displayed (1x) and twice that (2x). The favicon and the Apple
+# and no real profile, secret, VPN or helper is touched. The screenshots are written as near-lossless
+# WebP at the size they are displayed (1x), one and a half times (@1.5x) and twice that (@2x); the
+# small images (icons, menu bar badges) as lossless WebP at 1x and 2x. The favicon and the Apple
 # touch icon come from Resources/AppIcon.icns, and the 1200x630 social image is scripts/site/og.html
 # rendered with headless Google Chrome.
 #
 # Needs macOS with Xcode, cwebp (brew install webp) and Google Chrome (or CHROME=/path/to/chrome).
-# After a run, check that the width and height attributes in site/index.html still match the sizes
-# printed at the end.
+# After a run, check that the width and height attributes and the srcset width descriptors in
+# site/index.html still match the sizes printed at the end.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -58,11 +59,23 @@ webp() {
     cwebp -quiet -lossless -z 9 -exact -metadata none -resize "$((w * 2))" 0 "$src" -o "$OUT/$name@2x.webp"
 }
 
+# shot SOURCE NAME WIDTH: a screenshot as NAME.webp at WIDTH px (1x), NAME@1.5x.webp and NAME@2x.webp,
+# near-lossless (no pixel off by more than 2 of 255, about 30% smaller than lossless). WIDTH must be
+# even, so that 1.5x is a whole number of pixels (site/index.html lists the widths in srcset).
+shot() {
+    local src="$1" name="$2" w="$3"
+    [[ -f "$src" ]] || die "the renderer did not write $(basename "$src")"
+    (( w % 2 == 0 )) || die "the 1x width of $name must be even"
+    cwebp -quiet -lossless -near_lossless 60 -z 9 -exact -metadata none -resize "$w" 0 "$src" -o "$OUT/$name.webp"
+    cwebp -quiet -lossless -near_lossless 60 -z 9 -exact -metadata none -resize "$((w * 3 / 2))" 0 "$src" -o "$OUT/$name@1.5x.webp"
+    cwebp -quiet -lossless -near_lossless 60 -z 9 -exact -metadata none -resize "$((w * 2))" 0 "$src" -o "$OUT/$name@2x.webp"
+}
+
 # themed SOURCE_BASE NAME WIDTH: the light and the dark render (SOURCE_BASE.png, SOURCE_BASE-dark.png).
 themed() {
     same_size "$1.png" "$1-dark.png"
-    webp "$1.png" "$2-light" "$3"
-    webp "$1-dark.png" "$2-dark" "$3"
+    shot "$1.png" "$2-light" "$3"
+    shot "$1-dark.png" "$2-dark" "$3"
 }
 
 echo "==> Converting screenshots"
@@ -104,6 +117,6 @@ cp "$TMP/og.png" "$OUT/og.png"
 
 echo "==> Written to site/assets/img/"
 for f in "$OUT"/*; do
-    printf '  %-34s %5sx%-5s %4s KB\n' "$(basename "$f")" "$(width "$f")" "$(height "$f")" \
+    printf '  %-36s %5sx%-5s %4s KB\n' "$(basename "$f")" "$(width "$f")" "$(height "$f")" \
         "$(( ($(wc -c <"$f") + 1023) / 1024 ))"
 done
