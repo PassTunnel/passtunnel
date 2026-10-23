@@ -5,6 +5,9 @@
 #   Release scripts   shellcheck of next-version.sh and its test, and the self-test of
 #                     scripts/next-version.sh (in a temporary repository)
 #
+# Site (scripts/check-site.sh: the static checks of the website in site/, see docs/WEBSITE.md) runs
+# here too; it is not a required check.
+#
 # The checks of the pull request itself (title, linked issue, source branch) are in
 # pull-request.yml, which also runs when the title, body or base branch is edited. A newer push to a
 # pull request cancels the run of the older one; runs on dev and main always finish.
@@ -64,3 +67,18 @@ jobs:
 
       - name: Self-test of next-version.sh
         run: scripts/test-next-version.sh
+
+  site:
+    name: Site
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Shellcheck
+        run: shellcheck --version && shellcheck scripts/check-site.sh scripts/site-assets.sh
+
+      - name: Check the site
+        run: scripts/check-site.sh

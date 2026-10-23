@@ -1,0 +1,48 @@
+# PassTunnel
+
+> PassTunnel is a free, open-source (MIT) macOS app for OpenVPN and FortiGate SSL VPN, for Apple silicon Macs with macOS 13 or later. It keeps the TOTP secret in the macOS Keychain, computes the current one-time code and sends it with the password when you connect. It includes the `passtunnel` command-line tool and a built-in MCP server (`passtunnel mcp`).
+
+- Codes are sent in the format the server expects: appended or prepended to the password, `password:code`, `password,code`, a custom template with the placeholders `{password}` and `{otp}`, or separately (OpenVPN static challenge, FortiGate OTP field). With fewer than 8 seconds left in the code window, PassTunnel waits for a fresh code.
+- Signed `openvpn` and `openfortivpn` are bundled; nothing else to install. A small privileged helper, approved once in System Settings, only accepts the signed app and only runs those tools, with sanitized OpenVPN configurations.
+- Passwords and TOTP secrets stay in the login Keychain (no iCloud sync); nothing is sent anywhere except the VPN server. Optional Touch ID per profile encrypts the secrets with a Secure Enclave key.
+
+## Install
+
+```sh
+brew trust passtunnel/tap
+brew install --cask passtunnel/tap/passtunnel
+```
+
+Or download the DMG from https://github.com/PassTunnel/passtunnel/releases/latest and drag PassTunnel to Applications. Open it once and approve the helper in System Settings → General → Login Items. Profiles, passwords and TOTP secrets are set up by the user in the app.
+
+## CLI
+
+```sh
+passtunnel connect work           # connect a profile (IDs come from the name: Work -> work)
+passtunnel code work -c           # print the live code and copy it
+passtunnel status --json          # every profile's state as JSON
+```
+
+Every command takes `--json`, `--no-input` and `--no-auth-prompt`. Exit codes: 0 ok, 1 error, 2 usage, 3 not found or not connected, 4 confirmation cancelled, 5 helper missing or outdated, 6 connection failed, 7 timeout.
+
+## MCP server
+
+`passtunnel mcp` is a stdio MCP server. Tools: `list_profiles`, `get_status`, `get_logs`, `diagnose`, and `connect` / `disconnect` only with `--allow-connect`. It is read-only by default, Touch ID-protected profiles still ask on the Mac, and no tool returns passwords, TOTP secrets, one-time codes or configuration files.
+
+- Claude Code: `claude mcp add passtunnel -- passtunnel mcp`
+- Claude Desktop: the `.mcpb` bundle from the latest release (double-click it)
+- Other clients (Cursor, VS Code, …): command `/Applications/PassTunnel.app/Contents/MacOS/PassTunnel`, args `["mcp"]`; add `"--allow-connect"` only if the user wants the assistant to connect and disconnect
+
+## Docs
+
+- [README](https://raw.githubusercontent.com/PassTunnel/passtunnel/main/README.md): features, install, quick start, code formats, CLI, MCP setup, FAQ
+- [Installing the MCP server](https://raw.githubusercontent.com/PassTunnel/passtunnel/main/llms-install.md): setup steps for an assistant
+- [CLI JSON output and exit codes](https://raw.githubusercontent.com/PassTunnel/passtunnel/main/docs/CLI-JSON.md): objects returned by `--json` and the MCP tools
+- [Security model](https://raw.githubusercontent.com/PassTunnel/passtunnel/main/SECURITY.md): the helper, Keychain storage, the configuration sanitizer, what is not protected
+
+## Optional
+
+- [App and CLI behavior](https://raw.githubusercontent.com/PassTunnel/passtunnel/main/docs/APP.md)
+- [Architecture](https://raw.githubusercontent.com/PassTunnel/passtunnel/main/docs/ARCHITECTURE.md)
+- [Releases](https://github.com/PassTunnel/passtunnel/releases)
+- [Repository](https://github.com/PassTunnel/passtunnel)

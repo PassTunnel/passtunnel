@@ -375,6 +375,9 @@ client errors) must have Turkish translations.
 - `PASSTUNNEL_RENDER_LANG=tr` renders the `PASSTUNNEL_RENDER` screenshots in Turkish (from a bundle
   with the compiled `tr.lproj`, e.g. the app `build-app.sh` makes). Renders include `main-code-locked`
   (`AppModel.previewLockedCodes`; no Secure Enclave key is made) and `editor/editor-require-auth`.
+- `PASSTUNNEL_RENDER_SCALE=4` renders at that backing scale (1–8; default 2). `scripts/site-assets.sh`
+  uses 4 for the website, together with `editor/editor-one-time-code` (only the One-time code section)
+  and `menubar-badges-<palette>` (the menu bar badges alone, on a transparent background).
 
 ## Content rules
 

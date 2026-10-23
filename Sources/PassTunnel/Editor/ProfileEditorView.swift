@@ -16,6 +16,8 @@ struct ProfileEditorView: View {
     private let onClose: () -> Void
     @State private var dropTargeted = false
     @State private var showAdvanced = false
+    /// Renders only the One-time code section, without header and footer (screenshots).
+    private var codeSectionOnly = false
     @State private var scrollTarget: Field?
     @FocusState private var focus: Field?
 
@@ -26,15 +28,24 @@ struct ProfileEditorView: View {
     }
 
     /// Used by `EditorPreviewRenderer`.
-    init(model: EditorModel, showAdvanced: Bool = false, onClose: @escaping () -> Void = {}) {
+    init(model: EditorModel, showAdvanced: Bool = false, codeSectionOnly: Bool = false, onClose: @escaping () -> Void = {}) {
         _model = StateObject(wrappedValue: model)
         _showAdvanced = State(initialValue: showAdvanced)
+        self.codeSectionOnly = codeSectionOnly
         self.onClose = onClose
     }
 
     private var p: Profile { model.draft }
 
     var body: some View {
+        if codeSectionOnly {
+            Form { codeSection }.formStyle(.grouped)
+        } else {
+            editor
+        }
+    }
+
+    private var editor: some View {
         VStack(spacing: 0) {
             header
             Divider()
