@@ -28,9 +28,17 @@ maintained. The code in `site/` is the source of truth for the exact look.
 - **Accessible**: WCAG 2.1 AA contrast in both themes, visible focus, 44 px targets, keyboard
   operable, meaningful `alt` text, `prefers-reduced-motion` respected (no drifting, pulsing or
   ring animation; the demo still works).
-- **Light on the wire**: images are lossless WebP at the displayed size with 1x/2x `srcset`,
-  real `width`/`height`, `loading="lazy"` below the fold; images of the theme not shown are not
-  downloaded. The whole first view stays well under 500 KB.
+- **Light on the wire**: screenshots are near-lossless WebP (indistinguishable from lossless,
+  about 30% smaller) in three widths, 1x, 1.5x and 2x of the displayed size, listed with width
+  descriptors and a `sizes` that matches the layout, so every screen downloads only the width it
+  needs. Small images (icons, menu bar badges) stay lossless with 1x/2x `srcset`. All images have
+  real `width`/`height` and `loading="lazy"`, which keeps the theme not shown from downloading
+  (a lazy image that is not displayed is never fetched); the hero screenshot also has
+  `fetchpriority="high"`. Scripts never force a layout at start-up (measure in
+  `requestAnimationFrame` or a `ResizeObserver`). The whole first view stays well under 500 KB.
+- **Known limits**: `style.css` and `theme.js` block rendering on purpose (the CSP forbids inline
+  styles and scripts, and the theme must be set before the first paint), and GitHub Pages caches
+  everything for 10 minutes; neither can be changed here.
 - **Translatable.** English only for now. Copy lives in the HTML; the strings scripts show live in
   one object at the top of `main.js`. A Turkish page will be `site/tr/index.html`; the footer gets
   its "Türkçe" link only when that page exists (no dead links).
@@ -132,9 +140,10 @@ scripts/site-assets.sh          # builds the app, renders, converts to WebP, wri
 
 The script runs `PASSTUNNEL_RENDER=<tmp> .build/…/PassTunnel`, picks the screens the site uses
 (main window light/dark at identical sizes, profile editor one-time code section, menu bar badges
-for every palette light/dark, General settings, helper onboarding step), writes 1x and 2x lossless
-WebP, the favicon and Apple touch icon from `Resources/AppIcon.icns`, and the 1200×630 social
-image from `scripts/site/og.html` (headless Chrome). It needs `cwebp` (`brew install webp`) and
+for every palette light/dark, General settings, helper onboarding step), writes the screenshots as
+1x, 1.5x and 2x near-lossless WebP and the menu bar badges and icons as 1x and 2x lossless WebP,
+the favicon and Apple touch icon from `Resources/AppIcon.icns`, and the 1200×630 social image from
+`scripts/site/og.html` (headless Chrome). It needs `cwebp` (`brew install webp`) and
 Google Chrome. Rerun it after UI changes that show up in these screens.
 
 ## Checks
@@ -143,6 +152,8 @@ Google Chrome. Rerun it after UI changes that show up in these screens.
 
 - any HTML file has a `style` attribute, an inline `<script>` or an `on…=` handler;
 - a local link, `src` or `srcset` points to a missing file, or an in-page `#anchor` has no target;
+- a `srcset` has a malformed descriptor, mixes width and density descriptors, or has width
+  descriptors without `sizes`;
 - a resource loads from another origin (links to github.com are fine);
 - an `<img>` lacks `alt`, `width` or `height`;
 - the CSP meta tag is missing or changed.
