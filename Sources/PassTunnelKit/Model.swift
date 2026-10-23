@@ -131,6 +131,14 @@ public struct Profile: Codable, Identifiable, Equatable {
         }
     }
 
+    /// Throws `PTError.invalidField` for a gateway host (`host`) or health-check host (`health_host`)
+    /// that is set but not usable: one with a port, a scheme, whitespace or control characters. Both are
+    /// checked exactly as stored, because that is what connecting and probing use.
+    public func checkHosts() throws {
+        if !host.isEmpty, !FortiConfig.isValidHost(host) { throw PTError.invalidField("host") }
+        if !healthHost.isEmpty, HealthCheck.parse(healthHost) == nil { throw PTError.invalidField("health_host") }
+    }
+
     /// What must be asked from the user before connecting. Empty for certificate-only profiles.
     public var needs: [CredentialField] {
         if passwordMode == .none { return [] }

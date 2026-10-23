@@ -1429,6 +1429,39 @@
       ]
     },
     {
+      "name": "NUL byte in a quoted remote host",
+      "config": "client\nremote \"vpn.example.com\u0000\" 1194\nauth-user-pass\n",
+      "violations": [
+        {
+          "directive": "(line)",
+          "line": 2,
+          "reason": "contains a NUL byte"
+        }
+      ]
+    },
+    {
+      "name": "NUL byte before a second directive",
+      "config": "client\nremote 2001:db8::1\u0000up /tmp/x\nauth-user-pass\n",
+      "violations": [
+        {
+          "directive": "(line)",
+          "line": 2,
+          "reason": "contains a NUL byte"
+        }
+      ]
+    },
+    {
+      "name": "NUL byte in a file path",
+      "config": "client\nca \"/etc/ssl/cert.pem\u0000x\"\n",
+      "violations": [
+        {
+          "directive": "(line)",
+          "line": 2,
+          "reason": "contains a NUL byte"
+        }
+      ]
+    },
+    {
       "name": "a show-pkcs11-ids block",
       "config": "<show-pkcs11-ids>\n/tmp/evil.dylib\n</show-pkcs11-ids>\n",
       "violations": [

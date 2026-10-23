@@ -3,6 +3,7 @@ import CryptoKit
 import Foundation
 import PassTunnelKit
 import PassTunnelShared
+import PassTunnelVPNConfig
 #if canImport(AppKit)
 import AppKit
 #endif
@@ -987,6 +988,8 @@ public final class ConnectionManager: ObservableObject {
             guard FileManager.default.fileExists(atPath: store.ovpnURL(id).path) else { throw PTError.missingConfig(id) }
         case .forti:
             guard !p.host.trimmingCharacters(in: .whitespaces).isEmpty else { throw PTError.missingHost(id) }
+            // The helper refuses it too; a profile.json changed outside the app fails here, before any secret is sent.
+            guard FortiConfig.isValidHost(p.host) else { throw PTError.invalidField("host") }
         }
         if p.passwordMode == .keychain && !Secrets.has(id, .password) { throw PTError.missingPassword(id) }
         if p.otpMode == .totp && !Secrets.has(id, .totp) { throw PTError.missingTOTPSecret(id) }
