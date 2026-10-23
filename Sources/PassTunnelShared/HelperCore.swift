@@ -25,6 +25,8 @@ public struct HelperCore {
         case socketPathTooLong(String)
         case notASocket(String)
         case configChanged
+        /// A line-based file for a root process failed the final check (`checkLines`).
+        case unsafeFile(String)
         case system(String, Int32)
 
         public var description: String {
@@ -48,6 +50,7 @@ public struct HelperCore {
             case .notASocket(let p): return "Refusing to replace \(p): it is not a socket."
             case .configChanged:
                 return "\(HelperCore.configFileName) changed after PassTunnel checked it. Connect again to confirm the new settings."
+            case .unsafeFile(let name): return "Refusing to write \(name): its contents failed the final check."
             case .system(let what, let err): return "\(what): \(String(cString: strerror(err)))"
             }
         }
@@ -237,11 +240,15 @@ public struct HelperCore {
         let runDir = session.path
         do {
             let configPath = runDir + "/" + Self.configFileName
+            // The sanitizer refuses NUL lines; checked again on what is actually written.
+            guard !Self.containsNUL(sanitized) else { throw Failure.unsafeFile(Self.configFileName) }
             try Self.writeNewFile(configPath, Data(sanitized.utf8), mode: 0o600)
             var authPath: String?
             if !username.isEmpty {
                 authPath = runDir + "/auth"
-                try Self.writeNewFile(authPath!, Data((username + "\n" + secret + "\n").utf8), mode: 0o600)
+                let auth = Self.authFileText(username: username, secret: secret)
+                try Self.checkLines(auth, count: 2, file: "auth")
+                try Self.writeNewFile(authPath!, Data(auth.utf8), mode: 0o600)
             }
             let dnsPath = try stageDNSScript(in: runDir)
             let args = Self.openVPNArguments(configPath: configPath, mgmtSocket: socketPath, clientUser: clientUser,
@@ -320,6 +327,17 @@ public struct HelperCore {
     /// Lowercase hex SHA-256, as `OpenVPNStart.configSHA256` carries it.
     public static func sha256Hex(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// OpenVPN's `--auth-user-pass` file: the user name, then the password, one per line.
+    static func authFileText(username: String, secret: String) -> String { username + "\n" + secret + "\n" }
+
+    /// Defense in depth for a line-based file a root process reads: `text` must be exactly `count`
+    /// lines, each ending in "\n", with no NUL and no CR. Throws `Failure.unsafeFile(file)` otherwise.
+    public static func checkLines(_ text: String, count: Int, file: String) throws {
+        let bytes = Array(text.utf8)
+        guard !bytes.contains(0), !bytes.contains(0x0D), bytes.last == 0x0A,
+              bytes.lazy.filter({ $0 == 0x0A }).count == count else { throw Failure.unsafeFile(file) }
     }
 
     /// A path for a C call: anything after a NUL would be silently ignored there.

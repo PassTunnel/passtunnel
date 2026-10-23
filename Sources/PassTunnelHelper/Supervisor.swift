@@ -228,6 +228,13 @@ final class Supervisor {
     /// helper can adopt still-running tools.
     private func writeState(plan: HelperCore.LaunchPlan, pid: pid_t, executable: String) {
         let text = "\(pid)\n\(plan.ownerUID)\n\(executable)\n\(plan.profileDir.path)\n\(plan.mgmtSocket ?? "")\n"
+        // Read back by this helper as root (`readState`): one field per line, or not written at all.
+        do {
+            try HelperCore.checkLines(text, count: 5, file: "state")
+        } catch {
+            log.error("not recording state for \(plan.profileID, privacy: .public): \(String(describing: error), privacy: .public)")
+            return
+        }
         try? HelperCore.writeNewFile(plan.runDir + "/state", Data(text.utf8), mode: 0o600)
     }
 

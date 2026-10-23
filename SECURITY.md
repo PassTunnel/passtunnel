@@ -154,6 +154,8 @@ FortiGate, stop, and status. It enforces the following rules on every request.
   character or whitespace is accepted; the port must be 1–65535, the trusted certificate must be a
   64-character SHA-256 hex digest, and credentials may not contain line breaks, control characters
   or surrounding whitespace. The app refuses such a host already when a profile is saved or imported.
+- The finished file is checked once more before it is written: the expected number of lines, no NUL,
+  carriage return or other control byte, and only the keys PassTunnel writes, each once.
 - No value is longer than openfortivpn keeps (it copies each into a fixed buffer and silently drops
   the rest): host at most 253 bytes, user name 64, password 255, one-time code 64 (UTF-8 bytes, not
   characters). The app refuses a longer FortiGate user name already when the profile is saved or a

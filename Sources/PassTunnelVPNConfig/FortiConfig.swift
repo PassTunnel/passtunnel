@@ -17,6 +17,8 @@ public struct FortiConfig: Equatable, CustomStringConvertible, CustomDebugString
         case invalidPort(Int)
         case invalidTrustedCert
         case invalidValue(field: String, reason: String)
+        /// The rendered text failed the final check (`checkRendered`): a validator let something through.
+        case unsafeOutput(String)
 
         public var description: String {
             switch self {
@@ -24,6 +26,7 @@ public struct FortiConfig: Equatable, CustomStringConvertible, CustomDebugString
             case .invalidPort(let p): return "Invalid port \(p) (must be 1–65535)."
             case .invalidTrustedCert: return "The trusted certificate must be a SHA-256 digest (64 hex characters)."
             case .invalidValue(let f, let r): return "Invalid \(f): \(r)."
+            case .unsafeOutput(let r): return "The openfortivpn configuration failed its final check: \(r)."
             }
         }
         public var errorDescription: String? { description }
@@ -76,7 +79,12 @@ public struct FortiConfig: Equatable, CustomStringConvertible, CustomDebugString
         }
     }
 
-    /// The config file text. Throws `ValidationError` instead of emitting anything unsafe.
+    /// Every key `render` can write, in its order.
+    public static let renderedKeys = ["host", "port", "username", "password", "otp", "ca-file", "trusted-cert",
+                                      "set-routes", "set-dns", "pppd-use-peerdns"]
+
+    /// The config file text. Throws `ValidationError` instead of emitting anything unsafe: the fields
+    /// are validated first, and the finished text is checked again (`checkRendered`) before it is returned.
     public func render() throws -> String {
         try validate()
         var lines = [
@@ -93,7 +101,37 @@ public struct FortiConfig: Equatable, CustomStringConvertible, CustomDebugString
         lines.append("set-routes = \(setRoutes ? 1 : 0)")
         lines.append("set-dns = \(setDNS ? 1 : 0)")
         lines.append("pppd-use-peerdns = \(setDNS ? 1 : 0)")
-        return lines.joined(separator: "\n") + "\n"
+        let text = lines.joined(separator: "\n") + "\n"
+        try Self.checkRendered(text, lineCount: lines.count)
+        return text
+    }
+
+    /// Defense in depth for the file a root process reads: `text` must be exactly `lineCount` lines, each
+    /// ending in "\n", with no NUL, CR or other control byte, and every line either a `#` comment or
+    /// `key = value` with a key from `renderedKeys`, each key at most once and in that order.
+    static func checkRendered(_ text: String, lineCount: Int) throws {
+        func fail(_ reason: String) -> ValidationError { .unsafeOutput(reason) }
+        let bytes = Array(text.utf8)
+        guard !bytes.contains(0) else { throw fail("NUL byte") }
+        guard !bytes.contains(0x0D) else { throw fail("carriage return") }
+        guard !bytes.contains(where: { ($0 < 0x20 && $0 != 0x0A) || $0 == 0x7F }) else { throw fail("control byte") }
+        guard bytes.last == 0x0A else { throw fail("no final line break") }
+        let lines = bytes.dropLast().split(separator: 0x0A, omittingEmptySubsequences: false)
+        guard lines.count == lineCount else { throw fail("\(lines.count) lines instead of \(lineCount)") }
+        var next = 0   // index into renderedKeys: keys must appear once each, in order
+        for (n, line) in lines.enumerated() {
+            if line.first == UInt8(ascii: "#") { continue }
+            let separator = Array(" = ".utf8)
+            guard let eq = line.firstIndex(of: UInt8(ascii: "=")), eq > line.startIndex,
+                  Array(line[(eq - 1)...].prefix(3)) == separator, eq + 2 < line.endIndex else {
+                throw fail("line \(n + 1) is not “key = value”")
+            }
+            let key = String(decoding: line[..<(eq - 1)], as: UTF8.self)
+            guard let k = renderedKeys[next...].firstIndex(of: key) else {
+                throw fail("line \(n + 1) has an unexpected or repeated key")
+            }
+            next = k + 1
+        }
     }
 
     // MARK: - Validation helpers
