@@ -182,16 +182,34 @@
 
   /* ---------- Horizontal scrollers: fade the edge that cuts text ---------- */
 
-  Array.prototype.forEach.call(document.querySelectorAll('[data-scroller]'), function (el) {
-    var update = function () {
-      var max = el.scrollWidth - el.clientWidth;
-      el.classList.toggle('fade-start', max > 1 && el.scrollLeft > 1);
-      el.classList.toggle('fade-end', max > 1 && el.scrollLeft < max - 1);
-    };
-    el.addEventListener('scroll', update, { passive: true });
-    window.addEventListener('resize', update);
-    update();
+  // Measured only after layout (ResizeObserver callbacks, scroll events, animation frames), never
+  // during start-up, so reading the sizes does not force a synchronous layout.
+  var scrollers = Array.prototype.slice.call(document.querySelectorAll('[data-scroller]'));
+
+  function updateScroller(el) {
+    var max = el.scrollWidth - el.clientWidth;
+    el.classList.toggle('fade-start', max > 1 && el.scrollLeft > 1);
+    el.classList.toggle('fade-end', max > 1 && el.scrollLeft < max - 1);
+  }
+
+  scrollers.forEach(function (el) {
+    el.addEventListener('scroll', function () { updateScroller(el); }, { passive: true });
   });
+
+  if ('ResizeObserver' in window) {
+    // Called once after the first layout, then whenever a scroller changes size.
+    var scrollerObserver = new ResizeObserver(function (entries) {
+      entries.forEach(function (entry) { updateScroller(entry.target); });
+    });
+    scrollers.forEach(function (el) { scrollerObserver.observe(el); });
+  } else if (scrollers.length) {
+    var updateAll = function () { scrollers.forEach(updateScroller); };
+    var pending = 0;
+    window.addEventListener('resize', function () {
+      if (!pending) pending = window.requestAnimationFrame(function () { pending = 0; updateAll(); });
+    });
+    window.requestAnimationFrame(updateAll);
+  }
 
   /* ---------- Pickers: aria-pressed button groups ---------- */
 
