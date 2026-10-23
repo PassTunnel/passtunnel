@@ -5,6 +5,11 @@ signed `appcast.xml` for Sparkle (in-app updates), a Homebrew cask, and an MCP b
 Claude Desktop and the MCP Registry. `scripts/release.sh` builds all of them into `dist/`; with
 `--publish` it also tags the commit and creates the GitHub release.
 
+The disk image is attached twice, as `PassTunnel-VERSION.dmg` and as `PassTunnel.dmg` (the same
+bytes), so <https://github.com/PassTunnel/passtunnel/releases/latest/download/PassTunnel.dmg> always
+downloads the latest one. Pre-releases never become "latest", and releases up to 1.1.3 have only the
+versioned name.
+
 Releases are made by GitHub Actions: merging `dev` into `main` starts
 [`.github/workflows/release.yml`](../.github/workflows/release.yml), which works out the version and
 the release notes, waits for the maintainer's approval, runs `release.sh --publish` on a macOS runner,
@@ -104,8 +109,8 @@ they all match.
      key to a file and runs `scripts/release.sh VERSION --publish --draft --notes-file …`, which
      tags, builds and uploads everything to a **draft** release. It then creates a build provenance
      attestation for the dmg, zip and MCP bundle (`actions/attest-build-provenance`), checks its
-     Sigstore bundle against the three files, attaches it to the draft as
-     `PassTunnel-VERSION.intoto.jsonl` and publishes the draft with
+     Sigstore bundle against the three files and `PassTunnel.dmg` (the dmg's copy, same digest),
+     attaches it to the draft as `PassTunnel-VERSION.intoto.jsonl` and publishes the draft with
      `scripts/release.sh VERSION --publish-draft --attach dist/PassTunnel-VERSION.intoto.jsonl`
      (which checks that the draft has all its files; a pre-release is marked as such and never
      becomes "latest"). The provenance has to be attached before publishing, because an immutable
@@ -123,14 +128,16 @@ immutable release are the proof of origin.
 
 Every release made by the workflow carries `PassTunnel-VERSION.intoto.jsonl`: the Sigstore bundle
 (one JSON line) of the build provenance attestation of `PassTunnel-VERSION.dmg`,
-`PassTunnel-VERSION.zip` and `PassTunnel-mcp-VERSION.mcpb`. It says which commit and which run of
-`release.yml` built the files, and is signed with the run's GitHub identity (Sigstore, recorded in
-the public transparency log). The same attestation is stored on GitHub, so either of these checks a
+`PassTunnel-VERSION.zip` and `PassTunnel-mcp-VERSION.mcpb`. `PassTunnel.dmg` has the same bytes as
+`PassTunnel-VERSION.dmg`, and an attestation is found by the file's SHA-256 digest, not by its name,
+so it covers that copy too. It says which commit and which run of `release.yml` built the files, and
+is signed with the run's GitHub identity (Sigstore, recorded in the public transparency log). The same attestation is stored on GitHub, so either of these checks a
 downloaded file:
 
 ```sh
 gh attestation verify PassTunnel-1.2.0.dmg -R PassTunnel/passtunnel
 gh attestation verify PassTunnel-1.2.0.dmg -R PassTunnel/passtunnel --bundle PassTunnel-1.2.0.intoto.jsonl
+gh attestation verify PassTunnel.dmg -R PassTunnel/passtunnel
 ```
 
 The first asks GitHub for the attestation; the second uses the bundle from the release instead
@@ -147,8 +154,9 @@ provenance: the attestation needs the workflow's GitHub identity.
 Fix the cause and use Actions → Release → Run workflow on `main`. When `HEAD` already has the tag of
 an unfinished release, that version is built again: `release.sh` replaces the draft's files and
 removes files it did not build (a provenance bundle of the earlier build would not match the new
-files), and a new attestation is attached before the draft is published. A published release is
-final, and the run then only reports it.
+files), and a new attestation is attached before the draft is published. `PassTunnel.dmg` is one
+of the files it builds: it is copied again from the new disk image and replaces the draft's copy. A
+published release is final, and the run then only reports it.
 
 ### Setup
 
@@ -203,10 +211,11 @@ tag from the `main` that is on GitHub, and the tap and the MCP Registry are then
    | File | |
    |---|---|
    | `dist/PassTunnel-1.2.0.dmg` | download for people |
+   | `dist/PassTunnel.dmg` | the same disk image under a name without the version, for the `…/releases/latest/download/PassTunnel.dmg` link; written again by every build (a copy left by an earlier build is deleted first) |
    | `dist/PassTunnel-1.2.0.zip` | Sparkle update archive |
    | `dist/appcast.xml` | Sparkle feed: the feed and the zip are EdDSA-signed, download URLs on the `v1.2.0` release |
    | `dist/PassTunnel-mcp-1.2.0.mcpb` | MCP bundle for Claude Desktop and the MCP Registry |
-   | `dist/SHA256SUMS` | checksums of the dmg, zip and MCP bundle |
+   | `dist/SHA256SUMS` | checksums of the dmg (under both names), zip and MCP bundle |
    | `dist/passtunnel.rb` | Homebrew cask (from `scripts/homebrew/passtunnel.rb.template`) |
    | `dist/server.json` | the MCP Registry entry for this release (for reference; the workflow publishes its own copy) |
    | `dist/release-notes-1.2.0.md` | the changelog section |
@@ -220,9 +229,10 @@ tag from the `main` that is on GitHub, and the tap and the MCP Registry are then
    ```
 
    This repeats the build, creates the tag `v1.2.0` (signed if a signing key is set up, see
-   One-time setup), pushes it, creates a **draft** GitHub release with the dmg, zip, MCP bundle,
-   `appcast.xml` and `SHA256SUMS`, checks that all five are attached, and only then publishes it
-   (pre-releases are marked as such and never become "latest"). Publishing it starts the MCP Registry
+   One-time setup), pushes it, creates a **draft** GitHub release with the dmg (as
+   `PassTunnel-1.2.0.dmg` and `PassTunnel.dmg`), zip, MCP bundle, `appcast.xml` and `SHA256SUMS`,
+   checks that all six are attached, and only then publishes it (pre-releases are marked as such
+   and never become "latest"). Publishing it starts the MCP Registry
    workflow; check that its run under Actions succeeds. With `--draft` it stops before publishing; publish
    the draft on GitHub, run the command again without `--draft`, or publish it without building
    again with `scripts/release.sh 1.2.0 --publish-draft` (`--attach FILE`, repeatable, first uploads
@@ -231,9 +241,9 @@ tag from the `main` that is on GitHub, and the tap and the MCP Registry are then
    release is published (not while it is a draft or a pre-release). Pre-release appcasts also use
    the Sparkle channel `beta`, which the app does not follow.
    If the push or the release fails, run the same command again: a tag at `HEAD` is reused, and a
-   draft release of the tag gets its assets replaced (other files on the draft, such as a
-   provenance bundle of an earlier build, are removed). A published release is final (with immutable
-   releases GitHub refuses changes); fix problems with a new version.
+   draft release of the tag gets its assets replaced, `PassTunnel.dmg` included (other files on the
+   draft, such as a provenance bundle of an earlier build, are removed). A published release is
+   final (with immutable releases GitHub refuses changes); fix problems with a new version.
 4. **Homebrew tap.** Copy `dist/passtunnel.rb` to `Casks/passtunnel.rb` in the tap repository
    (`TAP_REPO`), check it and push:
 

@@ -5,10 +5,11 @@
 #                   release, and the run ends here (successfully, with a notice).
 #   release         builds, signs and notarizes the release and uploads it to a draft release with
 #                   scripts/release.sh VERSION --publish --draft --notes-file …, attests the dmg, zip
-#                   and MCP bundle (build provenance), attaches the attestation's Sigstore bundle as
-#                   PassTunnel-VERSION.intoto.jsonl and publishes the draft with
-#                   scripts/release.sh VERSION --publish-draft --attach … (immutable releases take no
-#                   new files once published), then commits dist/passtunnel.rb as
+#                   and MCP bundle (build provenance; PassTunnel.dmg, the dmg's copy under a name
+#                   without the version, has the dmg's digest and so is covered too), attaches the
+#                   attestation's Sigstore bundle as PassTunnel-VERSION.intoto.jsonl and publishes
+#                   the draft with scripts/release.sh VERSION --publish-draft --attach … (immutable
+#                   releases take no new files once published), then commits dist/passtunnel.rb as
 #                   Casks/passtunnel.rb to the Homebrew tap. Checking a file (docs/RELEASING.md):
 #                   gh attestation verify FILE -R PassTunnel/passtunnel [--bundle BUNDLE]
 #   mcp-registry    publish-mcp.yml for the new tag.
@@ -207,7 +208,8 @@ jobs:
           rm -P "$SPARKLE_PRIVATE_KEY_FILE"
 
       # One attestation for the three files, stored on GitHub and written as a Sigstore bundle (one JSON
-      # line) to bundle-path.
+      # line) to bundle-path. dist/PassTunnel.dmg is not a subject of its own: it has the bytes of the
+      # versioned dmg, and gh attestation verify looks attestations up by digest, not by file name.
       - name: Attest the release files
         id: attest
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
@@ -229,7 +231,8 @@ jobs:
         run: |
           provenance="dist/PassTunnel-$VERSION.intoto.jsonl"
           cp "$BUNDLE" "$provenance"
-          for file in "dist/PassTunnel-$VERSION.dmg" "dist/PassTunnel-$VERSION.zip" "dist/PassTunnel-mcp-$VERSION.mcpb"; do
+          for file in "dist/PassTunnel-$VERSION.dmg" dist/PassTunnel.dmg "dist/PassTunnel-$VERSION.zip" \
+                      "dist/PassTunnel-mcp-$VERSION.mcpb"; do
             gh attestation verify "$file" --repo "$REPO" --bundle "$provenance" \
               --signer-workflow "$REPO/.github/workflows/release.yml" --source-ref refs/heads/main >/dev/null
             echo "$file: provenance verified"
