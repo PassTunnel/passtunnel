@@ -33,9 +33,10 @@ maintained. The code in `site/` is the source of truth for the exact look.
   descriptors and a `sizes` that matches the layout, so every screen downloads only the width it
   needs. Small images (icons, menu bar badges) stay lossless with 1x/2x `srcset`. All images have
   real `width`/`height` and `loading="lazy"`, which keeps the theme not shown from downloading
-  (a lazy image that is not displayed is never fetched); the hero screenshot also has
-  `fetchpriority="high"`. Scripts never force a layout at start-up (measure in
-  `requestAnimationFrame` or a `ResizeObserver`). The whole first view stays well under 500 KB.
+  (a lazy image that is not displayed is never fetched). The hero screenshot gets no fetch
+  priority: on phones it is below the fold and would compete with `style.css`. Scripts never force
+  a layout at start-up (measure in `requestAnimationFrame` or a `ResizeObserver`). The whole first
+  view stays well under 500 KB.
 - **Known limits**: `style.css` and `theme.js` block rendering on purpose (the CSP forbids inline
   styles and scripts, and the theme must be set before the first paint), and GitHub Pages caches
   everything for 10 minutes; neither can be changed here.
