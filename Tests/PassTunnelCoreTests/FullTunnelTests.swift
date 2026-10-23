@@ -1,6 +1,7 @@
 import Darwin
 import XCTest
 @testable import PassTunnelCore
+@testable import PassTunnelKit
 
 /// Routing table parsing, the other-VPN check and reading set-up failures from the OpenVPN log.
 final class FullTunnelTests: XCTestCase {

@@ -1,5 +1,6 @@
 import AppKit
 import PassTunnelCore
+import PassTunnelKit
 import SwiftUI
 
 /// Curated SF Symbols that exist on macOS 13.

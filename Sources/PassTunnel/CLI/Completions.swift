@@ -1,4 +1,5 @@
 import PassTunnelCore
+import PassTunnelKit
 
 /// Shell completion scripts (`passtunnel completion zsh|bash|fish`). Profile ids come from
 /// `passtunnel list --quiet`.

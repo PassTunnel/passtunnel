@@ -1,5 +1,5 @@
 import Foundation
-import PassTunnelShared
+import PassTunnelVPNConfig
 
 /// Makes an .ovpn self-contained: directives that point at files (`ca ca.crt`, `tls-auth ta.key 1`, …)
 /// are replaced by inline blocks, because the helper only accepts inline content.
@@ -204,6 +204,8 @@ public enum OVPNInliner {
     // MARK: files
 
     static func readReferenced(_ path: String, baseDir: URL, insideBaseDir: Bool = false) throws -> Data {
+        // No file name has a NUL; the file system calls below would read only the part before it.
+        guard !path.utf8.contains(0) else { throw PTError.ovpnReferencedFile(path) }
         let url = path.hasPrefix("/")
             ? URL(fileURLWithPath: path)
             : baseDir.appendingPathComponent(path)

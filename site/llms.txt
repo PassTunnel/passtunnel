@@ -47,5 +47,6 @@ Every command with a result takes `--json`; any command takes `--no-input` and `
 - [App and CLI behavior](https://raw.githubusercontent.com/PassTunnel/passtunnel/main/docs/APP.md)
 - [Architecture](https://raw.githubusercontent.com/PassTunnel/passtunnel/main/docs/ARCHITECTURE.md)
 - [Website](https://passtunnel.github.io/)
+- [Privacy policy](https://passtunnel.github.io/privacy/): nothing is collected; what stays on the device and which connections the apps make
 - [Releases](https://github.com/PassTunnel/passtunnel/releases)
 - [Repository](https://github.com/PassTunnel/passtunnel)

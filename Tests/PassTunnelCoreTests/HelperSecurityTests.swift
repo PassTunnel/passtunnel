@@ -1,5 +1,6 @@
 import XCTest
 @testable import PassTunnelShared
+@testable import PassTunnelVPNConfig
 
 // MARK: - Request decoding (size, JSON, version, type)
 

@@ -1,0 +1,400 @@
+{
+  "about": "The editor's Save: only the fields the editor changed (original → edited) are applied to the stored profile (current).",
+  "merge": [
+    {
+      "name": "the editor and another change both survive",
+      "original": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "openvpn",
+        "username": "alice",
+        "health_host": "10.0.0.5",
+        "otp_mode": "totp"
+      },
+      "edited": {
+        "id": "acme",
+        "name": "Acme Corp",
+        "type": "openvpn",
+        "username": "alice",
+        "health_host": "10.0.0.5",
+        "otp_mode": "totp",
+        "totp": {
+          "digits": 8
+        },
+        "auto_reconnect": true
+      },
+      "current": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "openvpn",
+        "username": "bob",
+        "health_host": "10.0.0.5",
+        "otp_mode": "totp",
+        "totp": {
+          "period": 60
+        },
+        "pinned": true,
+        "config_source_name": "acme.ovpn"
+      },
+      "changed_fields": [
+        "auto_reconnect",
+        "name",
+        "totp.digits"
+      ],
+      "merged": {
+        "auto_reconnect": true,
+        "badge": "",
+        "badge_style": "letter",
+        "config_source_name": "acme.ovpn",
+        "health_host": "10.0.0.5",
+        "host": "",
+        "icon": "",
+        "id": "acme",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "Acme Corp",
+        "order": 0,
+        "otp_delivery": "combined",
+        "otp_mode": "totp",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": true,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 8,
+          "period": 60
+        },
+        "trusted_cert": "",
+        "type": "openvpn",
+        "username": "bob"
+      }
+    },
+    {
+      "name": "the editor wins on the fields it changed",
+      "original": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "openvpn",
+        "username": "alice",
+        "health_host": "10.0.0.5",
+        "otp_mode": "totp"
+      },
+      "edited": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "openvpn",
+        "username": "alice",
+        "health_host": "10.0.0.7",
+        "otp_mode": "totp"
+      },
+      "current": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "openvpn",
+        "username": "alice",
+        "health_host": "10.0.0.6",
+        "otp_mode": "totp"
+      },
+      "changed_fields": [
+        "health_host"
+      ],
+      "merged": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "health_host": "10.0.0.7",
+        "host": "",
+        "icon": "",
+        "id": "acme",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "Acme",
+        "order": 0,
+        "otp_delivery": "combined",
+        "otp_mode": "totp",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "openvpn",
+        "username": "alice"
+      }
+    },
+    {
+      "name": "an unchanged editor keeps the stored profile",
+      "original": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "openvpn",
+        "username": "alice",
+        "health_host": "10.0.0.5",
+        "otp_mode": "totp"
+      },
+      "edited": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "openvpn",
+        "username": "alice",
+        "health_host": "10.0.0.5",
+        "otp_mode": "totp"
+      },
+      "current": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "openvpn",
+        "username": "alice",
+        "health_host": "10.0.0.5",
+        "otp_mode": "totp",
+        "order": 7,
+        "last_username": "carol"
+      },
+      "changed_fields": [],
+      "merged": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "health_host": "10.0.0.5",
+        "host": "",
+        "icon": "",
+        "id": "acme",
+        "last_username": "carol",
+        "mgmt_port": 0,
+        "name": "Acme",
+        "order": 7,
+        "otp_delivery": "combined",
+        "otp_mode": "totp",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "openvpn",
+        "username": "alice"
+      }
+    },
+    {
+      "name": "clearing an optional field removes it",
+      "original": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "openvpn",
+        "username": "alice",
+        "health_host": "10.0.0.5",
+        "otp_mode": "totp",
+        "config_source_name": "old.ovpn"
+      },
+      "edited": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "openvpn",
+        "username": "alice",
+        "health_host": "10.0.0.5",
+        "otp_mode": "totp"
+      },
+      "current": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "openvpn",
+        "username": "dave",
+        "health_host": "10.0.0.5",
+        "otp_mode": "totp",
+        "config_source_name": "old.ovpn"
+      },
+      "changed_fields": [
+        "config_source_name"
+      ],
+      "merged": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "health_host": "10.0.0.5",
+        "host": "",
+        "icon": "",
+        "id": "acme",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "Acme",
+        "order": 0,
+        "otp_delivery": "combined",
+        "otp_mode": "totp",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "openvpn",
+        "username": "dave"
+      }
+    },
+    {
+      "name": "the id stays the stored one",
+      "original": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "openvpn",
+        "username": "alice",
+        "health_host": "10.0.0.5",
+        "otp_mode": "totp"
+      },
+      "edited": {
+        "id": "other",
+        "name": "Acme",
+        "type": "openvpn",
+        "username": "alice",
+        "health_host": "10.0.0.5",
+        "otp_mode": "totp"
+      },
+      "current": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "openvpn",
+        "username": "alice",
+        "health_host": "10.0.0.5",
+        "otp_mode": "totp"
+      },
+      "changed_fields": [
+        "id"
+      ],
+      "merged": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "health_host": "10.0.0.5",
+        "host": "",
+        "icon": "",
+        "id": "acme",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "Acme",
+        "order": 0,
+        "otp_delivery": "combined",
+        "otp_mode": "totp",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "openvpn",
+        "username": "alice"
+      }
+    },
+    {
+      "name": "nested fields merge one by one",
+      "original": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "openvpn",
+        "username": "alice",
+        "health_host": "10.0.0.5",
+        "otp_mode": "totp",
+        "totp": {
+          "digits": 6,
+          "period": 30,
+          "algorithm": "sha1"
+        }
+      },
+      "edited": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "openvpn",
+        "username": "alice",
+        "health_host": "10.0.0.5",
+        "otp_mode": "totp",
+        "totp": {
+          "digits": 6,
+          "period": 30,
+          "algorithm": "sha512"
+        }
+      },
+      "current": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "openvpn",
+        "username": "alice",
+        "health_host": "10.0.0.5",
+        "otp_mode": "totp",
+        "totp": {
+          "digits": 8,
+          "period": 60,
+          "algorithm": "sha1"
+        }
+      },
+      "changed_fields": [
+        "totp.algorithm"
+      ],
+      "merged": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "health_host": "10.0.0.5",
+        "host": "",
+        "icon": "",
+        "id": "acme",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "Acme",
+        "order": 0,
+        "otp_delivery": "combined",
+        "otp_mode": "totp",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha512",
+          "digits": 8,
+          "period": 60
+        },
+        "trusted_cert": "",
+        "type": "openvpn",
+        "username": "alice"
+      }
+    }
+  ]
+}

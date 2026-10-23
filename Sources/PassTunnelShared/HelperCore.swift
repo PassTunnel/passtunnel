@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import PassTunnelVPNConfig
 
 /// Validation and file preparation done by the privileged helper before it launches a tool.
 /// Everything here works without root so it can be unit-tested with injected paths and uids;
@@ -24,6 +25,8 @@ public struct HelperCore {
         case socketPathTooLong(String)
         case notASocket(String)
         case configChanged
+        /// A line-based file for a root process failed the final check (`checkLines`).
+        case unsafeFile(String)
         case system(String, Int32)
 
         public var description: String {
@@ -47,6 +50,7 @@ public struct HelperCore {
             case .notASocket(let p): return "Refusing to replace \(p): it is not a socket."
             case .configChanged:
                 return "\(HelperCore.configFileName) changed after PassTunnel checked it. Connect again to confirm the new settings."
+            case .unsafeFile(let name): return "Refusing to write \(name): its contents failed the final check."
             case .system(let what, let err): return "\(what): \(String(cString: strerror(err)))"
             }
         }
@@ -93,9 +97,8 @@ public struct HelperCore {
     public static let maxSocketPathBytes = 103
     /// Run root, per-user and per-session directories: root-owned, searchable but not listable.
     public static let runDirMode: mode_t = 0o711
-    /// The system's CA bundle (root-owned, writable only by root). The bundled OpenSSL's default store is the
-    /// build machine's Homebrew prefix, which its owner (or any admin) can change.
-    public static let systemCAFile = "/etc/ssl/cert.pem"
+    /// The system's CA bundle (`FortiConfig.systemCAFile`, which openfortivpn's config names too).
+    public static let systemCAFile = FortiConfig.systemCAFile
     /// Inside root-owned `/var/empty`, and never created.
     public static let missingDirectory = "/var/empty/passtunnel-none"
     /// The tools' only environment. The OpenSSL variables keep the bundled libcrypto from loading a
@@ -173,6 +176,8 @@ public struct HelperCore {
     public func openProfileDir(_ path: String, profileID: String, uid: uid_t) throws -> ProfileDirectory {
         guard Self.isValidProfileID(profileID) else { throw Failure.invalidProfileID(profileID) }
         guard path.hasPrefix("/") else { throw Failure.notAbsolute(path) }
+        // realpath() would stop at a NUL and resolve only what comes before it.
+        guard !Self.containsNUL(path) else { throw Failure.outsideProfilesRoot(path) }
         let root = try profilesRoot(for: uid)
         guard let resolved = Self.realPath(path) else { throw Failure.outsideProfilesRoot(path) }
         guard resolved.hasPrefix(root + "/") else { throw Failure.outsideProfilesRoot(path) }
@@ -202,7 +207,7 @@ public struct HelperCore {
 
     /// The log file name, if `logPath` is a `.log` file directly inside the profile directory.
     public func logFileName(_ logPath: String, in dir: ProfileDirectory) throws -> String {
-        guard logPath.hasPrefix("/") else { throw Failure.invalidLogPath(logPath) }
+        guard logPath.hasPrefix("/"), !Self.containsNUL(logPath) else { throw Failure.invalidLogPath(logPath) }
         let name = (logPath as NSString).lastPathComponent
         let parent = (logPath as NSString).deletingLastPathComponent
         guard ProfileDirectory.isPlainName(name), name.hasSuffix(".log"), name.count > 4,
@@ -235,11 +240,15 @@ public struct HelperCore {
         let runDir = session.path
         do {
             let configPath = runDir + "/" + Self.configFileName
+            // The sanitizer refuses NUL lines; checked again on what is actually written.
+            guard !Self.containsNUL(sanitized) else { throw Failure.unsafeFile(Self.configFileName) }
             try Self.writeNewFile(configPath, Data(sanitized.utf8), mode: 0o600)
             var authPath: String?
             if !username.isEmpty {
                 authPath = runDir + "/auth"
-                try Self.writeNewFile(authPath!, Data((username + "\n" + secret + "\n").utf8), mode: 0o600)
+                let auth = Self.authFileText(username: username, secret: secret)
+                try Self.checkLines(auth, count: 2, file: "auth")
+                try Self.writeNewFile(authPath!, Data(auth.utf8), mode: 0o600)
             }
             let dnsPath = try stageDNSScript(in: runDir)
             let args = Self.openVPNArguments(configPath: configPath, mgmtSocket: socketPath, clientUser: clientUser,
@@ -319,6 +328,20 @@ public struct HelperCore {
     public static func sha256Hex(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
+
+    /// OpenVPN's `--auth-user-pass` file: the user name, then the password, one per line.
+    static func authFileText(username: String, secret: String) -> String { username + "\n" + secret + "\n" }
+
+    /// Defense in depth for a line-based file a root process reads: `text` must be exactly `count`
+    /// lines, each ending in "\n", with no NUL and no CR. Throws `Failure.unsafeFile(file)` otherwise.
+    public static func checkLines(_ text: String, count: Int, file: String) throws {
+        let bytes = Array(text.utf8)
+        guard !bytes.contains(0), !bytes.contains(0x0D), bytes.last == 0x0A,
+              bytes.lazy.filter({ $0 == 0x0A }).count == count else { throw Failure.unsafeFile(file) }
+    }
+
+    /// A path for a C call: anything after a NUL would be silently ignored there.
+    static func containsNUL(_ s: String) -> Bool { s.utf8.contains(0) }
 
     static func checkCredential(_ s: String, field: String, maxBytes: Int) throws {
         guard s.utf8.count <= maxBytes,
@@ -505,7 +528,8 @@ public final class ProfileDirectory {
     deinit { close(fd) }
 
     static func isPlainName(_ name: String) -> Bool {
-        !name.isEmpty && name != "." && name != ".." && !name.contains("/") && !name.contains("\0")
+        !name.isEmpty && name != "." && name != ".." && !name.utf8.contains(UInt8(ascii: "/"))
+            && !name.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7F })
     }
 
     /// Reads a regular, single-link file owned by the user and writable only by them. Symlinks,

@@ -1,5 +1,6 @@
 import XCTest
 @testable import PassTunnelCore
+@testable import PassTunnelKit
 import PassTunnelShared
 
 /// The app keeps one management connection per OpenVPN and follows real-time state; the CLI, which

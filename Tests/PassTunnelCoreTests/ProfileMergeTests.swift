@@ -1,5 +1,6 @@
 import XCTest
 @testable import PassTunnelCore
+@testable import PassTunnelKit
 
 /// The editor's Save applies only what the user changed on top of the stored profile.
 final class ProfileMergeTests: CoreTestCase {

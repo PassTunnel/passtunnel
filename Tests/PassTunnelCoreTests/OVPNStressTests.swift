@@ -1,7 +1,8 @@
 import Foundation
 import XCTest
 @testable import PassTunnelCore
-@testable import PassTunnelShared
+@testable import PassTunnelKit
+@testable import PassTunnelVPNConfig
 
 /// Hostile OpenVPN configs: the sanitizer is the last gate before the helper runs openvpn as root.
 final class OVPNSanitizerFuzzTests: XCTestCase {
@@ -153,6 +154,8 @@ final class FortiConfigFuzzTests: XCTestCase {
             ("leading dot", { $0.host = ".example.com" }), ("leading dash", { $0.host = "-x.example.com" }),
             ("long host", { $0.host = String(repeating: "a", count: 254) }), ("unicode host", { $0.host = "vpn.exämple.com" }),
             ("newline in host", { $0.host = "vpn.example.com\nset-dns = 1" }),
+            ("NUL in v6 host", { $0.host = "2001:db8::1\u{0}\nset-dns = 1" }),
+            ("newline in zone id", { $0.host = "fe80::1%en0\nset-dns = 1" }),
             ("port 0", { $0.port = 0 }), ("port -1", { $0.port = -1 }), ("port 65536", { $0.port = 65536 }),
             ("port max", { $0.port = Int.max }),
             ("digest + newline", { $0.trustedCert = digest + "\nuser-cert = /tmp/x" }),
@@ -176,7 +179,8 @@ final class FortiConfigFuzzTests: XCTestCase {
         XCTAssertEqual(lines.filter { $0.hasPrefix("username = ") }, ["username = a = b # c"])
         XCTAssertEqual(lines.count, 11, "header, 9 settings, final newline")
         XCTAssertNoThrow(try config { $0.username = "ålice şifre" }.render())
-        // A zone id is part of a valid IPv6 literal for inet_pton and cannot leave its line.
+        // A zone id of ASCII letters and digits is accepted (checked in Swift: macOS inet_pton takes
+        // any bytes after "%").
         XCTAssertNoThrow(try config { $0.host = "fe80::1%en0" }.render())
         XCTAssertNoThrow(try config { $0.otp = "" }.render(), "empty code: omitted")
         XCTAssertFalse(try config { $0.otp = "" }.render().contains("otp"))

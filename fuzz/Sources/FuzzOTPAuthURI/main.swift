@@ -1,6 +1,6 @@
 import Foundation
 import FuzzSupport
-import PassTunnelCore
+import PassTunnelKit
 
 // Fuzzes `otpauth://` URI parsing, which runs on whatever a scanned QR code or a pasted link
 // contains: scheme and type handling, percent-decoding of the label and query, Base32/hex secret

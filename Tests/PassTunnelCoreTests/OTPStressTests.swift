@@ -1,6 +1,7 @@
 import Foundation
 import XCTest
 @testable import PassTunnelCore
+@testable import PassTunnelKit
 
 /// Edge cases for TOTP generation, secret decoding, code composition and otpauth links.
 final class TOTPEdgeTests: CoreTestCase {

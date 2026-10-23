@@ -1,5 +1,6 @@
 import XCTest
 @testable import PassTunnelShared
+@testable import PassTunnelVPNConfig
 
 // MARK: - OVPNSanitizer
 

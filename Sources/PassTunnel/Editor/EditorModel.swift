@@ -1,7 +1,8 @@
 import AppKit
 import Foundation
 import PassTunnelCore
-import PassTunnelShared
+import PassTunnelKit
+import PassTunnelVPNConfig
 
 /// State of one editor sheet. Nothing is written to disk or the Keychain until `save()`.
 @MainActor
@@ -561,6 +562,8 @@ final class EditorModel: ObservableObject {
         case .invalidField(let name):
             switch name {
             case "port": return .port
+            case "host": return .host
+            case "health_host": return .healthHost
             case "session_limit_min": return .sessionLimit
             case "totp.digits", "totp.period": return .totpSecret
             default: return .general

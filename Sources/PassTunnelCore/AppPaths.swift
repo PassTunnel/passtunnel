@@ -1,4 +1,5 @@
 import Foundation
+import PassTunnelKit
 import PassTunnelShared
 
 /// Locations of PassTunnel's files. Environment overrides are read at call time (never cached),

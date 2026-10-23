@@ -1,5 +1,6 @@
 import AppKit
 import PassTunnelCore
+import PassTunnelKit
 import SwiftUI
 
 /// Renders editor states to PNG files offscreen (debug / screenshot path; the window is never shown).

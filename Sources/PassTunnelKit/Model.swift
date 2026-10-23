@@ -1,5 +1,5 @@
 import Foundation
-import PassTunnelShared
+import PassTunnelVPNConfig
 
 public enum VPNType: String, Codable, CaseIterable { case openvpn, forti }
 public enum PasswordMode: String, Codable, CaseIterable { case keychain, ask, none }   // none = certificate only
@@ -42,6 +42,9 @@ public enum CredentialField: String, Codable {
         }
     }
 }
+
+/// A secret a profile can have stored (on the Mac, the Keychain item "<profileID>/<kind>").
+public enum SecretKind: String, CaseIterable { case password, totp }
 
 public struct TOTPParams: Codable, Equatable {
     public var digits = 6
@@ -126,6 +129,14 @@ public struct Profile: Codable, Identifiable, Equatable {
         guard sent.utf8.count <= FortiConfig.maxUsernameBytes else {
             throw PTError.usernameTooLong(maxBytes: FortiConfig.maxUsernameBytes)
         }
+    }
+
+    /// Throws `PTError.invalidField` for a gateway host (`host`) or health-check host (`health_host`)
+    /// that is set but not usable: one with a port, a scheme, whitespace or control characters. Both are
+    /// checked exactly as stored, because that is what connecting and probing use.
+    public func checkHosts() throws {
+        if !host.isEmpty, !FortiConfig.isValidHost(host) { throw PTError.invalidField("host") }
+        if !healthHost.isEmpty, HealthCheck.parse(healthHost) == nil { throw PTError.invalidField("health_host") }
     }
 
     /// What must be asked from the user before connecting. Empty for certificate-only profiles.
@@ -236,19 +247,19 @@ extension CodingUserInfoKey {
 
 extension KeyedDecodingContainer {
     /// Missing key, null or wrong type → nil instead of an error.
-    func lenient<T: Decodable>(_ type: T.Type, _ key: Key) -> T? {
+    package func lenient<T: Decodable>(_ type: T.Type, _ key: Key) -> T? {
         (try? decodeIfPresent(type, forKey: key)) ?? nil
     }
 
     /// ISO 8601 string or seconds since 1970; anything else → nil.
-    func lenientDate(_ key: Key) -> Date? {
+    package func lenientDate(_ key: Key) -> Date? {
         if let text = lenient(String.self, key) { return Profile.dateFormatter.date(from: text) }
         if let seconds = lenient(Double.self, key), seconds.isFinite, seconds > 0 { return Date(timeIntervalSince1970: seconds) }
         return nil
     }
 
     /// Unknown raw values (e.g. written by a newer version) → nil.
-    func lenientEnum<T: RawRepresentable>(_ type: T.Type, _ key: Key) -> T? where T.RawValue == String {
+    package func lenientEnum<T: RawRepresentable>(_ type: T.Type, _ key: Key) -> T? where T.RawValue == String {
         lenient(String.self, key).flatMap { T(rawValue: $0) }
     }
 }

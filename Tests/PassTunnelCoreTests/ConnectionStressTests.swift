@@ -1,6 +1,7 @@
 import Combine
 import XCTest
 @testable import PassTunnelCore
+@testable import PassTunnelKit
 import PassTunnelShared
 
 /// Virtual time where `sleep` blocks until the test releases it (or the sleeping task is cancelled),

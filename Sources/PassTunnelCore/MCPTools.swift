@@ -1,4 +1,5 @@
 import Foundation
+import PassTunnelKit
 
 /// The tools of `passtunnel mcp`. Read-only by default (`list_profiles`, `get_status`, `get_logs`,
 /// `diagnose`); `connect` and `disconnect` exist only with `--allow-connect`. There is deliberately

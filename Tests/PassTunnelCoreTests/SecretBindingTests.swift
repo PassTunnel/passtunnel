@@ -2,7 +2,9 @@ import CryptoKit
 import Security
 import XCTest
 @testable import PassTunnelCore
+@testable import PassTunnelKit
 import PassTunnelShared
+@testable import PassTunnelVPNConfig
 
 // MARK: - Secrets bound to the destination
 

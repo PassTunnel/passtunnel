@@ -1,0 +1,484 @@
+{
+  "about": "Setting one profile field from text (passtunnel set ID key=value): the canonical key and the stored value, or the error.",
+  "set": [
+    {
+      "type": "forti",
+      "key": "name",
+      "value": "Acme Prod",
+      "canonical_key": "name",
+      "stored": "Acme Prod"
+    },
+    {
+      "type": "forti",
+      "key": "username",
+      "value": "alice",
+      "canonical_key": "username",
+      "stored": "alice"
+    },
+    {
+      "type": "forti",
+      "key": "otp_mode",
+      "value": "TOTP",
+      "canonical_key": "otp_mode",
+      "stored": "totp"
+    },
+    {
+      "type": "forti",
+      "key": "totp.digits",
+      "value": "8",
+      "canonical_key": "digits",
+      "stored": "8"
+    },
+    {
+      "type": "forti",
+      "key": "period",
+      "value": "60",
+      "canonical_key": "period",
+      "stored": "60"
+    },
+    {
+      "type": "forti",
+      "key": "algorithm",
+      "value": "SHA-256",
+      "canonical_key": "algorithm",
+      "stored": "sha256"
+    },
+    {
+      "type": "forti",
+      "key": "otp-delivery",
+      "value": "combined",
+      "canonical_key": "otp_delivery",
+      "stored": "combined"
+    },
+    {
+      "type": "forti",
+      "key": "template",
+      "value": "colon",
+      "canonical_key": "otp_template",
+      "stored": "{password}:{otp}"
+    },
+    {
+      "type": "forti",
+      "key": "template",
+      "value": "pin{otp}",
+      "canonical_key": "otp_template",
+      "stored": "pin{otp}"
+    },
+    {
+      "type": "forti",
+      "key": "session_limit",
+      "value": "480",
+      "canonical_key": "session_limit_min",
+      "stored": "480"
+    },
+    {
+      "type": "forti",
+      "key": "auto_reconnect",
+      "value": "yes",
+      "canonical_key": "auto_reconnect",
+      "stored": "true"
+    },
+    {
+      "type": "forti",
+      "key": "health_host",
+      "value": "10.0.0.5:443",
+      "canonical_key": "health_host",
+      "stored": "10.0.0.5:443"
+    },
+    {
+      "type": "forti",
+      "key": "health_host",
+      "value": "[fe80::1]:22",
+      "canonical_key": "health_host",
+      "stored": "[fe80::1]:22"
+    },
+    {
+      "type": "forti",
+      "key": "health_host",
+      "value": "fe80::1",
+      "canonical_key": "health_host",
+      "stored": "fe80::1"
+    },
+    {
+      "type": "forti",
+      "key": "health_host",
+      "value": "",
+      "canonical_key": "health_host",
+      "stored": ""
+    },
+    {
+      "type": "forti",
+      "key": "host",
+      "value": "vpn.example.com",
+      "canonical_key": "host",
+      "stored": "vpn.example.com"
+    },
+    {
+      "type": "forti",
+      "key": "port",
+      "value": "10443",
+      "canonical_key": "port",
+      "stored": "10443"
+    },
+    {
+      "type": "forti",
+      "key": "set_dns",
+      "value": "on",
+      "canonical_key": "set_dns",
+      "stored": "true"
+    },
+    {
+      "type": "forti",
+      "key": "routes",
+      "value": "0",
+      "canonical_key": "set_routes",
+      "stored": "false"
+    },
+    {
+      "type": "forti",
+      "key": "pinned",
+      "value": "true",
+      "canonical_key": "pinned",
+      "stored": "true"
+    },
+    {
+      "type": "forti",
+      "key": "badge_style",
+      "value": "both",
+      "canonical_key": "badge_style",
+      "stored": "both"
+    },
+    {
+      "type": "forti",
+      "key": "auth",
+      "value": "connect",
+      "canonical_key": "require_auth",
+      "stored": "connect"
+    },
+    {
+      "type": "forti",
+      "key": "TOTP.Digits",
+      "value": "7",
+      "canonical_key": "digits",
+      "stored": "7"
+    },
+    {
+      "type": "forti",
+      "key": "password_mode",
+      "value": "none",
+      "error": {
+        "detail": "password_mode",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "type": "forti",
+      "key": "cert",
+      "value": "ab12",
+      "canonical_key": "trusted_cert",
+      "stored": "ab12"
+    },
+    {
+      "type": "forti",
+      "key": "name",
+      "value": "  Spaced  ",
+      "canonical_key": "name",
+      "stored": "Spaced"
+    },
+    {
+      "type": "openvpn",
+      "key": "nope",
+      "value": "1",
+      "error": {
+        "detail": "nope",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "type": "openvpn",
+      "key": "digits",
+      "value": "9",
+      "error": {
+        "detail": "digits",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "type": "openvpn",
+      "key": "period",
+      "value": "x",
+      "error": {
+        "detail": "period",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "type": "openvpn",
+      "key": "period",
+      "value": "601",
+      "error": {
+        "detail": "period",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "type": "openvpn",
+      "key": "auto_reconnect",
+      "value": "maybe",
+      "error": {
+        "detail": "auto_reconnect",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "type": "openvpn",
+      "key": "health_host",
+      "value": "a b",
+      "error": {
+        "detail": "health_host",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "type": "openvpn",
+      "key": "health_host",
+      "value": "host:0",
+      "error": {
+        "detail": "health_host",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "type": "openvpn",
+      "key": "health_host",
+      "value": "-x",
+      "error": {
+        "detail": "health_host",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "type": "openvpn",
+      "key": "name",
+      "value": " ",
+      "error": {
+        "kind": "empty_name"
+      }
+    },
+    {
+      "type": "openvpn",
+      "key": "host",
+      "value": "vpn.example.com",
+      "error": {
+        "detail": "acme",
+        "kind": "wrong_profile_type"
+      }
+    },
+    {
+      "type": "openvpn",
+      "key": "otp_template",
+      "value": "{password}",
+      "error": {
+        "detail": "it must contain {otp}",
+        "kind": "invalid_template"
+      }
+    },
+    {
+      "type": "openvpn",
+      "key": "password_mode",
+      "value": "none",
+      "canonical_key": "password_mode",
+      "stored": "none"
+    },
+    {
+      "type": "openvpn",
+      "key": "session_limit_min",
+      "value": "-1",
+      "error": {
+        "detail": "session_limit_min",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "type": "openvpn",
+      "key": "order",
+      "value": "1.5",
+      "error": {
+        "detail": "order",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "type": "openvpn",
+      "key": "require_auth",
+      "value": "retina",
+      "error": {
+        "detail": "require_auth",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "type": "openvpn",
+      "key": "badge_style",
+      "value": "sparkle",
+      "error": {
+        "detail": "badge_style",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "type": "forti",
+      "key": "port",
+      "value": "0",
+      "error": {
+        "detail": "port",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "type": "forti",
+      "key": "port",
+      "value": "65536",
+      "error": {
+        "detail": "port",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "name": "IPv6 host with a NUL and a line break",
+      "type": "forti",
+      "key": "host",
+      "value": "2001:db8::1\u0000\nuser-cert = /tmp/x",
+      "error": {
+        "detail": "host",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "name": "zone id with a line break",
+      "type": "forti",
+      "key": "host",
+      "value": "fe80::1%en0\npinentry = /tmp/x",
+      "error": {
+        "detail": "host",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "name": "host name with a NUL",
+      "type": "forti",
+      "key": "host",
+      "value": "vpn.example.com\u0000",
+      "error": {
+        "detail": "host",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "name": "IPv4 host with a NUL",
+      "type": "forti",
+      "key": "host",
+      "value": "203.0.113.5\u0000x",
+      "error": {
+        "detail": "host",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "name": "host with a line separator",
+      "type": "forti",
+      "key": "host",
+      "value": "vpn.example.com\u2028x",
+      "error": {
+        "detail": "host",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "name": "host with a form feed",
+      "type": "forti",
+      "key": "host",
+      "value": "2001:db8::1\fx",
+      "error": {
+        "detail": "host",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "name": "host with a port",
+      "type": "forti",
+      "key": "host",
+      "value": "vpn.example.com:443",
+      "error": {
+        "detail": "host",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "name": "host with a scheme",
+      "type": "forti",
+      "key": "host",
+      "value": "https://vpn.example.com",
+      "error": {
+        "detail": "host",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "name": "zone id that is not letters and digits",
+      "type": "forti",
+      "key": "host",
+      "value": "fe80::1%en0.x",
+      "error": {
+        "detail": "host",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "name": "IPv6 host with a zone id",
+      "type": "forti",
+      "key": "host",
+      "value": "fe80::1%en0",
+      "canonical_key": "host",
+      "stored": "fe80::1%en0"
+    },
+    {
+      "name": "IPv4-mapped IPv6 host",
+      "type": "forti",
+      "key": "host",
+      "value": "::ffff:203.0.113.5",
+      "canonical_key": "host",
+      "stored": "::ffff:203.0.113.5"
+    },
+    {
+      "name": "health check host with a NUL",
+      "type": "forti",
+      "key": "health_host",
+      "value": "10.0.0.5\u0000x",
+      "error": {
+        "detail": "health_host",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "name": "health check host with an escape character",
+      "type": "forti",
+      "key": "health_host",
+      "value": "10.0.0.5\u001bx",
+      "error": {
+        "detail": "health_host",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "name": "bracketed health check host starting with a dash",
+      "type": "forti",
+      "key": "health_host",
+      "value": "[-c::1]",
+      "error": {
+        "detail": "health_host",
+        "kind": "invalid_field"
+      }
+    }
+  ]
+}

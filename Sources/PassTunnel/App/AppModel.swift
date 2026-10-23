@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import PassTunnelCore
+import PassTunnelKit
 import PassTunnelShared
 import SwiftUI
 

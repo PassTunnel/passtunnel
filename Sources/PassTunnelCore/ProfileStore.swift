@@ -1,4 +1,5 @@
 import Foundation
+import PassTunnelKit
 
 /// Profiles on disk: `profiles/<id>/profile.json` (+ `config.ovpn`, `vpn.log`).
 /// Stateless and synchronous; every call re-reads the file system and the environment.
@@ -70,6 +71,7 @@ public struct ProfileStore {
         guard (0...65535).contains(p.mgmtPort) else { throw PTError.invalidField("mgmt_port") }
         guard p.sessionLimitMin >= 0 else { throw PTError.invalidField("session_limit_min") }
         try Profile.checkUsername(p.username, type: p.type)
+        try p.checkHosts()
         if p.otpDelivery == .combined && p.otpMode != .none {
             try OTPComposer.validate(template: p.otpTemplate)
         }

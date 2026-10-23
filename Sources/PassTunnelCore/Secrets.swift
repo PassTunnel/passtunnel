@@ -1,8 +1,7 @@
 import Foundation
+import PassTunnelKit
 import PassTunnelShared
 import Security
-
-public enum SecretKind: String, CaseIterable { case password, totp }
 
 /// Generic-password Keychain items: service `PT.keychainService` (or `$PASSTUNNEL_KEYCHAIN_SERVICE`),
 /// account "<profileID>/<kind>". Values are stored as UTF-8: plain text, or a `SecretEnvelope` for

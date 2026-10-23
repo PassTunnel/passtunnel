@@ -1,6 +1,7 @@
 import Foundation
 import XCTest
 @testable import PassTunnelCore
+@testable import PassTunnelKit
 
 final class ConfigSourceTests: CoreTestCase {
     func testImportOVPNRecordsSourceNameAndTime() throws {
