@@ -12,14 +12,16 @@ enum ImportActions {
     static let openEditor = Notification.Name("PassTunnelOpenEditor")
 
     static let ovpnExtensions: Set<String> = ["ovpn", "conf"]
-    static let shareExtension = "passtunnel"
+    static let shareExtension = ShareFile.fileExtension
 
     static var ovpnTypes: [UTType] {
         ovpnExtensions.sorted().compactMap { UTType(filenameExtension: $0) }
     }
 
+    /// The exported `com.furkanprlk.passtunnel.profile` (Info.plist), or the extension's dynamic type
+    /// when the running copy is not a registered app (`swift run`).
     static var shareTypes: [UTType] {
-        [UTType(filenameExtension: shareExtension)].compactMap { $0 }
+        [UTType(ShareFile.typeIdentifier) ?? UTType(filenameExtension: shareExtension)].compactMap { $0 }
     }
 
     // MARK: OpenVPN
@@ -63,6 +65,27 @@ enum ImportActions {
             finish(p.id)
         } catch {
             showError(String(localized: "The shared profile could not be imported."), error)
+        }
+    }
+
+    // MARK: opened files
+
+    /// Files opened from Finder, AirDrop, the Dock icon or `open` (`AppDelegate`): the same import as
+    /// File → Import Shared Profile, one file at a time like its panel.
+    @MainActor static func open(_ urls: [URL]) {
+        guard let route = OpenedFiles.route(urls) else { return }
+        switch route {
+        case .importShare(let url):
+            AppDelegate.shared?.showMainWindow()
+            importShared(at: url)
+        case .tooMany:
+            NSApp.activate(ignoringOtherApps: true)
+            showMessage(String(localized: "Open one shared profile at a time"),
+                        String(localized: "Nothing was imported. Open the .passtunnel files one by one."))
+        case .unsupported(let name):
+            NSApp.activate(ignoringOtherApps: true)
+            showMessage(String(localized: "“\(name)” is not a shared profile"),
+                        String(localized: "PassTunnel opens .passtunnel files. To add an OpenVPN configuration, use File → Import .ovpn…"))
         }
     }
 
@@ -216,10 +239,14 @@ enum ImportActions {
     }
 
     @MainActor static func showError(_ title: String, _ error: Error) {
+        showMessage(title, error.localizedDescription)
+    }
+
+    @MainActor static func showMessage(_ title: String, _ message: String) {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = title
-        alert.informativeText = error.localizedDescription
+        alert.informativeText = message
         alert.runModal()
     }
 }

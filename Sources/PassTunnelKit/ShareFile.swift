@@ -5,6 +5,10 @@ import Foundation
 /// The profile omits username, last_username, order, mgmt_port and pinned. Secrets are never included.
 public struct ShareFile: Codable {
     public static let currentVersion = 1
+    /// File name extension of share files.
+    public static let fileExtension = "passtunnel"
+    /// The type the Mac app exports in its Info.plist (conforms to `public.json`).
+    public static let typeIdentifier = "com.furkanprlk.passtunnel.profile"
     /// The only file names ever written on import; anything else in `files` is ignored.
     public static let knownFiles: Set<String> = ["config.ovpn"]
     static let maxSize = 4 * 1024 * 1024

@@ -178,7 +178,7 @@ Use the **+** button in the toolbar, or drop a file onto the window:
 |---|---|
 | An OpenVPN file (`.ovpn` / `.conf`) | **+ → Import .ovpn…** Files it references (`ca ca.crt`, `tls-auth ta.key 1`, …) are embedded automatically. |
 | A FortiGate gateway | **+ → New FortiGate…** Enter host and port, then **Fetch fingerprint** to pin the gateway certificate (SHA-256). |
-| A `.passtunnel` file from a colleague | **+ → Import shared profile…** Then add your own user name, password and TOTP secret. |
+| A `.passtunnel` file from a colleague | Double-click it (or open it from AirDrop), or **+ → Import shared profile…** Then add your own user name, password and TOTP secret. |
 | A QR code for your authenticator | **+ → Add code from QR…**, or drop the screenshot onto the window or the editor. |
 
 Then open the profile editor (**⋯ → Edit…**):
@@ -361,9 +361,10 @@ server speaks MCP 2026-07-28 and, for clients that start with an `initialize` ha
 the connection settings, appearance, code format and, for OpenVPN, the configuration file.
 
 It never contains your password, your TOTP secret or your user name; a user name and password or
-proxy credentials embedded in the OpenVPN configuration are removed too. The recipient imports it
-and adds their own. The embedded OpenVPN configuration can contain certificates and keys, so the file is
-written with `0600` permissions; share it the way you would share the `.ovpn` itself.
+proxy credentials embedded in the OpenVPN configuration are removed too. The recipient double-clicks
+it (or opens it from AirDrop) and adds their own. The embedded OpenVPN configuration can contain
+certificates and keys, so the file is written with `0600` permissions; share it the way you would
+share the `.ovpn` itself.
 
 ## FAQ
 
