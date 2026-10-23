@@ -106,10 +106,11 @@ Requires **macOS 13 Ventura or later** on a Mac with **Apple silicon**.
 
 ### Download
 
-Download `PassTunnel-<version>.dmg` from
-[GitHub Releases](https://github.com/passtunnel/passtunnel/releases/latest), open it and drag
-PassTunnel to **Applications**. Launch it from there: the helper can only be installed from the
-Applications folder. The app is signed with a Developer ID and notarized by Apple.
+[Download the disk image](https://github.com/PassTunnel/passtunnel/releases/latest/download/PassTunnel.dmg),
+open it and drag PassTunnel to **Applications**. Launch it from there: the helper can only be
+installed from the Applications folder. The app is signed with a Developer ID and notarized by
+Apple. What changed is in the
+[release notes](https://github.com/PassTunnel/passtunnel/releases/latest).
 
 PassTunnel keeps itself up to date (Settings → Updates); updates are signed and checked before
 they are installed. After an update, the helper is updated automatically as soon as no VPN
@@ -547,9 +548,10 @@ sorunları teşhis edebilir (varsayılan olarak yalnızca okur; parola, anahtar 
 (ya da kodları göstermeden) önce Touch ID ya da Mac parolanızla onay ister ve kayıtlı parola ile TOTP anahtarını
 Mac'in Secure Enclave'indeki bir anahtarla şifreler. Arayüz Türkçe ve İngilizcedir ve macOS dilinizi izler.
 
-**Kurulum:** İmzalı ve notarize edilmiş `.dmg` dosyasını
-[GitHub Releases](https://github.com/passtunnel/passtunnel/releases/latest) sayfasından indirip
-PassTunnel’ı **Uygulamalar** klasörüne sürükleyin ya da Homebrew ile kurun:
+**Kurulum:** İmzalı ve notarize edilmiş
+[disk görüntüsünü indirin](https://github.com/PassTunnel/passtunnel/releases/latest/download/PassTunnel.dmg),
+açın ve PassTunnel’ı **Uygulamalar** klasörüne sürükleyin
+([sürüm notları](https://github.com/PassTunnel/passtunnel/releases/latest)) ya da Homebrew ile kurun:
 `brew trust passtunnel/tap`, ardından `brew install --cask passtunnel/tap/passtunnel` (Homebrew 6
 ve sonrası, üçüncü taraf bir tap'teki cask'ı ancak o tap'e güvendiğinizde yükler). Uygulama kendini
 güncel tutar (Ayarlar → Güncellemeler). Kaynaktan derlemek için yukarıdaki

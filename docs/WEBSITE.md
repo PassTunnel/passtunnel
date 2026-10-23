@@ -74,12 +74,17 @@ one-time codes.
 ## Sections
 
 Header (sticky, translucent): app icon + name, section links, GitHub, theme button, Download.
+Every Download button (header, hero, Install, call to action) links straight to the latest disk
+image, <https://github.com/PassTunnel/passtunnel/releases/latest/download/PassTunnel.dmg> (every
+release also uploads its DMG under that name without the version, see
+[RELEASING.md](RELEASING.md)); release notes and the footer's Releases link go to
+<https://github.com/PassTunnel/passtunnel/releases/latest>.
 Below 900 px the section links move into a menu button (disclosure pattern: `aria-expanded`,
 closes on Escape, on outside click and when a link is chosen).
 
 1. **Hero.** Eyebrow "For OpenVPN and FortiGate SSL VPN on macOS", the tagline as `h1`, one
-   sentence of explanation, "Download for Mac" (latest release) and the Homebrew one-liner with a
-   copy button (`brew trust passtunnel/tap && brew install --cask passtunnel/tap/passtunnel`).
+   sentence of explanation, "Download for Mac" (the latest disk image) and the Homebrew one-liner
+   with a copy button (`brew trust passtunnel/tap && brew install --cask passtunnel/tap/passtunnel`).
    The one-liner is focusable and scrolls sideways with a fade at the cut edge; below 640 px it is
    replaced by an "Install with Homebrew" button that jumps to the Install section. Then
    "macOS 13+ · Apple silicon · Free & open source (MIT)". Below that, on the glow: the live code
@@ -112,8 +117,9 @@ closes on Escape, on outside click and when a link is chosen).
    anywhere except your VPN server (no sudoers rule, no admin password at every connect).
    Onboarding screenshot of the helper step. Link: "Read the full security model" → SECURITY.md.
    Touch ID/Secure Enclave is covered in section 2 and the FAQ, not repeated here.
-6. **Install.** Download (DMG from GitHub Releases, drag to Applications), Homebrew (the two
-   commands, copyable), build from source (README).
+6. **Install.** Download ("Download the disk image, open it and drag PassTunnel to
+   Applications", a "Release notes" link to the latest release, "Download for Mac"), Homebrew (the
+   two commands, copyable), build from source (README).
 7. **FAQ** (`<details>`): why a privileged helper, where secrets are stored, which VPN types,
    does it work without TOTP ("None" or "Ask each time").
 8. **Call to action**, then **footer**: GitHub, Releases, Security, Privacy, License (MIT), and
