@@ -57,7 +57,8 @@ On Linux the package has only `PassTunnelVPNConfig`, `PassTunnelKit` and `PassTu
 container. There `Crypto` from swift-crypto takes the place of CryptoKit (the same API, so codes and
 `ptse1:` envelopes are the same), `PTError.keychain` shows the bare `OSStatus`, and
 `String(localized:)` is an English-only stand-in (`Localization.swift`), because Foundation on Linux
-does not have it yet.
+does not have it yet. Configs are split into lines at every `\n` scalar (`OVPNInliner.lines`), not
+with `components(separatedBy: "\n")`, which on Linux keeps `\r\n` (one Character) together.
 
 ## Identifiers (`PassTunnelShared/Identifiers.swift`)
 

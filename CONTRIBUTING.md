@@ -94,9 +94,7 @@ repository root:
 docker run --rm -v "$PWD":/src -w /src swift:6.4.1-noble swift test
 ```
 
-The container builds into the checkout's `.build/`, and since the manifest has no Sparkle on Linux,
-SwiftPM there drops Sparkle's pin from `Package.resolved`: do not commit that change. Code in
-PassTunnelKit must keep building on Linux: CryptoKit is swift-crypto's `Crypto` there
+Code in PassTunnelKit must keep building on Linux: CryptoKit is swift-crypto's `Crypto` there
 (`#if canImport(CryptoKit)`), other Apple-only APIs go behind `#if canImport(…)`, and
 `String(localized:)` is an English-only stand-in.
 
