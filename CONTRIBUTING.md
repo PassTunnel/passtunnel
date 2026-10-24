@@ -85,7 +85,7 @@ the root of the host.
 
 ## Linux
 
-PassTunnelKit (with PassTunnelVPNConfig) also builds on Linux, where the package has nothing else:
+PassTunnelKit (with PassTunnelVPNConfig) also builds on Linux, where the package has no other targets:
 the `Linux` checks build it and run `PassTunnelKitTests`, the golden cases included, in the official
 Swift container on x86_64 and aarch64. To run the same tests locally with Docker, from the
 repository root:

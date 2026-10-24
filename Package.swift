@@ -17,11 +17,11 @@ let package = Package(
         // The portable logic (macOS 13, iOS 17), for the iPhone app and the fuzzers.
         .library(name: "PassTunnelKit", targets: ["PassTunnelKit", "PassTunnelVPNConfig"]),
     ],
+    // Declared on every platform, so one Package.resolved (and Dependabot, which runs on Linux) covers them all.
     dependencies: [
         // App updates. The `passtunnel` CLI never starts the updater.
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0"),
         // CryptoKit's API for PassTunnelKit on Linux; Apple platforms use CryptoKit and never build it.
-        // Declared everywhere, so that one Package.resolved pins it and its dependencies for all platforms.
         .package(url: "https://github.com/apple/swift-crypto", exact: "5.0.3"),
     ],
     targets: [
@@ -53,13 +53,9 @@ let package = Package(
 )
 
 #if os(Linux)
-// Linux builds only the portable code and its tests (the Linux jobs in .github/workflows/ci.yml):
-// no Sparkle and none of the macOS targets.
+// Linux builds only the portable code and its tests (the Linux jobs in .github/workflows/ci.yml), none of
+// the macOS targets. The dependencies stay as declared above; no target uses Sparkle here.
 let linuxTargets: Set = ["PassTunnelVPNConfig", "PassTunnelKit", "PassTunnelKitTests"]
 package.targets.removeAll { !linuxTargets.contains($0.name) }
 package.products.removeAll { $0.name != "PassTunnelKit" }
-package.dependencies.removeAll {
-    guard case .sourceControl(_, let location, _) = $0.kind else { return false }
-    return location == "https://github.com/sparkle-project/Sparkle"
-}
 #endif
