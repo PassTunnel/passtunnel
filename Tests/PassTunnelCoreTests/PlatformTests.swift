@@ -1,3 +1,6 @@
+#if canImport(AppKit)
+import AppKit
+#endif
 import Foundation
 import XCTest
 @testable import PassTunnelCLI
@@ -400,6 +403,41 @@ final class CLIPlatformTests: XCTestCase {
         XCTAssertNil(CLIClipboard.tool(environment: ["DISPLAY": ":0", "WAYLAND_DISPLAY": "w"], isExecutable: exists))
     }
 
+    /// `__clear-clipboard SECONDS [COUNT]`: only the offered times, plain digits, nothing more.
+    func testClearOrderArguments() {
+        typealias Order = CLIClipboard.ClearOrder
+        let arg = PassTunnelCLI.clearClipboardArgument
+        XCTAssertEqual(Order(seconds: 60, changeCount: 42).arguments, [arg, "60", "42"])
+        XCTAssertEqual(Order(seconds: 120).arguments, [arg, "120"])
+        for order in [Order(seconds: 30), Order(seconds: 60, changeCount: 0), Order(seconds: 120, changeCount: 9_000_000)] {
+            XCTAssertEqual(Order(arguments: order.arguments), order)
+        }
+        let bad: [[String]] = [
+            [], [arg], [arg, ""], [arg, "45"], [arg, "0"], [arg, "3600"], [arg, "-60"], [arg, "+60"], [arg, " 60"],
+            [arg, "60s"], [arg, "６０"], [arg, "0x3c"], [arg, "60", ""], [arg, "60", "-1"], [arg, "60", "1", "2"],
+            [arg, "60", "99999999999999999999"], [arg, "60;rm -rf ~"], ["code", "60"], ["60", arg],
+        ]
+        for arguments in bad {
+            XCTAssertNil(Order(arguments: arguments), "\(arguments)")
+        }
+    }
+
+    /// Never a command, and never a wait or a clear on malformed arguments (well-formed ones are not
+    /// run here: they wait and touch the clipboard).
+    func testMalformedClearOrderIsAUsageError() {
+        let arg = PassTunnelCLI.clearClipboardArgument
+        XCTAssertNil(CLIClipboard.runLeftBehind(["passtunnel"]))
+        XCTAssertNil(CLIClipboard.runLeftBehind(["passtunnel", "status"]))
+        XCTAssertEqual(CLIClipboard.runLeftBehind(["passtunnel", arg]), AutomationExit.usage)
+        XCTAssertEqual(CLIClipboard.runLeftBehind(["passtunnel", arg, "45", "1"]), AutomationExit.usage)
+        XCTAssertEqual(CLIClipboard.runLeftBehind(["passtunnel", arg, "60", "1", "2"]), AutomationExit.usage)
+        #if os(macOS)
+        XCTAssertEqual(CLIClipboard.runLeftBehind(["passtunnel", arg, "60"]), AutomationExit.usage, "the change count is needed")
+        #else
+        XCTAssertEqual(CLIClipboard.runLeftBehind(["passtunnel", arg, "60", "3"]), AutomationExit.usage, "no change count")
+        #endif
+    }
+
     /// The code reaches the tool on standard input; a tool still serving the clipboard at the end is
     /// stopped (which empties the clipboard), one that has exited is left alone.
     func testServingStopsOnlyAToolThatStillOwnsTheClipboard() throws {
@@ -430,3 +468,48 @@ final class CLIPlatformTests: XCTestCase {
     }
     #endif
 }
+
+#if canImport(AppKit)
+/// The Mac pasteboard code, on a pasteboard of the test's own: the general one (the user's clipboard)
+/// is never touched.
+final class PasteboardTests: XCTestCase {
+    var pasteboard: NSPasteboard!
+
+    override func setUp() {
+        pasteboard = NSPasteboard(name: NSPasteboard.Name("PassTunnelTests-\(UUID().uuidString)"))
+    }
+
+    override func tearDown() {
+        pasteboard.releaseGlobally()
+    }
+
+    func testClearsOnlyWhatItCopied() {
+        let count = Pasteboard.copySecret("123456", on: pasteboard)
+        XCTAssertEqual(pasteboard.string(forType: .string), "123456")
+        XCTAssertNotNil(pasteboard.string(forType: Pasteboard.concealedType))
+        XCTAssertNotNil(pasteboard.string(forType: Pasteboard.transientType))
+        Pasteboard.clear(ifUnchangedSince: count, on: pasteboard)
+        XCTAssertNil(pasteboard.string(forType: .string))
+
+        let again = Pasteboard.copySecret("654321", on: pasteboard)
+        pasteboard.clearContents()
+        pasteboard.setString("copied by someone else", forType: .string)
+        Pasteboard.clear(ifUnchangedSince: again, on: pasteboard)
+        XCTAssertEqual(pasteboard.string(forType: .string), "copied by someone else")
+    }
+
+    func testCopiedSecretIsClearedAfterTheGivenTime() {
+        Pasteboard.copySecret("123456", clearingAfter: 0.3, on: pasteboard)
+        XCTAssertEqual(pasteboard.string(forType: .string), "123456")
+        let checked = expectation(description: "checked")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            XCTAssertEqual(self.pasteboard.string(forType: .string), "123456", "not before its time")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                XCTAssertNil(self.pasteboard.string(forType: .string))
+                checked.fulfill()
+            }
+        }
+        wait(for: [checked], timeout: 5)
+    }
+}
+#endif

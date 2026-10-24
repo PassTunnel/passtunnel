@@ -41,9 +41,12 @@ One binary, two modes:
      user confirms; values confirmed for another destination are dropped first
      (`vault.forgetUnlessBound`), so a changed server always asks again.
   1. read profile; check `Secrets.has` for keychain password / TOTP secret → precise error if missing
-  2. TOTP: if fewer than 8 s remain in the window, or this window's code was already sent (by the app
-     or the CLI, `profiles/<id>/.last-otp`), wait for the next one ("Waiting for a fresh code…",
-     at most one window, not counted against the timeout; `disconnect` ends the wait at once)
+  2. TOTP: if this window's code was already sent (by the app or the CLI, `profiles/<id>/.last-otp`),
+     always wait for the next one, whatever the setting below (a server rejects a reused code); with
+     `Preferences.waitForFreshCode` (Settings → "Wait for a fresh code", default on), also when 5 s or
+     less remain in the window (`Preferences.freshCodeSeconds`). "Waiting for a fresh code…", at most
+     one window, not counted against the timeout; `disconnect` ends the wait at once. The setting is
+     read from `config.json` at every connect: the app, the CLI and `passtunnel mcp` follow the same one
   3. `OTPComposer.compose` → helper `startOpenVPN` (with `configSHA256` of the `config.ovpn` read for the
      destination; a `config.ovpn` the app cannot read fails the connect with `missingConfig` before any
      secret is read; a helper reply `config_changed` → `DestinationChangedError`, not retried) / `startForti`
@@ -90,7 +93,8 @@ Sidebar-less single list, one row per profile (drag to reorder → `order`):
   ring; click copies it (toast "Copied"). Hidden behind "•••" when `Preferences.hideCodes`.
   Every copied code and password + code goes through `Pasteboard.copySecret`: `.currentHostOnly` (no
   Universal Clipboard), marked `org.nspasteboard.ConcealedType` and `…TransientType`, and cleared after
-  `Pasteboard.secretLifetime` (30 s) unless the pasteboard's change count moved meanwhile.
+  `Preferences.clearClipboardAfter` (Settings → "Clear copied code": 30 s, 1 minute (default) or
+  2 minutes) unless the pasteboard's change count moved meanwhile.
   When the TOTP secret is stored encrypted ("Confirm with Touch ID": `always`, or `connect` without a saved
   password) and not unlocked, the code is "••• •••" with a lock instead of the ring; click asks
   (`AppModel.revealCode`) and the code shows for the reuse window. Copy code, Copy password + code,
@@ -204,8 +208,13 @@ updating, `HelperAutoUpdate`) and "Allow PassTunnel to type codes" (auto-type wi
 
 - **General**: launch at login (`SMAppService.mainApp`), show in Dock, install CLI, appearance,
   badge palette (pastel / vivid / soft / candy / earth — the menu bar colors for connected /
-  connecting / disconnected), show lock symbol, hide codes; **Security**: "Ask again after" 1 / 5 / 15
-  minutes (`authReuseMinutes`, `settings.authReuse`): how long one confirmation unlocks a profile.
+  connecting / disconnected), show lock symbol; **Privacy**: hide codes, "Clear copied code" after
+  30 seconds / 1 minute / 2 minutes (`clearClipboardAfter`, default 1 minute, `settings.clearClipboard`;
+  only if the clipboard still holds what PassTunnel copied); **Connection**: "Wait for a fresh code" /
+  "If the current code has 5 s or less left" (`waitForFreshCode`, default on,
+  `settings.waitForFreshCode`; a code already sent is never sent again, whatever the setting);
+  **Security**: "Ask again after" 1 / 5 / 15 minutes (`authReuseMinutes`, `settings.authReuse`): how
+  long one confirmation unlocks a profile.
 - **Notifications**: unexpected drop (and the reconnect after it), health, session-limit (minutes before);
   see Notifications.
 - **Shortcuts**: enable global hotkeys (default off): ⌃⌥V connect/disconnect default profile,
@@ -237,8 +246,9 @@ updating, `HelperAutoUpdate`) and "Allow PassTunnel to type codes" (auto-type wi
 - **About**: version, GitHub link, license (MIT).
 
 `Preferences` (Core) gets: `badgePalette` (string enum above), `appearance` (system/light/dark),
-`showLock`, `hideCodes`, `showInDock`, `notifyOnDrop`, `notifyHealth`, `sessionNotifyMin`,
-`hotkeys`, `autoType`, `defaultProfile`, `authReuseMinutes`.
+`showLock`, `hideCodes`, `clearClipboardAfter` (seconds: 30, 60 or 120; others → 60),
+`waitForFreshCode`, `showInDock`, `notifyOnDrop`, `notifyHealth`, `sessionNotifyMin`, `hotkeys`,
+`autoType`, `defaultProfile`, `authReuseMinutes`.
 
 ## Launch at login
 
@@ -309,7 +319,9 @@ SSH: `notInteractive` / `systemCancel`), the Touch ID lockout, a Mac without a l
 
 `code -c` copies like the app (`Pasteboard.copySecret`) and leaves a detached copy of the binary behind
 (`posix_spawn` with `POSIX_SPAWN_SETSID`, stdio to `/dev/null`, internal first argument
-`__clear-clipboard <changeCount>`, never parsed as a command) that clears the pasteboard after 30 s
+`__clear-clipboard <seconds> <changeCount>`, never parsed as a command; both plain digits and the
+seconds one of 30, 60 or 120, else it exits with a usage error and does nothing) that clears the
+pasteboard after `clearClipboardAfter` from `config.json` (the app's setting, default 1 minute)
 unless something else was copied; the command itself returns at once. `import FILE` of an `.ovpn` with
 an inline `<auth-user-pass>` block moves its user name to the profile and its password to the Keychain
 (`ProfileStore.importOVPN`) and says so.

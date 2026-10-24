@@ -570,9 +570,15 @@ final class AppModel: ObservableObject {
                 showToast(String(localized: "No code available"), symbol: "exclamationmark.circle.fill")
                 return
             }
-            Pasteboard.copy(c, concealed: true)
+            copySecret(c)
             showToast(String(localized: "Code copied"))
         }
+    }
+
+    /// Every code and password + code the app copies: cleared after the time chosen in Settings
+    /// (`Preferences.clearClipboardAfter`) if the pasteboard still holds it.
+    private func copySecret(_ text: String) {
+        Pasteboard.copySecret(text, clearingAfter: TimeInterval(prefs.clearClipboardAfter))
     }
 
     func copyPasswordAndCode(_ p: Profile) {
@@ -585,7 +591,7 @@ final class AppModel: ObservableObject {
             let otp = currentCode(for: p)
             let composed = OTPComposer.compose(password: password, otp: otp, delivery: .combined,
                                                template: p.otpTemplate, type: p.type)
-            Pasteboard.copy(composed.secret, concealed: true)
+            copySecret(composed.secret)
             showToast(String(localized: "Password and code copied"))
         }
     }
@@ -616,7 +622,7 @@ final class AppModel: ObservableObject {
             Notifier.shared.post(title: String(localized: "Allow PassTunnel to type codes"),
                                  body: String(localized: "Turn on PassTunnel in System Settings → Privacy & Security → Accessibility."),
                                  profileID: nil)
-            Pasteboard.copy(c, concealed: true)
+            copySecret(c)
             return
         }
         AutoType.type(c)

@@ -150,9 +150,9 @@ Profiles never run scripts (the sanitizer removes them); DNS comes from what the
 - **Commands that differ.** `helper install`/`uninstall` explain that the package installs and
   removes the daemon, and fail with `invalid_argument`. `code --copy` uses `wl-copy` (Wayland) or
   `xclip` (X11) when present and fails with `invalid_argument` otherwise. As on the Mac, the code is
-  cleared after 30 s if PassTunnel still owns the clipboard: a process left behind runs the tool in the
-  foreground, where it serves the clipboard until another program takes it, and stops it only if it
-  still does.
+  cleared after `clear_clipboard_after` in `config.json` (30, 60 or 120 s, default 60) if PassTunnel
+  still owns the clipboard: a process left behind runs the tool in the foreground, where it serves
+  the clipboard until another program takes it, and stops it only if it still does.
 - **Not used on Linux:** the Mac's file watcher, login item, helper installer and auto-update, QR
   decoding, reading TLS certificates (the fingerprint formats are shared) and distributed
   notifications (all app-side or macOS-only).

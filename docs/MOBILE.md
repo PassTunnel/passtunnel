@@ -62,7 +62,7 @@ until then the Kotlin port is simpler and safer.
   management socket (the Mac model), decided then.
 - **Codes and credentials**: the same rules as the Mac. The app computes the code when it connects,
   sends password and code in the profile's format (or the static-challenge response), and waits
-  for a fresh window when fewer than 8 seconds are left; a code is never reused.
+  for a fresh window when 5 seconds or less are left; a code is never reused.
 - **Secrets**: an AES-GCM key in the Android Keystore wraps passwords and TOTP secrets; files live
   in app-private storage, excluded from backups. Profiles marked for confirmation use a key that
   requires strong biometrics or the device credential (`BiometricPrompt` with a `CryptoObject`).
