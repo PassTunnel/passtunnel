@@ -270,7 +270,7 @@ struct KeychainSecretStore: SecretStore {
 /// profile took its id), so nothing was written to it.
 public struct KeychainItemNotReplaced: Error, Equatable, LocalizedError {
     public var account: String
-    public var status: OSStatus
+    public var status: Int32                // OSStatus
 
     public var errorDescription: String? {
         #if canImport(Security)

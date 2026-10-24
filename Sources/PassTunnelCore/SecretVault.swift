@@ -400,7 +400,8 @@ public final class VaultExpiry {
     }
 
     /// `screenLock`: where `screenLockedNotification` arrives; `sleep`: where `sleepNotification` does.
-    public convenience init(vault: SecretVault, screenLock: NotificationCenter, sleep: NotificationCenter = VaultExpiry.workspaceCenter,
+    public convenience init(vault: SecretVault, screenLock: NotificationCenter,
+                            sleep: NotificationCenter = VaultExpiry.workspaceCenter,
                             sleepNotification: Notification.Name = VaultExpiry.willSleepNotification) {
         self.init(vault: vault, sources: [(screenLock, Self.screenLockedNotification), (sleep, sleepNotification)])
     }
