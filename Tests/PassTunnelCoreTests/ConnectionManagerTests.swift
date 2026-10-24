@@ -593,6 +593,75 @@ final class ConnectionManagerTests: XCTestCase {
         XCTAssertNil(m.codeWaitUntil[p.id])
     }
 
+    func testFreshCodeWaitStartsAtFiveSecondsLeft() async throws {
+        let p = try makeOpenVPN(otp: .totp)
+        clock = FakeClock(t0.addingTimeInterval(5))          // 25 s into the window: exactly 5 s left
+        try await makeManager().connect(p.id)
+        XCTAssertEqual(clock.sleeps.count, 1)
+        XCTAssertEqual(clock.sleeps[0], 5.25, accuracy: 0.01)
+        XCTAssertEqual(secretSent(helper.starts[0]), "pw" + (try code(at: t0.addingTimeInterval(10.25))))
+    }
+
+    func testSixSecondsLeftSendsTheCurrentCode() async throws {
+        let p = try makeOpenVPN(otp: .totp)
+        clock = FakeClock(t0.addingTimeInterval(4))          // 6 s left
+        try await makeManager().connect(p.id)
+        XCTAssertEqual(clock.sleeps, [])
+        XCTAssertEqual(secretSent(helper.starts[0]), "pw" + (try code(at: t0.addingTimeInterval(4))))
+    }
+
+    func testNoWaitForTheTimeLeftWhenTheSettingIsOff() async throws {
+        let p = try makeOpenVPN(otp: .totp)
+        prefs.waitForFreshCode = false
+        for (i, offset) in [5.0, 7, 9.5].enumerated() {      // 5, 3 and 0.5 s left
+            clock = FakeClock(t0.addingTimeInterval(offset))
+            let m = makeManager()
+            try await m.connect(p.id)
+            try await m.disconnect(p.id)
+            try FileManager.default.removeItem(at: store.dir(p.id).appendingPathComponent(ConnectionManager.usedOTPFile))
+            XCTAssertEqual(clock.sleeps, [], "\(offset)")
+            XCTAssertEqual(secretSent(helper.starts[i]), "pw" + (try code(at: t0.addingTimeInterval(offset))))
+        }
+    }
+
+    /// The server rejects a code it has seen: the setting never makes PassTunnel send one again.
+    func testReusedCodeWaitsWhenTheSettingIsOff() async throws {
+        let p = try makeOpenVPN(otp: .totp)
+        prefs.waitForFreshCode = false
+        let m = makeManager()
+        try await m.connect(p.id)                             // 10 s left
+        try await m.disconnect(p.id)
+        try await m.connect(p.id)                             // same window
+        XCTAssertEqual(clock.sleeps.count, 1)
+        XCTAssertEqual(clock.sleeps[0], 10.25, accuracy: 0.01)
+        XCTAssertEqual(secretSent(helper.starts[1]), "pw" + (try code(at: t0.addingTimeInterval(10.25))))
+        XCTAssertNotEqual(secretSent(helper.starts[0]), secretSent(helper.starts[1]))
+    }
+
+    /// The CLI and the MCP server make their manager without `preferences:`: it reads config.json,
+    /// which the app's Settings write, so all three follow the same setting.
+    func testDefaultPreferencesComeFromTheConfigFile() async throws {
+        let p = try makeOpenVPN(otp: .totp)
+        var saved = Preferences()
+        saved.waitForFreshCode = false
+        try saved.save()
+        clock = FakeClock(t0.addingTimeInterval(7))          // 3 s left
+        let m = ConnectionManager(store: store, helper: helper, clock: clock, routes: { [] },
+                                  authenticator: authenticator)
+        try await m.connect(p.id)
+        XCTAssertEqual(clock.sleeps, [])
+
+        saved.waitForFreshCode = true
+        try saved.save()
+        try await m.disconnect(p.id)
+        clock = FakeClock(t0.addingTimeInterval(37))         // next window, 3 s left
+        let next = ConnectionManager(store: store, helper: helper, clock: clock, routes: { [] },
+                                     authenticator: authenticator)
+        try await next.connect(p.id)
+        XCTAssertEqual(clock.sleeps.count, 1)
+        XCTAssertEqual(clock.sleeps[0], 3.25, accuracy: 0.01)
+    }
+
     func testPhasesOnlyMoveForward() {
         typealias P = ConnectionManager.Phase
         var progress = ConnectionManager.PhaseProgress()

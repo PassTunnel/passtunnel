@@ -2,7 +2,7 @@
 
 > PassTunnel is a free, open-source (MIT) macOS app for OpenVPN and FortiGate SSL VPN, for Apple silicon Macs with macOS 13 or later. It keeps the TOTP secret in the macOS Keychain, computes the current one-time code and sends it with the password when you connect. It includes the `passtunnel` command-line tool and a built-in MCP server (`passtunnel mcp`).
 
-- Codes are sent in the format the server expects: appended or prepended to the password, `password:code`, `password,code`, a custom template with the placeholders `{password}` and `{otp}`, or separately (OpenVPN static challenge, FortiGate OTP field). With fewer than 8 seconds left in the code window, PassTunnel waits for a fresh code.
+- Codes are sent in the format the server expects: appended or prepended to the password, `password:code`, `password,code`, a custom template with the placeholders `{password}` and `{otp}`, or separately (OpenVPN static challenge, FortiGate OTP field). With 5 seconds or less left in the code window, PassTunnel waits for a fresh code (a setting, on by default); a code already sent is never sent again.
 - Signed `openvpn` and `openfortivpn` are bundled; nothing else to install. A small privileged helper, approved once in System Settings, only accepts the signed app and only runs those tools, with sanitized OpenVPN configurations.
 - Passwords and TOTP secrets stay in the login Keychain (no iCloud sync); nothing is sent anywhere except the VPN server. Optional Touch ID per profile encrypts the secrets with a Secure Enclave key.
 

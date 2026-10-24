@@ -105,8 +105,9 @@ The platform seams (Linux code stays in the same files behind `#if`; the Mac's b
   `fcopyfile` (there `openProfileDir` refuses every directory for now). The CLI's macOS parts (the app
   hand-offs, `helper install`/`uninstall`, the concealed pasteboard) are under `#if` as well; on Linux
   `helper install`/`uninstall` fail with `invalid_argument` (the package installs the daemon), and
-  `code --copy` runs `wl-copy` or `xclip` from `PATH` in a process left behind, which stops it after 30 s
-  only while it still serves the clipboard (`invalid_argument` without either).
+  `code --copy` runs `wl-copy` or `xclip` from `PATH` in a process left behind
+  (`__clear-clipboard <seconds>`), which stops it after `Preferences.clearClipboardAfter` (default
+  60 s) only while it still serves the clipboard (`invalid_argument` without either).
 
 ## Identifiers (`PassTunnelShared/Identifiers.swift`)
 
@@ -280,7 +281,9 @@ public struct ShareFile: Codable              // {"passtunnel_profile":1, "profi
     // fileExtension "passtunnel", typeIdentifier "com.furkanprlk.passtunnel.profile" (exported by the app, conforms to public.json)
 public struct Preferences: Codable { defaultProfile, theme, showLock, notifyOnDrop, sessionWarnMin=30,
     sessionNotifyMin=10, hotkeys=false, autoType=false, launchAtLogin=true,
-    authReuseMinutes=1 /* 1, 5 or 15; others → 1 */ }
+    authReuseMinutes=1 /* 1, 5 or 15; others → 1 */,
+    waitForFreshCode=true /* wait when freshCodeSeconds (5) or less are left */,
+    clearClipboardAfter=60 /* seconds: 30, 60 or 120; others → 60 */ }
 public enum HealthCheck { public static func check(_ host: String, timeout: TimeInterval = 3) -> (ok: Bool, ms: Int) }
 ```
 
@@ -652,8 +655,10 @@ credentials (Keychain / TOTP / caller-supplied for `.ask`), builds what is sent 
 - `.combined`: `otpTemplate` with `{password}` / `{otp}` substituted (no other placeholders; literal text kept)
   → OpenVPN auth-file password, or Forti `password` (Forti `otp` then omitted)
 - `.separate`: OpenVPN → `SCRV1:b64(password):b64(code)` (static-challenge), Forti → `password` + `otp` fields
-waits for the next TOTP window if fewer than 8 s remain or the current window's code was already sent
-(servers reject a reused code; recorded in `.last-otp` once the helper started the tool), and publishes `ConnectionState` changes:
+waits for the next TOTP window if the current window's code was already sent (always: servers reject a
+reused code; recorded in `.last-otp` once the helper started the tool) or, with
+`Preferences.waitForFreshCode` (default on, read from `config.json` at every connect), if 5 s or less
+remain, and publishes `ConnectionState` changes:
 
 ```swift
 public enum ConnectionState: Equatable { case disconnected, connecting(String), connected(ip: String, since: Date?) }

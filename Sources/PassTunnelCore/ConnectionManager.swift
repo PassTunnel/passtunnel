@@ -249,7 +249,8 @@ public final class ConnectionManager: ObservableObject {
         public var connectCheckInterval: TimeInterval = 0.5
         public var processCheckInterval: TimeInterval = 2
         public var reconnectDelays: [TimeInterval] = [5, 15, 45]
-        public var minCodeSeconds: TimeInterval = 8
+        /// With `Preferences.waitForFreshCode`, a code with this many seconds or less left waits for the next one.
+        public var freshCodeSeconds = TimeInterval(Preferences.freshCodeSeconds)
         public var wakeDelay: TimeInterval = 4
         public var healthFailuresForOutage = 2
         public var helperTimeout: TimeInterval = 15
@@ -1050,16 +1051,18 @@ public final class ConnectionManager: ObservableObject {
         return c
     }
 
-    /// Waits for the next TOTP window when the code of the current one was already sent (by this or
-    /// another process: servers reject a reused code), or when fewer than `minCodeSeconds` remain in
-    /// it. The wait is at most one window, is not counted against the connect timeout, and ends
-    /// at once on `disconnect`.
+    /// Waits for the next TOTP window when the code of the current one was already sent by this or
+    /// another process (always: servers reject a reused code), or when `freshCodeSeconds` or less
+    /// remain in it and `Preferences.waitForFreshCode` is on. The wait is at most one window, is not
+    /// counted against the connect timeout, and ends at once on `disconnect`.
     private func waitForFreshCode(_ p: Profile, token: Int) async throws {
         let period = Double(max(1, p.totp.period))
         let now = clock.now()
         let left = period - (now.timeIntervalSince1970 - Double(TOTP.counter(params: p.totp, at: now)) * period)
         let reused = usedCode(p.id) == UsedOTPWindow(counter: TOTP.counter(params: p.totp, at: now), period: Int(period))
-        guard reused || (period > timing.minCodeSeconds && left < timing.minCodeSeconds) else { return }
+        let fresh = timing.freshCodeSeconds
+        let expiring = period > fresh && left <= fresh && preferences().waitForFreshCode
+        guard reused || expiring else { return }
         let wait = max(0, left) + 0.25
         codeWaitUntil[p.id] = now.addingTimeInterval(wait)
         defer { codeWaitUntil[p.id] = nil }
