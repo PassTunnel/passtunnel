@@ -21,6 +21,16 @@ enum CLICompletions {
     static let profileFlags = ["--json", "--all", "--copy", "--follow", "--lines", "--yes", "--force", "--wait", "--timeout",
                                "--no-input", "--no-auth-prompt"]
 
+    /// `secret-store` (Linux only): its cases, put in front of the `mcp` case of each script.
+    static var storeNames: String { SecretStoreChoice.allCases.map(\.rawValue).joined(separator: " ") }
+    #if os(Linux)
+    static var zshSecretStore: String { "secret-store) _values 'store' \(storeNames) ;;\n    " }
+    static var bashSecretStore: String { "secret-store) COMPREPLY=($(compgen -W \"\(storeNames) --json\" -- \"$cur\")) ;;\n    " }
+    #else
+    static let zshSecretStore = ""
+    static let bashSecretStore = ""
+    #endif
+
     static var zsh: String {
         """
         #compdef passtunnel
@@ -51,7 +61,7 @@ enum CLICompletions {
             import) _arguments '--name' '--json' '*:file:_files' ;;
             add) _arguments '--type[VPN type]:type:(openvpn forti)' '--json' ;;
             helper) _values 'action' status install uninstall ;;
-            mcp) _arguments '--allow-connect[also offer connect and disconnect]' '--no-auth-prompt' ;;
+            \(zshSecretStore)mcp) _arguments '--allow-connect[also offer connect and disconnect]' '--no-auth-prompt' ;;
             list|version) _arguments '--json' ;;
             completion) _values 'shell' zsh bash fish ;;
             help) _describe 'command' commands ;;
@@ -89,7 +99,7 @@ enum CLICompletions {
             import) COMPREPLY=($(compgen -f -- "$cur")) ;;
             add) COMPREPLY=($(compgen -W "--type openvpn forti --json" -- "$cur")) ;;
             helper) COMPREPLY=($(compgen -W "status install uninstall --json" -- "$cur")) ;;
-            mcp) COMPREPLY=($(compgen -W "--allow-connect --no-auth-prompt" -- "$cur")) ;;
+            \(bashSecretStore)mcp) COMPREPLY=($(compgen -W "--allow-connect --no-auth-prompt" -- "$cur")) ;;
             list|version) COMPREPLY=($(compgen -W "--json --quiet" -- "$cur")) ;;
             completion) COMPREPLY=($(compgen -W "zsh bash fish" -- "$cur")) ;;
             help) COMPREPLY=($(compgen -W "\(commands)" -- "$cur")) ;;
@@ -115,7 +125,14 @@ enum CLICompletions {
             "complete -c passtunnel -n '__fish_seen_subcommand_from completion' -a 'zsh bash fish'",
             "complete -c passtunnel -n '__fish_seen_subcommand_from help' -a '\(commands)'",
         ]
-        let jsonCommands = "status connect disconnect toggle code list show set add import export rm secret default pin unpin log helper version"
+        let commonJSONCommands = "status connect disconnect toggle code list show set add import export rm secret default pin unpin log helper version"
+        #if os(Linux)
+        lines.insert("complete -c passtunnel -n '__fish_seen_subcommand_from secret-store' -a '\(storeNames)'",
+                     at: lines.count - 1)
+        let jsonCommands = commonJSONCommands + " secret-store"
+        #else
+        let jsonCommands = commonJSONCommands
+        #endif
         for (flag, cmds) in [("json", jsonCommands), ("all", "disconnect"), ("copy", "code"),
                              ("follow", "log"), ("lines", "log"), ("yes", "rm"), ("force", "connect"), ("name", "import"),
                              ("output", "export"), ("wait", "connect disconnect"), ("timeout", "connect disconnect"),

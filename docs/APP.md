@@ -270,6 +270,7 @@ passtunnel code [ID] [-c|--copy]             live code + seconds left
 passtunnel list / show ID / set ID key=value…   (keys as in the editor)
 passtunnel add NAME --type openvpn|forti / import FILE [--name N] / export ID [-o FILE] / rm ID
 passtunnel secret ID password|totp           reads from TTY (no echo) or stdin; totp accepts base32 or otpauth://
+passtunnel secret-store [STORE]              Linux only: the secret store in use; STORE sets it (below)
 passtunnel default ID / pin ID / unpin ID
 passtunnel log ID [-f] [-n N]
 passtunnel helper status|install|uninstall
@@ -313,6 +314,18 @@ SSH: `notInteractive` / `systemCancel`), the Touch ID lockout, a Mac without a l
 unless something else was copied; the command itself returns at once. `import FILE` of an `.ovpn` with
 an inline `<auth-user-pass>` block moves its user name to the profile and its password to the Keychain
 (`ProfileStore.importOVPN`) and says so.
+
+`secret-store [STORE]` exists on Linux only (the Mac has the Keychain; there the command, its help and
+completion are absent). Without STORE it prints the store in use, how it was chosen and, when it
+cannot be used from this process, why (exit 1). STORE is `auto`, `secret-service`, `systemd-creds` or
+`file` (anything else is a usage error): it is saved as the setting `secret_store`, and a store named
+explicitly is also recorded as the one in use (`secret_store_used`), so a later `auto` keeps it.
+Secrets are not moved: after a change it says to save them again with `passtunnel secret`. `--json`
+prints the `SecretStoreReport` ([CLI-JSON.md](CLI-JSON.md#secretstorereport)). On Linux `secret` and
+`show` speak of the secret store instead of the Keychain (`secret`: "Password saved in the secret
+store (file)."). The CLI on a terminal (stdin a TTY, no `--no-input`, not `mcp`) sets
+`SecretStores.interaction`: the file store may ask for its passphrase there (no echo; twice for a new
+file) and a locked keyring gets 120 s instead of 15 s to be unlocked. Details: [LINUX.md](LINUX.md#secrets).
 
 `debug drop ID` (test hook, `DebugDrop`; compiled only into debug builds, `#if DEBUG`, since any process
 in the login session can post the notification) makes a connected OpenVPN profile drop as if the server ended

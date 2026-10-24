@@ -38,6 +38,9 @@ public enum CLICommand: Equatable {
     case export(id: String, output: String?, json: Bool = false)
     case remove(id: String, yes: Bool, json: Bool = false)
     case secret(id: String, kind: SecretKind, json: Bool = false)
+    #if os(Linux)
+    case secretStore(choice: SecretStoreChoice?, json: Bool = false)   // nil: show the store in use
+    #endif
     case setDefault(id: String?, json: Bool = false)           // nil: print the current default
     case pin(id: String, json: Bool = false)
     case unpin(id: String, json: Bool = false)
@@ -65,10 +68,16 @@ public enum CLICommand: Equatable {
     }
 
     /// Every first word that selects CLI mode.
-    public static let commandNames = [
-        "status", "connect", "disconnect", "toggle", "code", "list", "show", "set", "add", "import", "export",
-        "rm", "secret", "default", "pin", "unpin", "log", "helper", "mcp", "completion", "version", "help",
-    ]
+    public static let commandNames: [String] = {
+        var names = [
+            "status", "connect", "disconnect", "toggle", "code", "list", "show", "set", "add", "import", "export",
+            "rm", "secret", "default", "pin", "unpin", "log", "helper", "mcp", "completion", "version", "help",
+        ]
+        #if os(Linux)
+        names.insert("secret-store", at: names.firstIndex(of: "secret")! + 1)   // the Mac has the Keychain only
+        #endif
+        return names
+    }()
 
     /// Commands that select CLI mode but are left out of help and completion (test hooks, debug
     /// builds only).
@@ -231,6 +240,17 @@ public enum CLICommand: Equatable {
                 throw CLIUsageError(String(localized: "Unknown secret “\(kindText)” (use password or totp)."), command: name)
             }
             return .secret(id: id, kind: kind, json: json)
+        #if os(Linux)
+        case "secret-store":
+            let json = a.flag("--json")
+            let choiceText = try a.optionalPositional()
+            try a.finish()
+            guard let choiceText else { return .secretStore(choice: nil, json: json) }
+            guard let choice = SecretStoreChoice(rawValue: choiceText.lowercased()) else {
+                throw CLIUsageError(String(localized: "Unknown secret store “\(choiceText)” (use auto, secret-service, systemd-creds or file)."), command: name)
+            }
+            return .secretStore(choice: choice, json: json)
+        #endif
         case "default":
             let json = a.flag("--json")
             let id = try a.optionalPositional()

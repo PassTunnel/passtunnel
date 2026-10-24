@@ -106,14 +106,27 @@ export PASSTUNNEL_HOME=$(mktemp -d)       # instead of ~/.local/share/passtunnel
 ```
 
 A development build reports version `0.0.0-dev`. Until the later steps of the Linux plan, it has no
-daemon (connecting fails with `helper_not_installed`) and no secret store (saving a password or TOTP
-secret fails with `keychain_error`; the tests keep secrets in memory, `PASSTUNNEL_SECRET_STORE=memory`,
-which only debug builds accept).
+daemon (connecting fails with `helper_not_installed`). Secrets go to the Linux secret stores
+([docs/LINUX.md](docs/LINUX.md#secrets)); in the container above that is the file store, so try it
+with a passphrase file:
+
+```sh
+printf '%s\n' 'a long test passphrase' > /tmp/pp && chmod 600 /tmp/pp
+export PASSTUNNEL_PASSPHRASE_FILE=/tmp/pp PASSTUNNEL_SECRET_STORE=file
+"$(swift build --show-bin-path)/passtunnel" secret-store
+```
+
+The tests never use a real store: they keep secrets in memory (`PASSTUNNEL_SECRET_STORE=memory`,
+which only debug builds accept), run the stores against fakes of `secret-tool` and `systemd-creds`
+(those tests run on the Mac too) and the file store in a temporary directory. The Linux jobs add one
+real Secret Service round trip in a throwaway session bus and keyring (`RealSecretServiceTests`,
+skipped unless `PASSTUNNEL_TEST_SECRET_SERVICE=1`).
 
 Code in these targets must keep building on Linux, without changing what the Mac does: Linux code
 goes in the same files behind `#if os(Linux)` / `#if canImport(…)` (the seams are listed in
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#targets)), CryptoKit is swift-crypto's `Crypto` there,
-Combine is a small stand-in in PassTunnelCore, and `String(localized:)` is an English-only stand-in.
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#targets)), CryptoKit is swift-crypto's `Crypto` there
+(and scrypt comes from its `CryptoExtras`), Combine is a small stand-in in PassTunnelCore, and
+`String(localized:)` is an English-only stand-in.
 A test file that needs an Apple-only framework goes behind `#if os(macOS)` (the whole file, or the
 tests that need it), so the rest of `PassTunnelCoreTests` keeps running on Linux.
 

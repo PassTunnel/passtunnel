@@ -205,7 +205,17 @@ public final class AutomationService {
         let helper = await helperInspector.report()
         return DiagnoseReport(version: appInfo.version, build: appInfo.build, appPath: appInfo.appPath,
                               inApplications: appInfo.inApplications, helper: helper,
-                              profiles: store.list().map(check))
+                              profiles: store.list().map(check), secretStore: await Self.secretStoreReport())
+    }
+
+    /// Linux: the secret store in use. Its availability check may run a tool for a few seconds, so
+    /// not on the main actor. Nil on the Mac (the Keychain).
+    private static func secretStoreReport() async -> SecretStoreReport? {
+        #if os(Linux)
+        return await Task.detached { SecretStores.report() }.value
+        #else
+        return nil
+        #endif
     }
 
     /// What would stop `p` from connecting, from its files and Keychain items (whether they exist only;

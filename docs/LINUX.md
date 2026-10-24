@@ -159,23 +159,57 @@ Profiles never run scripts (the sanitizer removes them); DNS comes from what the
 
 ## Secrets
 
-The same accounts (`<id>/password`, `<id>/totp`) and value formats as the Keychain items, behind a
-`SecretStore` protocol (the Keychain is the Mac's implementation; the Linux tests use an in-memory
-store, which exists in debug builds only, and the Mac's tests a Keychain service of their own):
+The same accounts (`<id>/password`, `<id>/totp`, `<id>/sekey`) and values (plain, `ptpl1:…` or
+`ptse1:…`, byte for byte) as the Keychain items, behind the `SecretStore` protocol (the Keychain is
+the Mac's implementation; the Linux tests use an in-memory store, which exists in debug builds only,
+and fakes for the system tools; the Mac's tests a Keychain service of their own):
 
 | Store | Where | Used by default when |
 |---|---|---|
-| `secret-service` | The desktop keyring (GNOME Keyring, KDE Wallet, KeePassXC) through `secret-tool` (libsecret's command-line tool): attributes `service=PassTunnel`, `account=<id>/<kind>`, values over stdin/stdout, never in arguments | A user session with a Secret Service (the default on desktops; the design names it in the import review) |
-| `systemd-creds` | Encrypted credential files in `~/.local/share/passtunnel/secrets/`, through `systemd-creds encrypt/decrypt` (host key or TPM2; `--user` for non-root, systemd 256 or later) | root, or no Secret Service, when available |
-| `file` | One file encrypted with a key derived from a passphrase (a memory-hard KDF from swift-crypto, AES-GCM); passphrase from a prompt or `PASSTUNNEL_PASSPHRASE_FILE` | The fallback |
+| `secret-service` | The desktop keyring (GNOME Keyring, KDE Wallet, KeePassXC) through `secret-tool` (libsecret's command-line tool): attributes `service=PassTunnel`, `account=<id>/<kind>`, label `PassTunnel (<id>/<kind>)`, values over stdin/stdout as they are, never in arguments or the environment | A user (not root) whose session bus answers (the default on desktops; the design names it in the import review) |
+| `systemd-creds` | `~/.local/share/passtunnel/secrets/<account>.cred` (folder 0700, files 0600), sealed with `systemd-creds encrypt/decrypt` (host key and TPM2): the system's scope for root, `--user` for other users (systemd 256 or later) | root; other users without a Secret Service, when their systemd is new enough |
+| `file` | `~/.local/share/passtunnel/secrets.enc` (0600): scrypt from swift-crypto (N = 2^17, r = 8, p = 1) and AES-256-GCM; passphrase from `PASSTUNNEL_PASSPHRASE_FILE` or the terminal | The fallback |
 
-- The store is chosen with the preference `secret_store` (`auto`, the default, or a name) or
-  `PASSTUNNEL_SECRET_STORE` (`memory`, the tests' store, only in debug builds); once secrets are
-  written, the store used is recorded, so a profile set up in a desktop session is still found over
-  SSH. `diagnose` names the store. Until these stores exist, reading or saving a secret fails with
-  `keychain_error` ("no secret store is set up").
-- Unlike the Keychain, a Secret Service gives no per-application protection: any process of the user
-  can read an unlocked keyring. The docs say so.
+- **Choosing.** The setting `secret_store` in config.json (`auto`, the default, or a store's name;
+  `passtunnel secret-store [STORE]` shows and sets it) or `PASSTUNNEL_SECRET_STORE`, which overrides
+  it (`memory`, the tests' store, only in debug builds; release builds refuse it as unknown). `auto`
+  uses the store recorded in config.json (`secret_store_used`): the store of the first secret saved,
+  or the one last named in `passtunnel secret-store`. With nothing recorded it takes, for root,
+  systemd-creds if available, else the file; for other users secret-service, then systemd-creds,
+  then the file. So a profile set up in a desktop session is still looked for in the keyring over
+  SSH, which then says it cannot reach it rather than reporting the secret missing. Secrets are
+  never moved between stores: after changing the store, save them again with `passtunnel secret`.
+  `diagnose` (`secret_store`) and `passtunnel secret-store` name the store, how it was chosen and
+  whether it can be used from that process.
+- **Errors.** Any store failure is `keychain_error` (`SecretStoreUnavailable`) with the store's own
+  message: no `secret-tool` or `systemd-creds`, no session bus, a locked keyring that did not answer,
+  systemd older than 256 for `--user`, no passphrase, a file that does not decrypt.
+- **secret-service.** `secret-tool` is taken from `/usr/bin`, `/bin` or `/usr/local/bin`, never
+  `PATH`, and gets only `DBUS_SESSION_BUS_ADDRESS` (or `unix:path=$XDG_RUNTIME_DIR/bus` when that
+  socket exists), `XDG_RUNTIME_DIR`, `HOME` and `LANG=C`. It stores what it reads on standard input
+  unchanged (UTF-8 text up to 8 KiB; longer values are refused before it runs) and `lookup` writes it
+  back unchanged when its output is not a terminal, so values need no encoding; `lookup` and `clear`
+  exit 1 without a message when nothing matches. Available when a lookup of an account no item has
+  answers found or not found within 5 s. A locked keyring asks for its password on the desktop:
+  commands on a terminal wait up to 120 s for it, everything else (MCP, `--no-input`, scripts) 15 s,
+  then fail. Unlike the Keychain, a Secret Service gives no per-application protection: any process
+  of the user can read an unlocked keyring.
+- **systemd-creds.** File and credential name are the account with every byte outside `a-z0-9-_` as
+  `%XX` (`acme%2Fpassword.cred`); `--name` seals the name in, so a renamed file does not decrypt.
+  Values go over standard input and output (`encrypt|decrypt --name=… [--user] - -`, `--newline=no`),
+  the result is written atomically. The version comes from `systemd-creds --version`; 30 s timeout.
+- **file.** `"PTSF"`, version 1, KDF 1 (scrypt), log2 N, r, p, a 32-byte salt and a 12-byte nonce (53
+  bytes, all of it the AES-GCM additional data), then the ciphertext of the JSON object account →
+  value (Base64) and the 16-byte tag. The salt and parameters are fixed when the file is made (files
+  name at most 1 GiB of scrypt memory), the nonce is new on every write; writes are atomic and
+  serialized with `flock` on `.secrets.lock` (10 s, then an error). The passphrase comes from
+  `PASSTUNNEL_PASSPHRASE_FILE` (a regular file of the user that group and others cannot access, final
+  line breaks dropped), else from a no-echo prompt when the CLI runs on a terminal without
+  `--no-input` (twice for a new file; three tries for a wrong one); otherwise the command fails at
+  once. A process derives the key once and keeps it (a failed passphrase is not tried again); the
+  passphrase and the decrypted items are overwritten after use, as far as Swift allows. Commands
+  that touch a profile's secrets ask, including `add` and `import`, which clear what an earlier
+  profile with the same id left behind. Wrong passphrase and a changed file give the same error.
 - **Protected profiles** (`require_auth`): refused with `auth_unavailable` until Phase 3. Then
   `connect` asks for the user's password through polkit before the daemon starts the session (the
   design's "Ask for my password before connecting", the desktop's own authentication dialog). That is
@@ -210,7 +244,8 @@ store, which exists in debug builds only, and the Mac's tests a Keychain service
      the daemon reported as not installed, no routes, protected profiles refused. The portable Core
      tests run in the Linux CI jobs, which also try the binary (`--version`, `list --json`, an MCP
      session); `passtunnel` lists, shows, adds and imports profiles and serves MCP.
-   - 2b: the secret stores.
+   - 2b (#78): the secret stores (secret-service, systemd-creds, file), chosen and recorded as above,
+     `passtunnel secret-store`, and the store in `diagnose`.
    - 2c: `passtunneld` with group-based access, the DNS hook, Linux routes and log parsing: connect
      and disconnect work.
    - 2d: the release tarball and the `Dockerfile`.
@@ -231,7 +266,11 @@ secrets in logs, signed commits, the issue → branch → pull request flow). In
 - Linux code lives in the same targets behind `#if os(Linux)` / `#if canImport(…)`, or in Linux-only
   targets (`passtunneld`); the Mac's behavior and binaries do not change.
 - Tests never touch a real keyring, credential store or `/run/passtunnel`, and never start a tunnel:
-  they set `PASSTUNNEL_HOME`, use the in-memory secret store (on the Mac a test Keychain service) and
-  inject the daemon's paths and uids, as `HelperCore` already allows.
+  they set `PASSTUNNEL_HOME`, use the in-memory secret store (on the Mac a test Keychain service),
+  fakes for `secret-tool` and `systemd-creds`, and inject the daemon's paths and uids, as
+  `HelperCore` already allows. The one exception is marked as such: a CI step of the Linux jobs runs
+  one real Secret Service round trip (`RealSecretServiceTests`, only with
+  `PASSTUNNEL_TEST_SECRET_SERVICE=1`) against a throwaway keyring on a throwaway session bus inside
+  the job's container.
 - Every Linux change keeps the `Linux (x86_64)` and `Linux (aarch64)` checks green; they run all tests
   that build on Linux.
