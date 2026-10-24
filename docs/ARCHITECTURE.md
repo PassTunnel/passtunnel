@@ -51,14 +51,15 @@ Core needs from Kit (`FileIO`, the lenient decoding helpers, the envelope parts,
 are `package`, not `public`. The golden cases in [`fixtures/`](../fixtures/README.md) are read by the
 `PassTunnelKitTests` test target (and, as a pinned copy, by the Android port).
 
-On Linux the package has only `PassTunnelVPNConfig`, `PassTunnelKit` and `PassTunnelKitTests` (the
-`#if os(Linux)` block at the end of `Package.swift`). The CI jobs `Linux (x86_64)` and
-`Linux (aarch64)` build PassTunnelKit and run its tests, golden cases included, in the official Swift
-container. There `Crypto` from swift-crypto takes the place of CryptoKit (the same API, so codes and
-`ptse1:` envelopes are the same), `PTError.keychain` shows the bare `OSStatus`, and
-`String(localized:)` is an English-only stand-in (`Localization.swift`), because Foundation on Linux
-does not have it yet. Configs are split into lines at every `\n` scalar (`OVPNInliner.lines`), not
-with `components(separatedBy: "\n")`, which on Linux keeps `\r\n` (one Character) together.
+On Linux the package has only the targets `PassTunnelVPNConfig`, `PassTunnelKit` and
+`PassTunnelKitTests` (the `#if os(Linux)` block at the end of `Package.swift`; the dependencies are
+declared on every platform). The CI jobs `Linux (x86_64)` and `Linux (aarch64)` build PassTunnelKit
+and run its tests, golden cases included, in the official Swift container. There `Crypto` from
+swift-crypto takes the place of CryptoKit (the same API, so codes and `ptse1:` envelopes are the
+same), `PTError.keychain` shows the bare `OSStatus`, and `String(localized:)` is an English-only
+stand-in (`Localization.swift`), because Foundation on Linux does not have it yet. Configs are split
+into lines at every `\n` scalar (`OVPNInliner.lines`), not with `components(separatedBy: "\n")`, which
+on Linux keeps `\r\n` (one Character) together.
 
 ## Identifiers (`PassTunnelShared/Identifiers.swift`)
 

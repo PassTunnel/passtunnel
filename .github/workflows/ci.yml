@@ -4,7 +4,7 @@
 #   Build and test    swift build and swift test on macOS (Apple silicon), and the PassTunnelKit
 #                     library built for iOS (the iPhone app uses it)
 #   Linux (x86_64)    PassTunnelKit built and its tests run (the golden cases in fixtures/) on
-#   Linux (aarch64)   Linux, in the official Swift container; Package.swift has nothing else there
+#   Linux (aarch64)   Linux, in the official Swift container; Package.swift has no other targets there
 #   Release scripts   shellcheck of next-version.sh and its test, and the self-test of
 #                     scripts/next-version.sh (in a temporary repository)
 #   Site              shellcheck of the site scripts and scripts/check-site.sh, the static checks
