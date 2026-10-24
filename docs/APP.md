@@ -51,8 +51,8 @@ One binary, two modes:
      `PTError.authFailed(details)`; on timeout stop the process.
 - `disconnect(_ id:)` → helper `stop`; marks the profile *user-stopped* so it is not treated as a drop.
 - Drop detection: only `connected → disconnected` with no action in flight and not user-stopped.
-  Then: notification (if enabled) and, if `profile.autoReconnect && profile.unattended` and secrets
-  exist, reconnect with backoff 5 s / 15 s / 45 s (generation counter; any manual action cancels).
+  Then: notification (if enabled, see Notifications) and, if `profile.autoReconnect && profile.unattended`
+  and secrets exist, reconnect with backoff 5 s / 15 s / 45 s (generation counter; any manual action cancels).
   Automatic and health-forced reconnects never prompt (`interactive: false`): they use the decrypted
   secrets the manager keeps for a session it connected (dropped, overwritten, on user disconnect, final
   reconnect failure or when the profile is forgotten) or the reuse window; otherwise they fail with
@@ -168,13 +168,46 @@ Title: lock symbol (optional) + one badge per *visible* profile (pinned, or conn
 dropped-until-seen), colored by state with the selected palette. Menu: per profile — name + status,
 Connect/Disconnect, Copy code; then Open PassTunnel (⌘O), Settings… (⌘,), Quit.
 
+## Notifications (`Notifier`)
+
+`ConnectionManager` never posts notifications: it sends `ConnectionEvent`s, and `ConnectionNotice.forEvent`
+(Core, unit-tested) picks the notification for each one, or none when a setting turns it off. `Notifier`
+posts it; authorization is asked the first time one is needed. A click shows the profile in the main
+window unless noted.
+- `dropped` while an automatic reconnect follows: "Acme VPN dropped" / "Reconnecting with a fresh code…"
+  ("Reconnecting…" for a profile without a TOTP secret), with a **Stop** action
+  (`AppModel.stopReconnecting`): it ends the reconnect, an attempt under way included, like Cancel
+  Connecting (a user disconnect); on an older notification whose reconnect is over it does nothing.
+- `dropped` without a reconnect: "Acme VPN dropped" / "It will not reconnect automatically.", Connect action.
+- `reconnected` (after a drop, after wake, or the forced reconnect of a health outage): "Connected to
+  Acme VPN" (below).
+- `reconnectFailed`: "Could not reconnect Acme VPN" / the reason, Connect action.
+- These four follow **Unexpected disconnects** (`notifyOnDrop`). `unreachable` / `reachableAgain` ("Acme VPN
+  is not responding" / "… is responding again") follow **Health check failures** (`notifyHealth`);
+  `sessionEnding` ("Acme VPN session is ending" / "The session limit is reached in 10 minutes.") follows
+  **Session limit** (`sessionNotifyMin` > 0). `droppedWhileAsleep` and `destinationChanged` (wording under
+  ConnectionManager) are always shown, as they replace the automatic reconnect the user turned on.
+
+"Connected to Acme VPN" / "10.8.0.6 · vpn.example.com" (`ConnectionNotice.connected`: the tunnel address,
+then the server as the confirmation prompt names it, `ProfileDestination.host`, e.g. "vpn.example.com +1
+more"; unknown parts are left out). Shown for connects PassTunnel makes on its own (the reconnects above)
+and, for a connect the user starts in the app (main window, menu bar, shortcut, notification), only when the
+main window is not visible: closed, minimized, hidden, on another Space or covered by other windows
+(`NSWindow.occlusionState`), since the window shows the result otherwise (`ConnectionNotice.announcesConnect`).
+Connects started by the CLI or an MCP client get none. The same visibility rule gives "Could not connect
+Acme VPN" / the error for a failed connect the user started (`AppModel.handleConnectError`).
+
+Not about one connection: "The helper needs an update" (once, while sessions keep an outdated helper from
+updating, `HelperAutoUpdate`) and "Allow PassTunnel to type codes" (auto-type without Accessibility permission).
+
 ## Settings (`Settings` scene, tabs)
 
 - **General**: launch at login (`SMAppService.mainApp`), show in Dock, install CLI, appearance,
   badge palette (pastel / vivid / soft / candy / earth — the menu bar colors for connected /
   connecting / disconnected), show lock symbol, hide codes; **Security**: "Ask again after" 1 / 5 / 15
   minutes (`authReuseMinutes`, `settings.authReuse`): how long one confirmation unlocks a profile.
-- **Notifications**: unexpected drop, session-limit (minutes before), health.
+- **Notifications**: unexpected drop (and the reconnect after it), health, session-limit (minutes before);
+  see Notifications.
 - **Shortcuts**: enable global hotkeys (default off): ⌃⌥V connect/disconnect default profile,
   ⌃⌥C type/copy code.
 - **Helper**: status (enabled / needs approval / not installed / needs an update / updating) with Install /

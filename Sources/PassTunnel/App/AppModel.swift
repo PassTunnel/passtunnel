@@ -455,8 +455,12 @@ final class AppModel: ObservableObject {
         reload()
     }
 
+    /// The main window is open and on screen: not closed, minimized, hidden, on another Space or covered
+    /// by other windows.
     private var mainWindowVisible: Bool {
-        NSApp.windows.contains(where: { $0.isVisible && $0.identifier?.rawValue.hasPrefix("main") == true })
+        NSApp.windows.contains(where: {
+            $0.isVisible && $0.occlusionState.contains(.visible) && $0.identifier?.rawValue.hasPrefix("main") == true
+        })
     }
 
     // MARK: actions
@@ -498,13 +502,29 @@ final class AppModel: ObservableObject {
             _ = try? store.update(p.id) { $0.lastUsername = user }
             reload()
         }
+        let wasActive = state(p.id).isActive
         Task {
             do {
                 try await connections.connect(p.id, given: given)
+                if !wasActive { announceConnected(p.id, .user) }
             } catch {
                 handleConnectError(error, profile: p)
             }
         }
+    }
+
+    /// "Connected to <Profile>" (`ConnectionNotice.announcesConnect`); reconnects come as events instead.
+    private func announceConnected(_ id: String, _ origin: ConnectionNotice.ConnectOrigin) {
+        guard state(id).isConnected,
+              ConnectionNotice.announcesConnect(origin, mainWindowVisible: mainWindowVisible) else { return }
+        Notifier.shared.post(ConnectionNotice.connected(noticeSubject(id), profileID: id))
+    }
+
+    /// The Stop action of a drop notification: ends the automatic reconnect, an attempt under way
+    /// included, like Cancel Connecting. Does nothing once the reconnect is over (an older notification).
+    func stopReconnecting(_ id: String) {
+        guard connections.reconnecting[id] != nil, let p = profile(id) else { return }
+        disconnect(p)
     }
 
     func disconnect(_ p: Profile) {
@@ -721,6 +741,12 @@ final class AppModel: ObservableObject {
             break
         }
         Notifier.shared.handle(event, model: self)
+    }
+
+    /// What a notification about `id` says about the profile.
+    func noticeSubject(_ id: String) -> ConnectionNotice.Subject {
+        guard let p = profile(id) else { return ConnectionNotice.Subject(name: id) }
+        return ConnectionNotice.Subject(p, state: state(id), store: store)
     }
 }
 
