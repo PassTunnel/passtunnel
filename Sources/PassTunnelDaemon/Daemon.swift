@@ -325,9 +325,15 @@ private final class ResponseBox: @unchecked Sendable {
 }
 
 /// The daemon's log: standard error, which systemd sends to the journal. Never request contents.
+/// Messages can quote what a client sent (a profile ID, a path), so control characters become "?"
+/// and a message is always one line.
 public enum DaemonLog {
     public static func info(_ message: String) {
-        let line = "passtunneld: " + message + "\n"
+        let line = "passtunneld: " + oneLine(message) + "\n"
         _ = line.withCString { write(2, $0, strlen($0)) }
+    }
+
+    static func oneLine(_ message: String) -> String {
+        String(String.UnicodeScalarView(message.unicodeScalars.map { $0.value < 0x20 || $0.value == 0x7F ? "?" : $0 }))
     }
 }

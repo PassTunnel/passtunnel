@@ -144,8 +144,12 @@ final class SpawnTests: DaemonTestCase {
             let parts = line.split(separator: ":", maxSplits: 1)
             return parts.count == 2 ? (String(parts[0]), parts[1].trimmingCharacters(in: .whitespaces)) : nil
         }, uniquingKeysWith: { a, _ in a })
-        XCTAssertEqual(fields["SigBlk"], "0000000000000000", status)
-        XCTAssertEqual(fields["SigIgn"], "0000000000000000", status)
+        // Signals 1–31. glibc's posix_spawn leaves its two internal real-time signals (32, 33)
+        // ignored in the child, and the child's own glibc takes them over at start.
+        func standard(_ key: String) -> UInt64? { fields[key].flatMap { UInt64($0, radix: 16) }.map { $0 & 0x7FFF_FFFF } }
+        XCTAssertEqual(standard("SigBlk"), 0, status)
+        XCTAssertEqual(standard("SigIgn"), 0, status)
+        XCTAssertEqual(fields["SigBlk"], "0000000000000000", "nothing blocked at all: \(status)")
 
         let stat = try XCTUnwrap(ToolRunner.output(of: "/bin/cat", arguments: ["/proc/self/stat"]))
         let pid = stat.prefix { $0 != " " }

@@ -151,11 +151,16 @@ jobs:
 
           install -m 0755 "$bin/passtunneld" /usr/local/sbin/passtunneld
           daemon=""
+          # Ready once it answers (a killed daemon leaves its socket file behind).
           start_daemon() {
             /usr/local/sbin/passtunneld >>daemon.log 2>&1 &
             daemon=$!
-            for _ in $(seq 100); do [ -S "$sock" ] && return 0; sleep 0.1; done
-            echo "no socket"; return 1
+            for _ in $(seq 100); do
+              reply="$(printf '%s\n' '{"op":"hello"}' | socat -t 5 - "UNIX-CONNECT:$sock" 2>/dev/null || true)"
+              case "$reply" in *'"protocol"'*) return 0 ;; esac
+              sleep 0.1
+            done
+            echo "no answer"; return 1
           }
           trap 'if [ -n "$daemon" ]; then kill "$daemon" 2>/dev/null || true; fi; echo "--- daemon log"; cat daemon.log' EXIT
           start_daemon

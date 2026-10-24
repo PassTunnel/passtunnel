@@ -75,6 +75,11 @@ final class DaemonCallTests: XCTestCase {
         XCTAssertEqual(JSONMembers.of([UInt8]("{}".utf8))?.isEmpty, true)
     }
 
+    func testLogLinesStayOneLine() {
+        XCTAssertEqual(DaemonLog.oneLine("start of a\nb\r\u{1b}[31m refused"), "start of a?b??[31m refused")
+        XCTAssertEqual(DaemonLog.oneLine("profil “acme”"), "profil “acme”")
+    }
+
     func testHelloEncoding() throws {
         let hello = DaemonHello(build: "ab12", buildNumber: 214)
         XCTAssertEqual(String(decoding: try hello.jsonData(), as: UTF8.self),
