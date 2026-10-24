@@ -84,12 +84,20 @@ jobs:
           uname -m
           swift --version
 
+      - name: Keep a copy of Package.resolved (temporary)
+        run: cp Package.resolved /tmp/Package.resolved.orig
+
       - name: Build PassTunnelKit
         run: swift build --target PassTunnelKit
 
       # On Linux this is PassTunnelKitTests only.
       - name: Test
         run: swift test
+
+      - name: Compare Package.resolved (temporary)
+        run: |
+          if cmp /tmp/Package.resolved.orig Package.resolved; then echo "Package.resolved unchanged"; else diff /tmp/Package.resolved.orig Package.resolved; exit 1; fi
+          find .build -maxdepth 3 -iname '*sparkle*' | sort
 
   scripts:
     name: Release scripts
