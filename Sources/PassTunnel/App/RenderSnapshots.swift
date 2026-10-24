@@ -57,6 +57,16 @@ enum RenderSnapshots {
                          dark: dark, to: out, name: "main-empty", window: true)
             }
 
+            // The design system (App/Design): every token and base component, also with Increase Contrast.
+            for contrast in [false, true] {
+                Palette.previewIncreasedContrast = contrast
+                for dark in [false, true] {
+                    snapshot(DesignGallery(isDark: dark, isContrast: contrast), size: nil, dark: dark, to: out,
+                             name: contrast ? "components-contrast" : "components")
+                }
+            }
+            Palette.previewIncreasedContrast = false
+
             let sample = try makeSampleProfiles(store)
             created = sample.ids
             var prefs = Preferences.load(paths: paths)

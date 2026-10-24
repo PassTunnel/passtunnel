@@ -494,7 +494,8 @@ PASSTUNNEL_RENDER=/tmp/passtunnel-shots "$(swift build --show-bin-path)/PassTunn
 ```
 
 This writes the main window (light/dark, empty state, hidden codes), the credential sheet, menu bar
-badges for every palette, every Settings tab, the onboarding steps and the profile editor states.
+badges for every palette, every Settings tab, the onboarding steps, the profile editor states and the
+design system's tokens and components.
 The images in [`docs/images`](docs/images) come from it.
 
 ## Contributing
