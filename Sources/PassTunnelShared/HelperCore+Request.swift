@@ -71,7 +71,7 @@ extension HelperCore {
     }
 
     /// Client-supplied text echoed in an error: printable ASCII only, at most 32 characters.
-    static func printable(_ s: String) -> String {
+    public static func printable(_ s: String) -> String {
         String(String.UnicodeScalarView(s.unicodeScalars.prefix(32).map { (0x20...0x7E).contains($0.value) ? $0 : "?" }))
     }
 }

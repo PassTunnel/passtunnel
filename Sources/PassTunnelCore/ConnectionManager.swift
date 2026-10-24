@@ -425,13 +425,13 @@ public final class ConnectionManager: ObservableObject {
                                           destination: { [store] in ProfileDestination.of($0, store: store) })
     }
 
-    /// The helper a manager uses unless it is given one: the privileged helper (XPC) on the Mac; on
-    /// Linux, until its daemon exists (docs/LINUX.md), a placeholder that reports it as not installed.
+    /// The helper a manager uses unless it is given one: the privileged helper (XPC) on the Mac,
+    /// passtunneld through its unix socket on Linux (docs/LINUX.md).
     nonisolated public static var defaultHelper: HelperClienting {
         #if os(macOS)
         HelperClient.shared
         #else
-        UnavailableHelperClient.shared
+        UnixSocketHelperClient.shared
         #endif
     }
 

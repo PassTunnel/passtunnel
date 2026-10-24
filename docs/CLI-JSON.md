@@ -155,7 +155,9 @@ From `helper status` and inside the MCP tools `get_status` and `diagnose`.
 ```
 
 `state`: `enabled`, `requires_approval`, `not_installed` or `missing_from_bundle`. `error` says why
-it did not answer.
+it did not answer. On Linux the report is about the daemon `passtunneld`: `enabled` when its socket
+exists, `not_installed` otherwise, and `outdated` when it speaks another protocol or is not the build
+installed with this `passtunnel` (restart it).
 
 ## Commands
 

@@ -3,9 +3,10 @@
 #
 #   Build and test    swift build and swift test on macOS (Apple silicon), and the PassTunnelKit
 #                     library built for iOS (the iPhone app uses it)
-#   Linux (x86_64)    the Linux targets (Package.swift: the portable code, the CLI and the `passtunnel`
-#   Linux (aarch64)   command) built and the tests that build there run (the golden cases in fixtures/
-#                     included), in the official Swift container; then a smoke test of `passtunnel`
+#   Linux (x86_64)    the Linux targets (Package.swift: the portable code, the CLI, the `passtunnel`
+#   Linux (aarch64)   command and the `passtunneld` daemon) built and the tests that build there run
+#                     (the golden cases in fixtures/ included), in the official Swift container; then
+#                     smoke tests of `passtunnel` and, as root in the container, of `passtunneld`
 #   Release scripts   shellcheck of next-version.sh and its test, and the self-test of
 #                     scripts/next-version.sh (in a temporary repository)
 #   Site              shellcheck of the site scripts and scripts/check-site.sh, the static checks
@@ -117,6 +118,115 @@ jobs:
             and $r["1"].result.protocolVersion == "2025-06-18" and $r["1"].result.serverInfo.version == "0.0.0-dev"
             and [$r["2"].result.tools[].name] == ["list_profiles", "get_status", "get_logs", "diagnose"]
             and $r["3"].result.isError == false and $r["3"].result.structuredContent == {"profiles": []}' mcp.jsonl
+
+      # passtunneld as root in the container, on the container's own /run/passtunnel: refused from a
+      # directory others can write to, then installed where its checks accept it. hello and an empty
+      # status (raw, and through passtunnel); a start refused for a user outside the group passtunnel,
+      # whose status stays allowed; a member's session with the distribution's openvpn started, its
+      # management socket handed over, invisible to others, and stopped (no tunnel: the server is an
+      # unroutable documentation address). Last, a daemon killed during a session, whose openvpn the
+      # next one stops.
+      - name: Smoke-test passtunneld
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends jq socat openvpn >/dev/null
+          openvpn --version | head -n 1
+          bin="$(swift build --show-bin-path)"
+          sock=/run/passtunnel/daemon.sock
+          call() { socat -t 30 - "UNIX-CONNECT:$sock"; }
+          call_as() { runuser -u "$1" -- socat -t 30 - "UNIX-CONNECT:$sock"; }
+          status='{"op":"perform","request":{"type":"status","protocol_version":3}}'
+          stop='{"op":"perform","request":{"type":"stop","protocol_version":3,"profile_id":"acme"}}'
+          PASSTUNNEL_HOME="$(mktemp -d)"
+          export PASSTUNNEL_HOME
+
+          tmp="$(mktemp -d)"
+          cp "$bin/passtunneld" "$tmp/"
+          if "$tmp/passtunneld" 2>refused.txt; then echo "ran from $tmp"; exit 1; fi
+          cat refused.txt
+          grep -q "Refusing to run from $tmp/passtunneld" refused.txt
+
+          install -m 0755 "$bin/passtunneld" /usr/local/sbin/passtunneld
+          daemon=""
+          start_daemon() {
+            /usr/local/sbin/passtunneld >>daemon.log 2>&1 &
+            daemon=$!
+            for _ in $(seq 100); do [ -S "$sock" ] && return 0; sleep 0.1; done
+            echo "no socket"; return 1
+          }
+          trap 'if [ -n "$daemon" ]; then kill "$daemon" 2>/dev/null || true; fi; echo "--- daemon log"; cat daemon.log' EXIT
+          start_daemon
+          test "$(stat -c '%a %U' /run/passtunnel)" = "711 root"
+          test "$(stat -c '%a %U' "$sock")" = "666 root"
+
+          build="$(sha256sum /usr/local/sbin/passtunneld | cut -d' ' -f1)"
+          printf '%s\n' '{"op":"hello"}' | call | jq -e --arg build "$build" '.protocol == 3 and .build == $build'
+          printf '%s\n' "$status" | call | jq -e '.ok and .running == {} and .mgmt_sockets == {}'
+          "$bin/passtunnel" helper status --json \
+            | jq -e '.state == "enabled" and .responding and .protocol_version == 3 and .outdated == false'
+          "$bin/passtunnel" diagnose --json | jq -e '.helper.state == "enabled" and .helper.responding'
+
+          start='{"op":"perform","request":{"type":"start_openvpn","protocol_version":3,"profile_id":"acme","profile_dir":"/nonexistent","log_path":"/nonexistent/vpn.log"}}'
+          printf '%s\n' "$start" | call_as nobody | jq -e '.ok == false and (.error | test("group .passtunnel. does not exist"))'
+          groupadd --system passtunnel
+          printf '%s\n' "$start" | call_as nobody | jq -e '.ok == false and (.error | test("members of the group .passtunnel."))'
+          printf '%s\n' "$status" | call_as nobody | jq -e '.ok and .running == {}'
+          printf '%s\n' '{"op":"hello"}' | call_as nobody | jq -e '.protocol == 3'
+
+          useradd --create-home --groups passtunnel alice
+          uid="$(id -u alice)"
+          profile=/home/alice/.local/share/passtunnel/profiles/acme
+          runuser -u alice -- mkdir -p "$profile"
+          printf '%s\n' client 'dev tun' 'proto udp' 'remote 192.0.2.1 1194' nobind auth-user-pass \
+            "peer-fingerprint $(printf '00:%.0s' $(seq 31))00" | runuser -u alice -- tee "$profile/config.ovpn" >/dev/null
+          sha="$(sha256sum "$profile/config.ovpn" | cut -d' ' -f1)"
+          request="$(jq -cn --arg dir "$profile" --arg sha "$sha" '{op: "perform", request: {type: "start_openvpn",
+            protocol_version: 3, profile_id: "acme", profile_dir: $dir, log_path: ($dir + "/vpn.log"),
+            username: "alice", secret: "example-password", config_sha256: $sha}}')"
+          run="/run/passtunnel/$uid/acme"
+          printf '%s\n' "$request" | call_as alice | tee start.json \
+            | jq -e --arg sock "$run/mgmt.sock" '.ok and .pid > 1 and .mgmt_socket == $sock'
+          pid="$(jq -r .pid start.json)"
+          for _ in $(seq 100); do [ "$(stat -c '%U %a' "$run/mgmt.sock" 2>/dev/null)" = "alice 600" ] && break; sleep 0.1; done
+          test "$(stat -c '%U %a' "$run/mgmt.sock")" = "alice 600"
+          test "$(stat -c '%a %U' "$run")" = "711 root"
+          test "$(stat -c '%U %a' "$profile/vpn.log")" = "alice 600"
+          tr '\0' ' ' <"/proc/$pid/cmdline" | tee cmdline.txt
+          echo
+          grep -q -- "--management $run/mgmt.sock unix --management-client-user alice " cmdline.txt
+          grep -q -- "--auth-user-pass $run/auth --script-security 1 $" cmdline.txt
+          printf '%s\n' "$status" | call_as alice \
+            | jq -e --argjson pid "$pid" --arg sock "$run/mgmt.sock" '.running == {"acme": $pid} and .mgmt_sockets == {"acme": $sock}'
+          printf '%s\n' "$status" | call_as nobody | jq -e '.running == {}'
+          printf '%s\n' "$status" | call | jq -e '.running == {}'
+          printf '%s\n' "$stop" | call_as nobody | jq -e '.ok and .pid == null'
+          kill -0 "$pid"
+          printf '%s\n' "$stop" | call_as alice | jq -e --argjson pid "$pid" '.ok and .pid == $pid'
+          test ! -e "$run"
+          if kill -0 "$pid" 2>/dev/null; then echo "openvpn $pid still runs"; exit 1; fi
+          grep -q 'OpenVPN 2\.' "$profile/vpn.log"
+
+          printf '%s\n' "$request" | call_as alice | tee start.json | jq -e '.ok'
+          pid="$(jq -r .pid start.json)"
+          test -f "$run/state"
+          kill -KILL "$daemon"
+          wait "$daemon" || true
+          kill -0 "$pid"
+          start_daemon
+          case "$(awk '{print $3}' "/proc/$pid/stat" 2>/dev/null || true)" in
+            "" | Z) ;;
+            *) echo "openvpn $pid still runs"; exit 1 ;;
+          esac
+          test ! -e "/run/passtunnel/$uid"
+          grep -q "stopping pid $pid of uid $uid, left running by an earlier instance" daemon.log
+
+          kill -TERM "$daemon"
+          wait "$daemon"
+          daemon=""
+          test ! -e "$sock"
 
   scripts:
     name: Release scripts

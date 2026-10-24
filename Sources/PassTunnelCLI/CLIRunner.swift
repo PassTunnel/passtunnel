@@ -931,6 +931,16 @@ final class CLIRunner {
             return code
         }
         switch r.state {
+        #if os(Linux)
+        case "enabled":
+            if let v = r.protocolVersion {
+                let note = r.outdated == true ? "  " + String(localized: "(not the installed build; restart it: systemctl restart passtunnel)") : ""
+                CLITerminal.out(String(localized: "Daemon (passtunneld): running (protocol \(v))") + note)
+            } else {
+                CLITerminal.out(String(localized: "Daemon (passtunneld): installed, but not answering"))
+                if let error = r.error { CLITerminal.out("  " + error) }
+            }
+        #else
         case "enabled":
             if let v = r.protocolVersion {
                 let note = r.outdated == true ? "  " + String(localized: "(out of date; “passtunnel helper install” updates it)") : ""
@@ -938,6 +948,7 @@ final class CLIRunner {
             } else {
                 CLITerminal.out(String(localized: "Helper: enabled, but not responding"))
             }
+        #endif
         case "requires_approval":
             CLITerminal.out(String(localized: "Helper: needs approval in System Settings → General → Login Items"))
         case "not_installed":

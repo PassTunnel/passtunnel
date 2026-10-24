@@ -376,11 +376,12 @@ public protocol HelperInspecting {
 }
 
 /// `SMAppService` status, then the running helper's protocol and build (5 s timeout per call). On
-/// Linux the daemon, which is never installed until it exists (docs/LINUX.md).
+/// Linux passtunneld (docs/LINUX.md): `not_installed` without its socket, else `enabled`, and from
+/// `hello` (5 s) whether it answers and is the installed build.
 public struct SystemHelperInspector: HelperInspecting {
+    #if os(macOS)
     public init() {}
 
-    #if os(macOS)
     public func report() async -> HelperReport {
         let status = HelperInstaller.status
         var r = HelperReport(state: HelperReport.stateName(status), responding: false)
@@ -398,8 +399,33 @@ public struct SystemHelperInspector: HelperInspecting {
         return r
     }
     #else
+    public let socketPath: String
+    public let timeout: TimeInterval
+    /// The build the daemon must report (`HelperBuild.installedDaemon`, worked out only when the
+    /// daemon answers); nil: not compared.
+    private let expectedBuild: () -> String?
+
+    public init(socketPath: String = PT.daemonSocketPath(), timeout: TimeInterval = 5,
+                expectedBuild: @autoclosure @escaping () -> String? = HelperBuild.installedDaemon) {
+        self.socketPath = socketPath
+        self.timeout = timeout
+        self.expectedBuild = expectedBuild
+    }
+
     public func report() async -> HelperReport {
-        HelperReport(state: HelperReport.stateName(.notRegistered), responding: false)
+        let client = UnixSocketHelperClient(socketPath: socketPath, timeout: timeout, expectedBuild: nil)
+        guard client.isInstalled else { return HelperReport(state: HelperReport.stateName(.notRegistered), responding: false) }
+        var r = HelperReport(state: HelperReport.stateName(.enabled), responding: false)
+        do {
+            let hello = try await client.hello()
+            r.responding = true
+            r.protocolVersion = hello.protocolVersion
+            r.outdated = hello.protocolVersion != PT.helperProtocolVersion
+                || !HelperBuild.matches(helper: hello.build, expected: expectedBuild())
+        } catch {
+            r.error = error.localizedDescription
+        }
+        return r
     }
     #endif
 }

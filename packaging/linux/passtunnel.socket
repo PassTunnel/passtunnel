@@ -1,0 +1,21 @@
+# The socket of passtunneld, PassTunnel's root daemon on Linux (docs/LINUX.md). A first version: no
+# package or tarball installs it yet. systemd starts passtunnel.service on the first connection and
+# hands this socket over as descriptor 3 (LISTEN_FDS).
+
+[Unit]
+Description=PassTunnel daemon socket
+Documentation=https://github.com/PassTunnel/passtunnel/blob/main/docs/LINUX.md
+
+[Socket]
+ListenStream=/run/passtunnel/daemon.sock
+# Anyone may connect: the daemon decides per request from the caller's uid (SO_PEERCRED). Root and
+# the group passtunnel may start connections; everyone may see and stop only their own.
+SocketMode=0666
+SocketUser=root
+SocketGroup=root
+# The run root, created here: searchable but not listable, as the daemon keeps it.
+DirectoryMode=0711
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target
