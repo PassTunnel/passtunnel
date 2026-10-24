@@ -26,7 +26,7 @@ public enum OVPNInliner {
         var out: [String] = []
         var verbatimTag: String?
 
-        for (index, rawLine) in text.components(separatedBy: "\n").enumerated() {
+        for (index, rawLine) in lines(text).enumerated() {
             var line = rawLine
             if line.hasSuffix("\r") { line.removeLast() }
             if index == 0, line.hasPrefix("\u{FEFF}") { line.removeFirst() }   // UTF-8 BOM (Windows editors)
@@ -81,7 +81,7 @@ public enum OVPNInliner {
                 }
                 body = s.replacingOccurrences(of: "\r\n", with: "\n").trimmingCharacters(in: .newlines)
                 // The content must not close the block early.
-                if body.components(separatedBy: "\n").contains(where: { isBlockEnd($0, tag: name) }) {
+                if lines(body).contains(where: { isBlockEnd($0, tag: name) }) {
                     throw PTError.ovpnReferencedFile(path)
                 }
             }
@@ -134,7 +134,7 @@ public enum OVPNInliner {
         var removing: (block: CredentialBlock, lines: [String])?
         var changed = false
 
-        for rawLine in text.components(separatedBy: "\n") {
+        for rawLine in lines(text) {
             var line = rawLine
             if line.hasSuffix("\r") { line.removeLast() }
             if let current = removing {
@@ -227,6 +227,13 @@ public enum OVPNInliner {
     }
 
     // MARK: parsing (`OVPNSanitizer`'s, so the two never read a line differently)
+
+    /// `text` split at every "\n", as `components(separatedBy: "\n")` splits it on Apple platforms: the
+    /// "\n" of "\r\n" too (the line keeps the "\r"), and a final "\n" leaves an empty last line.
+    /// Foundation on Linux keeps "\r\n" whole, because it is a single Character.
+    static func lines(_ text: String) -> [String] {
+        text.unicodeScalars.split(separator: "\n", omittingEmptySubsequences: false).map { String(Substring($0)) }
+    }
 
     /// nil for blank and comment lines and for lines OpenVPN rejects (bad backslash escape,
     /// unterminated quote): those are kept as they are and the sanitizer reports them.
