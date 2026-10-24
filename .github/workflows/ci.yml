@@ -133,7 +133,7 @@ jobs:
           set -euo pipefail
           apt-get update -qq
           apt-get install -y -qq --no-install-recommends jq socat openvpn >/dev/null
-          openvpn --version | head -n 1
+          (openvpn --version || true) | head -n 1     # exits with 1 after printing
           bin="$(swift build --show-bin-path)"
           sock=/run/passtunnel/daemon.sock
           call() { socat -t 30 - "UNIX-CONNECT:$sock"; }
@@ -162,7 +162,8 @@ jobs:
             done
             echo "no answer"; return 1
           }
-          trap 'if [ -n "$daemon" ]; then kill "$daemon" 2>/dev/null || true; fi; echo "--- daemon log"; cat daemon.log' EXIT
+          trap 'if [ -n "$daemon" ]; then kill "$daemon" 2>/dev/null || true; fi; echo "--- daemon log"; cat daemon.log
+            echo "--- session log"; cat /home/alice/.local/share/passtunnel/profiles/acme/vpn.log 2>/dev/null || true' EXIT
           start_daemon
           test "$(stat -c '%a %U' /run/passtunnel)" = "711 root"
           test "$(stat -c '%a %U' "$sock")" = "666 root"
