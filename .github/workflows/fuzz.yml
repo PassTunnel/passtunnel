@@ -23,6 +23,7 @@ on:
       - Sources/PassTunnelKit/TOTP.swift
       - Sources/PassTunnelCore/MCPServer.swift
       - Sources/PassTunnelCore/MCPTools.swift
+      - Sources/PassTunnelCore/JSONValue.swift
   schedule:
     - cron: "41 5 * * 1"
   workflow_dispatch:

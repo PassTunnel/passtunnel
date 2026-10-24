@@ -1,3 +1,5 @@
+// macOS only, like Spawner (code signatures, suspended launch).
+#if os(macOS)
 import Darwin
 import Security
 import XCTest
@@ -333,3 +335,4 @@ final class ToolEnvironmentTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: HelperCore.missingDirectory))
     }
 }
+#endif

@@ -1,5 +1,9 @@
+#if canImport(AppKit)
 import AppKit
+#endif
+#if canImport(Combine)
 import Combine
+#endif
 import Foundation
 import PassTunnelCore
 import PassTunnelKit
@@ -29,7 +33,7 @@ final class CLIRunner {
     var manager: ConnectionManager {
         if let managerStorage { return managerStorage }
         let authenticator: UserAuthenticator = options.noAuthPrompt
-            ? PromptlessAuthenticator(SecureEnclaveAuthenticator()) : SecureEnclaveAuthenticator()
+            ? PromptlessAuthenticator(PlatformAuthenticator()) : PlatformAuthenticator()
         let m = ConnectionManager(store: store, authenticator: authenticator)
         managerStorage = m
         return m
@@ -371,7 +375,7 @@ final class CLIRunner {
         let now = Date()
         let code = TOTP.code(secret: secret, params: p.totp, at: now)
         let left = TOTP.remaining(params: p.totp, at: now)
-        if copy { CLIClipboard.copyConcealed(code) }
+        if copy { try CLIClipboard.copyConcealed(code) }
         if json {
             try printJSON(CodeJSON(profile: p.id, code: code, remaining: left, period: p.totp.period))
         } else if CLITerminal.stdoutIsTTY {
@@ -729,6 +733,10 @@ final class CLIRunner {
         switch action {
         case .status:
             return await printHelperStatus()
+        #if !os(macOS)
+        case .install, .uninstall:
+            throw AutomationError(.invalidArgument, String(localized: "On Linux the PassTunnel package installs and removes the daemon (passtunneld): install or remove the package instead."))
+        #else
         case .install:
             switch HelperInstaller.status {
             case .enabled:
@@ -777,6 +785,7 @@ final class CLIRunner {
                 CLITerminal.out(String(localized: "The helper is still installed. Confirm the removal in PassTunnel → Settings → Helper."))
                 return Exit.error
             }
+        #endif
         }
     }
 
@@ -793,10 +802,7 @@ final class CLIRunner {
             CLITerminal.out(String(localized: "\(p.name) is not connected."))
             return Exit.notConnected
         }
-        if NSRunningApplication.runningApplications(withBundleIdentifier: PT.bundleID)
-            .contains(where: { !$0.isTerminated && $0.processIdentifier != getpid() }) {
-            DistributedNotificationCenter.default().postNotificationName(
-                DebugDrop.notification, object: p.id, userInfo: nil, deliverImmediately: true)
+        if Self.askRunningAppToDrop(p.id) {
             CLITerminal.out(String(localized: "Asked PassTunnel to drop \(p.name) as if the server ended the session…"))
         } else {
             guard try await manager.simulateDrop(p.id) else {
@@ -817,8 +823,22 @@ final class CLIRunner {
         CLITerminal.out(String(localized: "\(p.name) is still connected."))
         return Exit.error
     }
+
+    /// Posts `DebugDrop` to a running app; false when none runs (always on Linux, which has no app).
+    private static func askRunningAppToDrop(_ id: String) -> Bool {
+        #if os(macOS)
+        guard NSRunningApplication.runningApplications(withBundleIdentifier: PT.bundleID)
+            .contains(where: { !$0.isTerminated && $0.processIdentifier != getpid() }) else { return false }
+        DistributedNotificationCenter.default().postNotificationName(
+            DebugDrop.notification, object: id, userInfo: nil, deliverImmediately: true)
+        return true
+        #else
+        return false
+        #endif
+    }
     #endif
 
+    #if os(macOS)
     /// The helper is enabled but from another app version or build: the app replaces it (unregister,
     /// then register from its own bundle), which stops its connections. Waits for the current helper.
     private func updateHelper() async throws -> Int32 {
@@ -900,7 +920,7 @@ final class CLIRunner {
             throw CLIFailure(String(localized: "Could not open PassTunnel. Install it in the Applications folder and try again."))
         }
     }
-
+    #endif
 
     /// Exit 0 when the helper is enabled, answering and current, else `AutomationExit.helper`.
     private func printHelperStatus() async -> Int32 {
@@ -921,7 +941,11 @@ final class CLIRunner {
         case "requires_approval":
             CLITerminal.out(String(localized: "Helper: needs approval in System Settings → General → Login Items"))
         case "not_installed":
+            #if os(macOS)
             CLITerminal.out(String(localized: "Helper: not installed (run “passtunnel helper install”)"))
+            #else
+            CLITerminal.out(String(localized: "Daemon (passtunneld): not installed"))
+            #endif
         default:
             CLITerminal.out(String(localized: "Helper: missing from the app bundle"))
         }
@@ -943,45 +967,6 @@ private struct AnyEncodable: Encodable {
     func encode(to encoder: Encoder) throws { try encodeBody(encoder) }
 }
 
-enum CLIClipboard {
-    /// Copies a code like the app does (`Pasteboard.copySecret`: this Mac only, concealed, transient)
-    /// and leaves a detached copy of this binary behind that clears it after `Pasteboard.secretLifetime`
-    /// unless something else was copied meanwhile; the command itself returns at once.
-    static func copyConcealed(_ text: String) {
-        let count = Pasteboard.copySecret(text)
-        scheduleClear(ifUnchangedSince: count)
-    }
-
-    /// Runs `passtunnel <PassTunnelCLI.clearClipboardArgument> COUNT` in a new session with no
-    /// terminal, so closing the terminal does not end it. It inherits no descriptor (a store lock
-    /// would otherwise stay held while it waits): stdin, stdout and stderr are /dev/null. Best effort.
-    private static func scheduleClear(ifUnchangedSince count: Int) {
-        guard let executable = Bundle.main.executablePath else { return }
-        let argv = ["passtunnel", PassTunnelCLI.clearClipboardArgument, String(count)]
-        var attr: posix_spawnattr_t?
-        posix_spawnattr_init(&attr)
-        defer { posix_spawnattr_destroy(&attr) }
-        posix_spawnattr_setflags(&attr, Int16(POSIX_SPAWN_SETSID | POSIX_SPAWN_CLOEXEC_DEFAULT))
-        var actions: posix_spawn_file_actions_t?
-        posix_spawn_file_actions_init(&actions)
-        defer { posix_spawn_file_actions_destroy(&actions) }
-        for fd in [STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO] {
-            posix_spawn_file_actions_addopen(&actions, fd, "/dev/null", fd == STDIN_FILENO ? O_RDONLY : O_WRONLY, 0)
-        }
-        var cArgs = argv.map { strdup($0) } + [nil]
-        defer { cArgs.forEach { free($0) } }
-        var pid: pid_t = 0
-        _ = posix_spawn(&pid, executable, &actions, &attr, &cArgs, environ)
-    }
-
-    /// The detached process: waits, then clears the pasteboard if it still holds the copied code.
-    static func clearLater(ifUnchangedSince count: Int) -> Int32 {
-        Thread.sleep(forTimeInterval: Pasteboard.secretLifetime)
-        Pasteboard.clear(ifUnchangedSince: count)
-        return PassTunnelCLI.Exit.ok
-    }
-}
-
 /// A plain CLI error (exit code 1, `internal` in JSON).
 struct CLIFailure: LocalizedError {
     var message: String
@@ -989,6 +974,7 @@ struct CLIFailure: LocalizedError {
     var errorDescription: String? { message }
 }
 
+#if os(macOS)
 /// The app's replies to one helper hand-off (`HelperHandoff.replyNotification`), received on the main
 /// run loop the CLI keeps running. Created before the request goes out, so no reply is missed.
 @MainActor
@@ -1020,3 +1006,4 @@ private final class HandoffReplies {
         observer = nil
     }
 }
+#endif

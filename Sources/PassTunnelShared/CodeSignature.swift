@@ -1,3 +1,5 @@
+// macOS only: code signatures (Security). No Linux counterpart; passtunneld trusts root-owned paths (docs/LINUX.md).
+#if os(macOS)
 import Foundation
 import Security
 
@@ -79,3 +81,4 @@ public enum CodeSignature {
         return SecRequirementCreateWithString(requirement as CFString, [], &req) == errSecSuccess && req != nil
     }
 }
+#endif

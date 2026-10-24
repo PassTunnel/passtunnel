@@ -103,6 +103,8 @@ final class AutomationCLITests: XCTestCase {
             (PTError.connectTimeout(60), .timeout, 7),
             (PTError.missingConfig("acme"), .configInvalid, 1),
             (PTError.keychain(-25300), .keychainError, 1),
+            (SecretStoreUnavailable(), .keychainError, 1),
+            (PTError.protectionUnavailable, .authUnavailable, 4),
             (NSError(domain: "x", code: 1), .internal, 1),
         ]
         for (error, code, exit) in cases {
@@ -201,7 +203,7 @@ final class MCPServerTests: XCTestCase {
         home = String(cString: made)
         service = "PassTunnelTests-\(UUID().uuidString)"
         setenv("PASSTUNNEL_HOME", home, 1)
-        setenv("PASSTUNNEL_KEYCHAIN_SERVICE", service, 1)
+        useTestSecrets(service: service)
         helper = FakeHelper()
         clock = FakeClock(t0)
         authenticator = FakeAuthenticator()
@@ -535,6 +537,8 @@ final class MCPServerTests: XCTestCase {
                              ("get_logs", ["profile_id": "acme", "lines": "10"]), ("get_logs", ["profile_id": "acme", "lines": true]),
                              ("diagnose", ["verbose": true]), ("connect", ["profile_id": "acme", "wait": "yes"]),
                              ("connect", ["profile_id": "acme", "timeout_seconds": 0]),
+                             ("connect", ["profile_id": "acme", "wait": 1]), ("connect", ["profile_id": "acme", "timeout_seconds": true]),
+                             ("get_logs", ["profile_id": "acme", "lines": 10.5]), ("get_status", ["profile_id": ["acme"]]),
                              ("disconnect", ["profile_id": "acme", "force": true])] as [(String, [String: Any])] {
             let result = try await callTool(server, tool, args)
             XCTAssertEqual(errorCode(result), "invalid_argument", "\(tool) \(args)")
@@ -544,6 +548,46 @@ final class MCPServerTests: XCTestCase {
         XCTAssertEqual(code, "profile_not_found")
         XCTAssertTrue(helper.starts.isEmpty)
         XCTAssertTrue(helper.stops.isEmpty)
+    }
+
+    /// Booleans and numbers stay apart on every platform (`JSONValue`): 1 is not true, false is not 0,
+    /// and 5.0 is the integer 5. Sent as raw lines, so the numbers are exactly as written.
+    func testBooleansAndNumbersStayApart() async throws {
+        let p = try makeOpenVPN()
+        try Data("one\ntwo\nthree\n".utf8).write(to: store.logURL(p.id))
+        let server = makeServer(allowConnect: true)
+        let meta = #""_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}"#
+        func call(_ tool: String, _ arguments: String) async throws -> [String: Any] {
+            let line = #"{"jsonrpc":"2.0","id":"t","method":"tools/call","params":{"# + meta + #","name":""# + tool
+                + #"","arguments":"# + arguments + "}}"
+            let r = try await reply(server, raw: Data(line.utf8))
+            return try XCTUnwrap(r["result"] as? [String: Any], "\(r)")
+        }
+        let two = try await call("get_logs", #"{"profile_id":"acme","lines":2.0}"#)
+        XCTAssertEqual((two["structuredContent"] as? [String: Any])?["lines"] as? [String], ["two", "three"])
+        for (tool, arguments) in [("get_logs", #"{"profile_id":"acme","lines":true}"#),
+                                  ("get_logs", #"{"profile_id":"acme","lines":2.5}"#),
+                                  ("get_logs", #"{"profile_id":"acme","lines":1e300}"#),
+                                  ("disconnect", #"{"profile_id":"acme","wait":0}"#),
+                                  ("disconnect", #"{"profile_id":"acme","wait":"false"}"#),
+                                  ("get_status", #"{"profile_id":true}"#)] {
+            let result = try await call(tool, arguments)
+            XCTAssertEqual(errorCode(result), "invalid_argument", "\(tool) \(arguments)")
+        }
+        let stopped = try await call("disconnect", #"{"profile_id":"acme","wait":false,"timeout_seconds":5.0}"#)
+        XCTAssertEqual(stopped["isError"] as? Bool, false, "\(stopped)")
+
+        // Request ids: strings and integers (also written 1.0), echoed as integers.
+        let whole = try await reply(server, raw: Data(#"{"jsonrpc":"2.0","id":1.0,"method":"ping"}"#.utf8))
+        XCTAssertEqual(whole["id"] as? Int, 1)
+        XCTAssertNotNil(whole["result"])
+        let big = try await reply(server, raw: Data(#"{"jsonrpc":"2.0","id":12345678901234567,"method":"ping"}"#.utf8))
+        XCTAssertEqual((big["id"] as? NSNumber)?.int64Value, 12_345_678_901_234_567)
+        for id in ["1.5", "true", "false", "null", "[1]", #"{"a":1}"#] {
+            let r = try await reply(server, raw: Data((#"{"jsonrpc":"2.0","id":"# + id + #","method":"ping"}"#).utf8))
+            XCTAssertEqual(rpcError(r), -32600, id)
+            XCTAssertNil(r["id"], id)
+        }
     }
 
     func testGetLogsReturnsRedactedTail() async throws {

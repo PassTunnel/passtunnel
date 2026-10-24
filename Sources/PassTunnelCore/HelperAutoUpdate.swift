@@ -1,4 +1,6 @@
+#if canImport(Darwin)
 import Darwin
+#endif
 import Foundation
 import PassTunnelShared
 
@@ -144,12 +146,14 @@ public enum HelperSessions {
         return dict["CFBundleIdentifier"] as? String
     }
 
+    #if os(macOS)
     /// Number of PassTunnel VPN tools running on this Mac right now.
     public static func runningToolCount() -> Int {
         toolPIDs(in: currentProcesses()).count
     }
 
-    /// Every process on the Mac (`sysctl KERN_PROC_ALL`, paths from `proc_pidpath`).
+    /// Every process on the Mac (`sysctl KERN_PROC_ALL`, paths from `proc_pidpath`). macOS only, like
+    /// the helper updates it serves (the Linux daemon comes with its package).
     public static func currentProcesses() -> [RunningProcess] {
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
         var size = 0
@@ -168,6 +172,7 @@ public enum HelperSessions {
             return RunningProcess(pid: pid, parent: kp.kp_eproc.e_ppid, name: name, path: n > 0 ? String(cString: buf) : nil)
         }
     }
+    #endif
 
     /// True when `appPath` (symlinks resolved) is inside `/Applications`. Not `~/Applications`: any
     /// process of the user can put a copy there.

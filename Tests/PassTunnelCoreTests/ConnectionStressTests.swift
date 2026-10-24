@@ -1,4 +1,6 @@
+#if canImport(Combine)
 import Combine
+#endif
 import XCTest
 @testable import PassTunnelCore
 @testable import PassTunnelKit
@@ -79,7 +81,7 @@ final class ConnectionStressTests: XCTestCase {
         guard let made = mkdtemp(&template) else { throw XCTSkip("mkdtemp failed") }
         home = String(cString: made)
         setenv("PASSTUNNEL_HOME", home, 1)
-        setenv("PASSTUNNEL_KEYCHAIN_SERVICE", "PassTunnelTests-\(UUID().uuidString)", 1)
+        useTestSecrets(service: "PassTunnelTests-\(UUID().uuidString)")
         helper = FakeHelper()
         clock = FakeClock(t0)
         events = []
@@ -275,12 +277,14 @@ final class ConnectionStressTests: XCTestCase {
         XCTAssertEqual(clock.sleeps, [])
     }
 
+    #if os(macOS)
     func testWatcherIgnoresTheUsedCodeRecord() {
         let dir = store.dir("acme").path
         XCTAssertFalse(ProfilesWatcher.isRelevant(path: dir + "/" + ConnectionManager.usedOTPFile))
         XCTAssertFalse(ProfilesWatcher.isRelevant(path: dir + "/." + ConnectionManager.usedOTPFile + ".1A2B.tmp"))
         XCTAssertTrue(ProfilesWatcher.isRelevant(path: dir + "/profile.json"))
     }
+    #endif
 
     // MARK: cancelling
 

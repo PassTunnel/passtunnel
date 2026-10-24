@@ -1,5 +1,8 @@
 import Foundation
+#if os(macOS)
 import ServiceManagement
+#endif
+import PassTunnelKit
 import PassTunnelShared
 
 public enum HelperClientError: Error, Equatable, LocalizedError {
@@ -23,7 +26,11 @@ public enum HelperClientError: Error, Equatable, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .notInstalled:
+            #if os(macOS)
             return String(localized: "The PassTunnel helper is not installed. Install it from the app’s setup screen.")
+            #else
+            return String(localized: "The PassTunnel daemon (passtunneld) is not installed. Connecting needs it.")
+            #endif
         case .requiresApproval:
             return String(localized: "The PassTunnel helper needs your approval in System Settings → General → Login Items.")
         case .notFound:
@@ -42,6 +49,23 @@ public enum HelperClientError: Error, Equatable, LocalizedError {
     }
 }
 
+/// Stands in for the privileged helper where there is none yet: on Linux until its daemon exists
+/// (docs/LINUX.md). Every call fails with `HelperClientError.notInstalled`.
+public final class UnavailableHelperClient: HelperClienting, Sendable {
+    public static let shared = UnavailableHelperClient()
+
+    public init() {}
+
+    public func perform(_ request: HelperRequest, timeout: TimeInterval?) async throws -> HelperResponse {
+        throw HelperClientError.notInstalled
+    }
+
+    public func ensureCompatible() async throws {
+        throw HelperClientError.notInstalled
+    }
+}
+
+#if os(macOS)
 /// Async wrapper around the privileged helper's XPC service.
 public final class HelperClient: @unchecked Sendable {
     public static let shared = HelperClient()
@@ -208,3 +232,4 @@ private final class ResumeOnce<T>: @unchecked Sendable {
         c?.resume(with: result)
     }
 }
+#endif

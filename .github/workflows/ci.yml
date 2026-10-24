@@ -3,8 +3,9 @@
 #
 #   Build and test    swift build and swift test on macOS (Apple silicon), and the PassTunnelKit
 #                     library built for iOS (the iPhone app uses it)
-#   Linux (x86_64)    PassTunnelKit built and its tests run (the golden cases in fixtures/) on
-#   Linux (aarch64)   Linux, in the official Swift container; Package.swift has no other targets there
+#   Linux (x86_64)    the Linux targets (Package.swift: the portable code, the CLI and the `passtunnel`
+#   Linux (aarch64)   command) built and the tests that build there run (the golden cases in fixtures/
+#                     included), in the official Swift container; then a smoke test of `passtunnel`
 #   Release scripts   shellcheck of next-version.sh and its test, and the self-test of
 #                     scripts/next-version.sh (in a temporary repository)
 #   Site              shellcheck of the site scripts and scripts/check-site.sh, the static checks
@@ -84,12 +85,38 @@ jobs:
           uname -m
           swift --version
 
-      - name: Build PassTunnelKit
-        run: swift build --target PassTunnelKit
+      - name: Build
+        run: swift build
 
-      # On Linux this is PassTunnelKitTests only.
+      # PassTunnelKitTests and the Core tests that build on Linux (the Apple-only ones are left out
+      # with #if); their secrets are kept in memory.
       - name: Test
         run: swift test
+
+      # The `passtunnel` binary against an empty temporary support directory: the version, an empty
+      # list, and an MCP session over stdin (the replies are checked with jq).
+      - name: Smoke-test passtunnel
+        run: |
+          set -euo pipefail
+          command -v jq >/dev/null || { apt-get update -qq && apt-get install -y -qq --no-install-recommends jq >/dev/null; }
+          bin="$(swift build --show-bin-path)/passtunnel"
+          PASSTUNNEL_HOME="$(mktemp -d)"
+          export PASSTUNNEL_HOME
+          "$bin" --version | tee version.txt
+          grep -qx "PassTunnel 0.0.0-dev" version.txt
+          "$bin" version --json | jq -e '.version == "0.0.0-dev" and .helper_protocol_version == 3'
+          "$bin" list --json | jq -e '. == []'
+          printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
+            '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+            '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_profiles","arguments":{}}}' \
+            | "$bin" mcp > mcp.jsonl
+          cat mcp.jsonl
+          jq -se 'INDEX(.id) as $r | length == 3
+            and $r["1"].result.protocolVersion == "2025-06-18" and $r["1"].result.serverInfo.version == "0.0.0-dev"
+            and [$r["2"].result.tools[].name] == ["list_profiles", "get_status", "get_logs", "diagnose"]
+            and $r["3"].result.isError == false and $r["3"].result.structuredContent == {"profiles": []}' mcp.jsonl
 
   scripts:
     name: Release scripts

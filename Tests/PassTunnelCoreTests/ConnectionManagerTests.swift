@@ -1,4 +1,6 @@
+#if canImport(Combine)
 import Combine
+#endif
 import XCTest
 @testable import PassTunnelCore
 @testable import PassTunnelKit
@@ -23,18 +25,7 @@ final class LoopingManagementServer: @unchecked Sendable {
         self.line = stateLine
         self.onStateQuery = onStateQuery
         unlink(path)
-        listenFD = socket(AF_UNIX, SOCK_STREAM, 0)
-        var addr = sockaddr_un()
-        addr.sun_family = sa_family_t(AF_UNIX)
-        withUnsafeMutableBytes(of: &addr.sun_path) { raw in
-            raw.copyBytes(from: path.utf8)
-            raw[path.utf8.count] = 0
-        }
-        let fd = listenFD
-        _ = withUnsafePointer(to: &addr) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
-        }
-        listen(listenFD, 8)
+        listenFD = TestSocket.listenUnix(path, backlog: 8)
         Thread.detachNewThread { [self] in self.loop() }
     }
 
@@ -53,8 +44,7 @@ final class LoopingManagementServer: @unchecked Sendable {
             guard poll(&p, 1, 50) > 0 else { continue }
             let c = accept(listenFD, nil, nil)
             guard c >= 0 else { continue }
-            var one: Int32 = 1
-            setsockopt(c, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
+            POSIXSocket.noSigPipe(c)
             FakeManagementServer.send(c, FakeManagementServer.banner)
             let cmd = FakeManagementServer.readLine(c)
             if cmd == "state" {
@@ -304,7 +294,7 @@ final class ConnectionManagerTests: XCTestCase {
         home = String(cString: made)
         service = "PassTunnelTests-\(UUID().uuidString)"
         setenv("PASSTUNNEL_HOME", home, 1)
-        setenv("PASSTUNNEL_KEYCHAIN_SERVICE", service, 1)
+        useTestSecrets(service: service)
         helper = FakeHelper()
         clock = FakeClock(t0)
         events = []

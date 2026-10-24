@@ -1,3 +1,5 @@
+// macOS only: stages the app bundle's tools (fcopyfile, code signatures).
+#if os(macOS)
 import Foundation
 
 /// Copies the bundled tools and their libraries out of the app bundle into a root-owned directory
@@ -220,3 +222,4 @@ public struct ToolStager {
         }
     }
 }
+#endif

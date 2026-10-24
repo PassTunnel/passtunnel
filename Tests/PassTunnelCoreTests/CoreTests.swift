@@ -250,6 +250,7 @@ final class SecretsTests: CoreTestCase {
         XCTAssertEqual(Secrets.get("acme", .totp), "JBSWY3DPEHPK3PXP")
     }
 
+    #if os(macOS)
     /// The old item is deleted before the new one is added; a failed add puts the old value back.
     func testFailedAddKeepsThePreviousValue() throws {
         defer { Secrets.addOverride = nil }
@@ -278,6 +279,7 @@ final class SecretsTests: CoreTestCase {
         try Secrets.set("acme", .password, "fourth")
         XCTAssertEqual(Secrets.get("acme", .password), "fourth")
     }
+    #endif
 
     func testTurkishAndUnicodeValues() throws {
         let value = "Şifre-ğüşıöç-İĞÜŞÖÇ-€-🔒"
@@ -285,6 +287,7 @@ final class SecretsTests: CoreTestCase {
         XCTAssertEqual(Secrets.get("acme", .password), value)
     }
 
+    #if os(macOS)
     func testUsesOverriddenService() throws {
         try Secrets.set("acme", .password, "x")
         let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
@@ -295,6 +298,7 @@ final class SecretsTests: CoreTestCase {
         XCTAssertEqual(SecItemCopyMatching(q as CFDictionary, &out), errSecSuccess)
         XCTAssertEqual(out as? Data, Data("x".utf8))
     }
+    #endif
 }
 
 final class OVPNAnalyzerTests: CoreTestCase {
@@ -702,6 +706,7 @@ final class HealthCheckTests: CoreTestCase {
 
     func testRoundTripParsing() {
         XCTAssertEqual(HealthCheck.roundTripMS("round-trip min/avg/max/stddev = 0.067/12.6/0.067/0.000 ms"), 13)
+        XCTAssertEqual(HealthCheck.roundTripMS("1 packets transmitted, 1 received, 0% packet loss, time 0ms\nrtt min/avg/max/mdev = 0.041/7.4/0.041/0.000 ms\n"), 7)
         XCTAssertNil(HealthCheck.roundTripMS("nothing"))
         for avg in ["nan", "inf", "-inf", "1e300", "-1"] {
             XCTAssertNil(HealthCheck.roundTripMS("round-trip min/avg/max/stddev = 0.067/\(avg)/0.067/0.000 ms"), avg)
@@ -727,9 +732,34 @@ final class HealthCheckTests: CoreTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(start), 2.5)
     }
 
-    func testICMPLoopback() {
+    func testICMPLoopback() throws {
+        #if os(Linux)
+        // Containers (the Linux CI jobs) often have no ping, or no IPv6 loopback.
+        try XCTSkipIf(HealthCheck.pingCommand("127.0.0.1", ipv6: false, seconds: 1) == nil, "no ping")
+        XCTAssertTrue(HealthCheck.check("127.0.0.1", timeout: 3).ok)
+        #else
         XCTAssertTrue(HealthCheck.check("127.0.0.1", timeout: 3).ok)
         XCTAssertTrue(HealthCheck.check("::1", timeout: 3).ok)
+        #endif
+    }
+
+    func testPingCommand() {
+        #if os(Linux)
+        let found: (String) -> Bool = { $0 == "/bin/ping" }
+        XCTAssertEqual(HealthCheck.pingCommand("10.0.0.5", ipv6: false, seconds: 3, isExecutable: found)?.tool, "/bin/ping")
+        XCTAssertEqual(HealthCheck.pingCommand("10.0.0.5", ipv6: false, seconds: 3, isExecutable: found)?.arguments,
+                       ["-n", "-q", "-c", "1", "-W", "3", "10.0.0.5"])
+        XCTAssertEqual(HealthCheck.pingCommand("2001:db8::1", ipv6: true, seconds: 2, isExecutable: found)?.arguments,
+                       ["-6", "-n", "-q", "-c", "1", "-W", "2", "2001:db8::1"])
+        XCTAssertNil(HealthCheck.pingCommand("10.0.0.5", ipv6: false, seconds: 3, isExecutable: { _ in false }))
+        XCTAssertEqual(HealthCheck.pingCommand("h", ipv6: false, seconds: 1, isExecutable: { _ in true })?.tool, "/usr/bin/ping")
+        #else
+        XCTAssertEqual(HealthCheck.pingCommand("10.0.0.5", ipv6: false, seconds: 3)?.tool, "/sbin/ping")
+        XCTAssertEqual(HealthCheck.pingCommand("10.0.0.5", ipv6: false, seconds: 3)?.arguments,
+                       ["-n", "-q", "-c", "1", "-t", "3", "10.0.0.5"])
+        XCTAssertEqual(HealthCheck.pingCommand("::1", ipv6: true, seconds: 3)?.tool, "/sbin/ping6")
+        XCTAssertEqual(HealthCheck.pingCommand("::1", ipv6: true, seconds: 3)?.arguments, ["-n", "-q", "-c", "1", "::1"])
+        #endif
     }
 
     func testICMPHardTimeout() {
@@ -740,25 +770,29 @@ final class HealthCheckTests: CoreTestCase {
     }
 
     private func listen(_ family: Int32) throws -> (Int32, UInt16) {
-        let fd = socket(family, SOCK_STREAM, 0)
+        let fd = socket(family, POSIXSocket.stream, 0)
         guard fd >= 0 else { throw PTError.fileError("socket") }
         var rc: Int32
         if family == AF_INET {
             var a = sockaddr_in()
+            #if canImport(Darwin)
             a.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+            #endif
             a.sin_family = sa_family_t(AF_INET)
             a.sin_addr.s_addr = inet_addr("127.0.0.1")
             rc = withUnsafePointer(to: &a) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) } }
+                TestSocket.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) } }
         } else {
             var a = sockaddr_in6()
+            #if canImport(Darwin)
             a.sin6_len = UInt8(MemoryLayout<sockaddr_in6>.size)
+            #endif
             a.sin6_family = sa_family_t(AF_INET6)
             a.sin6_addr = in6addr_loopback
             rc = withUnsafePointer(to: &a) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in6>.size)) } }
+                TestSocket.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in6>.size)) } }
         }
-        guard rc == 0, Darwin.listen(fd, 4) == 0 else { close(fd); throw PTError.fileError("bind") }
+        guard rc == 0, TestSocket.listen(fd, 4) == 0 else { close(fd); throw PTError.fileError("bind") }
         var storage = sockaddr_storage()
         var len = socklen_t(MemoryLayout<sockaddr_storage>.size)
         _ = withUnsafeMutablePointer(to: &storage) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {

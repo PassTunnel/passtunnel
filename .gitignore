@@ -17,3 +17,5 @@ sparkle-private-key.txt
 
 # Tool cdhash pins, written by scripts/build-app.sh for the build it makes (see PinnedTools.swift).
 /Sources/PassTunnelShared/PinnedTools+Generated.swift
+# Version of a Linux release build, written by its build script (see BuildVersion.swift).
+/Sources/PassTunnelCore/BuildVersion+Generated.swift

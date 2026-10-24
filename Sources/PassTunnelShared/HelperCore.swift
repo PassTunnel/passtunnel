@@ -1,4 +1,8 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto   // swift-crypto: the same API, outside Apple platforms
+#endif
 import Foundation
 import PassTunnelVPNConfig
 
@@ -93,8 +97,12 @@ public struct HelperCore {
 
     public static let configFileName = "config.ovpn"
     public static let maxConfigBytes = 1 << 20
-    /// sun_path is 104 bytes on macOS, including the terminating NUL.
+    /// sun_path is 104 bytes on macOS and 108 on Linux, including the terminating NUL.
+    #if os(Linux)
+    public static let maxSocketPathBytes = 107
+    #else
     public static let maxSocketPathBytes = 103
+    #endif
     /// Run root, per-user and per-session directories: root-owned, searchable but not listable.
     public static let runDirMode: mode_t = 0o711
     /// The system's CA bundle (`FortiConfig.systemCAFile`, which openfortivpn's config names too).
@@ -418,7 +426,7 @@ public struct HelperCore {
     }
 
     /// Copies the bundled DNS script (with its extended-attribute signature) into the run directory.
-    /// Returns nil when no script is bundled.
+    /// Returns nil when no script is bundled. macOS only (`fcopyfile`): elsewhere a script fails to stage.
     func stageDNSScript(in runDir: String) throws -> String? {
         guard let src = dnsUpdownSource else { return nil }
         let sfd = open(src, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
@@ -434,11 +442,15 @@ public struct HelperCore {
         let dfd = open(dst, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o700)
         guard dfd >= 0 else { throw Failure.system("create \(dst)", errno) }
         defer { close(dfd) }
+        #if os(macOS)
         guard fcopyfile(sfd, dfd, nil, copyfile_flags_t(COPYFILE_DATA | COPYFILE_XATTR)) == 0 else {
             throw Failure.system("copy \(src)", errno)
         }
         _ = fchmod(dfd, 0o700)
         return dst
+        #else
+        throw Failure.system("copy \(src)", ENOTSUP)
+        #endif
     }
 
     // MARK: - Log size
@@ -503,10 +515,16 @@ public struct HelperCore {
         return String(cString: p)
     }
 
+    /// What `fd` refers to (`F_GETPATH`). Nil elsewhere than on the Mac, so `openProfileDir` refuses
+    /// every directory there until the Linux daemon has its own check.
     static func path(of fd: Int32) -> String? {
+        #if os(macOS)
         var buf = [CChar](repeating: 0, count: Int(MAXPATHLEN))
         guard fcntl(fd, F_GETPATH, &buf) != -1 else { return nil }
         return String(cString: buf)
+        #else
+        return nil
+        #endif
     }
 }
 

@@ -1,3 +1,5 @@
+// macOS only, like QRDecoder (Vision).
+#if os(macOS)
 import CoreImage
 import Foundation
 import ImageIO
@@ -74,3 +76,4 @@ final class QRDecoderTests: XCTestCase {
         }
     }
 }
+#endif

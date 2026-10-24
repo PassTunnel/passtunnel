@@ -3,7 +3,7 @@ import XCTest
 @testable import PassTunnelCore
 @testable import PassTunnelKit
 
-/// Isolates every test: temp support dir and a private Keychain service.
+/// Isolates every test: temp support dir and a private Keychain service (in memory on Linux).
 class CoreTestCase: XCTestCase {
     var home: URL!
     var service: String!
@@ -15,7 +15,7 @@ class CoreTestCase: XCTestCase {
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         service = "PassTunnelTests-\(UUID().uuidString)"
         setenv("PASSTUNNEL_HOME", home.path, 1)
-        setenv("PASSTUNNEL_KEYCHAIN_SERVICE", service, 1)
+        useTestSecrets(service: service)
         XCTAssertEqual(AppPaths.default.root.path, home.standardizedFileURL.path)
     }
 

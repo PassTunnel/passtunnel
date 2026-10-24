@@ -1,4 +1,5 @@
 import Foundation
+import PassTunnelKit
 
 /// An sRGB color as 8-bit components, shared by the app (SwiftUI/AppKit) and the CLI (ANSI).
 public struct RGBColor: Equatable, Hashable, Sendable {

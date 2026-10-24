@@ -1,3 +1,5 @@
+// macOS only: QR codes are read with Vision (the editor's import).
+#if os(macOS)
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -82,3 +84,4 @@ public enum QRDecoder {
         return image
     }
 }
+#endif

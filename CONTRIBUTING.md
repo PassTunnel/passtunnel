@@ -26,9 +26,9 @@ backends, localized strings, no third-party dependencies besides Sparkle and swi
    change; `swift test` must pass. Tests never touch real data: see the README section
    "Building and testing".
 5. The checks must pass: `Build and test` (`swift build` and `swift test` on macOS, and
-   PassTunnelKit built for iOS), `Linux (x86_64)` and `Linux (aarch64)` (PassTunnelKit built and
-   tested on Linux, see [Linux](#linux)), `Release scripts`, `Site` (the website's static checks)
-   and `PR title`. Review comments must be resolved.
+   PassTunnelKit built for iOS), `Linux (x86_64)` and `Linux (aarch64)` (the Linux targets built and
+   tested, and the `passtunnel` command tried, see [Linux](#linux)), `Release scripts`, `Site` (the
+   website's static checks) and `PR title`. Review comments must be resolved.
 6. The pull request is **squash-merged**: its title becomes the one commit on `dev`.
 
 Releases are made by merging `dev` into `main` (a pull request from `dev`, merged with a merge
@@ -85,18 +85,37 @@ the root of the host.
 
 ## Linux
 
-PassTunnelKit (with PassTunnelVPNConfig) also builds on Linux, where the package has no other targets:
-the `Linux` checks build it and run `PassTunnelKitTests`, the golden cases included, in the official
-Swift container on x86_64 and aarch64. To run the same tests locally with Docker, from the
-repository root:
+The `passtunnel` command (the CLI and the MCP server) and the code under it also build on Linux
+([docs/LINUX.md](docs/LINUX.md)): PassTunnelKit, PassTunnelVPNConfig, PassTunnelShared,
+PassTunnelCore, the CLI library PassTunnelCLI and the Linux-only executable target
+PassTunnelCommand, whose product is `passtunnel`; the macOS app and helper are not built there. The
+`Linux` checks build all of it, run the tests that build on Linux (`PassTunnelKitTests` with the golden
+cases, and `PassTunnelCoreTests` without the Apple-only ones) in the official Swift container on
+x86_64 and aarch64, and try the built `passtunnel`: `--version`, `list --json` and an MCP session.
+To do the same locally with Docker, from the repository root:
 
 ```sh
 docker run --rm -v "$PWD":/src -w /src swift:6.4.1-noble swift test
+
+# A shell in the container, then build and run passtunnel with its own support directory:
+docker run --rm -it -v "$PWD":/src -w /src swift:6.4.1-noble bash
+swift build
+export PASSTUNNEL_HOME=$(mktemp -d)       # instead of ~/.local/share/passtunnel
+"$(swift build --show-bin-path)/passtunnel" list --json
+"$(swift build --show-bin-path)/passtunnel" mcp      # JSON-RPC lines on stdin
 ```
 
-Code in PassTunnelKit must keep building on Linux: CryptoKit is swift-crypto's `Crypto` there
-(`#if canImport(CryptoKit)`), other Apple-only APIs go behind `#if canImport(…)`, and
-`String(localized:)` is an English-only stand-in.
+A development build reports version `0.0.0-dev`. Until the later steps of the Linux plan, it has no
+daemon (connecting fails with `helper_not_installed`) and no secret store (saving a password or TOTP
+secret fails with `keychain_error`; the tests keep secrets in memory, `PASSTUNNEL_SECRET_STORE=memory`,
+which only debug builds accept).
+
+Code in these targets must keep building on Linux, without changing what the Mac does: Linux code
+goes in the same files behind `#if os(Linux)` / `#if canImport(…)` (the seams are listed in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#targets)), CryptoKit is swift-crypto's `Crypto` there,
+Combine is a small stand-in in PassTunnelCore, and `String(localized:)` is an English-only stand-in.
+A test file that needs an Apple-only framework goes behind `#if os(macOS)` (the whole file, or the
+tests that need it), so the rest of `PassTunnelCoreTests` keeps running on Linux.
 
 ## Dependabot
 

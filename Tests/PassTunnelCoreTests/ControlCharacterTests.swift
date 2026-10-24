@@ -246,6 +246,7 @@ final class HostValidationStoreTests: CoreTestCase {
 
 // MARK: - The helper
 
+#if os(macOS)
 extension HelperCoreTests {
     func testPrepareFortiRejectsControlCharactersInHost() throws {
         for host in ["2001:db8::1\u{0}\nuser-cert = /tmp/x", "fe80::1%en0\npinentry = /tmp/x",
@@ -270,6 +271,7 @@ extension HelperCoreTests {
         }
     }
 }
+#endif
 
 // MARK: - Connecting
 
