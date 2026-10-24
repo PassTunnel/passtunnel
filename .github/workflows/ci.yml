@@ -120,3 +120,69 @@ jobs:
 
       - name: Check the site
         run: scripts/check-site.sh
+
+  # Temporary probes for the pull request (removed before review).
+  probe:
+    name: Probe (temporary)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    continue-on-error: true
+    container:
+      image: swift:6.4.1-noble@sha256:19cbe56bdaec1918f7cf5fdeba42b9bd55bdd8a6149c9990d0e0e3a89a127d63
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: import Observation
+        continue-on-error: true
+        run: |
+          swift --version
+          find / -xdev \( -name 'libObservation*' -o -name 'Observation.swiftmodule' \) 2>/dev/null | sort
+          mkdir -p /tmp/obs
+          cat > /tmp/obs/main.swift <<'SWIFT'
+          import Observation
+
+          @Observable final class Counter { var value = 0 }
+
+          let counter = Counter()
+          withObservationTracking { _ = counter.value } onChange: { print("onChange fired") }
+          counter.value = 1
+          print("import Observation: OK")
+          SWIFT
+          swiftc /tmp/obs/main.swift -o /tmp/obs/main
+          /tmp/obs/main
+
+      - name: Build PassTunnelCore as it is
+        continue-on-error: true
+        run: |
+          cp Package.swift /tmp/Package.swift.orig
+          sed -i 's/^let linuxTargets: Set = \[/&"PassTunnelShared", "PassTunnelCore", /' Package.swift
+          grep -n 'linuxTargets: Set' Package.swift
+          swift build --target PassTunnelCore 2>&1 | tee /tmp/core-as-is.log
+
+      - name: Build PassTunnelShared and PassTunnelCore as one module, without the Apple-only imports
+        continue-on-error: true
+        run: |
+          cp /tmp/Package.swift.orig Package.swift
+          mkdir -p Sources/CoreProbe
+          for f in Sources/PassTunnelShared/*.swift Sources/PassTunnelCore/*.swift; do
+            out="Sources/CoreProbe/$(basename "$(dirname "$f")")-$(basename "$f")"
+            sed -E -e 's/^import CryptoKit$/import Crypto/' -e 's/^import Darwin$/import Glibc/' \
+              -e '/^import (Combine|Security|LocalAuthentication|ServiceManagement|Network|Vision|ImageIO|CoreGraphics|CoreServices|PassTunnelShared)$/d' \
+              "$f" > "$out"
+          done
+          cat >> Package.swift <<'SWIFT'
+          package.targets.append(.target(name: "CoreProbe",
+                                         dependencies: ["PassTunnelKit", "PassTunnelVPNConfig",
+                                                        .product(name: "Crypto", package: "swift-crypto")]))
+          SWIFT
+          swift build --target CoreProbe 2>&1 | tee /tmp/core-probe.log
+
+      - name: Errors
+        if: always()
+        run: |
+          for log in /tmp/core-as-is.log /tmp/core-probe.log; do
+            echo "== $log"
+            grep -E '^/.*: error: ' "$log" | sed -E 's|^.*/Sources/||' | sort -u || true
+          done
