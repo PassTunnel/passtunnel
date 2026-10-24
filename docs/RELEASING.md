@@ -103,6 +103,9 @@ they all match.
      one, `fix` or `perf` a patch; anything else releases nothing and the run ends there. The notes
      list those subjects under *Breaking changes*, *New features* and *Fixes*, without the type and
      with GitHub's `(#123)`. They become the GitHub release notes and the text of the update window.
+     Commits with the scope `linux` (`feat(linux): …`, `fix(linux)!: …`) are work on the Linux
+     version, which has no release yet: they count for nothing, breaking or not, and are not in the
+     notes. Phase 3 of [docs/LINUX.md](LINUX.md#phases), which releases Linux, revisits this.
    - **Build and publish** waits for approval in the environment `release` (Actions → the run →
      *Review deployments*). It then installs `openvpn` and `openfortivpn` with Homebrew, puts the
      Developer ID identity and the notarytool profile into a temporary keychain, writes the Sparkle

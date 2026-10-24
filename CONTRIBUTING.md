@@ -54,6 +54,11 @@ type(optional scope): description
 Add `!` after the type (`feat!: …`) for a change that breaks existing setups (profiles, CLI output,
 MCP tools); that makes a major release.
 
+The scope is optional and free (`cli`, `mcp`, …), except `linux`: it marks work on the Linux version
+([docs/LINUX.md](docs/LINUX.md)), such as `feat(linux): …` or `fix(linux): …`. Linux has no release
+yet, so these pull requests make no release of the app and are left out of its release notes, also
+with `!`. Phase 3 of [docs/LINUX.md](docs/LINUX.md#phases), which releases Linux, revisits this.
+
 Write the description for users, in the imperative, without a final period:
 
 - `feat: fill in the one-time code for GlobalProtect`
@@ -66,10 +71,11 @@ the pull request.
 ## Releases
 
 Merging `dev` into `main` starts the release workflow. It reads the commit subjects since the last
-release: a `feat`, `fix`, `perf` or breaking change makes a release, otherwise nothing is released.
-The release notes are those subjects, grouped into breaking changes, new features and fixes. The
-maintainer approves the release job, which then builds, signs, notarizes and publishes everything
-(the app, the Sparkle update, the MCP bundle, the MCP Registry entry and the Homebrew cask).
+release: a `feat`, `fix`, `perf` or breaking change makes a release, otherwise nothing is released
+(one with the scope `linux` never does). The release notes are those subjects, grouped into breaking
+changes, new features and fixes. The maintainer approves the release job, which then builds, signs,
+notarizes and publishes everything (the app, the Sparkle update, the MCP bundle, the MCP Registry
+entry and the Homebrew cask).
 Details are in [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Website
