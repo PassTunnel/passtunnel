@@ -173,7 +173,12 @@ jobs:
           printf '%s\n' "$status" | call | jq -e '.ok and .running == {} and .mgmt_sockets == {}'
           "$bin/passtunnel" helper status --json \
             | jq -e '.state == "enabled" and .responding and .protocol_version == 3 and .outdated == false'
-          "$bin/passtunnel" diagnose --json | jq -e '.helper.state == "enabled" and .helper.responding'
+          printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
+            '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"diagnose","arguments":{}}}' \
+            | "$bin/passtunnel" mcp | jq -se 'INDEX(.id) as $r | $r["2"].result.structuredContent.helper
+              | .state == "enabled" and .responding and .outdated == false'
 
           start='{"op":"perform","request":{"type":"start_openvpn","protocol_version":3,"profile_id":"acme","profile_dir":"/nonexistent","log_path":"/nonexistent/vpn.log"}}'
           printf '%s\n' "$start" | call_as nobody | jq -e '.ok == false and (.error | test("group .passtunnel. does not exist"))'
