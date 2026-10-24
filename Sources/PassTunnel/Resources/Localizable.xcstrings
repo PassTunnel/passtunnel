@@ -31,12 +31,12 @@
         }
       }
     },
-    "%@ disconnected" : {
+    "%@ dropped" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ bağlantısı kesildi"
+            "value" : "%@ bağlantısı koptu"
           }
         }
       }
@@ -97,16 +97,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ için bir değer gerekli."
-          }
-        }
-      }
-    },
-    "%@ reconnected" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ yeniden bağlandı"
           }
         }
       }
@@ -487,6 +477,16 @@
         }
       }
     },
+    "Connected to %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ bağlandı"
+          }
+        }
+      }
+    },
     "Current code, hidden" : {
       "localizations" : {
         "tr" : {
@@ -573,6 +573,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Onayladığınız sunucuya hâlâ bağlı, ancak sunucu yanıt vermiyor. Yeni ayarları onaylamak için yeniden bağlanın."
+          }
+        }
+      }
+    },
+    "It will not reconnect automatically." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Otomatik olarak yeniden bağlanmayacak."
           }
         }
       }
@@ -747,6 +757,16 @@
         }
       }
     },
+    "Reconnecting with a fresh code…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni kodla yeniden bağlanıyor…"
+          }
+        }
+      }
+    },
     "Replace Helper" : {
       "localizations" : {
         "tr" : {
@@ -823,6 +843,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ günlüğünü göster"
+          }
+        }
+      }
+    },
+    "Stop" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Durdur"
           }
         }
       }
@@ -5080,36 +5110,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bağlantı denemesi iptal edildi."
-          }
-        }
-      }
-    },
-    "The connection dropped unexpectedly." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bağlantı beklenmedik şekilde koptu."
-          }
-        }
-      }
-    },
-    "The connection dropped unexpectedly. Reconnecting…" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bağlantı beklenmedik şekilde koptu. Yeniden bağlanıyor…"
-          }
-        }
-      }
-    },
-    "The connection is back." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bağlantı geri geldi."
           }
         }
       }
