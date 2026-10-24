@@ -217,6 +217,34 @@
         }
       }
     },
+    "%lld seconds left" : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld second left"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld seconds left"
+                }
+              }
+            }
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld saniye kaldı"
+          }
+        }
+      }
+    },
     "(out of date; “passtunnel helper install” updates it)" : {
       "localizations" : {
         "tr" : {
@@ -1874,6 +1902,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kod kopyalandı"
+          }
+        }
+      }
+    },
+    "Code hidden" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kod gizli"
           }
         }
       }

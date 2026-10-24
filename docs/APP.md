@@ -393,6 +393,27 @@ first, and single-field changes (pin, order, remembered user name) go through `P
 `vpn.log`, the management socket, markers and temp files are ignored), on `ProfileChangeSignal` (posted by the
 CLI after commands that change profiles or secrets), when it becomes active, and every 5 s.
 
+## Design system
+
+The redesigned interface is built from tokens and base components in `Sources/PassTunnel/App/Design/`;
+the screens above do not use them yet.
+- `Tokens.swift`: `Palette` colors with light, dark and Increase Contrast values (dynamic `NSColor`s that follow
+  the window's appearance). Mostly monochrome; green (connected), amber (waiting, the last 5 s) and red (errors)
+  only ever come with an icon and words. Window and sidebar backgrounds are the system's, so fills, hairlines,
+  the selection and the ring track are translucent. `Typography` (system text styles, SF Mono for codes and
+  logs), `Spacing` (4–48), `Radius`, `Elevation` (flat hairline cards; glass only for chrome: Liquid Glass on
+  macOS 26, the regular material before) and `Motion`.
+- `Buttons.swift`: capsule styles `.primaryCapsule` (monochrome, fg on bg inverted, not the accent color),
+  `.secondaryCapsule` and `.smallCapsule`, 28–40 pt high, with the system focus ring.
+- `Card.swift`: `Card` (regular, compact), `SectionLabel`, `glass(in:)`. `StatusIcons.swift`: `StatusIcon`
+  (SF Symbols, plus the drawn connecting and dropped glyphs, which stand still under Reduce Motion) and
+  `StatusDot`, both hidden from VoiceOver since words always come with them.
+- In `Views/Components.swift`: `CodeRing` and `CodeCountdown` (amber in the last 5 s, 1 s steps under Reduce
+  Motion, the seconds written next to the ring), `GroupedCodeText` (a real space between the digit groups;
+  VoiceOver reads "4 8 2, 9 1 3") and `CountdownTimeline`.
+- The `components` render (`PASSTUNNEL_RENDER`, light and dark; `components-contrast` with the Increase Contrast
+  values) shows every token and component.
+
 ## Accessibility
 
 Every control has a localized accessibility label (text buttons get it from their title; icon-only
