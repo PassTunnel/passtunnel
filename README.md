@@ -516,7 +516,8 @@ Merging `dev` into `main` releases. The workflow, title rules and checks are in
   `Sources/PassTunnel/Resources/Localizable.xcstrings`.
 - A change to behavior the phone apps share (codes, otpauth links, OpenVPN configs, share files,
   slugs, profile merging) updates the golden cases in [`fixtures/`](fixtures/README.md) too.
-- No third-party Swift dependencies besides Sparkle (updates). Run `swift test` before sending a PR.
+- No third-party Swift dependencies besides Sparkle (updates) and swift-crypto (CryptoKit's API on
+  Linux). Run `swift test` before sending a PR.
 
 ## License
 

@@ -3,6 +3,8 @@
 #
 #   Build and test    swift build and swift test on macOS (Apple silicon), and the PassTunnelKit
 #                     library built for iOS (the iPhone app uses it)
+#   Linux (x86_64)    PassTunnelKit built and its tests run (the golden cases in fixtures/) on
+#   Linux (aarch64)   Linux, in the official Swift container; Package.swift has nothing else there
 #   Release scripts   shellcheck of next-version.sh and its test, and the self-test of
 #                     scripts/next-version.sh (in a temporary repository)
 #   Site              shellcheck of the site scripts and scripts/check-site.sh, the static checks
@@ -56,6 +58,38 @@ jobs:
       # The portable library must keep building for the iPhone app (docs/MOBILE.md).
       - name: Build PassTunnelKit for iOS
         run: xcodebuild -scheme PassTunnelKit -destination 'generic/platform=iOS Simulator' -quiet build
+
+  linux:
+    name: Linux (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    container:
+      # swift:6.4.1-noble, pinned by the digest of its multi-arch index (both architectures).
+      image: swift:6.4.1-noble@sha256:19cbe56bdaec1918f7cf5fdeba42b9bd55bdd8a6149c9990d0e0e3a89a127d63
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Show the toolchain
+        run: |
+          uname -m
+          swift --version
+
+      - name: Build PassTunnelKit
+        run: swift build --target PassTunnelKit
+
+      # On Linux this is PassTunnelKitTests only.
+      - name: Test
+        run: swift test
 
   scripts:
     name: Release scripts

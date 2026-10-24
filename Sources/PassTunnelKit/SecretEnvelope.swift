@@ -1,4 +1,8 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto   // swift-crypto: the same API, outside Apple platforms
+#endif
 import Foundation
 
 /// A secret encrypted to a profile's protection key (a Secure Enclave P-256 key-agreement key),

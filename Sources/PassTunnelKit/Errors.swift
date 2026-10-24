@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(Security)
 import Security
+#endif
 
 /// Errors thrown by PassTunnelCore. `localizedDescription` / `errorDescription` is user-readable.
 public enum PTError: Error, Equatable, LocalizedError {
@@ -59,7 +61,11 @@ public enum PTError: Error, Equatable, LocalizedError {
         case .invalidFile(let name):
             return String(localized: "The file “\(name)” could not be read or is damaged.")
         case .keychain(let status):
+            #if canImport(Security)
             let message = SecCopyErrorMessageString(status, nil) as String? ?? "OSStatus \(status)"
+            #else
+            let message = "OSStatus \(status)"
+            #endif
             return String(localized: "Keychain error: \(message)")
         case .invalidSecret:
             return String(localized: "The TOTP secret is not valid Base32 or hex.")

@@ -15,7 +15,12 @@ public enum Slug {
     public static func make(_ name: String, maxLength: Int = maxIDLength) -> String {
         // Fold Turkish letters before any case mapping ("İ".lowercased() would keep a combining dot).
         var s = String(name.flatMap { turkish[$0] ?? String($0) })
+        #if canImport(Darwin)
         s = s.applyingTransform(StringTransform("Any-Latin; Latin-ASCII"), reverse: false) ?? s
+        #else
+        // Foundation elsewhere has the transform on NSString only (the same ICU transliterator).
+        s = NSString(string: s).applyingTransform(StringTransform("Any-Latin; Latin-ASCII"), reverse: false) ?? s
+        #endif
         s = s.folding(options: [.diacriticInsensitive, .widthInsensitive], locale: Locale(identifier: "en_US_POSIX"))
         s = s.lowercased()
 

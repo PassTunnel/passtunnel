@@ -37,7 +37,7 @@ A bundle without `dns-updown` pins an empty set for it, so the helper refuses an
 | Target | Owns | Depends on |
 |---|---|---|
 | `PassTunnelVPNConfig` | `OVPNSanitizer`, `FortiConfig`: the configurations the helper runs as root | — |
-| `PassTunnelKit` | the portable logic (Foundation, CryptoKit and Security only; builds for macOS 13 and iOS 17): model, `PTError`, `JSONCoding`, `TOTP`, `OTPAuthURI`, `OTPComposer`, `OVPNAnalyzer`, `OVPNInliner`, `ShareFile`, `Slug`, `ProfileFields`, `ProfileMerge`, `SecretEnvelope`, `HealthCheck` (parsing) | VPNConfig |
+| `PassTunnelKit` | the portable logic (Foundation, CryptoKit and Security only; builds for macOS 13, iOS 17 and Linux): model, `PTError`, `JSONCoding`, `TOTP`, `OTPAuthURI`, `OTPComposer`, `OVPNAnalyzer`, `OVPNInliner`, `ShareFile`, `Slug`, `ProfileFields`, `ProfileMerge`, `SecretEnvelope`, `HealthCheck` (parsing) | VPNConfig (and swift-crypto on Linux) |
 | `PassTunnelShared` | XPC protocol, request/response types, `HelperCore` (request decoding, path checks, tool environment), `SessionPolicy`, `CodeSignature`, `Spawner` (verified, suspended launch), `PinnedTools`, `ToolStager` (root-owned copy of the tools and their dylibs), `HelperBuild`, identifiers | VPNConfig |
 | `PassTunnelCore` | `ProfileStore`, `ProfilesWatcher`, `Secrets` (Keychain), `SecretVault` + `UserAuthenticator` (Secure Enclave protection), `Preferences`, `HealthCheck.check` (the probe), `QRDecoder`, `OpenedFiles` (files the app is asked to open), `TLSFingerprint`, `HelperClient`, `HelperAutoUpdate`, `ConnectionManager` + `ProfileDestination`, CLI parsing (`CLICommand`, `CLIInvocation`), automation objects + `AutomationService`, `MCPServer` + `MCPTools` | Kit, VPNConfig, Shared |
 | `PassTunnelHelper` | `main.swift` XPC listener, process supervision | Shared (and through it VPNConfig) |
@@ -50,6 +50,14 @@ target of their own so that the helper links them and nothing else of PassTunnel
 Core needs from Kit (`FileIO`, the lenient decoding helpers, the envelope parts, `ProtectionKeyRecord`)
 are `package`, not `public`. The golden cases in [`fixtures/`](../fixtures/README.md) are read by the
 `PassTunnelKitTests` test target (and, as a pinned copy, by the Android port).
+
+On Linux the package has only `PassTunnelVPNConfig`, `PassTunnelKit` and `PassTunnelKitTests` (the
+`#if os(Linux)` block at the end of `Package.swift`). The CI jobs `Linux (x86_64)` and
+`Linux (aarch64)` build PassTunnelKit and run its tests, golden cases included, in the official Swift
+container. There `Crypto` from swift-crypto takes the place of CryptoKit (the same API, so codes and
+`ptse1:` envelopes are the same), `PTError.keychain` shows the bare `OSStatus`, and
+`String(localized:)` is an English-only stand-in (`Localization.swift`), because Foundation on Linux
+does not have it yet.
 
 ## Identifiers (`PassTunnelShared/Identifiers.swift`)
 
@@ -644,5 +652,6 @@ tunnel. Hence:
   `FakeHelper`, `FakeAuthenticator` and a fixed `HelperInspecting`. Management-socket tests run their own fake server on a socket in a
   temp dir. Tests never use the Secure Enclave or show a prompt: `ConnectionManagerTests` and
   `SecretVaultTests` inject `FakeAuthenticator` (a software P-256 key).
-- Swift language mode 5 (tools 5.10), macOS 13 APIs, no third-party dependencies except Sparkle (updates,
-  pinned to an exact version in `Package.swift`).
+- Swift language mode 5 (tools 5.10), macOS 13 APIs, no third-party dependencies except Sparkle (updates)
+  and swift-crypto (CryptoKit's API for PassTunnelKit, used on Linux only), each pinned to an exact
+  version in `Package.swift`.
