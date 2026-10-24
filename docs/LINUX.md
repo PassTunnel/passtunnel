@@ -44,7 +44,7 @@ passtunnel mcp (stdio) ┴─▶ PassTunnelCore (as on the Mac: ProfileStore, Co
 | What | Path |
 |---|---|
 | Profiles, preferences, logs | `~/.local/share/passtunnel/` (same layout as the Mac's support dir: `config.json`, `profiles/<id>/…`); `PASSTUNNEL_HOME` overrides it for tests. `XDG_DATA_HOME` is not followed, because the daemon checks that profile directories are under the caller's home at this fixed subpath |
-| Run root | `/run/passtunnel/` (0711, root): `<uid>/<id>/` per session as on the Mac (`config.ovpn` or `openfortivpn.conf`, `auth`, `state`, `mgmt.sock`) |
+| Run root | `/run/passtunnel/` (0711, root): `<uid>/<id>/` per session as on the Mac (`config.ovpn` or `openfortivpn.conf`, `auth`, `state`, `mgmt.sock`), and `daemon.lock` (one daemon per run root) |
 | Daemon socket | `/run/passtunnel/daemon.sock` (0666, root; access is decided per request, below) |
 | Binaries | `/usr/bin/passtunnel`, `/usr/sbin/passtunneld` from the packages; `/usr/local/…` from the tarball |
 
@@ -59,12 +59,25 @@ One request per connection, one JSON object per line, at most 64 KiB:
 
 - `{"op":"hello"}` → `{"protocol":3,"build":"<hex SHA-256 of passtunneld>","build_number":N}`. The
   client's `ensureCompatible()` uses it as the `version` and `build` XPC calls are used on the Mac.
+  The daemon hashes `/proc/self/exe` once at start. `build_number` (and `helper_build` in every
+  reply) is left out until release builds compile one in (2d).
 - `{"op":"perform","request":<HelperRequest>}` → `<HelperResponse>`. Request decoding is
   `HelperCore.decodeRequest`, unchanged, and so are the request types and `PT.helperProtocolVersion`.
+  The daemon hands it the bytes of the `request` member exactly as sent (`DaemonCall.parse`).
+
+A client has 5 s to send its line and 5 s to take the reply; each connection is served on a thread
+of its own, at most 64 at once and 8 per uid (more are answered "busy" at once). Anything else on
+the line (bad JSON, an unknown `op`, a repeated key, more than 64 KiB) gets a `HelperResponse`
+failure.
 
 On the client side this is a second `HelperClienting` (`UnixSocketHelperClient`); `ConnectionManager`
 needs nothing else from the transport. A Linux `HelperInspecting` reports the daemon as not
 installed (no socket), unavailable (no answer within 5 s) or current/outdated (from `hello`).
+"Current" means the build of the daemon installed with the running `passtunnel` (`HelperBuild.installedDaemon`:
+`<prefix>/sbin/passtunneld` for `<prefix>/bin/passtunnel`, else `passtunneld` next to it, as in a
+development build), not the client's own binary: a different build means the daemon still runs an
+earlier binary after an update (restart it) or comes from another installation. Without an
+installed daemon there, builds are not compared.
 
 ## Daemon security rules
 
@@ -74,7 +87,8 @@ The macOS rules apply where they make sense; these replace the ones built on cod
   process, where the kernel has it). Every request acts for that uid only: `SessionPolicy` is keyed by
   (uid, profile ID) as on the Mac, so users never see or stop each other's sessions.
 - **Who may connect.** Phase 2: root, and members of the group `passtunnel` (supplementary groups of
-  the uid from the user database). Phase 3 adds polkit: the action
+  the uid from the user database, `getgrouplist`, not the caller's current groups: adding or removing
+  a user takes effect at once, without a new login). Anyone may ask for `hello`. Phase 3 adds polkit: the action
   `com.furkanprlk.passtunnel.connect` (`allow_active` yes by default), checked with the caller's pidfd
   as the subject; the group stays for machines without polkit. `status` and `stop` of one's own
   sessions need no authorization. The daemon cannot tell `passtunnel` from another process of the same
@@ -88,27 +102,44 @@ The macOS rules apply where they make sense; these replace the ones built on cod
   `realpath` once, then every component of the real path must be root-owned and not group- or
   world-writable, and the file a regular file. Nothing is pinned by hash: distribution binaries
   change with every security update, so trust rests on the package manager. Versions below
-  openvpn 2.6.0 or openfortivpn 1.21 are refused with a clear message.
+  openvpn 2.6.0 or openfortivpn 1.21 are refused with a clear message. The checks run before every
+  start; the version is read by running the checked file (`openvpn --version`, killed after 5 s).
+- **The daemon itself** refuses to start unless its own executable (`/proc/self/exe`, resolved) passes
+  the same path checks, since OpenVPN runs it as root for DNS (below).
 - **Spawning.** `posix_spawn` of the checked path (no suspended start: there is no signature to
-  verify), new process group, stdin `/dev/null`, output to the session log, default signals, a fixed
+  verify), new process group, stdin `/dev/null`, output to the session log, every other descriptor
+  closed (`posix_spawn_file_actions_addclosefrom_np`), default signals and an empty mask, a fixed
   environment (`PATH=/usr/sbin:/usr/bin:/sbin:/bin`, `LC_ALL=C`). Unlike the Mac, `OPENSSL_CONF` and
   the CA variables are **not** overridden: the distribution's OpenSSL configuration (for example
   system-wide crypto policies) applies.
 - **OpenVPN** runs with the Mac's fixed flags (`--management <run>/mgmt.sock unix`,
   `--management-client-user`, `--auth-nocache`, `--remap-usr1 SIGTERM`, `--connect-retry-max 3`,
-  capped `--verb`), the sanitized config (`OVPNSanitizer`, unchanged) and the DNS hook below.
+  capped `--verb`), the sanitized config (`OVPNSanitizer`, unchanged) and the DNS hook below. Until
+  the hook exists (2c, part 2) OpenVPN gets `--script-security 1` and, on 2.7, `--dns-updown disable`
+  (2.6 has no such option and changes no DNS without scripts), so it leaves DNS alone. The management
+  socket goes to the caller as on the Mac, its mode set before its owner (no `CAP_FOWNER` needed).
 - **FortiGate** runs openfortivpn with the config `FortiConfig.render` writes (typed fields only,
   `checkRendered` as on the Mac), the Linux CA bundle, and its own DNS handling switched off; the
   daemon applies DNS (below).
-- **Supervision.** One waiter per child (`waitpid` on a thread, or a pidfd); `stop` sends SIGTERM,
+- **Supervision.** One waiter per child (a thread in `waitid(WNOWAIT)`, so the child is reaped only
+  on the supervisor's queue and its pid cannot be reused while it is listed); `stop` sends SIGTERM,
   then SIGKILL after 5 s; at most `SessionPolicy.maxSessionsPerUser` sessions per user; the session
   log is capped with `HelperCore.capLog`. On exit the run directory is removed and DNS reverted.
-  There is no adoption: a starting daemon stops tools recorded by a previous instance and cleans up
-  (under systemd `KillMode=control-group` has already stopped them).
-- **Sandbox** (Phase 3 unit): `CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_SETUID CAP_SETGID
+  There is no adoption: a starting daemon stops tools recorded by a previous instance (when the pid
+  still runs the recorded executable, `/proc/<pid>/exe`) and cleans up (under systemd
+  `KillMode=control-group` has already stopped them).
+- **Sandbox** (`packaging/linux/passtunnel.service`, a first version that nothing installs yet):
+  `CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_SETUID CAP_SETGID
   CAP_CHOWN CAP_DAC_OVERRIDE CAP_KILL` (trimmed to what testing shows openvpn and pppd need),
-  `DeviceAllow=/dev/net/tun` and `/dev/ppp`, `ProtectSystem=strict` with the paths DNS needs
-  writable, `ProtectHome=read-only`, `PrivateTmp`, `RuntimeDirectory=passtunnel`.
+  `DevicePolicy=closed` with `DeviceAllow=/dev/net/tun` and `/dev/ppp`, `ProtectSystem=strict` with
+  `/run/passtunnel` (and later the paths DNS needs) writable, `PrivateTmp`. Not set, unlike the first
+  plan: `ProtectHome=read-only`, because the daemon creates the session log in the user's profile
+  directory (possible once the client opens the log, or it moves out of the home directory);
+  `RuntimeDirectory=passtunnel`, because systemd would remove it, and the socket of
+  `passtunnel.socket` in it, whenever the service stops (the socket unit creates the directory,
+  `DirectoryMode=0711`). `NoNewPrivileges` is not set either: it adds nothing to a root service
+  within a bounding set, and it would block SELinux domain transitions to `openvpn_t` or `pppd_t`
+  unless the policy allows them; it waits for testing on Fedora and RHEL.
 
 ## DNS
 
@@ -213,6 +244,13 @@ store, which exists in debug builds only, and the Mac's tests a Keychain service
    - 2b: the secret stores.
    - 2c: `passtunneld` with group-based access, the DNS hook, Linux routes and log parsing: connect
      and disconnect work.
+     - Part 1 (#79): the daemon (`PassTunnelDaemon`, wrapped by the executable `passtunneld`) with
+       the protocol, access, profile and tool checks, OpenVPN start, supervision and stop without
+       touching DNS, the cleanup of a previous instance; `UnixSocketHelperClient` and the Linux
+       `SystemHelperInspector`; the unit files in `packaging/linux/`. The Linux CI jobs start the
+       daemon as root in the container and run an OpenVPN session against it (no tunnel).
+     - Part 2: the DNS hook (`passtunneld dns-hook`), FortiGate (openfortivpn and pppd), Linux routes
+       and log parsing.
    - 2d: the release tarball and the `Dockerfile`.
 3. **Packages:** polkit, systemd units, nfpm packages, the apt/dnf repository, release automation,
    install tests on the target distributions.

@@ -51,6 +51,15 @@ public enum PT {
         sessionDir(uid: uid, profileID: profileID, runRoot: runRoot) + "/" + mgmtSocketName
     }
 
+    #if os(Linux)
+    /// The Linux daemon's socket in the run root (docs/LINUX.md, "The daemon protocol").
+    public static let daemonSocketName = "daemon.sock"
+
+    public static func daemonSocketPath(runRoot: String = helperRunRoot) -> String {
+        runRoot + "/" + daemonSocketName
+    }
+    #endif
+
     /// Location of profile directories relative to the user's home. Fixed on Linux too (no
     /// `XDG_DATA_HOME`): the daemon checks that a profile directory is under the caller's home at this path.
     #if os(Linux)

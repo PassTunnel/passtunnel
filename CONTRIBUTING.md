@@ -88,10 +88,13 @@ the root of the host.
 The `passtunnel` command (the CLI and the MCP server) and the code under it also build on Linux
 ([docs/LINUX.md](docs/LINUX.md)): PassTunnelKit, PassTunnelVPNConfig, PassTunnelShared,
 PassTunnelCore, the CLI library PassTunnelCLI and the Linux-only executable target
-PassTunnelCommand, whose product is `passtunnel`; the macOS app and helper are not built there. The
+PassTunnelCommand, whose product is `passtunnel`; the macOS app and helper are not built there.
+Linux also builds the root daemon: the library PassTunnelDaemon and the executable
+PassTunnelDaemonCommand, whose product is `passtunneld`. The
 `Linux` checks build all of it, run the tests that build on Linux (`PassTunnelKitTests` with the golden
-cases, and `PassTunnelCoreTests` without the Apple-only ones) in the official Swift container on
-x86_64 and aarch64, and try the built `passtunnel`: `--version`, `list --json` and an MCP session.
+cases, `PassTunnelCoreTests` without the Apple-only ones, and `PassTunnelDaemonTests`) in the official
+Swift container on x86_64 and aarch64, and try the built `passtunnel`: `--version`, `list --json` and
+an MCP session. Then, as root in the container, they start `passtunneld` and talk to it (see below).
 To do the same locally with Docker, from the repository root:
 
 ```sh
@@ -106,9 +109,28 @@ export PASSTUNNEL_HOME=$(mktemp -d)       # instead of ~/.local/share/passtunnel
 ```
 
 A development build reports version `0.0.0-dev`. Until the later steps of the Linux plan, it has no
-daemon (connecting fails with `helper_not_installed`) and no secret store (saving a password or TOTP
-secret fails with `keychain_error`; the tests keep secrets in memory, `PASSTUNNEL_SECRET_STORE=memory`,
-which only debug builds accept).
+secret store (saving a password or TOTP secret fails with `keychain_error`; the tests keep secrets in
+memory, `PASSTUNNEL_SECRET_STORE=memory`, which only debug builds accept), and without a running
+`passtunneld` connecting fails with `helper_not_installed`.
+
+The daemon runs as root and refuses to start from a file that anyone but root could replace (every
+directory above it root-owned and not group- or world-writable), so it is installed first. In the
+container, which has its own `/run/passtunnel`:
+
+```sh
+swift build
+install -m 0755 "$(swift build --show-bin-path)/passtunneld" /usr/local/sbin/passtunneld
+/usr/local/sbin/passtunneld &              # its own socket: /run/passtunnel/daemon.sock
+"$(swift build --show-bin-path)/passtunnel" helper status --json
+apt-get update && apt-get install -y socat openvpn
+printf '%s\n' '{"op":"hello"}' | socat - UNIX-CONNECT:/run/passtunnel/daemon.sock
+groupadd --system passtunnel               # root and this group may start connections
+```
+
+Under systemd the daemon is started by `packaging/linux/passtunnel.socket` (socket activation); the
+unit files are not installed by anything yet. The tests never touch `/run/passtunnel`: they run the
+daemon's library with a temporary run root, home and user database, and a shell script in place of
+openvpn. The CI step "Smoke-test passtunneld" shows a full session with the distribution's openvpn.
 
 Code in these targets must keep building on Linux, without changing what the Mac does: Linux code
 goes in the same files behind `#if os(Linux)` / `#if canImport(…)` (the seams are listed in
