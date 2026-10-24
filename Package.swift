@@ -5,6 +5,7 @@ let package = Package(
     name: "PassTunnel",
     defaultLocalization: "en",
     // iOS only for PassTunnelKit (and PassTunnelVPNConfig, which it uses); everything else is macOS.
+    // Linux builds those two and their tests only (end of this file).
     platforms: [.macOS(.v13), .iOS(.v17)],
     products: [
         .executable(name: "PassTunnel", targets: ["PassTunnel"]),
@@ -19,15 +20,20 @@ let package = Package(
     dependencies: [
         // App updates. The `passtunnel` CLI never starts the updater.
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0"),
+        // CryptoKit's API for PassTunnelKit on Linux; Apple platforms use CryptoKit and never build it.
+        // Declared everywhere, so that one Package.resolved pins it and its dependencies for all platforms.
+        .package(url: "https://github.com/apple/swift-crypto", exact: "5.0.3"),
     ],
     targets: [
         // The OpenVPN config sanitizer and the openfortivpn config renderer: the only portable code the
         // privileged helper runs, kept apart so the helper links nothing else from PassTunnelKit.
         .target(name: "PassTunnelVPNConfig"),
-        // Portable logic, Foundation, CryptoKit and Security only: model, errors, TOTP, otpauth links,
-        // code composition, OpenVPN analyzer and inliner, share files, slugs, profile fields and
-        // merging, secret envelope.
-        .target(name: "PassTunnelKit", dependencies: ["PassTunnelVPNConfig"]),
+        // Portable logic, Foundation, CryptoKit and Security only (on Linux swift-crypto's Crypto, no
+        // Security): model, errors, TOTP, otpauth links, code composition, OpenVPN analyzer and inliner,
+        // share files, slugs, profile fields and merging, secret envelope.
+        .target(name: "PassTunnelKit",
+                dependencies: ["PassTunnelVPNConfig",
+                               .product(name: "Crypto", package: "swift-crypto", condition: .when(platforms: [.linux]))]),
         // Shared by the app and the privileged helper: XPC protocol, request types, tool launching.
         .target(name: "PassTunnelShared", dependencies: ["PassTunnelVPNConfig"]),
         // Everything else that is not UI: profile store, keychain, connections, preferences, CLI, MCP.
@@ -45,3 +51,15 @@ let package = Package(
         .testTarget(name: "PassTunnelKitTests", dependencies: ["PassTunnelKit", "PassTunnelVPNConfig"]),
     ]
 )
+
+#if os(Linux)
+// Linux builds only the portable code and its tests (the Linux jobs in .github/workflows/ci.yml):
+// no Sparkle and none of the macOS targets.
+let linuxTargets: Set = ["PassTunnelVPNConfig", "PassTunnelKit", "PassTunnelKitTests"]
+package.targets.removeAll { !linuxTargets.contains($0.name) }
+package.products.removeAll { $0.name != "PassTunnelKit" }
+package.dependencies.removeAll {
+    guard case .sourceControl(_, let location, _) = $0.kind else { return false }
+    return location == "https://github.com/sparkle-project/Sparkle"
+}
+#endif

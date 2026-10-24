@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(Glibc)
+import Glibc
+#endif
 
 /// The single JSON style used for every file: snake_case keys, pretty printed, sorted keys.
 public enum JSONCoding {
@@ -82,7 +85,11 @@ package enum FileIO {
             ok = data.withUnsafeBytes { buf -> Bool in
                 var offset = 0
                 while offset < buf.count {
+                    #if canImport(Darwin)
                     let n = Darwin.write(fd, buf.baseAddress! + offset, buf.count - offset)
+                    #else
+                    let n = Glibc.write(fd, buf.baseAddress! + offset, buf.count - offset)
+                    #endif
                     if n < 0 { if errno == EINTR { continue }; return false }
                     offset += n
                 }

@@ -6,7 +6,7 @@ the approach can be agreed on before you write the code.
 Before changing code, read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (targets, storage, helper
 protocol, security rules) and [docs/APP.md](docs/APP.md) (app and CLI behavior). The
 [Contributing section of the README](README.md#contributing) lists the rules for code: new VPN
-backends, localized strings, no third-party dependencies besides Sparkle.
+backends, localized strings, no third-party dependencies besides Sparkle and swift-crypto.
 
 ## Branches
 
@@ -26,8 +26,9 @@ backends, localized strings, no third-party dependencies besides Sparkle.
    change; `swift test` must pass. Tests never touch real data: see the README section
    "Building and testing".
 5. The checks must pass: `Build and test` (`swift build` and `swift test` on macOS, and
-   PassTunnelKit built for iOS), `Release scripts`, `Site` (the website's static checks) and
-   `PR title`. Review comments must be resolved.
+   PassTunnelKit built for iOS), `Linux (x86_64)` and `Linux (aarch64)` (PassTunnelKit built and
+   tested on Linux, see [Linux](#linux)), `Release scripts`, `Site` (the website's static checks)
+   and `PR title`. Review comments must be resolved.
 6. The pull request is **squash-merged**: its title becomes the one commit on `dev`.
 
 Releases are made by merging `dev` into `main` (a pull request from `dev`, merged with a merge
@@ -81,6 +82,21 @@ Site changes follow the same flow as code (a `docs:` pull request into `dev`); t
 `Publish site` workflow hands that commit to
 [PassTunnel/passtunnel.github.io](https://github.com/PassTunnel/passtunnel.github.io), which serves
 the root of the host.
+
+## Linux
+
+PassTunnelKit (with PassTunnelVPNConfig) also builds on Linux, where the package has nothing else:
+the `Linux` checks build it and run `PassTunnelKitTests`, the golden cases included, in the official
+Swift container on x86_64 and aarch64. To run the same tests locally with Docker, from the
+repository root:
+
+```sh
+docker run --rm -v "$PWD":/src -w /src swift:6.4.1-noble swift test
+```
+
+Code in PassTunnelKit must keep building on Linux: CryptoKit is swift-crypto's `Crypto` there
+(`#if canImport(CryptoKit)`), other Apple-only APIs go behind `#if canImport(…)`, and
+`String(localized:)` is an English-only stand-in.
 
 ## Dependabot
 

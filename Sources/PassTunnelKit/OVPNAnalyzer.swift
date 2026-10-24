@@ -74,7 +74,7 @@ public enum OVPNAnalyzer {
     static func directives(_ text: String) -> [[String]] {
         var out: [[String]] = []
         var blocks: [(tag: String, verbatim: Bool)] = []
-        for (index, rawLine) in text.components(separatedBy: "\n").enumerated() {
+        for (index, rawLine) in OVPNInliner.lines(text).enumerated() {
             var line = rawLine
             if index == 0, line.hasPrefix("\u{FEFF}") { line.removeFirst() }   // UTF-8 BOM
             if let top = blocks.last {
