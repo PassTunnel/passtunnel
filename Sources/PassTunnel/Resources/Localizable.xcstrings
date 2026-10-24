@@ -169,6 +169,16 @@
         }
       }
     },
+    "%lld min" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld dk"
+          }
+        }
+      }
+    },
     "%lld minutes" : {
       "localizations" : {
         "tr" : {
@@ -241,6 +251,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld saniye kaldı"
+          }
+        }
+      }
+    },
+    "%lldh %lldm" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld sa %2$lld dk"
           }
         }
       }
@@ -2196,6 +2216,16 @@
         }
       }
     },
+    "Connecting to %@…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ adresine bağlanılıyor…"
+          }
+        }
+      }
+    },
     "Connecting to the gateway…" : {
       "localizations" : {
         "tr" : {
@@ -2382,6 +2412,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ yeniden bağlanamadı"
+          }
+        }
+      }
+    },
+    "Couldn’t connect" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlanılamadı"
           }
         }
       }
@@ -2616,6 +2656,26 @@
         }
       }
     },
+    "Disconnected" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlı değil"
+          }
+        }
+      }
+    },
+    "Disconnected · asks for Touch ID" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlı değil · Touch ID ister"
+          }
+        }
+      }
+    },
     "Disconnected: %@" : {
       "localizations" : {
         "tr" : {
@@ -2662,6 +2722,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Koptu"
+          }
+        }
+      }
+    },
+    "Dropped · next try in %lld s" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlantı koptu · %lld sn sonra yeniden denenecek"
+          }
+        }
+      }
+    },
+    "Dropped, reconnecting with a fresh code…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlantı koptu, yeni kodla yeniden bağlanıyor…"
+          }
+        }
+      }
+    },
+    "Dropped, reconnecting…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlantı koptu, yeniden bağlanıyor…"
           }
         }
       }
@@ -3202,6 +3292,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Doğrulama uygulamanızdaki kodla eşleşmeli. Gizli anahtar, kaydettiğinizde Anahtar Zinciri’ne kaydedilir."
+          }
+        }
+      }
+    },
+    "just now" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "az önce"
           }
         }
       }
@@ -3772,6 +3872,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Yanıt vermiyor"
+          }
+        }
+      }
+    },
+    "not responding" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "yanıt vermiyor"
           }
         }
       }
@@ -4802,6 +4912,16 @@
         }
       }
     },
+    "setup incomplete" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "kurulum eksik"
+          }
+        }
+      }
+    },
     "SHA-256 fingerprint (optional)" : {
       "localizations" : {
         "tr" : {
@@ -5068,6 +5188,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Durum bir bakışta menü çubuğunda; VPN koptuğunda uyarı alırsınız."
+          }
+        }
+      }
+    },
+    "status unavailable" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "durum alınamıyor"
           }
         }
       }
@@ -5896,6 +6026,16 @@
         }
       }
     },
+    "Touch ID to connect" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlanmak için Touch ID"
+          }
+        }
+      }
+    },
     "Trust Certificate" : {
       "localizations" : {
         "tr" : {
@@ -6312,6 +6452,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "VPN araçlarının tüneli kurmak için yönetici yetkisine ihtiyacı var. Yardımcı yalnızca PassTunnel’ın içindeki imzalı OpenVPN ve openfortivpn kopyalarını çalıştırır, başka hiçbir şeyi değil."
+          }
+        }
+      }
+    },
+    "Waiting for a fresh code · %lld s" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni kodun gelmesi bekleniyor · %lld sn"
+          }
+        }
+      }
+    },
+    "Waiting for a fresh code · sends in %lld s" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni kodun gelmesi bekleniyor · %lld sn sonra gönderilir"
           }
         }
       }
