@@ -67,6 +67,12 @@ enum RenderSnapshots {
             }
             Palette.previewIncreasedContrast = false
 
+            // Every status a profile can show in the redesigned views (DisplayStatus), in the render's language.
+            let statusNow = Date(timeIntervalSince1970: 1_800_000_000)
+            for dark in [false, true] {
+                snapshot(ProfileStatusGallery(now: statusNow), size: nil, dark: dark, to: out, name: "profile-status")
+            }
+
             let sample = try makeSampleProfiles(store)
             created = sample.ids
             var prefs = Preferences.load(paths: paths)

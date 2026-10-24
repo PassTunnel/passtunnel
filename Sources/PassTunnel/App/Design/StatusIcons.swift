@@ -108,15 +108,18 @@ struct StatusIcon: View {
 struct StatusDot: View {
     let symbol: StatusSymbol
     var size: CGFloat = 7
+    /// Overrides the symbol's dot color (a warning that is an error, say).
+    var tint: Color?
 
-    init(_ symbol: StatusSymbol, size: CGFloat = 7) {
+    init(_ symbol: StatusSymbol, size: CGFloat = 7, tint: Color? = nil) {
         self.symbol = symbol
         self.size = size
+        self.tint = tint
     }
 
     var body: some View {
         Group {
-            if let color = symbol.dot {
+            if let color = tint ?? symbol.dot {
                 Circle().fill(color)
             } else {
                 Circle().strokeBorder(Palette.fg3, lineWidth: 1.4)

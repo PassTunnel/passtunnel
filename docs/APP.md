@@ -413,6 +413,19 @@ the screens above do not use them yet.
   VoiceOver reads "4 8 2, 9 1 3") and `CountdownTimeline`.
 - The `components` render (`PASSTUNNEL_RENDER`, light and dark; `components-contrast` with the Increase Contrast
   values) shows every token and component.
+- One status per profile for the new views: `DisplayStatus` (Core, `DisplayStatus.swift`; not the `ProfileStatus` of
+  the CLI and MCP) is worked out from what `ConnectionManager` publishes. A connection that is up wins, with its
+  worst problem (not responding, then setup incomplete, then status unavailable); then a running automatic
+  reconnect, which covers its attempts, their code waits and their failures; then a connect under way (waiting for a
+  fresh code, connecting); then the last error, a drop not seen yet, and at rest "Touch ID to connect" (either level
+  of "Confirm with Touch ID": the new editor shows one switch) or "Disconnected". Each state has a short form for
+  rows and the menu bar panel ("Connected · 1h 12m") and a long one for the detail ("Connected · 1h 12m · 10.8.0.6",
+  "Waiting for a fresh code · sends in 4 s", "Dropped · next try in 12 s" after a failed attempt). A failure is only
+  its message for now; once Core reports why (a rejected sign-in, a server that does not answer), each reason
+  becomes a `DisplayStatus.Failure` case. `Views/ProfileStatusViews.swift` adds the icon and color and the views
+  `ProfileStatusLine` (detail), `ProfileStatusRow` (dot and short words) and `ProfileStatusDot`, fed by
+  `AppModel.displayStatus(_:)`; the current window and menu still use `StatusKind`. The `profile-status` render
+  shows every state.
 
 ## Accessibility
 
