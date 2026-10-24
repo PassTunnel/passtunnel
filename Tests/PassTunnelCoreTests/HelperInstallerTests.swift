@@ -1,3 +1,5 @@
+// macOS only, like HelperInstaller (SMAppService).
+#if os(macOS)
 import ServiceManagement
 import XCTest
 @testable import PassTunnelCore
@@ -185,3 +187,4 @@ final class HelperInstallerTests: XCTestCase {
         }
     }
 }
+#endif

@@ -39,7 +39,7 @@ public enum PTError: Error, Equatable, LocalizedError {
     case userConfirmationCancelled
     case userConfirmationFailed(String)    // localized reason
     case confirmationRequired              // protected secrets, but asking is not possible now (automatic reconnect)
-    case protectionUnavailable             // no Secure Enclave: the protection cannot be turned on
+    case protectionUnavailable             // no Secure Enclave (Linux: no confirmation yet): the protection cannot be used
     case protectedSecretUnreadable(SecretKind)  // encrypted item that cannot be decrypted (key lost or data damaged)
 
     public var errorDescription: String? {
@@ -119,7 +119,11 @@ public enum PTError: Error, Equatable, LocalizedError {
         case .confirmationRequired:
             return String(localized: "Reconnecting needs your confirmation (Touch ID or your Mac password): connect it again yourself.")
         case .protectionUnavailable:
+            #if os(Linux)
+            return String(localized: "PassTunnel cannot ask for a confirmation on this system yet, so it does not use profiles set to ask for one (require_auth).")
+            #else
             return String(localized: "This Mac has no Secure Enclave, so the saved secrets cannot be protected with Touch ID or your Mac password.")
+            #endif
         case .protectedSecretUnreadable(let kind):
             switch kind {
             case .password:

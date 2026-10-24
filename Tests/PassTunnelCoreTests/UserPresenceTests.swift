@@ -1,6 +1,14 @@
+#if canImport(Combine)
 import Combine
+#endif
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
+#if canImport(LocalAuthentication)
 import LocalAuthentication
+#endif
 import XCTest
 @testable import PassTunnelCore
 @testable import PassTunnelKit
@@ -605,6 +613,7 @@ final class SecretVaultTests: CoreTestCase {
         XCTAssertFalse(SecretVault.lowersProtection(from: .connect, to: .connect))
     }
 
+    #if os(macOS)
     func testLocalAuthenticationErrorsMap() {
         func map(_ code: LAError.Code) -> PTError? {
             SecureEnclaveAuthenticator.map(NSError(domain: LAError.errorDomain, code: code.rawValue)) as? PTError
@@ -617,6 +626,7 @@ final class SecretVaultTests: CoreTestCase {
         }
         XCTAssertTrue(SecureEnclaveAuthenticator.map(ProtectionKeyUnusable()) is ProtectionKeyUnusable)
     }
+    #endif
 
     // MARK: settings and fields
 

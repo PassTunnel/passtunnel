@@ -1,6 +1,9 @@
+#if os(macOS)
 import CoreServices
+#endif
 import Foundation
 
+#if os(macOS)
 /// Watches the support directory (profiles and `config.json`) with FSEvents and calls `onChange`
 /// on the main queue, debounced, when something another process (the CLI) or this one wrote may
 /// have changed what is stored. Noise the VPN tools produce while connected (`vpn.log`, the
@@ -121,15 +124,19 @@ private final class EventSink {
     let handler: ([(String, FSEventStreamEventFlags)]) -> Void
     init(_ handler: @escaping ([(String, FSEventStreamEventFlags)]) -> Void) { self.handler = handler }
 }
+#endif
 
 /// Tells a running app that the CLI changed something the file watcher cannot see (Keychain items),
 /// or simply that it changed profiles, so the app reloads right away. Any process in the session
-/// can post it; receivers only re-read their own storage, so it carries no data.
+/// can post it; receivers only re-read their own storage, so it carries no data. Nothing to tell on
+/// Linux, which has no app yet.
 public enum ProfileChangeSignal {
     public static let name = Notification.Name("com.furkanprlk.passtunnel.profilesChanged")
 
     public static func post() {
+        #if os(macOS)
         DistributedNotificationCenter.default().postNotificationName(name, object: nil, userInfo: nil,
                                                                      deliverImmediately: true)
+        #endif
     }
 }

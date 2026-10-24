@@ -120,7 +120,7 @@ final class MCPTools {
         }
     }
 
-    func call(_ name: String, _ arguments: [String: Any]) async -> Outcome {
+    func call(_ name: String, _ arguments: [String: JSONValue]) async -> Outcome {
         do {
             let value = try await run(name, Arguments(arguments, tool: name))
             let object = try AutomationJSON.object(value)
@@ -223,13 +223,14 @@ final class MCPTools {
     // MARK: argument checks
 
     /// The arguments of one call; every key must be read, so unknown ones are refused. A `null` value
-    /// counts as left out (some clients send every optional argument).
+    /// counts as left out (some clients send every optional argument). Booleans and integers must be
+    /// JSON booleans and numbers (`JSONValue` keeps them apart): `1` is not true, `true` is not 1.
     final class Arguments {
-        private var values: [String: Any]
+        private var values: [String: JSONValue]
         let tool: String
 
-        init(_ values: [String: Any], tool: String) {
-            self.values = values.filter { !($0.value is NSNull) }
+        init(_ values: [String: JSONValue], tool: String) {
+            self.values = values.filter { $0.value != .null }
             self.tool = tool
         }
 
@@ -238,7 +239,7 @@ final class MCPTools {
                 if required { throw AutomationError(.invalidArgument, "Missing argument profile_id.") }
                 return nil
             }
-            guard let id = raw as? String, Slug.isValid(id) else {
+            guard let id = raw.stringValue, Slug.isValid(id) else {
                 throw AutomationError(.invalidArgument, "profile_id must be a profile id from list_profiles (lowercase letters, digits and dashes).")
             }
             return id
@@ -246,19 +247,19 @@ final class MCPTools {
 
         func boolean(_ key: String) throws -> Bool? {
             guard let raw = values.removeValue(forKey: key) else { return nil }
-            guard let n = raw as? NSNumber, MCPTools.isBool(n) else {
+            guard case .bool(let value) = raw else {
                 throw AutomationError(.invalidArgument, "\(key) must be true or false.")
             }
-            return n.boolValue
+            return value
         }
 
+        /// A whole number in `range` (`5.0` too); a fraction or anything outside is refused.
         func integer(_ key: String, _ range: ClosedRange<Int>) throws -> Int? {
             guard let raw = values.removeValue(forKey: key) else { return nil }
-            guard let n = raw as? NSNumber, !MCPTools.isBool(n), n.doubleValue == n.doubleValue.rounded(),
-                  n.doubleValue >= Double(range.lowerBound), n.doubleValue <= Double(range.upperBound) else {
+            guard case .integer(let value) = raw, value >= range.lowerBound, value <= range.upperBound else {
                 throw AutomationError(.invalidArgument, "\(key) must be an integer from \(range.lowerBound) to \(range.upperBound).")
             }
-            return n.intValue
+            return Int(value)
         }
 
         func finish() throws {
@@ -266,11 +267,6 @@ final class MCPTools {
                 throw AutomationError(.invalidArgument, "Unknown argument \(key) for \(tool).")
             }
         }
-    }
-
-    /// JSONSerialization gives booleans as NSNumber too; only a CFBoolean is a JSON true/false.
-    nonisolated static func isBool(_ n: NSNumber) -> Bool {
-        CFGetTypeID(n) == CFBooleanGetTypeID()
     }
 }
 

@@ -106,24 +106,24 @@ public final class MCPServer {
 
     private enum Incoming {
         case reply(Data)
-        case notification(String, [String: Any])
-        case request(id: Any, method: String, params: [String: Any])
+        case notification(String, [String: JSONValue])
+        case request(id: JSONValue, method: String, params: [String: JSONValue])
     }
 
     private func parse(_ line: Data) -> Incoming? {
-        guard let json = try? JSONSerialization.jsonObject(with: line, options: [.fragmentsAllowed]) else {
+        guard let json = try? JSONValue(parsing: line) else {
             return .reply(errorMessage(id: nil, code: ErrorCode.parse, message: "Parse error"))
         }
-        guard let object = json as? [String: Any] else {
+        guard let object = json.objectValue else {
             // Batches are not part of MCP (since 2025-06-18).
             return .reply(errorMessage(id: nil, code: ErrorCode.invalidRequest, message: "Invalid Request: expected one JSON-RPC object"))
         }
         let id = object["id"]
         let validID = id.map(Self.isValidID) ?? false
-        guard object["jsonrpc"] as? String == "2.0" else {
+        guard object["jsonrpc"]?.stringValue == "2.0" else {
             return .reply(errorMessage(id: validID ? id : nil, code: ErrorCode.invalidRequest, message: "Invalid Request: jsonrpc must be \"2.0\""))
         }
-        guard let method = object["method"] as? String else {
+        guard let method = object["method"]?.stringValue else {
             // A response from the client: this server sends no requests, so there is nothing to match.
             if object["result"] != nil || object["error"] != nil {
                 log("ignoring a response from the client")
@@ -132,11 +132,11 @@ public final class MCPServer {
             return .reply(errorMessage(id: validID ? id : nil, code: ErrorCode.invalidRequest, message: "Invalid Request: missing method"))
         }
         let rawParams = object["params"]
-        if rawParams != nil && !(rawParams is [String: Any]) {
+        if rawParams != nil && rawParams?.objectValue == nil {
             guard id != nil else { return nil }
             return .reply(errorMessage(id: validID ? id : nil, code: ErrorCode.invalidParams, message: "Invalid params: params must be an object"))
         }
-        let params = rawParams as? [String: Any] ?? [:]
+        let params = rawParams?.objectValue ?? [:]
         guard let id else { return .notification(method, params) }
         guard validID else {
             return .reply(errorMessage(id: nil, code: ErrorCode.invalidRequest, message: "Invalid Request: id must be a string or an integer"))
@@ -145,18 +145,24 @@ public final class MCPServer {
     }
 
     /// Strings and integers; never null, never a boolean or fraction.
-    public nonisolated static func isValidID(_ id: Any) -> Bool {
-        if id is String { return true }
-        guard let n = id as? NSNumber, !MCPTools.isBool(n) else { return false }
-        return n.doubleValue == n.doubleValue.rounded()
+    public nonisolated static func isValidID(_ id: JSONValue) -> Bool {
+        switch id {
+        case .string, .integer: return true
+        case .number(let n): return n.isFinite && n == n.rounded()   // whole, but beyond 64 bits
+        case .null, .bool, .array, .object: return false
+        }
     }
 
-    public nonisolated static func key(_ id: Any) -> String {
-        if let s = id as? String { return "s:" + s }
-        return "n:\((id as? NSNumber)?.int64Value ?? 0)"
+    public nonisolated static func key(_ id: JSONValue) -> String {
+        switch id {
+        case .string(let s): return "s:" + s
+        case .integer(let n): return "n:\(n)"
+        case .number(let n): return "n:\(n)"
+        case .null, .bool, .array, .object: return "n:0"   // not valid ids, never keyed
+        }
     }
 
-    private func handleNotification(_ method: String, _ params: [String: Any]) {
+    private func handleNotification(_ method: String, _ params: [String: JSONValue]) {
         switch method {
         case "notifications/initialized":
             break
@@ -186,19 +192,19 @@ public final class MCPServer {
         }
     }
 
-    private func respond(id: Any, method: String, params: [String: Any]) async -> Data {
+    private func respond(id: JSONValue, method: String, params: [String: JSONValue]) async -> Data {
         if method == "initialize" { return initialize(id: id, params: params) }
         let era: Era
-        let meta = params["_meta"] as? [String: Any]
+        let meta = params["_meta"]?.objectValue
         if let requested = meta?[Self.versionKey] {
-            guard let version = requested as? String else {
+            guard let version = requested.stringValue else {
                 return errorMessage(id: id, code: ErrorCode.invalidParams, message: "Invalid params: \(Self.versionKey) must be a string")
             }
             guard Self.supportedVersions.contains(version) else {
                 return errorMessage(id: id, code: ErrorCode.unsupportedVersion, message: "Unsupported protocol version",
                                     data: ["supported": Self.supportedVersions, "requested": version])
             }
-            if Self.modernVersions.contains(version) && !(meta?[Self.capabilitiesKey] is [String: Any]) {
+            if Self.modernVersions.contains(version) && meta?[Self.capabilitiesKey]?.objectValue == nil {
                 return errorMessage(id: id, code: ErrorCode.invalidParams, message: "Invalid params: missing _meta \(Self.capabilitiesKey)")
             }
             era = Self.modernVersions.contains(version) ? .modern(version) : .legacy(version)
@@ -228,11 +234,11 @@ public final class MCPServer {
             }
             return result(id: id, r, era: era)
         case "tools/call":
-            guard let name = params["name"] as? String else {
+            guard let name = params["name"]?.stringValue else {
                 return errorMessage(id: id, code: ErrorCode.invalidParams, message: "Invalid params: missing tool name")
             }
-            let rawArguments = params["arguments"].flatMap { $0 is NSNull ? nil : $0 } ?? [String: Any]()
-            guard let arguments = rawArguments as? [String: Any] else {
+            let rawArguments = params["arguments"].flatMap { $0 == .null ? nil : $0 } ?? .object([:])
+            guard let arguments = rawArguments.objectValue else {
                 return errorMessage(id: id, code: ErrorCode.invalidParams, message: "Invalid params: arguments must be an object")
             }
             guard tools.isAvailable(name) else {
@@ -247,15 +253,15 @@ public final class MCPServer {
 
     /// Handshake of the protocols before 2026-07-28: the version the client asked for when it is one
     /// of `legacyVersions`, else the newest of them (the client disconnects if it cannot use it).
-    private func initialize(id: Any, params: [String: Any]) -> Data {
-        guard let requested = params["protocolVersion"] as? String else {
+    private func initialize(id: JSONValue, params: [String: JSONValue]) -> Data {
+        guard let requested = params["protocolVersion"]?.stringValue else {
             return errorMessage(id: id, code: ErrorCode.invalidParams, message: "Invalid params: missing protocolVersion",
                                 data: ["supported": Self.supportedVersions])
         }
         let version = Self.legacyVersions.contains(requested) ? requested : Self.legacyVersions[0]
         sessionVersion = version
-        if let client = params["clientInfo"] as? [String: Any], let name = client["name"] as? String {
-            log("client \(name) \(client["version"] as? String ?? ""), protocol \(version)")
+        if let client = params["clientInfo"]?.objectValue, let name = client["name"]?.stringValue {
+            log("client \(name) \(client["version"]?.stringValue ?? ""), protocol \(version)")
         }
         let r: [String: Any] = ["protocolVersion": version, "capabilities": capabilities,
                                 "serverInfo": serverInfo, "instructions": instructions]
@@ -286,7 +292,7 @@ public final class MCPServer {
 
     // MARK: output
 
-    private func result(id: Any, _ body: [String: Any], era: Era) -> Data {
+    private func result(id: JSONValue, _ body: [String: Any], era: Era) -> Data {
         var r = body
         if case .modern = era {
             r["resultType"] = "complete"
@@ -294,14 +300,14 @@ public final class MCPServer {
             meta[Self.serverInfoKey] = serverInfo
             r["_meta"] = meta
         }
-        return Self.encode(["jsonrpc": "2.0", "id": id, "result": r])
+        return Self.encode(["jsonrpc": "2.0", "id": id.serializable, "result": r])
     }
 
-    private func errorMessage(id: Any?, code: Int, message: String, data: Any? = nil) -> Data {
+    private func errorMessage(id: JSONValue?, code: Int, message: String, data: Any? = nil) -> Data {
         var error: [String: Any] = ["code": code, "message": message]
         if let data { error["data"] = data }
         var m: [String: Any] = ["jsonrpc": "2.0", "error": error]
-        if let id { m["id"] = id }
+        if let id { m["id"] = id.serializable }
         return Self.encode(m)
     }
 

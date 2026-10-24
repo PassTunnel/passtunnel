@@ -1,4 +1,8 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto   // swift-crypto: the same API, outside Apple platforms
+#endif
 import Foundation
 
 /// Identity of a helper build: the SHA-256 of the helper executable. The helper computes it once at
@@ -26,11 +30,16 @@ public enum HelperBuild {
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
-    /// The running process's executable, as the kernel reports it (symlinks resolved).
+    /// The running process's executable, as the kernel reports it (symlinks resolved); Foundation's
+    /// answer elsewhere than on the Mac.
     public static var currentExecutablePath: String? {
+        #if os(macOS)
         var buf = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
         let n = proc_pidpath(getpid(), &buf, UInt32(buf.count))
         return n > 0 ? String(cString: buf) : Bundle.main.executablePath
+        #else
+        return Bundle.main.executablePath
+        #endif
     }
 
     /// The helper that ships next to `executable` (`Contents/MacOS/PassTunnelHelper`).

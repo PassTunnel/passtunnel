@@ -2,8 +2,8 @@ import Foundation
 import PassTunnelCore
 import PassTunnelKit
 
-/// `passtunnel` command-line mode of the app binary.
-enum PassTunnelCLI {
+/// The `passtunnel` command: the CLI mode of the app binary on the Mac, its own executable on Linux.
+public enum PassTunnelCLI {
     /// The documented exit codes (`AutomationExit`, docs/CLI-JSON.md).
     enum Exit {
         static let ok = AutomationExit.ok
@@ -13,7 +13,7 @@ enum PassTunnelCLI {
     }
 
     /// CLI mode when invoked through the `passtunnel` symlink or with a known command as the first argument.
-    static func isInvocation(_ args: [String]) -> Bool {
+    public static func isInvocation(_ args: [String]) -> Bool {
         if let first = args.first, (first as NSString).lastPathComponent == "passtunnel" { return true }
         let args = CLICommand.strippingSystemArguments(args)
         return args.count > 1 && CLICommand.isCommand(args[1])
@@ -23,10 +23,8 @@ enum PassTunnelCLI {
     static let clearClipboardArgument = "__clear-clipboard"
 
     /// Runs the command in `args` (argv including the program name) and returns the exit code.
-    static func run(_ args: [String]) -> Int32 {
-        if args.count == 3, args[1] == clearClipboardArgument, let count = Int(args[2]) {
-            return CLIClipboard.clearLater(ifUnchangedSince: count)
-        }
+    public static func run(_ args: [String]) -> Int32 {
+        if let code = CLIClipboard.runLeftBehind(args) { return code }
         let arguments = CLICommand.strippingSystemArguments(Array(args.dropFirst()))
         let invocation: CLIInvocation
         do {

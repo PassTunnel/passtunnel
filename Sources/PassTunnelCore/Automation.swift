@@ -1,4 +1,8 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto   // swift-crypto: the same API, outside Apple platforms
+#endif
 import Foundation
 import PassTunnelKit
 import PassTunnelShared
@@ -68,7 +72,7 @@ public enum AutomationErrorCode: String, Codable, CaseIterable, Sendable {
         case let e as AutomationError: return e.code
         case is CLIUsageError: return .invalidArgument
         case is DestinationChangedError: return .destinationChanged
-        case is ProtectionKeyMismatch, is ProtectionKeyUnusable: return .keychainError
+        case is ProtectionKeyMismatch, is ProtectionKeyUnusable, is SecretStoreUnavailable: return .keychainError
         case is CancellationError: return .cancelled
         case let e as HelperClientError:
             switch e {
@@ -332,13 +336,18 @@ public struct AppInfo: Equatable {
         self.appPath = appPath
     }
 
-    /// From `Bundle.main` ("dev" for a build without an Info.plist).
+    /// From `Bundle.main` ("dev" for a build without an Info.plist). On Linux, which has no Info.plist,
+    /// the version compiled in (`BuildVersion`) and the executable's path.
     public static var current: AppInfo {
+        #if os(Linux)
+        return AppInfo(version: BuildVersion.version, build: BuildVersion.build, appPath: Bundle.main.executablePath ?? "")
+        #else
         let info = Bundle.main.infoDictionary
         return AppInfo(version: info?["CFBundleShortVersionString"] as? String ?? "dev",
                        build: info?["CFBundleVersion"] as? String,
                        appPath: Bundle.main.bundleURL.pathExtension == "app" ? Bundle.main.bundlePath
                                                                           : Bundle.main.executablePath ?? "")
+        #endif
     }
 
     public var inApplications: Bool { appPath.hasPrefix("/Applications/") }
@@ -366,10 +375,12 @@ public protocol HelperInspecting {
     func report() async -> HelperReport
 }
 
-/// `SMAppService` status, then the running helper's protocol and build (5 s timeout per call).
+/// `SMAppService` status, then the running helper's protocol and build (5 s timeout per call). On
+/// Linux the daemon, which is never installed until it exists (docs/LINUX.md).
 public struct SystemHelperInspector: HelperInspecting {
     public init() {}
 
+    #if os(macOS)
     public func report() async -> HelperReport {
         let status = HelperInstaller.status
         var r = HelperReport(state: HelperReport.stateName(status), responding: false)
@@ -386,6 +397,11 @@ public struct SystemHelperInspector: HelperInspecting {
         }
         return r
     }
+    #else
+    public func report() async -> HelperReport {
+        HelperReport(state: HelperReport.stateName(.notRegistered), responding: false)
+    }
+    #endif
 }
 
 // MARK: - Confirmation without a prompt

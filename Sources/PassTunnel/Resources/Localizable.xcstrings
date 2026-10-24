@@ -467,6 +467,66 @@
         }
       }
     },
+    "Copying needs wl-copy (Wayland) or xclip (X11), and neither was found. Run the command without --copy." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopyalamak için wl-copy (Wayland) ya da xclip (X11) gerekli, ikisi de bulunamadı. Komutu --copy olmadan çalıştırın."
+          }
+        }
+      }
+    },
+    "Daemon (passtunneld): not installed" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arka plan hizmeti (passtunneld): yüklü değil"
+          }
+        }
+      }
+    },
+    "On Linux the PassTunnel package installs and removes the daemon (passtunneld): install or remove the package instead." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linux’ta arka plan hizmetini (passtunneld) PassTunnel paketi yükler ve kaldırır: bunun yerine paketi yükleyin ya da kaldırın."
+          }
+        }
+      }
+    },
+    "PassTunnel cannot ask for a confirmation on this system yet, so it does not use profiles set to ask for one (require_auth)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel bu sistemde henüz onay isteyemediğinden onay isteyecek şekilde ayarlanmış profilleri (require_auth) kullanmıyor."
+          }
+        }
+      }
+    },
+    "PassTunnel cannot save or read passwords and TOTP secrets on this system yet: no secret store is set up." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel bu sistemde henüz parolaları ve TOTP gizli anahtarlarını kaydedemiyor ve okuyamıyor: gizli bilgi deposu ayarlanmamış."
+          }
+        }
+      }
+    },
+    "The PassTunnel daemon (passtunneld) is not installed. Connecting needs it." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel arka plan hizmeti (passtunneld) yüklü değil. Bağlanmak için gerekli."
+          }
+        }
+      }
+    },
     "connect to “%@” (%@)" : {
       "localizations" : {
         "tr" : {

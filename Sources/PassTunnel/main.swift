@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import PassTunnelCLI
 import PassTunnelCore
 import PassTunnelShared
 

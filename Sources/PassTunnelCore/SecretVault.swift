@@ -1,4 +1,8 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto   // swift-crypto: the same API, outside Apple platforms
+#endif
 import Foundation
 import PassTunnelKit
 #if canImport(AppKit)
@@ -41,7 +45,7 @@ public final class SecretVault: ObservableObject {
 
     /// `reuseWindow` is read on every check, so a changed preference applies at once. `destination`
     /// reads where a profile sends its secrets (shown in the prompt and bound to what is decrypted).
-    public init(authenticator: UserAuthenticator = SecureEnclaveAuthenticator(),
+    public init(authenticator: UserAuthenticator = PlatformAuthenticator(),
                 now: @escaping () -> Date = Date.init,
                 reuseWindow: @escaping () -> TimeInterval = { Preferences.load().authReuseInterval },
                 destination: @escaping (Profile) -> ProfileDestination = { ProfileDestination.of($0, store: ProfileStore()) }) {
@@ -117,6 +121,17 @@ public final class SecretVault: ObservableObject {
         Self.usedKinds(p).contains { Secrets.isProtected(p.id, $0) }
     }
 
+    /// On Linux, which cannot ask for a confirmation yet (docs/LINUX.md): throws
+    /// `PTError.protectionUnavailable` when the profile's setting protects one of `kinds`, instead of
+    /// using them without the confirmation the setting asks for. On the Mac the setting cannot be
+    /// turned on without a Secure Enclave, and nothing changes here.
+    public func refuseUnconfirmable(_ p: Profile, _ kinds: Set<SecretKind>) throws {
+        #if os(Linux)
+        guard !isAvailable, !Self.protectedKinds(p).isDisjoint(with: kinds) else { return }
+        throw PTError.protectionUnavailable
+        #endif
+    }
+
     /// The secret without asking: the plain item, or the decrypted value while unlocked. Nil when
     /// there is none or it is locked.
     public func available(_ id: String, _ kind: SecretKind) -> String? {
@@ -130,8 +145,9 @@ public final class SecretVault: ObservableObject {
     /// The secret, decrypting (and asking) when needed. Nil when no item exists. Without `prompt`, a
     /// locked secret throws `PTError.confirmationRequired` instead of asking.
     public func secret(_ p: Profile, _ kind: SecretKind, for action: UserPresenceAction, prompt: Bool = true) async throws -> String? {
+        try refuseUnconfirmable(p, [kind])
         reconcile(p)
-        guard Secrets.has(p.id, kind) else { return nil }
+        guard try Secrets.exists(p.id, kind) else { return nil }
         if let value = available(p.id, kind) { return value }
         guard prompt else { throw PTError.confirmationRequired }
         try await unlock(p, [kind], for: action)
@@ -142,6 +158,7 @@ public final class SecretVault: ObservableObject {
     /// `kinds` are all readable already. `fresh` asks even then (lowering the setting).
     /// Concurrent calls for the same profile share one prompt.
     public func unlock(_ p: Profile, _ kinds: Set<SecretKind>, for action: UserPresenceAction, fresh: Bool = false) async throws {
+        if action != .lowerProtection { try refuseUnconfirmable(p, kinds) }
         if !fresh, let running = inFlight[p.id] { try await running.value }
         guard fresh || needsPrompt(p, kinds) else { return }
         let task = Task { @MainActor in try await self.decryptAll(p, action: action, requireKey: false) }
@@ -361,28 +378,45 @@ public struct ProtectionKeyMismatch: Error, Equatable, LocalizedError {
 }
 
 /// Ends the reuse window of a `SecretVault` when the screen locks or the Mac goes to sleep, as the app
-/// does. For processes that live on without the app's delegate (`passtunnel mcp`). The centers are
-/// injectable for tests; the observers go away with the instance.
+/// does. For processes that live on without the app's delegate (`passtunnel mcp`). The event sources
+/// are injectable for tests; the observers go away with the instance.
 @MainActor
 public final class VaultExpiry {
+    /// A notification that ends the reuse window, and the center it is posted to.
+    public typealias Source = (center: NotificationCenter, name: Notification.Name)
+
     /// Posted (distributed) when the screen locks.
-    public static let screenLockedNotification = Notification.Name("com.apple.screenIsLocked")
+    public nonisolated static let screenLockedNotification = Notification.Name("com.apple.screenIsLocked")
 
     private let observers: [(NotificationCenter, NSObjectProtocol)]
 
-    /// `screenLock`: where `screenLockedNotification` arrives; `sleep`: where `sleepNotification` does.
-    public init(vault: SecretVault, screenLock: NotificationCenter = DistributedNotificationCenter.default(),
-                sleep: NotificationCenter = VaultExpiry.workspaceCenter,
-                sleepNotification: Notification.Name = VaultExpiry.willSleepNotification) {
-        observers = [(screenLock, Self.screenLockedNotification), (sleep, sleepNotification)].map { center, name in
+    /// `sources`: the notifications that reset the vault.
+    public init(vault: SecretVault, sources: [Source] = VaultExpiry.systemSources) {
+        observers = sources.map { center, name in
             (center, center.addObserver(forName: name, object: nil, queue: .main) { [weak vault] _ in
                 MainActor.assumeIsolated { vault?.reset() }
             })
         }
     }
 
+    /// `screenLock`: where `screenLockedNotification` arrives; `sleep`: where `sleepNotification` does.
+    public convenience init(vault: SecretVault, screenLock: NotificationCenter, sleep: NotificationCenter = VaultExpiry.workspaceCenter,
+                            sleepNotification: Notification.Name = VaultExpiry.willSleepNotification) {
+        self.init(vault: vault, sources: [(screenLock, Self.screenLockedNotification), (sleep, sleepNotification)])
+    }
+
     deinit {
         for (center, token) in observers { center.removeObserver(token) }
+    }
+
+    /// The system's events: screen lock and sleep on the Mac. None on Linux, where nothing is ever
+    /// decrypted yet (protected profiles are refused there).
+    public nonisolated static var systemSources: [Source] {
+        #if os(macOS)
+        [(DistributedNotificationCenter.default(), screenLockedNotification), (workspaceCenter, willSleepNotification)]
+        #else
+        []
+        #endif
     }
 
     #if canImport(AppKit)

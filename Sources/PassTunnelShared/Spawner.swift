@@ -1,3 +1,5 @@
+// macOS only: the suspended, signature-checked launch (and Darwin's posix_spawn extensions).
+#if os(macOS)
 import Foundation
 
 /// Checks the code of a started process that has not run yet (see `Spawner.spawnVerified`).
@@ -107,3 +109,4 @@ public enum Spawner {
         while waitpid(pid, &status, 0) == -1, errno == EINTR {}
     }
 }
+#endif

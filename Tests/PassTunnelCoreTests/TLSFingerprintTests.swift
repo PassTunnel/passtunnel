@@ -1,6 +1,8 @@
 import Foundation
+#if os(macOS)
 import Network
 import Security
+#endif
 import XCTest
 @testable import PassTunnelCore
 
@@ -18,6 +20,8 @@ final class TLSFingerprintTests: XCTestCase {
                        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
     }
 
+    // Reading a certificate is macOS only (Network).
+    #if os(macOS)
     func testRejectsBadInputWithoutConnecting() async {
         for (host, port, expected) in [("https://vpn.example.com", 443, TLSFingerprint.Failure.invalidHost),
                                        ("", 443, .invalidHost), ("127.0.0.1", 0, .invalidPort)] {
@@ -113,8 +117,10 @@ final class TLSFingerprintTests: XCTestCase {
         guard bound else { throw XCTSkip("bind failed") }
         return Int(UInt16(bigEndian: addr.sin_port))
     }
+    #endif
 }
 
+#if os(macOS)
 /// TLS listener on 127.0.0.1 with the given identity; accepts connections and does nothing else.
 final class LocalTLSServer: @unchecked Sendable {
     let listener: NWListener
@@ -160,3 +166,4 @@ final class LocalTLSServer: @unchecked Sendable {
         }
     }
 }
+#endif

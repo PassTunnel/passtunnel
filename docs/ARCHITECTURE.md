@@ -38,10 +38,12 @@ A bundle without `dns-updown` pins an empty set for it, so the helper refuses an
 |---|---|---|
 | `PassTunnelVPNConfig` | `OVPNSanitizer`, `FortiConfig`: the configurations the helper runs as root | — |
 | `PassTunnelKit` | the portable logic (Foundation, CryptoKit and Security only; builds for macOS 13, iOS 17 and Linux): model, `PTError`, `JSONCoding`, `TOTP`, `OTPAuthURI`, `OTPComposer`, `OVPNAnalyzer`, `OVPNInliner`, `ShareFile`, `Slug`, `ProfileFields`, `ProfileMerge`, `SecretEnvelope`, `HealthCheck` (parsing) | VPNConfig (and swift-crypto on Linux) |
-| `PassTunnelShared` | XPC protocol, request/response types, `HelperCore` (request decoding, path checks, tool environment), `SessionPolicy`, `CodeSignature`, `Spawner` (verified, suspended launch), `PinnedTools`, `ToolStager` (root-owned copy of the tools and their dylibs), `HelperBuild`, identifiers | VPNConfig |
-| `PassTunnelCore` | `ProfileStore`, `ProfilesWatcher`, `Secrets` (Keychain), `SecretVault` + `UserAuthenticator` (Secure Enclave protection), `Preferences`, `HealthCheck.check` (the probe), `QRDecoder`, `OpenedFiles` (files the app is asked to open), `TLSFingerprint`, `HelperClient`, `HelperAutoUpdate`, `ConnectionManager` + `ProfileDestination`, CLI parsing (`CLICommand`, `CLIInvocation`), automation objects + `AutomationService`, `MCPServer` + `MCPTools` | Kit, VPNConfig, Shared |
+| `PassTunnelShared` | XPC protocol, request/response types, `HelperCore` (request decoding, path checks, tool environment), `SessionPolicy`, `CodeSignature`, `Spawner` (verified, suspended launch), `PinnedTools`, `ToolStager` (root-owned copy of the tools and their dylibs), `HelperBuild`, identifiers | VPNConfig (and swift-crypto on Linux) |
+| `PassTunnelCore` | `ProfileStore`, `ProfilesWatcher`, `Secrets` + `SecretStore` (Keychain), `SecretVault` + `UserAuthenticator` (Secure Enclave protection), `Preferences`, `HealthCheck.check` (the probe), `QRDecoder`, `OpenedFiles` (files the app is asked to open), `TLSFingerprint`, `HelperClient`, `HelperAutoUpdate`, `ConnectionManager` + `ProfileDestination`, CLI parsing (`CLICommand`, `CLIInvocation`), automation objects + `AutomationService`, `MCPServer` + `MCPTools` + `JSONValue` | Kit, VPNConfig, Shared (and swift-crypto on Linux) |
+| `PassTunnelCLI` | the `passtunnel` command: `PassTunnelCLI.run` (entry, `CLIHelp`), `CLIRunner`, `CLICompletions`, `CLITerminal`, `CLIClipboard`; `Pasteboard` (macOS: the app's too) | Core, Kit, Shared |
 | `PassTunnelHelper` | `main.swift` XPC listener, process supervision | Shared (and through it VPNConfig) |
-| `PassTunnel` | SwiftUI app, menu bar, onboarding, CLI, updates (`AppUpdater`) | Core, Kit, VPNConfig, Shared, Sparkle |
+| `PassTunnel` | SwiftUI app, menu bar, onboarding, updates (`AppUpdater`); CLI mode runs `PassTunnelCLI` | CLI, Core, Kit, VPNConfig, Shared, Sparkle |
+| `PassTunnelCommand` | Linux only: the `passtunnel` executable (product `passtunnel`), `PassTunnelCLI.run` | CLI |
 
 The library product `PassTunnelKit` (targets `PassTunnelKit` and `PassTunnelVPNConfig`) is what the
 iPhone app uses ([MOBILE.md](MOBILE.md)); `xcodebuild -scheme PassTunnelKit -destination
@@ -51,15 +53,59 @@ Core needs from Kit (`FileIO`, the lenient decoding helpers, the envelope parts,
 are `package`, not `public`. The golden cases in [`fixtures/`](../fixtures/README.md) are read by the
 `PassTunnelKitTests` test target (and, as a pinned copy, by the Android port).
 
-On Linux the package has only the targets `PassTunnelVPNConfig`, `PassTunnelKit` and
-`PassTunnelKitTests` (the `#if os(Linux)` block at the end of `Package.swift`; the dependencies are
-declared on every platform). The CI jobs `Linux (x86_64)` and `Linux (aarch64)` build PassTunnelKit
-and run its tests, golden cases included, in the official Swift container. There `Crypto` from
-swift-crypto takes the place of CryptoKit (the same API, so codes and `ptse1:` envelopes are the
-same), `PTError.keychain` shows the bare `OSStatus`, and `String(localized:)` is an English-only
-stand-in (`Localization.swift`), because Foundation on Linux does not have it yet. Configs are split
-into lines at every `\n` scalar (`OVPNInliner.lines`), not with `components(separatedBy: "\n")`, which
-on Linux keeps `\r\n` (one Character) together.
+On Linux ([LINUX.md](LINUX.md)) the package has the targets `PassTunnelVPNConfig`, `PassTunnelKit`,
+`PassTunnelShared`, `PassTunnelCore`, `PassTunnelCLI`, the Linux-only `PassTunnelCommand` and the test
+targets, none of the app and helper targets (the `#if os(Linux)` block at the end of `Package.swift`;
+the dependencies are declared on every platform). The CI jobs `Linux (x86_64)` and `Linux (aarch64)`
+build them, run the tests that build there (golden cases included) in the official Swift container,
+and smoke-test the `passtunnel` binary. There `Crypto` from swift-crypto takes the place of CryptoKit
+(the same API, so codes and `ptse1:` envelopes are the same), `PTError.keychain` shows the bare
+`OSStatus`, and `String(localized:)` is an English-only stand-in (Kit's `Localization.swift`,
+`package`, used by Core and the CLI too), because Foundation on Linux does not have it yet. Configs are
+split into lines at every `\n` scalar (`OVPNInliner.lines`), not with `components(separatedBy: "\n")`,
+which on Linux keeps `\r\n` (one Character) together.
+
+The platform seams (Linux code stays in the same files behind `#if`; the Mac's behavior is unchanged):
+
+- **Values.** `PT.profilesSubpath` (`.local/share/passtunnel/profiles`), `PT.helperRunRoot`
+  (`/run/passtunnel`), `HelperCore.maxSocketPathBytes` (sun_path is 108 bytes, not 104) and
+  `AppPaths.default` (`~/.local/share/passtunnel`; `PASSTUNNEL_HOME` overrides it) are platform values.
+- **Combine.** `CombineStandIn.swift`, compiled only where Combine is missing: `ObservableObject`,
+  `@Published` (the current value to a new subscriber, then each new value before it is stored),
+  `PassthroughSubject`, `compactMap`, `sink`, `AnyCancellable`, `store(in:)`: what Core and the CLI use.
+- **Secrets.** `Secrets` keeps its API over a `SecretStore` (read, write, remove raw items by account),
+  chosen on every call: `KeychainSecretStore` on the Mac (the write rules below), `MemorySecretStore`
+  with `PASSTUNNEL_SECRET_STORE=memory` (tests; the Linux tests use it), and on Linux otherwise
+  `UnconfiguredSecretStore`, whose reads and writes throw `SecretStoreUnavailable` (`keychain_error`)
+  until the Linux stores exist; removing finds nothing, so profiles are still created and deleted.
+  `Secrets.exists` is the throwing `has`: connecting, `code` and `diagnose` report the store's error
+  instead of a missing secret.
+- **Confirmation.** `PlatformAuthenticator` is `SecureEnclaveAuthenticator` on the Mac and
+  `UnavailableAuthenticator` on Linux (`isAvailable` false; nothing is unlocked, and no key is ever
+  reported unusable). On Linux `SecretVault.refuseUnconfirmable` refuses the secrets a profile's
+  `require_auth` protects (`PTError.protectionUnavailable`, `auth_unavailable`) instead of using them
+  unconfirmed; `VaultExpiry.systemSources` (screen lock, sleep) is empty there.
+- **Helper.** `ConnectionManager.defaultHelper` is `HelperClient.shared` on the Mac and
+  `UnavailableHelperClient` on Linux (every call `HelperClientError.notInstalled`); Linux's
+  `SystemHelperInspector` reports `not_installed` and `RoutingTable.ipv4Routes` is empty until the
+  daemon exists.
+- **MCP input.** `MCPServer` decodes each line into a `JSONValue` with `JSONDecoder` on every
+  platform, so JSON booleans are never numbers (no CoreFoundation `CFBoolean` check).
+- **Version.** `AppInfo.current` on Linux is `BuildVersion`: a release build compiles in
+  `BuildVersion+Generated.swift` (never committed) with `-DPASSTUNNEL_BUILD_VERSION`; otherwise
+  `0.0.0-dev`.
+- **System calls.** `POSIXSocket` (`SOCK_STREAM`, `MSG_NOSIGNAL` for `SO_NOSIGPIPE`, no `sun_len`) for
+  the management socket and the health probe; Linux pings with `ping -n -q -c 1 -W <s>` (`-6` for IPv6)
+  from `/usr/bin`, `/bin`, `/usr/sbin` or `/sbin`, never `PATH`.
+- **macOS only** (`#if os(macOS)`): `ProfilesWatcher`, `LoginItem`, `HelperInstaller`,
+  `HelperClient`, `QRDecoder`, `TLSFingerprint.fetch` (its digest formats are portable),
+  `HelperSessions.currentProcesses`, `RoutingTable.parse`, `ConfirmationWording`, and in Shared
+  `CodeSignature`, `Spawner`, `ToolStager`, the XPC protocol and `HelperCore`'s `F_GETPATH` and
+  `fcopyfile` (there `openProfileDir` refuses every directory for now). The CLI's macOS parts (the app
+  hand-offs, `helper install`/`uninstall`, the concealed pasteboard) are under `#if` as well; on Linux
+  `helper install`/`uninstall` fail with `invalid_argument` (the package installs the daemon), and
+  `code --copy` runs `wl-copy` or `xclip` from `PATH` in a process left behind, which stops it after 30 s
+  only while it still serves the clipboard (`invalid_argument` without either).
 
 ## Identifiers (`PassTunnelShared/Identifiers.swift`)
 
@@ -91,7 +137,7 @@ public enum PT {
   so Keychain ACLs never prompt between them. Items live in the file-based login keychain (no
   `kSecUseDataProtectionKeychain`): not synced to iCloud Keychain, but carried by Migration Assistant and
   backups (`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` is set on add but does not apply there).
-  Every write deletes the item, then adds it (`Secrets.write`), never `SecItemUpdate`: an existing item may
+  Every write deletes the item, then adds it (`KeychainSecretStore.write`), never `SecItemUpdate`: an existing item may
   have been created by another app with an ACL that lets it read the value, and the added item gets the
   default ACL (only PassTunnel). `remove` repeats `SecItemDelete` until `errSecItemNotFound` (at most 16
   times); when the old item cannot be removed nothing is written (`KeychainItemNotReplaced`, not retried
@@ -199,7 +245,7 @@ public enum OVPNInliner {
     // Lines are read with OVPNSanitizer's tokenizer (`tokens(of:)`, `inlineBlockTag`, `isInlineBlockEnd`), so
     // import and the helper never read a line differently; lines it rejects are kept for the sanitizer to report.
 }
-public enum Secrets {                               // Keychain
+public enum Secrets {                               // Keychain (a SecretStore; see Targets for Linux)
     public static func get(_ profileID: String, _ kind: SecretKind) -> String?   // plain text only; nil if encrypted
     public static func has(_ profileID: String, _ kind: SecretKind) -> Bool      // plain or encrypted
     public static func isProtected(_ profileID: String, _ kind: SecretKind) -> Bool
@@ -343,9 +389,9 @@ then `LogRedactor` masks credentials. `PromptlessAuthenticator` wraps the Secure
 authenticator for `--no-auth-prompt`.
 
 ```
-passtunnel … --json ──▶ CLIRunner (app target) ─┐
-                                                 ├─▶ AutomationService ─▶ ConnectionManager, ProfileStore,
-passtunnel mcp ──stdio──▶ MCPServer ─▶ MCPTools ─┘                        HelperInspecting, Secrets
+passtunnel … --json ──▶ CLIRunner (PassTunnelCLI) ─┐
+                                                    ├─▶ AutomationService ─▶ ConnectionManager, ProfileStore,
+passtunnel mcp ──stdio──▶ MCPServer ─▶ MCPTools ────┘                        HelperInspecting, Secrets
 ```
 
 `Secrets` is used for `has` (`diagnose`) and, in `logs`, for `get` of the profile's password and
@@ -356,15 +402,16 @@ for an envelope), so literal masking does not cover it; the keyword and pattern 
 - `CLIRunner` prints the objects with `AutomationJSON.encoder()` (the file style plus ISO 8601
   dates) and maps any error to `ErrorEnvelope` + `exitCode`. Command-only results (`show`,
   `export`, `rm`, `secret`, `default`, `code`) stay local to the runner.
-- `MCPServer` parses lines with `JSONSerialization`, dispatches requests as main-actor tasks keyed by
-  JSON-RPC id (so `notifications/cancelled` can cancel one; an id already in flight gets -32600),
+- `MCPServer` decodes lines into a `JSONValue` (`JSONDecoder`: booleans are never numbers, integers
+  stay exact; replies are written with `JSONSerialization`), dispatches requests as main-actor tasks
+  keyed by JSON-RPC id (so `notifications/cancelled` can cancel one; an id already in flight gets -32600),
   writes each reply as one line through an injected `send` (stdout in `runStdio`, which reads stdin
   on a background thread through `LineReader`, at most 1 MiB per line, a longer one is skipped and
   answered with -32700, and ignores SIGPIPE; it also keeps a `VaultExpiry`, which resets the
   vault on screen lock and sleep as the app does). `MCPTools` holds the tool definitions and JSON
   Schemas (`Schema`), checks arguments (`Arguments`: every key must be consumed, a `null` counts as
-  absent; `profile_id` via `Slug.isValid`; booleans must be JSON booleans) and encodes results with
-  `AutomationJSON.object` for `structuredContent` and as text.
+  absent; `profile_id` via `Slug.isValid`; booleans must be JSON booleans and integers JSON numbers
+  without a fraction) and encodes results with `AutomationJSON.object` for `structuredContent` and as text.
 - `SystemHelperInspector` reads `HelperInstaller.status`, then asks a 5 s `HelperClient` for the
   protocol and build. `HelperClient.defaultMachServiceName` is `PT.helperLabel`; debug builds take
   `PASSTUNNEL_HELPER_SERVICE` instead, so a debug binary run against a temporary

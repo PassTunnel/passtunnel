@@ -1,10 +1,16 @@
 import Foundation
+#if os(macOS)
 import ServiceManagement
+#endif
 import PassTunnelShared
 
 public enum HelperStatus: String, Sendable {
     case notRegistered, enabled, requiresApproval, notFound
 }
+
+// The rest is macOS only: SMAppService, and the app's hand-offs. The Linux daemon is installed and
+// removed by its package (docs/LINUX.md).
+#if os(macOS)
 
 /// Registers and unregisters the helper daemon. `SMAppServiceRegistrar` in the app; tests use a fake.
 public protocol HelperRegistrar: Sendable {
@@ -252,3 +258,4 @@ public struct HelperHandoffWait: Sendable {
         }
     }
 }
+#endif

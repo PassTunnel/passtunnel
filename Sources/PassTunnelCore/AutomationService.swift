@@ -234,16 +234,19 @@ public final class AutomationService {
             }
             do { try Profile.checkUsername(p.username, type: p.type) } catch { problems.append(error) }
         }
-        var passwordSaved: Bool?
-        var totpSaved: Bool?
-        if p.passwordMode == .keychain {
-            passwordSaved = Secrets.has(p.id, .password)
-            if passwordSaved == false { problems.append(PTError.missingPassword(p.id)) }
+        /// Whether `kind` is saved; nil, and the store's error once, when the store cannot be read.
+        func saved(_ kind: SecretKind, missing: PTError) -> Bool? {
+            do {
+                let saved = try Secrets.exists(p.id, kind)
+                if !saved { problems.append(missing) }
+                return saved
+            } catch {
+                if !problems.contains(where: { $0 is SecretStoreUnavailable }) { problems.append(error) }
+                return nil
+            }
         }
-        if p.otpMode == .totp {
-            totpSaved = Secrets.has(p.id, .totp)
-            if totpSaved == false { problems.append(PTError.missingTOTPSecret(p.id)) }
-        }
+        let passwordSaved = p.passwordMode == .keychain ? saved(.password, missing: .missingPassword(p.id)) : nil
+        let totpSaved = p.otpMode == .totp ? saved(.totp, missing: .missingTOTPSecret(p.id)) : nil
         return ProfileCheck(id: p.id, name: p.name, type: p.type.rawValue, ok: problems.isEmpty,
                             server: ProfileDestination.of(p, store: store).host, protected: ProfileSummary.isProtected(p),
                             passwordSaved: passwordSaved, totpSaved: totpSaved, asksFor: p.needs.map(\.rawValue),

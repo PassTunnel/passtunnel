@@ -1,6 +1,11 @@
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Foundation
 import PassTunnelCore
+import PassTunnelKit
 
 /// Terminal I/O for the CLI: output streams, colors, prompts and no-echo input.
 enum CLITerminal {
@@ -92,11 +97,27 @@ private func restoreAndExit(_ sig: Int32) {
 /// Human-friendly durations ("1 h 12 m") in the user's language.
 enum CLIDurations {
     static func since(_ date: Date, now: Date = Date()) -> String {
+        let seconds = max(0, now.timeIntervalSince(date))
+        #if canImport(Darwin)
         let f = DateComponentsFormatter()
         f.unitsStyle = .abbreviated
         f.maximumUnitCount = 2
-        let seconds = max(0, now.timeIntervalSince(date))
         f.allowedUnits = seconds < 60 ? [.second] : seconds < 86_400 ? [.hour, .minute] : [.day, .hour]
         return f.string(from: seconds) ?? ""
+        #else
+        return english(seconds)
+        #endif
+    }
+
+    /// The same units in English ("45s", "1h 12m", "2d 3h"): Foundation outside Apple platforms does not
+    /// implement `DateComponentsFormatter` (it traps).
+    static func english(_ interval: TimeInterval) -> String {
+        let s = Int(interval)
+        func pair(_ big: Int, _ bigUnit: String, _ small: Int, _ smallUnit: String) -> String {
+            small == 0 ? "\(big)\(bigUnit)" : "\(big)\(bigUnit) \(small)\(smallUnit)"
+        }
+        if s < 60 { return "\(s)s" }
+        if s < 86_400 { return s < 3600 ? "\(s / 60)m" : pair(s / 3600, "h", s % 3600 / 60, "m") }
+        return pair(s / 86_400, "d", s % 86_400 / 3600, "h")
     }
 }

@@ -1,5 +1,11 @@
+#if canImport(Combine)
 import Combine
+#endif
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto   // swift-crypto: the same API, outside Apple platforms
+#endif
 import Foundation
 import PassTunnelKit
 import PassTunnelShared
@@ -140,7 +146,9 @@ public extension HelperClienting {
     func ensureCompatible() async throws {}
 }
 
+#if os(macOS)
 extension HelperClient: HelperClienting {}
+#endif
 
 /// Reads OpenVPN's state from its management socket.
 public protocol ManagementQuerying {
@@ -394,7 +402,7 @@ public final class ConnectionManager: ObservableObject {
     public private(set) var isRunning = false
 
     public init(store: ProfileStore = ProfileStore(),
-                helper: HelperClienting = HelperClient.shared,
+                helper: HelperClienting = ConnectionManager.defaultHelper,
                 management: ManagementQuerying = SocketManagementQuerier(),
                 clock: ConnectionClock = SystemClock(),
                 healthProbe: @escaping HealthProbe = ConnectionManager.defaultHealthProbe,
@@ -411,10 +419,20 @@ public final class ConnectionManager: ObservableObject {
         self.preferences = preferences
         self.routes = routes
         self.timing = timing
-        self.vault = vault ?? SecretVault(authenticator: authenticator ?? SecureEnclaveAuthenticator(),
+        self.vault = vault ?? SecretVault(authenticator: authenticator ?? PlatformAuthenticator(),
                                           now: { [clock] in clock.now() },
                                           reuseWindow: { preferences().authReuseInterval },
                                           destination: { [store] in ProfileDestination.of($0, store: store) })
+    }
+
+    /// The helper a manager uses unless it is given one: the privileged helper (XPC) on the Mac; on
+    /// Linux, until its daemon exists (docs/LINUX.md), a placeholder that reports it as not installed.
+    nonisolated public static var defaultHelper: HelperClienting {
+        #if os(macOS)
+        HelperClient.shared
+        #else
+        UnavailableHelperClient.shared
+        #endif
     }
 
     nonisolated public static func defaultHealthProbe(_ host: String) async -> (ok: Bool, ms: Int) {
@@ -932,6 +950,7 @@ public final class ConnectionManager: ObservableObject {
         if !interactive && changedDestinations.contains(p.id) && vault.requiresConfirmation(p) {
             throw DestinationChangedError(host: destination.host)
         }
+        try vault.refuseUnconfirmable(p, SecretVault.usedKinds(p))
         var out: [SecretKind: String] = [:]
         for kind in SecretVault.usedKinds(p) {
             if let value = vault.available(p.id, kind) {
@@ -991,8 +1010,9 @@ public final class ConnectionManager: ObservableObject {
             // The helper refuses it too; a profile.json changed outside the app fails here, before any secret is sent.
             guard FortiConfig.isValidHost(p.host) else { throw PTError.invalidField("host") }
         }
-        if p.passwordMode == .keychain && !Secrets.has(id, .password) { throw PTError.missingPassword(id) }
-        if p.otpMode == .totp && !Secrets.has(id, .totp) { throw PTError.missingTOTPSecret(id) }
+        // A store that cannot be read says so (`SecretStoreUnavailable`), rather than "missing".
+        if p.passwordMode == .keychain, try !Secrets.exists(id, .password) { throw PTError.missingPassword(id) }
+        if p.otpMode == .totp, try !Secrets.exists(id, .totp) { throw PTError.missingTOTPSecret(id) }
 
         func value(_ field: CredentialField) -> String? {
             let v = given[field]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -1250,7 +1270,8 @@ public final class ConnectionManager: ObservableObject {
 
     /// Wrong credentials or missing secrets will not fix themselves; retrying could lock the account.
     static func isRetryable(_ error: Error) -> Bool {
-        if error is DestinationChangedError || error is ProtectionKeyMismatch || error is KeychainItemNotReplaced {
+        if error is DestinationChangedError || error is ProtectionKeyMismatch || error is KeychainItemNotReplaced
+            || error is SecretStoreUnavailable {
             return false
         }
         switch error as? PTError {

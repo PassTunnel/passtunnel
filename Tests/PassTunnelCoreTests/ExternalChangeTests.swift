@@ -1,4 +1,6 @@
+#if canImport(CoreServices)
 import CoreServices
+#endif
 import XCTest
 @testable import PassTunnelCore
 @testable import PassTunnelKit
@@ -40,6 +42,8 @@ final class ExternalChangeTests: CoreTestCase {
 
     // MARK: ProfilesWatcher
 
+    // The watcher and the hand-offs are macOS only (FSEvents, the app).
+    #if os(macOS)
     func testRelevantPaths() {
         let dir = home.appendingPathComponent("profiles/acme").path
         XCTAssertTrue(ProfilesWatcher.isRelevant(path: dir + "/profile.json"))
@@ -161,4 +165,5 @@ final class ExternalChangeTests: CoreTestCase {
         refused.received("install:refused", now: t0.addingTimeInterval(1))
         XCTAssertEqual(refused.result(done: false, now: t0.addingTimeInterval(1)), .refused)
     }
+    #endif
 }

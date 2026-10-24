@@ -1,4 +1,6 @@
+#if canImport(Darwin)
 import Darwin
+#endif
 import XCTest
 @testable import PassTunnelCore
 @testable import PassTunnelKit
@@ -9,6 +11,7 @@ final class FullTunnelTests: XCTestCase {
 
     // MARK: routing table
 
+    #if os(macOS)
     /// One NET_RT_DUMP record: header, then destination, gateway and a truncated netmask.
     func record(dst: [UInt8], mask: [UInt8]?, index: UInt16, flags: Int32 = RTF_UP | RTF_GATEWAY | RTF_STATIC) -> [UInt8] {
         func sin(_ a: [UInt8], len: Int = 16) -> [UInt8] {
@@ -64,6 +67,11 @@ final class FullTunnelTests: XCTestCase {
         // Read-only; every Mac has loopback routes.
         XCTAssertTrue(RoutingTable.ipv4Routes().contains { $0.interface == "lo0" })
     }
+    #else
+    func testNoRoutesOnLinuxYet() {
+        XCTAssertEqual(RoutingTable.ipv4Routes(), [], "no reader until the daemon (docs/LINUX.md)")
+    }
+    #endif
 
     // MARK: other VPN
 

@@ -326,6 +326,8 @@ final class HelperMessageTests: XCTestCase {
 
 // MARK: - HelperCore path validation
 
+// macOS only: the helper's file checks use F_GETPATH and fcopyfile, which Linux's daemon replaces.
+#if os(macOS)
 final class HelperCoreTests: XCTestCase {
     var base: URL!
     var home: URL!
@@ -750,3 +752,4 @@ final class HelperCoreTests: XCTestCase {
         XCTAssertNotEqual(PT.mgmtSocketPath(uid: me, profileID: "acme"), PT.mgmtSocketPath(uid: stranger, profileID: "acme"))
     }
 }
+#endif

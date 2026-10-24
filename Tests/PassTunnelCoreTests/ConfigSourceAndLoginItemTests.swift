@@ -66,6 +66,7 @@ final class ConfigSourceTests: CoreTestCase {
     }
 }
 
+#if os(macOS)
 final class LoginItemTests: XCTestCase {
     private func openEvent(property: OSType?) -> NSAppleEventDescriptor {
         let event = NSAppleEventDescriptor(eventClass: AEEventClass(kCoreEventClass), eventID: AEEventID(kAEOpenApplication),
@@ -98,3 +99,4 @@ final class LoginItemTests: XCTestCase {
         XCTAssertEqual(LoginItem.status, .unavailable)
     }
 }
+#endif

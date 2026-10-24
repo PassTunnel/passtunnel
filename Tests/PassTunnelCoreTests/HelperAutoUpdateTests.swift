@@ -136,12 +136,14 @@ final class HelperAutoUpdateTests: XCTestCase {
         XCTAssertNil(HelperSessions.appPath(ofTool: "/x/Contents/Resources/bin/openvpn"))
     }
 
+    #if os(macOS)
     func testCurrentProcessesSeesItself() {
         let me = getpid()
         let processes = HelperSessions.currentProcesses()
         XCTAssertTrue(processes.contains { $0.pid == me && $0.path != nil })
         XCTAssertTrue(processes.contains { $0.pid == 1 })
     }
+    #endif
 
     func testApplicationsFolder() throws {
         XCTAssertTrue(HelperSessions.isInApplicationsFolder("/Applications/PassTunnel.app"))

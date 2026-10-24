@@ -1,3 +1,5 @@
+// macOS only: "Open at login" (SMAppService).
+#if os(macOS)
 import Foundation
 import ServiceManagement
 
@@ -54,3 +56,4 @@ public enum LoginItem {
         return property.enumCodeValue == OSType(keyAELaunchedAsLogInItem)
     }
 }
+#endif
