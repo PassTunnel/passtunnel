@@ -105,15 +105,21 @@ struct SecretStoreSystem {
     /// Probes (the store detected, the systemd version) are asked once per process.
     var cachesProbes = false
 
-    /// This process: its environment, its user, the support directory and `SecretStores.interaction`.
+    /// The variables the stores read (and pass on, in part, to their tools).
+    static let environmentNames = ["HOME", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "PASSTUNNEL_HOME",
+                                   "PASSTUNNEL_SECRET_STORE", FileSecretStore.passphraseFileVariable]
+
+    /// This process: its environment now, its user, the support directory and `SecretStores.interaction`.
     static func current(service: String) -> SecretStoreSystem {
         #if os(Linux)
         let deriveKey: FileSecretStore.DeriveKey? = FileSecretStore.scrypt
         #else
         let deriveKey: FileSecretStore.DeriveKey? = nil
         #endif
+        var environment: [String: String] = [:]
+        for name in environmentNames { environment[name] = getenv(name).map { String(cString: $0) } }
         return SecretStoreSystem(
-            service: service, paths: .default, environment: ProcessInfo.processInfo.environment, isRoot: geteuid() == 0,
+            service: service, paths: .default, environment: environment, isRoot: geteuid() == 0,
             runner: SystemToolRunner(), interaction: SecretStores.interaction,
             isExecutable: { FileManager.default.isExecutableFile(atPath: $0) },
             isSocket: { path in
