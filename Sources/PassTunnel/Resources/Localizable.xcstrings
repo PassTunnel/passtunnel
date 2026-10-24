@@ -61,6 +61,16 @@
         }
       }
     },
+    "%@ is not a PassTunnel secrets file, or it is damaged." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ bir PassTunnel gizli bilgi dosyası değil ya da bozuk."
+          }
+        }
+      }
+    },
     "%@ is not responding" : {
       "localizations" : {
         "tr" : {
@@ -117,6 +127,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ geçerli kodu kopyalamak yerine odaktaki alana yazar."
+          }
+        }
+      }
+    },
+    "%@ was written by a newer version of PassTunnel." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ PassTunnel’ın daha yeni bir sürümüyle yazılmış."
           }
         }
       }
@@ -365,6 +385,16 @@
         }
       }
     },
+    "Another PassTunnel process is changing the secrets file. Try again." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Başka bir PassTunnel işlemi gizli bilgi dosyasını değiştiriyor. Yeniden deneyin."
+          }
+        }
+      }
+    },
     "Anyone using this Mac while you are logged in can connect with one click." : {
       "localizations" : {
         "tr" : {
@@ -431,6 +461,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Güncellemeleri Denetle…"
+          }
+        }
+      }
+    },
+    "Chosen automatically (setting: auto); it is kept once a secret is saved." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Otomatik seçildi (ayar: auto); bir gizli bilgi kaydedilince bu depoda kalınır."
+          }
+        }
+      }
+    },
+    "Chosen by PASSTUNNEL_SECRET_STORE." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PASSTUNNEL_SECRET_STORE ile seçildi."
+          }
+        }
+      }
+    },
+    "Chosen with “passtunnel secret-store”." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“passtunnel secret-store” ile seçildi."
           }
         }
       }
@@ -515,12 +575,62 @@
         }
       }
     },
+    "Delete a profile and its saved password and TOTP secret." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir profili, kayıtlı parolasını ve TOTP gizli anahtarını siler."
+          }
+        }
+      }
+    },
+    "It cannot be used here: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Burada kullanılamıyor: %@"
+          }
+        }
+      }
+    },
+    "New passphrase for the PassTunnel secrets file (%@): " : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel gizli bilgi dosyası için yeni parola ifadesi (%@): "
+          }
+        }
+      }
+    },
+    "No passphrase was given." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parola ifadesi verilmedi."
+          }
+        }
+      }
+    },
     "On Linux the PassTunnel package installs and removes the daemon (passtunneld): install or remove the package instead." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Linux’ta arka plan hizmetini (passtunneld) PassTunnel paketi yükler ve kaldırır: bunun yerine paketi yükleyin ya da kaldırın."
+          }
+        }
+      }
+    },
+    "Passphrase for the PassTunnel secrets file: " : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel gizli bilgi dosyasının parola ifadesi: "
           }
         }
       }
@@ -535,12 +645,172 @@
         }
       }
     },
-    "PassTunnel cannot save or read passwords and TOTP secrets on this system yet: no secret store is set up." : {
+    "PASSTUNNEL_PASSPHRASE_FILE must name a regular file that belongs to you and that only you can read (chmod 600): %@" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "PassTunnel bu sistemde henüz parolaları ve TOTP gizli anahtarlarını kaydedemiyor ve okuyamıyor: gizli bilgi deposu ayarlanmamış."
+            "value" : "PASSTUNNEL_PASSPHRASE_FILE size ait ve yalnızca sizin okuyabildiğiniz normal bir dosyayı göstermeli (chmod 600): %@"
+          }
+        }
+      }
+    },
+    "PASSTUNNEL_SECRET_STORE is “%@”, which is not a secret store (use auto, secret-service, systemd-creds or file)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PASSTUNNEL_SECRET_STORE değeri “%@”, bu bir gizli bilgi deposu değil (auto, secret-service, systemd-creds ya da file kullanın)."
+          }
+        }
+      }
+    },
+    "Password saved in the secret store (%@)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parola gizli bilgi deposuna kaydedildi (%@)."
+          }
+        }
+      }
+    },
+    "Repeat the passphrase: " : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parola ifadesini yineleyin: "
+          }
+        }
+      }
+    },
+    "Save the password or TOTP secret (Base32 or otpauth:// link) in the secret store. Reads from the terminal without echo, or from standard input." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parolayı ya da TOTP gizli anahtarını (Base32 veya otpauth:// bağlantısı) gizli bilgi deposuna kaydeder. Terminalden ekrana yansıtmadan ya da standart girdiden okur."
+          }
+        }
+      }
+    },
+    "saved in the secret store" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "gizli bilgi deposunda kayıtlı"
+          }
+        }
+      }
+    },
+    "saved in the secret store, encrypted" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "gizli bilgi deposunda, şifreli"
+          }
+        }
+      }
+    },
+    "Secret store: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gizli bilgi deposu: %@"
+          }
+        }
+      }
+    },
+    "Secrets saved in another store are not moved: save them again with “passtunnel secret ID password|totp”." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Başka bir depoya kaydedilmiş gizli bilgiler taşınmaz: onları “passtunnel secret ID password|totp” ile yeniden kaydedin."
+          }
+        }
+      }
+    },
+    "Show where passwords and TOTP secrets are kept, or choose it: auto, secret-service (the desktop keyring), systemd-creds or file (encrypted with a passphrase)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parolaların ve TOTP gizli anahtarlarının nerede tutulduğunu gösterir ya da bunu seçer: auto, secret-service (masaüstü anahtarlığı), systemd-creds ya da file (parola ifadesiyle şifrelenmiş)."
+          }
+        }
+      }
+    },
+    "systemd-creds did not answer within %lld seconds." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "systemd-creds %lld saniye içinde yanıt vermedi."
+          }
+        }
+      }
+    },
+    "systemd-creds encrypts credentials for a user from systemd 256 on; this system has systemd %lld." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "systemd-creds bir kullanıcı için kimlik bilgilerini systemd 256’dan itibaren şifreler; bu sistemde systemd %lld var."
+          }
+        }
+      }
+    },
+    "systemd-creds failed: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "systemd-creds başarısız oldu: %@"
+          }
+        }
+      }
+    },
+    "systemd-creds was not found." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "systemd-creds bulunamadı."
+          }
+        }
+      }
+    },
+    "The folder %@ must belong to you and be accessible to you only." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ klasörü size ait olmalı ve yalnızca sizin erişiminize açık olmalı."
+          }
+        }
+      }
+    },
+    "The keyring did not answer within %lld seconds. If it is locked, unlock it and try again." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anahtarlık %lld saniye içinde yanıt vermedi. Kilitliyse kilidini açın ve yeniden deneyin."
+          }
+        }
+      }
+    },
+    "The passphrases do not match." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parola ifadeleri eşleşmiyor."
           }
         }
       }
@@ -995,6 +1265,16 @@
         }
       }
     },
+    "The password is now taken from the secret store." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parola artık gizli bilgi deposundan alınıyor."
+          }
+        }
+      }
+    },
     "The protection key of profile “%@” does not match its Keychain record, so PassTunnel did not use it. Another app may have replaced the record. Delete the profile and set it up again." : {
       "localizations" : {
         "tr" : {
@@ -1025,12 +1305,92 @@
         }
       }
     },
+    "The Secret Service cannot be reached: there is no session bus here (for example over SSH). Use PassTunnel in your desktop session, or choose another store with “passtunnel secret-store”." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Secret Service’e ulaşılamıyor: burada oturum veri yolu yok (örneğin SSH üzerinden). PassTunnel’ı masaüstü oturumunuzda kullanın ya da “passtunnel secret-store” ile başka bir depo seçin."
+          }
+        }
+      }
+    },
+    "The Secret Service failed: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Secret Service başarısız oldu: %@"
+          }
+        }
+      }
+    },
+    "The Secret Service keeps text only, and the value is not UTF-8 text." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Secret Service yalnızca metin saklar ve değer UTF-8 metin değil."
+          }
+        }
+      }
+    },
+    "The Secret Service needs secret-tool (in the package libsecret-tools or libsecret), which was not found." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Secret Service için secret-tool gerekli (libsecret-tools ya da libsecret paketinde), bulunamadı."
+          }
+        }
+      }
+    },
+    "The secrets file cannot be decrypted: wrong passphrase, or the file was changed." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gizli bilgi dosyasının şifresi çözülemiyor: parola ifadesi yanlış ya da dosya değiştirilmiş."
+          }
+        }
+      }
+    },
+    "The secrets file cannot be used on this system." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gizli bilgi dosyası bu sistemde kullanılamaz."
+          }
+        }
+      }
+    },
+    "The secrets file is protected by a passphrase, which cannot be asked for here: run the command in a terminal, or set PASSTUNNEL_PASSPHRASE_FILE to a file that holds it." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gizli bilgi dosyası bir parola ifadesiyle korunuyor ve parola ifadesi burada sorulamıyor: komutu bir terminalde çalıştırın ya da PASSTUNNEL_PASSPHRASE_FILE değişkenini onu içeren bir dosyaya ayarlayın."
+          }
+        }
+      }
+    },
     "The server settings of this profile changed after you confirmed the connection. Connect it again yourself to confirm the new server." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bağlantıyı onayladıktan sonra bu profilin sunucu ayarları değişti. Yeni sunucuyu onaylamak için bağlantıyı kendiniz yeniden kurun."
+          }
+        }
+      }
+    },
+    "The store the first secret was saved in (setting: auto)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "İlk gizli bilginin kaydedildiği depo (ayar: auto)."
           }
         }
       }
@@ -1135,6 +1495,16 @@
         }
       }
     },
+    "The user name and password in the file were moved to the profile and the secret store." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dosyadaki kullanıcı adı profile, parola gizli bilgi deposuna taşındı."
+          }
+        }
+      }
+    },
     "The user name is too long for FortiGate: at most %lld bytes (characters such as ş or é count as 2)." : {
       "localizations" : {
         "tr" : {
@@ -1151,6 +1521,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dosyadaki kullanıcı adı profile, parola Anahtar Zinciri’ne taşındı."
+          }
+        }
+      }
+    },
+    "The value is too long for the Secret Service (at most 8191 bytes)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Değer Secret Service için çok uzun (en çok 8191 bayt)."
           }
         }
       }
@@ -1225,6 +1605,16 @@
         }
       }
     },
+    "TOTP secret saved in the secret store (%@)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TOTP gizli anahtarı gizli bilgi deposuna kaydedildi (%@)."
+          }
+        }
+      }
+    },
     "Touch ID is locked after too many attempts. Unlock it with your Mac password, then try again." : {
       "localizations" : {
         "tr" : {
@@ -1241,6 +1631,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bilinmeyen debug işlemi “%@” (drop kullanın)."
+          }
+        }
+      }
+    },
+    "Unknown secret store “%@” (use auto, secret-service, systemd-creds or file)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilinmeyen gizli bilgi deposu “%@” (auto, secret-service, systemd-creds ya da file kullanın)."
           }
         }
       }
@@ -6402,6 +6802,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "İş VPN’i"
+          }
+        }
+      }
+    },
+    "Wrong passphrase. Passphrase for the PassTunnel secrets file: " : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parola ifadesi yanlış. PassTunnel gizli bilgi dosyasının parola ifadesi: "
           }
         }
       }

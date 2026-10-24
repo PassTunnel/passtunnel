@@ -5,9 +5,9 @@ import XCTest
 import Glibc
 #endif
 
-/// Points the secret items of the code under test at `service`. Linux has no secret store yet, so its
-/// tests keep the items in memory (`PASSTUNNEL_SECRET_STORE=memory`); the Mac's use the Keychain under
-/// that service.
+/// Points the secret items of the code under test at `service`. The Linux tests keep the items in
+/// memory (`PASSTUNNEL_SECRET_STORE=memory`), never in a real keyring or credential store; the Mac's use
+/// the Keychain under that service.
 func useTestSecrets(service: String) {
     setenv("PASSTUNNEL_KEYCHAIN_SERVICE", service, 1)
     #if !canImport(Security)

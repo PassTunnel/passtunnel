@@ -33,11 +33,19 @@ public struct Preferences: Codable, Equatable {
 
     public var authReuseInterval: TimeInterval { TimeInterval(authReuseMinutes * 60) }
 
+    // Secrets (Linux; the Mac never sets them, and they are written only when set)
+    /// `secret_store`: where secrets are kept, `auto` or a store (`SecretStores`).
+    public var secretStore = SecretStoreChoice.auto
+    /// `secret_store_used`: the store secrets were first saved to (or that was chosen by name); `auto`
+    /// keeps using it.
+    public var secretStoreUsed: SecretStoreChoice?
+
     public init() {}
 
     enum CodingKeys: String, CodingKey {
         case defaultProfile, appearance, badgePalette, showLock, hideCodes, showInDock, launchAtLogin
         case notifyOnDrop, notifyHealth, sessionNotifyMin, sessionWarnMin, hotkeys, autoType, authReuseMinutes
+        case secretStore, secretStoreUsed
         case theme   // legacy, read only
     }
 
@@ -60,6 +68,8 @@ public struct Preferences: Codable, Equatable {
         autoType = c.lenient(Bool.self, .autoType) ?? d.autoType
         let reuse = c.lenient(Int.self, .authReuseMinutes) ?? d.authReuseMinutes
         authReuseMinutes = Self.authReuseChoices.contains(reuse) ? reuse : d.authReuseMinutes
+        secretStore = c.lenientEnum(SecretStoreChoice.self, .secretStore) ?? d.secretStore
+        secretStoreUsed = c.lenientEnum(SecretStoreChoice.self, .secretStoreUsed).flatMap { $0 == .auto ? nil : $0 }
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -78,6 +88,8 @@ public struct Preferences: Codable, Equatable {
         try c.encode(hotkeys, forKey: .hotkeys)
         try c.encode(autoType, forKey: .autoType)
         try c.encode(authReuseMinutes, forKey: .authReuseMinutes)
+        if secretStore != .auto { try c.encode(secretStore, forKey: .secretStore) }
+        try c.encodeIfPresent(secretStoreUsed, forKey: .secretStoreUsed)
     }
 
     /// Missing or unreadable file → defaults (never throws).

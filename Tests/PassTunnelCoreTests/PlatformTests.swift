@@ -153,43 +153,63 @@ final class SecretStoreTests: CoreTestCase {
         XCTAssertEqual(outside, [], "MemorySecretStore outside #if DEBUG")
     }
 
-    func testUnconfiguredStoreRefusesWithAClearError() throws {
-        let store: SecretStore = UnconfiguredSecretStore()
-        XCTAssertThrowsError(try store.read("acme/password")) { XCTAssertTrue($0 is SecretStoreUnavailable) }
-        XCTAssertThrowsError(try store.write("acme/password", Data())) { XCTAssertTrue($0 is SecretStoreUnavailable) }
-        XCTAssertNoThrow(try store.remove("acme/password"), "nothing to remove: deleting profiles works")
-        XCTAssertFalse((SecretStoreUnavailable().errorDescription ?? "").isEmpty)
-        XCTAssertEqual(AutomationErrorCode.of(SecretStoreUnavailable()), .keychainError)
+    @MainActor func testStoreFailuresAreKeychainErrors() throws {
+        let error = SecretStoreUnavailable("The keyring did not answer.")
+        XCTAssertEqual(error.errorDescription, "The keyring did not answer.")
+        XCTAssertEqual(AutomationErrorCode.of(error), .keychainError)
+        XCTAssertFalse(ConnectionManager.isRetryable(error))
     }
 
     #if os(Linux)
-    /// Without `PASSTUNNEL_SECRET_STORE`, Linux has no store yet: profiles can be made, listed and
-    /// deleted, secrets cannot be saved, and what needs one says so.
-    @MainActor func testLinuxWithoutAStore() async throws {
-        unsetenv("PASSTUNNEL_SECRET_STORE")
-        XCTAssertTrue(Secrets.store is UnconfiguredSecretStore)
+    /// Without `PASSTUNNEL_SECRET_STORE=memory` Linux uses its real stores. The file store with no
+    /// passphrase to be had (no terminal, no `PASSTUNNEL_PASSPHRASE_FILE`): profiles can still be made
+    /// and deleted (there is no file to clean up), saving fails with a clear error, and `diagnose` says
+    /// so once per profile and names the store.
+    @MainActor func testLinuxFileStoreWithoutAPassphrase() async throws {
+        setenv("PASSTUNNEL_SECRET_STORE", "file", 1)
+        unsetenv("PASSTUNNEL_PASSPHRASE_FILE")
+        XCTAssertTrue(Secrets.store is ChosenSecretStore)
         var p = try store.create(name: "Acme", type: .openvpn)
         p.passwordMode = .keychain
         p.otpMode = .totp
         try store.save(p)
-        XCTAssertThrowsError(try Secrets.set(p.id, .password, "pw")) { XCTAssertTrue($0 is SecretStoreUnavailable) }
-        XCTAssertFalse(Secrets.has(p.id, .password))
-        XCTAssertThrowsError(try Secrets.exists(p.id, .password))
+        XCTAssertFalse(Secrets.has(p.id, .password), "no file yet: nothing saved, nothing asked")
+        XCTAssertThrowsError(try Secrets.set(p.id, .password, "pw")) {
+            XCTAssertEqual($0 as? SecretStoreUnavailable, .noPassphrase)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: home.appendingPathComponent("secrets.enc").path))
+        XCTAssertNil(Preferences.load().secretStoreUsed, "nothing was saved, nothing recorded")
 
         let manager = ConnectionManager(store: store, helper: UnavailableHelperClient(), routes: { [] })
         let automation = AutomationService(store: store, manager: manager)
-        let check = await automation.diagnose().profiles[0]
-        XCTAssertNil(check.passwordSaved)
-        XCTAssertNil(check.totpSaved)
-        XCTAssertEqual(check.problems.filter { $0.code == AutomationErrorCode.keychainError.rawValue }.count, 1,
-                       "once, not per secret: \(check.problems)")
-        do {
-            _ = try await manager.vault.secret(p, .totp, for: .code)
-            XCTFail("expected an error")
-        } catch {
-            XCTAssertTrue(error is SecretStoreUnavailable, "\(error)")
-        }
+        let report = await automation.diagnose()
+        XCTAssertEqual(report.secretStore?.name, "file")
+        XCTAssertEqual(report.secretStore?.available, false)
+        XCTAssertEqual(report.secretStore?.chosenBy, "environment")
+        XCTAssertEqual(report.secretStore?.error, SecretStoreUnavailable.noPassphrase.message)
+        XCTAssertEqual(report.profiles[0].problems.filter { $0.code == AutomationErrorCode.credentialsMissing.rawValue }.count, 2,
+                       "no file yet: both secrets are simply missing")
         try store.delete(p.id)
+    }
+
+    /// The file store end to end through `Secrets`, with the passphrase in a file and the real scrypt
+    /// (the standard parameters): saved, read back, recorded as the store in use.
+    func testLinuxFileStoreThroughSecrets() throws {
+        let passphrase = home.appendingPathComponent("passphrase")
+        try Data("correct horse battery staple\n".utf8).write(to: passphrase)
+        chmod(passphrase.path, 0o600)
+        setenv("PASSTUNNEL_SECRET_STORE", "file", 1)
+        setenv("PASSTUNNEL_PASSPHRASE_FILE", passphrase.path, 1)
+        defer { unsetenv("PASSTUNNEL_PASSPHRASE_FILE") }
+        try Secrets.set("acme", .password, "pw with trailing space ")
+        XCTAssertEqual(Secrets.get("acme", .password), "pw with trailing space ")
+        XCTAssertEqual(Preferences.load().secretStoreUsed, .file)
+        let file = try Data(contentsOf: home.appendingPathComponent("secrets.enc"))
+        XCTAssertEqual(Array(file.prefix(9)), Array("PTSF".utf8) + [1, 1, 17, 8, 1], "standard scrypt parameters")
+        FileSecretStore.keys.forget()
+        XCTAssertEqual(Secrets.get("acme", .password), "pw with trailing space ", "a new process derives the key again")
+        Secrets.deleteAllInOverriddenService()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: home.appendingPathComponent("secrets.enc").path))
     }
     #endif
 }
@@ -429,4 +449,59 @@ final class CLIPlatformTests: XCTestCase {
         XCTAssertEqual(uninstall, AutomationExit.usage)
     }
     #endif
+
+    /// `secret-store` exists on Linux only, with help and completion there; the Mac's command line,
+    /// help and completion scripts stay as they were.
+    func testSecretStoreCommandIsLinuxOnly() throws {
+        let scripts = CLICommand.Shell.allCases.map { CLICompletions.script(for: $0) }
+        #if os(Linux)
+        XCTAssertTrue(CLICommand.commandNames.contains("secret-store"))
+        XCTAssertEqual(try CLICommand.parse(["secret-store"]), .secretStore(choice: nil, json: false))
+        XCTAssertEqual(try CLICommand.parse(["secret-store", "file", "--json"]), .secretStore(choice: .file, json: true))
+        XCTAssertEqual(try CLICommand.parse(["secret-store", "Systemd-Creds"]), .secretStore(choice: .systemdCreds, json: false))
+        XCTAssertEqual(try CLICommand.parse(["secret-store", "auto"]), .secretStore(choice: .auto, json: false))
+        for bad in [["secret-store", "keychain"], ["secret-store", "memory"], ["secret-store", "file", "extra"], ["secret-store", "-x"]] {
+            XCTAssertThrowsError(try CLICommand.parse(bad), "\(bad)") { XCTAssertTrue($0 is CLIUsageError) }
+        }
+        XCTAssertTrue(CLIHelp.usage(for: nil).contains("passtunnel secret-store [STORE] [--json]"))
+        XCTAssertFalse(CLIHelp.summary("secret-store").isEmpty)
+        for script in scripts {
+            XCTAssertTrue(script.contains("secret-store"))
+            XCTAssertTrue(script.contains("auto secret-service systemd-creds file"), script)
+        }
+        XCTAssertEqual(PassTunnelCLI.secretStoreInteraction(CLIInvocation(command: .mcp(allowConnect: false))).interactive, false,
+                       "the MCP server never asks")
+        #else
+        XCTAssertFalse(CLICommand.commandNames.contains("secret-store"), "the Mac has the Keychain only")
+        XCTAssertThrowsError(try CLICommand.parse(["secret-store"]))
+        XCTAssertFalse(CLIHelp.usage(for: nil).contains("secret-store"))
+        for script in scripts { XCTAssertFalse(script.contains("secret-store")) }
+        #endif
+    }
 }
+
+#if os(Linux)
+/// `passtunnel secret-store` against a temporary support directory.
+final class SecretStoreCommandTests: CoreTestCase {
+    @MainActor func testShowingAndChoosing() async throws {
+        let runner = CLIRunner()
+        var code = await runner.run(.secretStore(choice: nil, json: true))
+        XCTAssertEqual(code, AutomationExit.ok, "the tests' in-memory store")
+        XCTAssertEqual(Preferences.load().secretStore, .auto)
+
+        code = await runner.run(.secretStore(choice: .file, json: true))
+        XCTAssertEqual(Preferences.load().secretStore, .file)
+        XCTAssertEqual(Preferences.load().secretStoreUsed, .file)
+        code = await runner.run(.secretStore(choice: .auto, json: false))
+        XCTAssertEqual(Preferences.load().secretStore, .auto)
+        XCTAssertEqual(Preferences.load().secretStoreUsed, .file, "auto keeps using the chosen store")
+
+        unsetenv("PASSTUNNEL_SECRET_STORE")
+        defer { useTestSecrets(service: service) }
+        code = await runner.run(.secretStore(choice: nil, json: true))
+        XCTAssertEqual(code, AutomationExit.error, "the file store without a passphrase cannot be used here")
+        XCTAssertEqual(SecretStores.report().name, "file")
+        XCTAssertEqual(SecretStores.report().chosenBy, "recorded")
+    }
+}
+#endif

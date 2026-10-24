@@ -32,6 +32,10 @@ public struct AppPaths: Equatable {
 
     public var configURL: URL { root.appendingPathComponent("config.json") }
     public var profilesDir: URL { root.appendingPathComponent("profiles", isDirectory: true) }
+    /// Linux: the credential files of the systemd-creds store (`SystemdCredsStore`).
+    public var secretsDirectory: URL { root.appendingPathComponent("secrets", isDirectory: true) }
+    /// Linux: the encrypted file of the file store (`FileSecretStore`).
+    public var secretsFileURL: URL { root.appendingPathComponent("secrets.enc") }
 
     public func profileDir(_ id: String) -> URL {
         profilesDir.appendingPathComponent(id, isDirectory: true)
@@ -62,8 +66,8 @@ enum Env {
         string("PASSTUNNEL_KEYCHAIN_SERVICE") ?? PT.keychainService
     }
 
-    /// `$PASSTUNNEL_SECRET_STORE`: `memory` selects the in-memory store in debug builds (tests; release
-    /// builds ignore it); nil for the default.
+    /// `$PASSTUNNEL_SECRET_STORE`: on Linux a store's name or `auto` (`SecretStores`); `memory` selects
+    /// the in-memory store in debug builds (tests); nil for the default.
     static var secretStore: String? {
         string("PASSTUNNEL_SECRET_STORE")
     }

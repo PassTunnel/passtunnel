@@ -103,7 +103,7 @@ final class AutomationCLITests: XCTestCase {
             (PTError.connectTimeout(60), .timeout, 7),
             (PTError.missingConfig("acme"), .configInvalid, 1),
             (PTError.keychain(-25300), .keychainError, 1),
-            (SecretStoreUnavailable(), .keychainError, 1),
+            (SecretStoreUnavailable("no store"), .keychainError, 1),
             (PTError.protectionUnavailable, .authUnavailable, 4),
             (NSError(domain: "x", code: 1), .internal, 1),
         ]
