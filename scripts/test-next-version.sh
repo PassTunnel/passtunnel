@@ -130,6 +130,34 @@ expect_notes "### Fixes
 # The highest tag by version is the last release, not the newest one.
 git tag v0.9.0
 expect "3.0.1"
+git tag v3.0.1
+
+# The scope linux (Linux work, no release yet) changes nothing, breaking or not.
+commit "feat(linux): add the daemon (#8)"
+commit "fix(linux): read the routes from netlink"
+commit "perf(linux): start the daemon by socket activation"
+commit "fix(linux)!: move the daemon socket (#9)"
+commit "refactor(linux): split the daemon" "BREAKING CHANGE: the old socket path is gone."
+expect ""
+if [[ -z "$("$SCRIPT" --notes "$REPO/.git/linux.md" 2>/dev/null)" && ! -e "$REPO/.git/linux.md" ]]; then
+    echo "ok: no notes file for linux commits only"
+else
+    fail "a notes file was written for linux commits only"
+fi
+
+# Mixed with other commits: only those bump the version and are in the notes.
+commit "fix(cli): exit with 3 for a missing profile (#10)"
+expect "3.0.2"
+commit "feat(linux): add the polkit action"
+commit "feat: show how long the session has run (#11)"
+expect "3.1.0"
+expect_notes "### New features
+
+- Show how long the session has run (#11)
+
+### Fixes
+
+- Exit with 3 for a missing profile (#10)"
 
 # Options.
 for arg in --bogus no-such-rev --notes; do
