@@ -62,7 +62,8 @@ enum Env {
         string("PASSTUNNEL_KEYCHAIN_SERVICE") ?? PT.keychainService
     }
 
-    /// `$PASSTUNNEL_SECRET_STORE`: `memory` selects the in-memory store (tests); nil for the default.
+    /// `$PASSTUNNEL_SECRET_STORE`: `memory` selects the in-memory store in debug builds (tests; release
+    /// builds ignore it); nil for the default.
     static var secretStore: String? {
         string("PASSTUNNEL_SECRET_STORE")
     }

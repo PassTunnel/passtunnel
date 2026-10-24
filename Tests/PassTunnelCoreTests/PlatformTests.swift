@@ -121,6 +121,38 @@ final class SecretStoreTests: CoreTestCase {
         XCTAssertFalse(Secrets.has("acme", .password))
     }
 
+    /// The in-memory store exists in debug builds only: every mention of `MemorySecretStore` in the
+    /// sources is inside `#if DEBUG`. A release build has nothing that `PASSTUNNEL_SECRET_STORE=memory`
+    /// could select, so `passtunnel secret` can never report a secret saved that is gone at exit.
+    func testTheMemoryStoreIsInDebugBuildsOnly() throws {
+        let sources = LocalizationTests.root.appendingPathComponent("Sources")
+        let files = FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil)?
+            .compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" } ?? []
+        var mentions = 0
+        var outside: [String] = []
+        for file in files {
+            var conditions: [String] = []
+            let lines = try String(contentsOf: file, encoding: .utf8).split(separator: "\n", omittingEmptySubsequences: false)
+            for (number, line) in lines.enumerated() {
+                let text = line.trimmingCharacters(in: .whitespaces)
+                if text.hasPrefix("#if ") {
+                    conditions.append(String(text.dropFirst(4)))
+                } else if text.hasPrefix("#elseif ") || text == "#else" {
+                    if !conditions.isEmpty { conditions[conditions.count - 1] = "else" }
+                } else if text.hasPrefix("#endif") {
+                    _ = conditions.popLast()
+                } else if !text.hasPrefix("//"), text.contains("MemorySecretStore") {
+                    mentions += 1
+                    if !conditions.contains(where: { $0 == "DEBUG" || $0.hasPrefix("DEBUG &&") }) {
+                        outside.append("\(file.lastPathComponent):\(number + 1)")
+                    }
+                }
+            }
+        }
+        XCTAssertGreaterThan(mentions, 1, "the source scan found the store")
+        XCTAssertEqual(outside, [], "MemorySecretStore outside #if DEBUG")
+    }
+
     func testUnconfiguredStoreRefusesWithAClearError() throws {
         let store: SecretStore = UnconfiguredSecretStore()
         XCTAssertThrowsError(try store.read("acme/password")) { XCTAssertTrue($0 is SecretStoreUnavailable) }

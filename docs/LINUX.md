@@ -142,22 +142,26 @@ Profiles never run scripts (the sanitizer removes them); DNS comes from what the
 - **MCP input.** JSON-RPC parameters are decoded into a small `JSONValue` enum on every platform
   instead of telling booleans from numbers with CoreFoundation (`MCPTools.isBool`); the MCP fuzzer
   covers the new decoder.
-- **Version.** Compiled in from a file the build script generates (like `PinnedTools+Generated.swift`,
-  never committed); development builds report `0.0.0-dev`. `AppInfo` reads it on Linux instead of
-  `Info.plist`.
+- **Version.** Compiled in from a file the build script generates (`BuildVersion+Generated.swift`
+  with `-DPASSTUNNEL_BUILD_VERSION`, like `PinnedTools+Generated.swift`, never committed); development
+  builds report `0.0.0-dev`. `AppInfo` reads it on Linux instead of `Info.plist`.
 - **Language.** English: the `String(localized:)` stand-in of PassTunnelKit is used by Core and the
   CLI on Linux. Turkish follows by turning `Localizable.xcstrings` into a lookup table at build time.
 - **Commands that differ.** `helper install`/`uninstall` explain that the package installs and
-  removes the daemon. `code --copy` uses `wl-copy` or `xclip` when present (cleared after the code
-  window, if PassTunnel still owns the clipboard) and fails with `invalid_argument` otherwise.
+  removes the daemon, and fail with `invalid_argument`. `code --copy` uses `wl-copy` (Wayland) or
+  `xclip` (X11) when present and fails with `invalid_argument` otherwise. As on the Mac, the code is
+  cleared after 30 s if PassTunnel still owns the clipboard: a process left behind runs the tool in the
+  foreground, where it serves the clipboard until another program takes it, and stops it only if it
+  still does.
 - **Not used on Linux:** the Mac's file watcher, login item, helper installer and auto-update, QR
-  decoding, TLS fingerprinting and distributed notifications (all app-side or macOS-only).
+  decoding, reading TLS certificates (the fingerprint formats are shared) and distributed
+  notifications (all app-side or macOS-only).
 
 ## Secrets
 
 The same accounts (`<id>/password`, `<id>/totp`) and value formats as the Keychain items, behind a
-`SecretStore` protocol (the Keychain is the Mac's implementation; tests on both platforms use an
-in-memory store):
+`SecretStore` protocol (the Keychain is the Mac's implementation; the Linux tests use an in-memory
+store, which exists in debug builds only, and the Mac's tests a Keychain service of their own):
 
 | Store | Where | Used by default when |
 |---|---|---|
@@ -166,8 +170,10 @@ in-memory store):
 | `file` | One file encrypted with a key derived from a passphrase (a memory-hard KDF from swift-crypto, AES-GCM); passphrase from a prompt or `PASSTUNNEL_PASSPHRASE_FILE` | The fallback |
 
 - The store is chosen with the preference `secret_store` (`auto`, the default, or a name) or
-  `PASSTUNNEL_SECRET_STORE`; once secrets are written, the store used is recorded, so a profile set up
-  in a desktop session is still found over SSH. `diagnose` names the store.
+  `PASSTUNNEL_SECRET_STORE` (`memory`, the tests' store, only in debug builds); once secrets are
+  written, the store used is recorded, so a profile set up in a desktop session is still found over
+  SSH. `diagnose` names the store. Until these stores exist, reading or saving a secret fails with
+  `keychain_error` ("no secret store is set up").
 - Unlike the Keychain, a Secret Service gives no per-application protection: any process of the user
   can read an unlocked keyring. The docs say so.
 - **Protected profiles** (`require_auth`): refused with `auth_unavailable` until Phase 3. Then
@@ -197,9 +203,13 @@ in-memory store):
 1. **Done (#64, #66):** PassTunnelKit builds and its tests, the golden fixtures included, run on Linux
    in CI on both architectures.
 2. **CLI and MCP on Linux**
-   - 2a: Core, Shared (the parts Core uses) and the CLI build on Linux (the seams above, stubs where a
-     later step fills in); the portable Core tests run in the Linux CI jobs; `passtunnel` lists and
-     shows profiles and serves MCP.
+   - 2a (#70): Core, Shared (the parts Core uses) and the CLI build on Linux: the CLI is the library
+     `PassTunnelCLI`, which the Mac app runs in CLI mode and the Linux-only `passtunnel` executable
+     wraps. The seams above are in place (Combine stand-in, `SecretStore`, `JSONValue`, compiled-in
+     version, Glibc and ping differences) with placeholders for the later steps: no secret store,
+     the daemon reported as not installed, no routes, protected profiles refused. The portable Core
+     tests run in the Linux CI jobs, which also try the binary (`--version`, `list --json`, an MCP
+     session); `passtunnel` lists, shows, adds and imports profiles and serves MCP.
    - 2b: the secret stores.
    - 2c: `passtunneld` with group-based access, the DNS hook, Linux routes and log parsing: connect
      and disconnect work.
@@ -221,7 +231,7 @@ secrets in logs, signed commits, the issue → branch → pull request flow). In
 - Linux code lives in the same targets behind `#if os(Linux)` / `#if canImport(…)`, or in Linux-only
   targets (`passtunneld`); the Mac's behavior and binaries do not change.
 - Tests never touch a real keyring, credential store or `/run/passtunnel`, and never start a tunnel:
-  they set `PASSTUNNEL_HOME`, use the in-memory secret store and inject the daemon's paths and uids,
-  as `HelperCore` already allows.
+  they set `PASSTUNNEL_HOME`, use the in-memory secret store (on the Mac a test Keychain service) and
+  inject the daemon's paths and uids, as `HelperCore` already allows.
 - Every Linux change keeps the `Linux (x86_64)` and `Linux (aarch64)` checks green; they run all tests
   that build on Linux.

@@ -15,12 +15,16 @@ public enum Secrets {
     /// key and its public key. Not a `SecretKind`: it is never read or written as a secret value.
     static func keyAccount(_ profileID: String) -> String { "\(profileID)/sekey" }
 
-    /// Where the items are, chosen on every call: the in-memory store with `PASSTUNNEL_SECRET_STORE=memory`
-    /// (tests), else the Keychain on the Mac and, on Linux until its stores exist, one that refuses
-    /// everything (`UnconfiguredSecretStore`).
+    /// Where the items are, chosen on every call: the Keychain on the Mac and, on Linux until its stores
+    /// exist, one that refuses everything (`UnconfiguredSecretStore`). Debug builds only (tests): the
+    /// in-memory store with `PASSTUNNEL_SECRET_STORE=memory`. A release build has no in-memory store and
+    /// ignores that value, so a stray variable can never make `secret` report a password saved that is
+    /// gone when the process ends.
     static var store: SecretStore {
         let service = Env.keychainService
+        #if DEBUG
         if Env.secretStore == MemorySecretStore.name { return MemorySecretStore(service: service) }
+        #endif
         #if canImport(Security)
         return KeychainSecretStore(service: service)
         #else
@@ -125,8 +129,10 @@ protocol SecretStore {
     func removeAll()
 }
 
+#if DEBUG
 /// Items kept in this process only, never written anywhere: tests on every platform
-/// (`PASSTUNNEL_SECRET_STORE=memory`). Values are overwritten before they are dropped (best effort).
+/// (`PASSTUNNEL_SECRET_STORE=memory`). Debug builds only, so no shipped binary can select it. Values
+/// are overwritten before they are dropped (best effort).
 struct MemorySecretStore: SecretStore {
     static let name = "memory"
     let service: String
@@ -170,6 +176,7 @@ struct MemorySecretStore: SecretStore {
         _ = data?.withUnsafeMutableBytes { $0.initializeMemory(as: UInt8.self, repeating: 0) }
     }
 }
+#endif
 
 /// No secret store is set up: on Linux until its stores (docs/LINUX.md) exist. Reading and writing
 /// fail with `SecretStoreUnavailable`; removing finds nothing to remove, so profiles can still be

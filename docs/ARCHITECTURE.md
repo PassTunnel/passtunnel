@@ -75,7 +75,8 @@ The platform seams (Linux code stays in the same files behind `#if`; the Mac's b
   `PassthroughSubject`, `compactMap`, `sink`, `AnyCancellable`, `store(in:)`: what Core and the CLI use.
 - **Secrets.** `Secrets` keeps its API over a `SecretStore` (read, write, remove raw items by account),
   chosen on every call: `KeychainSecretStore` on the Mac (the write rules below), `MemorySecretStore`
-  with `PASSTUNNEL_SECRET_STORE=memory` (tests; the Linux tests use it), and on Linux otherwise
+  with `PASSTUNNEL_SECRET_STORE=memory` (tests; debug builds only, a release build has no such store
+  and ignores the value; the Linux tests use it), and on Linux otherwise
   `UnconfiguredSecretStore`, whose reads and writes throw `SecretStoreUnavailable` (`keychain_error`)
   until the Linux stores exist; removing finds nothing, so profiles are still created and deleted.
   `Secrets.exists` is the throwing `has`: connecting, `code` and `diagnose` report the store's error

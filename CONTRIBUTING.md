@@ -107,7 +107,8 @@ export PASSTUNNEL_HOME=$(mktemp -d)       # instead of ~/.local/share/passtunnel
 
 A development build reports version `0.0.0-dev`. Until the later steps of the Linux plan, it has no
 daemon (connecting fails with `helper_not_installed`) and no secret store (saving a password or TOTP
-secret fails with `keychain_error`; the tests keep secrets in memory, `PASSTUNNEL_SECRET_STORE=memory`).
+secret fails with `keychain_error`; the tests keep secrets in memory, `PASSTUNNEL_SECRET_STORE=memory`,
+which only debug builds accept).
 
 Code in these targets must keep building on Linux, without changing what the Mac does: Linux code
 goes in the same files behind `#if os(Linux)` / `#if canImport(…)` (the seams are listed in
