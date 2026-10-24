@@ -153,9 +153,10 @@ jobs:
               "$f" > "$out"
           done
           swift build --target PassTunnelKit
+          if diff /tmp/Package.resolved.orig Package.resolved; then echo "Package.resolved unchanged after swift build"; else echo "Package.resolved rewritten by swift build"; fi
           bin="$(swift build --show-bin-path)"
           find "$bin" -maxdepth 2 -name "*.swiftmodule"
-          swiftc -typecheck -no-color-diagnostics -swift-version 5 -module-name CoreProbe -package-name passtunnel \
+          swiftc -typecheck -continue-building-after-errors -no-color-diagnostics -swift-version 5 -module-name CoreProbe -package-name passtunnel \
             -I "$bin" -I "$bin/Modules" -Xcc -I"$bin/include" Sources/CoreProbe/*.swift 2>&1 | tee /tmp/core-probe.log
 
       - name: Errors
