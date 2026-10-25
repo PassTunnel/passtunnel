@@ -1649,10 +1649,7 @@ public final class ConnectionManager: ObservableObject {
     /// The last `sending` in the activity: when the credentials went to the VPN tool, and the code's seconds
     /// left then ("sent at 09:41:02", "Sent with 22 s left").
     public func lastSending(_ id: String) -> (at: Date, sending: ActivityEvent.Sending)? {
-        for event in activity(id).reversed() {
-            if case .sending(let s) = event.kind { return (event.at, s) }
-        }
-        return nil
+        ActivityEvent.lastSending(in: activity(id))
     }
 
     /// Appends to the profile's `activity.jsonl` (best effort: a log that cannot be written never fails a

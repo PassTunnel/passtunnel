@@ -370,6 +370,10 @@ final class AppModel: ObservableObject {
     var previewReconnecting: [String: ReconnectInfo] = [:]
     /// Render override: connects waiting for a fresh code until then (`ConnectionManager.codeWaitUntil`).
     var previewCodeWaits: [String: Date] = [:]
+    /// Render override: the activity of each profile (`activityEvents`).
+    var previewActivity: [String: [ActivityEvent]] = [:]
+    /// The profile whose activity the log window shows (`ActivityLogWindow`); nil when none was asked for.
+    @Published var activityLogProfile: String?
 
     func reconnectInfo(_ id: String) -> ReconnectInfo? {
         if previewStates != nil { return previewReconnecting[id] }

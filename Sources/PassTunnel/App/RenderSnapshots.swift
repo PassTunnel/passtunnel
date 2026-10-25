@@ -231,6 +231,7 @@ enum RenderSnapshots {
         let waitingNow = nextWindow.addingTimeInterval(-3.6)
         model.previewCodeWaits = [ids[3]: nextWindow.addingTimeInterval(0.25)]
         model.previewReconnecting = [ids[5]: ReconnectInfo(attempt: 1, maxAttempts: 3, at: now)]
+        model.previewActivity = sampleActivity(ids, now: now, waitingNow: waitingNow)
         let selection = model.selection
         func render(_ suffix: String, size: CGSize = CGSize(width: 1080, height: 700)) {
             for dark in [false, true] {
@@ -284,10 +285,77 @@ enum RenderSnapshots {
             snapshot(SplitWindowRender(loginQuestion: true).environmentObject(model), size: CGSize(width: 1080, height: 700),
                      dark: dark, to: out, name: "main-split-login", window: true)
         }
+        // The window "Show all" opens: the connected profile's whole activity, only its errors, and a profile without any.
+        func renderActivityLog(_ id: String, _ name: String, errorsOnly: Bool = false) {
+            guard let profile = model.profile(id) else { return }
+            model.previewNow = now
+            for dark in [false, true] {
+                let content = ActivityLogContent(model: model, profile: profile, errorsOnly: errorsOnly)
+                    .navigationTitle(profile.name)
+                    .navigationSubtitle(String(localized: "Activity"))
+                snapshot(content.environmentObject(model), size: CGSize(width: 620, height: 460), dark: dark, to: out,
+                         name: name, window: true)
+            }
+        }
+        renderActivityLog(ids[0], "activity-log")
+        renderActivityLog(ids[5], "activity-log-errors", errorsOnly: true)
+        renderActivityLog(ids[2], "activity-log-empty")
+
         model.selection = selection
         model.previewCodeWaits = [:]
         model.previewReconnecting = [:]
+        model.previewActivity = [:]
         model.setPreviewDropped(sample.dropped)
+    }
+
+    /// The activity of the sample profiles, matching their states: Work connected (sent just before it came up, after
+    /// an earlier session), Staging waiting for a code, Travel dropped, Partner Network rejected.
+    private static func sampleActivity(_ ids: [String], now: Date, waitingNow: Date) -> [String: [ActivityEvent]] {
+        func event(_ ago: TimeInterval, _ kind: ActivityEvent.Kind) -> ActivityEvent {
+            ActivityEvent(at: now.addingTimeInterval(-ago), kind)
+        }
+        func sending(_ user: String, code prefix: String, left: Int? = 22) -> ActivityEvent.Kind {
+            .sending(.init(username: user, password: true, code: true, codePrefix: prefix, secondsLeft: left,
+                           format: OTPTemplatePreset.append.rawValue))
+        }
+        let up: TimeInterval = 72 * 60 + 14
+        let work: [ActivityEvent] = [
+            event(26 * 3600 + 60, .connecting(host: "vpn.example.com", port: 1194, transport: "udp")),
+            event(26 * 3600 + 58, sending("sam", code: "318")),
+            event(26 * 3600 + 56, .authAccepted),
+            event(26 * 3600 + 55, .connected(address: "10.8.0.6")),
+            event(25 * 3600, .linkDropped(willReconnect: true)),
+            event(25 * 3600 - 20, .reconnecting(attempt: 1, of: 3)),
+            event(25 * 3600 - 24, .waitingForCode(reason: .expiring, seconds: 4, codePrefix: "771")),
+            event(25 * 3600 - 29, sending("sam", code: "204", left: 25)),
+            event(25 * 3600 - 31, .connected(address: "10.8.0.6")),
+            event(24 * 3600 + 1800, .disconnectedByUser),
+            event(up + 5, .connecting(host: "vpn.example.com", port: 1194, transport: "udp")),
+            event(up + 3, .waitingForCode(reason: .used, seconds: 9, codePrefix: "604")),
+            event(up + 2, sending("sam", code: "604")),
+            event(up + 1, .authAccepted),
+            event(up, .connected(address: "10.8.0.6")),
+        ]
+        let travel: [ActivityEvent] = [
+            event(3 * 3600 + 40, .connecting(host: "vpn2.example.com", port: 1194, transport: "udp")),
+            event(3 * 3600 + 37, .unreachable(tries: 3, reason: "Connection refused")),
+            event(3 * 3600 + 36, .nextTry(at: now.addingTimeInterval(-(3 * 3600 + 6)))),
+            event(3 * 3600 + 5, .connecting(host: "vpn2.example.com", port: 1194, transport: "udp")),
+            event(3 * 3600 + 3, sending("sam", code: "482")),
+            event(3 * 3600 + 1, .connected(address: "10.8.1.14")),
+            event(30, .linkDropped(willReconnect: true)),
+            event(25, .reconnecting(attempt: 1, of: 3)),
+        ]
+        let staging: [ActivityEvent] = [
+            ActivityEvent(at: waitingNow.addingTimeInterval(-1), .connecting(host: "staging.example.net", port: 443, transport: "tcp")),
+            ActivityEvent(at: waitingNow, .waitingForCode(reason: .expiring, seconds: 4, codePrefix: "482")),
+        ]
+        let partner: [ActivityEvent] = [
+            event(95, .connecting(host: "203.0.113.20", port: 1194, transport: "udp")),
+            event(93, .sending(.init(username: "s.guest", password: true, code: false))),
+            event(92, .rejected(reply: "AUTH_FAILED")),
+        ]
+        return [ids[0]: work, ids[3]: staging, ids[4]: partner, ids[5]: travel]
     }
 
     /// The redesigned window without profiles (behind `NewInterface`, not on the website yet): `first-run` with the

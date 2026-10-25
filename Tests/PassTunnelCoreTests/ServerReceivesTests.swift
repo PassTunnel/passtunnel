@@ -41,6 +41,25 @@ final class ServerReceivesTests: XCTestCase {
         XCTAssertEqual(r.footer, "Format: Append · will send the next code")
     }
 
+    func testAConnectedProfileSaysWhenTheSignInWasSent() {
+        let sent = Date(timeIntervalSince1970: 1_700_000_000)   // 22:13:20 UTC
+        let utc = TimeZone(identifier: "UTC")!
+        func footer(_ p: Profile, _ codes: ServerReceives.Codes? = nil, waiting: Bool = false) -> String {
+            ServerReceives(p, codes: codes ?? shown, waitingForCode: waiting, sentAt: sent, timeZone: utc).footer
+        }
+        XCTAssertEqual(footer(profile()), "Format: Append · sent at 22:13:20")
+        XCTAssertEqual(footer(profile(), .masked), "Format: Append · sent at 22:13:20", "also with the code hidden")
+        XCTAssertEqual(footer(profile { $0.otpDelivery = .separate }), "Format: Sent separately · sent at 22:13:20")
+        // The rows are the preview with the current code as before.
+        XCTAssertEqual(ServerReceives(profile(), codes: shown, waitingForCode: false, sentAt: sent).rows,
+                       receives(profile()).rows)
+        // A connect that waits sends the next code; nothing else has a code to say it was sent.
+        XCTAssertEqual(footer(profile(), waiting: true), "Format: Append · will send the next code")
+        XCTAssertEqual(footer(profile { $0.otpMode = .ask }), "Format: Append · asks for the code when connecting")
+        XCTAssertEqual(footer(profile(), .noSecret), "Format: Append · no secret added yet")
+        XCTAssertEqual(footer(profile { $0.otpMode = .none }), "Password only, no one-time code")
+    }
+
     func testHiddenOrLockedCodesAreBullets() {
         let r = receives(profile(), .masked)
         XCTAssertEqual(r.rows, [alice, password(.password, .hiddenCode(digits: 6))])
