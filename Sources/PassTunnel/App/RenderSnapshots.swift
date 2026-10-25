@@ -58,6 +58,7 @@ enum RenderSnapshots {
                 snapshot(MenuBarPanelPreview(now: Date()).environmentObject(emptyModel), size: nil, dark: dark, to: out,
                          name: "menubar-panel-empty")
             }
+            renderFirstRun(emptyModel, to: out)
 
             // The design system (App/Design): every token and base component, also with Increase Contrast.
             for contrast in [false, true] {
@@ -262,10 +263,44 @@ enum RenderSnapshots {
         render("-template")
         try? store.update(ids[0]) { $0.otpTemplate = template }
         model.reload()
+
+        // The add view the sidebar's + opens (`add-vpn`), and the question about opening at login under the detail
+        // once there is a profile (`main-split-login`).
+        let helper = model.previewHelperStatus
+        model.previewHelperStatus = .enabled
+        model.refreshHelperStatus()
+        model.selection = nil
+        model.addingProfile = true
+        for dark in [false, true] {
+            snapshot(SplitWindowRender().environmentObject(model), size: CGSize(width: 1080, height: 700),
+                     dark: dark, to: out, name: "add-vpn", window: true)
+        }
+        model.addingProfile = false
+        model.previewHelperStatus = helper
+        model.refreshHelperStatus()
+        model.selection = ids[0]
+        for dark in [false, true] {
+            snapshot(SplitWindowRender(loginQuestion: true).environmentObject(model), size: CGSize(width: 1080, height: 700),
+                     dark: dark, to: out, name: "main-split-login", window: true)
+        }
         model.selection = selection
         model.previewCodeWaits = [:]
         model.previewReconnecting = [:]
         model.setPreviewDropped(sample.dropped)
+    }
+
+    /// The redesigned window without profiles (behind `NewInterface`, not on the website yet): `first-run` with the
+    /// helper card before the helper is installed, `first-run-approval` while macOS waits for its approval.
+    private static func renderFirstRun(_ model: AppModel, to out: URL) {
+        for (status, name) in [(HelperStatus.notRegistered, "first-run"), (.requiresApproval, "first-run-approval")] {
+            model.previewHelperStatus = status
+            model.refreshHelperStatus()
+            for dark in status == .notRegistered ? [false, true] : [false] {
+                snapshot(SplitWindowRender().environmentObject(model), size: CGSize(width: 1080, height: 700),
+                         dark: dark, to: out, name: name, window: true)
+            }
+        }
+        model.previewHelperStatus = nil
     }
 
     @ViewBuilder
@@ -474,6 +509,8 @@ enum RenderSnapshots {
 /// 272 pt wide, 8 pt in, on the list's flat background instead of glass, its search field drawn in place).
 private struct SplitWindowRender: View {
     @EnvironmentObject private var model: AppModel
+    /// The question about opening at login under the detail.
+    var loginQuestion = false
 
     var body: some View {
         if #available(macOS 26, *) {
@@ -485,12 +522,10 @@ private struct SplitWindowRender: View {
                     .clipShape(shape)
                     .edge(shape, Palette.glassEdge, width: Elevation.glassEdge)
                     .padding(8)
-                if let p = model.selection.flatMap(model.profile) {
-                    ProfileDetailView(profile: p)
-                }
+                SplitDetail(previewLoginQuestion: loginQuestion)
             }
         } else {
-            MainSplitView()
+            MainSplitView(previewLoginQuestion: loginQuestion)
         }
     }
 

@@ -137,7 +137,8 @@ and at least 820×560:
   profile (`SidebarRow`): the name, the short status in the state's color with its dot (`ProfileStatusRow`) and the
   live code in 13 pt SF Mono on the right ("••• •••" while the detail masks it, below). No icons, no buttons in the
   rows. Drag to reorder (`order`), the context menu above, Return and double-click run the detail's main button. A
-  bottom bar holds `+` (the five add and import entries) and a gear that opens Settings.
+  bottom bar holds `+`, which opens the add view below (the File menu keeps the five add and import items), and a
+  gear that opens Settings. Without profiles the section says "No profiles yet." / "Add one to get started."
 - **Detail** (`ProfileDetailView`): the name (28 bold), where it connects (`vpn.example.com:1194 · OpenVPN · UDP`
   from the first `remote` of `config.ovpn`, `OVPNAnalyzer.endpoint`, with "+N more" when there are several;
   `gw.example.net:443 · FortiGate`), the main button on the right and the long status line below
@@ -146,7 +147,7 @@ and at least 820×560:
   an automatic reconnect, Try again after a failure; Connect, Disconnect and Try again are primary capsules, Cancel
   and Stop secondary, all as wide as the widest label. The toolbar has Edit and ⋯ (Copy Code, Copy Password +
   Code, Share…, Show Log, Default Profile, Delete…). The window shows the default profile (else the first) when
-  nothing is selected.
+  nothing is selected and the add view is closed.
 - **Code cards** (`Views/CodeCards.swift`; their rules are `CodeCard` and `ServerReceives` in Core): two hairline cards
   in equal columns of the same height, stacked at full width when a column is too narrow for them (`CardColumns`).
   - **Current code** (`CurrentCodeCard`, profiles with a TOTP secret): the code in 44 pt SF Mono, the 26 pt
@@ -174,10 +175,33 @@ and at least 820×560:
     A click on the code shows them for 20 s (`AppModel.revealCodes`), after the confirmation when they are locked;
     copying never shows them. The menu bar panel keeps hidden codes hidden; the current window shares the 20 s of a
     click for hidden codes (above) and keeps its own rule for locked ones.
+- **First run and add view** (`FirstRunView`, decisions D-13 and D-18): without profiles the detail shows the app
+  icon, "Add your first VPN" and "PassTunnel works out the one-time code and sends it with your password when you
+  connect. No account. Your passwords and secrets stay on this Mac."; the sidebar's `+` shows the same view titled
+  "Add a VPN", with no profile selected (selecting one, an import or Escape closes it). Then:
+  - a dashed drop zone, "Drop a .passtunnel or .ovpn file here" with Choose File… (`ImportActions.importFile`: an
+    `.ovpn`/`.conf` or `.passtunnel` file, imported as File → Import .ovpn… / Import Shared Profile… do); a drop on it
+    is the window's drop, outlining the zone instead of the window;
+  - one tile per other way in, as wide as each other (`AddOption`): "Use a QR image" (an image file; its code is
+    read as everywhere, then "What kind of VPN is this code for?" asks OpenVPN or FortiGate and a new profile's
+    editor opens with the code filled in and the issuer as its name, `ImportActions.startProfile`) and "Enter details
+    by hand" (the same question, then the editor). Scanning a QR code on screen will be the first tile;
+  - while the helper is not installed, a card that says what it is for, with Install Helper
+    (`HelperInstaller.registerRetrying`, as Settings → Helper; Login Items open when macOS asks for the approval),
+    "Open Login Items…" while the approval is pending, and "The helper is installed and running." once it is, until
+    the view goes. The card follows the status every 2 s.
+
+  In this window a QR code that no profile can take (dropped, or File → Add Code from QR…) starts a new profile the
+  same way instead of saying "Add a VPN first".
+- **Open at login**: once there is a profile, the detail ends with "Open PassTunnel at login?" / "Starts quietly in
+  the menu bar, without opening the window." and Not Now / Open at Login (the buttons go under the words when the
+  window is narrow), until it is answered (`AppModel.answerOpenAtLogin`: the onboarding checkbox's choice, applied
+  the same way, and onboarding is done, `PTOnboardingDone`). Not asked when PassTunnel already opens at login or
+  does not run as an app.
 - **Profile menu**: ⌘↩ runs the main button, ⌘C copies the code (in a text field ⌘C stays the field's), ⇧⌘C the
   password and code, ⌘E edits; off while a sheet is open.
-- No toast (the copy buttons say "Copied ✓", VoiceOver still announces "Code copied") and no window subtitle.
-  Sheets, alerts, the delete confirmation and drag & drop import are the same as above.
+- No toast (the copy buttons say "Copied ✓", VoiceOver still announces "Code copied"), no window subtitle and no
+  onboarding sheet. Sheets, alerts, the delete confirmation and drag & drop import are the same as above.
 
 ## Profile editor (sheet)
 
@@ -381,9 +405,10 @@ Four tabs (decision D-12): General, Shortcuts, Helper and Updates. Settings are 
 ## Launch at login
 
 `LoginItem` (Core) wraps `SMAppService.mainApp` (status: enabled / needs approval / disabled / unavailable).
-Never registered without the user's choice: onboarding step 3 offers "Start PassTunnel at login" (default on)
-and Settings → General has the toggle. A login launch (`keyAELaunchedAsLogInItem` or `--background`) starts in the
-menu bar only; manual launches open the main window.
+Never registered without the user's choice: onboarding step 3 offers "Start PassTunnel at login" (default on; the
+redesigned window asks "Open PassTunnel at login?" after the first profile instead) and Settings → General has the
+toggle. A login launch (`keyAELaunchedAsLogInItem` or `--background`) starts in the menu bar only; manual launches
+open the main window.
 
 **Connect at login** (per profile, `Profile.connectAtLogin`, default off; the editor's switch or `passtunnel set ID
 connect_at_login=true`; left out of share files): only a login launch runs it (`AppModel.connectAtLogin` →
@@ -405,6 +430,8 @@ again from disk (one switched off or deleted meanwhile is skipped):
   helper is not ready." or "This Mac is offline." (Connect action; a click shows the profile).
 
 ## Onboarding (first launch, 3 steps)
+
+The redesigned window has none: its first-run view and the question about opening at login replace it.
 
 1. Welcome — what PassTunnel does (one sentence + illustration with a live fake code).
 2. Install the helper — explain why (VPN tools need root; PassTunnel only runs its own signed copies),
@@ -606,7 +633,9 @@ others not yet.
   locked, hidden, just copied, in the smallest window and with a custom format (`-locked`, `-hidden`, `-copied`,
   `-narrow`, `-template`); they are not on the website.
   Offscreen, the glass sidebar of macOS 26 draws without its rows, so there the render lays the window's sidebar
-  and detail out side by side, the sidebar on its flat list background.
+  and detail out side by side, the sidebar on its flat list background. `first-run` (with the helper card, light and
+  dark), `first-run-approval`, `add-vpn` and `main-split-login` show the first run, the add view and the question
+  about opening at login.
 
 ## Accessibility
 
@@ -618,7 +647,9 @@ exposes it as `AXDescription` (read by VoiceOver and `AXUIElementCopyAttributeVa
 For UI automation, key controls carry stable, unlocalized `.accessibilityIdentifier`s (`AXIdentifier`):
 `profile.<id>`, `profile.<id>.primary`, `profile.<id>.more`, `profile.<id>.code`, `main.add` (in the redesigned
 window also `profile.<id>.edit`, `profile.<id>.copyCode`, `profile.<id>.copyPasswordCode`,
-`profile.<id>.serverReceives` and `main.settings`; its sidebar rows read as name, status and code),
+`profile.<id>.serverReceives`, `main.settings` and
+`firstRun.chooseFile|qrImage|byHand|installHelper|loginItems|notNow|openAtLogin`; its sidebar rows read as name,
+status and code, its tiles as buttons with the line under the title as their hint),
 `helper.install|update|loginItems|remove|licenses`, `onboarding.back|continue|done|installHelper|loginItems`,
 `editor.cancel|save|delete|advanced|requireAuth|connectAtLogin|revealCode`, `settings.authReuse`, and in the menu bar panel
 `menu.<id>.toggle`, `menu.add|copyCode|copyPasswordCode|typeCode|open|settings|quit`. The editor's switches are

@@ -4,28 +4,21 @@ import PassTunnelKit
 import SwiftUI
 
 // The redesigned main window (behind `NewInterface`): profiles in a sidebar, the selected one in a detail view
-// (ProfileDetailView.swift). Sheets, alerts and drag & drop import work as in `MainView`; there is no toast and no
-// window subtitle.
+// (ProfileDetailView.swift), the first-run and add view without one (FirstRunView.swift). Sheets, alerts and drag & drop
+// import work as in `MainView`; there is no toast, no window subtitle and no onboarding sheet.
 
 struct MainSplitView: View {
     @EnvironmentObject private var model: AppModel
     @State private var dropTargeted = false
+    /// Renders: whether the question about opening at login shows (nil: as it would).
+    var previewLoginQuestion: Bool?
 
     var body: some View {
         NavigationSplitView {
             ProfileSidebar()
                 .navigationSplitViewColumnWidth(min: 236, ideal: 272, max: 320)
         } detail: {
-            Group {
-                if model.profiles.isEmpty {
-                    EmptyStateView()
-                } else if let p = model.selection.flatMap(model.profile) {
-                    ProfileDetailView(profile: p)
-                } else {
-                    Color.clear
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            SplitDetail(previewLoginQuestion: previewLoginQuestion)
         }
         .modifier(HiddenWindowTitle())
         .overlay { if dropTargeted { DropHighlight() } }
@@ -45,11 +38,6 @@ struct MainSplitView: View {
                 CredentialSheet(request: request).environmentObject(model)
             }
         }
-        .background {
-            Color.clear.sheet(isPresented: $model.showOnboarding) {
-                OnboardingView().environmentObject(model)
-            }
-        }
         .alert(item: $model.alert) { alert in
             if alert.opensHelperSettings {
                 return Alert(title: Text(alert.title), message: Text(alert.message),
@@ -66,7 +54,17 @@ struct MainSplitView: View {
             model.markDropsSeen()
             selectWhenNone()
         }
-        .onChange(of: model.profiles) { _ in selectWhenNone() }
+        .onChange(of: model.profiles) { profiles in
+            if profiles.isEmpty { model.addingProfile = false }
+            selectWhenNone()
+        }
+        // Selecting a profile (the sidebar, an import) closes the add view; Escape there selects one again.
+        .onChange(of: model.selection) { selection in
+            if selection != nil { model.addingProfile = false }
+        }
+        .onChange(of: model.addingProfile) { adding in
+            if !adding { selectWhenNone() }
+        }
         // No toast here: VoiceOver still hears what one would have said ("Code copied").
         .onChange(of: model.toast) { toast in
             guard let toast else { return }
@@ -77,10 +75,34 @@ struct MainSplitView: View {
         }
     }
 
-    /// The detail always shows a profile while there is one: the default profile, else the first.
+    /// The detail always shows a profile while there is one and the add view is closed: the default profile, else the
+    /// first.
     private func selectWhenNone() {
-        guard model.selection.flatMap(model.profile) == nil, let p = model.defaultProfile else { return }
+        guard !model.addingProfile, model.selection.flatMap(model.profile) == nil, let p = model.defaultProfile else { return }
         model.selection = p.id
+    }
+}
+
+/// The first-run view while there are no profiles, the add view (`AppModel.addingProfile`), else the selected profile;
+/// under it the question about opening at login, until it is answered.
+struct SplitDetail: View {
+    @EnvironmentObject private var model: AppModel
+    var previewLoginQuestion: Bool?
+
+    var body: some View {
+        Group {
+            if model.profiles.isEmpty {
+                FirstRunView(isFirstRun: true)
+            } else if model.addingProfile {
+                FirstRunView(isFirstRun: false)
+            } else if let p = model.selection.flatMap(model.profile) {
+                ProfileDetailView(profile: p)
+            } else {
+                Color.clear
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .safeAreaInset(edge: .bottom, spacing: 0) { OpenAtLoginQuestion(preview: previewLoginQuestion) }
     }
 }
 
@@ -114,7 +136,19 @@ struct ProfileSidebar: View {
                         .tag(p.id)
                 }
                 .onMove(perform: model.searchText.isEmpty ? { model.move(fromOffsets: $0, toOffset: $1) } : nil)
-                if items.isEmpty && !model.searchText.isEmpty {
+                if model.profiles.isEmpty {
+                    VStack(spacing: 2) {
+                        Text(String(localized: "No profiles yet."))
+                        Text(String(localized: "Add one to get started."))
+                    }
+                    .typography(.body)
+                    .foregroundStyle(Palette.fg2)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 28)
+                    .accessibilityElement(children: .combine)
+                } else if items.isEmpty && !model.searchText.isEmpty {
                     Text(String(localized: "No profiles match “\(model.searchText)”."))
                         .typography(.hint)
                         .foregroundStyle(Palette.fg2)
@@ -137,11 +171,7 @@ struct ProfileSidebar: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             HStack {
-                AddMenu()
-                    .labelStyle(.iconOnly)
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .fixedSize()
+                AddButton()
                 Spacer()
                 SettingsGear()
             }
@@ -164,6 +194,21 @@ private struct SidebarSearch: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+/// Opens the add view in the detail; the File menu keeps the separate add and import items.
+private struct AddButton: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        Button { model.showAddView() } label: {
+            Image(systemName: "plus").frame(width: 28, height: 28).contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .help(String(localized: "Add a VPN"))
+        .accessibilityLabel(String(localized: "Add a VPN"))
+        .accessibilityIdentifier("main.add")
     }
 }
 
@@ -267,7 +312,7 @@ struct SplitWindowCommands: View {
 
     var body: some View {
         let selected = model.selection.flatMap(model.profile)
-        let blocked = model.editor != nil || model.credentialRequest != nil || model.showOnboarding
+        let blocked = model.editor != nil || model.credentialRequest != nil
         Button(String(localized: "Connect or Disconnect")) { selected.map(model.runAction) }
             .keyboardShortcut(.return, modifiers: [.command])
             .disabled(selected == nil || blocked)

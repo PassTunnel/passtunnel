@@ -98,8 +98,10 @@ final class EditorModel: ObservableObject {
         customTemplate = !Self.isPreset(initial.otpTemplate)
         if isNew, let id = profileID { saveErrors[.general] = PTError.profileNotFound(id).localizedDescription }
         if !isNew { loadExistingConfig() }
-        if let id = profileID, let pending = ImportActions.takePendingTOTP(for: id) {
+        if let pending = ImportActions.takePendingTOTP(for: profileID) {
             apply(pending)
+            // A new profile started from a scanned code (ImportActions.startProfile) is named after its issuer.
+            if isNew && draft.name.isEmpty { draft.name = pending.issuer }
         }
     }
 

@@ -68,6 +68,25 @@ enum ImportActions {
         }
     }
 
+    // MARK: either file
+
+    /// Choose File… in the redesigned window's add view: an OpenVPN configuration or a shared profile, imported
+    /// as the matching File menu item does.
+    @MainActor static func importFile() {
+        let panel = NSOpenPanel()
+        panel.title = String(localized: "Add a VPN")
+        panel.message = String(localized: "Choose an .ovpn or .passtunnel file.")
+        panel.allowedContentTypes = ovpnTypes + shareTypes
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        if url.pathExtension.lowercased() == shareExtension {
+            importShared(at: url)
+        } else {
+            importOVPN(at: url)
+        }
+    }
+
     // MARK: opened files
 
     /// Files opened from Finder, AirDrop, the Dock icon or `open` (`AppDelegate`): the same import as
@@ -94,59 +113,81 @@ enum ImportActions {
     /// Picks an image with a QR code, then opens the editor of `profileID` (or of a profile the
     /// user chooses) with the code filled in. Nothing is saved until the user presses Save there.
     @MainActor static func addCodeFromQR(profileID: String?) {
+        guard let url = chooseQRImage() else { return }
+        addCode(from: .file(url), profileID: profileID)
+    }
+
+    /// "Use a QR image" in the redesigned window's add view: a new profile with the code filled in (`startProfile`).
+    @MainActor static func newProfileFromQR() {
+        guard let url = chooseQRImage(), let uri = decode(.file(url)) else { return }
+        startProfile(with: uri)
+    }
+
+    @MainActor private static func chooseQRImage() -> URL? {
         let panel = NSOpenPanel()
         panel.title = String(localized: "Add Code from QR")
         panel.message = String(localized: "Choose a screenshot or photo of the QR code your VPN provider gave you.")
         panel.allowedContentTypes = [.image]
         panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        addCode(from: .file(url), profileID: profileID)
+        guard panel.runModal() == .OK else { return nil }
+        return panel.url
     }
 
     @MainActor static func addCode(from item: DroppedItem, profileID: String?) {
-        let uri: OTPAuthURI
-        do {
-            switch item {
-            case .file(let url):
-                uri = try QRDecoder.otpAuth(inFile: url)
-            case .image(let image):
-                guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-                    throw QRDecoder.Failure.unreadableImage
-                }
-                uri = try QRDecoder.otpAuth(in: cg)
-            }
-        } catch {
-            showError(String(localized: "No usable code was found."), error)
-            return
-        }
-        let store = ProfileStore()
-        let target: String?
-        if let profileID, store.exists(profileID) {
-            target = profileID
-        } else {
-            target = chooseProfile(for: uri, store: store)
-        }
-        guard let id = target else { return }
-        pendingTOTP[id] = uri
-        post(openEditor, id)
-    }
-
-    /// Scanned codes waiting for the editor of that profile to open.
-    @MainActor private static var pendingTOTP: [String: OTPAuthURI] = [:]
-
-    @MainActor static func takePendingTOTP(for profileID: String) -> OTPAuthURI? {
-        pendingTOTP.removeValue(forKey: profileID)
-    }
-
-    @MainActor private static func chooseProfile(for uri: OTPAuthURI, store: ProfileStore) -> String? {
-        let profiles = store.list().filter { $0.passwordMode != .none }
-        guard !profiles.isEmpty else {
+        guard let uri = decode(item) else { return }
+        let id: String
+        switch ScannedCodeTarget.route(requested: profileID, profiles: ProfileStore().list(),
+                                       startsProfiles: NewInterface.isEnabled) {
+        case .profile(let requested):
+            id = requested
+        case .choose(let profiles):
+            guard let chosen = chooseProfile(profiles, for: uri) else { return }
+            id = chosen
+        case .newProfile:
+            return startProfile(with: uri)
+        case .addVPNFirst:
             let alert = NSAlert()
             alert.messageText = String(localized: "Add a VPN first")
             alert.informativeText = String(localized: "The code belongs to a VPN profile. Add or import the VPN, then add its code.")
             alert.runModal()
+            return
+        }
+        pendingTOTP[id] = uri
+        post(openEditor, id)
+    }
+
+    /// The code in the image, or nil after saying why there is none.
+    @MainActor private static func decode(_ item: DroppedItem) -> OTPAuthURI? {
+        do {
+            switch item {
+            case .file(let url):
+                return try QRDecoder.otpAuth(inFile: url)
+            case .image(let image):
+                guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+                    throw QRDecoder.Failure.unreadableImage
+                }
+                return try QRDecoder.otpAuth(in: cg)
+            }
+        } catch {
+            showError(String(localized: "No usable code was found."), error)
             return nil
         }
+    }
+
+    /// Scanned codes waiting for the editor of that profile to open, and the one for a new profile.
+    @MainActor private static var pendingTOTP: [String: OTPAuthURI] = [:]
+    @MainActor private static var pendingNewProfileTOTP: OTPAuthURI?
+
+    /// `profileID` nil: the code a new profile starts with (`startProfile`).
+    @MainActor static func takePendingTOTP(for profileID: String?) -> OTPAuthURI? {
+        guard let profileID else {
+            defer { pendingNewProfileTOTP = nil }
+            return pendingNewProfileTOTP
+        }
+        return pendingTOTP.removeValue(forKey: profileID)
+    }
+
+    @MainActor private static func chooseProfile(_ profiles: [Profile], for uri: OTPAuthURI) -> String? {
         let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 260, height: 26), pullsDown: false)
         popup.addItems(withTitles: profiles.map(\.name))
         let issuer = uri.issuer.lowercased()
@@ -158,17 +199,55 @@ enum ImportActions {
         popup.setAccessibilityLabel(String(localized: "VPN profile"))
 
         let alert = NSAlert()
-        let label = [uri.issuer, uri.account].filter { !$0.isEmpty }.joined(separator: " · ")
         alert.messageText = String(localized: "Which VPN is this code for?")
-        alert.informativeText = label.isEmpty
-            ? String(localized: "The code is added when you save the profile.")
-            : String(localized: "Code for “\(label)”. It is added when you save the profile.")
+        alert.informativeText = codeNote(uri)
         alert.accessoryView = popup
         alert.addButton(withTitle: String(localized: "Continue"))
         alert.addButton(withTitle: String(localized: "Cancel"))
         guard alert.runModal() == .alertFirstButtonReturn else { return nil }
         let index = popup.indexOfSelectedItem
         return profiles.indices.contains(index) ? profiles[index].id : nil
+    }
+
+    /// "Code for “Acme · alice”. It is added when you save the profile."
+    private static func codeNote(_ uri: OTPAuthURI) -> String {
+        let label = [uri.issuer, uri.account].filter { !$0.isEmpty }.joined(separator: " · ")
+        return label.isEmpty
+            ? String(localized: "The code is added when you save the profile.")
+            : String(localized: "Code for “\(label)”. It is added when you save the profile.")
+    }
+
+    // MARK: new profiles
+
+    /// "Enter details by hand" in the redesigned window's add view: asks the VPN type, then opens a new profile's editor.
+    @MainActor static func newProfileByHand() {
+        guard let type = chooseType(for: nil) else { return }
+        AppModel.shared?.newProfile(type)
+    }
+
+    /// A new profile that starts from a scanned code: asks the VPN type, then opens a new profile's editor with the
+    /// code filled in and the issuer as its name (`EditorModel`). Nothing is saved until Add Profile.
+    @MainActor static func startProfile(with uri: OTPAuthURI) {
+        guard let type = chooseType(for: uri) else { return }
+        pendingNewProfileTOTP = uri
+        AppModel.shared?.newProfile(type)
+    }
+
+    /// OpenVPN or FortiGate; nil when cancelled.
+    @MainActor private static func chooseType(for uri: OTPAuthURI?) -> VPNType? {
+        let alert = NSAlert()
+        if let uri {
+            alert.messageText = String(localized: "What kind of VPN is this code for?")
+            alert.informativeText = codeNote(uri)
+        } else {
+            alert.messageText = String(localized: "What kind of VPN is it?")
+            alert.informativeText = String(localized: "You enter the server, user name, password and code secret next.")
+        }
+        let types = VPNType.allCases
+        for type in types { alert.addButton(withTitle: type.displayName) }
+        alert.addButton(withTitle: String(localized: "Cancel")).keyEquivalent = "\u{1b}"
+        let index = alert.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+        return types.indices.contains(index) ? types[index] : nil
     }
 
     // MARK: drag & drop

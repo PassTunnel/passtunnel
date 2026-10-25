@@ -96,6 +96,8 @@ struct DesignGallery: View {
         let rows: [(String, Typography, String, Color)] = [
             ("detailTitle · 28 bold, −0.02 em", .detailTitle, "Work", Palette.fg),
             ("screenTitle · 26 bold, −0.02 em", .screenTitle, "Add your first VPN", Palette.fg),
+            ("intro · 14, line height 1.5", .intro, "No account. Your passwords and secrets stay on this Mac.", Palette.fg2),
+            ("dropTitle · 15 semibold", .dropTitle, "Drop a .passtunnel or .ovpn file here", Palette.fg),
             ("reviewTitle · 22 bold", .reviewTitle, "Review work.ovpn", Palette.fg),
             ("dialogTitle · 17 bold, −0.01 em", .dialogTitle, "Lab overlaps with Work", Palette.fg),
             ("sheetTitle · 15 bold", .sheetTitle, "Edit “Work”", Palette.fg),

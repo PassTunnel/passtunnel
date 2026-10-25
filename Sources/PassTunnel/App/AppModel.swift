@@ -106,7 +106,8 @@ final class AppModel: ObservableObject {
             .store(in: &bag)
         guard live else { return }
         connections.start()
-        showOnboarding = !UserDefaults.standard.bool(forKey: Self.onboardingKey)
+        // The redesigned window has no onboarding sheet: its first-run view and a question after the first profile.
+        showOnboarding = !NewInterface.isEnabled && !UserDefaults.standard.bool(forKey: Self.onboardingKey)
         refreshHelperStatus()
         connections.events
             .receive(on: DispatchQueue.main)
@@ -785,6 +786,17 @@ final class AppModel: ObservableObject {
             applyOnboardingLoginChoice()
         }
         showOnboarding = false
+    }
+
+    /// The redesigned window's detail shows the add view ("Add a VPN", `FirstRunView`): the sidebar's +.
+    @Published var addingProfile = false
+
+    /// The redesigned window asks "Open PassTunnel at login?" once the first profile is there, instead of the
+    /// onboarding sheet (decision D-18). The answer is applied like the sheet's checkbox and ends onboarding.
+    func answerOpenAtLogin(_ open: Bool) {
+        onboardingStartAtLogin = open
+        applyOnboardingLoginChoice()
+        UserDefaults.standard.set(true, forKey: Self.onboardingKey)
     }
 
     /// Registers the login item when the user left "Start PassTunnel at login" checked. Nothing is
