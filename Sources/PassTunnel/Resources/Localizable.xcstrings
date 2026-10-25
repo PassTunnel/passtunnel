@@ -8254,6 +8254,16 @@
         }
       }
     },
+    "Unpin from Menu Bar" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Menü Çubuğundan Kaldır"
+          }
+        }
+      }
+    },
     "Unpinned “%@”." : {
       "localizations" : {
         "tr" : {

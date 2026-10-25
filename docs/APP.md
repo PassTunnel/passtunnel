@@ -196,7 +196,7 @@ and at least 820×560:
   (also after a drop), Cancel while connecting or waiting for a fresh code, Disconnect once connected, Stop during
   an automatic reconnect, Try again after a failure; Connect, Disconnect and Try again are primary capsules, Cancel
   and Stop secondary, all as wide as the widest label. The toolbar has Edit and ⋯ (Copy Code, Copy Password +
-  Code, Share…, Show Log, Default Profile, Delete…). The window shows the default profile (else the first) when
+  Code, Share…, Show Log, Pin to Menu Bar / Unpin from Menu Bar, Default Profile, Delete…). The window shows the default profile (else the first) when
   nothing is selected and the add view is closed.
 - **Code cards** (`Views/CodeCards.swift`; their rules are `CodeCard` and `ServerReceives` in Core): two hairline cards
   in equal columns of the same height, stacked at full width when a column is too narrow for them (`CardColumns`).
@@ -372,12 +372,19 @@ Connect/Disconnect, Copy code; then Open PassTunnel (⌘O), Settings… (⌘,), 
 Behind the hidden switch of the redesign (`NewInterface`, `PTNewInterface`, decision D-23) the menu bar item is a
 panel instead (`MenuBar/MenuBarPanel.swift`, `.menuBarExtraStyle(.window)`): two `MenuBarExtra` scenes, and
 `isInserted` puts one of them in the menu bar. Without the switch the menu above is unchanged.
-- Status item: the shield glyph (`MenuBarIcon.shield`, a monochrome 16 pt template image), without badges, palettes
-  or lock symbol (their preferences stay). While a drop has not been seen (`droppedUnseen`) a small dot sits at its
-  top right; it goes when the panel closes or the main window opens. VoiceOver: "PassTunnel, 2 connected" ("PassTunnel,
-  not connected"), with ", a connection dropped" for the dot.
+- Status item: the same colored badges as the current menu bar (`MenuBarLabel(panel: true)`, `MenuBarIcon`): one
+  per profile pinned to the menu bar, connecting, connected or dropped and not seen yet (`AppModel.menuBarProfiles`),
+  in the chosen palette, with the lock symbol and the red dot of a drop (Settings → Menu bar, shown in both
+  interfaces). While there is no such profile the shield stands in (`MenuBarIcon.shield`, a monochrome 16 pt template
+  image). VoiceOver: "PassTunnel, 2 connected" ("PassTunnel, not connected"), with ", a connection dropped" while a
+  drop has not been seen (`droppedUnseen`); the dot goes when the panel closes or the main window opens.
+- Profiles listed (`AppModel.panelProfiles`, `MenuBarProfiles` in Core): those pinned to the menu bar ("Pin to Menu
+  Bar" in the context menu and the ⋯ menu, "Always show in the menu bar" in the editor), plus any that is connecting,
+  connected, reconnecting or dropped and not seen yet; while none is pinned, all of them. A profile switched off in
+  the panel stays listed until the panel closes. The copy items and ⌘C keep `CopyTarget`, which looks at all profiles
+  and may name one that is not listed.
 - Panel, 330 pt wide, on the system's window material: header "PassTunnel · 2 connected" (just "PassTunnel" while
-  nothing is connected); one row per profile (at least 44 pt): 8 pt dot, name and the short `DisplayStatus` in its
+  nothing is connected); one row per listed profile (at least 44 pt): 8 pt dot, name and the short `DisplayStatus` in its
   color, the code in SF Mono 13 ("••• •••" while locked or hidden; `hideCodes` is never revealed here) and a switch,
   on while the profile is connected, connecting or reconnecting (turning it off disconnects or cancels). More than
   four rows scroll. Then, for `AppModel.copyTarget` (`CopyTarget`, Core: the default profile when it has a code, else
@@ -449,9 +456,9 @@ Four tabs (decision D-12): General, Shortcuts, Helper and Updates. Settings are 
     minutes before), Open Notification Settings….
   - **Security**: "Ask again after" 1 / 5 / 15 minutes (`authReuseMinutes`, `settings.authReuse`): how long one
     confirmation unlocks a profile.
-  - **Menu bar**, only while the current menu bar is in use (`!NewInterface.isEnabled`; the panel of the new
-    interface has no badges, decision D-6): badge palette (pastel / vivid / soft / candy / earth — the menu bar
-    colors for connected / connecting / disconnected) with a preview, show lock symbol.
+  - **Menu bar**, in both interfaces (the panel's status item shows the badges too): badge palette (pastel / vivid /
+    soft / candy / earth — the menu bar colors for connected / connecting / disconnected) with a preview, show lock
+    symbol.
   - **Other**: appearance (system / light / dark), the command-line tool (Install… / Reinstall, see CLI).
   - Footer (what the About tab had): Licenses (the bundled tools' licenses, the sheet of Helper → Show
     Licenses…), Privacy policy (the website's privacy page, `https://passtunnel.github.io/privacy/`, `AppInfo.privacyURL`),
@@ -776,11 +783,12 @@ client errors) must have Turkish translations.
 - `PASSTUNNEL_RENDER_LANG=tr` renders the `PASSTUNNEL_RENDER` screenshots in Turkish (from a bundle
   with the compiled `tr.lproj`, e.g. the app `build-app.sh` makes). Renders include `main-code-locked`
   (`AppModel.previewLockedCodes`; no Secure Enclave key is made), `main-hidden-codes` ("Hide codes until clicked",
-  the first code clicked), `settings-general` (the whole page; `-PTNewInterface YES` leaves out the menu bar
-  card), `editor/editor-require-auth`, `editor/editor-connect-at-login` (with the footnote of an app that does not
+  the first code clicked), `settings-general` (the whole page), `editor/editor-require-auth`, `editor/editor-connect-at-login` (with the footnote of an app that does not
   open at login), `editor/editor-scan-screen` and `editor-scan-screen-none` (macOS 14 and later) and the menu bar
-  panel of the new interface: `menubar-panel` (three profiles in mixed states, auto-type on), `menubar-panel-scroll`
-  (six) and `menubar-panel-empty`.
+  panel of the new interface, with its status item above it: `menubar-panel` (three profiles in mixed states,
+  auto-type on), `menubar-panel-pinned` (two pinned and the active ones of six), `menubar-panel-dropped` (an unpinned
+  profile that dropped), `menubar-panel-idle` (nothing pinned or active: all listed, the shield),
+  `menubar-panel-scroll` (nothing pinned, six listed) and `menubar-panel-empty`.
 - `PASSTUNNEL_RENDER_SCALE=4` renders at that backing scale (1–8; default 2). `scripts/site-assets.sh`
   uses 4 for the website, together with `editor/editor-one-time-code` (the editor sheet of a saved profile with
   its secret, at a fixed time so the code is stable) and `menubar-badges-<palette>` (the menu bar badges alone,

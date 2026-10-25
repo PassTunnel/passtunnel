@@ -85,7 +85,10 @@ struct MenuBarPreview: View {
 extension MenuBarIcon {
     /// Rasterized for a fixed appearance (settings preview, screenshots).
     static func rendered(badges: [Badge], palette: BadgePalette, showLock: Bool, locked: Bool, dark: Bool, scale: CGFloat = 2) -> NSImage {
-        let source = image(badges: badges, palette: palette, showLock: showLock, locked: locked)
+        rendered(image(badges: badges, palette: palette, showLock: showLock, locked: locked), dark: dark, scale: scale)
+    }
+
+    static func rendered(_ source: NSImage, dark: Bool, scale: CGFloat = 2) -> NSImage {
         let size = source.size
         let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * scale), pixelsHigh: Int(size.height * scale),
                                    bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,

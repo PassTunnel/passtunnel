@@ -28,8 +28,11 @@ enum MenuBarIcon {
         }
     }
 
-    @MainActor static func image(for model: AppModel) -> NSImage {
+    /// The status item's image. With `shieldWhenIdle` (the panel of the new interface) the shield stands in while no
+    /// profile has a badge, with the dot for a drop not seen yet; the current menu bar shows its lock then.
+    @MainActor static func image(for model: AppModel, shieldWhenIdle: Bool = false) -> NSImage {
         let badges = badges(for: model)
+        if badges.isEmpty && shieldWhenIdle { return shield(dropped: !model.droppedUnseen.isEmpty) }
         let anyConnected = badges.contains { $0.tone == .connected }
         return image(badges: badges, palette: model.prefs.badgePalette,
                      showLock: model.prefs.showLock || badges.isEmpty, locked: anyConnected)
@@ -112,9 +115,10 @@ enum MenuBarIcon {
 
     // MARK: new interface
 
-    /// The status item of the new interface (`NewInterface`): a monochrome shield with the lock body cut out, 16 pt,
-    /// as a template image that the menu bar tints. While a drop has not been seen, a small dot sits at its top
-    /// right, cut free of the shield (no color: the menu bar draws template images in one).
+    /// The status item of the new interface (`NewInterface`) while no profile is pinned, connecting or connected: a
+    /// monochrome shield with the lock body cut out, 16 pt, as a template image that the menu bar tints. While a drop
+    /// has not been seen, a small dot sits at its top right, cut free of the shield (no color: the menu bar draws
+    /// template images in one).
     static func shield(dropped: Bool) -> NSImage {
         dropped ? droppedShield : plainShield
     }

@@ -47,7 +47,7 @@ struct PassTunnelApp: App {
             MenuBarPanel()
                 .environmentObject(model)
         } label: {
-            MenuBarShieldLabel()
+            MenuBarLabel(panel: true)
                 .environmentObject(model)
         }
         .menuBarExtraStyle(.window)

@@ -386,11 +386,15 @@ final class AppModel: ObservableObject {
 
     /// Profiles shown as badges in the menu bar.
     var menuBarProfiles: [Profile] {
-        profiles.filter { p in
-            if p.pinned || droppedUnseen.contains(p.id) { return true }
-            if case .disconnected = state(p.id) { return false }
-            return true
-        }
+        MenuBarProfiles.badged(in: profiles, isIdle: { p in
+            if case .disconnected = state(p.id) { return true }
+            return false
+        }, droppedUnseen: droppedUnseen)
+    }
+
+    /// Profiles listed in the menu bar panel of the new interface: `menuBarProfiles`, or all while none is pinned.
+    var panelProfiles: [Profile] {
+        MenuBarProfiles.panel(in: profiles, badged: menuBarProfiles)
     }
 
     func markDropsSeen() {

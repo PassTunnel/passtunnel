@@ -18,8 +18,6 @@ struct GeneralSettings: View {
     private let previewLoginStatus: LoginItemStatus?
     /// Screenshots: the whole page instead of the scrolling window.
     private let fullHeight: Bool
-    /// The menu bar card (badge colors, lock symbol): the current menu bar is in use.
-    private let showsMenuBarBadges: Bool
     private let licensesAvailable: Bool
     private let loginTimer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
@@ -27,11 +25,9 @@ struct GeneralSettings: View {
     static let height: CGFloat = 600
 
     init(previewLoginStatus: LoginItemStatus? = nil, fullHeight: Bool = false,
-         showsMenuBarBadges: Bool = !NewInterface.isEnabled,
          licensesAvailable: Bool = !BundledTools.licenseFiles().isEmpty) {
         self.previewLoginStatus = previewLoginStatus
         self.fullHeight = fullHeight
-        self.showsMenuBarBadges = showsMenuBarBadges
         self.licensesAvailable = licensesAvailable
         _loginStatus = State(initialValue: previewLoginStatus ?? LoginItem.status)
     }
@@ -61,7 +57,7 @@ struct GeneralSettings: View {
             connection
             notifications
             security
-            if showsMenuBarBadges { menuBar }
+            menuBar
             other
             footer
         }
@@ -163,7 +159,7 @@ struct GeneralSettings: View {
         }
     }
 
-    /// The badges of the current menu bar; the panel of the new interface shows a plain shield.
+    /// The badges of the menu bar, in the current interface and in the new one.
     private var menuBar: some View {
         SettingsGroup(String(localized: "Menu bar")) {
             SettingsPickerRow(String(localized: "Badge colors"), selection: $model.prefs.badgePalette) {
