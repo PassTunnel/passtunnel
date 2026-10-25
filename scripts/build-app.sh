@@ -5,8 +5,9 @@
 #   scripts/build-app.sh --sign "Developer ID Application: Name (TEAMID)"
 #   scripts/build-app.sh --sign "…" --version 1.2.0          # CFBundleShortVersionString (release.sh)
 #
-# Signing is inside-out (dylibs, tools, Sparkle, helper, app) with the hardened runtime. Only a
-# Developer ID build can talk to the helper: the helper checks the Team ID of its clients and of the tools.
+# Signing is inside-out (dylibs, tools, Sparkle, helper, app) with the hardened runtime; an ad-hoc
+# build signs the app without library validation, or it could not load Sparkle. Only a Developer ID
+# build can talk to the helper: the helper checks the Team ID of its clients and of the tools.
 # The tools and their dylibs are signed first: the helper is compiled with their cdhashes (PinnedTools),
 # stages exactly these builds into a root-owned directory and runs them from there.
 set -euo pipefail
@@ -20,7 +21,7 @@ while (($#)); do
     case "$1" in
         --sign) IDENTITY="${2:?--sign needs an identity}"; shift 2 ;;
         --version) VERSION="${2:?--version needs a version}"; shift 2 ;;
-        -h|--help) sed -n '2,9p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done
@@ -217,7 +218,26 @@ done
 "${SIGN[@]}" "$SPARKLE/Updater.app"
 "${SIGN[@]}" "$C/Frameworks/Sparkle.framework"
 "${SIGN[@]}" --identifier com.furkanprlk.passtunnel.helper "$C/MacOS/PassTunnelHelper"
-"${SIGN[@]}" "$APP"
+APP_SIGN=("${SIGN[@]}")
+if [[ "$IDENTITY" == "-" ]]; then
+    # Ad-hoc only: the app without library validation, so it can load Sparkle. An ad-hoc signature has
+    # no Team ID, and library validation (part of the hardened runtime) then refuses every non-system
+    # library ("different Team IDs"), even one signed ad-hoc as well. The rest of the hardened runtime
+    # stays on. A Developer ID build keeps library validation and is signed without entitlements.
+    ENTITLEMENTS="$ROOT/build/adhoc.entitlements"
+    cat > "$ENTITLEMENTS" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>
+EOF
+    APP_SIGN+=(--entitlements "$ENTITLEMENTS")
+fi
+"${APP_SIGN[@]}" "$APP"
 
 echo "==> verifying"
 codesign --verify --deep --strict --verbose=2 "$APP"

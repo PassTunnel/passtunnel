@@ -142,7 +142,8 @@ scripts/build-app.sh                  # → build/PassTunnel.app (ad-hoc signed)
 `build-app.sh` builds a release binary, assembles the bundle, copies `openvpn`, `openfortivpn` and
 their libraries in (`scripts/bundle-tools.sh`, with their license files), compiles the helper with
 the code-signature hashes of exactly these tools and libraries, and signs everything inside-out with
-the hardened runtime.
+the hardened runtime. An ad-hoc build signs the app without library validation: an ad-hoc signature
+has no Team ID, so macOS would otherwise refuse to load `Sparkle.framework` into it.
 
 > [!IMPORTANT]
 > The helper only talks to an app, and only runs tools, signed with the project's Developer ID Team ID.
