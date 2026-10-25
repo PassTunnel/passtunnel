@@ -3,6 +3,8 @@ import PackageDescription
 
 /// swift-crypto's `Crypto` (CryptoKit's API), for the targets that hash or encrypt; Linux only.
 let crypto: Target.Dependency = .product(name: "Crypto", package: "swift-crypto", condition: .when(platforms: [.linux]))
+/// swift-crypto's `CryptoExtras` (scrypt, for the Linux file secret store); Linux only.
+let cryptoExtras: Target.Dependency = .product(name: "CryptoExtras", package: "swift-crypto", condition: .when(platforms: [.linux]))
 
 let package = Package(
     name: "PassTunnel",
@@ -38,7 +40,7 @@ let package = Package(
         // Shared by the app and the privileged helper: XPC protocol, request types, tool launching.
         .target(name: "PassTunnelShared", dependencies: ["PassTunnelVPNConfig", crypto]),
         // Everything else that is not UI: profile store, secrets, connections, preferences, CLI parsing, MCP.
-        .target(name: "PassTunnelCore", dependencies: ["PassTunnelKit", "PassTunnelVPNConfig", "PassTunnelShared", crypto]),
+        .target(name: "PassTunnelCore", dependencies: ["PassTunnelKit", "PassTunnelVPNConfig", "PassTunnelShared", crypto, cryptoExtras]),
         // The `passtunnel` command: run by the app binary in CLI mode on the Mac, by its own
         // executable on Linux.
         .target(name: "PassTunnelCLI", dependencies: ["PassTunnelCore", "PassTunnelKit", "PassTunnelShared"]),

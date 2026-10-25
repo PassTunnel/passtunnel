@@ -39,7 +39,7 @@ A bundle without `dns-updown` pins an empty set for it, so the helper refuses an
 | `PassTunnelVPNConfig` | `OVPNSanitizer`, `FortiConfig`: the configurations the helper runs as root | — |
 | `PassTunnelKit` | the portable logic (Foundation, CryptoKit and Security only; builds for macOS 13, iOS 17 and Linux): model, `PTError`, `JSONCoding`, `TOTP`, `OTPAuthURI`, `OTPComposer`, `OVPNAnalyzer`, `OVPNInliner`, `ShareFile`, `Slug`, `ProfileFields`, `ProfileMerge`, `SecretEnvelope`, `HealthCheck` (parsing) | VPNConfig (and swift-crypto on Linux) |
 | `PassTunnelShared` | XPC protocol, request/response types, `HelperCore` (request decoding, path checks, tool environment), `SessionPolicy`, `CodeSignature`, `Spawner` (verified, suspended launch), `PinnedTools`, `ToolStager` (root-owned copy of the tools and their dylibs), `HelperBuild`, identifiers | VPNConfig (and swift-crypto on Linux) |
-| `PassTunnelCore` | `ProfileStore`, `ProfilesWatcher`, `Secrets` + `SecretStore` (Keychain), `SecretVault` + `UserAuthenticator` (Secure Enclave protection), `Preferences`, `HealthCheck.check` (the probe), `QRDecoder`, `OpenedFiles` (files the app is asked to open), `TLSFingerprint`, `HelperClient`, `HelperAutoUpdate`, `ConnectionManager` + `ProfileDestination`, CLI parsing (`CLICommand`, `CLIInvocation`), automation objects + `AutomationService`, `MCPServer` + `MCPTools` + `JSONValue` | Kit, VPNConfig, Shared (and swift-crypto on Linux) |
+| `PassTunnelCore` | `ProfileStore`, `ProfilesWatcher`, `Secrets` + `SecretStore` (Keychain; on Linux `SecretStores`: secret-service, systemd-creds, file), `SecretVault` + `UserAuthenticator` (Secure Enclave protection), `Preferences`, `HealthCheck.check` (the probe), `QRDecoder`, `OpenedFiles` (files the app is asked to open), `TLSFingerprint`, `HelperClient`, `HelperAutoUpdate`, `ConnectionManager` + `ProfileDestination`, CLI parsing (`CLICommand`, `CLIInvocation`), automation objects + `AutomationService`, `MCPServer` + `MCPTools` + `JSONValue` | Kit, VPNConfig, Shared (and swift-crypto's Crypto and CryptoExtras on Linux) |
 | `PassTunnelCLI` | the `passtunnel` command: `PassTunnelCLI.run` (entry, `CLIHelp`), `CLIRunner`, `CLICompletions`, `CLITerminal`, `CLIClipboard`; `Pasteboard` (macOS: the app's too) | Core, Kit, Shared |
 | `PassTunnelHelper` | `main.swift` XPC listener, process supervision | Shared (and through it VPNConfig) |
 | `PassTunnel` | SwiftUI app, menu bar, onboarding, updates (`AppUpdater`); CLI mode runs `PassTunnelCLI` | CLI, Core, Kit, VPNConfig, Shared, Sparkle |
@@ -75,12 +75,19 @@ The platform seams (Linux code stays in the same files behind `#if`; the Mac's b
   `PassthroughSubject`, `compactMap`, `sink`, `AnyCancellable`, `store(in:)`: what Core and the CLI use.
 - **Secrets.** `Secrets` keeps its API over a `SecretStore` (read, write, remove raw items by account),
   chosen on every call: `KeychainSecretStore` on the Mac (the write rules below), `MemorySecretStore`
-  with `PASSTUNNEL_SECRET_STORE=memory` (tests; debug builds only, a release build has no such store
-  and ignores the value; the Linux tests use it), and on Linux otherwise
-  `UnconfiguredSecretStore`, whose reads and writes throw `SecretStoreUnavailable` (`keychain_error`)
-  until the Linux stores exist; removing finds nothing, so profiles are still created and deleted.
-  `Secrets.exists` is the throwing `has`: connecting, `code` and `diagnose` report the store's error
-  instead of a missing secret.
+  with `PASSTUNNEL_SECRET_STORE=memory` (tests; debug builds only, a release build has no such store;
+  the Linux tests use it), and on Linux otherwise `ChosenSecretStore`: `SecretStores` picks
+  `SecretServiceStore` (`secret-tool`), `SystemdCredsStore` (`systemd-creds`) or `FileSecretStore`
+  (scrypt + AES-GCM) from `PASSTUNNEL_SECRET_STORE`, `Preferences.secretStore`, the recorded
+  `Preferences.secretStoreUsed` or what is available (`SecretStoreSelection`), and records the store
+  after its first successful write (LINUX.md, Secrets). The system tools run through `ToolRunning`
+  (`SystemToolRunner`: fixed path, exact environment, stdin over a socket pair, timeout); what the
+  stores take from the system is a `SecretStoreSystem`, so their tests bring fakes. These types build
+  everywhere and their tests run on the Mac too; only Linux selects them. Store failures throw
+  `SecretStoreUnavailable` (`keychain_error`) with the store's message. `Secrets.exists` is the
+  throwing `has`: connecting, `code` and `diagnose` report the store's error instead of a missing
+  secret. `SecretStores.interaction` (set by the CLI on a terminal) lets the file store ask for its
+  passphrase and gives a locked keyring time to be unlocked.
 - **Confirmation.** `PlatformAuthenticator` is `SecureEnclaveAuthenticator` on the Mac and
   `UnavailableAuthenticator` on Linux (`isAvailable` false; nothing is unlocked, and no key is ever
   reported unusable). On Linux `SecretVault.refuseUnconfirmable` refuses the secrets a profile's
@@ -133,6 +140,8 @@ public enum PT {
     `profiles/<id>/.last-otp` (TOTP window of the last code sent, so app and CLI never reuse a code),
     `profiles/<id>/.mgmt-state` (OpenVPN state shared by the app, which holds the management interface)
     (the OpenVPN management socket is in the helper's run directory, see below)
+  - Linux only (`~/.local/share/passtunnel/`, LINUX.md): `secrets/<account>.cred` (systemd-creds
+    store), `secrets.enc` and `.secrets.lock` (file store)
 - Keychain: generic password, service `PT.keychainService` (env `PASSTUNNEL_KEYCHAIN_SERVICE` overrides
   for tests), account `"<profileID>/password"` and `"<profileID>/totp"`. Use the Security framework
   (`SecItemAdd/CopyMatching/Delete`), never the `security` CLI. App and CLI are the same binary,
@@ -283,7 +292,8 @@ public struct Preferences: Codable { defaultProfile, theme, showLock, notifyOnDr
     sessionNotifyMin=10, hotkeys=false, autoType=false, launchAtLogin=true,
     authReuseMinutes=1 /* 1, 5 or 15; others → 1 */,
     waitForFreshCode=true /* wait when freshCodeSeconds (5) or less are left */,
-    clearClipboardAfter=60 /* seconds: 30, 60 or 120; others → 60 */ }
+    clearClipboardAfter=60 /* seconds: 30, 60 or 120; others → 60 */,
+    secretStore=.auto, secretStoreUsed=nil /* Linux; written only when set */ }
 public enum HealthCheck { public static func check(_ host: String, timeout: TimeInterval = 3) -> (ok: Bool, ms: Int) }
 ```
 
@@ -705,8 +715,10 @@ tunnel. Hence:
 - Tests never touch the real Keychain service or real support dir: they set `PASSTUNNEL_HOME` and
   `PASSTUNNEL_KEYCHAIN_SERVICE`. `MCPServerTests` drive `MCPServer` through its `send` closure with
   `FakeHelper`, `FakeAuthenticator` and a fixed `HelperInspecting`. Management-socket tests run their own fake server on a socket in a
-  temp dir. Tests never use the Secure Enclave or show a prompt: `ConnectionManagerTests` and
+  temp dir. The Linux secret stores' tests use `FakeTools` for `secret-tool` and `systemd-creds` and a
+  temp dir for the file store (LINUX.md, Rules, for the one opt-in CI round trip with a real
+  keyring). Tests never use the Secure Enclave or show a prompt: `ConnectionManagerTests` and
   `SecretVaultTests` inject `FakeAuthenticator` (a software P-256 key).
 - Swift language mode 5 (tools 5.10), macOS 13 APIs, no third-party dependencies except Sparkle (updates)
-  and swift-crypto (CryptoKit's API for PassTunnelKit, used on Linux only), each pinned to an exact
-  version in `Package.swift`.
+  and swift-crypto (CryptoKit's API for PassTunnelKit, and scrypt from its CryptoExtras for the Linux
+  file store; used on Linux only), each pinned to an exact version in `Package.swift`.

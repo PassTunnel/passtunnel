@@ -15,7 +15,7 @@ the MCP server has no such tool.
 - [Options for scripts](#options-for-scripts)
 - [Exit codes](#exit-codes)
 - [Errors](#errors)
-- [Objects](#objects): [ProfileSummary](#profilesummary), [ProfileStatus](#profilestatus), [HelperReport](#helperreport)
+- [Objects](#objects): [ProfileSummary](#profilesummary), [ProfileStatus](#profilestatus), [HelperReport](#helperreport), [SecretStoreReport](#secretstorereport)
 - [Commands](#commands)
 
 ## Options for scripts
@@ -83,7 +83,7 @@ human confirmation, and a script cannot answer it.
 | `timeout` | `--timeout` passed, or the VPN tool's own limit |
 | `config_invalid` | Missing or rejected OpenVPN configuration, missing FortiGate server, unreadable file |
 | `file_error` | A file could not be read or written |
-| `keychain_error` | The Keychain refused, or a protected secret cannot be decrypted |
+| `keychain_error` | The secret store (the Keychain on the Mac; on Linux secret-service, systemd-creds or the passphrase-encrypted file) refused or cannot be used, or a protected secret cannot be decrypted; `message` says why |
 | `internal` | Anything else |
 
 ## Objects
@@ -157,6 +157,26 @@ From `helper status` and inside the MCP tools `get_status` and `diagnose`.
 `state`: `enabled`, `requires_approval`, `not_installed` or `missing_from_bundle`. `error` says why
 it did not answer.
 
+### SecretStoreReport
+
+Linux only: from `secret-store` and, as `secret_store`, inside the MCP tool `diagnose`.
+
+```json
+{
+  "available" : true,
+  "chosen_by" : "recorded",
+  "name" : "secret-service",
+  "setting" : "auto"
+}
+```
+
+`name`: the store in use, `secret-service`, `systemd-creds` or `file` (or the unknown value of
+`PASSTUNNEL_SECRET_STORE`). `available`: it can be used from this process now (a Secret Service that
+answers, systemd 256 or later for a user, a passphrase that can be had for the file). `setting`: `auto`
+or a store's name. `chosen_by`: `environment` (`PASSTUNNEL_SECRET_STORE`), `setting`, `recorded` (where
+the first secret was saved) or `auto` (detected, nothing recorded yet). `error` says why it is not
+available.
+
 ## Commands
 
 | Command | `--json` result |
@@ -175,6 +195,7 @@ it did not answer.
 | `export ID [-o FILE]` | `{"id": "work", "path": "/Users/alice/work.passtunnel"}` |
 | `rm ID --yes` | `{"id": "work", "deleted": true}` |
 | `secret ID password\|totp` | `{"id": "work", "secret": "totp", "saved": true, "encrypted": false}`, never the value or a code |
+| `secret-store [STORE]` | Linux only: SecretStoreReport, after saving STORE when given (exit 1 when the store is not available) |
 | `default [ID]` | `{"default": "work"}`; `null` and exit 1 when none is set |
 | `pin ID`, `unpin ID` | ProfileSummary |
 | `log ID [-n N]` | LogReport: `{"id": "work", "lines": […], "truncated": false}`, the last N lines (at most 500) |

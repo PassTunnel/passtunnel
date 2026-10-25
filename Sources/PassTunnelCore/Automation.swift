@@ -306,6 +306,8 @@ public struct DiagnoseReport: Codable, Equatable {
     public var inApplications: Bool
     public var helper: HelperReport
     public var profiles: [ProfileCheck]
+    /// Linux: where passwords and TOTP secrets are kept, and whether that store can be used.
+    public var secretStore: SecretStoreReport?
 }
 
 public struct ProfileCheck: Codable, Equatable {

@@ -41,8 +41,21 @@ public enum PassTunnelCLI {
             }
             return Exit.usage
         }
+        #if os(Linux)
+        SecretStores.interaction = secretStoreInteraction(invocation)
+        #endif
         return runOnMainRunLoop { await CLIRunner(options: invocation.options).run(invocation.command) }
     }
+
+    #if os(Linux)
+    /// On a terminal (not with `--no-input`, never for `mcp`, whose standard input is the protocol) the
+    /// secret stores may ask: the file store's passphrase, and time to unlock a locked keyring.
+    static func secretStoreInteraction(_ invocation: CLIInvocation) -> SecretStoreInteraction {
+        if case .mcp = invocation.command { return .none }
+        guard CLITerminal.stdinIsTTY, !invocation.options.noInput else { return .none }
+        return SecretStoreInteraction(interactive: true, askPassphrase: CLITerminal.askSecretData)
+    }
+    #endif
 
     /// Drives async main-actor work from synchronous top-level code by spinning the main run loop.
     private static func runOnMainRunLoop(_ body: @escaping @MainActor () async -> Int32) -> Int32 {
@@ -65,7 +78,16 @@ public enum PassTunnelCLI {
 
 /// Usage text, per command and overall.
 enum CLIHelp {
-    static let synopsis: [(String, String)] = [
+    static let synopsis: [(String, String)] = {
+        var lines = baseSynopsis
+        #if os(Linux)
+        let after = lines.firstIndex { $0.0 == "secret" }! + 1
+        lines.insert(("secret-store", "passtunnel secret-store [STORE] [--json]"), at: after)
+        #endif
+        return lines
+    }()
+
+    private static let baseSynopsis: [(String, String)] = [
         ("status", "passtunnel status [ID] [--json]"),
         ("connect", "passtunnel connect [ID] [--force] [--wait] [--timeout S] [--json]"),
         ("disconnect", "passtunnel disconnect [ID] | --all [--wait] [--timeout S] [--json]"),
@@ -102,8 +124,14 @@ enum CLIHelp {
         case "add": return String(localized: "Create an empty profile.")
         case "import": return String(localized: "Import an .ovpn/.conf file or a shared .passtunnel profile.")
         case "export": return String(localized: "Export a profile as a .passtunnel file (no passwords or secrets).")
+        #if os(Linux)
+        case "rm": return String(localized: "Delete a profile and its saved password and TOTP secret.")
+        case "secret": return String(localized: "Save the password or TOTP secret (Base32 or otpauth:// link) in the secret store. Reads from the terminal without echo, or from standard input.")
+        case "secret-store": return String(localized: "Show where passwords and TOTP secrets are kept, or choose it: auto, secret-service (the desktop keyring), systemd-creds or file (encrypted with a passphrase).")
+        #else
         case "rm": return String(localized: "Delete a profile and its Keychain items.")
         case "secret": return String(localized: "Save the password or TOTP secret (Base32 or otpauth:// link) in the Keychain. Reads from the terminal without echo, or from standard input.")
+        #endif
         case "default": return String(localized: "Show or set the default profile.")
         case "pin": return String(localized: "Always show the profile in the menu bar.")
         case "unpin": return String(localized: "Show the profile in the menu bar only while it is active.")

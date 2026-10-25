@@ -81,6 +81,10 @@ final class CLIRunner {
             return json
         case let .connect(_, _, json, _, _), let .disconnect(_, _, json, _, _), let .log(_, _, json, _):
             return json
+        #if os(Linux)
+        case let .secretStore(_, json):
+            return json
+        #endif
         default:
             return false
         }
@@ -119,6 +123,9 @@ final class CLIRunner {
         case let .export(id, output, _): return try export(id, output: output)
         case let .remove(id, yes, _): return try await remove(id, yes: yes)
         case let .secret(id, kind, _): return try await secret(id, kind: kind)
+        #if os(Linux)
+        case let .secretStore(choice, _): return try secretStore(choice)
+        #endif
         case let .setDefault(id, _): return try setDefault(id)
         case let .pin(id, _): return try pin(id, true)
         case let .unpin(id, _): return try pin(id, false)
@@ -454,8 +461,13 @@ final class CLIRunner {
         let missing = String(localized: "not saved")
         func saved(_ kind: SecretKind) -> String {
             guard Secrets.has(id, kind) else { return missing }
+            #if os(Linux)
+            return Secrets.isProtected(id, kind) ? String(localized: "saved in the secret store, encrypted")
+                                                 : String(localized: "saved in the secret store")
+            #else
             return Secrets.isProtected(id, kind) ? String(localized: "saved in Keychain, encrypted (Touch ID)")
                                                  : String(localized: "saved in Keychain")
+            #endif
         }
         var rows: [(String, String)] = [("id", p.id), ("type", p.type.rawValue)]
         rows += ProfileFields.keys(for: p.type).map { ($0, ProfileFields.value(p, key: $0)) }
@@ -522,7 +534,11 @@ final class CLIRunner {
         CLITerminal.out(String(localized: "Imported “\(p.name)” as \(p.id)."))
         if p.passwordMode == .keychain && Secrets.has(p.id, .password) {
             // Only from an inline <auth-user-pass> block: a new profile starts without Keychain items.
+            #if os(Linux)
+            CLITerminal.err(CLITerminal.dim(String(localized: "The user name and password in the file were moved to the profile and the secret store.")))
+            #else
             CLITerminal.err(CLITerminal.dim(String(localized: "The user name and password in the file were moved to the profile and the Keychain.")))
+            #endif
         } else if p.passwordMode == .keychain {
             CLITerminal.err(CLITerminal.dim(String(localized: "Save the password with: passtunnel secret \(p.id) password")))
         }
@@ -612,10 +628,18 @@ final class CLIRunner {
             try manager.vault.store(p, .password, value)
             if original.passwordMode != .keychain {
                 try store.save(p)
+                #if os(Linux)
+                if !json { CLITerminal.err(CLITerminal.dim(String(localized: "The password is now taken from the secret store."))) }
+                #else
                 if !json { CLITerminal.err(CLITerminal.dim(String(localized: "The password is now taken from the Keychain."))) }
+                #endif
             }
             if json { break }
+            #if os(Linux)
+            CLITerminal.out(String(localized: "Password saved in the secret store (\(SecretStores.nameInUse ?? ""))."))
+            #else
             CLITerminal.out(String(localized: "Password saved in the Keychain."))
+            #endif
             if Secrets.isProtected(id, .password) {
                 CLITerminal.err(CLITerminal.dim(String(localized: "It is encrypted: using it asks for Touch ID or your Mac password.")))
             }
@@ -634,7 +658,11 @@ final class CLIRunner {
             try manager.vault.store(p, .totp, TOTP.base32Encode(secret))
             try store.save(p)
             if json { break }
+            #if os(Linux)
+            CLITerminal.out(String(localized: "TOTP secret saved in the secret store (\(SecretStores.nameInUse ?? ""))."))
+            #else
             CLITerminal.out(String(localized: "TOTP secret saved in the Keychain."))
+            #endif
             if Secrets.isProtected(id, .totp) {
                 CLITerminal.err(CLITerminal.dim(String(localized: "It is encrypted: using it asks for Touch ID or your Mac password.")))
             }
@@ -644,6 +672,36 @@ final class CLIRunner {
         if json { try printJSON(SecretJSON(id: id, secret: kind.rawValue, saved: true, encrypted: Secrets.isProtected(id, kind))) }
         return Exit.ok
     }
+
+    #if os(Linux)
+    /// `secret-store [STORE]`: saves the setting when given (`SecretStores.choose`), then shows the store
+    /// in use (`SecretStoreReport`). Exits 1 when that store cannot be used from here.
+    private func secretStore(_ choice: SecretStoreChoice?) throws -> Int32 {
+        if let choice { try SecretStores.choose(choice) }
+        let report = SecretStores.report()
+        let code = report.available ? Exit.ok : Exit.error
+        if json {
+            try printJSON(report)
+            return code
+        }
+        CLITerminal.out(String(localized: "Secret store: \(report.name)"))
+        let how: String
+        switch SecretStoreSource(rawValue: report.chosenBy) {
+        case .environment?: how = String(localized: "Chosen by PASSTUNNEL_SECRET_STORE.")
+        case .setting?: how = String(localized: "Chosen with “passtunnel secret-store”.")
+        case .recorded?: how = String(localized: "The store the first secret was saved in (setting: auto).")
+        case .auto?, nil: how = String(localized: "Chosen automatically (setting: auto); it is kept once a secret is saved.")
+        }
+        CLITerminal.out(CLITerminal.dim(how))
+        if !report.available, let error = report.error {
+            CLITerminal.fail(String(localized: "It cannot be used here: \(error)"))
+        }
+        if let choice, choice != .auto {
+            CLITerminal.err(CLITerminal.dim(String(localized: "Secrets saved in another store are not moved: save them again with “passtunnel secret ID password|totp”.")))
+        }
+        return code
+    }
+    #endif
 
     private struct DefaultJSON: Encodable {
         var `default`: String?

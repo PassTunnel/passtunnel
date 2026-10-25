@@ -6,6 +6,8 @@
 #   Linux (x86_64)    the Linux targets (Package.swift: the portable code, the CLI and the `passtunnel`
 #   Linux (aarch64)   command) built and the tests that build there run (the golden cases in fixtures/
 #                     included), in the official Swift container; then a smoke test of `passtunnel`
+#                     (with the file secret store) and one real Secret Service round trip against a
+#                     throwaway keyring
 #   Release scripts   shellcheck of next-version.sh and its test, and the self-test of
 #                     scripts/next-version.sh (in a temporary repository)
 #   Site              shellcheck of the site scripts and scripts/check-site.sh, the static checks
@@ -117,6 +119,38 @@ jobs:
             and $r["1"].result.protocolVersion == "2025-06-18" and $r["1"].result.serverInfo.version == "0.0.0-dev"
             and [$r["2"].result.tools[].name] == ["list_profiles", "get_status", "get_logs", "diagnose"]
             and $r["3"].result.isError == false and $r["3"].result.structuredContent == {"profiles": []}' mcp.jsonl
+          # Secrets end to end: no keyring and no systemd-creds here, so `auto` takes the file store,
+          # with its passphrase from a file; the first secret saved records the store.
+          printf '%s\n' 'a passphrase for ci only' > "$PASSTUNNEL_HOME/passphrase"
+          chmod 600 "$PASSTUNNEL_HOME/passphrase"
+          export PASSTUNNEL_PASSPHRASE_FILE="$PASSTUNNEL_HOME/passphrase"
+          "$bin" secret-store --json | jq -e '.name == "file" and .chosen_by == "auto" and .available'
+          "$bin" add Acme --type forti --json | jq -e '.id == "acme"'
+          printf 'JBSWY3DPEHPK3PXP' | "$bin" secret acme totp --json | jq -e '.saved and .encrypted == false'
+          "$bin" code acme --json | jq -e '.code | test("^[0-9]{6}$")'
+          "$bin" show acme --json | jq -e '.totp_saved'
+          "$bin" secret-store --json | jq -e '.name == "file" and .chosen_by == "recorded"'
+          head -c 4 "$PASSTUNNEL_HOME/secrets.enc" | grep -qx PTSF
+          test "$(stat -c %a "$PASSTUNNEL_HOME/secrets.enc")" = 600
+          if PASSTUNNEL_PASSPHRASE_FILE= "$bin" code acme --json --no-input > nopass.json; then exit 1; fi
+          jq -e '.error.code == "keychain_error"' nopass.json
+
+      # Optional and the only test with a real keyring: RealSecretServiceTests (exact bytes through
+      # secret-tool) against a throwaway gnome-keyring, unlocked, on a throwaway session bus inside this
+      # container. Skipped everywhere else (PASSTUNNEL_TEST_SECRET_SERVICE unset).
+      - name: Secret Service round trip (throwaway keyring)
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends libsecret-tools gnome-keyring dbus dbus-daemon >/dev/null
+          XDG_DATA_HOME="$(mktemp -d)"
+          XDG_RUNTIME_DIR="$(mktemp -d)"
+          export XDG_DATA_HOME XDG_RUNTIME_DIR
+          dbus-run-session -- bash -c '
+            set -euo pipefail
+            printf "%s" "throwaway keyring" | gnome-keyring-daemon --unlock --components=secrets >/dev/null
+            PASSTUNNEL_TEST_SECRET_SERVICE=1 swift test --skip-build --filter RealSecretServiceTests
+          '
 
   scripts:
     name: Release scripts
