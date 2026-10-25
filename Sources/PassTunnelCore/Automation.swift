@@ -239,11 +239,16 @@ public struct ProfileStatus: Codable, Equatable {
     /// What the user should know about a connect that went ahead anyway (`connect`): another tunnel claims
     /// the same networks or names. Only the result of a connect has it.
     public var warnings: [ConnectWarning]?
+    /// The server did not answer and is tried again (by the app): when the next try starts (absent while
+    /// one runs or while offline), and how many tries found it unreachable.
+    public var nextTryAt: Date?
+    public var tries: Int?
 
     public init(id: String, name: String, type: String, state: String, phase: String? = nil, ip: String? = nil,
                 since: Date? = nil, durationSeconds: Int? = nil, isDefault: Bool, protected: Bool = false,
                 autoReconnect: Bool = false, health: String? = nil, error: String? = nil, failure: ConnectionFailure? = nil,
-                warning: String? = nil, statusUnavailable: Bool? = nil, warnings: [ConnectWarning]? = nil) {
+                warning: String? = nil, statusUnavailable: Bool? = nil, warnings: [ConnectWarning]? = nil,
+                nextTryAt: Date? = nil, tries: Int? = nil) {
         self.id = id
         self.name = name
         self.type = type
@@ -261,6 +266,8 @@ public struct ProfileStatus: Codable, Equatable {
         self.warning = warning
         self.statusUnavailable = statusUnavailable
         self.warnings = warnings
+        self.nextTryAt = nextTryAt
+        self.tries = tries
     }
 
     static func stateName(_ state: ConnectionState) -> String {
@@ -396,6 +403,8 @@ public struct DiagnoseReport: Codable, Equatable {
     /// or why that could not be measured.
     public var clock: ClockOffset?
     public var clockError: String?
+    /// Whether the computer is online, as the system sees its network path (nothing is contacted).
+    public var network: NetworkStatus?
 }
 
 public struct ProfileCheck: Codable, Equatable {

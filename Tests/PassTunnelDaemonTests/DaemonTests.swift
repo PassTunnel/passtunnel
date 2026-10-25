@@ -485,6 +485,8 @@ final class LinuxProfileCheckTests: DaemonTestCase {
         defer { close(plan.logFD); core.removeRunDir(profileID: "acme", uid: me) }
         XCTAssertEqual(Array(plan.arguments.suffix(2)), ["--script-security", "1"])
         XCTAssertFalse(plan.arguments.contains("--dns-updown"))
+        // The Mac's flags: a server that does not answer is given up on after 10 s.
+        XCTAssertEqual(Array(plan.arguments.prefix(3)), ["--server-poll-timeout", "10", "--config"])
         core.openVPNHasDNSUpdown = true
         XCTAssertEqual(HelperCore.openVPNArguments(configPath: "/c", mgmtSocket: "/m", clientUser: "alice", authFile: nil,
                                                    dnsUpdown: nil).suffix(4),

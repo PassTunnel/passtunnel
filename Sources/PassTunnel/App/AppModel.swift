@@ -108,6 +108,8 @@ final class AppModel: ObservableObject {
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &bag)
         guard live else { return }
+        // A server that does not answer is tried again (Core: `UnreachableRetry`).
+        connections.retriesUnreachable = true
         connections.start()
         // The redesigned window has no onboarding sheet: its first-run view and a question after the first profile.
         showOnboarding = !NewInterface.isEnabled && !UserDefaults.standard.bool(forKey: Self.onboardingKey)
@@ -299,15 +301,12 @@ final class AppModel: ObservableObject {
     /// Opened at login: connects the profiles set to connect at login (`LoginConnector`) once the helper (after an
     /// automatic update, if one is due) and the network are ready.
     func connectAtLogin() {
-        let network = NetworkPath()
-        network.start()
+        // The manager watches the network path (`NWPathMonitor`) while it runs.
         let connector = LoginConnector(manager: connections, readiness: { [weak self] in
-            LoginConnector.Readiness(helper: self?.helperReady ?? false, network: network.isSatisfied)
+            LoginConnector.Readiness(helper: self?.helperReady ?? false,
+                                     network: self?.connections.networkStatus.online == true)
         }, notify: { Notifier.shared.post($0) })
-        Task {
-            await connector.run()
-            network.stop()
-        }
+        Task { await connector.run() }
     }
 
     /// After the app was updated, the helper still runs the previous build. Update it right away when

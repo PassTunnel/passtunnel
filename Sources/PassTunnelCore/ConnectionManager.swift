@@ -47,6 +47,31 @@ public struct ReconnectInfo: Equatable, Sendable {
     }
 }
 
+/// Tries of a server that did not answer (`ConnectionManager.unreachableRetries`): after a connect or a
+/// reconnect ended `unreachable`, the manager tries again every `Timing.unreachableRetryDelay` seconds.
+public struct UnreachableRetry: Codable, Equatable, Sendable {
+    /// Tries that found the server unreachable, since the first one or since the network last changed.
+    public var tries: Int
+    public var maxTries: Int
+    /// When the next try starts; nil while one runs, and while the computer is offline.
+    public var nextTryAt: Date?
+    /// Offline: the next try starts once the network is back.
+    public var waitingForNetwork: Bool
+    /// When the first try failed, and the last one.
+    public var firstFailedAt: Date
+    public var lastFailedAt: Date
+
+    public init(tries: Int, maxTries: Int, nextTryAt: Date? = nil, waitingForNetwork: Bool = false, firstFailedAt: Date,
+                lastFailedAt: Date) {
+        self.tries = tries
+        self.maxTries = maxTries
+        self.nextTryAt = nextTryAt
+        self.waitingForNetwork = waitingForNetwork
+        self.firstFailedAt = firstFailedAt
+        self.lastFailedAt = lastFailedAt
+    }
+}
+
 /// Things worth telling the user about. The manager never posts notifications itself; the app maps
 /// these to user notifications according to `Preferences`.
 public enum ConnectionEvent: Equatable, Sendable {
@@ -261,6 +286,11 @@ public final class ConnectionManager: ObservableObject {
         public var healthFailuresForOutage = 2
         public var helperTimeout: TimeInterval = 15
         public var stopTimeout: TimeInterval = 20
+        /// A server that did not answer is tried again after this long, at most `unreachableMaxTries`
+        /// times; after the network path changes, after `networkSettleDelay`.
+        public var unreachableRetryDelay: TimeInterval = 30
+        public var unreachableMaxTries = 10
+        public var networkSettleDelay: TimeInterval = 2
         public init() {}
     }
 
@@ -373,6 +403,16 @@ public final class ConnectionManager: ObservableObject {
     public var serverClock: ClockChecking = ServerClock()
     private var clockChecks: [String: (seq: Int, task: Task<Void, Never>)] = [:]
     private var clockCheckSeq = 0
+    /// Servers that did not answer and are tried again (`retriesUnreachable`); this process's only
+    /// (`unreachableRetry(_:)` also reads another process's).
+    @Published public private(set) var unreachableRetries: [String: UnreachableRetry] = [:]
+    /// The network path as the system sees it, while the manager runs (`start`); `.unknown` before.
+    @Published public private(set) var networkStatus = NetworkStatus.unknown
+
+    /// Try a server that did not answer again (`UnreachableRetry`), after a connect of this manager
+    /// (manual or at login) and after the automatic reconnects of a drop. The app turns it on; the CLI
+    /// and the MCP server report the failure and leave the retrying to their caller.
+    public var retriesUnreachable = false
 
     public let events = PassthroughSubject<ConnectionEvent, Never>()
     /// Every activity event this manager records, as it is appended to the profile's `activity.jsonl`
@@ -423,6 +463,12 @@ public final class ConnectionManager: ObservableObject {
     private var sleeping = false
     private var loops: [Task<Void, Never>] = []
     private var observers: [NSObjectProtocol] = []
+    private let network: NetworkPathWatching
+    private var retryGen: [String: Int] = [:]
+    private var retryWaits: [String: Task<Void, Never>] = [:]   // the wait before the next try
+    private var retryRunning: Set<String> = []                  // a try is under way
+    private var retryAfterDrop: Set<String> = []                // the retries continue a drop's reconnects
+    private var retryNetworkChanged: Set<String> = []           // the path changed while a try ran
     public private(set) var isRunning = false
 
     public init(store: ProfileStore = ProfileStore(),
@@ -434,7 +480,8 @@ public final class ConnectionManager: ObservableObject {
                 routes: @escaping () -> [RoutingTable.Route] = RoutingTable.trafficRoutes,
                 timing: Timing = Timing(),
                 vault: SecretVault? = nil,
-                authenticator: UserAuthenticator? = nil) {
+                authenticator: UserAuthenticator? = nil,
+                network: NetworkPathWatching? = nil) {
         self.store = store
         self.helper = helper
         self.management = management
@@ -443,6 +490,7 @@ public final class ConnectionManager: ObservableObject {
         self.preferences = preferences
         self.routes = routes
         self.timing = timing
+        self.network = network ?? NetworkPath()
         self.vault = vault ?? SecretVault(authenticator: authenticator ?? PlatformAuthenticator(),
                                           now: { [clock] in clock.now() },
                                           reuseWindow: { preferences().authReuseInterval },
@@ -473,6 +521,7 @@ public final class ConnectionManager: ObservableObject {
     public func start() {
         guard !isRunning else { return }
         isRunning = true
+        network.start { [weak self] in self?.networkChanged($0) }
         loops.append(Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
@@ -506,7 +555,8 @@ public final class ConnectionManager: ObservableObject {
         observers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
         #endif
         observers.removeAll()
-        for id in Array(reconnectTasks.keys) { cancelReconnect(id) }
+        network.stop()
+        for id in Set(reconnectTasks.keys).union(unreachableRetries.keys) { cancelReconnect(id) }
     }
 
     // MARK: polling
@@ -556,6 +606,8 @@ public final class ConnectionManager: ObservableObject {
             guard let new = observed[p.id], !isBusy(p.id) else { continue }
             apply(new, to: p, immediateReconnect: wakeIDs.contains(p.id))
         }
+        // Stopped by a disconnect in another process (app ↔ CLI).
+        for id in unreachableRetries.keys where !retryRunning.contains(id) && hasUserStoppedMarker(id) { cancelReconnect(id) }
     }
 
     private func observe(_ p: Profile, running: [String: Int32]?) async -> (state: ConnectionState, unverified: Bool) {
@@ -661,6 +713,7 @@ public final class ConnectionManager: ObservableObject {
                 userStopped.remove(id)
                 noteSetupProblems(p)
             }
+            if unreachableRetries[id] != nil && !retryRunning.contains(id) { endRetry(id, .connected) }
             let start = connectedAt[id] ?? since ?? clock.now()
             connectedAt[id] = start
             checkSessionLimit(p, start: start)
@@ -719,7 +772,12 @@ public final class ConnectionManager: ObservableObject {
         }
         connectTasks[id] = task
         defer { if connectTasks[id] == task { connectTasks[id] = nil } }
-        try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+        do {
+            try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+        } catch {
+            if !followOnly { beginRetryIfUnreachable(id, afterDrop: false) }
+            throw error
+        }
     }
 
     /// Whether a `connect` call started its session or follows one another process started.
@@ -734,11 +792,14 @@ public final class ConnectionManager: ObservableObject {
     @discardableResult
     public func disconnect(_ id: String) async throws -> Bool {
         let wasActive = state(id).isActive || isBusy(id) || codeWaits[id] != nil
-        let wasReconnecting = reconnecting[id] != nil
+        // Also the retries of an unreachable server another process (the app) runs: it ends them on its
+        // next poll (the user-stopped marker).
+        let wasReconnecting = reconnecting[id] != nil || unreachableRetry(id) != nil
         // A session this process has not seen (a `passtunnel` command): whether it was up, from its log,
         // read before the stop adds its exit to it.
         let wasConnected = state(id).isConnected || (!wasActive && toolLogSaysUp(id))
         cancelReconnect(id)
+        removeSharedRetry(id)
         actionToken[id, default: 0] += 1
         codeWaits.removeValue(forKey: id)?.cancel()
         endSessionSecrets(id)
@@ -1223,7 +1284,9 @@ public final class ConnectionManager: ObservableObject {
     /// a cancel: the tool may still be on its way to the server while the stop is under way.
     private func noteFailure(_ id: String, _ error: Error, _ progress: AttemptProgress) {
         let log = progress.toolRan ? VPNLog.read(store.logURL(id)) : nil
-        let failure = ConnectionFailure.of(error, log: log, handed: progress.handed, at: clock.now())
+        var failure = ConnectionFailure.of(error, log: log, handed: progress.handed, at: clock.now())
+        // A try of the retries counts on from the ones before it.
+        if failure.kind == .unreachable, let retry = unreachableRetries[id] { failure.tries = retry.tries + (failure.tries ?? 1) }
         failures[id] = failure
         if failure.kind == .authRejected && progress.owned { checkGatewayClock(id, after: failure) }
         if let used = progress.usedCode, !failure.credentialsSent, failure.kind != .cancelled, usedCode(id) == used.written {
@@ -1401,11 +1464,13 @@ public final class ConnectionManager: ObservableObject {
         if willReconnect { scheduleReconnect(p.id, immediate: afterWake) } else { endSessionSecrets(p.id) }
     }
 
-    /// Cancels a pending automatic reconnect (any manual action does this).
+    /// Cancels a pending automatic reconnect and the retries of an unreachable server (any manual action
+    /// does this).
     public func cancelReconnect(_ id: String) {
         reconnectGen[id, default: 0] += 1
         reconnectTasks.removeValue(forKey: id)?.cancel()
         reconnecting[id] = nil
+        endRetry(id, .cancelled)
     }
 
     private func scheduleReconnect(_ id: String, immediate: Bool) {
@@ -1422,6 +1487,7 @@ public final class ConnectionManager: ObservableObject {
     private func runReconnect(_ id: String, gen: Int, immediate: Bool) async {
         let delays = timing.reconnectDelays
         var reason = ""
+        var unreachableTries = 0   // of the attempts in a row that found the server unreachable
         defer {
             if reconnectGen[id] == gen {
                 reconnecting[id] = nil
@@ -1453,10 +1519,13 @@ public final class ConnectionManager: ObservableObject {
                 guard reconnectGen[id] == gen else { return }
                 if error is DestinationChangedError { return reportChangedDestination(id) }
                 reason = error.localizedDescription
+                unreachableTries = failures[id]?.kind == .unreachable ? unreachableTries + (failures[id]?.tries ?? 1) : 0
                 if !Self.isRetryable(error) { break }
             }
         }
         guard reconnectGen[id] == gen else { return }
+        // A server that does not answer is tried on (decision D-7); the session's secrets stay for it.
+        if beginRetryIfUnreachable(id, afterDrop: true, tries: unreachableTries) { return }
         endSessionSecrets(id)
         events.send(.reconnectFailed(profileID: id, reason: reason))
     }
@@ -1491,6 +1560,184 @@ public final class ConnectionManager: ObservableObject {
         default:
             return true
         }
+    }
+
+    // MARK: unreachable server
+
+    /// The retries of each profile, shared through its directory for the CLI and the MCP server.
+    static let sharedRetryFile = ".retry"
+
+    struct SharedRetry: Codable, Equatable {
+        var writer: Int32          // the process that runs the retries; ignored once that is gone
+        var retry: UnreachableRetry
+    }
+
+    /// With `retriesUnreachable`, after a connect or a drop's reconnects that ended `unreachable` (the
+    /// server never answered, so nothing was sent): tries it again every `unreachableRetryDelay` seconds,
+    /// at most `unreachableMaxTries` times. `host_not_found`, a rejected sign-in and any other failure are
+    /// not retried. `afterDrop`: the end is reported as the reconnect's (`reconnected`,
+    /// `reconnectFailed`). `tries`: the tries that already found it unreachable (default: the failure's).
+    @discardableResult
+    private func beginRetryIfUnreachable(_ id: String, afterDrop: Bool, tries: Int? = nil) -> Bool {
+        guard retriesUnreachable, let failure = failures[id], failure.kind == .unreachable, unreachableRetries[id] == nil,
+              !hasUserStoppedMarker(id) else { return false }
+        retryGen[id, default: 0] += 1
+        if afterDrop { retryAfterDrop.insert(id) } else { retryAfterDrop.remove(id) }
+        setRetry(id, UnreachableRetry(tries: max(1, tries ?? failure.tries ?? 1), maxTries: max(1, timing.unreachableMaxTries),
+                                      firstFailedAt: failure.at, lastFailedAt: failure.at))
+        scheduleRetry(id, after: timing.unreachableRetryDelay)
+        return true
+    }
+
+    /// The next try after `delay` seconds, or the end after the last one. While offline nothing is
+    /// scheduled: the try waits for the network (`networkChanged`).
+    private func scheduleRetry(_ id: String, after delay: TimeInterval) {
+        guard var retry = unreachableRetries[id] else { return }
+        retryWaits.removeValue(forKey: id)?.cancel()
+        guard retry.tries < retry.maxTries else { return endRetry(id, .failed) }
+        retryGen[id, default: 0] += 1
+        retry.waitingForNetwork = networkStatus.online == false
+        guard !retry.waitingForNetwork else {
+            retry.nextTryAt = nil
+            return setRetry(id, retry)
+        }
+        let at = clock.now().addingTimeInterval(delay)
+        retry.nextTryAt = at
+        setRetry(id, retry)
+        if delay > 0 { record(id, .nextTry(at: at)) }
+        let gen = retryGen[id]!
+        let clock = self.clock
+        retryWaits[id] = Task { [weak self] in
+            do { try await clock.sleep(delay) } catch { return }
+            guard let self, self.retryGen[id] == gen else { return }
+            self.retryWaits[id] = nil
+            await self.runRetry(id, gen: gen)
+        }
+    }
+
+    /// "Try now": the next try of `id` starts at once (it counts like the others), also while offline.
+    /// False when there are no retries or a try is under way.
+    @discardableResult
+    public func retryNow(_ id: String) -> Bool {
+        guard unreachableRetries[id] != nil, !retryRunning.contains(id) else { return false }
+        retryWaits.removeValue(forKey: id)?.cancel()
+        retryGen[id, default: 0] += 1
+        let gen = retryGen[id]!
+        Task { await self.runRetry(id, gen: gen, anyNetwork: true) }
+        return true
+    }
+
+    /// One try: a connect that never asks (`interactive: false`: a protected profile uses the secrets its
+    /// session or the reuse window holds, else it stops with `confirmationRequired`) and sends a fresh
+    /// code (the code of a try that never reached the server is given back, `noteFailure`).
+    private func runRetry(_ id: String, gen: Int, anyNetwork: Bool = false) async {
+        guard retryGen[id] == gen, var retry = unreachableRetries[id], !retryRunning.contains(id) else { return }
+        if hasUserStoppedMarker(id) { return endRetry(id, .cancelled) }
+        if state(id).isConnected { return endRetry(id, .connected) }
+        retry.nextTryAt = nil
+        retry.waitingForNetwork = !anyNetwork && networkStatus.online == false
+        setRetry(id, retry)
+        guard !retry.waitingForNetwork else { return }
+        retryRunning.insert(id)
+        do {
+            try await performConnect(id, given: [:], interactive: false)
+            retryRunning.remove(id)
+            guard retryGen[id] == gen else { return }
+            endRetry(id, state(id).isConnected ? .connected : .cancelled)
+        } catch {
+            retryRunning.remove(id)
+            guard retryGen[id] == gen, var retry = unreachableRetries[id] else { return }
+            if error is DestinationChangedError && retryAfterDrop.contains(id) {
+                endRetry(id, .cancelled)
+                return reportChangedDestination(id)
+            }
+            guard let failure = failures[id], failure.kind == .unreachable else { return endRetry(id, .failed) }
+            retry.tries = failure.tries ?? retry.tries + 1
+            retry.lastFailedAt = failure.at
+            setRetry(id, retry)
+            let restarted = retryNetworkChanged.remove(id) != nil
+            scheduleRetry(id, after: restarted ? timing.networkSettleDelay : timing.unreachableRetryDelay)
+        }
+    }
+
+    private enum RetryEnd { case connected, failed, cancelled }
+
+    private func endRetry(_ id: String, _ end: RetryEnd) {
+        guard unreachableRetries[id] != nil else { return }
+        retryGen[id, default: 0] += 1
+        retryWaits.removeValue(forKey: id)?.cancel()
+        retryNetworkChanged.remove(id)
+        setRetry(id, nil)
+        guard retryAfterDrop.remove(id) != nil else { return }
+        switch end {
+        case .connected:
+            events.send(.reconnected(profileID: id))
+        case .failed:
+            endSessionSecrets(id)
+            events.send(.reconnectFailed(profileID: id, reason: lastError[id] ?? ""))
+        case .cancelled:
+            break
+        }
+    }
+
+    /// A new network path (kept in `networkStatus`). Online again, or on another network, the retries
+    /// start over: their count from zero, the next try after `networkSettleDelay`. Offline, they wait.
+    func networkChanged(_ new: NetworkStatus) {
+        let old = networkStatus
+        guard new != old else { return }
+        networkStatus = new
+        guard old.online != nil else { return }   // the first answer, not a change
+        for id in Array(unreachableRetries.keys) {
+            guard var retry = unreachableRetries[id] else { continue }
+            if new.online == false {
+                guard !retryRunning.contains(id) else { continue }
+                retryWaits.removeValue(forKey: id)?.cancel()
+                retryGen[id, default: 0] += 1
+                retry.nextTryAt = nil
+                retry.waitingForNetwork = true
+                setRetry(id, retry)
+                continue
+            }
+            retry.tries = 0
+            setRetry(id, retry)
+            if retryRunning.contains(id) {
+                retryNetworkChanged.insert(id)
+            } else {
+                scheduleRetry(id, after: timing.networkSettleDelay)
+            }
+        }
+    }
+
+    private func sharedRetryURL(_ id: String) -> URL { store.dir(id).appendingPathComponent(Self.sharedRetryFile) }
+
+    /// Publishes the retries of `id` and shares them through its directory (nil: they ended).
+    private func setRetry(_ id: String, _ retry: UnreachableRetry?) {
+        if unreachableRetries[id] != retry { unreachableRetries[id] = retry }
+        guard let retry else { return removeSharedRetry(id) }
+        guard FileManager.default.fileExists(atPath: store.dir(id).path) else { return }
+        try? JSONCoding.write(SharedRetry(writer: getpid(), retry: retry), to: sharedRetryURL(id), mode: 0o600)
+    }
+
+    private func removeSharedRetry(_ id: String) {
+        try? FileManager.default.removeItem(at: sharedRetryURL(id))
+    }
+
+    /// The retries of `id`: this manager's, else those another live process (the app) shares.
+    public func unreachableRetry(_ id: String) -> UnreachableRetry? {
+        if let own = unreachableRetries[id] { return own }
+        guard let shared = try? JSONCoding.read(SharedRetry.self, from: sharedRetryURL(id)), shared.writer != getpid(),
+              kill(shared.writer, 0) == 0 || errno == EPERM else { return nil }
+        return shared.retry
+    }
+
+    /// "Copy details" of the last failure of `id`: a plain-text summary for the user's IT team (no
+    /// password, code or user name; the tool's reason redacted as the log is). nil without a failure.
+    public func failureDetails(_ id: String, app: AppInfo = .current) -> FailureDetails? {
+        guard let p = try? store.get(id), let failure = failures[id] else { return nil }
+        var server = serverAddress(p)
+        if case let .connecting(_, _, transport) = connectingEvent(p), !server.isEmpty { server += " (\(transport.uppercased()))" }
+        return FailureDetails(profileName: p.name, server: server, failure: AutomationService.redacted(failure, id: id),
+                              retry: unreachableRetry(id), network: networkStatus, app: app, at: clock.now())
     }
 
     // MARK: health
@@ -1553,6 +1800,7 @@ public final class ConnectionManager: ObservableObject {
             } catch {
                 guard self.reconnectGen[id] == gen else { return }
                 if error is DestinationChangedError { return self.reportChangedDestination(id) }
+                if self.beginRetryIfUnreachable(id, afterDrop: true) { return }
                 self.events.send(.reconnectFailed(profileID: id, reason: error.localizedDescription))
             }
         }

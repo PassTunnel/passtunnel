@@ -145,7 +145,25 @@ attempt in this process failed) and `failure` (the same as a [ConnectionFailure]
 also after a cancelled attempt, which has no `error`), `warning` (connected, but part of the network
 setup failed), `status_unavailable` (connected, but the management interface did not answer: `ip`
 and `since` may be stale) and `warnings` (only in the result of `connect`: a list of
-[ConnectWarning](#connectwarning)).
+[ConnectWarning](#connectwarning)). While the app tries a server that did not answer again (every 30 s, at most 10
+tries; also when this process is the CLI or the MCP server, as long as the app runs): `tries` (how many
+found it unreachable, counted from zero again when the network changes) and `next_try_at` (absent while a
+try runs and while the computer is offline: the next try then starts when the network is back). `passtunnel
+disconnect ID` stops those tries.
+
+```json
+{
+  "auto_reconnect" : false,
+  "id" : "work",
+  "is_default" : true,
+  "name" : "Work",
+  "next_try_at" : "2026-10-25T09:42:50Z",
+  "protected" : false,
+  "state" : "disconnected",
+  "tries" : 3,
+  "type" : "openvpn"
+}
+```
 
 ### ConnectWarning
 
@@ -295,6 +313,7 @@ connecting, without connecting and without any secret's value.
   "build" : "45",
   "helper" : { "expected_protocol_version" : 3, "protocol_version" : 3, "responding" : true, "state" : "enabled" },
   "in_applications" : true,
+  "network" : { "interface" : "wifi", "online" : true },
   "profiles" : [
     {
       "asks_for" : [],
@@ -321,7 +340,10 @@ connect; the server can still refuse it), `server`, `protected`, `password_saved
 one (any process's; a FortiGate gateway's after a rejected sign-in). Linux adds `secret_store`, a
 [SecretStoreReport](#secretstorereport). With `--check-clock` (MCP: `check_clock: true`) the time
 server is asked as well: `clock` is its ClockOffset, or `clock_error` says why it could not be
-measured. Without it, `diagnose` contacts nothing.
+measured. Without it, `diagnose` contacts nothing. `network`: whether the computer is online
+(`online`) and over what kind of interface (`interface`: `wifi`, `ethernet`, `cellular` or `other`), as the
+system sees its network path (macOS `NWPathMonitor`; Linux the routes and links); both absent when it is
+not known. Finding out contacts nothing either.
 
 ### LogReport
 

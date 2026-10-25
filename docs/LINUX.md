@@ -115,9 +115,9 @@ The macOS rules apply where they make sense; these replace the ones built on cod
   environment (`PATH=/usr/sbin:/usr/bin:/sbin:/bin`, `LC_ALL=C`). Unlike the Mac, `OPENSSL_CONF` and
   the CA variables are **not** overridden: the distribution's OpenSSL configuration (for example
   system-wide crypto policies) applies.
-- **OpenVPN** runs with the Mac's fixed flags (`--management <run>/mgmt.sock unix`,
-  `--management-client-user`, `--auth-nocache`, `--remap-usr1 SIGTERM`, `--connect-retry-max 3`,
-  capped `--verb`), the sanitized config (`OVPNSanitizer`, unchanged) and `--script-security 2` with
+- **OpenVPN** runs with the Mac's fixed flags (`--server-poll-timeout 10` before the config,
+  `--management <run>/mgmt.sock unix`, `--management-client-user`, `--auth-nocache`,
+  `--remap-usr1 SIGTERM`, `--connect-retry-max 3`, capped `--verb`; the same `HelperCore.openVPNArguments`), the sanitized config (`OVPNSanitizer`, unchanged) and `--script-security 2` with
   the DNS hook below, the only script it can run (the sanitizer removes every other). The management
   socket goes to the caller as on the Mac, its mode set before its owner (no `CAP_FOWNER` needed).
 - **FortiGate** runs openfortivpn as the Mac's helper does: `openfortivpn -c <run>/openfortivpn.conf`
@@ -349,6 +349,12 @@ what the server pushes, and every value of it is treated as hostile: it ends up 
   main table's unicast routes, IPv4 and IPv6, through the link named like the tunnel interface); OpenVPN's
   come from the push in its log, which 2.6 and 2.7 write at `--verb 3` as on the Mac. The comparison itself
   (`NetworkClaims`, Kit) is the same code.
+- **Network path.** Whether the computer is online (`NetworkPath`, `diagnose`'s `network`) comes from
+  the same rtnetlink dumps: online when a route that carries all traffic goes through a link whose
+  `/sys/class/net/<link>/operstate` is `up` (or `unknown`, as tun devices report it); the interface is
+  that of the first such link that is not a tunnel, `wifi` when it has `wireless` or `phy80211` there,
+  `ethernet` for link type 1, else `other`. Nothing is contacted. Watching (the app's retries of an
+  unreachable server) reads it again every 5 s.
 - **Log parsing.** `VPNLog` reads OpenVPN 2.6 and 2.7 on Linux: the device ("TUN/TAP device tun0
   opened", with data channel offload "DCO device tun0 opened"), the address (`net_addr_v4_add`,
   `net_addr_ptp_v4_add`; `ip addr add` in builds that run iproute2), each route it adds through

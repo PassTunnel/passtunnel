@@ -75,6 +75,24 @@ One binary, two modes:
      (`ServerClock.timeServer`: SNTP to `time.apple.com`; on Linux the configured NTP server), keeps it in
      `timeServerClock` and adds it to each rejected sign-in's failure that has no newer measurement.
      Off by 15 s or more (`ClockOffset.isWrong`) makes codes fail.
+- A server that did not answer (`unreachable`: refused, timed out, no route, no TLS answer; nothing was
+  sent, so the code's period was given back) is tried again, by the app only (`retriesUnreachable`; the CLI
+  and the MCP server report the failure): after a connect (manual or at login) and after a drop's automatic
+  reconnects (decision D-7), every 30 s, at most 10 tries in all (`UnreachableRetry`:
+  `unreachableRetries[id]` with the tries, when the first and the last failed and `nextTryAt`; shared in
+  `profiles/<id>/.retry` for `status --json` / `get_status`). Never after `host_not_found`, a rejected
+  sign-in or any other failure. Each try connects with `interactive: false` and a fresh code: a protected
+  profile uses the session's or the reuse window's secrets, else the tries stop with
+  `confirmationRequired`. OpenVPN gives each try 10 s (`--server-poll-timeout 10`) and makes one try per
+  run (`--remap-usr1 SIGTERM`). "Try now" is `retryNow(id)`; Stop is `disconnect(id)` (from the CLI too,
+  seen on the next poll); a manual connect replaces them. The manager watches the network path while it
+  runs (`networkStatus`, `NetworkPath`: online or not and Wi-Fi / Ethernet / cellular / other, for "This
+  Mac is online · Wi-Fi"; never a probe): offline the tries wait, online again or on another network they
+  start over after 2 s with the count at zero. After a drop the end is the reconnect's (`reconnected`,
+  `reconnectFailed`); a manual connect's tries send no events. `failureDetails(id)` is "Copy details":
+  plain text (profile name, server with port and UDP/TCP, what went wrong and the tool's reason, whether the
+  sign-in was sent, the tries and their times, the next try, the network, the app version; no password,
+  code or user name) that the app puts on the pasteboard as ordinary text.
 - `disconnect(_ id:)` → helper `stop`; marks the profile *user-stopped* so it is not treated as a drop.
 - Drop detection: only `connected → disconnected` with no action in flight and not user-stopped.
   Then: notification (if enabled, see Notifications) and, if `profile.autoReconnect && profile.unattended`
@@ -518,8 +536,8 @@ open the main window.
 connect_at_login=true`; left out of share files): only a login launch runs it (`AppModel.connectAtLogin` →
 `LoginConnector`, Core), never a manual launch. It first waits, at most 90 s (`LoginConnector.readinessTimeout`),
 until the helper is ready (enabled, answering with this copy's build, not being updated: an automatic helper
-update after an app update runs first) and the Mac is online (`NWPathMonitor` path satisfied; nothing is
-contacted). Then it goes through the profiles with the switch in the sidebar order (`order`, then name), each read
+update after an app update runs first) and the Mac is online (`ConnectionManager.networkStatus`, from
+`NWPathMonitor`; nothing is contacted). Then it goes through the profiles with the switch in the sidebar order (`order`, then name), each read
 again from disk (one switched off or deleted meanwhile is skipped):
 - connected or connecting already (a session the helper kept running, or another process's): left alone;
 - `unattended` and no protected secret it uses (`vault.requiresConfirmation` false): connected with

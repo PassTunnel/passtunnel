@@ -234,7 +234,8 @@ final class MCPServerTests: XCTestCase {
                                         routes: { [] }, authenticator: authenticator ?? self.authenticator)
         manager.serverClock = serverClock
         let automation = AutomationService(store: store, manager: manager, helperInspector: inspector,
-                                           appInfo: AppInfo(version: "9.9.9", build: "99", appPath: "/Applications/PassTunnel.app"))
+                                           appInfo: AppInfo(version: "9.9.9", build: "99", appPath: "/Applications/PassTunnel.app"),
+                                           network: { NetworkStatus(online: true, interface: .wifi) })
         return MCPServer(service: automation, allowConnect: allowConnect, serverVersion: "9.9.9",
                          send: { [weak self] in self?.sent.append($0) }, log: { [weak self] in self?.logs.append($0) })
     }
@@ -761,6 +762,7 @@ final class MCPServerTests: XCTestCase {
         XCTAssertEqual(report["version"] as? String, "9.9.9")
         XCTAssertEqual(report["in_applications"] as? Bool, true)
         XCTAssertEqual((report["helper"] as? [String: Any])?["outdated"] as? Bool, true)
+        XCTAssertEqual(report["network"] as? [String: AnyHashable], ["online": true, "interface": "wifi"])
         let checks = try XCTUnwrap(report["profiles"] as? [[String: Any]])
         let byID = Dictionary(uniqueKeysWithValues: checks.map { ($0["id"] as! String, $0) })
         XCTAssertEqual(byID["acme"]?["ok"] as? Bool, true)
