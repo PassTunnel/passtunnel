@@ -1,5 +1,11 @@
+#if canImport(Combine)
 import Combine
+#endif
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto   // swift-crypto: the same API, outside Apple platforms
+#endif
 import Foundation
 import PassTunnelKit
 import PassTunnelShared
@@ -33,6 +39,12 @@ public struct ReconnectInfo: Equatable, Sendable {
     public var attempt: Int                    // 1-based
     public var maxAttempts: Int
     public var at: Date                        // when the attempt starts
+
+    public init(attempt: Int, maxAttempts: Int, at: Date) {
+        self.attempt = attempt
+        self.maxAttempts = maxAttempts
+        self.at = at
+    }
 }
 
 /// Things worth telling the user about. The manager never posts notifications itself; the app maps
@@ -140,7 +152,9 @@ public extension HelperClienting {
     func ensureCompatible() async throws {}
 }
 
+#if os(macOS)
 extension HelperClient: HelperClienting {}
+#endif
 
 /// Reads OpenVPN's state from its management socket.
 public protocol ManagementQuerying {
@@ -241,7 +255,8 @@ public final class ConnectionManager: ObservableObject {
         public var connectCheckInterval: TimeInterval = 0.5
         public var processCheckInterval: TimeInterval = 2
         public var reconnectDelays: [TimeInterval] = [5, 15, 45]
-        public var minCodeSeconds: TimeInterval = 8
+        /// With `Preferences.waitForFreshCode`, a code with this many seconds or less left waits for the next one.
+        public var freshCodeSeconds = TimeInterval(Preferences.freshCodeSeconds)
         public var wakeDelay: TimeInterval = 4
         public var healthFailuresForOutage = 2
         public var helperTimeout: TimeInterval = 15
@@ -335,6 +350,8 @@ public final class ConnectionManager: ObservableObject {
     @Published public private(set) var lastError: [String: String] = [:]
     /// Log excerpt for the last error (tooltip / "Show log").
     @Published public private(set) var lastErrorLog: [String: String] = [:]
+    /// Why the last connect failed, typed (also for a cancelled one, which leaves `lastError` empty).
+    @Published public private(set) var failures: [String: ConnectionFailure] = [:]
     @Published public private(set) var health: [String: HealthState] = [:]
     @Published public private(set) var reconnecting: [String: ReconnectInfo] = [:]
     /// Why the last helper `status` call failed (nil when it worked).
@@ -349,6 +366,9 @@ public final class ConnectionManager: ObservableObject {
     @Published public private(set) var codeWaitUntil: [String: Date] = [:]
 
     public let events = PassthroughSubject<ConnectionEvent, Never>()
+    /// Every activity event this manager records, as it is appended to the profile's `activity.jsonl`
+    /// (`activity(_:)` reads the file, which also holds what other processes recorded).
+    public let activity = PassthroughSubject<ActivityRecord, Never>()
 
     public let store: ProfileStore
     /// Protected secrets (`Profile.requireAuth`): decrypting them is the user's confirmation.
@@ -394,12 +414,12 @@ public final class ConnectionManager: ObservableObject {
     public private(set) var isRunning = false
 
     public init(store: ProfileStore = ProfileStore(),
-                helper: HelperClienting = HelperClient.shared,
+                helper: HelperClienting = ConnectionManager.defaultHelper,
                 management: ManagementQuerying = SocketManagementQuerier(),
                 clock: ConnectionClock = SystemClock(),
                 healthProbe: @escaping HealthProbe = ConnectionManager.defaultHealthProbe,
                 preferences: @escaping () -> Preferences = { Preferences.load() },
-                routes: @escaping () -> [RoutingTable.Route] = RoutingTable.ipv4Routes,
+                routes: @escaping () -> [RoutingTable.Route] = RoutingTable.trafficRoutes,
                 timing: Timing = Timing(),
                 vault: SecretVault? = nil,
                 authenticator: UserAuthenticator? = nil) {
@@ -411,10 +431,20 @@ public final class ConnectionManager: ObservableObject {
         self.preferences = preferences
         self.routes = routes
         self.timing = timing
-        self.vault = vault ?? SecretVault(authenticator: authenticator ?? SecureEnclaveAuthenticator(),
+        self.vault = vault ?? SecretVault(authenticator: authenticator ?? PlatformAuthenticator(),
                                           now: { [clock] in clock.now() },
                                           reuseWindow: { preferences().authReuseInterval },
                                           destination: { [store] in ProfileDestination.of($0, store: store) })
+    }
+
+    /// The helper a manager uses unless it is given one: the privileged helper (XPC) on the Mac,
+    /// passtunneld through its unix socket on Linux (docs/LINUX.md).
+    nonisolated public static var defaultHelper: HelperClienting {
+        #if os(macOS)
+        HelperClient.shared
+        #else
+        UnixSocketHelperClient.shared
+        #endif
     }
 
     nonisolated public static func defaultHealthProbe(_ host: String) async -> (ok: Bool, ms: Int) {
@@ -532,7 +562,7 @@ public final class ConnectionManager: ObservableObject {
         case .forti:
             guard isRunning else { return (.disconnected, false) }
             let log = VPNLog.read(store.logURL(p.id))
-            guard VPNLog.fortiIsUp(log) else { return (.connecting(Phase.connecting), false) }
+            guard fortiIsConnected(p, log: log) else { return (.connecting(Phase.connecting), false) }
             return (.connected(ip: VPNLog.fortiAddress(log) ?? "", since: connectedAt[p.id] ?? logCreated(p.id)), false)
         }
     }
@@ -647,14 +677,17 @@ public final class ConnectionManager: ObservableObject {
     /// helper runs for another process); throws `NothingToFollow` instead of starting one, and asks
     /// for nothing. `role` learns whether this call started the session or follows another process's
     /// (not called when it waits for this manager's own attempt or there was nothing to do).
+    /// `interactive` false (connect at login): never asks; protected secrets come only from the reuse
+    /// window, else `PTError.confirmationRequired`, as for an automatic reconnect.
     public func connect(_ id: String, given: [CredentialField: String] = [:], force: Bool = false,
-                        followOnly: Bool = false, role: ((ConnectRole) -> Void)? = nil) async throws {
+                        followOnly: Bool = false, interactive: Bool = true,
+                        role: ((ConnectRole) -> Void)? = nil) async throws {
         cancelReconnect(id)
         if let inFlight = connectTasks[id] { return try await inFlight.value }
         let current = state(id).isActive || followOnly ? nil : try? store.get(id)
         // A confirmation given for other server settings does not count: ask now, naming the new server.
         if let p = current { vault.forgetUnlessBound(p) }
-        if let p = current, vault.needsPrompt(p, for: .connect) {
+        if interactive, let p = current, vault.needsPrompt(p, for: .connect) {
             do {
                 try await vault.unlock(p, for: .connect)
             } catch {
@@ -663,11 +696,15 @@ public final class ConnectionManager: ObservableObject {
                     lastError[id] = error.localizedDescription
                     lastErrorLog[id] = ""
                 }
+                failures[id] = ConnectionFailure.of(error, log: nil, handed: nil, at: clock.now())
                 throw error
             }
             if let inFlight = connectTasks[id] { return try await inFlight.value }
         }
-        let task = Task { try await self.performConnect(id, given: given, force: force, followOnly: followOnly, role: role) }
+        let task = Task {
+            try await self.performConnect(id, given: given, force: force, interactive: interactive, followOnly: followOnly,
+                                          role: role)
+        }
         connectTasks[id] = task
         defer { if connectTasks[id] == task { connectTasks[id] = nil } }
         try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
@@ -685,6 +722,10 @@ public final class ConnectionManager: ObservableObject {
     @discardableResult
     public func disconnect(_ id: String) async throws -> Bool {
         let wasActive = state(id).isActive || isBusy(id) || codeWaits[id] != nil
+        let wasReconnecting = reconnecting[id] != nil
+        // A session this process has not seen (a `passtunnel` command): whether it was up, from its log,
+        // read before the stop adds its exit to it.
+        let wasConnected = state(id).isConnected || (!wasActive && toolLogSaysUp(id))
         cancelReconnect(id)
         actionToken[id, default: 0] += 1
         codeWaits.removeValue(forKey: id)?.cancel()
@@ -699,7 +740,18 @@ public final class ConnectionManager: ObservableObject {
         let r = try await helper.perform(.stop(profileID: id), timeout: timing.stopTimeout)
         setState(id, .disconnected)
         guard r.ok else { throw PTError.helperFailed(r.error ?? "") }
+        if wasActive || wasReconnecting || r.pid != nil {
+            record(id, wasConnected ? .disconnectedByUser : .stoppedByUser)
+        }
         return wasActive || r.pid != nil
+    }
+
+    /// The tool's log shows the tunnel up (OpenVPN "Initialization Sequence Completed" with no restart
+    /// after it, openfortivpn "Tunnel is up and running").
+    private func toolLogSaysUp(_ id: String) -> Bool {
+        guard let p = try? store.get(id) else { return false }
+        let log = VPNLog.read(store.logURL(id))
+        return p.type == .openvpn ? VPNLog.openVPNIsUp(log) : VPNLog.fortiIsUp(log)
     }
 
     /// Disconnect when connected or connecting, connect otherwise.
@@ -742,8 +794,10 @@ public final class ConnectionManager: ObservableObject {
         setUserStoppedMarker(id, false)
         lastError[id] = nil
         lastErrorLog[id] = nil
+        failures[id] = nil
         warnings[id] = nil
         setState(id, .connecting(Phase.preparing))
+        var progress = AttemptProgress()
 
         do {
             // Always the profile as stored now (the CLI may have changed it), never a cached copy.
@@ -751,10 +805,12 @@ public final class ConnectionManager: ObservableObject {
             let status = await currentStatus()
             if let session = session(id, in: status) {
                 role?(.followed)
+                progress.toolRan = true
                 return try await follow(p, token: token, session: session)
             }
             if followOnly { throw NothingToFollow() }
             role?(.started)
+            progress.owned = true
             if p.type == .openvpn && !force { try checkNoOtherFullTunnel(p, running: status?.running ?? [:]) }
             vault.reconcile(p)   // a setting edited by hand: encrypt what it protects before use
             let destination = ProfileDestination.of(p, store: store)
@@ -766,11 +822,13 @@ public final class ConnectionManager: ObservableObject {
             let creds = try resolveCredentials(p, given: given, stored: stored)
             // A helper left running from another app version would misplace or reject the session.
             try await helper.ensureCompatible()
+            record(id, connectingEvent(p))
+            progress.recorded = true
 
             var otp = creds.otp
             var codeTime: Date?
             if let secret = creds.totpSecret {
-                try await waitForFreshCode(p, token: token)
+                try await waitForFreshCode(p, secret: secret, token: token)
                 let now = clock.now()
                 codeTime = now
                 otp = TOTP.code(secret: secret, params: p.totp, at: now)
@@ -803,22 +861,32 @@ public final class ConnectionManager: ObservableObject {
                 // Another process started it in the meantime: the helper refuses a second session.
                 if let session = session(id, in: await currentStatus()) {
                     role?(.followed)
+                    progress.owned = false
+                    progress.toolRan = true
                     return try await follow(p, token: token, session: session)
                 }
                 throw PTError.helperFailed(response.error ?? "")
             }
-            if let codeTime { rememberUsedCode(p, at: codeTime) }   // the tool has it now, whatever happens next
+            progress.toolRan = true
+            let sent = sending(p, username: creds.username ?? "", password: creds.password ?? "", otp: otp, codeTime: codeTime)
+            progress.handed = ConnectionFailure.Handed(code: sent.code, codeSecondsLeft: sent.secondsLeft)
+            if let codeTime {
+                // The tool has it now; given back if it never reaches the server (`noteFailure`).
+                progress.usedCode = (usedCode(id), rememberUsedCode(p, at: codeTime))
+            }
             if actionToken[id] != token {
                 // Disconnected while the helper was starting the tool; its stop may have come first.
                 await stopQuietly(id)
                 throw PTError.connectCancelled
             }
+            if creds.username != nil { record(id, .sending(sent)) }
 
             if let socket = response.mgmtSocket { mgmtSockets[id] = socket }
             let result = try await waitUntilConnected(p, token: token, socketPath: response.mgmtSocket ?? socketPath(id),
                                                       pid: response.pid)
             let since = result.since ?? clock.now()
             setState(id, .connected(ip: result.ip, since: result.since ?? since))
+            record(id, .connected(address: result.ip))
             sessionActive.insert(id)
             connectedAt[id] = since
             healthFailures[id] = 0
@@ -830,6 +898,7 @@ public final class ConnectionManager: ObservableObject {
             }
         } catch {
             let cancelled = actionToken[id] != token
+            if !(error is NothingToFollow) { noteFailure(id, cancelled ? PTError.connectCancelled : error, progress) }
             if cancelled { throw PTError.connectCancelled }
             setState(id, .disconnected)
             if (error as? PTError) == .connectCancelled || (error as? PTError) == .userConfirmationCancelled
@@ -932,6 +1001,7 @@ public final class ConnectionManager: ObservableObject {
         if !interactive && changedDestinations.contains(p.id) && vault.requiresConfirmation(p) {
             throw DestinationChangedError(host: destination.host)
         }
+        try vault.refuseUnconfirmable(p, SecretVault.usedKinds(p))
         var out: [SecretKind: String] = [:]
         for kind in SecretVault.usedKinds(p) {
             if let value = vault.available(p.id, kind) {
@@ -991,8 +1061,9 @@ public final class ConnectionManager: ObservableObject {
             // The helper refuses it too; a profile.json changed outside the app fails here, before any secret is sent.
             guard FortiConfig.isValidHost(p.host) else { throw PTError.invalidField("host") }
         }
-        if p.passwordMode == .keychain && !Secrets.has(id, .password) { throw PTError.missingPassword(id) }
-        if p.otpMode == .totp && !Secrets.has(id, .totp) { throw PTError.missingTOTPSecret(id) }
+        // A store that cannot be read says so (`SecretStoreUnavailable`), rather than "missing".
+        if p.passwordMode == .keychain, try !Secrets.exists(id, .password) { throw PTError.missingPassword(id) }
+        if p.otpMode == .totp, try !Secrets.exists(id, .totp) { throw PTError.missingTOTPSecret(id) }
 
         func value(_ field: CredentialField) -> String? {
             let v = given[field]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -1030,19 +1101,23 @@ public final class ConnectionManager: ObservableObject {
         return c
     }
 
-    /// Waits for the next TOTP window when the code of the current one was already sent (by this or
-    /// another process: servers reject a reused code), or when fewer than `minCodeSeconds` remain in
-    /// it. The wait is at most one window, is not counted against the connect timeout, and ends
-    /// at once on `disconnect`.
-    private func waitForFreshCode(_ p: Profile, token: Int) async throws {
+    /// Waits for the next TOTP window when the code of the current one was already sent by this or
+    /// another process (always: servers reject a reused code), or when `freshCodeSeconds` or less
+    /// remain in it and `Preferences.waitForFreshCode` is on. The wait is at most one window, is not
+    /// counted against the connect timeout, and ends at once on `disconnect`.
+    private func waitForFreshCode(_ p: Profile, secret: Data, token: Int) async throws {
         let period = Double(max(1, p.totp.period))
         let now = clock.now()
         let left = period - (now.timeIntervalSince1970 - Double(TOTP.counter(params: p.totp, at: now)) * period)
         let reused = usedCode(p.id) == UsedOTPWindow(counter: TOTP.counter(params: p.totp, at: now), period: Int(period))
-        guard reused || (period > timing.minCodeSeconds && left < timing.minCodeSeconds) else { return }
+        let fresh = timing.freshCodeSeconds
+        let expiring = period > fresh && left <= fresh && preferences().waitForFreshCode
+        guard reused || expiring else { return }
         let wait = max(0, left) + 0.25
         codeWaitUntil[p.id] = now.addingTimeInterval(wait)
         defer { codeWaitUntil[p.id] = nil }
+        record(p.id, .waitingForCode(reason: reused ? .used : .expiring, seconds: Int(max(0, left).rounded(.up)),
+                                     codePrefix: ActivityEvent.codePrefix(TOTP.code(secret: secret, params: p.totp, at: now))))
         setState(p.id, .connecting(Phase.waitingForCode))
         try await waitCancellably(p.id, wait)
         try checkToken(p.id, token)
@@ -1068,10 +1143,86 @@ public final class ConnectionManager: ObservableObject {
         try? JSONCoding.read(UsedOTPWindow.self, from: usedCodeURL(id))
     }
 
-    private func rememberUsedCode(_ p: Profile, at date: Date) {
-        guard FileManager.default.fileExists(atPath: store.dir(p.id).path) else { return }
+    /// When `id` last sent a one-time code (by this process or another): the start of that code's window; nil
+    /// when it never did. Reads the profile directory.
+    public func lastCodeSent(_ id: String) -> Date? {
+        usedCode(id).map { Date(timeIntervalSince1970: TimeInterval($0.counter) * TimeInterval($0.period)) }
+    }
+
+    @discardableResult
+    private func rememberUsedCode(_ p: Profile, at date: Date) -> UsedOTPWindow {
         let used = UsedOTPWindow(counter: TOTP.counter(params: p.totp, at: date), period: max(1, p.totp.period))
+        guard FileManager.default.fileExists(atPath: store.dir(p.id).path) else { return used }
         try? JSONCoding.write(used, to: usedCodeURL(p.id), mode: 0o600)
+        return used
+    }
+
+    /// Puts back the record that a code which never reached the server replaced (none: removes it).
+    private func restoreUsedCode(_ id: String, _ previous: UsedOTPWindow?) {
+        guard FileManager.default.fileExists(atPath: store.dir(id).path) else { return }
+        if let previous {
+            try? JSONCoding.write(previous, to: usedCodeURL(id), mode: 0o600)
+        } else {
+            try? FileManager.default.removeItem(at: usedCodeURL(id))
+        }
+    }
+
+    /// How far a connect got, for the failure it may end with.
+    struct AttemptProgress {
+        /// This manager started the session (not one another process started, which it follows).
+        var owned = false
+        /// `connecting` is in the activity.
+        var recorded = false
+        /// The VPN tool ran for this attempt (or the followed session's does): its log is about it.
+        var toolRan = false
+        /// What the tool was given.
+        var handed: ConnectionFailure.Handed?
+        /// The used-code record before this attempt, and the one it wrote.
+        var usedCode: (previous: UsedOTPWindow?, written: UsedOTPWindow)?
+    }
+
+    /// Keeps why the attempt failed (`failures`), records it in the activity of a session this manager
+    /// started, and gives the code's period back when the code never reached the server, so the next
+    /// connect need not wait for a fresh code (only if no other process recorded a code since). Not after
+    /// a cancel: the tool may still be on its way to the server while the stop is under way.
+    private func noteFailure(_ id: String, _ error: Error, _ progress: AttemptProgress) {
+        let log = progress.toolRan ? VPNLog.read(store.logURL(id)) : nil
+        let failure = ConnectionFailure.of(error, log: log, handed: progress.handed, at: clock.now())
+        failures[id] = failure
+        if let used = progress.usedCode, !failure.credentialsSent, failure.kind != .cancelled, usedCode(id) == used.written {
+            restoreUsedCode(id, used.previous)
+        }
+        guard progress.owned && progress.recorded else { return }
+        switch failure.kind {
+        case .authRejected: record(id, .rejected(reply: failure.reply))
+        case .unreachable: record(id, .unreachable(tries: failure.tries ?? 1, reason: failure.reason))
+        case .cancelled: break   // `disconnect` records the stop
+        case .hostNotFound, .configuration, .setup, .timeout, .failed:
+            record(id, .failed(kind: failure.kind, reason: failure.reason, credentialsSent: failure.credentialsSent))
+        }
+    }
+
+    /// The server was never reached, as its log tells: `hostNotFound`, or `serverUnreachable` with the
+    /// tool's reason; after `timeout` seconds also when the tool tried and nothing answered. nil when the
+    /// log tells otherwise (or nothing).
+    private func unreached(_ p: Profile, log: String, timeout: TimeInterval? = nil) -> PTError? {
+        let tail = VPNLog.tail(log)
+        let verdict = VPNLog.verdict(log)
+        switch verdict?.kind {
+        case .hostNotFound?: return .hostNotFound(server: serverAddress(p), log: tail)
+        case .unreachable?: return .serverUnreachable(server: serverAddress(p), reason: verdict?.reason ?? "", log: tail)
+        default: break
+        }
+        guard let timeout, verdict == nil, !VPNLog.credentialsSent(log), VPNLog.attempted(log) else { return nil }
+        return .serverUnreachable(server: serverAddress(p), reason: String(localized: "no answer within \(Int(timeout)) seconds"),
+                                  log: tail)
+    }
+
+    /// "vpn.example.com:1194", "[2001:db8::1]:443": the server a connect goes to; "" when unknown.
+    private func serverAddress(_ p: Profile) -> String {
+        guard case let .connecting(host, port, _) = connectingEvent(p), !host.isEmpty else { return "" }
+        let name = host.contains(":") ? "[\(host)]" : host
+        return port.map { "\(name):\($0)" } ?? name
     }
 
     /// Polls until `p` is connected. When `owned` is false (a session another process started), the
@@ -1083,6 +1234,13 @@ public final class ConnectionManager: ObservableObject {
         let started = clock.now()
         var lastProcessCheck = started
         let logURL = store.logURL(id)
+        // The activity of a session another process started is that process's to record.
+        var accepted = false
+        func noteAccepted() {
+            guard owned, !accepted else { return }
+            accepted = true
+            record(id, .authAccepted)
+        }
 
         while true {
             try checkToken(id, token)
@@ -1093,9 +1251,10 @@ public final class ConnectionManager: ObservableObject {
             }
             if VPNLog.isFatal(log) {
                 if owned { await stopQuietly(id) }
-                throw PTError.connectFailed(VPNLog.tail(log))
+                throw unreached(p, log: log) ?? PTError.connectFailed(VPNLog.tail(log))
             }
             try await checkSetup(p, log: log, owned: owned)
+            if VPNLog.authAccepted(log) { noteAccepted() }
             switch p.type {
             case .openvpn:
                 if let s = await managementState(id, socketPath: socketPath, pid: pid)?.state {
@@ -1103,16 +1262,22 @@ public final class ConnectionManager: ObservableObject {
                     if s.isConnected {
                         // Routes and DNS are set up before CONNECTED: their errors are in the log by now.
                         try await checkSetup(p, log: VPNLog.read(logURL), owned: owned)
+                        noteAccepted()
                         return (s.localIP.isEmpty ? s.localIPv6 : s.localIP, s.since)
                     }
                     if s.name == "RECONNECTING" && s.detail.lowercased().contains("auth") {
                         if owned { await stopQuietly(id) }
                         throw PTError.authFailed(VPNLog.tail(VPNLog.read(logURL)))
                     }
+                    // Past the sign-in: the server is sending the tunnel settings.
+                    if ["GET_CONFIG", "ASSIGN_IP", "ADD_ROUTES"].contains(s.name) { noteAccepted() }
                     setState(id, Self.map(s))
                 }
             case .forti:
-                if VPNLog.fortiIsUp(log) { return (VPNLog.fortiAddress(log) ?? "", clock.now()) }
+                if fortiIsConnected(p, log: log) {
+                    noteAccepted()
+                    return (VPNLog.fortiAddress(log) ?? "", clock.now())
+                }
             }
 
             let now = clock.now()
@@ -1125,23 +1290,41 @@ public final class ConnectionManager: ObservableObject {
                     if hasUserStoppedMarker(id) { throw PTError.connectCancelled }
                     let final = VPNLog.read(logURL)
                     if VPNLog.isAuthFailure(final) { throw PTError.authFailed(VPNLog.tail(final)) }
-                    throw PTError.connectFailed(VPNLog.tail(final))
+                    throw unreached(p, log: final) ?? PTError.connectFailed(VPNLog.tail(final))
                 }
             }
             if clock.now().timeIntervalSince(started) >= timeout {
                 if owned { await stopQuietly(id) }
-                throw PTError.connectTimeout(Int(timeout))
+                throw unreached(p, log: VPNLog.read(logURL), timeout: timeout) ?? PTError.connectTimeout(Int(timeout))
             }
             do { try await clock.sleep(timing.connectCheckInterval) } catch { throw PTError.connectCancelled }
         }
     }
 
     /// An OpenVPN session whose DNS hook or all-traffic routes failed is unusable (another VPN is in
-    /// the way): stop it (when ours) and fail instead of reporting it connected.
+    /// the way): stop it (when ours) and fail instead of reporting it connected. On Linux the same for a
+    /// FortiGate session whose DNS passtunneld could not set (it ends the session itself as well).
     private func checkSetup(_ p: Profile, log: String, owned: Bool) async throws {
-        guard p.type == .openvpn, let problem = VPNLog.setupProblem(log), problem.allTraffic else { return }
+        guard p.type == .openvpn || Self.daemonSetsFortiDNS, let problem = VPNLog.setupProblem(log), problem.allTraffic else {
+            return
+        }
         if owned { await stopQuietly(p.id) }
         throw PTError.setupFailed(reason: problem.reason, log: VPNLog.tail(log))
+    }
+
+    /// Linux: passtunneld sets a FortiGate session's DNS itself (docs/LINUX.md, "DNS"); on the Mac
+    /// openfortivpn does, and nothing is waited for.
+    #if os(Linux)
+    static let daemonSetsFortiDNS = true
+    #else
+    static let daemonSetsFortiDNS = false
+    #endif
+
+    /// A FortiGate session is connected once openfortivpn's tunnel is up and, where passtunneld sets the
+    /// DNS of a profile with `set_dns`, once it said how that went.
+    func fortiIsConnected(_ p: Profile, log: String) -> Bool {
+        guard VPNLog.fortiIsUp(log) else { return false }
+        return !(Self.daemonSetsFortiDNS && p.setDNS) || VPNLog.fortiDNSSettled(log)
     }
 
     private func checkToken(_ id: String, _ token: Int) throws {
@@ -1168,10 +1351,15 @@ public final class ConnectionManager: ObservableObject {
         let willReconnect = canAutoReconnect(p)
         if afterWake && willReconnect && vault.requiresConfirmation(p) {
             endSessionSecrets(p.id)
+            record(p.id, .linkDropped(willReconnect: false))
             events.send(.droppedWhileAsleep(profileID: p.id))
             return
         }
-        if willReconnect && stopsForChangedDestination(p) { return }
+        if willReconnect && stopsForChangedDestination(p) {
+            record(p.id, .linkDropped(willReconnect: false))
+            return
+        }
+        record(p.id, .linkDropped(willReconnect: willReconnect))
         events.send(.dropped(profileID: p.id, willReconnect: willReconnect))
         if willReconnect { scheduleReconnect(p.id, immediate: afterWake) } else { endSessionSecrets(p.id) }
     }
@@ -1208,12 +1396,15 @@ public final class ConnectionManager: ObservableObject {
             let wait = (i == 0 && immediate) ? 0 : delay
             reconnecting[id] = ReconnectInfo(attempt: i + 1, maxAttempts: delays.count,
                                              at: clock.now().addingTimeInterval(wait))
+            // After a failed attempt; before the first one, the drop says it reconnects.
+            if i > 0 && wait > 0 { record(id, .nextTry(at: clock.now().addingTimeInterval(wait))) }
             do { try await clock.sleep(wait) } catch { return }
             guard reconnectGen[id] == gen else { return }
             if state(id).isConnected {
                 events.send(.reconnected(profileID: id))
                 return
             }
+            record(id, .reconnecting(attempt: i + 1, of: delays.count))
             do {
                 try await performConnect(id, given: [:], interactive: false)
                 guard reconnectGen[id] == gen else { return }
@@ -1250,7 +1441,8 @@ public final class ConnectionManager: ObservableObject {
 
     /// Wrong credentials or missing secrets will not fix themselves; retrying could lock the account.
     static func isRetryable(_ error: Error) -> Bool {
-        if error is DestinationChangedError || error is ProtectionKeyMismatch || error is KeychainItemNotReplaced {
+        if error is DestinationChangedError || error is ProtectionKeyMismatch || error is KeychainItemNotReplaced
+            || error is SecretStoreUnavailable {
             return false
         }
         switch error as? PTError {
@@ -1316,6 +1508,7 @@ public final class ConnectionManager: ObservableObject {
             self.end(id)
             guard self.reconnectGen[id] == gen else { return }
             self.setState(id, .disconnected)
+            self.record(id, .reconnecting(attempt: 1, of: 1))
             do {
                 try await self.performConnect(id, given: [:], interactive: false)
                 guard self.reconnectGen[id] == gen else { return }
@@ -1376,6 +1569,56 @@ public final class ConnectionManager: ObservableObject {
         events.send(.sessionEnding(profileID: p.id, minutes: Int(remaining.rounded(.up))))
     }
 
+    // MARK: activity
+
+    /// The profile's activity, oldest first, as every process recorded it (`ActivityLog`).
+    public func activity(_ id: String) -> [ActivityEvent] {
+        ActivityLog(url: store.activityURL(id)).read()
+    }
+
+    /// The last `sending` in the activity: when the credentials went to the VPN tool, and the code's seconds
+    /// left then ("sent at 09:41:02", "Sent with 22 s left").
+    public func lastSending(_ id: String) -> (at: Date, sending: ActivityEvent.Sending)? {
+        for event in activity(id).reversed() {
+            if case .sending(let s) = event.kind { return (event.at, s) }
+        }
+        return nil
+    }
+
+    /// Appends to the profile's `activity.jsonl` (best effort: a log that cannot be written never fails a
+    /// connection) and publishes it on `activity`.
+    private func record(_ id: String, _ kind: ActivityEvent.Kind) {
+        let event = ActivityEvent(at: clock.now(), kind)
+        try? ActivityLog(url: store.activityURL(id)).append(event)
+        activity.send(ActivityRecord(profileID: id, event: event))
+    }
+
+    /// Where `p` connects: OpenVPN's first `remote` with its port and transport, FortiGate's host and port.
+    private func connectingEvent(_ p: Profile) -> ActivityEvent.Kind {
+        switch p.type {
+        case .openvpn:
+            let config = (try? FileIO.readText(store.ovpnURL(p.id), maxSize: ProfileStore.maxOVPNSize)) ?? ""
+            guard let e = OVPNAnalyzer.endpoint(config) else { return .connecting(host: "", port: nil, transport: "udp") }
+            return .connecting(host: ActivityEvent.clean(e.host, limit: 255), port: Int(e.port), transport: e.tcp ? "tcp" : "udp")
+        case .forti:
+            return .connecting(host: ActivityEvent.clean(p.host, limit: 255), port: p.port, transport: "tcp")
+        }
+    }
+
+    /// What was handed to the VPN tool, without the password; `codeTime` when the code came from the TOTP secret.
+    private func sending(_ p: Profile, username: String, password: String, otp: String?, codeTime: Date?) -> ActivityEvent.Sending {
+        let code = otp.map { !$0.isEmpty } ?? false
+        var left: Int?
+        if let codeTime {
+            let period = TimeInterval(max(1, p.totp.period))
+            let end = TimeInterval(TOTP.counter(params: p.totp, at: codeTime) + 1) * period
+            left = Int(max(0, end - clock.now().timeIntervalSince1970).rounded(.down))
+        }
+        return ActivityEvent.Sending(username: ActivityEvent.clean(username, limit: 256), password: !password.isEmpty, code: code,
+                                     codePrefix: code ? ActivityEvent.codePrefix(otp) : nil, secondsLeft: code ? left : nil,
+                                     format: code ? (p.otpDelivery == .separate ? "separate" : p.otpTemplate) : nil)
+    }
+
     // MARK: bookkeeping
 
     private func setState(_ id: String, _ s: ConnectionState) {
@@ -1403,6 +1646,7 @@ public final class ConnectionManager: ObservableObject {
         states[id] = nil
         lastError[id] = nil
         lastErrorLog[id] = nil
+        failures[id] = nil
         sessionActive.remove(id)
         userStopped.remove(id)
     }

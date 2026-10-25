@@ -38,6 +38,9 @@ final class AutomationCLITests: XCTestCase {
         XCTAssertEqual(try command("--version --json"), .version(json: true))
         assertUsage("log acme -f --json")
         assertUsage("log acme -n 0")
+        XCTAssertEqual(try command("log acme --activity --json -n 5"), .log(id: "acme", follow: false, json: true, lines: 5, activity: true))
+        XCTAssertEqual(try command("logs acme --activity"), .log(id: "acme", follow: false, activity: true))
+        assertUsage("log acme --activity -f")
         assertUsage("helper install --json")
         assertUsage("completion zsh --json")
     }
@@ -103,6 +106,8 @@ final class AutomationCLITests: XCTestCase {
             (PTError.connectTimeout(60), .timeout, 7),
             (PTError.missingConfig("acme"), .configInvalid, 1),
             (PTError.keychain(-25300), .keychainError, 1),
+            (SecretStoreUnavailable("no store"), .keychainError, 1),
+            (PTError.protectionUnavailable, .authUnavailable, 4),
             (NSError(domain: "x", code: 1), .internal, 1),
         ]
         for (error, code, exit) in cases {
@@ -201,7 +206,7 @@ final class MCPServerTests: XCTestCase {
         home = String(cString: made)
         service = "PassTunnelTests-\(UUID().uuidString)"
         setenv("PASSTUNNEL_HOME", home, 1)
-        setenv("PASSTUNNEL_KEYCHAIN_SERVICE", service, 1)
+        useTestSecrets(service: service)
         helper = FakeHelper()
         clock = FakeClock(t0)
         authenticator = FakeAuthenticator()
@@ -338,6 +343,47 @@ final class MCPServerTests: XCTestCase {
         let list = await exchange(server, request(2, "tools/list", withMeta: false))
         let tools = try XCTUnwrap((list?["result"] as? [String: Any])?["tools"] as? [[String: Any]])
         XCTAssertNotNil(tools.first?["outputSchema"])
+    }
+
+    /// The Mac's texts stay exactly as listed in MCP directories; Linux says "this computer" and, in
+    /// place of the Touch ID prompt, that protected profiles are refused (docs/LINUX.md).
+    func testInstructionsAndDescriptionsAreWordedPerPlatform() async throws {
+        let server = makeServer(allowConnect: true)
+        let handshake = try await self.reply(server, ["jsonrpc": "2.0", "id": 1, "method": "initialize", "params": [
+            "protocolVersion": "2025-06-18", "capabilities": [String: Any](), "clientInfo": ["name": "test", "version": "1"],
+        ]])
+        let instructions = try XCTUnwrap((handshake["result"] as? [String: Any])?["instructions"] as? String)
+        let list = try await self.reply(server, request(2, "tools/list"))
+        let tools = try XCTUnwrap((list["result"] as? [String: Any])?["tools"] as? [[String: Any]])
+        var descriptions: [String: String] = [:]
+        for tool in tools { descriptions[tool["name"] as? String ?? ""] = tool["description"] as? String }
+        let connect = try XCTUnwrap(tools.first { $0["name"] as? String == "connect" })
+        let properties = try XCTUnwrap((connect["inputSchema"] as? [String: Any])?["properties"] as? [String: Any])
+        let timeout = try XCTUnwrap((properties["timeout_seconds"] as? [String: Any])?["description"] as? String)
+
+        let base = "(OpenVPN and FortiGate SSL VPN). Profiles are identified by their id (from list_profiles). "
+            + "The tools never return passwords, TOTP secrets, one-time codes, keys or configuration files, and they cannot create, change or delete profiles."
+        let connectText = try XCTUnwrap(descriptions["connect"])
+        let listText = try XCTUnwrap(descriptions["list_profiles"])
+        #if os(Linux)
+        XCTAssertEqual(instructions, "PassTunnel manages this computer's VPN connections " + base
+                       + " connect and disconnect are enabled. A protected profile cannot be connected on Linux yet: connect refuses it with auth_unavailable.")
+        XCTAssertTrue(listText.hasSuffix(" protected=true means connecting is refused on Linux for now (auth_unavailable): there is no confirmation to ask for yet."))
+        XCTAssertTrue(connectText.contains("A protected profile cannot be connected on Linux yet: it is refused with auth_unavailable."))
+        XCTAssertTrue(connectText.contains("Connecting changes this computer's network routes;"))
+        XCTAssertEqual(timeout, "How long to wait for the connection.")
+        for text in [instructions, timeout] + Array(descriptions.values) {
+            XCTAssertFalse(text.contains("Mac"), text)
+            XCTAssertFalse(text.contains("Touch ID"), text)
+        }
+        #else
+        XCTAssertEqual(instructions, "PassTunnel manages this Mac's VPN connections " + base
+                       + " connect and disconnect are enabled. A protected profile shows a Touch ID prompt on the Mac that the user must confirm; tell the user to look for it.")
+        XCTAssertTrue(listText.hasSuffix(" protected=true means connecting asks the user for Touch ID on the Mac."))
+        XCTAssertTrue(connectText.contains("If the profile is protected, the user must confirm with Touch ID on the Mac: tell them a prompt is waiting."))
+        XCTAssertTrue(connectText.contains("Connecting changes the Mac's network routes;"))
+        XCTAssertEqual(timeout, "How long to wait for the connection (after the Touch ID confirmation).")
+        #endif
     }
 
     func testInitializeWithAnUnknownVersionGetsTheNewestHandshakeVersion() async throws {
@@ -482,6 +528,7 @@ final class MCPServerTests: XCTestCase {
         var forti = try store.create(name: "Lab", type: .forti)
         forti.host = "vpn.example.com"
         forti.autoReconnect = true
+        forti.connectAtLogin = true
         try store.save(forti)
         try store.setDefault(p.id)
         helper.simulateExternalStart(p.id, profileDir: store.dir(p.id).path, since: t0)
@@ -495,6 +542,8 @@ final class MCPServerTests: XCTestCase {
         XCTAssertEqual(profiles[0]["protected"] as? Bool, false)
         XCTAssertEqual(profiles[1]["type"] as? String, "forti")
         XCTAssertEqual(profiles[1]["auto_reconnect"] as? Bool, true)
+        XCTAssertEqual(profiles[0]["connect_at_login"] as? Bool, false)
+        XCTAssertEqual(profiles[1]["connect_at_login"] as? Bool, true)
         XCTAssertEqual(profiles[1]["state"] as? String, "disconnected")
         // The text content is the same object.
         let text = try XCTUnwrap(((list["content"] as? [[String: Any]])?.first)?["text"] as? String)
@@ -535,6 +584,10 @@ final class MCPServerTests: XCTestCase {
                              ("get_logs", ["profile_id": "acme", "lines": "10"]), ("get_logs", ["profile_id": "acme", "lines": true]),
                              ("diagnose", ["verbose": true]), ("connect", ["profile_id": "acme", "wait": "yes"]),
                              ("connect", ["profile_id": "acme", "timeout_seconds": 0]),
+                             ("connect", ["profile_id": "acme", "wait": 1]), ("connect", ["profile_id": "acme", "timeout_seconds": true]),
+                             ("get_logs", ["profile_id": "acme", "lines": 10.5]), ("get_status", ["profile_id": ["acme"]]),
+                             ("get_logs", ["profile_id": "acme", "source": "all"]), ("get_logs", ["profile_id": "acme", "source": 1]),
+                             ("get_logs", ["profile_id": "acme", "source": "Activity"]),
                              ("disconnect", ["profile_id": "acme", "force": true])] as [(String, [String: Any])] {
             let result = try await callTool(server, tool, args)
             XCTAssertEqual(errorCode(result), "invalid_argument", "\(tool) \(args)")
@@ -544,6 +597,46 @@ final class MCPServerTests: XCTestCase {
         XCTAssertEqual(code, "profile_not_found")
         XCTAssertTrue(helper.starts.isEmpty)
         XCTAssertTrue(helper.stops.isEmpty)
+    }
+
+    /// Booleans and numbers stay apart on every platform (`JSONValue`): 1 is not true, false is not 0,
+    /// and 5.0 is the integer 5. Sent as raw lines, so the numbers are exactly as written.
+    func testBooleansAndNumbersStayApart() async throws {
+        let p = try makeOpenVPN()
+        try Data("one\ntwo\nthree\n".utf8).write(to: store.logURL(p.id))
+        let server = makeServer(allowConnect: true)
+        let meta = #""_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}"#
+        func call(_ tool: String, _ arguments: String) async throws -> [String: Any] {
+            let line = #"{"jsonrpc":"2.0","id":"t","method":"tools/call","params":{"# + meta + #","name":""# + tool
+                + #"","arguments":"# + arguments + "}}"
+            let r = try await reply(server, raw: Data(line.utf8))
+            return try XCTUnwrap(r["result"] as? [String: Any], "\(r)")
+        }
+        let two = try await call("get_logs", #"{"profile_id":"acme","lines":2.0}"#)
+        XCTAssertEqual((two["structuredContent"] as? [String: Any])?["lines"] as? [String], ["two", "three"])
+        for (tool, arguments) in [("get_logs", #"{"profile_id":"acme","lines":true}"#),
+                                  ("get_logs", #"{"profile_id":"acme","lines":2.5}"#),
+                                  ("get_logs", #"{"profile_id":"acme","lines":1e300}"#),
+                                  ("disconnect", #"{"profile_id":"acme","wait":0}"#),
+                                  ("disconnect", #"{"profile_id":"acme","wait":"false"}"#),
+                                  ("get_status", #"{"profile_id":true}"#)] {
+            let result = try await call(tool, arguments)
+            XCTAssertEqual(errorCode(result), "invalid_argument", "\(tool) \(arguments)")
+        }
+        let stopped = try await call("disconnect", #"{"profile_id":"acme","wait":false,"timeout_seconds":5.0}"#)
+        XCTAssertEqual(stopped["isError"] as? Bool, false, "\(stopped)")
+
+        // Request ids: strings and integers (also written 1.0), echoed as integers.
+        let whole = try await reply(server, raw: Data(#"{"jsonrpc":"2.0","id":1.0,"method":"ping"}"#.utf8))
+        XCTAssertEqual(whole["id"] as? Int, 1)
+        XCTAssertNotNil(whole["result"])
+        let big = try await reply(server, raw: Data(#"{"jsonrpc":"2.0","id":12345678901234567,"method":"ping"}"#.utf8))
+        XCTAssertEqual((big["id"] as? NSNumber)?.int64Value, 12_345_678_901_234_567)
+        for id in ["1.5", "true", "false", "null", "[1]", #"{"a":1}"#] {
+            let r = try await reply(server, raw: Data((#"{"jsonrpc":"2.0","id":"# + id + #","method":"ping"}"#).utf8))
+            XCTAssertEqual(rpcError(r), -32600, id)
+            XCTAssertNil(r["id"], id)
+        }
     }
 
     func testGetLogsReturnsRedactedTail() async throws {
@@ -567,6 +660,55 @@ final class MCPServerTests: XCTestCase {
         try makeOpenVPN("Lab")
         let empty = try await structured(server, "get_logs", ["profile_id": "lab"])
         XCTAssertEqual(empty["lines"] as? [String], [])
+    }
+
+    /// `source: "activity"`: what PassTunnel did, worded and as objects, never with code digits, and
+    /// redacted like the VPN log.
+    func testGetLogsReturnsTheActivityWithoutCodeDigits() async throws {
+        let p = try makeOpenVPN(otp: .totp)
+        let server = makeServer(allowConnect: true)
+        _ = try await structured(server, "connect", ["profile_id": "acme"])
+        try ActivityLog(url: store.activityURL(p.id)).append(ActivityEvent(at: t0, .rejected(reply: "AUTH_FAILED,password=\(password)")))
+
+        let report = try await structured(server, "get_logs", ["profile_id": "acme", "source": "activity"])
+        XCTAssertEqual(report["source"] as? String, "activity")
+        XCTAssertEqual(report["truncated"] as? Bool, false)
+        let events = try XCTUnwrap(report["events"] as? [[String: Any]])
+        XCTAssertEqual(events.map { $0["event"] as? String }, ["connecting", "sending", "auth_accepted", "connected", "rejected"])
+        XCTAssertFalse(events.contains { $0["code_prefix"] != nil }, "no code digits")
+        XCTAssertEqual(events[0]["host"] as? String, "vpn.example.com")
+        XCTAssertEqual(events[0]["protocol"] as? String, "udp")
+        XCTAssertEqual(events[1]["code"] as? Bool, true)
+        XCTAssertEqual(events[1]["seconds_left"] as? Int, 10)
+        XCTAssertEqual(events[1]["at"] as? String, "2023-11-14T22:13:20Z")
+        XCTAssertEqual(events[4]["reply"] as? String, "AUTH_FAILED,password=<redacted>")
+        let lines = try XCTUnwrap(report["lines"] as? [String])
+        XCTAssertEqual(lines.count, 5)
+        XCTAssertTrue(lines[1].hasSuffix("  Sending alice / ••••••••+••• ••• · 10 s left"), lines[1])
+        XCTAssertFalse(lines.joined().contains(password))
+
+        let last = try await structured(server, "get_logs", ["profile_id": "acme", "source": "activity", "lines": 2])
+        XCTAssertEqual((last["events"] as? [[String: Any]])?.map { $0["event"] as? String }, ["connected", "rejected"])
+        XCTAssertEqual(last["truncated"] as? Bool, true)
+        let raw = try await structured(server, "get_logs", ["profile_id": "acme", "source": "raw"])
+        XCTAssertEqual(raw["source"] as? String, "raw")
+        XCTAssertNil(raw["events"])
+
+        // Nothing recorded yet: an empty list, not an error.
+        try makeOpenVPN("Lab")
+        let empty = try await structured(server, "get_logs", ["profile_id": "lab", "source": "activity"])
+        XCTAssertEqual(empty["lines"] as? [String], [])
+        XCTAssertEqual((empty["events"] as? [Any])?.count, 0)
+
+        // The schemas name the new argument and fields.
+        let list = await exchange(server, request(9, "tools/list"))
+        let tools = try XCTUnwrap((list?["result"] as? [String: Any])?["tools"] as? [[String: Any]])
+        let getLogs = try XCTUnwrap(tools.first { $0["name"] as? String == "get_logs" })
+        let source = try XCTUnwrap(((getLogs["inputSchema"] as? [String: Any])?["properties"] as? [String: Any])?["source"] as? [String: Any])
+        XCTAssertEqual(source["enum"] as? [String], ["raw", "activity"])
+        let output = try XCTUnwrap((getLogs["outputSchema"] as? [String: Any])?["properties"] as? [String: Any])
+        XCTAssertNotNil(output["events"])
+        XCTAssertEqual((getLogs["outputSchema"] as? [String: Any])?["required"] as? [String], ["id", "lines", "truncated"])
     }
 
     func testGetLogsLeavesOutKeyMaterial() async throws {
@@ -647,6 +789,45 @@ final class MCPServerTests: XCTestCase {
         let stopped = try await structured(server, "disconnect", ["profile_id": "acme"])
         XCTAssertEqual(stopped["state"] as? String, "disconnected")
         XCTAssertEqual(helper.stops, ["acme"])
+    }
+
+    /// A failed connect says why: the error carries a `failure` object, and `get_status` keeps it.
+    func testAFailedConnectSaysWhy() async throws {
+        try makeOpenVPN(otp: .totp)
+        helper.openVPNStateLine = nil
+        helper.startLog = "2026-10-25 09:41:01 Control Channel: TLSv1.3, cipher TLSv1.3 TLS_AES_256_GCM_SHA384\n"
+            + "2026-10-25 09:41:02 AUTH: Received control message: AUTH_FAILED,not \(password)\n"
+        let server = makeServer(allowConnect: true)
+        let result = try await callTool(server, "connect", ["profile_id": "acme"])
+        XCTAssertEqual(errorCode(result), "credentials_rejected")
+        let text = try XCTUnwrap(((result["content"] as? [[String: Any]])?.first)?["text"] as? String)
+        let error = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])?["error"] as? [String: Any])
+        let failure = try XCTUnwrap(error["failure"] as? [String: Any])
+        XCTAssertEqual(failure["kind"] as? String, "auth_rejected")
+        XCTAssertEqual(failure["reply"] as? String, "AUTH_FAILED,not <redacted>", "redacted like the log")
+        XCTAssertFalse(text.contains(password))
+        XCTAssertEqual(failure["credentials_sent"] as? Bool, true)
+        XCTAssertEqual(failure["code_sent"] as? Bool, true)
+        XCTAssertEqual(failure["code_seconds_left"] as? Int, 10)
+        XCTAssertEqual(failure["at"] as? String, "2023-11-14T22:13:20Z")
+
+        let status = try await structured(server, "get_status", ["profile_id": "acme"])
+        let profile = try XCTUnwrap((status["profiles"] as? [[String: Any]])?.first)
+        XCTAssertEqual((profile["failure"] as? [String: Any])?["kind"] as? String, "auth_rejected")
+        XCTAssertEqual((profile["failure"] as? [String: Any])?["reply"] as? String, "AUTH_FAILED,not <redacted>")
+        XCTAssertNotNil(profile["error"] as? String)
+
+        // A server that does not answer: its own code, and nothing was sent.
+        let list = await exchange(server, request(9, "tools/list"))
+        let tools = try XCTUnwrap((list?["result"] as? [String: Any])?["tools"] as? [[String: Any]])
+        let statusSchema = try XCTUnwrap(tools.first { $0["name"] as? String == "get_status" }?["outputSchema"] as? [String: Any])
+        let profileSchema = try XCTUnwrap(((statusSchema["properties"] as? [String: Any])?["profiles"] as? [String: Any])?["items"] as? [String: Any])
+        let failureSchema = try XCTUnwrap((profileSchema["properties"] as? [String: Any])?["failure"] as? [String: Any])
+        XCTAssertEqual(((failureSchema["properties"] as? [String: Any])?["kind"] as? [String: Any])?["enum"] as? [String],
+                       ConnectionFailure.Kind.allCases.map(\.rawValue))
+        helper.startLog = "2026-10-25 09:41:00 RESOLVE: Cannot resolve host address: vpn.example.com:1194 (Name or service not known)\n"
+        let notFound = try await callTool(server, "connect", ["profile_id": "acme"])
+        XCTAssertEqual(errorCode(notFound), "host_not_found")
     }
 
     func testConnectWithoutWaitingReturnsAtOnce() async throws {
@@ -892,6 +1073,7 @@ final class MCPServerTests: XCTestCase {
         for (name, args) in [("list_profiles", [:]), ("get_status", [:]), ("get_status", ["profile_id": "acme"]),
                              ("get_logs", ["profile_id": "acme", "lines": 500]), ("diagnose", [:]),
                              ("connect", ["profile_id": "acme"]), ("get_status", [:]),
+                             ("get_logs", ["profile_id": "acme", "source": "activity"]),
                              ("disconnect", ["profile_id": "acme"])] as [(String, [String: Any])] {
             let result = try await callTool(server, name, args)
             XCTAssertNotEqual(result["isError"] as? Bool, true, "\(name): \(result)")

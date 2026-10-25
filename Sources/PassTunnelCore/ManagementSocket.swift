@@ -1,4 +1,5 @@
 import Foundation
+import PassTunnelKit
 
 public enum ManagementError: Error, Equatable, LocalizedError {
     case pathTooLong(String)
@@ -151,27 +152,18 @@ public struct ManagementSocket {
         private var buffer = Data()
 
         init(path: String) throws {
-            var addr = sockaddr_un()
-            let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
-            guard path.utf8.count < maxLen else { throw ManagementError.pathTooLong(path) }
-            fd = socket(AF_UNIX, SOCK_STREAM, 0)
+            guard var addr = POSIXSocket.unixAddress(path) else { throw ManagementError.pathTooLong(path) }
+            fd = socket(AF_UNIX, POSIXSocket.stream, 0)
             guard fd >= 0 else { throw ManagementError.connectFailed(path, errno) }
-            var one: Int32 = 1
-            setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
-            addr.sun_family = sa_family_t(AF_UNIX)
-            withUnsafeMutableBytes(of: &addr.sun_path) { raw in
-                raw.copyBytes(from: path.utf8)
-                raw[path.utf8.count] = 0
-            }
-            addr.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
+            POSIXSocket.noSigPipe(fd)
             let rc = withUnsafePointer(to: &addr) {
                 $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                    connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+                    POSIXSocket.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
                 }
             }
             guard rc == 0 else {
                 let e = errno
-                Darwin.close(fd)
+                POSIXSocket.close(fd)
                 fd = -1
                 throw ManagementError.connectFailed(path, e)
             }
@@ -181,13 +173,13 @@ public struct ManagementSocket {
         deinit { close() }
 
         func close() {
-            if fd >= 0 { Darwin.close(fd); fd = -1 }
+            if fd >= 0 { POSIXSocket.close(fd); fd = -1 }
         }
 
         /// Wakes a reader blocked on this connection (it then sees end of file) without closing the
         /// descriptor under it.
         func shutdown() {
-            if fd >= 0 { _ = Darwin.shutdown(fd, SHUT_RDWR) }
+            if fd >= 0 { POSIXSocket.shutdown(fd) }
         }
 
         /// Next line without its CR/LF, nil at EOF with nothing buffered.
@@ -219,7 +211,7 @@ public struct ManagementSocket {
             var bytes = Array(text.utf8)[...]
             while !bytes.isEmpty {
                 try waitFor(POLLOUT, until: deadline)
-                let n = bytes.withUnsafeBytes { Darwin.write(fd, $0.baseAddress, $0.count) }
+                let n = bytes.withUnsafeBytes { POSIXSocket.write(fd, $0.baseAddress, $0.count) }
                 if n > 0 { bytes = bytes.dropFirst(n) }
                 else if errno != EAGAIN && errno != EINTR { throw ManagementError.closed }
             }

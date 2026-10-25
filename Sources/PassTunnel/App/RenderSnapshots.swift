@@ -55,6 +55,25 @@ enum RenderSnapshots {
             for dark in [false, true] {
                 snapshot(MainView().environmentObject(emptyModel), size: CGSize(width: 600, height: 560),
                          dark: dark, to: out, name: "main-empty", window: true)
+                snapshot(MenuBarPanelPreview(now: Date()).environmentObject(emptyModel), size: nil, dark: dark, to: out,
+                         name: "menubar-panel-empty")
+            }
+            renderFirstRun(emptyModel, to: out)
+
+            // The design system (App/Design): every token and base component, also with Increase Contrast.
+            for contrast in [false, true] {
+                Palette.previewIncreasedContrast = contrast
+                for dark in [false, true] {
+                    snapshot(DesignGallery(isDark: dark, isContrast: contrast), size: nil, dark: dark, to: out,
+                             name: contrast ? "components-contrast" : "components")
+                }
+            }
+            Palette.previewIncreasedContrast = false
+
+            // Every status a profile can show in the redesigned views (DisplayStatus), in the render's language.
+            let statusNow = Date(timeIntervalSince1970: 1_800_000_000)
+            for dark in [false, true] {
+                snapshot(ProfileStatusGallery(now: statusNow), size: nil, dark: dark, to: out, name: "profile-status")
             }
 
             let sample = try makeSampleProfiles(store)
@@ -78,7 +97,9 @@ enum RenderSnapshots {
                 snapshot(MainView().environmentObject(model), size: CGSize(width: 680, height: 470),
                          dark: dark, to: out, name: "main", window: true)
             }
+            // "Hide codes until clicked", with the first code clicked: it shows for 20 s, the others stay hidden.
             model.prefs.hideCodes = true
+            if let first = model.profiles.first { model.revealCodes(first) }
             snapshot(MainView().environmentObject(model), size: CGSize(width: 680, height: 470),
                      dark: false, to: out, name: "main-hidden-codes", window: true)
             model.prefs.hideCodes = false
@@ -135,7 +156,8 @@ enum RenderSnapshots {
                              name: "settings-\(tab.rawValue)", window: true)
                 }
             }
-            snapshot(GeneralSettings(previewLoginStatus: .requiresApproval).frame(width: 540).environmentObject(model),
+            let approval = GeneralSettings(previewLoginStatus: .requiresApproval, fullHeight: true, licensesAvailable: true)
+            snapshot(approval.frame(width: 540).environmentObject(model),
                      size: nil, dark: false, to: out, name: "settings-general-login-approval", window: true)
 
             // Onboarding.
@@ -151,6 +173,38 @@ enum RenderSnapshots {
             model.refreshHelperStatus()
             snapshot(OnboardingView(step: 1).environmentObject(model), size: nil, dark: false, to: out,
                      name: "onboarding-2-approval")
+
+            renderSplitWindow(model, sample: sample, store: store, now: now, to: out)
+            try renderImportReview(model, home: home, store: store, now: now, to: out)
+
+            // The menu bar panel of the new interface (NewInterface): all six profiles, so the list scrolls; then
+            // three (connected, Touch ID to connect with the code locked, dropped) with auto-type on. Last, as it
+            // deletes sample profiles. Without an authenticator, turning on "Confirm with Touch ID" encrypts nothing
+            // and makes no Secure Enclave key.
+            let panel = AppModel(paths: paths, connections: ConnectionManager(authenticator: UnavailableAuthenticator()),
+                                 live: false)
+            panel.previewNow = now
+            panel.previewStates = sample.states(now)
+            panel.previewErrors = sample.errors
+            panel.previewUnreachable = sample.unreachable
+            panel.setPreviewDropped(sample.dropped)
+            panel.prefs.autoType = false
+            for dark in [false, true] {
+                snapshot(MenuBarPanelPreview(now: now).environmentObject(panel), size: nil, dark: dark, to: out,
+                         name: "menubar-panel-scroll")
+            }
+            let (work, staging, travel) = (sample.ids[0], sample.ids[3], sample.ids[5])
+            for id in sample.ids where ![work, staging, travel].contains(id) { try store.delete(id) }
+            try store.update(staging) { $0.requireAuth = .always }
+            panel.reload()
+            panel.previewStates = sample.states(now).filter { $0.key == work }
+            panel.previewErrors = [:]
+            panel.previewLockedCodes = [staging]
+            panel.prefs.autoType = true
+            for dark in [false, true] {
+                snapshot(MenuBarPanelPreview(now: now).environmentObject(panel), size: nil, dark: dark, to: out,
+                         name: "menubar-panel")
+            }
         } catch {
             FileHandle.standardError.write(Data("render failed: \(error.localizedDescription)\n".utf8))
             return 1
@@ -161,10 +215,148 @@ enum RenderSnapshots {
         return 0
     }
 
+    /// The redesigned window (behind `NewInterface`, not on the website yet), once per state of the selected profile:
+    /// `main-split` connected, `-waiting` for a fresh code, `-dropped` and reconnecting, `-off`, `-failed`; then the
+    /// code card's other states on the first profile: `-locked`, `-hidden`, `-copied`, `-narrow` (the smallest window,
+    /// cards stacked) and `-template` (a custom code format). Sets its own overrides and leaves the model and the
+    /// profiles as it found them.
+    private static func renderSplitWindow(_ model: AppModel, sample: Sample, store: ProfileStore, now: Date, to out: URL) {
+        let ids = sample.ids   // work, lab, home, staging, client, travel
+        let configs = [ids[0]: "client\nremote vpn.example.com 1194 udp\n",
+                       ids[2]: "client\nproto tcp\nremote 203.0.113.10 443\n",
+                       ids[5]: "client\nremote vpn2.example.com 1194\nremote vpn3.example.com 1194\n"]
+        for (id, text) in configs { try? Data(text.utf8).write(to: store.ovpnURL(id)) }
+        // A connect waits into the next window: shown 3.6 s before it starts.
+        let nextWindow = CodeCard.nextWindow(TOTPParams(), after: now)
+        let waitingNow = nextWindow.addingTimeInterval(-3.6)
+        model.previewCodeWaits = [ids[3]: nextWindow.addingTimeInterval(0.25)]
+        model.previewReconnecting = [ids[5]: ReconnectInfo(attempt: 1, maxAttempts: 3, at: now)]
+        let selection = model.selection
+        func render(_ suffix: String, size: CGSize = CGSize(width: 1080, height: 700)) {
+            for dark in [false, true] {
+                snapshot(SplitWindowRender().environmentObject(model), size: size, dark: dark, to: out,
+                         name: "main-split\(suffix)", window: true)
+            }
+        }
+        let shown = [(ids[0], ""), (ids[3], "-waiting"), (ids[5], "-dropped"), (ids[2], "-off"), (ids[4], "-failed")]
+        for (id, suffix) in shown {
+            model.selection = id
+            model.previewNow = suffix == "-waiting" ? waitingNow : now
+            render(suffix)
+        }
+        model.previewNow = now
+
+        model.selection = ids[0]
+        model.previewLockedCodes = [ids[0]]
+        render("-locked")
+        model.previewLockedCodes = []
+        model.prefs.hideCodes = true
+        render("-hidden")
+        model.prefs.hideCodes = false
+        model.setPreviewCopy(CodeCard.Copy(profileID: ids[0], kind: .code, at: now,
+                                           window: TOTP.counter(params: TOTPParams(), at: now)))
+        render("-copied")
+        model.setPreviewCopy(nil)
+        render("-narrow", size: CGSize(width: 820, height: 640))
+        let template = model.profile(ids[0])?.otpTemplate ?? OTPTemplatePreset.append.rawValue
+        try? store.update(ids[0]) { $0.otpTemplate = "{otp}-{password}" }
+        model.reload()
+        render("-template")
+        try? store.update(ids[0]) { $0.otpTemplate = template }
+        model.reload()
+
+        // The add view the sidebar's + opens (`add-vpn`), and the question about opening at login under the detail
+        // once there is a profile (`main-split-login`).
+        let helper = model.previewHelperStatus
+        model.previewHelperStatus = .enabled
+        model.refreshHelperStatus()
+        model.selection = nil
+        model.addingProfile = true
+        for dark in [false, true] {
+            snapshot(SplitWindowRender().environmentObject(model), size: CGSize(width: 1080, height: 700),
+                     dark: dark, to: out, name: "add-vpn", window: true)
+        }
+        model.addingProfile = false
+        model.previewHelperStatus = helper
+        model.refreshHelperStatus()
+        model.selection = ids[0]
+        for dark in [false, true] {
+            snapshot(SplitWindowRender(loginQuestion: true).environmentObject(model), size: CGSize(width: 1080, height: 700),
+                     dark: dark, to: out, name: "main-split-login", window: true)
+        }
+        model.selection = selection
+        model.previewCodeWaits = [:]
+        model.previewReconnecting = [:]
+        model.setPreviewDropped(sample.dropped)
+    }
+
+    /// The redesigned window without profiles (behind `NewInterface`, not on the website yet): `first-run` with the
+    /// helper card before the helper is installed, `first-run-approval` while macOS waits for its approval.
+    private static func renderFirstRun(_ model: AppModel, to out: URL) {
+        for (status, name) in [(HelperStatus.notRegistered, "first-run"), (.requiresApproval, "first-run-approval")] {
+            model.previewHelperStatus = status
+            model.refreshHelperStatus()
+            for dark in status == .notRegistered ? [false, true] : [false] {
+                snapshot(SplitWindowRender().environmentObject(model), size: CGSize(width: 1080, height: 700),
+                         dark: dark, to: out, name: name, window: true)
+            }
+        }
+        model.previewHelperStatus = nil
+    }
+
+    /// The import review of the redesigned window (`ImportReviewView`), light and dark: `import-review` as designed
+    /// (two lines skipped, the code secret missing), `-ready` with the secret added, `-certificate` for a
+    /// certificate-only file whose keys come from files next to it, and `-narrow` at the window's smallest size, where
+    /// the columns stack. Nothing is added; the model is left as it was found.
+    private static func renderImportReview(_ model: AppModel, home: URL, store: ProfileStore, now: Date,
+                                           to out: URL) throws {
+        let downloads = home.appendingPathComponent("Downloads", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloads, withIntermediateDirectories: true)
+        let pem = "-----BEGIN CERTIFICATE-----\nMIIBCA==\n-----END CERTIFICATE-----\n"
+        let work = "client\ndev tun\nremote vpn.example.com 1194 udp\nscript-security 2\nup /etc/openvpn/update-dns\n"
+            + "<ca>\n\(pem)</ca>\n<cert>\n\(pem)</cert>\n<key>\n-----BEGIN PRIVATE KEY-----\nMIIBCC==\n"
+            + "-----END PRIVATE KEY-----\n</key>\n<auth-user-pass>\nalice\nsample-password\n</auth-user-pass>\n"
+            + "static-challenge \"Enter code\" 1\n"
+        let files: [String: Data] = [
+            "work.ovpn": Data(work.utf8),
+            "home-lab.ovpn": Data("client\nremote 203.0.113.10 443 tcp\nca ca.crt\npkcs12 home.p12\ntls-crypt ta.key\n".utf8),
+            "ca.crt": Data(pem.utf8),
+            "home.p12": Data([0, 1, 2, 3]),
+            "ta.key": Data("-----BEGIN OpenVPN Static key V1-----\n0123abcd\n-----END OpenVPN Static key V1-----\n".utf8),
+        ]
+        for (name, data) in files { try data.write(to: downloads.appendingPathComponent(name)) }
+
+        let selection = model.selection
+        defer {
+            model.importReview = nil
+            model.selection = selection
+        }
+        func render(_ file: String, _ name: String, size: CGSize = CGSize(width: 1080, height: 700),
+                    edit: (ImportReviewModel) -> Void = { _ in }) throws {
+            let review = ImportReviewModel(draft: try store.analyzeOVPN(downloads.appendingPathComponent(file)))
+            review.previewNow = now
+            edit(review)
+            model.selection = nil
+            model.importReview = review
+            for dark in [false, true] {
+                snapshot(SplitWindowRender().environmentObject(model), size: size, dark: dark, to: out, name: name,
+                         window: true)
+            }
+        }
+        try render("work.ovpn", "import-review") { $0.name = "Work" }
+        try render("work.ovpn", "import-review-ready") {
+            $0.name = "Work"
+            $0.apply(.secret(Data("12345678901234567890".utf8)))
+        }
+        try render("home-lab.ovpn", "import-review-certificate")
+        try render("work.ovpn", "import-review-narrow", size: CGSize(width: 820, height: 560)) { $0.name = "Work" }
+    }
+
     @ViewBuilder
     private static func tabView(_ tab: SettingsTab, model: AppModel) -> some View {
         switch tab {
-        case .general: GeneralSettings(previewLoginStatus: .enabled)
+        // The whole page, not the scrolling window; the menu bar card as the interface in use shows it.
+        case .general: GeneralSettings(previewLoginStatus: .enabled, fullHeight: true, licensesAvailable: true)
         case .shortcuts: ShortcutSettings(previewTrusted: false)
         case .helper:
             let real = BundledTools.load()
@@ -358,5 +550,47 @@ enum RenderSnapshots {
             return
         }
         for sub in view.subviews { hideToolbarGlass(in: sub) }
+    }
+}
+
+/// The redesigned window for the renders. On macOS 26 the window server draws the glass sidebar, and offscreen its
+/// rows stay blank: there the render lays the window's own sidebar and detail out as the window does (the sidebar
+/// 272 pt wide, 8 pt in, on the list's flat background instead of glass, its search field drawn in place).
+private struct SplitWindowRender: View {
+    @EnvironmentObject private var model: AppModel
+    /// The question about opening at login under the detail.
+    var loginQuestion = false
+
+    var body: some View {
+        if #available(macOS 26, *) {
+            let shape = RoundedRectangle(cornerRadius: Radius.panel, style: .continuous)
+            HStack(spacing: 0) {
+                ProfileSidebar(previewWithoutSearch: true)
+                    .safeAreaInset(edge: .top, spacing: 0) { searchField }
+                    .frame(width: 272)
+                    .clipShape(shape)
+                    .edge(shape, Palette.glassEdge, width: Elevation.glassEdge)
+                    .padding(8)
+                SplitDetail(previewLoginQuestion: loginQuestion)
+            }
+        } else {
+            MainSplitView(previewLoginQuestion: loginQuestion)
+        }
+    }
+
+    /// As macOS 26 draws the sidebar's search field.
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+            Text(String(localized: "Search profiles"))
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 10)
+        .frame(height: 28)
+        .background(Palette.card, in: Capsule())
+        .edge(Capsule(), Palette.line)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
     }
 }

@@ -17,6 +17,10 @@
 #   fix, perf                                                   patch (1.4.2 -> 1.4.3)
 #   anything else                                               no release
 #
+# Commits with the scope linux (feat(linux): …, fix(linux)!: …) are work on the Linux version, which
+# has no release yet: they count for nothing, breaking or not, and are not in the notes. Phase 3 of
+# docs/LINUX.md, which releases Linux, revisits this.
+#
 # Prints the version (like 1.5.0) when there is something to release and nothing when there is not;
 # both exit 0. A summary goes to stderr. The notes list the commits under "### Breaking changes",
 # "### New features" and "### Fixes" (perf too), oldest first, each subject without its type and with
@@ -70,15 +74,22 @@ capitalise() { printf '%s%s' "$(printf '%s' "${1:0:1}" | tr '[:lower:]' '[:upper
 
 BUMP=0          # 0 none, 1 patch, 2 minor, 3 major
 BREAKING=() FEATURES=() FIXES=()
-COUNTED=0 IGNORED=0
+COUNTED=0 IGNORED=0 LINUX=0
 while read -r commit; do
     subject="$(git log -1 --format=%s "$commit")"
     if [[ ! "$subject" =~ $SUBJECT ]]; then
         IGNORED=$((IGNORED + 1))
         continue
     fi
+    type="${BASH_REMATCH[1]}" scope="${BASH_REMATCH[2]}" bang="${BASH_REMATCH[3]}"
+    # Linux work is not in the app's release: no bump, not in the notes. A breaking change too ('!'
+    # or the footer): it breaks the Linux version only, which has no release and so nobody to break
+    # yet. Revisited when Linux is released (docs/LINUX.md, phase 3).
+    if [[ "$scope" == "(linux)" ]]; then
+        LINUX=$((LINUX + 1))
+        continue
+    fi
     COUNTED=$((COUNTED + 1))
-    type="${BASH_REMATCH[1]}" bang="${BASH_REMATCH[3]}"
     line="- $(capitalise "${BASH_REMATCH[4]}")"
     body="$(git log -1 --format=%b "$commit")"
     if [[ -n "$bang" ]] || grep -Eq '^BREAKING[ -]CHANGE: ' <<<"$body"; then
@@ -91,7 +102,7 @@ while read -r commit; do
         fix|perf) ((BUMP >= 1)) || BUMP=1; FIXES+=("$line") ;;
     esac
 done < <(git rev-list --no-merges --reverse "$RANGE")
-echo "commits since: $COUNTED conventional, $IGNORED ignored" >&2
+echo "commits since: $COUNTED conventional, $LINUX linux (left out), $IGNORED ignored" >&2
 
 case "$BUMP" in
     0) echo "nothing to release (no feat, fix, perf or breaking change)" >&2; exit 0 ;;

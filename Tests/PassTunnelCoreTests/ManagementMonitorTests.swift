@@ -175,7 +175,7 @@ final class SharedStateTests: XCTestCase {
         home = String(cString: made)
         service = "PassTunnelTests-\(UUID().uuidString)"
         setenv("PASSTUNNEL_HOME", home, 1)
-        setenv("PASSTUNNEL_KEYCHAIN_SERVICE", service, 1)
+        useTestSecrets(service: service)
         helper = FakeHelper()
     }
 
@@ -213,7 +213,9 @@ final class SharedStateTests: XCTestCase {
         await app.refresh()
         let url = store.dir(p.id).appendingPathComponent(ConnectionManager.sharedStateFile)
         XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+        #if os(macOS)
         XCTAssertFalse(ProfilesWatcher.isRelevant(path: url.path))
+        #endif
         let queried = cliQuerier.calls
         await cli.refresh()
         XCTAssertEqual(cli.state(p.id), .connected(ip: "10.8.0.6", since: since))

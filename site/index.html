@@ -176,7 +176,7 @@
         <p class="eyebrow">One-time codes</p>
         <h2 class="h2" id="codes-title">One-time codes, handled.</h2>
       </div>
-      <p class="lead">PassTunnel generates the code and sends it with your password. If fewer than 8 seconds are left in the code window, it waits for a fresh one.</p>
+      <p class="lead">PassTunnel generates the code and sends it with your password. If 5 seconds or less are left in the code window, it waits for a fresh one, and it never sends the same code twice.</p>
     </div>
 
     <div class="split codes-main">
@@ -232,9 +232,9 @@
       </article>
 
       <figure class="figure-card">
-        <img class="shot only-light" src="assets/img/editor-code-light.webp" srcset="assets/img/editor-code-light.webp 480w, assets/img/editor-code-light@1.5x.webp 720w, assets/img/editor-code-light@2x.webp 960w" sizes="(max-width: 559px) calc(92vw - 34px), (max-width: 1035.98px) 480px, (max-width: 1284px) calc(45.2vw - 100px), 480px" width="480" height="530" loading="lazy" decoding="async" alt="The One-time code section of the profile editor: Generate selected, a drop zone for the QR code, the live code with its countdown, advanced TOTP settings, and the code sent with the password in the Append format.">
-        <img class="shot only-dark" src="assets/img/editor-code-dark.webp" srcset="assets/img/editor-code-dark.webp 480w, assets/img/editor-code-dark@1.5x.webp 720w, assets/img/editor-code-dark@2x.webp 960w" sizes="(max-width: 559px) calc(92vw - 34px), (max-width: 1035.98px) 480px, (max-width: 1284px) calc(45.2vw - 100px), 480px" width="480" height="530" loading="lazy" decoding="async" alt="The One-time code section of the profile editor: Generate selected, a drop zone for the QR code, the live code with its countdown, advanced TOTP settings, and the code sent with the password in the Append format.">
-        <figcaption>One-time code settings in the profile editor.</figcaption>
+        <img class="shot only-light" src="assets/img/editor-code-light.webp" srcset="assets/img/editor-code-light.webp 480w, assets/img/editor-code-light@1.5x.webp 720w, assets/img/editor-code-light@2x.webp 960w" sizes="(max-width: 559px) calc(92vw - 34px), (max-width: 1035.98px) 480px, (max-width: 1284px) calc(45.2vw - 100px), 480px" width="480" height="512" loading="lazy" decoding="async" alt="The profile editor: name, configuration, user name and password; the one-time code secret added, with its live code; the Append code format and what the server receives, the password masked; switches for Touch ID and reconnecting automatically.">
+        <img class="shot only-dark" src="assets/img/editor-code-dark.webp" srcset="assets/img/editor-code-dark.webp 480w, assets/img/editor-code-dark@1.5x.webp 720w, assets/img/editor-code-dark@2x.webp 960w" sizes="(max-width: 559px) calc(92vw - 34px), (max-width: 1035.98px) 480px, (max-width: 1284px) calc(45.2vw - 100px), 480px" width="480" height="512" loading="lazy" decoding="async" alt="The profile editor: name, configuration, user name and password; the one-time code secret added, with its live code; the Append code format and what the server receives, the password masked; switches for Touch ID and reconnecting automatically.">
+        <figcaption>The profile editor, with what the server receives.</figcaption>
       </figure>
     </div>
 
@@ -242,12 +242,12 @@
       <article class="card">
         <div class="card-icon" aria-hidden="true"><svg class="icon" width="20" height="20"><use href="#i-clock"/></svg></div>
         <h3>An authenticator, built in</h3>
-        <p>Live codes in large digits with a countdown ring. Click to copy; the clipboard is cleared after 30 s. Codes can be hidden.</p>
+        <p>Live codes in large digits with a countdown ring. Click to copy; the clipboard is cleared after a minute, or the time you choose. Codes can be hidden.</p>
       </article>
       <article class="card">
         <div class="card-icon" aria-hidden="true"><svg class="icon" width="20" height="20"><use href="#i-qr"/></svg></div>
         <h3>QR import</h3>
-        <p>Drop a screenshot, choose an image or paste. No retyping a secret by hand.</p>
+        <p>Scan it on screen, drop a screenshot, choose an image or paste. No retyping a secret by hand.</p>
       </article>
       <article class="card">
         <div class="card-icon" aria-hidden="true"><svg class="icon" width="20" height="20"><use href="#i-fingerprint"/></svg></div>

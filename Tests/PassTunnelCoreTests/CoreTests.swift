@@ -48,6 +48,18 @@ final class ModelTests: CoreTestCase {
         XCTAssertTrue(p.setRoutes)
         XCTAssertEqual(p.otpTemplate, "{password}{otp}")
         XCTAssertEqual(try decode("{}").type, .openvpn)
+        XCTAssertFalse(p.connectAtLogin, "files written before connect_at_login existed")
+    }
+
+    func testConnectAtLoginIsStoredAndToleratesBadValues() throws {
+        XCTAssertTrue(try decode(#"{"type":"openvpn","connect_at_login":true}"#).connectAtLogin)
+        XCTAssertFalse(try decode(#"{"type":"openvpn","connect_at_login":"yes"}"#).connectAtLogin)
+        var p = Profile(id: "acme", name: "Acme", type: .openvpn)
+        p.connectAtLogin = true
+        let data = try JSONCoding.encode(p)
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(object["connect_at_login"] as? Bool, true)
+        XCTAssertEqual(try JSONCoding.decode(Profile.self, from: data), p)
     }
 
     func testUnknownValuesAndKeysAreTolerated() throws {
@@ -218,6 +230,39 @@ final class JSONAndPreferencesTests: CoreTestCase {
         XCTAssertEqual(Preferences.load(), p)
     }
 
+    func testFreshCodeAndClipboardPreferences() throws {
+        func decode(_ json: String) throws -> Preferences {
+            try JSONCoding.decode(Preferences.self, from: Data(json.utf8))
+        }
+        XCTAssertTrue(Preferences().waitForFreshCode)
+        XCTAssertEqual(Preferences().clearClipboardAfter, 60)
+        XCTAssertEqual(Preferences.freshCodeSeconds, 5)
+        XCTAssertEqual(Preferences.clearClipboardChoices, [30, 60, 120])
+
+        // A config.json from before these settings.
+        let old = try decode(#"{"hide_codes":true,"auth_reuse_minutes":5}"#)
+        XCTAssertTrue(old.waitForFreshCode)
+        XCTAssertEqual(old.clearClipboardAfter, 60)
+
+        XCTAssertFalse(try decode(#"{"wait_for_fresh_code":false}"#).waitForFreshCode)
+        XCTAssertTrue(try decode(#"{"wait_for_fresh_code":"no"}"#).waitForFreshCode, "unreadable: the default")
+        for seconds in Preferences.clearClipboardChoices {
+            XCTAssertEqual(try decode(#"{"clear_clipboard_after":\#(seconds)}"#).clearClipboardAfter, seconds)
+        }
+        for other in ["0", "-30", "45", "3600", #""30""#, "null", "true", "60.5"] {
+            XCTAssertEqual(try decode(#"{"clear_clipboard_after":\#(other)}"#).clearClipboardAfter, 60, other)
+        }
+
+        var p = Preferences()
+        p.waitForFreshCode = false
+        p.clearClipboardAfter = 120
+        try p.save()
+        let text = try String(contentsOf: AppPaths.default.configURL, encoding: .utf8)
+        XCTAssertTrue(text.contains(#""wait_for_fresh_code" : false"#), text)
+        XCTAssertTrue(text.contains(#""clear_clipboard_after" : 120"#), text)
+        XCTAssertEqual(Preferences.load(), p)
+    }
+
     func testBadgePalettes() {
         XCTAssertEqual(BadgePalette.allCases.map(\.rawValue), ["pastel", "vivid", "soft", "candy", "earth"])
         for palette in BadgePalette.allCases {
@@ -250,6 +295,7 @@ final class SecretsTests: CoreTestCase {
         XCTAssertEqual(Secrets.get("acme", .totp), "JBSWY3DPEHPK3PXP")
     }
 
+    #if os(macOS)
     /// The old item is deleted before the new one is added; a failed add puts the old value back.
     func testFailedAddKeepsThePreviousValue() throws {
         defer { Secrets.addOverride = nil }
@@ -278,6 +324,7 @@ final class SecretsTests: CoreTestCase {
         try Secrets.set("acme", .password, "fourth")
         XCTAssertEqual(Secrets.get("acme", .password), "fourth")
     }
+    #endif
 
     func testTurkishAndUnicodeValues() throws {
         let value = "Şifre-ğüşıöç-İĞÜŞÖÇ-€-🔒"
@@ -285,6 +332,7 @@ final class SecretsTests: CoreTestCase {
         XCTAssertEqual(Secrets.get("acme", .password), value)
     }
 
+    #if os(macOS)
     func testUsesOverriddenService() throws {
         try Secrets.set("acme", .password, "x")
         let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
@@ -295,6 +343,7 @@ final class SecretsTests: CoreTestCase {
         XCTAssertEqual(SecItemCopyMatching(q as CFDictionary, &out), errSecSuccess)
         XCTAssertEqual(out as? Data, Data("x".utf8))
     }
+    #endif
 }
 
 final class OVPNAnalyzerTests: CoreTestCase {
@@ -424,6 +473,43 @@ final class OVPNAnalyzerTests: CoreTestCase {
         XCTAssertEqual(a.remotes, ["vpn.example.com", "vpn2.example.com"])
     }
 
+    func testEndpoint() {
+        func endpoint(_ text: String) -> String { OVPNAnalyzer.endpointDescription(text) }
+        XCTAssertEqual(endpoint("client\nremote vpn.example.com\n"), "vpn.example.com:1194 · UDP", "OpenVPN's defaults")
+        XCTAssertEqual(endpoint("remote vpn.example.com 443 tcp-client\n"), "vpn.example.com:443 · TCP")
+        XCTAssertEqual(endpoint("proto tcp\nport 8443\nremote vpn.example.com\n"), "vpn.example.com:8443 · TCP")
+        XCTAssertEqual(endpoint("rport 1195\nproto udp6\nremote vpn.example.com\n"), "vpn.example.com:1195 · UDP")
+        XCTAssertEqual(endpoint("remote vpn.example.com\nport 1\nport 2\n"), "vpn.example.com:2 · UDP", "the last line wins")
+        XCTAssertEqual(endpoint("proto tcp\nremote vpn.example.com 1194 udp\n"), "vpn.example.com:1194 · UDP",
+                       "the remote line's own protocol")
+        XCTAssertEqual(endpoint("remote 2001:db8::1 1194\n"), "[2001:db8::1]:1194 · UDP")
+        XCTAssertEqual(endpoint("remote vpn.example.com 1194\nremote vpn2.example.com 443 tcp\nremote 203.0.113.5\n"),
+                       "vpn.example.com:1194 +2 more · UDP")
+        XCTAssertEqual(endpoint("<ca>\nremote evil.example.com 1\n</ca>\nremote \"vpn.example.com\" 1194 # udp\n"),
+                       "vpn.example.com:1194 · UDP", "lines read as OpenVPN reads them")
+        XCTAssertEqual(endpoint(""), "")
+        XCTAssertNil(OVPNAnalyzer.endpoint("client\nproto tcp\n"))
+
+        // A <connection> block's own port and protocol, then the ones outside any block.
+        let blocks = """
+        proto tcp
+        port 443
+        <connection>
+        remote vpn.example.com
+        proto udp
+        </connection>
+        <connection>
+        remote vpn2.example.com 1195
+        port 9
+        </connection>
+        port 8443
+        """
+        XCTAssertEqual(OVPNAnalyzer.endpoint(blocks),
+                       OVPNAnalyzer.Endpoint(host: "vpn.example.com", port: "8443", tcp: false, others: 1))
+        XCTAssertEqual(OVPNAnalyzer.endpoint("<connection>\nremote vpn.example.com\nport 1195\n</connection>\nport 443\n")?.port,
+                       "1195")
+    }
+
     func testSetenvOpt() {
         // OpenVPN applies `setenv opt <directive>` when it knows the (exact) name and ignores it otherwise.
         XCTAssertEqual(OVPNAnalyzer.analyze("setenv opt remote vpn.example.com\n").remotes, ["vpn.example.com"])
@@ -438,6 +524,17 @@ final class OVPNAnalyzerTests: CoreTestCase {
         XCTAssertEqual(OVPNAnalyzer.redirectsGateway("<connection>\nremote vpn.example.com\n</connection>\nredirect-gateway\n"), true)
         XCTAssertEqual(OVPNAnalyzer.redirectsGateway("pull-filter ignore 'redirect-gateway'\n"), false)
         XCTAssertEqual(OVPNAnalyzer.redirectsGateway("pull-filter ignore \"redirect-gateway\n"), nil, "rejected line")
+    }
+
+    /// The parts the main window shows ("vpn.example.com:1194 · OpenVPN · UDP", "Connecting to vpn.example.com:1194…").
+    func testEndpointAddressAndServer() {
+        let e = OVPNAnalyzer.endpoint("remote vpn.example.com 1194\nremote vpn2.example.com 443 tcp\n")
+        XCTAssertEqual(e?.address, "vpn.example.com:1194")
+        XCTAssertEqual(e?.server, "vpn.example.com:1194 +1 more")
+        XCTAssertEqual(OVPNAnalyzer.endpoint("remote vpn.example.com\n")?.server, "vpn.example.com:1194")
+        XCTAssertEqual(OVPNAnalyzer.endpoint("remote 2001:db8::1 1194\n")?.address, "[2001:db8::1]:1194")
+        XCTAssertEqual(OVPNAnalyzer.Endpoint.address(host: "198.51.100.7", port: "443"), "198.51.100.7:443")
+        XCTAssertEqual(OVPNAnalyzer.Endpoint.address(host: "2001:db8::2", port: "443"), "[2001:db8::2]:443")
     }
 }
 
@@ -702,6 +799,7 @@ final class HealthCheckTests: CoreTestCase {
 
     func testRoundTripParsing() {
         XCTAssertEqual(HealthCheck.roundTripMS("round-trip min/avg/max/stddev = 0.067/12.6/0.067/0.000 ms"), 13)
+        XCTAssertEqual(HealthCheck.roundTripMS("1 packets transmitted, 1 received, 0% packet loss, time 0ms\nrtt min/avg/max/mdev = 0.041/7.4/0.041/0.000 ms\n"), 7)
         XCTAssertNil(HealthCheck.roundTripMS("nothing"))
         for avg in ["nan", "inf", "-inf", "1e300", "-1"] {
             XCTAssertNil(HealthCheck.roundTripMS("round-trip min/avg/max/stddev = 0.067/\(avg)/0.067/0.000 ms"), avg)
@@ -727,9 +825,34 @@ final class HealthCheckTests: CoreTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(start), 2.5)
     }
 
-    func testICMPLoopback() {
+    func testICMPLoopback() throws {
+        #if os(Linux)
+        // Containers (the Linux CI jobs) often have no ping, or no IPv6 loopback.
+        try XCTSkipIf(HealthCheck.pingCommand("127.0.0.1", ipv6: false, seconds: 1) == nil, "no ping")
+        XCTAssertTrue(HealthCheck.check("127.0.0.1", timeout: 3).ok)
+        #else
         XCTAssertTrue(HealthCheck.check("127.0.0.1", timeout: 3).ok)
         XCTAssertTrue(HealthCheck.check("::1", timeout: 3).ok)
+        #endif
+    }
+
+    func testPingCommand() {
+        #if os(Linux)
+        let found: (String) -> Bool = { $0 == "/bin/ping" }
+        XCTAssertEqual(HealthCheck.pingCommand("10.0.0.5", ipv6: false, seconds: 3, isExecutable: found)?.tool, "/bin/ping")
+        XCTAssertEqual(HealthCheck.pingCommand("10.0.0.5", ipv6: false, seconds: 3, isExecutable: found)?.arguments,
+                       ["-n", "-q", "-c", "1", "-W", "3", "10.0.0.5"])
+        XCTAssertEqual(HealthCheck.pingCommand("2001:db8::1", ipv6: true, seconds: 2, isExecutable: found)?.arguments,
+                       ["-6", "-n", "-q", "-c", "1", "-W", "2", "2001:db8::1"])
+        XCTAssertNil(HealthCheck.pingCommand("10.0.0.5", ipv6: false, seconds: 3, isExecutable: { _ in false }))
+        XCTAssertEqual(HealthCheck.pingCommand("h", ipv6: false, seconds: 1, isExecutable: { _ in true })?.tool, "/usr/bin/ping")
+        #else
+        XCTAssertEqual(HealthCheck.pingCommand("10.0.0.5", ipv6: false, seconds: 3)?.tool, "/sbin/ping")
+        XCTAssertEqual(HealthCheck.pingCommand("10.0.0.5", ipv6: false, seconds: 3)?.arguments,
+                       ["-n", "-q", "-c", "1", "-t", "3", "10.0.0.5"])
+        XCTAssertEqual(HealthCheck.pingCommand("::1", ipv6: true, seconds: 3)?.tool, "/sbin/ping6")
+        XCTAssertEqual(HealthCheck.pingCommand("::1", ipv6: true, seconds: 3)?.arguments, ["-n", "-q", "-c", "1", "::1"])
+        #endif
     }
 
     func testICMPHardTimeout() {
@@ -740,25 +863,29 @@ final class HealthCheckTests: CoreTestCase {
     }
 
     private func listen(_ family: Int32) throws -> (Int32, UInt16) {
-        let fd = socket(family, SOCK_STREAM, 0)
+        let fd = socket(family, POSIXSocket.stream, 0)
         guard fd >= 0 else { throw PTError.fileError("socket") }
         var rc: Int32
         if family == AF_INET {
             var a = sockaddr_in()
+            #if canImport(Darwin)
             a.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+            #endif
             a.sin_family = sa_family_t(AF_INET)
             a.sin_addr.s_addr = inet_addr("127.0.0.1")
             rc = withUnsafePointer(to: &a) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) } }
+                TestSocket.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) } }
         } else {
             var a = sockaddr_in6()
+            #if canImport(Darwin)
             a.sin6_len = UInt8(MemoryLayout<sockaddr_in6>.size)
+            #endif
             a.sin6_family = sa_family_t(AF_INET6)
             a.sin6_addr = in6addr_loopback
             rc = withUnsafePointer(to: &a) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in6>.size)) } }
+                TestSocket.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in6>.size)) } }
         }
-        guard rc == 0, Darwin.listen(fd, 4) == 0 else { close(fd); throw PTError.fileError("bind") }
+        guard rc == 0, TestSocket.listen(fd, 4) == 0 else { close(fd); throw PTError.fileError("bind") }
         var storage = sockaddr_storage()
         var len = socklen_t(MemoryLayout<sockaddr_storage>.size)
         _ = withUnsafeMutablePointer(to: &storage) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {

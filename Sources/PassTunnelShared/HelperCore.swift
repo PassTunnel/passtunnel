@@ -1,4 +1,8 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto   // swift-crypto: the same API, outside Apple platforms
+#endif
 import Foundation
 import PassTunnelVPNConfig
 
@@ -84,6 +88,7 @@ public struct HelperCore {
         public let sessionDir: SessionDirectory
         public let logFD: Int32
         /// Copy of the bundled DNS script inside `runDir`; its signature must be checked before launch.
+        /// On Linux the link to the daemon's own executable that OpenVPN runs as its DNS hook.
         public let dnsUpdownPath: String?
         /// The validated profile directory.
         public let profileDir: ProfileDirectory
@@ -93,14 +98,23 @@ public struct HelperCore {
 
     public static let configFileName = "config.ovpn"
     public static let maxConfigBytes = 1 << 20
-    /// sun_path is 104 bytes on macOS, including the terminating NUL.
+    /// sun_path is 104 bytes on macOS and 108 on Linux, including the terminating NUL.
+    #if os(Linux)
+    public static let maxSocketPathBytes = 107
+    #else
     public static let maxSocketPathBytes = 103
+    #endif
     /// Run root, per-user and per-session directories: root-owned, searchable but not listable.
     public static let runDirMode: mode_t = 0o711
     /// The system's CA bundle (`FortiConfig.systemCAFile`, which openfortivpn's config names too).
     public static let systemCAFile = FortiConfig.systemCAFile
     /// Inside root-owned `/var/empty`, and never created.
     public static let missingDirectory = "/var/empty/passtunnel-none"
+    #if os(Linux)
+    /// The tools' only environment. The distribution's tools use the distribution's OpenSSL, whose
+    /// configuration (system-wide crypto policies, the CA store) applies unchanged.
+    public static let fixedEnvironment = ["PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL=C"]
+    #else
     /// The tools' only environment. The OpenSSL variables keep the bundled libcrypto from loading a
     /// config file, providers or engines from its compiled-in (Homebrew) prefix, and point its default
     /// trust store at the system's CA bundle.
@@ -112,9 +126,29 @@ public struct HelperCore {
         "SSL_CERT_FILE=\(systemCAFile)",
         "SSL_CERT_DIR=/var/empty",
     ]
+    #endif
 
     public var runRoot: String
     public var dnsUpdownSource: String?
+    /// Whether the OpenVPN that will run knows `--dns-updown` (2.7 and later, as the Mac's bundled
+    /// build). OpenVPN 2.6, which Linux distributions ship, does not: its DNS hook runs as
+    /// `--route-up` and `--down` instead (`openVPNArguments`), and without a hook it gets no DNS option.
+    public var openVPNHasDNSUpdown = true
+    #if os(Linux)
+    /// The daemon's own executable (resolved and checked), which OpenVPN runs as its DNS hook through
+    /// the link `dnsHookName` in the session directory (docs/LINUX.md, "DNS"). Nil: no DNS hook.
+    public var dnsHook: String?
+    /// The DNS hook's name, in the session directory and as the hook's `argv[0]`: OpenVPN 2.7's
+    /// `--dns-updown` runs a path without arguments, so `passtunneld dns-hook` cannot be spelled there.
+    public static let dnsHookName = "dns-hook"
+    #endif
+    /// The CA bundle openfortivpn's config names (`ca-file`): the Mac's system bundle; the Linux daemon
+    /// sets the distribution's, checked, before every start.
+    public var caFile = HelperCore.systemCAFile
+    /// Whether openfortivpn and pppd change DNS themselves when the profile asks for the VPN's DNS
+    /// (`set-dns`, `pppd-use-peerdns`), as on the Mac. The Linux daemon applies DNS itself and turns
+    /// this off.
+    public var fortiHandlesDNS = true
     public var homeDirectory: (uid_t) -> String?
     public var userName: (uid_t) -> String?
 
@@ -250,10 +284,15 @@ public struct HelperCore {
                 try Self.checkLines(auth, count: 2, file: "auth")
                 try Self.writeNewFile(authPath!, Data(auth.utf8), mode: 0o600)
             }
+            #if os(Linux)
+            let dnsPath = try linkDNSHook(in: runDir)
+            #else
             let dnsPath = try stageDNSScript(in: runDir)
+            #endif
             let args = Self.openVPNArguments(configPath: configPath, mgmtSocket: socketPath, clientUser: clientUser,
                                              authFile: authPath, dnsUpdown: dnsPath,
-                                             verbosity: Self.openVPNVerbosity(sanitized))
+                                             verbosity: Self.openVPNVerbosity(sanitized),
+                                             hasDNSUpdown: openVPNHasDNSUpdown)
             let logFD = try dir.createLogFile(logName)
             return LaunchPlan(profileID: s.profileID, ownerUID: uid, tool: .openvpn, arguments: args,
                               runDir: runDir, sessionDir: session, logFD: logFD, dnsUpdownPath: dnsPath,
@@ -265,7 +304,7 @@ public struct HelperCore {
     }
 
     public func prepareForti(_ s: FortiStart, uid: uid_t) throws -> LaunchPlan {
-        let text = try FortiConfig(s).render()
+        let text = try FortiConfig(s).render(caFile: caFile, handlesDNS: fortiHandlesDNS)
         let dir = try openProfileDir(s.profileDir, profileID: s.profileID, uid: uid)
         let logName = try logFileName(s.logPath, in: dir)
         let session = try makeRunDir(profileID: s.profileID, uid: uid)
@@ -288,8 +327,13 @@ public struct HelperCore {
     /// Management is a unix socket that OpenVPN only serves to `clientUser` (peer credentials check).
     /// The DNS hook is always explicit: OpenVPN's compiled-in default points into the build machine's
     /// Homebrew prefix, which must never be executed as root. `verbosity` comes from `openVPNVerbosity`.
+    /// Without `hasDNSUpdown` (OpenVPN 2.6, which rejects the option) and without a hook, scripts stay
+    /// limited to OpenVPN's built-in commands and nothing changes DNS. A hook on OpenVPN 2.6 (only the
+    /// Linux daemon's) runs as `--route-up`, whose failure OpenVPN logs without exiting, as 2.7 does for
+    /// `--dns-updown`, and as `--down` before the device closes (`--down-pre`).
     public static func openVPNArguments(configPath: String, mgmtSocket: String, clientUser: String,
-                                        authFile: String?, dnsUpdown: String?, verbosity: Int = defaultVerbosity) -> [String] {
+                                        authFile: String?, dnsUpdown: String?, verbosity: Int = defaultVerbosity,
+                                        hasDNSUpdown: Bool = true) -> [String] {
         var args = [
             "--config", configPath,
             "--verb", String(min(max(0, verbosity), maxVerbosity)),
@@ -300,10 +344,14 @@ public struct HelperCore {
             "--connect-retry-max", "3",
         ]
         if let authFile { args += ["--auth-user-pass", authFile] }
-        if let dnsUpdown {
+        if let dnsUpdown, hasDNSUpdown {
             args += ["--script-security", "2", "--dns-updown", dnsUpdown]
-        } else {
+        } else if let dnsUpdown {
+            args += ["--script-security", "2", "--route-up", dnsUpdown, "--down", dnsUpdown, "--down-pre"]
+        } else if hasDNSUpdown {
             args += ["--script-security", "1", "--dns-updown", "disable"]
+        } else {
+            args += ["--script-security", "1"]
         }
         return args
     }
@@ -402,7 +450,7 @@ public struct HelperCore {
     }
 
     /// `path` must be a real directory owned by us with mode exactly `mode`; created if missing.
-    static func ensureRootOwnedDir(_ path: String, mode: mode_t = runDirMode) throws {
+    public static func ensureRootOwnedDir(_ path: String, mode: mode_t = runDirMode) throws {
         var st = stat()
         if lstat(path, &st) != 0 {
             guard errno == ENOENT else { throw Failure.system("stat \(path)", errno) }
@@ -417,8 +465,21 @@ public struct HelperCore {
         }
     }
 
+    #if os(Linux)
+    /// Links the daemon's own executable into the (root-owned) run directory as `dnsHookName`, the path
+    /// OpenVPN runs as its DNS hook. Returns nil without a hook.
+    func linkDNSHook(in runDir: String) throws -> String? {
+        guard let target = dnsHook else { return nil }
+        guard target.hasPrefix("/"), !Self.containsNUL(target) else { throw Failure.notAbsolute(target) }
+        let path = runDir + "/" + Self.dnsHookName
+        guard symlink(target, path) == 0 else { throw Failure.system("link \(path)", errno) }
+        return path
+    }
+    #endif
+
     /// Copies the bundled DNS script (with its extended-attribute signature) into the run directory.
-    /// Returns nil when no script is bundled.
+    /// Returns nil when no script is bundled. macOS only (`fcopyfile`): elsewhere a script fails to stage,
+    /// and the Linux daemon is its own hook (`linkDNSHook`).
     func stageDNSScript(in runDir: String) throws -> String? {
         guard let src = dnsUpdownSource else { return nil }
         let sfd = open(src, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
@@ -434,11 +495,15 @@ public struct HelperCore {
         let dfd = open(dst, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o700)
         guard dfd >= 0 else { throw Failure.system("create \(dst)", errno) }
         defer { close(dfd) }
+        #if os(macOS)
         guard fcopyfile(sfd, dfd, nil, copyfile_flags_t(COPYFILE_DATA | COPYFILE_XATTR)) == 0 else {
             throw Failure.system("copy \(src)", errno)
         }
         _ = fchmod(dfd, 0o700)
         return dst
+        #else
+        throw Failure.system("copy \(src)", ENOTSUP)
+        #endif
     }
 
     // MARK: - Log size
@@ -503,10 +568,23 @@ public struct HelperCore {
         return String(cString: p)
     }
 
+    /// What `fd` refers to: `F_GETPATH` on the Mac, the `/proc/self/fd` link on Linux (which ends in
+    /// " (deleted)" for a removed entry, so that never matches). Nil elsewhere, where `openProfileDir`
+    /// therefore refuses every directory.
     static func path(of fd: Int32) -> String? {
+        #if os(macOS)
         var buf = [CChar](repeating: 0, count: Int(MAXPATHLEN))
         guard fcntl(fd, F_GETPATH, &buf) != -1 else { return nil }
         return String(cString: buf)
+        #elseif os(Linux)
+        var buf = [CChar](repeating: 0, count: 4097)
+        let n = readlink("/proc/self/fd/\(fd)", &buf, buf.count - 1)
+        guard n > 0, n < buf.count - 1 else { return nil }
+        buf[n] = 0
+        return String(cString: buf)
+        #else
+        return nil
+        #endif
     }
 }
 
@@ -625,8 +703,19 @@ public final class SessionDirectory {
         guard ProfileDirectory.isPlainName(name) else { return false }
         var st = stat()
         guard fstatat(fd, name, &st, AT_SYMLINK_NOFOLLOW) == 0, (st.st_mode & S_IFMT) == S_IFSOCK else { return false }
+        #if os(Linux)
+        // The mode first, while root owns the socket: changing the mode of another user's file needs
+        // CAP_FOWNER, which the daemon's capability bounding set leaves out. glibc carries out
+        // AT_SYMLINK_NOFOLLOW through fchmodat2 or /proc; where neither works, the entry was just seen
+        // to be a socket in a directory only root can change, so following it is no risk.
+        if st.st_mode & 0o777 != 0o600, fchmodat(fd, name, 0o600, AT_SYMLINK_NOFOLLOW) != 0 {
+            _ = fchmodat(fd, name, 0o600, 0)
+        }
+        if st.st_uid != ownerUID { _ = fchownat(fd, name, ownerUID, gid_t.max, AT_SYMLINK_NOFOLLOW) }
+        #else
         if st.st_uid != ownerUID { _ = fchownat(fd, name, ownerUID, gid_t.max, AT_SYMLINK_NOFOLLOW) }
         _ = fchmodat(fd, name, 0o600, AT_SYMLINK_NOFOLLOW)
+        #endif
         guard fstatat(fd, name, &st, AT_SYMLINK_NOFOLLOW) == 0 else { return false }
         return (st.st_mode & S_IFMT) == S_IFSOCK && st.st_uid == ownerUID && st.st_mode & 0o777 == 0o600
     }

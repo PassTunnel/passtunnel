@@ -18,6 +18,7 @@ only="${2:-}"
 # target : seed-corpus directory
 fuzzers=(
     "FuzzOVPNSanitizer:ovpn-sanitizer"
+    "FuzzOVPNImport:ovpn-import"
     "FuzzFortiConfig:forti-config"
     "FuzzManagementParser:management-parser"
     "FuzzOTPAuthURI:otpauth-uri"

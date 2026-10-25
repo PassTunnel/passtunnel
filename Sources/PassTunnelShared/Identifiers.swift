@@ -31,8 +31,12 @@ public enum PT {
 
     /// Root-owned directory where the helper keeps per-session runtime files:
     /// `<root>/<uid>/<profileID>/` (all 0711, so users can reach their socket but list nothing), and
-    /// the staged tools in `<root>/tools/<build>/` (`ToolStager`).
+    /// the staged tools in `<root>/tools/<build>/` (`ToolStager`). On Linux the daemon's (docs/LINUX.md).
+    #if os(Linux)
+    public static let helperRunRoot = "/run/passtunnel"
+    #else
     public static let helperRunRoot = "/var/run/passtunnel"
+    #endif
 
     /// OpenVPN management socket inside the session directory (owned by the user, 0600).
     public static let mgmtSocketName = "mgmt.sock"
@@ -47,6 +51,20 @@ public enum PT {
         sessionDir(uid: uid, profileID: profileID, runRoot: runRoot) + "/" + mgmtSocketName
     }
 
-    /// Location of profile directories relative to the user's home.
+    #if os(Linux)
+    /// The Linux daemon's socket in the run root (docs/LINUX.md, "The daemon protocol").
+    public static let daemonSocketName = "daemon.sock"
+
+    public static func daemonSocketPath(runRoot: String = helperRunRoot) -> String {
+        runRoot + "/" + daemonSocketName
+    }
+    #endif
+
+    /// Location of profile directories relative to the user's home. Fixed on Linux too (no
+    /// `XDG_DATA_HOME`): the daemon checks that a profile directory is under the caller's home at this path.
+    #if os(Linux)
+    public static let profilesSubpath = ".local/share/passtunnel/profiles"
+    #else
     public static let profilesSubpath = "Library/Application Support/PassTunnel/profiles"
+    #endif
 }

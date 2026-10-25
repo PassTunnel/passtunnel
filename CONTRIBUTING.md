@@ -6,7 +6,7 @@ the approach can be agreed on before you write the code.
 Before changing code, read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (targets, storage, helper
 protocol, security rules) and [docs/APP.md](docs/APP.md) (app and CLI behavior). The
 [Contributing section of the README](README.md#contributing) lists the rules for code: new VPN
-backends, localized strings, no third-party dependencies besides Sparkle.
+backends, localized strings, no third-party dependencies besides Sparkle and swift-crypto.
 
 ## Branches
 
@@ -26,8 +26,11 @@ backends, localized strings, no third-party dependencies besides Sparkle.
    change; `swift test` must pass. Tests never touch real data: see the README section
    "Building and testing".
 5. The checks must pass: `Build and test` (`swift build` and `swift test` on macOS, and
-   PassTunnelKit built for iOS), `Release scripts`, `Site` (the website's static checks) and
-   `PR title`. Review comments must be resolved.
+   PassTunnelKit built for iOS), `Linux (x86_64)` and `Linux (aarch64)` (the Linux targets built and
+   tested, and the `passtunnel` command tried, see [Linux](#linux)), `Release scripts`, `Site` (the
+   website's static checks) and `PR title`. `Linux release` and `Docker image` (the Linux tarball and
+   the Dockerfile, built and tried on both architectures) run as well. Review comments must be
+   resolved.
 6. The pull request is **squash-merged**: its title becomes the one commit on `dev`.
 
 Releases are made by merging `dev` into `main` (a pull request from `dev`, merged with a merge
@@ -53,6 +56,11 @@ type(optional scope): description
 Add `!` after the type (`feat!: …`) for a change that breaks existing setups (profiles, CLI output,
 MCP tools); that makes a major release.
 
+The scope is optional and free (`cli`, `mcp`, …), except `linux`: it marks work on the Linux version
+([docs/LINUX.md](docs/LINUX.md)), such as `feat(linux): …` or `fix(linux): …`. Linux has no release
+yet, so these pull requests make no release of the app and are left out of its release notes, also
+with `!`. Phase 3 of [docs/LINUX.md](docs/LINUX.md#phases), which releases Linux, revisits this.
+
 Write the description for users, in the imperative, without a final period:
 
 - `feat: fill in the one-time code for GlobalProtect`
@@ -65,10 +73,11 @@ the pull request.
 ## Releases
 
 Merging `dev` into `main` starts the release workflow. It reads the commit subjects since the last
-release: a `feat`, `fix`, `perf` or breaking change makes a release, otherwise nothing is released.
-The release notes are those subjects, grouped into breaking changes, new features and fixes. The
-maintainer approves the release job, which then builds, signs, notarizes and publishes everything
-(the app, the Sparkle update, the MCP bundle, the MCP Registry entry and the Homebrew cask).
+release: a `feat`, `fix`, `perf` or breaking change makes a release, otherwise nothing is released
+(one with the scope `linux` never does). The release notes are those subjects, grouped into breaking
+changes, new features and fixes. The maintainer approves the release job, which then builds, signs,
+notarizes and publishes everything (the app, the Sparkle update, the MCP bundle, the MCP Registry
+entry and the Homebrew cask).
 Details are in [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Website
@@ -82,16 +91,109 @@ Site changes follow the same flow as code (a `docs:` pull request into `dev`); t
 [PassTunnel/passtunnel.github.io](https://github.com/PassTunnel/passtunnel.github.io), which serves
 the root of the host.
 
+## Linux
+
+The `passtunnel` command (the CLI and the MCP server) and the code under it also build on Linux
+([docs/LINUX.md](docs/LINUX.md)): PassTunnelKit, PassTunnelVPNConfig, PassTunnelShared,
+PassTunnelCore, the CLI library PassTunnelCLI and the Linux-only executable target
+PassTunnelCommand, whose product is `passtunnel`; the macOS app and helper are not built there.
+Linux also builds the root daemon: the library PassTunnelDaemon and the executable
+PassTunnelDaemonCommand, whose product is `passtunneld`. The
+`Linux` checks build all of it, run the tests that build on Linux (`PassTunnelKitTests` with the golden
+cases, `PassTunnelCoreTests` without the Apple-only ones, and `PassTunnelDaemonTests`) in the official
+Swift container on x86_64 and aarch64, and try the built `passtunnel`: `--version`, `list --json` and
+an MCP session. Then, as root in the container, they start `passtunneld` and talk to it (see below).
+To do the same locally with Docker, from the repository root:
+
+```sh
+docker run --rm -v "$PWD":/src -w /src swift:6.4.1-noble swift test
+
+# A shell in the container, then build and run passtunnel with its own support directory:
+docker run --rm -it -v "$PWD":/src -w /src swift:6.4.1-noble bash
+swift build
+export PASSTUNNEL_HOME=$(mktemp -d)       # instead of ~/.local/share/passtunnel
+"$(swift build --show-bin-path)/passtunnel" list --json
+"$(swift build --show-bin-path)/passtunnel" mcp      # JSON-RPC lines on stdin
+```
+
+A development build reports version `0.0.0-dev`. Without a running `passtunneld` (below),
+connecting fails with `helper_not_installed`. Secrets go to the Linux secret stores
+([docs/LINUX.md](docs/LINUX.md#secrets)); in the container above that is the file store, so try it
+with a passphrase file:
+
+```sh
+printf '%s\n' 'a long test passphrase' > /tmp/pp && chmod 600 /tmp/pp
+export PASSTUNNEL_PASSPHRASE_FILE=/tmp/pp PASSTUNNEL_SECRET_STORE=file
+"$(swift build --show-bin-path)/passtunnel" secret-store
+```
+
+The tests never use a real store: they keep secrets in memory (`PASSTUNNEL_SECRET_STORE=memory`,
+which only debug builds accept), run the stores against fakes of `secret-tool` and `systemd-creds`
+(those tests run on the Mac too) and the file store in a temporary directory. The Linux jobs add one
+real Secret Service round trip in a throwaway session bus and keyring (`RealSecretServiceTests`,
+skipped unless `PASSTUNNEL_TEST_SECRET_SERVICE=1`).
+
+The daemon runs as root and refuses to start from a file that anyone but root could replace (every
+directory above it root-owned and not group- or world-writable), so it is installed first. In the
+container, which has its own `/run/passtunnel`:
+
+```sh
+swift build
+install -m 0755 "$(swift build --show-bin-path)/passtunneld" /usr/local/sbin/passtunneld
+/usr/local/sbin/passtunneld &              # its own socket: /run/passtunnel/daemon.sock
+"$(swift build --show-bin-path)/passtunnel" helper status --json
+apt-get update && apt-get install -y socat openvpn openfortivpn
+printf '%s\n' '{"op":"hello"}' | socat - UNIX-CONNECT:/run/passtunnel/daemon.sock
+groupadd --system passtunnel               # root and this group may start connections
+```
+
+Under systemd the daemon is started by `packaging/linux/passtunnel.socket` (socket activation); the
+release tarball installs the unit files. The tests never touch `/run/passtunnel`: they run the
+daemon's library with a temporary run root, home and user database, and shell scripts in place of
+openvpn, openfortivpn and pppd. The CI step "Smoke-test passtunneld" shows full sessions with the
+distribution's openvpn and openfortivpn.
+
+The release tarball (`passtunnel` and `passtunneld` with the Swift runtime linked in, the units, a
+README and the licenses; [docs/LINUX.md](docs/LINUX.md#distribution)) is built in the Swift image of
+Ubuntu 22.04, for the architecture Docker runs:
+
+```sh
+docker run --rm -v "$PWD":/src -w /src swift:6.4.1-jammy scripts/build-linux.sh   # → dist/
+```
+
+The `Dockerfile` at the root builds an image that runs `passtunnel mcp` (for MCP directories):
+
+```sh
+docker build -t passtunnel .
+docker run -i --rm passtunnel      # JSON-RPC lines on stdin
+```
+
+The `Linux release` and `Docker image` checks build both on x86_64 and aarch64, try the tarball in a
+clean Ubuntu 22.04 container and run an MCP session with the image; the tarball is kept as an
+artifact of the run.
+
+Code in these targets must keep building on Linux, without changing what the Mac does: Linux code
+goes in the same files behind `#if os(Linux)` / `#if canImport(…)` (the seams are listed in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#targets)), CryptoKit is swift-crypto's `Crypto` there
+(and scrypt comes from its `CryptoExtras`), Combine is a small stand-in in PassTunnelCore, and
+`String(localized:)` is an English-only stand-in.
+A test file that needs an Apple-only framework goes behind `#if os(macOS)` (the whole file, or the
+tests that need it), so the rest of `PassTunnelCoreTests` keeps running on Linux.
+
 ## Dependabot
 
 Dependabot opens pull requests into `dev` for GitHub Actions (`ci: …`, no release) and for Swift
-packages (`fix(deps): …`, a patch release, since those ship in the app). They need no issue link.
+packages (`fix(deps): …`, a patch release, since those ship in the app), and for the base images of the
+`Dockerfile` (`build(deps): …`, no release). They need no issue link. The images pinned in the Linux
+CI jobs (`.github/workflows/ci.yml`) are not covered: Dependabot does not update `container:` images or
+image names in workflow variables, so they are bumped by hand with the Dockerfile's build image.
 
 ## Fuzzing
 
 The code that parses untrusted text is fuzzed with libFuzzer. The harnesses live in their own
-package under [`fuzz/`](fuzz/) (one per target: the OpenVPN config sanitizer, FortiGate config
-rendering, the OpenVPN management-interface parser, `otpauth://` URIs and MCP JSON-RPC decoding).
+package under [`fuzz/`](fuzz/) (one per target: the OpenVPN config sanitizer, the import review that
+skips some of the lines it refuses, FortiGate config rendering, the OpenVPN management-interface parser,
+`otpauth://` URIs and MCP JSON-RPC decoding).
 That package is not part of the app: `swift build` and `swift test` at the repository root never
 build it, and nothing in it ships in any binary. It links the parsing libraries of the main package
 so the fuzzers run the exact sources the app and the helper use.

@@ -118,7 +118,7 @@ final class ProfileFieldsTests: XCTestCase {
                      ("period", "60"), ("algorithm", "SHA-256"), ("otp-delivery", "combined"), ("template", "colon"),
                      ("session_limit", "480"), ("auto_reconnect", "yes"), ("health_host", "10.0.0.5:443"),
                      ("host", "vpn.example.com"), ("port", "10443"), ("set_dns", "on"), ("routes", "0"),
-                     ("pinned", "true"), ("badge_style", "both")]
+                     ("pinned", "true"), ("badge_style", "both"), ("connect-at-login", "on")]
         for (k, v) in pairs { try ProfileFields.set(&p, key: k, value: v) }
         XCTAssertEqual(p.name, "Acme Prod")
         XCTAssertEqual(p.username, "alice")
@@ -134,6 +134,8 @@ final class ProfileFieldsTests: XCTestCase {
         XCTAssertFalse(p.setRoutes)
         XCTAssertTrue(p.pinned)
         XCTAssertEqual(p.badgeStyle, .both)
+        XCTAssertTrue(p.connectAtLogin)
+        XCTAssertEqual(ProfileFields.value(p, key: "connect_at_login"), "true")
         XCTAssertEqual(ProfileFields.value(p, key: "algorithm"), "sha256")
         XCTAssertEqual(ProfileFields.value(p, key: "set_routes"), "false")
     }
@@ -149,6 +151,7 @@ final class ProfileFieldsTests: XCTestCase {
         expect("digits", "9", .invalidField("digits"))
         expect("period", "x", .invalidField("period"))
         expect("auto_reconnect", "maybe", .invalidField("auto_reconnect"))
+        expect("connect_at_login", "later", .invalidField("connect_at_login"))
         expect("health_host", "a b", .invalidField("health_host"))
         expect("name", " ", .emptyName)
         expect("host", "vpn.example.com", .wrongProfileType("acme"))

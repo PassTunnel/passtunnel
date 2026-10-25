@@ -1,0 +1,65 @@
+# passtunneld, PassTunnel's root daemon on Linux (docs/LINUX.md): it runs the distribution's openvpn
+# and openfortivpn (which runs pppd) for the users allowed to connect. The release tarball installs it
+# (scripts/build-linux.sh points ExecStart at /usr/local/sbin there); no package does yet. The sandbox
+# below is a starting point, to be trimmed to what the tools need once they are tested under it on the
+# target distributions.
+
+[Unit]
+Description=PassTunnel daemon
+Documentation=https://github.com/PassTunnel/passtunnel/blob/main/docs/LINUX.md
+Requires=passtunnel.socket
+After=passtunnel.socket
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/passtunneld
+# Stopping the daemon stops every tunnel: it sends SIGTERM to its tools itself, and the default
+# KillMode=control-group then stops whatever is left in the unit's cgroup. Nothing outlives the unit;
+# a daemon that starts again finds no tool to adopt.
+KillMode=control-group
+TimeoutStopSec=15
+Restart=on-failure
+RestartSec=2
+
+# The tools configure interfaces, routes and sockets (NET_ADMIN, NET_RAW; pppd needs NET_ADMIN to open
+# /dev/ppp and set up its interface, openfortivpn to set routes) and may change user (SETUID,
+# SETGID); the daemon hands the log and the management socket to the user (CHOWN), works in the
+# user's profile directory (DAC_OVERRIDE) and stops the tools (KILL). It sets the management socket's
+# mode while root still owns it, so CAP_FOWNER is not needed. The DNS hook, which OpenVPN runs inside
+# this unit, and the daemon itself for FortiGate's ppp interface, are let through by systemd-resolved
+# for NET_ADMIN.
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_SETUID CAP_SETGID CAP_CHOWN CAP_DAC_OVERRIDE CAP_KILL
+# The tun device for OpenVPN, /dev/ppp for openfortivpn's pppd; besides these only the standard
+# pseudo devices (/dev/null, /dev/urandom, /dev/ptmx and the /dev/pts terminals: openfortivpn talks
+# to pppd over a pseudo-terminal).
+DevicePolicy=closed
+DeviceAllow=/dev/net/tun rw
+DeviceAllow=/dev/ppp rw
+# The file system read-only but for the run root and what the DNS hook writes. /etc stays read-only:
+# only /etc/resolv.conf itself is writable, a bind mount of its own, which the hook (and openresolv)
+# rewrites in place; openresolv set to rename a new file over it (resolv_conf_mv) fails the set-up
+# with that reason. resolvconf keeps its records in /run/resolvconf. systemd follows a link at
+# /etc/resolv.conf: into /run/resolvconf (Debian's resolvconf) the entry is redundant and dropped;
+# into /run/systemd/resolve the file there becomes writable here, and is never written (the hook
+# tells systemd-resolved over D-Bus). Entries that do not exist when the unit starts are skipped.
+# FortiGate adds nothing: the daemon applies its DNS the same way, openfortivpn and pppd never touch
+# resolv.conf (set-dns and pppd-use-peerdns are off), and pppd's pid file and database under /run
+# stay unwritable, which pppd only warns about and nothing here uses.
+ProtectSystem=strict
+ReadWritePaths=/run/passtunnel -/etc/resolv.conf -/run/resolvconf
+PrivateTmp=yes
+
+# Not set, on purpose:
+# - ProtectHome=read-only: the daemon creates the session log (vpn.log) in the user's profile
+#   directory, ~/.local/share/passtunnel/profiles/<id>/, which it would forbid. It becomes possible
+#   once the log is opened by the client or kept outside the home directory.
+# - RuntimeDirectory=passtunnel: systemd removes that directory when the service stops, and with it
+#   the socket that passtunnel.socket keeps listening on. The socket unit creates /run/passtunnel.
+# - NoNewPrivileges=yes: it only stops gaining privileges through exec (set-user-ID files, file
+#   capabilities), which adds nothing here: the daemon and its tools already run as root, within the
+#   bounding set above. Dropping privileges (OpenVPN's --user, which the sanitizer refuses anyway) is
+#   not affected by it. It would however stop SELinux domain transitions on exec (openvpn_t, pppd_t
+#   on Fedora and RHEL) unless the policy allows nnp_transition, so it waits for testing there.
+
+[Install]
+Also=passtunnel.socket

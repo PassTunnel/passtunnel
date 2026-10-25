@@ -1,4 +1,6 @@
+#if canImport(Combine)
 import Combine
+#endif
 import XCTest
 @testable import PassTunnelCore
 @testable import PassTunnelKit
@@ -79,7 +81,7 @@ final class ConnectionStressTests: XCTestCase {
         guard let made = mkdtemp(&template) else { throw XCTSkip("mkdtemp failed") }
         home = String(cString: made)
         setenv("PASSTUNNEL_HOME", home, 1)
-        setenv("PASSTUNNEL_KEYCHAIN_SERVICE", "PassTunnelTests-\(UUID().uuidString)", 1)
+        useTestSecrets(service: "PassTunnelTests-\(UUID().uuidString)")
         helper = FakeHelper()
         clock = FakeClock(t0)
         events = []
@@ -176,6 +178,17 @@ final class ConnectionStressTests: XCTestCase {
         XCTAssertEqual(clock.sleeps.count, 1)
         XCTAssertEqual(clock.sleeps.first ?? 0, 10.25, accuracy: 0.01)
         XCTAssertEqual(secrets().last, "pw" + (try code(at: t0.addingTimeInterval(10.25))))
+    }
+
+    /// When a profile last sent a code, for the menu bar panel's copy items: the start of that code's window, as
+    /// another process reads it.
+    func testLastCodeSentIsTheStartOfTheWindowSent() async throws {
+        let p = try makeOpenVPN(period: 60)
+        let m = makeManager()
+        XCTAssertNil(m.lastCodeSent(p.id))
+        try await m.connect(p.id)
+        let window = TOTP.counter(params: TOTPParams(period: 60), at: t0)
+        XCTAssertEqual(makeManager().lastCodeSent(p.id), Date(timeIntervalSince1970: TimeInterval(window * 60)))
     }
 
     func testNextWindowNeedsNoWait() async throws {
@@ -275,12 +288,14 @@ final class ConnectionStressTests: XCTestCase {
         XCTAssertEqual(clock.sleeps, [])
     }
 
+    #if os(macOS)
     func testWatcherIgnoresTheUsedCodeRecord() {
         let dir = store.dir("acme").path
         XCTAssertFalse(ProfilesWatcher.isRelevant(path: dir + "/" + ConnectionManager.usedOTPFile))
         XCTAssertFalse(ProfilesWatcher.isRelevant(path: dir + "/." + ConnectionManager.usedOTPFile + ".1A2B.tmp"))
         XCTAssertTrue(ProfilesWatcher.isRelevant(path: dir + "/profile.json"))
     }
+    #endif
 
     // MARK: cancelling
 

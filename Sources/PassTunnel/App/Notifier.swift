@@ -8,7 +8,11 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     static let shared = Notifier()
 
     static let connectAction = "connect"
+    static let stopAction = "stop"
+    /// Category with a Connect action.
     static let reconnectCategory = "reconnect"
+    /// Category with a Stop action, for a drop while the automatic reconnect runs.
+    static let reconnectingCategory = "reconnecting"
     /// userInfo key: clicking the notification itself connects (and confirms) the profile.
     nonisolated static let connectOnClickKey = "connectOnClick"
 
@@ -22,59 +26,29 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         let center = UNUserNotificationCenter.current()
         center.delegate = self
         let connect = UNNotificationAction(identifier: Self.connectAction, title: String(localized: "Connect"), options: [])
+        let stop = UNNotificationAction(identifier: Self.stopAction, title: String(localized: "Stop"), options: [])
         center.setNotificationCategories([
             UNNotificationCategory(identifier: Self.reconnectCategory, actions: [connect], intentIdentifiers: [], options: []),
+            UNNotificationCategory(identifier: Self.reconnectingCategory, actions: [stop], intentIdentifiers: [], options: []),
         ])
     }
 
+    /// Which event gives which notification is decided by `ConnectionNotice`.
     func handle(_ event: ConnectionEvent, model: AppModel) {
-        let prefs = model.prefs
-        func name(_ id: String) -> String { model.profile(id)?.name ?? id }
-        switch event {
-        case .dropped(let id, let reconnecting):
-            guard prefs.notifyOnDrop else { return }
-            post(title: String(localized: "\(name(id)) disconnected"),
-                 body: reconnecting ? String(localized: "The connection dropped unexpectedly. Reconnecting…")
-                                    : String(localized: "The connection dropped unexpectedly."),
-                 profileID: id, category: reconnecting ? nil : Self.reconnectCategory)
-        case .reconnected(let id):
-            guard prefs.notifyOnDrop else { return }
-            post(title: String(localized: "\(name(id)) reconnected"),
-                 body: String(localized: "The connection is back."), profileID: id)
-        case .reconnectFailed(let id, let reason):
-            guard prefs.notifyOnDrop else { return }
-            post(title: String(localized: "Could not reconnect \(name(id))"),
-                 body: reason, profileID: id, category: Self.reconnectCategory)
-        case .unreachable(let id):
-            guard prefs.notifyHealth else { return }
-            post(title: String(localized: "\(name(id)) is not responding"),
-                 body: String(localized: "The VPN is connected, but the health check host cannot be reached."),
-                 profileID: id)
-        case .reachableAgain(let id):
-            guard prefs.notifyHealth else { return }
-            post(title: String(localized: "\(name(id)) is responding again"),
-                 body: String(localized: "The health check host can be reached again."), profileID: id)
-        case .sessionEnding(let id, let minutes):
-            guard prefs.sessionNotifyMin > 0 else { return }
-            post(title: String(localized: "\(name(id)) session is ending"),
-                 body: String(localized: "The session limit is reached in \(minutes) minutes."), profileID: id)
-        case .droppedWhileAsleep(let id):
-            // Replaces the automatic reconnect the user turned on, so it is shown even without drop notifications.
-            post(title: String(localized: "“\(name(id))” disconnected while the Mac was asleep."),
-                 body: String(localized: "Click to reconnect."),
-                 profileID: id, category: Self.reconnectCategory, connectOnClick: true)
-        case .destinationChanged(let id, true):
-            // The forced reconnect of a health outage, not done: the old tunnel is still up. Connecting
-            // on click would do nothing while it is; a click shows the profile.
-            post(title: String(localized: "“\(name(id))” server settings changed"),
-                 body: String(localized: "It is still connected to the server you confirmed, which is not responding. Reconnect to confirm the new settings."),
-                 profileID: id)
-        case .destinationChanged(let id, false):
-            // Replaces the automatic reconnect too: shown even without drop notifications.
-            post(title: String(localized: "“\(name(id))” was not reconnected"),
-                 body: String(localized: "Its server settings changed after you confirmed the connection. Click to connect and confirm again."),
-                 profileID: id, category: Self.reconnectCategory, connectOnClick: true)
+        guard let notice = ConnectionNotice.forEvent(event, model.noticeSubject(event.profileID), prefs: model.prefs)
+        else { return }
+        post(notice)
+    }
+
+    func post(_ notice: ConnectionNotice) {
+        let category: String?
+        switch notice.actions {
+        case .connect: category = Self.reconnectCategory
+        case .stop: category = Self.reconnectingCategory
+        case nil: category = nil
         }
+        post(title: notice.title, body: notice.body, profileID: notice.profileID, category: category,
+             connectOnClick: notice.connectOnClick)
     }
 
     func post(title: String, body: String, profileID: String?, category: String? = nil, connectOnClick: Bool = false) {
@@ -128,9 +102,13 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         Task { @MainActor in
             defer { completionHandler() }
             guard let model = AppModel.shared else { return }
-            if action == Self.connectAction || (action == UNNotificationDefaultActionIdentifier && connectOnClick),
+            if action == Self.stopAction {
+                if let id { model.stopReconnecting(id) }
+            } else if action == Self.connectAction || (action == UNNotificationDefaultActionIdentifier && connectOnClick),
                let id, let p = model.profile(id) {
                 model.connect(p)
+                // A profile that asks for something (connect at login offers those too): the sheet is in the main window.
+                if model.credentialRequest != nil { AppDelegate.shared?.showMainWindow() }
             } else if action == UNNotificationDefaultActionIdentifier {
                 model.selection = id
                 AppDelegate.shared?.showMainWindow()

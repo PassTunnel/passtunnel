@@ -102,6 +102,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         DispatchQueue.main.async { self.updateActivationPolicy() }
+        // Only a login launch connects the profiles set to connect at login; opening the app never does.
+        if launchedInBackground { AppModel.shared?.connectAtLogin() }
         finishedLaunching = true
         DispatchQueue.main.async { self.openPendingFiles() }
     }

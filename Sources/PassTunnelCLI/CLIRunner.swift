@@ -1,5 +1,9 @@
+#if canImport(AppKit)
 import AppKit
+#endif
+#if canImport(Combine)
 import Combine
+#endif
 import Foundation
 import PassTunnelCore
 import PassTunnelKit
@@ -29,7 +33,7 @@ final class CLIRunner {
     var manager: ConnectionManager {
         if let managerStorage { return managerStorage }
         let authenticator: UserAuthenticator = options.noAuthPrompt
-            ? PromptlessAuthenticator(SecureEnclaveAuthenticator()) : SecureEnclaveAuthenticator()
+            ? PromptlessAuthenticator(PlatformAuthenticator()) : PlatformAuthenticator()
         let m = ConnectionManager(store: store, authenticator: authenticator)
         managerStorage = m
         return m
@@ -59,7 +63,7 @@ final class CLIRunner {
         } else if let e = error as? CLIUsageError {
             CLITerminal.fail(e.message)
             CLITerminal.err(CLIHelp.usage(for: e.command))
-        } else if (error as? PTError) == .userConfirmationCancelled {
+        } else if (ConnectFailedError.underlying(error) as? PTError) == .userConfirmationCancelled {
             // The user cancelled the Touch ID / password prompt: nothing happened, nothing to explain.
             CLITerminal.err(error.localizedDescription)
         } else {
@@ -75,8 +79,12 @@ final class CLIRunner {
              let .remove(_, _, json), let .secret(_, _, json), let .setDefault(_, json), let .pin(_, json),
              let .unpin(_, json), let .helper(_, json), let .version(json):
             return json
-        case let .connect(_, _, json, _, _), let .disconnect(_, _, json, _, _), let .log(_, _, json, _):
+        case let .connect(_, _, json, _, _), let .disconnect(_, _, json, _, _), let .log(_, _, json, _, _):
             return json
+        #if os(Linux)
+        case let .secretStore(_, json):
+            return json
+        #endif
         default:
             return false
         }
@@ -93,7 +101,8 @@ final class CLIRunner {
 
     private func report(_ error: Error) {
         CLITerminal.fail(error.localizedDescription)
-        if let tail = (error as? PTError)?.logTail, !tail.isEmpty {
+        if let details = (error as? ConnectFailedError)?.failure.details { CLITerminal.err(details) }
+        if let tail = (ConnectFailedError.underlying(error) as? PTError)?.logTail, !tail.isEmpty {
             CLITerminal.err(tail.split(separator: "\n").map { "  " + $0 }.joined(separator: "\n"))
         }
     }
@@ -115,10 +124,14 @@ final class CLIRunner {
         case let .export(id, output, _): return try export(id, output: output)
         case let .remove(id, yes, _): return try await remove(id, yes: yes)
         case let .secret(id, kind, _): return try await secret(id, kind: kind)
+        #if os(Linux)
+        case let .secretStore(choice, _): return try secretStore(choice)
+        #endif
         case let .setDefault(id, _): return try setDefault(id)
         case let .pin(id, _): return try pin(id, true)
         case let .unpin(id, _): return try pin(id, false)
-        case let .log(id, follow, _, lines): return try await log(id, follow: follow, lines: lines)
+        case let .log(id, follow, _, lines, activity):
+            return activity ? try activityLog(id, lines: lines) : try await log(id, follow: follow, lines: lines)
         case let .helper(action, _): return try await helper(action)
         case let .mcp(allowConnect):
             return await MCPServer.runStdio(service: automation, allowConnect: allowConnect)
@@ -230,7 +243,8 @@ final class CLIRunner {
             try await manager.vault.unlock(p, for: .connect)
             let given = try askForNeeds(p)
             try await connectShowingProgress(p, given: given, force: force, timeout: timeout)
-        } catch PTError.otherVPNActive(let other) where !json {
+        } catch {
+            guard !json, case PTError.otherVPNActive(let other)? = ConnectFailedError.underlying(error) as? PTError else { throw error }
             CLITerminal.fail(PTError.otherVPNActive(other).localizedDescription)
             CLITerminal.err(CLITerminal.dim(String(localized: "Use --force to connect anyway.")))
             return AutomationErrorCode.otherVPNActive.exitCode
@@ -371,7 +385,7 @@ final class CLIRunner {
         let now = Date()
         let code = TOTP.code(secret: secret, params: p.totp, at: now)
         let left = TOTP.remaining(params: p.totp, at: now)
-        if copy { CLIClipboard.copyConcealed(code) }
+        if copy { try CLIClipboard.copyConcealed(code, clearingAfter: Preferences.load().clearClipboardAfter) }
         if json {
             try printJSON(CodeJSON(profile: p.id, code: code, remaining: left, period: p.totp.period))
         } else if CLITerminal.stdoutIsTTY {
@@ -450,8 +464,13 @@ final class CLIRunner {
         let missing = String(localized: "not saved")
         func saved(_ kind: SecretKind) -> String {
             guard Secrets.has(id, kind) else { return missing }
+            #if os(Linux)
+            return Secrets.isProtected(id, kind) ? String(localized: "saved in the secret store, encrypted")
+                                                 : String(localized: "saved in the secret store")
+            #else
             return Secrets.isProtected(id, kind) ? String(localized: "saved in Keychain, encrypted (Touch ID)")
                                                  : String(localized: "saved in Keychain")
+            #endif
         }
         var rows: [(String, String)] = [("id", p.id), ("type", p.type.rawValue)]
         rows += ProfileFields.keys(for: p.type).map { ($0, ProfileFields.value(p, key: $0)) }
@@ -509,16 +528,32 @@ final class CLIRunner {
         let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         guard FileManager.default.fileExists(atPath: url.path) else { throw PTError.fileError(url.path) }
         let p: Profile
+        var skipped: [OVPNSkipRules.Skipped] = []
         if Self.looksLikeShareFile(url) {
             p = try store.importShare(url, name: name)
         } else {
-            p = try store.importOVPN(url, name: name)
+            let draft = try store.analyzeOVPN(url)
+            p = try store.commit(draft, name: name)
+            skipped = draft.skipped
         }
-        if json { try printJSON(automation.summary(p)); return Exit.ok }
+        if json {
+            try printJSON(ImportJSON(summary: automation.summary(p), skipped: skipped.map(SkippedLineJSON.init)))
+            return Exit.ok
+        }
         CLITerminal.out(String(localized: "Imported “\(p.name)” as \(p.id)."))
+        if !skipped.isEmpty {
+            CLITerminal.err(String(localized: "Skipped lines (kept as comments in the stored configuration):"))
+            for s in skipped {
+                CLITerminal.err("  " + String(localized: "line \(s.line): \(s.text)") + "  " + CLITerminal.dim(s.reason.message))
+            }
+        }
         if p.passwordMode == .keychain && Secrets.has(p.id, .password) {
             // Only from an inline <auth-user-pass> block: a new profile starts without Keychain items.
+            #if os(Linux)
+            CLITerminal.err(CLITerminal.dim(String(localized: "The user name and password in the file were moved to the profile and the secret store.")))
+            #else
             CLITerminal.err(CLITerminal.dim(String(localized: "The user name and password in the file were moved to the profile and the Keychain.")))
+            #endif
         } else if p.passwordMode == .keychain {
             CLITerminal.err(CLITerminal.dim(String(localized: "Save the password with: passtunnel secret \(p.id) password")))
         }
@@ -526,6 +561,35 @@ final class CLIRunner {
             CLITerminal.err(CLITerminal.dim(String(localized: "Save the TOTP secret with: passtunnel secret \(p.id) totp")))
         }
         return Exit.ok
+    }
+
+    /// `import --json`: the new profile's ProfileSummary plus `skipped`.
+    private struct ImportJSON: Encodable {
+        var summary: ProfileSummary
+        var skipped: [SkippedLineJSON]
+
+        enum CodingKeys: String, CodingKey { case skipped }
+
+        func encode(to encoder: Encoder) throws {
+            try summary.encode(to: encoder)
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(skipped, forKey: .skipped)
+        }
+    }
+
+    /// A line of the .ovpn left out of the stored configuration (docs/CLI-JSON.md).
+    struct SkippedLineJSON: Encodable, Equatable {
+        var line: Int
+        var directive: String
+        var text: String
+        var reason: String
+
+        init(_ s: OVPNSkipRules.Skipped) {
+            line = s.line
+            directive = s.directive
+            text = s.text
+            reason = s.reason.rawValue
+        }
     }
 
     static func looksLikeShareFile(_ url: URL) -> Bool {
@@ -608,10 +672,18 @@ final class CLIRunner {
             try manager.vault.store(p, .password, value)
             if original.passwordMode != .keychain {
                 try store.save(p)
+                #if os(Linux)
+                if !json { CLITerminal.err(CLITerminal.dim(String(localized: "The password is now taken from the secret store."))) }
+                #else
                 if !json { CLITerminal.err(CLITerminal.dim(String(localized: "The password is now taken from the Keychain."))) }
+                #endif
             }
             if json { break }
+            #if os(Linux)
+            CLITerminal.out(String(localized: "Password saved in the secret store (\(SecretStores.nameInUse ?? ""))."))
+            #else
             CLITerminal.out(String(localized: "Password saved in the Keychain."))
+            #endif
             if Secrets.isProtected(id, .password) {
                 CLITerminal.err(CLITerminal.dim(String(localized: "It is encrypted: using it asks for Touch ID or your Mac password.")))
             }
@@ -630,7 +702,11 @@ final class CLIRunner {
             try manager.vault.store(p, .totp, TOTP.base32Encode(secret))
             try store.save(p)
             if json { break }
+            #if os(Linux)
+            CLITerminal.out(String(localized: "TOTP secret saved in the secret store (\(SecretStores.nameInUse ?? ""))."))
+            #else
             CLITerminal.out(String(localized: "TOTP secret saved in the Keychain."))
+            #endif
             if Secrets.isProtected(id, .totp) {
                 CLITerminal.err(CLITerminal.dim(String(localized: "It is encrypted: using it asks for Touch ID or your Mac password.")))
             }
@@ -640,6 +716,36 @@ final class CLIRunner {
         if json { try printJSON(SecretJSON(id: id, secret: kind.rawValue, saved: true, encrypted: Secrets.isProtected(id, kind))) }
         return Exit.ok
     }
+
+    #if os(Linux)
+    /// `secret-store [STORE]`: saves the setting when given (`SecretStores.choose`), then shows the store
+    /// in use (`SecretStoreReport`). Exits 1 when that store cannot be used from here.
+    private func secretStore(_ choice: SecretStoreChoice?) throws -> Int32 {
+        if let choice { try SecretStores.choose(choice) }
+        let report = SecretStores.report()
+        let code = report.available ? Exit.ok : Exit.error
+        if json {
+            try printJSON(report)
+            return code
+        }
+        CLITerminal.out(String(localized: "Secret store: \(report.name)"))
+        let how: String
+        switch SecretStoreSource(rawValue: report.chosenBy) {
+        case .environment?: how = String(localized: "Chosen by PASSTUNNEL_SECRET_STORE.")
+        case .setting?: how = String(localized: "Chosen with “passtunnel secret-store”.")
+        case .recorded?: how = String(localized: "The store the first secret was saved in (setting: auto).")
+        case .auto?, nil: how = String(localized: "Chosen automatically (setting: auto); it is kept once a secret is saved.")
+        }
+        CLITerminal.out(CLITerminal.dim(how))
+        if !report.available, let error = report.error {
+            CLITerminal.fail(String(localized: "It cannot be used here: \(error)"))
+        }
+        if let choice, choice != .auto {
+            CLITerminal.err(CLITerminal.dim(String(localized: "Secrets saved in another store are not moved: save them again with “passtunnel secret ID password|totp”.")))
+        }
+        return code
+    }
+    #endif
 
     private struct DefaultJSON: Encodable {
         var `default`: String?
@@ -723,12 +829,30 @@ final class CLIRunner {
         }
     }
 
+    /// `log ID --activity`: the activity log worded, one event per line with its local time (the last
+    /// `lines`, else all kept); never a code digit. `--json`: `AutomationService.activity`.
+    private func activityLog(_ id: String, lines: Int?) throws -> Int32 {
+        let report = try automation.activity(id, lines: lines ?? AutomationService.maxLogLines)
+        if json {
+            try printJSON(report)
+        } else if report.lines.isEmpty {
+            CLITerminal.err(String(localized: "There is no activity for this profile yet."))
+        } else {
+            CLITerminal.out(report.lines.joined(separator: "\n"))
+        }
+        return Exit.ok
+    }
+
     // MARK: helper
 
     private func helper(_ action: CLICommand.HelperAction) async throws -> Int32 {
         switch action {
         case .status:
             return await printHelperStatus()
+        #if !os(macOS)
+        case .install, .uninstall:
+            throw AutomationError(.invalidArgument, String(localized: "On Linux, passtunneld is installed and removed by hand from the release tarball, not by this command. Follow the README in the tarball; docs/LINUX.md has the details: https://github.com/PassTunnel/passtunnel/blob/main/docs/LINUX.md"))
+        #else
         case .install:
             switch HelperInstaller.status {
             case .enabled:
@@ -777,6 +901,7 @@ final class CLIRunner {
                 CLITerminal.out(String(localized: "The helper is still installed. Confirm the removal in PassTunnel → Settings → Helper."))
                 return Exit.error
             }
+        #endif
         }
     }
 
@@ -793,10 +918,7 @@ final class CLIRunner {
             CLITerminal.out(String(localized: "\(p.name) is not connected."))
             return Exit.notConnected
         }
-        if NSRunningApplication.runningApplications(withBundleIdentifier: PT.bundleID)
-            .contains(where: { !$0.isTerminated && $0.processIdentifier != getpid() }) {
-            DistributedNotificationCenter.default().postNotificationName(
-                DebugDrop.notification, object: p.id, userInfo: nil, deliverImmediately: true)
+        if Self.askRunningAppToDrop(p.id) {
             CLITerminal.out(String(localized: "Asked PassTunnel to drop \(p.name) as if the server ended the session…"))
         } else {
             guard try await manager.simulateDrop(p.id) else {
@@ -817,8 +939,22 @@ final class CLIRunner {
         CLITerminal.out(String(localized: "\(p.name) is still connected."))
         return Exit.error
     }
+
+    /// Posts `DebugDrop` to a running app; false when none runs (always on Linux, which has no app).
+    private static func askRunningAppToDrop(_ id: String) -> Bool {
+        #if os(macOS)
+        guard NSRunningApplication.runningApplications(withBundleIdentifier: PT.bundleID)
+            .contains(where: { !$0.isTerminated && $0.processIdentifier != getpid() }) else { return false }
+        DistributedNotificationCenter.default().postNotificationName(
+            DebugDrop.notification, object: id, userInfo: nil, deliverImmediately: true)
+        return true
+        #else
+        return false
+        #endif
+    }
     #endif
 
+    #if os(macOS)
     /// The helper is enabled but from another app version or build: the app replaces it (unregister,
     /// then register from its own bundle), which stops its connections. Waits for the current helper.
     private func updateHelper() async throws -> Int32 {
@@ -900,7 +1036,7 @@ final class CLIRunner {
             throw CLIFailure(String(localized: "Could not open PassTunnel. Install it in the Applications folder and try again."))
         }
     }
-
+    #endif
 
     /// Exit 0 when the helper is enabled, answering and current, else `AutomationExit.helper`.
     private func printHelperStatus() async -> Int32 {
@@ -911,6 +1047,16 @@ final class CLIRunner {
             return code
         }
         switch r.state {
+        #if os(Linux)
+        case "enabled":
+            if let v = r.protocolVersion {
+                let note = r.outdated == true ? "  " + String(localized: "(not the installed build; restart it: systemctl restart passtunnel)") : ""
+                CLITerminal.out(String(localized: "Daemon (passtunneld): running (protocol \(v))") + note)
+            } else {
+                CLITerminal.out(String(localized: "Daemon (passtunneld): installed, but not answering"))
+                if let error = r.error { CLITerminal.out("  " + error) }
+            }
+        #else
         case "enabled":
             if let v = r.protocolVersion {
                 let note = r.outdated == true ? "  " + String(localized: "(out of date; “passtunnel helper install” updates it)") : ""
@@ -918,10 +1064,15 @@ final class CLIRunner {
             } else {
                 CLITerminal.out(String(localized: "Helper: enabled, but not responding"))
             }
+        #endif
         case "requires_approval":
             CLITerminal.out(String(localized: "Helper: needs approval in System Settings → General → Login Items"))
         case "not_installed":
+            #if os(macOS)
             CLITerminal.out(String(localized: "Helper: not installed (run “passtunnel helper install”)"))
+            #else
+            CLITerminal.out(String(localized: "Daemon (passtunneld): not installed"))
+            #endif
         default:
             CLITerminal.out(String(localized: "Helper: missing from the app bundle"))
         }
@@ -943,45 +1094,6 @@ private struct AnyEncodable: Encodable {
     func encode(to encoder: Encoder) throws { try encodeBody(encoder) }
 }
 
-enum CLIClipboard {
-    /// Copies a code like the app does (`Pasteboard.copySecret`: this Mac only, concealed, transient)
-    /// and leaves a detached copy of this binary behind that clears it after `Pasteboard.secretLifetime`
-    /// unless something else was copied meanwhile; the command itself returns at once.
-    static func copyConcealed(_ text: String) {
-        let count = Pasteboard.copySecret(text)
-        scheduleClear(ifUnchangedSince: count)
-    }
-
-    /// Runs `passtunnel <PassTunnelCLI.clearClipboardArgument> COUNT` in a new session with no
-    /// terminal, so closing the terminal does not end it. It inherits no descriptor (a store lock
-    /// would otherwise stay held while it waits): stdin, stdout and stderr are /dev/null. Best effort.
-    private static func scheduleClear(ifUnchangedSince count: Int) {
-        guard let executable = Bundle.main.executablePath else { return }
-        let argv = ["passtunnel", PassTunnelCLI.clearClipboardArgument, String(count)]
-        var attr: posix_spawnattr_t?
-        posix_spawnattr_init(&attr)
-        defer { posix_spawnattr_destroy(&attr) }
-        posix_spawnattr_setflags(&attr, Int16(POSIX_SPAWN_SETSID | POSIX_SPAWN_CLOEXEC_DEFAULT))
-        var actions: posix_spawn_file_actions_t?
-        posix_spawn_file_actions_init(&actions)
-        defer { posix_spawn_file_actions_destroy(&actions) }
-        for fd in [STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO] {
-            posix_spawn_file_actions_addopen(&actions, fd, "/dev/null", fd == STDIN_FILENO ? O_RDONLY : O_WRONLY, 0)
-        }
-        var cArgs = argv.map { strdup($0) } + [nil]
-        defer { cArgs.forEach { free($0) } }
-        var pid: pid_t = 0
-        _ = posix_spawn(&pid, executable, &actions, &attr, &cArgs, environ)
-    }
-
-    /// The detached process: waits, then clears the pasteboard if it still holds the copied code.
-    static func clearLater(ifUnchangedSince count: Int) -> Int32 {
-        Thread.sleep(forTimeInterval: Pasteboard.secretLifetime)
-        Pasteboard.clear(ifUnchangedSince: count)
-        return PassTunnelCLI.Exit.ok
-    }
-}
-
 /// A plain CLI error (exit code 1, `internal` in JSON).
 struct CLIFailure: LocalizedError {
     var message: String
@@ -989,6 +1101,7 @@ struct CLIFailure: LocalizedError {
     var errorDescription: String? { message }
 }
 
+#if os(macOS)
 /// The app's replies to one helper hand-off (`HelperHandoff.replyNotification`), received on the main
 /// run loop the CLI keeps running. Created before the request goes out, so no reply is missed.
 @MainActor
@@ -1020,3 +1133,4 @@ private final class HandoffReplies {
         observer = nil
     }
 }
+#endif

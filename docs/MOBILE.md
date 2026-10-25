@@ -38,8 +38,9 @@ FortiGate config, share files, slugs, profile fields and merging, and the secret
   the two implementations must not drift:
 - **`fixtures/`** in this repository is a corpus of golden cases in JSON: RFC 6238 vectors and
   PassTunnel's own TOTP cases, every code format and template, `otpauth://` URIs that parse and
-  ones that must fail, OpenVPN configs the sanitizer accepts and rejects, inlining results, and
-  `.passtunnel` files with their decoded profiles. The Swift tests read it, so it can never be
+  ones that must fail, OpenVPN configs the sanitizer accepts and rejects, inlining results, the
+  import review (which refused lines are skipped, which block the file), and `.passtunnel` files with
+  their decoded profiles. The Swift tests read it, so it can never be
   wrong for the Mac; the Android tests read a copy pinned to a commit of this repository, and a
   check fails when the copy is not that commit's corpus. A change to shared behavior lands here
   first (code, tests and fixtures), then in Android.
@@ -62,7 +63,7 @@ until then the Kotlin port is simpler and safer.
   management socket (the Mac model), decided then.
 - **Codes and credentials**: the same rules as the Mac. The app computes the code when it connects,
   sends password and code in the profile's format (or the static-challenge response), and waits
-  for a fresh window when fewer than 8 seconds are left; a code is never reused.
+  for a fresh window when 5 seconds or less are left; a code is never reused.
 - **Secrets**: an AES-GCM key in the Android Keystore wraps passwords and TOTP secrets; files live
   in app-private storage, excluded from backups. Profiles marked for confirmation use a key that
   requires strong biometrics or the device credential (`BiometricPrompt` with a `CryptoObject`).

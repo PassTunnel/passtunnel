@@ -8,7 +8,7 @@ public enum ProfileFields {
     public static let keys = [
         "name", "badge", "icon", "badge_style", "pinned", "order",
         "username", "password_mode", "otp_mode", "digits", "period", "algorithm", "otp_delivery", "otp_template",
-        "require_auth", "session_limit_min", "auto_reconnect", "health_host",
+        "require_auth", "session_limit_min", "auto_reconnect", "connect_at_login", "health_host",
         "host", "port", "trusted_cert", "set_dns", "set_routes",
     ]
 
@@ -87,6 +87,7 @@ public enum ProfileFields {
             guard v >= 0 else { throw bad() }
             p.sessionLimitMin = v
         case "auto_reconnect": p.autoReconnect = try bool()
+        case "connect_at_login": p.connectAtLogin = try bool()
         case "health_host":
             guard value.isEmpty || HealthCheck.parse(value) != nil else { throw bad() }
             p.healthHost = value
@@ -124,6 +125,7 @@ public enum ProfileFields {
         case "require_auth": return p.requireAuth.rawValue
         case "session_limit_min": return String(p.sessionLimitMin)
         case "auto_reconnect": return String(p.autoReconnect)
+        case "connect_at_login": return String(p.connectAtLogin)
         case "health_host": return p.healthHost
         case "host": return p.host
         case "port": return String(p.port)

@@ -1,5 +1,11 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
+#if canImport(Security)
 import Security
+#endif
 import XCTest
 @testable import PassTunnelCore
 @testable import PassTunnelKit
@@ -243,6 +249,8 @@ final class SecretHardeningTests: CoreTestCase {
         auth = FakeAuthenticator()
     }
 
+    // The Keychain's own rules (macOS).
+    #if os(macOS)
     func label(_ account: String) -> String? {
         let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service!,
                                 kSecAttrAccount as String: account, kSecReturnAttributes as String: true,
@@ -268,6 +276,7 @@ final class SecretHardeningTests: CoreTestCase {
         try Secrets.set("acme", .password, "again")        // and again over its own item
         XCTAssertEqual(Secrets.get("acme", .password), "again")
     }
+    #endif
 
     @MainActor func makeVault() -> SecretVault {
         SecretVault(authenticator: auth, reuseWindow: { 60 })

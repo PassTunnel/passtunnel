@@ -43,7 +43,8 @@ public final class AutomationService {
         let m = manager
         var s = ProfileStatus(id: p.id, name: p.name, type: p.type.rawValue, state: "disconnected",
                               isDefault: store.defaultID == p.id, protected: ProfileSummary.isProtected(p),
-                              autoReconnect: p.autoReconnect, error: m.lastError[p.id])
+                              autoReconnect: p.autoReconnect, error: m.lastError[p.id],
+                              failure: m.failures[p.id].map { Self.redacted($0, id: p.id) })
         switch m.state(p.id) {
         case .disconnected: break
         case .connecting(let phase): s.state = "connecting"; s.phase = phase
@@ -58,6 +59,16 @@ public final class AutomationService {
             }
         }
         return s
+    }
+
+    /// The failure with the server's reply and the tool's reason passed through `LogRedactor`, as the log is.
+    static func redacted(_ failure: ConnectionFailure, id: String) -> ConnectionFailure {
+        guard failure.reply != nil || failure.reason != nil else { return failure }
+        let redactor = LogRedactor(secrets: SecretKind.allCases.compactMap { Secrets.get(id, $0) })
+        var f = failure
+        f.reply = f.reply.map(redactor.redact)
+        f.reason = f.reason.map(redactor.redact)
+        return f
     }
 
     /// Whole seconds from `start` to `end`: 0 when `end` is not later or the difference is not finite,
@@ -96,16 +107,23 @@ public final class AutomationService {
     /// under way and only wants to wait for it; throws `ConnectionManager.NothingToFollow` when it has
     /// ended meanwhile, so the caller can run its own checks before starting one. The caller asks for
     /// the confirmation first (`vault.unlock`), so the time a prompt stays open does not count.
-    /// `role` is passed on to `ConnectionManager.connect` (the CLI's Ctrl-C handler uses it).
+    /// `role` is passed on to `ConnectionManager.connect` (the CLI's Ctrl-C handler uses it). A failure the
+    /// manager typed (`ConnectionManager.failures`) comes as a `ConnectFailedError` around the error.
     public func connect(_ id: String, given: [CredentialField: String] = [:], force: Bool = false,
                         timeout: TimeInterval?, joining: Bool,
                         role: ((ConnectionManager.ConnectRole) -> Void)? = nil) async throws {
         let manager = self.manager
         let attempt = Attempt()
         let run = { @MainActor in
-            try await manager.connect(id, given: given, force: force, followOnly: joining) {
-                attempt.started = $0 == .started
-                role?($0)
+            do {
+                try await manager.connect(id, given: given, force: force, followOnly: joining) {
+                    attempt.started = $0 == .started
+                    role?($0)
+                }
+            } catch let error where !(error is ConnectionManager.NothingToFollow) {
+                // Set by the attempt that threw (each attempt clears it first).
+                guard let failure = manager.failures[id] else { throw error }
+                throw ConnectFailedError(error, failure: Self.redacted(failure, id: id))
             }
         }
         guard let timeout else {
@@ -199,13 +217,36 @@ public final class AutomationService {
         return LogReport(id: id, lines: tail, truncated: all.count > count || size > VPNLog.maxReadBytes)
     }
 
+    /// The last `lines` events of the profile's activity log (`ActivityLog`), each worded in the user's
+    /// language with its local time, and as objects. Code digits are left out, and the text passes
+    /// through `LogRedactor` like the VPN log.
+    public func activity(_ id: String, lines: Int, timeZone: TimeZone = .current) throws -> LogReport {
+        _ = try store.get(id)
+        let count = min(max(lines, 1), Self.maxLogLines)
+        let all = ActivityLog(url: store.activityURL(id)).read()
+        let redactor = LogRedactor(secrets: SecretKind.allCases.compactMap { Secrets.get(id, $0) })
+        let events = all.suffix(count).map { $0.withoutCodeDigits().redacted(redactor) }
+        return LogReport(id: id, lines: events.map { $0.line(timeZone: timeZone) }, truncated: all.count > count,
+                         source: "activity", events: events)
+    }
+
     // MARK: diagnose
 
     public func diagnose() async -> DiagnoseReport {
         let helper = await helperInspector.report()
         return DiagnoseReport(version: appInfo.version, build: appInfo.build, appPath: appInfo.appPath,
                               inApplications: appInfo.inApplications, helper: helper,
-                              profiles: store.list().map(check))
+                              profiles: store.list().map(check), secretStore: await Self.secretStoreReport())
+    }
+
+    /// Linux: the secret store in use. Its availability check may run a tool for a few seconds, so
+    /// not on the main actor. Nil on the Mac (the Keychain).
+    private static func secretStoreReport() async -> SecretStoreReport? {
+        #if os(Linux)
+        return await Task.detached { SecretStores.report() }.value
+        #else
+        return nil
+        #endif
     }
 
     /// What would stop `p` from connecting, from its files and Keychain items (whether they exist only;
@@ -234,16 +275,19 @@ public final class AutomationService {
             }
             do { try Profile.checkUsername(p.username, type: p.type) } catch { problems.append(error) }
         }
-        var passwordSaved: Bool?
-        var totpSaved: Bool?
-        if p.passwordMode == .keychain {
-            passwordSaved = Secrets.has(p.id, .password)
-            if passwordSaved == false { problems.append(PTError.missingPassword(p.id)) }
+        /// Whether `kind` is saved; nil, and the store's error once, when the store cannot be read.
+        func saved(_ kind: SecretKind, missing: PTError) -> Bool? {
+            do {
+                let saved = try Secrets.exists(p.id, kind)
+                if !saved { problems.append(missing) }
+                return saved
+            } catch {
+                if !problems.contains(where: { $0 is SecretStoreUnavailable }) { problems.append(error) }
+                return nil
+            }
         }
-        if p.otpMode == .totp {
-            totpSaved = Secrets.has(p.id, .totp)
-            if totpSaved == false { problems.append(PTError.missingTOTPSecret(p.id)) }
-        }
+        let passwordSaved = p.passwordMode == .keychain ? saved(.password, missing: .missingPassword(p.id)) : nil
+        let totpSaved = p.otpMode == .totp ? saved(.totp, missing: .missingTOTPSecret(p.id)) : nil
         return ProfileCheck(id: p.id, name: p.name, type: p.type.rawValue, ok: problems.isEmpty,
                             server: ProfileDestination.of(p, store: store).host, protected: ProfileSummary.isProtected(p),
                             passwordSaved: passwordSaved, totpSaved: totpSaved, asksFor: p.needs.map(\.rawValue),
@@ -302,5 +346,29 @@ public struct LogRedactor {
             out = regex.stringByReplacingMatches(in: out, range: NSRange(out.startIndex..., in: out), withTemplate: template)
         }
         return out
+    }
+}
+
+extension ActivityEvent {
+    /// The event with the text it carries from outside (server, user name, the server's reply) passed
+    /// through `redactor`, as the VPN log's lines are.
+    func redacted(_ redactor: LogRedactor) -> ActivityEvent {
+        var copy = self
+        switch kind {
+        case let .connecting(host, port, transport):
+            copy.kind = .connecting(host: redactor.redact(host), port: port, transport: transport)
+        case var .sending(s):
+            s.username = redactor.redact(s.username)
+            copy.kind = .sending(s)
+        case .rejected(let reply):
+            copy.kind = .rejected(reply: reply.map(redactor.redact))
+        case let .unreachable(tries, reason):
+            copy.kind = .unreachable(tries: tries, reason: reason.map(redactor.redact))
+        case let .failed(failure, reason, sent):
+            copy.kind = .failed(kind: failure, reason: reason.map(redactor.redact), credentialsSent: sent)
+        default:
+            break
+        }
+        return copy
     }
 }

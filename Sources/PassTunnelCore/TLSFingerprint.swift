@@ -1,13 +1,20 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto   // swift-crypto: the same API, outside Apple platforms
+#endif
 import Foundation
+#if os(macOS)
 import Network
+import Security
+#endif
 import PassTunnelKit
 import PassTunnelVPNConfig
-import Security
 
 /// Reads a TLS server's leaf certificate and returns its SHA-256 digest, the format openfortivpn
 /// expects for `trusted-cert`. The certificate is never trusted and no application data is sent:
-/// the handshake is aborted as soon as the certificate has been seen.
+/// the handshake is aborted as soon as the certificate has been seen. Reading it (`fetch`, the
+/// editor's) is macOS only (Network); the digest formats are used everywhere (`ProfileDestination`).
 public enum TLSFingerprint {
     public enum Failure: Error, Equatable, LocalizedError {
         case invalidHost
@@ -32,6 +39,7 @@ public enum TLSFingerprint {
         }
     }
 
+    #if os(macOS)
     /// 64 lowercase hex characters (SHA-256 of the DER-encoded leaf certificate).
     public static func fetch(host: String, port: Int, timeout: TimeInterval = 10) async throws -> String {
         let h = host.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -79,6 +87,7 @@ public enum TLSFingerprint {
             queue.async { probe.finish(connection, fallback: .timedOut) }
         }
     }
+    #endif
 
     public static func sha256Hex(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
@@ -102,6 +111,7 @@ public enum TLSFingerprint {
         return pairs.joined(separator: ":")
     }
 
+    #if os(macOS)
     /// Single-use result holder; all access happens on the probe's serial queue.
     private final class Probe: @unchecked Sendable {
         var fingerprint: String?
@@ -115,4 +125,5 @@ public enum TLSFingerprint {
             if let fingerprint { c.resume(returning: fingerprint) } else { c.resume(throwing: fallback) }
         }
     }
+    #endif
 }

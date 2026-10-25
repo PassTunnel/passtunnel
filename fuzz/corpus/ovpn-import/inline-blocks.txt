@@ -1,0 +1,17 @@
+client
+<up>
+/tmp/x
+</up>
+<plugin>
+/tmp/p
+</plugin>
+<auth-user-pass>
+alice
+secret
+</auth-user-pass>
+auth-user-pass [inline]
+<tls-auth>
+up /x
+</tls-auth>
+static-challenge "Code" 1
+<dns-updown>

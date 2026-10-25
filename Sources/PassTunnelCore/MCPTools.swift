@@ -1,6 +1,28 @@
 import Foundation
 import PassTunnelKit
 
+/// The words of the MCP texts that differ between the Mac and Linux (docs/LINUX.md, Commands that
+/// differ): the machine, and what a protected profile needs. Linux cannot ask for a confirmation yet,
+/// so it refuses protected profiles with `auth_unavailable`. The Mac's texts stay exactly as they are
+/// listed in MCP directories.
+enum MCPWording {
+    #if os(Linux)
+    static let thisMachines = "this computer's"
+    static let theMachines = "this computer's"
+    static let listProtected = "protected=true means connecting is refused on Linux for now (auth_unavailable): there is no confirmation to ask for yet."
+    static let connectProtected = "A protected profile cannot be connected on Linux yet: it is refused with auth_unavailable."
+    static let instructionsProtected = "A protected profile cannot be connected on Linux yet: connect refuses it with auth_unavailable."
+    static let timeout = "How long to wait for the connection."
+    #else
+    static let thisMachines = "this Mac's"
+    static let theMachines = "the Mac's"
+    static let listProtected = "protected=true means connecting asks the user for Touch ID on the Mac."
+    static let connectProtected = "If the profile is protected, the user must confirm with Touch ID on the Mac: tell them a prompt is waiting."
+    static let instructionsProtected = "A protected profile shows a Touch ID prompt on the Mac that the user must confirm; tell the user to look for it."
+    static let timeout = "How long to wait for the connection (after the Touch ID confirmation)."
+    #endif
+}
+
 /// The tools of `passtunnel mcp`. Read-only by default (`list_profiles`, `get_status`, `get_logs`,
 /// `diagnose`); `connect` and `disconnect` exist only with `--allow-connect`. There is deliberately
 /// no tool that returns a code or a secret, and none that creates, changes or deletes a profile.
@@ -69,17 +91,19 @@ final class MCPTools {
 
     static let readTools: [Tool] = [
         Tool(name: "list_profiles", title: "List VPN profiles",
-             description: "Lists the VPN profiles configured in PassTunnel with their current state. Use the returned id as profile_id in the other tools. protected=true means connecting asks the user for Touch ID on the Mac.",
+             description: "Lists the VPN profiles configured in PassTunnel with their current state. Use the returned id as profile_id in the other tools. \(MCPWording.listProtected)",
              input: Schema.object([:]), output: Schema.object(["profiles": Schema.array(Schema.profileSummary)], required: ["profiles"]),
              readOnly: true),
         Tool(name: "get_status", title: "Get connection status",
-             description: "Returns the connection state of every profile (or only profile_id): disconnected, connecting or connected, the tunnel IP, since when, the last error, and whether the privileged helper that starts VPNs is installed and current.",
+             description: "Returns the connection state of every profile (or only profile_id): disconnected, connecting or connected, the tunnel IP, since when, the last error and why it happened (failure: auth_rejected, host_not_found, unreachable, configuration, setup, timeout, cancelled or failed; the server's reply; whether the sign-in and a one-time code were sent), and whether the privileged helper that starts VPNs is installed and current.",
              input: Schema.object(["profile_id": Schema.profileID(optional: true)]), output: Schema.statusReport, readOnly: true),
         Tool(name: "get_logs", title: "Read VPN log",
-             description: "Returns the last lines of a profile's VPN log (OpenVPN or openfortivpn output of the current or last session), for explaining why a connection failed. Anything that looks like a credential is replaced by <redacted>.",
+             description: "Returns the last lines of a profile's VPN log, for explaining why a connection failed. source \"raw\" (the default): the OpenVPN or openfortivpn output of the current or last session. source \"activity\": what PassTunnel did and saw, also for sessions the app or a terminal started (connecting, waiting for a fresh code, credentials sent, sign-in accepted or rejected, connected, drops, reconnects, stopped by the user), as sentences in lines and as typed events. Anything that looks like a credential is replaced by <redacted>; passwords and one-time codes are never included.",
              input: Schema.object(["profile_id": Schema.profileID(optional: false),
                                    "lines": Schema.integer(1, AutomationService.maxLogLines, default: defaultLogLines,
-                                                           "Number of lines from the end of the log.")],
+                                                           "Number of lines (or activity events) from the end of the log."),
+                                   "source": Schema.choice(Schema.logSources, default: "raw",
+                                                           "raw: the VPN tool's output; activity: PassTunnel's own record of the connection.")],
                                   required: ["profile_id"]),
              output: Schema.logReport, readOnly: true),
         Tool(name: "diagnose", title: "Diagnose PassTunnel",
@@ -89,11 +113,11 @@ final class MCPTools {
 
     static let connectTools: [Tool] = [
         Tool(name: "connect", title: "Connect a VPN profile",
-             description: "Connects a VPN profile and, by default, waits until it is connected or has failed. If the profile is protected, the user must confirm with Touch ID on the Mac: tell them a prompt is waiting. Profiles that ask for a user name, password or code on every connect cannot be connected this way. Connecting changes the Mac's network routes; only connect when the user asked for it.",
+             description: "Connects a VPN profile and, by default, waits until it is connected or has failed. \(MCPWording.connectProtected) Profiles that ask for a user name, password or code on every connect cannot be connected this way. A failure carries a failure object (why, the server's reply, whether the sign-in was sent); a rejected sign-in is never retried, so do not retry it either. Connecting changes \(MCPWording.theMachines) network routes; only connect when the user asked for it.",
              input: Schema.object(["profile_id": Schema.profileID(optional: false),
                                    "wait": Schema.boolean(default: true, "Wait until connected or failed; false returns at once with state connecting."),
                                    "timeout_seconds": Schema.integer(1, maxTimeout, default: defaultTimeout,
-                                                                     "How long to wait for the connection (after the Touch ID confirmation).")],
+                                                                     MCPWording.timeout)],
                                   required: ["profile_id"]),
              output: Schema.profileStatus, readOnly: false),
         Tool(name: "disconnect", title: "Disconnect a VPN profile",
@@ -120,7 +144,7 @@ final class MCPTools {
         }
     }
 
-    func call(_ name: String, _ arguments: [String: Any]) async -> Outcome {
+    func call(_ name: String, _ arguments: [String: JSONValue]) async -> Outcome {
         do {
             let value = try await run(name, Arguments(arguments, tool: name))
             let object = try AutomationJSON.object(value)
@@ -147,8 +171,9 @@ final class MCPTools {
         case "get_logs":
             let id = try args.profileID(required: true)!
             let lines = try args.integer("lines", 1...AutomationService.maxLogLines) ?? Self.defaultLogLines
+            let source = try args.choice("source", Schema.logSources) ?? "raw"
             try args.finish()
-            return try service.logs(id, lines: lines)
+            return source == "activity" ? try service.activity(id, lines: lines) : try service.logs(id, lines: lines)
         case "diagnose":
             try args.finish()
             return await service.diagnose()
@@ -223,13 +248,14 @@ final class MCPTools {
     // MARK: argument checks
 
     /// The arguments of one call; every key must be read, so unknown ones are refused. A `null` value
-    /// counts as left out (some clients send every optional argument).
+    /// counts as left out (some clients send every optional argument). Booleans and integers must be
+    /// JSON booleans and numbers (`JSONValue` keeps them apart): `1` is not true, `true` is not 1.
     final class Arguments {
-        private var values: [String: Any]
+        private var values: [String: JSONValue]
         let tool: String
 
-        init(_ values: [String: Any], tool: String) {
-            self.values = values.filter { !($0.value is NSNull) }
+        init(_ values: [String: JSONValue], tool: String) {
+            self.values = values.filter { $0.value != .null }
             self.tool = tool
         }
 
@@ -238,7 +264,7 @@ final class MCPTools {
                 if required { throw AutomationError(.invalidArgument, "Missing argument profile_id.") }
                 return nil
             }
-            guard let id = raw as? String, Slug.isValid(id) else {
+            guard let id = raw.stringValue, Slug.isValid(id) else {
                 throw AutomationError(.invalidArgument, "profile_id must be a profile id from list_profiles (lowercase letters, digits and dashes).")
             }
             return id
@@ -246,19 +272,28 @@ final class MCPTools {
 
         func boolean(_ key: String) throws -> Bool? {
             guard let raw = values.removeValue(forKey: key) else { return nil }
-            guard let n = raw as? NSNumber, MCPTools.isBool(n) else {
+            guard case .bool(let value) = raw else {
                 throw AutomationError(.invalidArgument, "\(key) must be true or false.")
             }
-            return n.boolValue
+            return value
         }
 
+        /// A whole number in `range` (`5.0` too); a fraction or anything outside is refused.
         func integer(_ key: String, _ range: ClosedRange<Int>) throws -> Int? {
             guard let raw = values.removeValue(forKey: key) else { return nil }
-            guard let n = raw as? NSNumber, !MCPTools.isBool(n), n.doubleValue == n.doubleValue.rounded(),
-                  n.doubleValue >= Double(range.lowerBound), n.doubleValue <= Double(range.upperBound) else {
+            guard case .integer(let value) = raw, value >= range.lowerBound, value <= range.upperBound else {
                 throw AutomationError(.invalidArgument, "\(key) must be an integer from \(range.lowerBound) to \(range.upperBound).")
             }
-            return n.intValue
+            return Int(value)
+        }
+
+        /// One of `allowed`, as a JSON string.
+        func choice(_ key: String, _ allowed: [String]) throws -> String? {
+            guard let raw = values.removeValue(forKey: key) else { return nil }
+            guard let value = raw.stringValue, allowed.contains(value) else {
+                throw AutomationError(.invalidArgument, "\(key) must be one of: \(allowed.joined(separator: ", ")).")
+            }
+            return value
         }
 
         func finish() throws {
@@ -266,11 +301,6 @@ final class MCPTools {
                 throw AutomationError(.invalidArgument, "Unknown argument \(key) for \(tool).")
             }
         }
-    }
-
-    /// JSONSerialization gives booleans as NSNumber too; only a CFBoolean is a JSON true/false.
-    nonisolated static func isBool(_ n: NSNumber) -> Bool {
-        CFGetTypeID(n) == CFBooleanGetTypeID()
     }
 }
 
@@ -307,6 +337,10 @@ enum Schema {
         ["type": "integer", "minimum": min, "maximum": max, "default": value, "description": description]
     }
 
+    static func choice(_ values: [String], default value: String, _ description: String) -> [String: Any] {
+        ["type": "string", "enum": values, "default": value, "description": description]
+    }
+
     static let vpnType = oneOf(VPNType.allCases.map(\.rawValue))
     static let state = oneOf(["disconnected", "connecting", "connected"])
 
@@ -314,15 +348,22 @@ enum Schema {
         "id": string, "name": string, "type": vpnType, "is_default": bool, "pinned": bool, "username": string,
         "password_mode": oneOf(PasswordMode.allCases.map(\.rawValue)), "otp_mode": oneOf(OTPMode.allCases.map(\.rawValue)),
         "require_auth": oneOf(AuthRequirement.allCases.map(\.rawValue)), "protected": bool, "auto_reconnect": bool,
-        "state": state,
+        "connect_at_login": bool, "state": state,
     ], required: ["id", "name", "type", "is_default", "pinned", "username", "password_mode", "otp_mode", "require_auth",
-                  "protected", "auto_reconnect"])
+                  "protected", "auto_reconnect", "connect_at_login"])
+
+    /// `ConnectionFailure`: why the last connect failed.
+    static let failure = result([
+        "kind": oneOf(ConnectionFailure.Kind.allCases.map(\.rawValue)), "at": ["type": "string", "format": "date-time"],
+        "reply": string, "reason": string, "credentials_sent": bool, "code_sent": bool, "code_seconds_left": int,
+        "tries": int,
+    ], required: ["kind", "at", "credentials_sent", "code_sent"])
 
     static let profileStatus = result([
         "id": string, "name": string, "type": vpnType, "state": state, "phase": string, "ip": string,
         "since": ["type": "string", "format": "date-time"], "duration_seconds": int, "is_default": bool, "protected": bool,
-        "auto_reconnect": bool, "health": oneOf(["reachable", "unreachable"]), "error": string, "warning": string,
-        "status_unavailable": bool,
+        "auto_reconnect": bool, "health": oneOf(["reachable", "unreachable"]), "error": string, "failure": failure,
+        "warning": string, "status_unavailable": bool,
     ], required: ["id", "name", "type", "state", "is_default", "protected", "auto_reconnect"])
 
     static let helper = result([
@@ -332,7 +373,22 @@ enum Schema {
 
     static let statusReport = result(["helper": helper, "profiles": array(profileStatus)], required: ["helper", "profiles"])
 
-    static let logReport = result(["id": string, "lines": array(string), "truncated": bool], required: ["id", "lines", "truncated"])
+    static let dateTime: [String: Any] = ["type": "string", "format": "date-time"]
+    /// `get_logs` sources: the VPN tool's output, PassTunnel's activity log.
+    static let logSources = ["raw", "activity"]
+
+    /// One `ActivityEvent` (never with code digits); which fields it has depends on `event`.
+    static let activityEvent = result([
+        "at": dateTime, "event": oneOf(ActivityEvent.names), "host": string, "port": int, "protocol": string,
+        "reason": string, "seconds": int, "username": string, "password": bool, "code": bool,
+        "seconds_left": int, "format": string, "address": string, "will_reconnect": bool, "attempt": int, "of": int,
+        "tries": int, "next_at": dateTime, "reply": string, "failure": oneOf(ConnectionFailure.Kind.allCases.map(\.rawValue)),
+        "credentials_sent": bool,
+    ], required: ["at", "event"])
+
+    static let logReport = result(["id": string, "lines": array(string), "truncated": bool,
+                                   "source": oneOf(logSources), "events": array(activityEvent)],
+                                  required: ["id", "lines", "truncated"])
 
     static let errorReport = result(["code": string, "message": string], required: ["code", "message"])
 
@@ -342,8 +398,19 @@ enum Schema {
         "problems": array(errorReport),
     ], required: ["id", "name", "type", "ok", "server", "protected", "asks_for", "problems"])
 
-    static let diagnose = result([
-        "version": string, "build": string, "app_path": string, "in_applications": bool, "helper": helper,
-        "profiles": array(profileCheck),
-    ], required: ["version", "app_path", "in_applications", "helper", "profiles"])
+    static let secretStore = result([
+        "name": string, "available": bool, "setting": oneOf(SecretStoreChoice.allCases.map(\.rawValue)),
+        "chosen_by": oneOf(["environment", "setting", "recorded", "auto"]), "error": string,
+    ], required: ["name", "available", "setting", "chosen_by"])
+
+    static let diagnose: [String: Any] = {
+        var properties: [String: Any] = [
+            "version": string, "build": string, "app_path": string, "in_applications": bool, "helper": helper,
+            "profiles": array(profileCheck),
+        ]
+        #if os(Linux)
+        properties["secret_store"] = secretStore
+        #endif
+        return result(properties, required: ["version", "app_path", "in_applications", "helper", "profiles"])
+    }()
 }

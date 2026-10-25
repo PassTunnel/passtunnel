@@ -38,10 +38,14 @@ public enum CLICommand: Equatable {
     case export(id: String, output: String?, json: Bool = false)
     case remove(id: String, yes: Bool, json: Bool = false)
     case secret(id: String, kind: SecretKind, json: Bool = false)
+    #if os(Linux)
+    case secretStore(choice: SecretStoreChoice?, json: Bool = false)   // nil: show the store in use
+    #endif
     case setDefault(id: String?, json: Bool = false)           // nil: print the current default
     case pin(id: String, json: Bool = false)
     case unpin(id: String, json: Bool = false)
-    case log(id: String, follow: Bool, json: Bool = false, lines: Int? = nil)   // lines: only the last N
+    // lines: only the last N; activity: the activity log (`ActivityLog`) instead of the VPN tool's
+    case log(id: String, follow: Bool, json: Bool = false, lines: Int? = nil, activity: Bool = false)
     case helper(HelperAction, json: Bool = false)              // json: `status` only
     case mcp(allowConnect: Bool)                               // MCP server on stdio (`MCPServer`)
     #if DEBUG
@@ -65,10 +69,16 @@ public enum CLICommand: Equatable {
     }
 
     /// Every first word that selects CLI mode.
-    public static let commandNames = [
-        "status", "connect", "disconnect", "toggle", "code", "list", "show", "set", "add", "import", "export",
-        "rm", "secret", "default", "pin", "unpin", "log", "helper", "mcp", "completion", "version", "help",
-    ]
+    public static let commandNames: [String] = {
+        var names = [
+            "status", "connect", "disconnect", "toggle", "code", "list", "show", "set", "add", "import", "export",
+            "rm", "secret", "default", "pin", "unpin", "log", "helper", "mcp", "completion", "version", "help",
+        ]
+        #if os(Linux)
+        names.insert("secret-store", at: names.firstIndex(of: "secret")! + 1)   // the Mac has the Keychain only
+        #endif
+        return names
+    }()
 
     /// Commands that select CLI mode but are left out of help and completion (test hooks, debug
     /// builds only).
@@ -231,6 +241,17 @@ public enum CLICommand: Equatable {
                 throw CLIUsageError(String(localized: "Unknown secret “\(kindText)” (use password or totp)."), command: name)
             }
             return .secret(id: id, kind: kind, json: json)
+        #if os(Linux)
+        case "secret-store":
+            let json = a.flag("--json")
+            let choiceText = try a.optionalPositional()
+            try a.finish()
+            guard let choiceText else { return .secretStore(choice: nil, json: json) }
+            guard let choice = SecretStoreChoice(rawValue: choiceText.lowercased()) else {
+                throw CLIUsageError(String(localized: "Unknown secret store “\(choiceText)” (use auto, secret-service, systemd-creds or file)."), command: name)
+            }
+            return .secretStore(choice: choice, json: json)
+        #endif
         case "default":
             let json = a.flag("--json")
             let id = try a.optionalPositional()
@@ -244,6 +265,7 @@ public enum CLICommand: Equatable {
         case "log":
             let follow = a.flag("--follow", "-f")
             let json = a.flag("--json")
+            let activity = a.flag("--activity")
             let lines = try a.option("--lines", "-n").map { text -> Int in
                 guard let n = Int(text), n > 0 else {
                     throw CLIUsageError(String(localized: "--lines needs a positive number."), command: name)
@@ -253,7 +275,8 @@ public enum CLICommand: Equatable {
             let id = try a.positional(String(localized: "profile"))
             try a.finish()
             if follow && json { throw CLIUsageError(String(localized: "--follow cannot be combined with --json."), command: name) }
-            return .log(id: id, follow: follow, json: json, lines: lines)
+            if follow && activity { throw CLIUsageError(String(localized: "--follow cannot be combined with --activity."), command: name) }
+            return .log(id: id, follow: follow, json: json, lines: lines, activity: activity)
         case "helper":
             let json = a.flag("--json")
             let actionText = try a.optionalPositional() ?? "status"

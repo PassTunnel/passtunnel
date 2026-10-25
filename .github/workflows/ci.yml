@@ -3,7 +3,19 @@
 #
 #   Build and test    swift build and swift test on macOS (Apple silicon), and the PassTunnelKit
 #                     library built for iOS (the iPhone app uses it)
-#   Release scripts   shellcheck of next-version.sh and its test, and the self-test of
+#   Linux (x86_64)    the Linux targets (Package.swift: the portable code, the CLI, the `passtunnel`
+#   Linux (aarch64)   command and the `passtunneld` daemon) built and the tests that build there run
+#                     (the golden cases in fixtures/ included), in the official Swift container; then
+#                     a smoke test of `passtunnel` (with the file secret store), one real Secret
+#                     Service round trip against a throwaway keyring, and, as root in the container,
+#                     a smoke test of `passtunneld` (an OpenVPN and a FortiGate session, no tunnel)
+#                     and of its DNS hook
+#   Linux release     the release tarball (scripts/build-linux.sh) built in the Swift image of Ubuntu
+#   (x86_64, aarch64) 22.04 and kept as an artifact, then tried in a clean Ubuntu 22.04: installed as
+#                     its README says, `passtunnel` and, as root, `passtunneld` with their build number
+#   Docker image      the Dockerfile built, and an MCP session with the image
+#   (x86_64, aarch64)
+#   Release scripts   shellcheck of next-version.sh, its test and build-linux.sh, and the self-test of
 #                     scripts/next-version.sh (in a temporary repository)
 #   Site              shellcheck of the site scripts and scripts/check-site.sh, the static checks
 #                     of the website in site/ (docs/WEBSITE.md)
@@ -57,6 +69,586 @@ jobs:
       - name: Build PassTunnelKit for iOS
         run: xcodebuild -scheme PassTunnelKit -destination 'generic/platform=iOS Simulator' -quiet build
 
+  linux:
+    name: Linux (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    container:
+      # swift:6.4.1-noble, pinned by the digest of its multi-arch index (both architectures).
+      image: swift:6.4.1-noble@sha256:19cbe56bdaec1918f7cf5fdeba42b9bd55bdd8a6149c9990d0e0e3a89a127d63
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Show the toolchain
+        run: |
+          uname -m
+          swift --version
+
+      - name: Build
+        run: swift build
+
+      # PassTunnelKitTests and the Core tests that build on Linux (the Apple-only ones are left out
+      # with #if); their secrets are kept in memory.
+      - name: Test
+        run: swift test
+
+      # The `passtunnel` binary against an empty temporary support directory: the version, an empty
+      # list, and an MCP session over stdin (the replies are checked with jq).
+      - name: Smoke-test passtunnel
+        run: |
+          set -euo pipefail
+          command -v jq >/dev/null || { apt-get update -qq && apt-get install -y -qq --no-install-recommends jq >/dev/null; }
+          bin="$(swift build --show-bin-path)/passtunnel"
+          PASSTUNNEL_HOME="$(mktemp -d)"
+          export PASSTUNNEL_HOME
+          "$bin" --version | tee version.txt
+          grep -qx "PassTunnel 0.0.0-dev" version.txt
+          "$bin" version --json | jq -e '.version == "0.0.0-dev" and .helper_protocol_version == 3'
+          "$bin" list --json | jq -e '. == []'
+          printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
+            '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+            '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_profiles","arguments":{}}}' \
+            | "$bin" mcp > mcp.jsonl
+          cat mcp.jsonl
+          jq -se 'INDEX(.id) as $r | length == 3
+            and $r["1"].result.protocolVersion == "2025-06-18" and $r["1"].result.serverInfo.version == "0.0.0-dev"
+            and [$r["2"].result.tools[].name] == ["list_profiles", "get_status", "get_logs", "diagnose"]
+            and $r["3"].result.isError == false and $r["3"].result.structuredContent == {"profiles": []}' mcp.jsonl
+          # Secrets end to end: no keyring and no systemd-creds here, so `auto` takes the file store,
+          # with its passphrase from a file; the first secret saved records the store.
+          printf '%s\n' 'a passphrase for ci only' > "$PASSTUNNEL_HOME/passphrase"
+          chmod 600 "$PASSTUNNEL_HOME/passphrase"
+          export PASSTUNNEL_PASSPHRASE_FILE="$PASSTUNNEL_HOME/passphrase"
+          "$bin" secret-store --json | jq -e '.name == "file" and .chosen_by == "auto" and .available'
+          "$bin" add Acme --type forti --json | jq -e '.id == "acme"'
+          printf 'JBSWY3DPEHPK3PXP' | "$bin" secret acme totp --json | jq -e '.saved and .encrypted == false'
+          "$bin" code acme --json | jq -e '.code | test("^[0-9]{6}$")'
+          "$bin" show acme --json | jq -e '.totp_saved'
+          "$bin" secret-store --json | jq -e '.name == "file" and .chosen_by == "recorded"'
+          head -c 4 "$PASSTUNNEL_HOME/secrets.enc" | grep -qx PTSF
+          test "$(stat -c %a "$PASSTUNNEL_HOME/secrets.enc")" = 600
+          if PASSTUNNEL_PASSPHRASE_FILE= "$bin" code acme --json --no-input > nopass.json; then exit 1; fi
+          jq -e '.error.code == "keychain_error"' nopass.json
+
+      # Optional and the only test with a real keyring: RealSecretServiceTests (exact bytes through
+      # secret-tool) against a throwaway gnome-keyring, unlocked, on a throwaway session bus inside this
+      # container. Skipped everywhere else (PASSTUNNEL_TEST_SECRET_SERVICE unset).
+      - name: Secret Service round trip (throwaway keyring)
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends libsecret-tools gnome-keyring dbus dbus-daemon >/dev/null
+          XDG_DATA_HOME="$(mktemp -d)"
+          XDG_RUNTIME_DIR="$(mktemp -d)"
+          export XDG_DATA_HOME XDG_RUNTIME_DIR
+          dbus-run-session -- bash -c '
+            set -euo pipefail
+            printf "%s" "throwaway keyring" | gnome-keyring-daemon --unlock --components=secrets >/dev/null
+            PASSTUNNEL_TEST_SECRET_SERVICE=1 swift test --skip-build --filter RealSecretServiceTests
+          '
+
+      # passtunneld as root in the container, on the container's own /run/passtunnel: refused from a
+      # directory others can write to, then installed where its checks accept it. hello and an empty
+      # status (raw, and through passtunnel); a start refused for a user outside the group passtunnel,
+      # whose status stays allowed; a member's session with the distribution's openvpn started (2.6:
+      # the DNS hook as --route-up and --down), its management socket handed over, invisible to others,
+      # and stopped (no tunnel: the server is an unroutable documentation address); a FortiGate session
+      # with the distribution's openfortivpn started and stopped (no tunnel: a local socket that never
+      # answers), and its DNS followed from the output of a stand-in openfortivpn (refused for want of
+      # a real ppp0; lines forged into the log ignored). Last, a daemon killed during a session, whose
+      # openvpn the next one stops.
+      - name: Smoke-test passtunneld
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends jq socat openvpn openfortivpn ppp ca-certificates >/dev/null
+          (openvpn --version || true) | head -n 1     # exits with 1 after printing
+          bin="$(swift build --show-bin-path)"
+          sock=/run/passtunnel/daemon.sock
+          call() { socat -t 30 - "UNIX-CONNECT:$sock"; }
+          call_as() { runuser -u "$1" -- socat -t 30 - "UNIX-CONNECT:$sock"; }
+          status='{"op":"perform","request":{"type":"status","protocol_version":3}}'
+          stop='{"op":"perform","request":{"type":"stop","protocol_version":3,"profile_id":"acme"}}'
+          PASSTUNNEL_HOME="$(mktemp -d)"
+          export PASSTUNNEL_HOME
+
+          tmp="$(mktemp -d)"
+          cp "$bin/passtunneld" "$tmp/"
+          if "$tmp/passtunneld" 2>refused.txt; then echo "ran from $tmp"; exit 1; fi
+          cat refused.txt
+          grep -q "Refusing to run from $tmp/passtunneld" refused.txt
+
+          install -m 0755 "$bin/passtunneld" /usr/local/sbin/passtunneld
+          daemon=""
+          # Ready once it answers (a killed daemon leaves its socket file behind).
+          start_daemon() {
+            /usr/local/sbin/passtunneld >>daemon.log 2>&1 &
+            daemon=$!
+            for _ in $(seq 100); do
+              reply="$(printf '%s\n' '{"op":"hello"}' | socat -t 5 - "UNIX-CONNECT:$sock" 2>/dev/null || true)"
+              case "$reply" in *'"protocol"'*) return 0 ;; esac
+              sleep 0.1
+            done
+            echo "no answer"; return 1
+          }
+          trap 'if [ -n "$daemon" ]; then kill "$daemon" 2>/dev/null || true; fi; echo "--- daemon log"; cat daemon.log
+            echo "--- session log"; cat /home/alice/.local/share/passtunnel/profiles/acme/vpn.log 2>/dev/null || true
+            echo "--- FortiGate session log"; cat /home/alice/.local/share/passtunnel/profiles/fortinet/vpn.log 2>/dev/null || true' EXIT
+          start_daemon
+          test "$(stat -c '%a %U' /run/passtunnel)" = "711 root"
+          test "$(stat -c '%a %U' "$sock")" = "666 root"
+
+          build="$(sha256sum /usr/local/sbin/passtunneld | cut -d' ' -f1)"
+          printf '%s\n' '{"op":"hello"}' | call | jq -e --arg build "$build" '.protocol == 3 and .build == $build'
+          printf '%s\n' "$status" | call | jq -e '.ok and .running == {} and .mgmt_sockets == {}'
+          "$bin/passtunnel" helper status --json \
+            | jq -e '.state == "enabled" and .responding and .protocol_version == 3 and .outdated == false'
+          printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
+            '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"diagnose","arguments":{}}}' \
+            | "$bin/passtunnel" mcp | jq -se 'INDEX(.id) as $r | $r["2"].result.structuredContent.helper
+              | .state == "enabled" and .responding and .outdated == false'
+
+          start='{"op":"perform","request":{"type":"start_openvpn","protocol_version":3,"profile_id":"acme","profile_dir":"/nonexistent","log_path":"/nonexistent/vpn.log"}}'
+          printf '%s\n' "$start" | call_as nobody | jq -e '.ok == false and (.error | test("group .passtunnel. does not exist"))'
+          groupadd --system passtunnel
+          printf '%s\n' "$start" | call_as nobody | jq -e '.ok == false and (.error | test("members of the group .passtunnel."))'
+          printf '%s\n' "$status" | call_as nobody | jq -e '.ok and .running == {}'
+          printf '%s\n' '{"op":"hello"}' | call_as nobody | jq -e '.protocol == 3'
+
+          useradd --create-home --groups passtunnel alice
+          uid="$(id -u alice)"
+          profile=/home/alice/.local/share/passtunnel/profiles/acme
+          runuser -u alice -- mkdir -p "$profile"
+          printf '%s\n' client 'dev tun' 'proto udp' 'remote 192.0.2.1 1194' nobind auth-user-pass \
+            "peer-fingerprint $(printf '00:%.0s' $(seq 31))00" | runuser -u alice -- tee "$profile/config.ovpn" >/dev/null
+          sha="$(sha256sum "$profile/config.ovpn" | cut -d' ' -f1)"
+          request="$(jq -cn --arg dir "$profile" --arg sha "$sha" '{op: "perform", request: {type: "start_openvpn",
+            protocol_version: 3, profile_id: "acme", profile_dir: $dir, log_path: ($dir + "/vpn.log"),
+            username: "alice", secret: "example-password", config_sha256: $sha}}')"
+          run="/run/passtunnel/$uid/acme"
+          printf '%s\n' "$request" | call_as alice | tee start.json \
+            | jq -e --arg sock "$run/mgmt.sock" '.ok and .pid > 1 and .mgmt_socket == $sock'
+          pid="$(jq -r .pid start.json)"
+          for _ in $(seq 100); do [ "$(stat -c '%U %a' "$run/mgmt.sock" 2>/dev/null)" = "alice 600" ] && break; sleep 0.1; done
+          test "$(stat -c '%U %a' "$run/mgmt.sock")" = "alice 600"
+          test "$(stat -c '%a %U' "$run")" = "711 root"
+          test "$(stat -c '%U %a' "$profile/vpn.log")" = "alice 600"
+          tr '\0' ' ' <"/proc/$pid/cmdline" | tee cmdline.txt
+          echo
+          grep -q -- "--management $run/mgmt.sock unix --management-client-user alice " cmdline.txt
+          grep -q -- "--auth-user-pass $run/auth --script-security 2 --route-up $run/dns-hook --down $run/dns-hook --down-pre $" cmdline.txt
+          test "$(readlink "$run/dns-hook")" = /usr/local/sbin/passtunneld
+          printf '%s\n' "$status" | call_as alice \
+            | jq -e --argjson pid "$pid" --arg sock "$run/mgmt.sock" '.running == {"acme": $pid} and .mgmt_sockets == {"acme": $sock}'
+          printf '%s\n' "$status" | call_as nobody | jq -e '.running == {}'
+          printf '%s\n' "$status" | call | jq -e '.running == {}'
+          printf '%s\n' "$stop" | call_as nobody | jq -e '.ok and .pid == null'
+          kill -0 "$pid"
+          printf '%s\n' "$stop" | call_as alice | jq -e --argjson pid "$pid" '.ok and .pid == $pid'
+          test ! -e "$run"
+          if kill -0 "$pid" 2>/dev/null; then echo "openvpn $pid still runs"; exit 1; fi
+          grep -q 'OpenVPN 2\.' "$profile/vpn.log"
+
+          # FortiGate: the distribution's openfortivpn (and the pppd it would run) with the config the
+          # daemon writes, the password and the code in it and nowhere else, then stopped. No tunnel:
+          # the "gateway" is a local socket that never answers the TLS handshake.
+          openfortivpn --version
+          (pppd --version 2>&1 || true) | head -n 1
+          socat -u TCP-LISTEN:10443,bind=127.0.0.1,reuseaddr,fork /dev/null &
+          gateway=$!
+          forti=/home/alice/.local/share/passtunnel/profiles/fortinet
+          runuser -u alice -- mkdir -p "$forti"
+          fstart="$(jq -cn --arg dir "$forti" '{op: "perform", request: {type: "start_forti", protocol_version: 3,
+            profile_id: "fortinet", profile_dir: $dir, log_path: ($dir + "/vpn.log"), host: "127.0.0.1", port: 10443,
+            username: "alice", password: "example-password", otp: "123456", trusted_cert: "", set_dns: true,
+            set_routes: true}}')"
+          frun="/run/passtunnel/$uid/fortinet"
+          printf '%s\n' "$fstart" | call_as alice | tee fstart.json | jq -e '.ok and .pid > 1 and .mgmt_socket == null'
+          fpid="$(jq -r .pid fstart.json)"
+          tr '\0' ' ' <"/proc/$fpid/cmdline" | tee fcmdline.txt
+          echo
+          test "$(cat fcmdline.txt)" = "/usr/bin/openfortivpn -c $frun/openfortivpn.conf "
+          test "$(stat -c '%a %U' "$frun/openfortivpn.conf")" = "600 root"
+          grep -v '^password = ' "$frun/openfortivpn.conf"
+          grep -qx 'password = example-password' "$frun/openfortivpn.conf"
+          grep -qx 'otp = 123456' "$frun/openfortivpn.conf"
+          grep -qx "ca-file = $(realpath /etc/ssl/certs/ca-certificates.crt)" "$frun/openfortivpn.conf"
+          grep -qx 'set-dns = 0' "$frun/openfortivpn.conf"
+          grep -qx 'pppd-use-peerdns = 0' "$frun/openfortivpn.conf"
+          if grep -qa example-password fcmdline.txt "/proc/$fpid/environ"; then echo "the password left the config"; exit 1; fi
+          test "$(stat -c '%U %a' "$forti/vpn.log")" = "alice 600"
+          fstop='{"op":"perform","request":{"type":"stop","protocol_version":3,"profile_id":"fortinet"}}'
+          printf '%s\n' "$status" | call_as alice | jq -e --argjson pid "$fpid" '.running == {"fortinet": $pid} and .mgmt_sockets == {}'
+          printf '%s\n' "$fstop" | call_as nobody | jq -e '.ok and .pid == null'
+          printf '%s\n' "$fstop" | call_as alice | jq -e --argjson pid "$fpid" '.ok and .pid == $pid'
+          test ! -e "$frun"
+          if kill -0 "$fpid" 2>/dev/null; then echo "openfortivpn $fpid still runs"; exit 1; fi
+          kill "$gateway"
+          grep -q "started openfortivpn 1\.[0-9]*\.[0-9]* for fortinet, uid $uid" daemon.log
+
+          # FortiGate DNS: the daemon follows openfortivpn's own output, here from a stand-in at the same
+          # checked path that prints what openfortivpn 1.21 prints once its tunnel is up. The container
+          # has no ppp0, so the kernel does not confirm the interface: nothing is set, the session ends
+          # and its log says why. Then lines forged into the log file (its user can write it) change
+          # nothing. The real openfortivpn is put back afterwards.
+          mv /usr/bin/openfortivpn /usr/bin/openfortivpn.real
+          fake_forti() {
+            { printf '%s\n' '#!/bin/sh' 'if [ "$1" = "--version" ]; then echo 1.21.0; exit 0; fi'
+              for line in "$@"; do printf "echo '%s'\n" "$line"; done
+              echo 'exec sleep 30'; } >fake-openfortivpn
+            install -m 0755 fake-openfortivpn /usr/bin/openfortivpn
+          }
+          cp /etc/resolv.conf resolv.forti
+          fake_forti 'INFO:   Got addresses: [10.212.134.200], ns [198.51.100.53, 198.51.100.54], ns_suffix [example.com]' \
+            'INFO:   Interface ppp0 is UP.' 'INFO:   Tunnel is up and running.'
+          printf '%s\n' "$fstart" | call_as alice | jq -e '.ok'
+          for _ in $(seq 100); do
+            printf '%s\n' "$status" | call_as alice | jq -e '.running == {}' >/dev/null && break
+            sleep 0.1
+          done
+          printf '%s\n' "$status" | call_as alice | jq -e '.running == {}'
+          cat "$forti/vpn.log"
+          grep -qx 'INFO:   Tunnel is up and running.' "$forti/vpn.log"
+          grep -qx 'passtunneld: setting DNS failed: there is no interface ppp0' "$forti/vpn.log"
+          grep -q "fortinet of uid $uid: setting DNS failed: there is no interface ppp0" daemon.log
+          cmp resolv.forti /etc/resolv.conf
+          test ! -e "$frun"
+
+          fake_forti 'INFO:   Connected to gateway.'
+          printf '%s\n' "$fstart" | call_as alice | tee fstart.json | jq -e '.ok'
+          fpid="$(jq -r .pid fstart.json)"
+          for _ in $(seq 100); do grep -q 'Connected to gateway' "$forti/vpn.log" && break; sleep 0.1; done
+          runuser -u alice -- sh -c "printf '%s\n' 'INFO:   Got addresses: [10.212.134.200], ns [192.0.2.66, 0.0.0.0]' \
+            'INFO:   Interface lo is UP.' 'INFO:   Tunnel is up and running.' >>'$forti/vpn.log'"
+          sleep 1
+          printf '%s\n' "$status" | call_as alice | jq -e --argjson pid "$fpid" '.running == {"fortinet": $pid}'
+          if grep -q '^passtunneld:' "$forti/vpn.log"; then echo "acted on a forged line"; exit 1; fi
+          cmp resolv.forti /etc/resolv.conf
+          printf '%s\n' "$fstop" | call_as alice | jq -e --argjson pid "$fpid" '.ok and .pid == $pid'
+          mv /usr/bin/openfortivpn.real /usr/bin/openfortivpn
+
+          printf '%s\n' "$request" | call_as alice | tee start.json | jq -e '.ok'
+          pid="$(jq -r .pid start.json)"
+          test -f "$run/state"
+          kill -KILL "$daemon"
+          wait "$daemon" || true
+          kill -0 "$pid"
+          start_daemon
+          case "$(awk '{print $3}' "/proc/$pid/stat" 2>/dev/null || true)" in
+            "" | Z) ;;
+            *) echo "openvpn $pid still runs"; exit 1 ;;
+          esac
+          test ! -e "/run/passtunnel/$uid"
+          grep -q "stopping pid $pid of uid $uid, left running by an earlier instance" daemon.log
+
+          kill -TERM "$daemon"
+          wait "$daemon"
+          daemon=""
+          test ! -e "$sock"
+
+      # The DNS hook as OpenVPN runs it, against the container's own /etc/resolv.conf: the file backend
+      # (no systemd-resolved or resolvconf here; the container's file is a bind mount, rewritten in
+      # place). The hook acts only in a session directory whose recorded tool is its parent, so this
+      # shell records itself as the session's tool (with its boot ID and start time). Set and reverted
+      # in OpenVPN 2.7's form (passtunneld dns-hook, dns_* variables) and 2.6's (the session's dns-hook
+      # link, foreign options, the arguments --down appends); refused for hostile values, for a missing
+      # interface, for another parent, for another user and outside a session directory; two sessions
+      # at once, the older one ending first, never bring the file's own servers back; and what a killed
+      # session left is reverted by the next daemon. The file is put back however the step ends.
+      - name: DNS hook (file backend)
+        run: |
+          set -euo pipefail
+          out="$PWD"
+          hook=/usr/local/sbin/passtunneld
+          install -m 0755 "$(swift build --show-bin-path)/passtunneld" "$hook"
+          cp /etc/resolv.conf "$out/resolv.before"
+          trap 'cat "$out/resolv.before" >/etc/resolv.conf' EXIT
+          cat "$out/resolv.before"
+          stat -c 'resolv.conf: inode %i, %U %a' /etc/resolv.conf
+          run=/run/passtunnel/0/ci-dns
+          install -d -m 0711 /run/passtunnel /run/passtunnel/0 "$run"
+          # Field 22 of /proc/<pid>/stat, counted after the command name (which ends at the last ")").
+          started="$(sed 's/.*) //' "/proc/$$/stat" | cut -d ' ' -f 20)"
+          printf '%s\n' "$$" 0 "$(readlink "/proc/$$/exe")" /root/ci-dns "" "$(cat /proc/sys/kernel/random/boot_id)" \
+            "$started" >"$run/state"
+          ln -sfn "$hook" "$run/dns-hook"
+          ours="$(printf 'nameserver 192.0.2.53\nnameserver 2001:db8::53')"
+          unchanged() {
+            cmp "$out/resolv.before" /etc/resolv.conf && test ! -e "$run/dns" && test ! -e /run/passtunnel/resolv.conf.base
+          }
+          cd "$run"
+
+          env -i dev=lo script_type=dns-up dns_server_1_address_1=192.0.2.53 dns_server_1_address_2=2001:db8::53 \
+            dns_search_domain_1=corp.example.com "$hook" dns-hook
+          cat /etc/resolv.conf
+          stat -c 'resolv.conf: inode %i, %U %a' /etc/resolv.conf
+          head -n 1 /etc/resolv.conf | grep -qx '# PassTunnel lo begin: DNS of the VPN, removed when it disconnects'
+          test "$(grep '^nameserver ' /etc/resolv.conf)" = "$ours"
+          test "$(grep -E '^(search|domain) ' /etc/resolv.conf)" = "search corp.example.com"
+          test "$(stat -c '%U %a' "$run/dns")" = "root 600"
+          env -i dev=lo script_type=dns-down "$hook" dns-hook
+          unchanged
+
+          env -i dev=lo script_type=route-up 'foreign_option_1=dhcp-option DNS 192.0.2.53' \
+            'foreign_option_2=dhcp-option DNS6 2001:db8::53' 'foreign_option_3=dhcp-option DOMAIN corp.example.com' \
+            "$run/dns-hook"
+          test "$(grep '^nameserver ' /etc/resolv.conf)" = "$ours"
+          env -i dev=lo script_type=down "$run/dns-hook" lo 1500 0 10.8.0.2 255.255.255.0 init
+          unchanged
+
+          refused() {    # the expected message, then the command, which must fail and change nothing
+            local expected="$1"
+            shift
+            if "$@" >"$out/refused.txt" 2>&1; then echo "not refused: $*"; exit 1; fi
+            cat "$out/refused.txt"
+            grep -q "$expected" "$out/refused.txt"
+            unchanged
+          }
+          up=(dev=lo script_type=dns-up dns_server_1_address_1=192.0.2.53)
+          refused 'setting DNS failed: invalid DNS server' env -i dev=lo script_type=dns-up \
+            $'dns_server_1_address_1=192.0.2.53\nnameserver 198.51.100.66' "$hook" dns-hook
+          refused 'setting DNS failed: invalid DNS domain' env -i "${up[@]}" 'dns_search_domain_1=-x' "$hook" dns-hook
+          refused 'setting DNS failed: there is no interface tun9' env -i dev=tun9 script_type=dns-up \
+            dns_server_1_address_1=192.0.2.53 "$hook" dns-hook
+          refused 'not started by the session' bash -c 'env -i "${@:2}" "$1" dns-hook; exit $?' _ "$hook" "${up[@]}"
+          refused 'must run as root' runuser -u nobody -- env -i "${up[@]}" "$hook" dns-hook
+          (cd / && refused 'does not run in a session directory' env -i "${up[@]}" "$hook" dns-hook)
+          if "$hook" bogus 2>"$out/refused.txt"; then exit 1; fi
+          grep -q 'takes no arguments' "$out/refused.txt"
+          # A state without boot ID and start time (an earlier build's) proves nothing: refused.
+          cp "$run/state" "$out/state"
+          head -n 5 "$out/state" >"$run/state"
+          refused 'not started by the session' env -i "${up[@]}" "$hook" dns-hook
+          cp "$out/state" "$run/state"
+
+          # Two sessions at once, each hook a process of its own: the newer one's DNS is in effect, and
+          # stays when the older one ends.
+          run2=/run/passtunnel/0/ci-dns-2
+          install -d -m 0711 "$run2"
+          cp "$run/state" "$run2/state"
+          env -i "${up[@]}" "$hook" dns-hook
+          cd "$run2"
+          env -i dev=lo script_type=dns-up dns_server_1_address_1=198.51.100.53 "$hook" dns-hook
+          cd "$run"
+          cat /etc/resolv.conf
+          test "$(grep '^nameserver ' /etc/resolv.conf)" = "nameserver 198.51.100.53"
+          env -i dev=lo script_type=dns-down "$hook" dns-hook
+          test "$(grep '^nameserver ' /etc/resolv.conf)" = "nameserver 198.51.100.53"
+          cd "$run2"
+          env -i dev=lo script_type=dns-down "$hook" dns-hook
+          cd "$run"
+          unchanged
+          rm -r "$run2"
+
+          # Set up, then the session's state goes (as if its openvpn had been killed with the daemon):
+          # the next daemon reverts what the session recorded.
+          env -i "${up[@]}" "$hook" dns-hook
+          test -e "$run/dns"
+          rm "$run/state"
+          cd "$out"
+          "$hook" >>dns-daemon.log 2>&1 &
+          daemon=$!
+          for _ in $(seq 100); do
+            reply="$(printf '%s\n' '{"op":"hello"}' | socat -t 5 - UNIX-CONNECT:/run/passtunnel/daemon.sock 2>/dev/null || true)"
+            case "$reply" in *'"protocol"'*) break ;; esac
+            sleep 0.1
+          done
+          kill -TERM "$daemon"
+          wait "$daemon"
+          cat dns-daemon.log
+          cmp resolv.before /etc/resolv.conf
+          test ! -e /run/passtunnel/0
+          grep -q "ci-dns of uid 0, left by an earlier instance: restored the DNS of lo (/etc/resolv.conf)" dns-daemon.log
+
+  # The release tarball (scripts/build-linux.sh), built once per architecture in the Swift image of
+  # Ubuntu 22.04, the oldest supported, and kept as a workflow artifact (releases get it with phase 3
+  # of docs/LINUX.md). The same tarball is then tried in a clean Ubuntu 22.04 without Swift: the
+  # libraries the binaries load (no Swift runtime from the system, nothing missing) and the newest
+  # glibc they need; installed as its README says, the version and build number of `passtunnel`,
+  # `passtunneld` refusing to run as another user than root, and, as root, the daemon's hello and
+  # replies with the build number; `passtunnel` finds the daemon installed beside it and tells a
+  # replaced file from the daemon that runs.
+  linux-release:
+    name: Linux release (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    env:
+      ARCH: ${{ matrix.arch }}
+      # swift:6.4.1-jammy and ubuntu:22.04, pinned by the digests of their multi-arch indexes.
+      BUILD_IMAGE: swift:6.4.1-jammy@sha256:51729e0f6ed2f477490cd1e1132e5eddbf011b81092f4998fc8d88e5435e33cb
+      CLEAN_IMAGE: ubuntu:22.04@sha256:0a9887931b0e38af2e3487ed39e29436b0535c4f3f52e57745baaf79d1898956
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0    # the build number is the commit count
+
+      # SwiftPM's clones of the dependencies, keyed by Package.resolved: the build checks out the pinned
+      # revisions from them. Nothing that was built is cached.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build/repositories
+          key: swiftpm-repositories-${{ hashFiles('Package.resolved') }}
+
+      # As root in a throwaway container of the build image, whose git is told (in its global
+      # configuration) that the runner's files are safe to read: the checkout, and SwiftPM's clones
+      # when they come from the cache.
+      - name: Build the tarball
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/src" -w /src "$BUILD_IMAGE" \
+            bash -c "git config --global --add safe.directory '*' && scripts/build-linux.sh"
+          name="passtunnel-0.0.0-dev-linux-$ARCH"
+          tar -tzf "dist/$name.tar.gz" | sort >files.txt
+          printf '%s\n' "" LICENSE README.md THIRD_PARTY_NOTICES.md bin/ bin/passtunnel lib/ lib/systemd/ \
+            lib/systemd/system/ lib/systemd/system/passtunnel.service lib/systemd/system/passtunnel.socket \
+            licenses/ licenses/ICU-LICENSE.txt licenses/Swift-LICENSE.txt licenses/swift-asn1-LICENSE.txt \
+            licenses/swift-asn1-NOTICE.txt licenses/swift-crypto-LICENSE.txt licenses/swift-crypto-NOTICE.txt \
+            sbin/ sbin/passtunneld | sed "s|^|$name/|" | sort | diff - files.txt
+          test ! -e Sources/PassTunnelCore/BuildVersion+Generated.swift
+          test ! -e Sources/PassTunnelDaemon/DaemonBuild+Generated.swift
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: passtunnel-linux-${{ matrix.arch }}
+          path: dist/passtunnel-*-linux-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Smoke-test the tarball (clean Ubuntu 22.04)
+        run: |
+          set -euo pipefail
+          build="$(git rev-list --count HEAD)"
+          docker run --rm -i -v "$PWD/dist:/dist:ro" -e BUILD="$build" "$CLEAN_IMAGE" bash -s <<'EOF'
+          set -euo pipefail
+          if command -v swift; then echo "Swift is installed here"; exit 1; fi
+          cd "$(mktemp -d)"
+          tar -xzf "/dist/passtunnel-0.0.0-dev-linux-$(uname -m).tar.gz"
+          cd passtunnel-0.0.0-dev-linux-*
+          test "$(stat -c '%U %G %a' bin/passtunnel sbin/passtunneld | sort -u)" = "root root 755"
+          for exe in bin/passtunnel sbin/passtunneld; do
+            ldd "$exe" | tee ldd.txt
+            if grep -E 'not found|libswift|libFoundation|lib_Foundation|libdispatch|libBlocksRuntime|libicu' ldd.txt; then
+              echo "$exe needs the libraries above"; exit 1
+            fi
+            echo "$exe: newest glibc symbol version $(grep -ao 'GLIBC_2\.[0-9]*' "$exe" | sort -uV | tail -n 1)"
+          done
+
+          install -m 0755 bin/passtunnel /usr/local/bin/passtunnel
+          install -m 0755 sbin/passtunneld /usr/local/sbin/passtunneld
+          install -d -m 0755 /usr/local/lib/systemd/system
+          install -m 0644 lib/systemd/system/passtunnel.socket lib/systemd/system/passtunnel.service \
+            /usr/local/lib/systemd/system/
+          grep -qx 'ExecStart=/usr/local/sbin/passtunneld' /usr/local/lib/systemd/system/passtunnel.service
+          PASSTUNNEL_HOME="$(mktemp -d)"
+          export PASSTUNNEL_HOME
+          passtunnel --version | tee version.txt
+          grep -qx "PassTunnel 0.0.0-dev ($BUILD)" version.txt
+          if runuser -u nobody -- /usr/local/sbin/passtunneld 2>refused.txt; then echo "ran as nobody"; exit 1; fi
+          cat refused.txt
+          grep -qx 'passtunneld: passtunneld must run as root.' refused.txt
+
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends jq socat >/dev/null
+          passtunnel version --json \
+            | jq -e --arg build "$BUILD" '.version == "0.0.0-dev" and .build == $build and .app_path == "/usr/local/bin/passtunnel"'
+          passtunnel list --json | jq -e '. == []'
+          if passtunnel helper status --json >helper.json; then exit 1; fi
+          jq -e '.state == "not_installed"' helper.json
+
+          sock=/run/passtunnel/daemon.sock
+          /usr/local/sbin/passtunneld >daemon.log 2>&1 &
+          daemon=$!
+          trap 'kill "$daemon" 2>/dev/null || true; echo "--- daemon log"; cat daemon.log' EXIT
+          for _ in $(seq 100); do
+            reply="$(printf '%s\n' '{"op":"hello"}' | socat -t 5 - "UNIX-CONNECT:$sock" 2>/dev/null || true)"
+            case "$reply" in *'"protocol"'*) break ;; esac
+            sleep 0.1
+          done
+          digest="$(sha256sum /usr/local/sbin/passtunneld | cut -d' ' -f1)"
+          printf '%s\n' '{"op":"hello"}' | socat -t 5 - "UNIX-CONNECT:$sock" \
+            | jq -e --arg digest "$digest" --argjson n "$BUILD" '.protocol == 3 and .build == $digest and .build_number == $n'
+          printf '%s\n' '{"op":"perform","request":{"type":"status","protocol_version":3}}' | socat -t 5 - "UNIX-CONNECT:$sock" \
+            | jq -e --argjson n "$BUILD" '.ok and .running == {} and .helper_build == $n'
+          passtunnel helper status --json | jq -e '.state == "enabled" and .responding and .outdated == false'
+          # Another file in its place, as after an update before the restart: the running daemon is outdated.
+          cp /usr/local/sbin/passtunneld /usr/local/sbin/.passtunneld.new
+          printf 'x' >>/usr/local/sbin/.passtunneld.new
+          mv -f /usr/local/sbin/.passtunneld.new /usr/local/sbin/passtunneld
+          if passtunnel helper status --json >helper.json; then exit 1; fi
+          jq -e '.state == "enabled" and .responding and .outdated == true' helper.json
+          kill -TERM "$daemon"
+          wait "$daemon"
+          grep -q "listening on $sock, protocol 3, build $digest ($BUILD)" daemon.log
+          EOF
+
+  # The Dockerfile (`passtunnel mcp` for MCP directories) built on each architecture, then an MCP
+  # session with the image: initialize, tools/list and list_profiles, without a network, profiles or a
+  # secret store, as a user other than root.
+  docker:
+    name: Docker image (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build the image
+        run: docker build -t passtunnel-mcp:ci .
+
+      - name: MCP session with the image
+        run: |
+          set -euo pipefail
+          docker image inspect passtunnel-mcp:ci --format '{{.Config.User}} {{json .Config.Entrypoint}} {{.Size}}' \
+            | tee image.txt
+          grep -Eqx '10001:10001 \["passtunnel","mcp"\] [0-9]+' image.txt
+          docker run --rm --entrypoint passtunnel passtunnel-mcp:ci --version | grep -qx 'PassTunnel 0.0.0-dev'
+          printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
+            '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+            '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_profiles","arguments":{}}}' \
+            | docker run -i --rm --network none passtunnel-mcp:ci >mcp.jsonl
+          cat mcp.jsonl
+          jq -se 'INDEX(.id) as $r | length == 3
+            and $r["1"].result.protocolVersion == "2025-06-18" and $r["1"].result.serverInfo.version == "0.0.0-dev"
+            and [$r["2"].result.tools[].name] == ["list_profiles", "get_status", "get_logs", "diagnose"]
+            and $r["3"].result.isError == false and $r["3"].result.structuredContent == {"profiles": []}' mcp.jsonl
+
   scripts:
     name: Release scripts
     runs-on: ubuntu-latest
@@ -67,7 +659,7 @@ jobs:
           persist-credentials: false
 
       - name: Shellcheck
-        run: shellcheck --version && shellcheck scripts/next-version.sh scripts/test-next-version.sh
+        run: shellcheck --version && shellcheck scripts/next-version.sh scripts/test-next-version.sh scripts/build-linux.sh
 
       - name: Self-test of next-version.sh
         run: scripts/test-next-version.sh

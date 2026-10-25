@@ -88,6 +88,19 @@ final class ProjectLinksTests: XCTestCase {
         XCTAssertTrue(source.contains(#"?? "\#(repo)""#), "AppInfo.repository fallback is not \(repo)")
     }
 
+    /// Settings → General links to the website's privacy page: the canonical address of `site/privacy/`.
+    func testAppPrivacyLinkIsTheWebsitesPrivacyPage() throws {
+        let page = try String(contentsOf: Self.root.appendingPathComponent("site/privacy/index.html"), encoding: .utf8)
+        let pattern = try NSRegularExpression(pattern: #"<link rel="canonical" href="([^"]+)">"#)
+        let match = try XCTUnwrap(pattern.firstMatch(in: page, range: NSRange(page.startIndex..., in: page)))
+        let canonical = String(page[Range(match.range(at: 1), in: page)!])
+        XCTAssertTrue(canonical.hasSuffix("/privacy/"), canonical)
+        let source = try String(contentsOf: Self.root.appendingPathComponent("Sources/PassTunnel/App/Settings/SettingsView.swift"),
+                                encoding: .utf8)
+        XCTAssertTrue(source.contains(#"static let privacyURL = URL(string: "\#(canonical)")!"#),
+                      "AppInfo.privacyURL is not \(canonical)")
+    }
+
     func testInfoPlistTakesTheRepositoryFromBuildApp() throws {
         let plist = try String(contentsOf: Self.root.appendingPathComponent("Resources/Info.plist"), encoding: .utf8)
         XCTAssertTrue(plist.contains("https://github.com/__GITHUB_REPO__/releases/latest/download/appcast.xml"))

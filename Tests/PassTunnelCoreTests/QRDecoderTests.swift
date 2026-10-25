@@ -1,3 +1,5 @@
+// macOS only, like QRDecoder (Vision).
+#if os(macOS)
 import CoreImage
 import Foundation
 import ImageIO
@@ -68,9 +70,44 @@ final class QRDecoderTests: XCTestCase {
         }
     }
 
+    /// A white "screen" of `width` × `height` pixels with `qr` drawn at `origin` (like a browser page on a display).
+    func screen(width: Int = 1600, height: Int = 1000, with qr: CGImage? = nil,
+                at origin: CGPoint = CGPoint(x: 900, y: 300)) throws -> CGImage {
+        let context = try XCTUnwrap(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                              space: CGColorSpaceCreateDeviceRGB(),
+                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        if let qr {
+            // CIQRCodeGenerator leaves no quiet zone; the white screen around it is one.
+            context.draw(qr, in: CGRect(origin: origin, size: CGSize(width: qr.width, height: qr.height)))
+        }
+        return try XCTUnwrap(context.makeImage())
+    }
+
+    func testFindsTheCodeOnAnyOfSeveralScreens() throws {
+        let code = try makeQR(uri, scale: 5)
+        // Scan QR on screen: one picture per display; the code is on the second.
+        XCTAssertEqual(try QRDecoder.otpAuth(inAny: [screen(), screen(with: code)]).account, "alice")
+        // Another QR code (a link) earlier on does not hide the authenticator's.
+        let link = try makeQR("https://vpn.example.com", scale: 5)
+        XCTAssertEqual(try QRDecoder.otpAuth(inAny: [screen(with: link, at: CGPoint(x: 100, y: 100)), screen(with: code)]).issuer,
+                       "Acme")
+        XCTAssertThrowsError(try QRDecoder.otpAuth(inAny: [screen(), screen()])) {
+            XCTAssertEqual($0 as? QRDecoder.Failure, .noCode)
+        }
+        XCTAssertThrowsError(try QRDecoder.otpAuth(inAny: [])) {
+            XCTAssertEqual($0 as? QRDecoder.Failure, .noCode)
+        }
+        XCTAssertThrowsError(try QRDecoder.otpAuth(inAny: [screen(with: link)])) {
+            XCTAssertEqual($0 as? QRDecoder.Failure, .notOTPAuth)
+        }
+    }
+
     func testUnreadableData() {
         XCTAssertThrowsError(try QRDecoder.payloads(inImageData: Data("not an image".utf8))) {
             XCTAssertEqual($0 as? QRDecoder.Failure, .unreadableImage)
         }
     }
 }
+#endif

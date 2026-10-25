@@ -59,8 +59,27 @@ public enum ProfileMerge {
     private static func same(_ a: Any?, _ b: Any?) -> Bool {
         switch (a, b) {
         case (nil, nil): return true
-        case let (a?, b?): return (a as AnyObject).isEqual(b)
+        case let (a?, b?): return isEqual(a, b)
         default: return false
         }
     }
+
+    #if canImport(ObjectiveC)
+    private static func isEqual(_ a: Any, _ b: Any) -> Bool { (a as AnyObject).isEqual(b) }
+    #else
+    /// `isEqual` as on Apple platforms, without Objective-C bridging, for what `JSONSerialization`
+    /// returns: strings (compared like NSString, by UTF-16 code unit), NSNumber, NSNull and objects.
+    private static func isEqual(_ a: Any, _ b: Any) -> Bool {
+        switch (a, b) {
+        case let (a as String, b as String):
+            return a.utf16.elementsEqual(b.utf16)
+        case let (a as [String: Any], b as [String: Any]):
+            return a.count == b.count && a.allSatisfy { key, value in b[key].map { isEqual(value, $0) } ?? false }
+        case let (a as NSObject, b as NSObject):
+            return a.isEqual(b)
+        default:
+            return false
+        }
+    }
+    #endif
 }

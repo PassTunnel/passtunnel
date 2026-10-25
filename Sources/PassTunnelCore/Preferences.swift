@@ -14,8 +14,15 @@ public struct Preferences: Codable, Equatable {
     public var badgePalette = BadgePalette.pastel
     public var showLock = true
     public var hideCodes = false
+    /// Seconds a copied code (or password + code) stays on the clipboard: one of `clearClipboardChoices`.
+    /// Cleared only if the clipboard still holds what PassTunnel copied.
+    public var clearClipboardAfter = 60
     public var showInDock = false
     public var launchAtLogin = true
+    // Connection
+    /// A connect waits for the next TOTP window when the current code has `freshCodeSeconds` or less
+    /// left. A code already sent is never sent again, whatever this says (`ConnectionManager`).
+    public var waitForFreshCode = true
     // Notifications
     public var notifyOnDrop = true
     public var notifyHealth = true
@@ -33,11 +40,26 @@ public struct Preferences: Codable, Equatable {
 
     public var authReuseInterval: TimeInterval { TimeInterval(authReuseMinutes * 60) }
 
+    /// Choices offered for `clearClipboardAfter`, in seconds; other stored values fall back to the default.
+    public static let clearClipboardChoices = [30, 60, 120]
+
+    /// With `waitForFreshCode`, a code with this many seconds or less left is not sent.
+    public static let freshCodeSeconds = 5
+
+    // Secrets (Linux; the Mac never sets them, and they are written only when set)
+    /// `secret_store`: where secrets are kept, `auto` or a store (`SecretStores`).
+    public var secretStore = SecretStoreChoice.auto
+    /// `secret_store_used`: the store secrets were first saved to (or that was chosen by name); `auto`
+    /// keeps using it.
+    public var secretStoreUsed: SecretStoreChoice?
+
     public init() {}
 
     enum CodingKeys: String, CodingKey {
-        case defaultProfile, appearance, badgePalette, showLock, hideCodes, showInDock, launchAtLogin
-        case notifyOnDrop, notifyHealth, sessionNotifyMin, sessionWarnMin, hotkeys, autoType, authReuseMinutes
+        case defaultProfile, appearance, badgePalette, showLock, hideCodes, clearClipboardAfter, showInDock
+        case launchAtLogin, waitForFreshCode, notifyOnDrop, notifyHealth, sessionNotifyMin, sessionWarnMin
+        case hotkeys, autoType, authReuseMinutes
+        case secretStore, secretStoreUsed
         case theme   // legacy, read only
     }
 
@@ -50,8 +72,11 @@ public struct Preferences: Codable, Equatable {
         badgePalette = c.lenientEnum(BadgePalette.self, .badgePalette) ?? d.badgePalette
         showLock = c.lenient(Bool.self, .showLock) ?? d.showLock
         hideCodes = c.lenient(Bool.self, .hideCodes) ?? d.hideCodes
+        let clear = c.lenient(Int.self, .clearClipboardAfter) ?? d.clearClipboardAfter
+        clearClipboardAfter = Self.clearClipboardChoices.contains(clear) ? clear : d.clearClipboardAfter
         showInDock = c.lenient(Bool.self, .showInDock) ?? d.showInDock
         launchAtLogin = c.lenient(Bool.self, .launchAtLogin) ?? d.launchAtLogin
+        waitForFreshCode = c.lenient(Bool.self, .waitForFreshCode) ?? d.waitForFreshCode
         notifyOnDrop = c.lenient(Bool.self, .notifyOnDrop) ?? d.notifyOnDrop
         notifyHealth = c.lenient(Bool.self, .notifyHealth) ?? d.notifyHealth
         sessionNotifyMin = max(0, c.lenient(Int.self, .sessionNotifyMin) ?? d.sessionNotifyMin)
@@ -60,6 +85,8 @@ public struct Preferences: Codable, Equatable {
         autoType = c.lenient(Bool.self, .autoType) ?? d.autoType
         let reuse = c.lenient(Int.self, .authReuseMinutes) ?? d.authReuseMinutes
         authReuseMinutes = Self.authReuseChoices.contains(reuse) ? reuse : d.authReuseMinutes
+        secretStore = c.lenientEnum(SecretStoreChoice.self, .secretStore) ?? d.secretStore
+        secretStoreUsed = c.lenientEnum(SecretStoreChoice.self, .secretStoreUsed).flatMap { $0 == .auto ? nil : $0 }
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -69,8 +96,10 @@ public struct Preferences: Codable, Equatable {
         try c.encode(badgePalette, forKey: .badgePalette)
         try c.encode(showLock, forKey: .showLock)
         try c.encode(hideCodes, forKey: .hideCodes)
+        try c.encode(clearClipboardAfter, forKey: .clearClipboardAfter)
         try c.encode(showInDock, forKey: .showInDock)
         try c.encode(launchAtLogin, forKey: .launchAtLogin)
+        try c.encode(waitForFreshCode, forKey: .waitForFreshCode)
         try c.encode(notifyOnDrop, forKey: .notifyOnDrop)
         try c.encode(notifyHealth, forKey: .notifyHealth)
         try c.encode(sessionNotifyMin, forKey: .sessionNotifyMin)
@@ -78,6 +107,8 @@ public struct Preferences: Codable, Equatable {
         try c.encode(hotkeys, forKey: .hotkeys)
         try c.encode(autoType, forKey: .autoType)
         try c.encode(authReuseMinutes, forKey: .authReuseMinutes)
+        if secretStore != .auto { try c.encode(secretStore, forKey: .secretStore) }
+        try c.encodeIfPresent(secretStoreUsed, forKey: .secretStoreUsed)
     }
 
     /// Missing or unreadable file → defaults (never throws).

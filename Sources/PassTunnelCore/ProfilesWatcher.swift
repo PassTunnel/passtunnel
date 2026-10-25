@@ -1,10 +1,13 @@
+#if os(macOS)
 import CoreServices
+#endif
 import Foundation
 
+#if os(macOS)
 /// Watches the support directory (profiles and `config.json`) with FSEvents and calls `onChange`
 /// on the main queue, debounced, when something another process (the CLI) or this one wrote may
 /// have changed what is stored. Noise the VPN tools produce while connected (`vpn.log`, the
-/// management socket, markers, the last-used code window, temp files of atomic writes) is ignored. The app's own writes also
+/// management socket, markers, the last-used code window, the activity log, temp files of atomic writes) is ignored. The app's own writes also
 /// trigger a call; a reload that finds nothing new must therefore be cheap and harmless.
 public final class ProfilesWatcher {
     public let paths: AppPaths
@@ -102,7 +105,7 @@ public final class ProfilesWatcher {
 
     /// Files that change while a VPN runs or that only exist mid-write; they never change a profile.
     static let ignoredNames: Set<String> = ["vpn.log", "mgmt.sock", ".lock", ".DS_Store", ".user-stopped", ".last-otp",
-                                                  ".mgmt-state"]
+                                                  ".mgmt-state", "activity.jsonl", ".activity.lock"]
 
     /// Whether an event can mean a changed profile, config or preference.
     public static func isRelevant(path: String, flags: FSEventStreamEventFlags = 0) -> Bool {
@@ -121,15 +124,19 @@ private final class EventSink {
     let handler: ([(String, FSEventStreamEventFlags)]) -> Void
     init(_ handler: @escaping ([(String, FSEventStreamEventFlags)]) -> Void) { self.handler = handler }
 }
+#endif
 
 /// Tells a running app that the CLI changed something the file watcher cannot see (Keychain items),
 /// or simply that it changed profiles, so the app reloads right away. Any process in the session
-/// can post it; receivers only re-read their own storage, so it carries no data.
+/// can post it; receivers only re-read their own storage, so it carries no data. Nothing to tell on
+/// Linux, which has no app yet.
 public enum ProfileChangeSignal {
     public static let name = Notification.Name("com.furkanprlk.passtunnel.profilesChanged")
 
     public static func post() {
+        #if os(macOS)
         DistributedNotificationCenter.default().postNotificationName(name, object: nil, userInfo: nil,
                                                                      deliverImmediately: true)
+        #endif
     }
 }

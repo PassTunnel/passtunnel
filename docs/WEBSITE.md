@@ -92,10 +92,10 @@ closes on Escape, on outside click and when a link is chosen).
 2. **One-time codes, handled.** Format picker (Append, Prepend, password:code, password,code,
    Custom template, Sent separately) showing what the server receives; Custom template shows the
    `{password}` / `{otp}` placeholders; Sent separately shows the password and the code as two
-   fields (OpenVPN static challenge, FortiGate OTP field). Next to it the profile editor's
-   one-time code screenshot. Four cards: authenticator-style window (live codes, countdown ring,
-   click to copy, clipboard cleared after 30 s, codes can be hidden), QR import (drop, choose or
-   paste), Touch ID per profile (secrets then encrypted with a Secure Enclave key), auto-type
+   fields (OpenVPN static challenge, FortiGate OTP field). Next to it the profile editor
+   screenshot (a saved profile with its code and what the server receives). Four cards: authenticator-style window (live codes, countdown ring,
+   click to copy, clipboard cleared after 1 minute, codes can be hidden), QR import (scan on screen, drop,
+   choose or paste), Touch ID per profile (secrets then encrypted with a Secure Enclave key), auto-type
    shortcut ⌃⌥C.
 3. **VPN client.** OpenVPN and FortiGate SSL VPN with signed `openvpn` / `openfortivpn` bundled.
    Menu bar card: a neutral menu bar strip on a soft backdrop holding the real rendered badges,
@@ -145,13 +145,13 @@ ask for updates this page and its date in the same pull request.
 
 A card styled like a profile row: profile "Work", `vpn.example.com · OpenVPN`, a six-digit code
 in two groups, a countdown ring, a Connect button and a "Sent to the server" line. It follows the
-app's rule: 30-second windows aligned to the clock; with 8 seconds or more left, Connect sends
-the masked password plus the current code; with less, it waits for the next window (ring and
-state turn amber), then shows Connecting… and Connected, and Disconnect resets it. Codes come from
-a hash of the window number, not from a real secret. The button never becomes `disabled`
-(it uses `aria-disabled` so keyboard focus stays on it); state changes are announced through a
-polite live region, the ticking countdown is not. The timer stops while the demo is off screen or
-the tab is hidden.
+app's rule (with "Wait for a fresh code" on, the default): 30-second windows aligned to the clock;
+with more than 5 seconds left, Connect sends the masked password plus the current code; with 5 or
+less, it waits for the next window (ring and state turn amber), then shows Connecting… and
+Connected, and Disconnect resets it. Codes come from a hash of the window number, not from a real
+secret. The button never becomes `disabled` (it uses `aria-disabled` so keyboard focus stays on
+it); state changes are announced through a polite live region, the ticking countdown is not. The
+timer stops while the demo is off screen or the tab is hidden.
 
 ## Images
 
@@ -163,7 +163,7 @@ scripts/site-assets.sh          # builds the app, renders, converts to WebP, wri
 ```
 
 The script runs `PASSTUNNEL_RENDER=<tmp> .build/…/PassTunnel`, picks the screens the site uses
-(main window light/dark at identical sizes, profile editor one-time code section, menu bar badges
+(main window light/dark at identical sizes, the profile editor sheet, menu bar badges
 for every palette light/dark, General settings, helper onboarding step), writes the screenshots as
 1x, 1.5x and 2x near-lossless WebP and the menu bar badges and icons as 1x and 2x lossless WebP,
 the favicon and Apple touch icon from `Resources/AppIcon.icns`, and the 1200×630 social image from

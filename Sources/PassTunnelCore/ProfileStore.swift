@@ -1,7 +1,7 @@
 import Foundation
 import PassTunnelKit
 
-/// Profiles on disk: `profiles/<id>/profile.json` (+ `config.ovpn`, `vpn.log`).
+/// Profiles on disk: `profiles/<id>/profile.json` (+ `config.ovpn`, `vpn.log`, `activity.jsonl`).
 /// Stateless and synchronous; every call re-reads the file system and the environment.
 public struct ProfileStore {
     public let paths: AppPaths
@@ -137,6 +137,8 @@ public struct ProfileStore {
     public func dir(_ id: String) -> URL { paths.profileDir(id) }
     public func ovpnURL(_ id: String) -> URL { dir(id).appendingPathComponent(Self.ovpnFile) }
     public func logURL(_ id: String) -> URL { dir(id).appendingPathComponent(Self.logFile) }
+    /// `activity.jsonl`: what `ConnectionManager` did and saw (`ActivityLog`).
+    public func activityURL(_ id: String) -> URL { dir(id).appendingPathComponent(ActivityLog.fileName) }
     func profileURL(_ id: String) -> URL { dir(id).appendingPathComponent(Self.profileFile) }
 
     /// Replaces the profile's config (0600) with a self-contained copy of `url`: referenced files
@@ -155,27 +157,61 @@ public struct ProfileStore {
         return p
     }
 
-    /// Creates an OpenVPN profile from an .ovpn file (made self-contained and checked as in `setOVPN`;
-    /// nothing is created if that fails). Name defaults to the file name. A user name and password in
-    /// an inline `<auth-user-pass>` block move to the profile and the Keychain; the stored config
-    /// keeps a bare `auth-user-pass`.
+    /// Creates an OpenVPN profile from an .ovpn file without a review: `analyzeOVPN`, then `commit` with
+    /// what the file holds (nothing is created when a line blocks it or a referenced file is missing).
+    /// Name defaults to the file name. Lines PassTunnel skips stay in the stored config as comments
+    /// (`ImportDraft.skipped`); a user name and password in an inline `<auth-user-pass>` block move to the
+    /// profile and the Keychain, and the stored config keeps a bare `auth-user-pass`.
     public func importOVPN(_ url: URL, name: String?) throws -> Profile {
-        let prepared = try preparedOVPN(url)
-        let text = prepared.text
-        let a = OVPNAnalyzer.analyze(text)
-        let fallback = url.deletingPathExtension().lastPathComponent
-        var p = try create(name: Self.pick(name, fallback), type: .openvpn)
+        try commit(try analyzeOVPN(url), name: name)
+    }
+
+    /// Reads an .ovpn file for the review before import: files it refers to are embedded from its folder,
+    /// and each line the helper's sanitizer would refuse is skipped or blocks the file
+    /// (`OVPNImportReport`, `OVPNSkipRules`). Writes nothing: no file, directory or Keychain item.
+    public func analyzeOVPN(_ url: URL) throws -> ImportDraft {
+        let text = try FileIO.readText(url, maxSize: Self.maxOVPNSize)
+        return ImportDraft(source: url, report: try OVPNImportReport.make(text, baseDir: url.deletingLastPathComponent()))
+    }
+
+    /// Creates the OpenVPN profile `draft` describes and stores its configuration (skipped lines as
+    /// comments; checked with the helper's sanitizer once more before it is written). Every value left nil
+    /// is taken from the file: the name from its file name, the user name and password from an inline
+    /// `<auth-user-pass>` block. A password (when the configuration signs in with one) and a TOTP secret
+    /// go to the Keychain; a TOTP secret sets the profile to fill in codes, with `totp`'s digits, period
+    /// and algorithm. Throws `ovpnNotAllowed` while the draft has blocking lines; nothing is left behind
+    /// when any step fails.
+    public func commit(_ draft: ImportDraft, name: String? = nil, username: String? = nil, password: String? = nil,
+                       totpSecret: Data? = nil, totp: TOTPParams = TOTPParams(), now: Date = Date()) throws -> Profile {
+        let report = draft.report
+        guard report.blocking.isEmpty, let config = report.config else {
+            throw PTError.ovpnNotAllowed(report.blocking.map(\.description))
+        }
+        try OVPNInliner.check(config)
+        if let totpSecret {
+            guard !totpSecret.isEmpty else { throw PTError.invalidSecret }
+            // A certificate-only configuration has nowhere to send a code.
+            guard report.passwordMode != .none else { throw PTError.invalidField("otp_mode") }
+        }
+        let user = (username ?? report.username ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let secret = password ?? report.password
+        var p = try create(name: Self.pick(name, draft.suggestedName), type: .openvpn)
         do {
-            p.passwordMode = a.passwordMode
-            p.otpMode = a.otpMode
-            p.otpDelivery = a.otpDelivery
-            p.configSourceName = url.lastPathComponent
-            p.configImportedAt = Self.wholeSeconds(Date())
-            if let user = prepared.username { p.username = user }
-            try FileIO.writeAtomically(Data(text.utf8), to: ovpnURL(p.id), mode: 0o600)
+            p.passwordMode = report.passwordMode
+            p.otpMode = report.otpMode
+            p.otpDelivery = report.otpDelivery
+            if totpSecret != nil {
+                p.otpMode = .totp
+                p.totp = totp
+            }
+            p.username = user
+            p.configSourceName = draft.fileName
+            p.configImportedAt = Self.wholeSeconds(now)
+            try FileIO.writeAtomically(Data(config.utf8), to: ovpnURL(p.id), mode: 0o600)
             try save(p)
-            // A new profile: `requireAuth` is off, so the plain item is what `SecretVault.store` writes.
-            if let password = prepared.password { try Secrets.set(p.id, .password, password) }
+            // A new profile: `requireAuth` is off, so plain items are what `SecretVault.store` writes.
+            if p.passwordMode == .keychain, let secret, !secret.isEmpty { try Secrets.set(p.id, .password, secret) }
+            if let totpSecret { try Secrets.set(p.id, .totp, TOTP.base32Encode(totpSecret)) }
         } catch {
             try? delete(p.id)
             throw error

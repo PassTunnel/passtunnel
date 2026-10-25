@@ -1,6 +1,11 @@
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Foundation
 import PassTunnelCore
+import PassTunnelKit
 
 /// Terminal I/O for the CLI: output streams, colors, prompts and no-echo input.
 enum CLITerminal {
@@ -65,6 +70,46 @@ enum CLITerminal {
         return readLine(strippingNewline: true)
     }
 
+    /// `askSecret` as bytes the caller overwrites after use (the file store's passphrase), never a
+    /// String: at most `maxSecretBytes`, without the line break; nil at end of input.
+    static func askSecretData(_ prompt: String) -> Data? {
+        FileHandle.standardError.write(Data(prompt.utf8))
+        var original = termios()
+        let isTerminal = tcgetattr(STDIN_FILENO, &original) == 0
+        if isTerminal {
+            savedTermios = original
+            var silent = original
+            silent.c_lflag &= ~tcflag_t(ECHO)
+            tcsetattr(STDIN_FILENO, TCSAFLUSH, &silent)
+        }
+        let previous = signal(SIGINT, restoreAndExit)
+        var bytes = [UInt8](repeating: 0, count: maxSecretBytes)
+        defer {
+            if isTerminal { tcsetattr(STDIN_FILENO, TCSAFLUSH, &original) }
+            signal(SIGINT, previous)
+            savedTermios = nil
+            FileHandle.standardError.write(Data("\n".utf8))
+            _ = bytes.withUnsafeMutableBytes { $0.initializeMemory(as: UInt8.self, repeating: 0) }
+        }
+        var count = 0
+        var byte: UInt8 = 0
+        var sawInput = false
+        while true {
+            let n = read(STDIN_FILENO, &byte, 1)
+            if n < 0 && errno == EINTR { continue }
+            guard n == 1 else { break }
+            sawInput = true
+            if byte == 0x0A { break }
+            if count < bytes.count { bytes[count] = byte; count += 1 }
+        }
+        byte = 0
+        guard sawInput else { return nil }
+        if count > 0 && bytes[count - 1] == 0x0D { count -= 1 }
+        return Data(bytes[0..<count])
+    }
+
+    static let maxSecretBytes = 4096
+
     /// Everything on stdin (for piped secrets), without the final line break.
     static func readAllStdin() -> String {
         let data = FileHandle.standardInput.readDataToEndOfFile()
@@ -92,11 +137,27 @@ private func restoreAndExit(_ sig: Int32) {
 /// Human-friendly durations ("1 h 12 m") in the user's language.
 enum CLIDurations {
     static func since(_ date: Date, now: Date = Date()) -> String {
+        let seconds = max(0, now.timeIntervalSince(date))
+        #if canImport(Darwin)
         let f = DateComponentsFormatter()
         f.unitsStyle = .abbreviated
         f.maximumUnitCount = 2
-        let seconds = max(0, now.timeIntervalSince(date))
         f.allowedUnits = seconds < 60 ? [.second] : seconds < 86_400 ? [.hour, .minute] : [.day, .hour]
         return f.string(from: seconds) ?? ""
+        #else
+        return english(seconds)
+        #endif
+    }
+
+    /// The same units in English ("45s", "1h 12m", "2d 3h"): Foundation outside Apple platforms does not
+    /// implement `DateComponentsFormatter` (it traps).
+    static func english(_ interval: TimeInterval) -> String {
+        let s = Int(interval)
+        func pair(_ big: Int, _ bigUnit: String, _ small: Int, _ smallUnit: String) -> String {
+            small == 0 ? "\(big)\(bigUnit)" : "\(big)\(bigUnit) \(small)\(smallUnit)"
+        }
+        if s < 60 { return "\(s)s" }
+        if s < 86_400 { return s < 3600 ? "\(s / 60)m" : pair(s / 3600, "h", s % 3600 / 60, "m") }
+        return pair(s / 86_400, "d", s % 86_400 / 3600, "h")
     }
 }

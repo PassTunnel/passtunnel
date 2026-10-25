@@ -103,6 +103,9 @@ they all match.
      one, `fix` or `perf` a patch; anything else releases nothing and the run ends there. The notes
      list those subjects under *Breaking changes*, *New features* and *Fixes*, without the type and
      with GitHub's `(#123)`. They become the GitHub release notes and the text of the update window.
+     Commits with the scope `linux` (`feat(linux): …`, `fix(linux)!: …`) are work on the Linux
+     version, which has no release yet: they count for nothing, breaking or not, and are not in the
+     notes. Phase 3 of [docs/LINUX.md](LINUX.md#phases), which releases Linux, revisits this.
    - **Build and publish** waits for approval in the environment `release` (Actions → the run →
      *Review deployments*). It then installs `openvpn` and `openfortivpn` with Homebrew, puts the
      Developer ID identity and the notarytool profile into a temporary keychain, writes the Sparkle
@@ -389,6 +392,15 @@ helper only checks the tools' signing identifier and Team ID.
   are pinned.
 - A `PinnedTools+Generated.swift` left by an interrupted build changes nothing for `swift build` /
   `swift test` (its contents are inside `#if PASSTUNNEL_TOOL_PINS`); the next `build-app.sh` rewrites it.
+
+## Linux tarball
+
+Not part of a release yet: Linux is released from phase 3 of [docs/LINUX.md](LINUX.md#phases), and
+`release.sh` and the release workflow build only the Mac files. `scripts/build-linux.sh --version
+1.2.0` builds `dist/passtunnel-1.2.0-linux-<arch>.tar.gz` on Linux (in the `swift:6.4.1-jammy`
+container, once per architecture), with the commit count as its build number, as `build-app.sh`
+gives the app; the CI jobs `Linux release` build it for every pull request with the development
+version `0.0.0-dev` and keep it as a workflow artifact. See [docs/LINUX.md](LINUX.md#distribution).
 
 ## Local test runs
 

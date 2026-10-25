@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(Security)
 import Security
+#endif
 
 /// Errors thrown by PassTunnelCore. `localizedDescription` / `errorDescription` is user-readable.
 public enum PTError: Error, Equatable, LocalizedError {
@@ -29,6 +31,8 @@ public enum PTError: Error, Equatable, LocalizedError {
     case helperFailed(String)              // the helper refused the request
     case authFailed(String)                // log tail
     case connectFailed(String)             // the VPN tool exited; log tail
+    case serverUnreachable(server: String, reason: String, log: String)   // no answer, refused, no route: nothing sent; log tail
+    case hostNotFound(server: String, log: String)   // the server's name did not resolve; log tail
     case connectTimeout(Int)               // seconds
     case connectCancelled
     case otherVPNActive(String)            // interface of the VPN that already takes all traffic
@@ -37,7 +41,7 @@ public enum PTError: Error, Equatable, LocalizedError {
     case userConfirmationCancelled
     case userConfirmationFailed(String)    // localized reason
     case confirmationRequired              // protected secrets, but asking is not possible now (automatic reconnect)
-    case protectionUnavailable             // no Secure Enclave: the protection cannot be turned on
+    case protectionUnavailable             // no Secure Enclave (Linux: no confirmation yet): the protection cannot be used
     case protectedSecretUnreadable(SecretKind)  // encrypted item that cannot be decrypted (key lost or data damaged)
 
     public var errorDescription: String? {
@@ -59,7 +63,11 @@ public enum PTError: Error, Equatable, LocalizedError {
         case .invalidFile(let name):
             return String(localized: "The file “\(name)” could not be read or is damaged.")
         case .keychain(let status):
+            #if canImport(Security)
             let message = SecCopyErrorMessageString(status, nil) as String? ?? "OSStatus \(status)"
+            #else
+            let message = "OSStatus \(status)"
+            #endif
             return String(localized: "Keychain error: \(message)")
         case .invalidSecret:
             return String(localized: "The TOTP secret is not valid Base32 or hex.")
@@ -98,6 +106,12 @@ public enum PTError: Error, Equatable, LocalizedError {
             return String(localized: "The server rejected the sign-in. Check the user name, password and one-time code.")
         case .connectFailed:
             return String(localized: "The VPN connection could not be established. See the log for details.")
+        case let .serverUnreachable(server, reason, _):
+            if server.isEmpty { return String(localized: "The server could not be reached: \(reason). Your sign-in was not sent.") }
+            return String(localized: "The server \(server) could not be reached: \(reason). Your sign-in was not sent.")
+        case let .hostNotFound(server, _):
+            if server.isEmpty { return String(localized: "The server’s name could not be found. Check the server address and the network connection.") }
+            return String(localized: "The server name \(server) could not be found. Check the server address and the network connection.")
         case .connectTimeout(let seconds):
             return String(localized: "The VPN did not connect within \(seconds) seconds.")
         case .connectCancelled:
@@ -113,7 +127,11 @@ public enum PTError: Error, Equatable, LocalizedError {
         case .confirmationRequired:
             return String(localized: "Reconnecting needs your confirmation (Touch ID or your Mac password): connect it again yourself.")
         case .protectionUnavailable:
+            #if os(Linux)
+            return String(localized: "PassTunnel cannot ask for a confirmation on this system yet, so it does not use profiles set to ask for one (require_auth).")
+            #else
             return String(localized: "This Mac has no Secure Enclave, so the saved secrets cannot be protected with Touch ID or your Mac password.")
+            #endif
         case .protectedSecretUnreadable(let kind):
             switch kind {
             case .password:
@@ -129,7 +147,9 @@ extension PTError {
     /// Log excerpt attached to connection failures (empty for other errors).
     public var logTail: String {
         switch self {
-        case .authFailed(let tail), .connectFailed(let tail), .setupFailed(_, let tail): return tail
+        case .authFailed(let tail), .connectFailed(let tail), .setupFailed(_, let tail), .serverUnreachable(_, _, let tail),
+             .hostNotFound(_, let tail):
+            return tail
         default: return ""
         }
     }

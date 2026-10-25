@@ -37,11 +37,15 @@ A bundle without `dns-updown` pins an empty set for it, so the helper refuses an
 | Target | Owns | Depends on |
 |---|---|---|
 | `PassTunnelVPNConfig` | `OVPNSanitizer`, `FortiConfig`: the configurations the helper runs as root | — |
-| `PassTunnelKit` | the portable logic (Foundation, CryptoKit and Security only; builds for macOS 13 and iOS 17): model, `PTError`, `JSONCoding`, `TOTP`, `OTPAuthURI`, `OTPComposer`, `OVPNAnalyzer`, `OVPNInliner`, `ShareFile`, `Slug`, `ProfileFields`, `ProfileMerge`, `SecretEnvelope`, `HealthCheck` (parsing) | VPNConfig |
-| `PassTunnelShared` | XPC protocol, request/response types, `HelperCore` (request decoding, path checks, tool environment), `SessionPolicy`, `CodeSignature`, `Spawner` (verified, suspended launch), `PinnedTools`, `ToolStager` (root-owned copy of the tools and their dylibs), `HelperBuild`, identifiers | VPNConfig |
-| `PassTunnelCore` | `ProfileStore`, `ProfilesWatcher`, `Secrets` (Keychain), `SecretVault` + `UserAuthenticator` (Secure Enclave protection), `Preferences`, `HealthCheck.check` (the probe), `QRDecoder`, `OpenedFiles` (files the app is asked to open), `TLSFingerprint`, `HelperClient`, `HelperAutoUpdate`, `ConnectionManager` + `ProfileDestination`, CLI parsing (`CLICommand`, `CLIInvocation`), automation objects + `AutomationService`, `MCPServer` + `MCPTools` | Kit, VPNConfig, Shared |
+| `PassTunnelKit` | the portable logic (Foundation, CryptoKit and Security only; builds for macOS 13, iOS 17 and Linux): model, `PTError`, `JSONCoding`, `TOTP`, `OTPAuthURI`, `OTPComposer`, `OVPNAnalyzer`, `OVPNInliner`, `OVPNSkipRules`, `OVPNImportReport`, `ShareFile`, `Slug`, `ProfileFields`, `ProfileMerge`, `SecretEnvelope`, `HealthCheck` (parsing) | VPNConfig (and swift-crypto on Linux) |
+| `PassTunnelShared` | XPC protocol, request/response types, `HelperCore` (request decoding, path checks, tool environment), `SessionPolicy`, `CodeSignature`, `Spawner` (verified, suspended launch), `PinnedTools`, `ToolStager` (root-owned copy of the tools and their dylibs), `HelperBuild`, identifiers | VPNConfig (and swift-crypto on Linux) |
+| `PassTunnelCore` | `ProfileStore` + `ImportDraft`, `ProfilesWatcher`, `Secrets` + `SecretStore` (Keychain; on Linux `SecretStores`: secret-service, systemd-creds, file), `SecretVault` + `UserAuthenticator` (Secure Enclave protection), `Preferences`, `HealthCheck.check` (the probe), `QRDecoder`, `OpenedFiles` (files the app is asked to open), `ScannedCodeTarget` (where a scanned code goes), `TLSFingerprint`, `HelperClient`, `HelperAutoUpdate`, `ConnectionManager` + `ProfileDestination`, `ConnectionFailure`, `ActivityLog` + `ActivityEvent`, `LoginConnector` (connect at login), CLI parsing (`CLICommand`, `CLIInvocation`), automation objects + `AutomationService`, `MCPServer` + `MCPTools` + `JSONValue` | Kit, VPNConfig, Shared (and swift-crypto's Crypto and CryptoExtras on Linux) |
+| `PassTunnelCLI` | the `passtunnel` command: `PassTunnelCLI.run` (entry, `CLIHelp`), `CLIRunner`, `CLICompletions`, `CLITerminal`, `CLIClipboard`; `Pasteboard` (macOS: the app's too) | Core, Kit, Shared |
 | `PassTunnelHelper` | `main.swift` XPC listener, process supervision | Shared (and through it VPNConfig) |
-| `PassTunnel` | SwiftUI app, menu bar, onboarding, CLI, updates (`AppUpdater`) | Core, Kit, VPNConfig, Shared, Sparkle |
+| `PassTunnel` | SwiftUI app, menu bar, onboarding, updates (`AppUpdater`), Scan QR on screen (`ScreenQRScanner`, ScreenCaptureKit, macOS 14 and later); CLI mode runs `PassTunnelCLI` | CLI, Core, Kit, VPNConfig, Shared, Sparkle |
+| `PassTunnelCommand` | Linux only: the `passtunnel` executable (product `passtunnel`), `PassTunnelCLI.run` | CLI |
+| `PassTunnelDaemon` | Linux only: the root daemon's logic ([LINUX.md](LINUX.md)): `Daemon` (socket, systemd activation, one request per connection), `DaemonCall` (the line protocol), `Access` + `UserDatabase` (root and the group `passtunnel`), `TrustedPath` + `SystemTools` (fixed tool paths, ownership and version checks, the CA bundle), `Supervisor` (OpenVPN and openfortivpn: spawn, stop, exit), `PreviousInstance`; DNS: `DNSSettings` (checked servers and domains), `DNSApplier` + `DNSRecord` + `ResolvConf` (systemd-resolved, resolvconf or /etc/resolv.conf, recorded per session and reverted), `OpenVPNDNS` + `DNSHook` (`passtunneld dns-hook`); FortiGate: `OutputCopier` (the tool's output, from a pipe into the log), `FortiOutput` + `FortiDNSWatch` (openfortivpn's lines), `SessionInterface` + `InterfaceSystem` (the kernel's view of the ppp interface); `DaemonBuild` (the build number a release build compiles in) | Shared, VPNConfig |
+| `PassTunnelDaemonCommand` | Linux only: the `passtunneld` executable (product `passtunneld`), also OpenVPN's DNS hook (`dns-hook`) | Daemon, Shared |
 
 The library product `PassTunnelKit` (targets `PassTunnelKit` and `PassTunnelVPNConfig`) is what the
 iPhone app uses ([MOBILE.md](MOBILE.md)); `xcodebuild -scheme PassTunnelKit -destination
@@ -50,6 +54,87 @@ target of their own so that the helper links them and nothing else of PassTunnel
 Core needs from Kit (`FileIO`, the lenient decoding helpers, the envelope parts, `ProtectionKeyRecord`)
 are `package`, not `public`. The golden cases in [`fixtures/`](../fixtures/README.md) are read by the
 `PassTunnelKitTests` test target (and, as a pinned copy, by the Android port).
+
+On Linux ([LINUX.md](LINUX.md)) the package has the targets `PassTunnelVPNConfig`, `PassTunnelKit`,
+`PassTunnelShared`, `PassTunnelCore`, `PassTunnelCLI`, the Linux-only `PassTunnelCommand`,
+`PassTunnelDaemon` and `PassTunnelDaemonCommand` and the test targets (`PassTunnelDaemonTests` Linux
+only), none of the app and helper targets (the `#if os(Linux)` block at the end of `Package.swift`;
+the dependencies are declared on every platform). Like `PassTunnelHelper`, the daemon is built from
+Shared and VPNConfig only; its logic is a library so that the tests run it with injected run root,
+home, user database and tools. The CI jobs `Linux (x86_64)` and `Linux (aarch64)` build them, run
+the tests that build there (golden cases included) in the official Swift container, and smoke-test
+the `passtunnel` binary and, as root, `passtunneld` (with the distribution's openvpn and
+openfortivpn, no tunnel) and its DNS hook (on the container's resolv.conf).
+There `Crypto` from swift-crypto takes the place of CryptoKit
+(the same API, so codes and `ptse1:` envelopes are the same), `PTError.keychain` shows the bare
+`OSStatus`, and `String(localized:)` is an English-only stand-in (Kit's `Localization.swift`,
+`package`, used by Core and the CLI too), because Foundation on Linux does not have it yet. Configs are
+split into lines at every `\n` scalar (`OVPNInliner.lines`), not with `components(separatedBy: "\n")`,
+which on Linux keeps `\r\n` (one Character) together.
+
+The platform seams (Linux code stays in the same files behind `#if`; the Mac's behavior is unchanged):
+
+- **Values.** `PT.profilesSubpath` (`.local/share/passtunnel/profiles`), `PT.helperRunRoot`
+  (`/run/passtunnel`), `HelperCore.maxSocketPathBytes` (sun_path is 108 bytes, not 104) and
+  `AppPaths.default` (`~/.local/share/passtunnel`; `PASSTUNNEL_HOME` overrides it) are platform values.
+- **Combine.** `CombineStandIn.swift`, compiled only where Combine is missing: `ObservableObject`,
+  `@Published` (the current value to a new subscriber, then each new value before it is stored),
+  `PassthroughSubject`, `compactMap`, `sink`, `AnyCancellable`, `store(in:)`: what Core and the CLI use.
+- **Secrets.** `Secrets` keeps its API over a `SecretStore` (read, write, remove raw items by account),
+  chosen on every call: `KeychainSecretStore` on the Mac (the write rules below), `MemorySecretStore`
+  with `PASSTUNNEL_SECRET_STORE=memory` (tests; debug builds only, a release build has no such store;
+  the Linux tests use it), and on Linux otherwise `ChosenSecretStore`: `SecretStores` picks
+  `SecretServiceStore` (`secret-tool`), `SystemdCredsStore` (`systemd-creds`) or `FileSecretStore`
+  (scrypt + AES-GCM) from `PASSTUNNEL_SECRET_STORE`, `Preferences.secretStore`, the recorded
+  `Preferences.secretStoreUsed` or what is available (`SecretStoreSelection`), and records the store
+  after its first successful write (LINUX.md, Secrets). The system tools run through `ToolRunning`
+  (`SystemToolRunner`: fixed path, exact environment, stdin over a socket pair, timeout); what the
+  stores take from the system is a `SecretStoreSystem`, so their tests bring fakes. These types build
+  everywhere and their tests run on the Mac too; only Linux selects them. Store failures throw
+  `SecretStoreUnavailable` (`keychain_error`) with the store's message. `Secrets.exists` is the
+  throwing `has`: connecting, `code` and `diagnose` report the store's error instead of a missing
+  secret. `SecretStores.interaction` (set by the CLI on a terminal) lets the file store ask for its
+  passphrase and gives a locked keyring time to be unlocked.
+- **Confirmation.** `PlatformAuthenticator` is `SecureEnclaveAuthenticator` on the Mac and
+  `UnavailableAuthenticator` on Linux (`isAvailable` false; nothing is unlocked, and no key is ever
+  reported unusable). On Linux `SecretVault.refuseUnconfirmable` refuses the secrets a profile's
+  `require_auth` protects (`PTError.protectionUnavailable`, `auth_unavailable`) instead of using them
+  unconfirmed; `VaultExpiry.systemSources` (screen lock, sleep) is empty there.
+- **Helper.** `ConnectionManager.defaultHelper` is `HelperClient.shared` on the Mac and
+  `UnixSocketHelperClient.shared` on Linux (passtunneld at `PT.daemonSocketPath()`: `hello` for
+  `ensureCompatible`, `perform` for requests; no socket is `HelperClientError.notInstalled`). Linux's
+  `SystemHelperInspector` reports `not_installed` without the socket, else `enabled`, and from
+  `hello` whether the daemon answers and is the build installed with the running `passtunnel`
+  (`HelperBuild.installedDaemon`).
+  `HelperCore.fixedEnvironment` is `PATH` and `LC_ALL` only on Linux. There `HelperCore.dnsHook` (the
+  daemon's own executable) is linked into the session directory as `dns-hook`, which OpenVPN runs as
+  `--dns-updown` (2.7) or, where `openVPNHasDNSUpdown` is false (2.6), as `--route-up` and `--down`.
+- **Routes.** `RoutingTable.trafficRoutes` is the IPv4 table (`ipv4Routes`, `sysctl`) on the Mac and,
+  on Linux, the IPv4 and IPv6 routes of the tables the policy rules send ordinary traffic to, from
+  rtnetlink dumps of the links, routes and rules (`Netlink`: the messages are parsed, and the rules
+  followed, by code that builds and is tested everywhere; only `Netlink.dump`, the socket, is Linux's).
+  `Route.tunnelDevice` carries the kernel's kind of device there (LINUX.md, Client side).
+- **MCP input.** `MCPServer` decodes each line into a `JSONValue` with `JSONDecoder` on every
+  platform, so JSON booleans are never numbers (no CoreFoundation `CFBoolean` check).
+- **Version.** `AppInfo.current` on Linux is `BuildVersion`: a release build
+  (`scripts/build-linux.sh`) compiles in `BuildVersion+Generated.swift` (never committed) with
+  `-DPASSTUNNEL_BUILD_VERSION`; otherwise `0.0.0-dev` and no build number. The daemon, which links no
+  Core, gets the same build number from `DaemonBuild+Generated.swift` (`DaemonBuild`).
+- **System calls.** `POSIXSocket` (`SOCK_STREAM`, `MSG_NOSIGNAL` for `SO_NOSIGPIPE`, no `sun_len`) for
+  the management socket and the health probe; Linux pings with `ping -n -q -c 1 -W <s>` (`-6` for IPv6)
+  from `/usr/bin`, `/bin`, `/usr/sbin` or `/sbin`, never `PATH`.
+- **macOS only** (`#if os(macOS)`): `ProfilesWatcher`, `LoginItem`, `HelperInstaller`,
+  `HelperClient`, `QRDecoder`, `TLSFingerprint.fetch` (its digest formats are portable),
+  `HelperSessions.currentProcesses`, `RoutingTable.ipv4Routes` and `parse`, `ConfirmationWording`, and in Shared
+  `CodeSignature`, `Spawner`, `ToolStager`, the XPC protocol and `HelperCore`'s `F_GETPATH` (Linux
+  reads the `/proc/self/fd` link instead) and `fcopyfile` (only for the Mac's bundled DNS script;
+  the Linux daemon is its own hook). On Linux `SessionDirectory.restrictSocket` sets the
+  socket's mode before handing it over. The CLI's macOS parts (the app
+  hand-offs, `helper install`/`uninstall`, the concealed pasteboard) are under `#if` as well; on Linux
+  `helper install`/`uninstall` fail with `invalid_argument` (the package installs the daemon), and
+  `code --copy` runs `wl-copy` or `xclip` from `PATH` in a process left behind
+  (`__clear-clipboard <seconds>`), which stops it after `Preferences.clearClipboardAfter` (default
+  60 s) only while it still serves the clipboard (`invalid_argument` without either).
 
 ## Identifiers (`PassTunnelShared/Identifiers.swift`)
 
@@ -73,15 +158,20 @@ public enum PT {
   - `config.json` – preferences (`Preferences`), incl. `defaultProfile`
   - `profiles/<id>/profile.json`, `profiles/<id>/config.ovpn`, `profiles/<id>/vpn.log`,
     `profiles/<id>/.last-otp` (TOTP window of the last code sent, so app and CLI never reuse a code),
-    `profiles/<id>/.mgmt-state` (OpenVPN state shared by the app, which holds the management interface)
+    `profiles/<id>/.mgmt-state` (OpenVPN state shared by the app, which holds the management interface),
+    `profiles/<id>/activity.jsonl` (`ActivityLog`: the last 500 typed events of the profile's connections,
+    one JSON object per line, 0600; appended under `profiles/<id>/.activity.lock` and replaced atomically, so
+    the app and CLI processes can write at once; no password, a code as at most its first three digits)
     (the OpenVPN management socket is in the helper's run directory, see below)
+  - Linux only (`~/.local/share/passtunnel/`, LINUX.md): `secrets/<account>.cred` (systemd-creds
+    store), `secrets.enc` and `.secrets.lock` (file store)
 - Keychain: generic password, service `PT.keychainService` (env `PASSTUNNEL_KEYCHAIN_SERVICE` overrides
   for tests), account `"<profileID>/password"` and `"<profileID>/totp"`. Use the Security framework
   (`SecItemAdd/CopyMatching/Delete`), never the `security` CLI. App and CLI are the same binary,
   so Keychain ACLs never prompt between them. Items live in the file-based login keychain (no
   `kSecUseDataProtectionKeychain`): not synced to iCloud Keychain, but carried by Migration Assistant and
   backups (`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` is set on add but does not apply there).
-  Every write deletes the item, then adds it (`Secrets.write`), never `SecItemUpdate`: an existing item may
+  Every write deletes the item, then adds it (`KeychainSecretStore.write`), never `SecItemUpdate`: an existing item may
   have been created by another app with an ACL that lets it read the value, and the added item gets the
   default ACL (only PassTunnel). `remove` repeats `SecItemDelete` until `errSecItemNotFound` (at most 16
   times); when the old item cannot be removed nothing is written (`KeychainItemNotReplaced`, not retried
@@ -133,6 +223,7 @@ public struct Profile: Codable, Identifiable, Equatable {
     // behaviour
     public var sessionLimitMin = 0
     public var autoReconnect = false
+    public var connectAtLogin = false     // the app connects it when it opens at login (LoginConnector)
     public var healthHost = ""            // "10.0.0.5" (ICMP) or "host:port" (TCP) or "[v6]:port"
     public var otpDelivery = OTPDelivery.combined   // default: .combined for OpenVPN, .separate for Forti (set in create)
     public var otpTemplate = "{password}{otp}"      // used when .combined; validated: must contain "{otp}"
@@ -156,7 +247,8 @@ public enum AuthRequirement: String, Codable, CaseIterable, Comparable { case of
 public enum CredentialField: String, Codable { case username, password, otp }
 ```
 Decoding must tolerate missing keys (defaults) so older/newer files load (no `require_auth` → `off`;
-unknown values → `off`). Share files leave `require_auth` out (a per-user choice, like `pinned`).
+unknown values → `off`; no `connect_at_login` → false). Share files leave `require_auth` and `connect_at_login` out
+(per-user choices, like `pinned`).
 
 ## Core APIs
 
@@ -174,7 +266,11 @@ public struct ProfileStore {                       // all methods throw PTError 
     public func dir(_ id: String) -> URL
     public func ovpnURL(_ id: String) -> URL
     public func setOVPN(_ id: String, from: URL) throws   // inlined, <auth-user-pass> stripped, sanitized, 0600
-    public func importOVPN(_ url: URL, name: String?) throws -> Profile   // uses OVPNAnalyzer; <auth-user-pass> → username + Keychain password
+    public func importOVPN(_ url: URL, name: String?) throws -> Profile   // analyzeOVPN, then commit with what the file holds
+    public func analyzeOVPN(_ url: URL) throws -> ImportDraft             // the review: writes nothing (no file, no Keychain item)
+    public func commit(_ draft: ImportDraft, name:, username:, password:, totpSecret: Data?, totp: TOTPParams, now:) throws -> Profile
+        // nil values come from the file; ovpnNotAllowed while the draft has blocking lines; the config is checked
+        // with the sanitizer again before it is written; <auth-user-pass> → username + Keychain password
     public func exportShare(_ id: String, to: URL) throws                 // ShareFile, 0600; config without credential blocks
     public func importShare(_ url: URL, name: String?) throws -> Profile  // drops an <auth-user-pass> block
 }
@@ -188,8 +284,9 @@ public enum OVPNInliner {
     // local config); share export strips both.
     // Lines are read with OVPNSanitizer's tokenizer (`tokens(of:)`, `inlineBlockTag`, `isInlineBlockEnd`), so
     // import and the helper never read a line differently; lines it rejects are kept for the sanitizer to report.
+    // Like the sanitizer, they skip a BOM only at the start of the file; a referenced file's own BOM is not embedded.
 }
-public enum Secrets {                               // Keychain
+public enum Secrets {                               // Keychain (a SecretStore; see Targets for Linux)
     public static func get(_ profileID: String, _ kind: SecretKind) -> String?   // plain text only; nil if encrypted
     public static func has(_ profileID: String, _ kind: SecretKind) -> Bool      // plain or encrypted
     public static func isProtected(_ profileID: String, _ kind: SecretKind) -> Bool
@@ -206,7 +303,10 @@ public enum TOTP {
 public struct OTPAuthURI { label, issuer, secret: Data, params: TOTPParams; init(_ uri: String) throws }   // otpauth://totp/...
 public enum OVPNAnalyzer {
     public static func analyze(_ text: String) -> (passwordMode, otpMode, otpDelivery, remote: String, remotes: [String])
+    public static func servers(_ text: String) -> [Server]   // every remote: host, port, tcp (as endpoint resolves them)
     public static func serverDescription(_ remotes: [String]) -> String   // "vpn.example.com +2 more"; also (_ text:)
+    public static func endpoint(_ text: String) -> Endpoint?   // first remote: host, port, tcp, others
+    public static func endpointDescription(_ text: String) -> String   // "vpn.example.com:1194 +2 more · UDP"
     public static func redirectsGateway(_ text: String) -> Bool?
 }
 // static-challenge in the file → otpMode .ask, otpDelivery .separate; otherwise .combined
@@ -214,16 +314,39 @@ public enum OVPNAnalyzer {
 // sanitizer and OpenVPN read them: quotes and escapes resolved, comments dropped, lines OpenVPN rejects
 // skipped, inline block contents skipped (<connection> blocks read), `setenv opt <directive>` applied
 // when the name is exact. `remotes` = every `remote` host in file order, `remote` = the first.
+// `endpoint`: the port and transport of the `remote` line, else the `port`/`rport` and `proto` lines of its
+// <connection> block, then those outside any block (the last of each), else 1194 and UDP.
+public enum OVPNSkipRules {                       // which refused lines an import leaves out (SECURITY.md)
+    public static func apply(_ text: String) -> Result   // text with skipped lines as "# PassTunnel skipped: …", skipped, blocking
+    public static func skipReason(_ v: OVPNSanitizer.Violation) -> Reason?   // nil: the line blocks
+}
+public struct OVPNImportReport {                  // ImportDraft.report; golden cases: fixtures/ovpn-import.json
+    public static func make(_ text: String, baseDir: URL?) throws -> OVPNImportReport   // throws only for embedded files
+    config: String?   // inlined, skipped lines commented, <auth-user-pass> removed; nil with a blocking line
+    skipped, blocking // numbered as in the file (OVPNInliner.inlineMapped keeps each inlined line's origin)
+    servers, certificates (name, file it was embedded from), passwordMode, otpMode, otpDelivery, username, password
+    needs: [Field]    // username + password with auth-user-pass, codeSecret with static-challenge (ImportDraft adds .name)
+}
+// `OVPNSkipRules` classifies the violations `OVPNSanitizer.sanitize` reports, by directive and reason: a line is
+// skipped only when every violation on it is in the skip tables (`skippable`, `skippableManaged`, script-security,
+// non-metadata setenv); anything else, including any reason the tables do not know, blocks. The rewritten text is
+// checked with the sanitizer again, so "no blocking lines" always means the sanitizer accepts it. The sanitizer
+// itself, which the helper runs, is unchanged.
 public enum OTPComposer {
     public static func validate(template: String) throws               // must contain "{otp}"
     public static func compose(password: String, otp: String?, delivery: OTPDelivery, template: String,
                                type: VPNType) -> (secret: String, separateOTP: String?)
+    public static func parts(delivery: OTPDelivery, template: String) -> (secret: [Part], separateCode: Bool)
+        // what compose sends, as .password / .code / .text in order: the editor's masked "Server receives"
 }
-public struct ShareFile: Codable              // {"passtunnel_profile":1, "profile":{…minus username,last_username,order,mgmt_port,pinned}, "files":{"config.ovpn": base64}} (config without credential blocks)
+public struct ShareFile: Codable              // {"passtunnel_profile":1, "profile":{…minus username,last_username,order,mgmt_port,pinned,require_auth,connect_at_login,config_imported_at}, "files":{"config.ovpn": base64}} (config without credential blocks)
     // fileExtension "passtunnel", typeIdentifier "com.furkanprlk.passtunnel.profile" (exported by the app, conforms to public.json)
 public struct Preferences: Codable { defaultProfile, theme, showLock, notifyOnDrop, sessionWarnMin=30,
     sessionNotifyMin=10, hotkeys=false, autoType=false, launchAtLogin=true,
-    authReuseMinutes=1 /* 1, 5 or 15; others → 1 */ }
+    authReuseMinutes=1 /* 1, 5 or 15; others → 1 */,
+    waitForFreshCode=true /* wait when freshCodeSeconds (5) or less are left */,
+    clearClipboardAfter=60 /* seconds: 30, 60 or 120; others → 60 */,
+    secretStore=.auto, secretStoreUsed=nil /* Linux; written only when set */ }
 public enum HealthCheck { public static func check(_ host: String, timeout: TimeInterval = 3) -> (ok: Bool, ms: Int) }
 ```
 
@@ -316,7 +439,8 @@ public enum ConfirmationWording { static let hasTouchID: Bool; static var settin
 
 One model, two front ends. `Automation.swift` defines the result objects (`ProfileSummary`,
 `ProfileStatus`, `StatusReport`, `HelperReport`, `LogReport`, `DiagnoseReport`/`ProfileCheck`,
-`VersionReport`), the error object (`ErrorReport`, `ErrorEnvelope`), the stable error codes
+`VersionReport`), the error object (`ErrorReport`, `ErrorEnvelope`; a failed connect's carries the
+`ConnectionFailure` of a `ConnectFailedError`), the stable error codes
 (`AutomationErrorCode`, mapped from `PTError`, `HelperClientError`, `DestinationChangedError`,
 `CLIUsageError` by `AutomationErrorCode.of`) and the exit codes (`AutomationExit`).
 `AutomationService` (`@MainActor`, one per CLI command or MCP server, over a `ProfileStore`, a
@@ -329,13 +453,15 @@ that attempt has ended and the caller runs its own checks before starting) and d
 (`disconnect(_:wait:timeout:)`, polling `refresh`). `logs` drops management chatter and lines that
 look like key material (`LogRedactor.isKeyMaterial`: `TLS: tls_` traces, hex runs of 32+ digits
 except openfortivpn's `--trusted-cert` / `trusted-cert =` digest),
-then `LogRedactor` masks credentials. `PromptlessAuthenticator` wraps the Secure Enclave
+then `LogRedactor` masks credentials. `activity` (`log --activity`, `get_logs` with `source: "activity"`)
+returns the activity log's last events without code digits (`ActivityEvent.withoutCodeDigits`), their
+server, user name and reply passed through `LogRedactor`, each also worded with its local time. `PromptlessAuthenticator` wraps the Secure Enclave
 authenticator for `--no-auth-prompt`.
 
 ```
-passtunnel … --json ──▶ CLIRunner (app target) ─┐
-                                                 ├─▶ AutomationService ─▶ ConnectionManager, ProfileStore,
-passtunnel mcp ──stdio──▶ MCPServer ─▶ MCPTools ─┘                        HelperInspecting, Secrets
+passtunnel … --json ──▶ CLIRunner (PassTunnelCLI) ─┐
+                                                    ├─▶ AutomationService ─▶ ConnectionManager, ProfileStore,
+passtunnel mcp ──stdio──▶ MCPServer ─▶ MCPTools ────┘                        HelperInspecting, Secrets
 ```
 
 `Secrets` is used for `has` (`diagnose`) and, in `logs`, for `get` of the profile's password and
@@ -346,15 +472,16 @@ for an envelope), so literal masking does not cover it; the keyword and pattern 
 - `CLIRunner` prints the objects with `AutomationJSON.encoder()` (the file style plus ISO 8601
   dates) and maps any error to `ErrorEnvelope` + `exitCode`. Command-only results (`show`,
   `export`, `rm`, `secret`, `default`, `code`) stay local to the runner.
-- `MCPServer` parses lines with `JSONSerialization`, dispatches requests as main-actor tasks keyed by
-  JSON-RPC id (so `notifications/cancelled` can cancel one; an id already in flight gets -32600),
+- `MCPServer` decodes lines into a `JSONValue` (`JSONDecoder`: booleans are never numbers, integers
+  stay exact; replies are written with `JSONSerialization`), dispatches requests as main-actor tasks
+  keyed by JSON-RPC id (so `notifications/cancelled` can cancel one; an id already in flight gets -32600),
   writes each reply as one line through an injected `send` (stdout in `runStdio`, which reads stdin
   on a background thread through `LineReader`, at most 1 MiB per line, a longer one is skipped and
   answered with -32700, and ignores SIGPIPE; it also keeps a `VaultExpiry`, which resets the
   vault on screen lock and sleep as the app does). `MCPTools` holds the tool definitions and JSON
   Schemas (`Schema`), checks arguments (`Arguments`: every key must be consumed, a `null` counts as
-  absent; `profile_id` via `Slug.isValid`; booleans must be JSON booleans) and encodes results with
-  `AutomationJSON.object` for `structuredContent` and as text.
+  absent; `profile_id` via `Slug.isValid`; booleans must be JSON booleans and integers JSON numbers
+  without a fraction) and encodes results with `AutomationJSON.object` for `structuredContent` and as text.
 - `SystemHelperInspector` reads `HelperInstaller.status`, then asks a 5 s `HelperClient` for the
   protocol and build. `HelperClient.defaultMachServiceName` is `PT.helperLabel`; debug builds take
   `PASSTUNNEL_HELPER_SERVICE` instead, so a debug binary run against a temporary
@@ -529,10 +656,13 @@ Security rules (helper):
   `route-up`, `route-pre-down`, `ipchange`, `learn-address`, `client-connect`, `client-disconnect`,
   `tls-verify`, `auth-user-pass-verify`, `plugin`, `script-security` > 1, `management*`, `log*`, `daemon`,
   `writepid`, `cd`, `chroot`, `user`/`group`, `config`, `show-pkcs11-ids`, `genkey`, `port-share`,
+  `client-crresponse`, server and standalone modes (`server*`, `tls-server`, `mode` other than `p2p`,
+  `mktun`/`rmtun`, `show-*`, …), a `dev` name that is not a device type,
   external files incl. a `socks-proxy` credentials file, and, like OpenVPN's own parser, a backslash
-  outside single quotes that does not escape `\`, `"` or whitespace, or ends the line; strips
-  `static-challenge`), writes the sanitized copy and the auth file
-  into the session's run directory, then runs openvpn with fixed flags (`--management <runDir>/mgmt.sock unix`
+  outside single quotes that does not escape `\`, `"` or whitespace, or ends the line, and a line that
+  starts with a byte order mark anywhere but at the start of the file; strips `static-challenge`; the same
+  check for every config, also those whose import commented out refused lines, `OVPNSkipRules`), writes
+  the sanitized copy and the auth file into the session's run directory, then runs openvpn with fixed flags (`--management <runDir>/mgmt.sock unix`
   `--management-client-user <caller's user name>` so only the calling user can talk to it, no
   `--management-hold`; `--verb N` with the config's last `verb` capped at 4, 3 when it sets none
   (`HelperCore.openVPNVerbosity`, from `OVPNSanitizer.verbosity(of:)`); `--auth-nocache`,
@@ -555,7 +685,9 @@ Security rules (helper):
   other line files for root (the OpenVPN `auth` file and its own `state` file) pass `HelperCore.checkLines`
   (exact line count, no NUL or CR), and the written `config.ovpn` is checked for NUL bytes once more.
   OTP is passed in the config (`otp = …`), so no pinentry is needed. Every config sets
-  `ca-file = /etc/ssl/cert.pem`, so openfortivpn never uses OpenSSL's compiled-in default store.
+  `ca-file = /etc/ssl/cert.pem`, so openfortivpn never uses OpenSSL's compiled-in default store
+  (`HelperCore.caFile`; the Linux daemon sets the distribution's bundle and `fortiHandlesDNS` false,
+  which renders `set-dns` and `pppd-use-peerdns` as 0: LINUX.md).
 - Tracks the pid it started per profile; `stop` only signals that pid (SIGTERM, then SIGKILL after 5 s).
   Several Forti/OpenVPN profiles may run at once, at most `SessionPolicy.maxSessionsPerUser` (8) per user.
   `SessionPolicy` decides, keyed by (caller uid, profile ID): two users may run the same ID; starting one of
@@ -594,8 +726,11 @@ credentials (Keychain / TOTP / caller-supplied for `.ask`), builds what is sent 
 - `.combined`: `otpTemplate` with `{password}` / `{otp}` substituted (no other placeholders; literal text kept)
   → OpenVPN auth-file password, or Forti `password` (Forti `otp` then omitted)
 - `.separate`: OpenVPN → `SCRV1:b64(password):b64(code)` (static-challenge), Forti → `password` + `otp` fields
-waits for the next TOTP window if fewer than 8 s remain or the current window's code was already sent
-(servers reject a reused code; recorded in `.last-otp` once the helper started the tool), and publishes `ConnectionState` changes:
+waits for the next TOTP window if the current window's code was already sent (always: servers reject a
+reused code; recorded in `.last-otp` once the helper started the tool, and put back when the tool's log
+shows the sign-in never reached the server, `ConnectionFailure.credentialsSent`) or, with
+`Preferences.waitForFreshCode` (default on, read from `config.json` at every connect), if 5 s or less
+remain, and publishes `ConnectionState` changes:
 
 ```swift
 public enum ConnectionState: Equatable { case disconnected, connecting(String), connected(ip: String, since: Date?) }
@@ -615,10 +750,12 @@ another tunnel", and — inherent to OpenVPN — on teardown it deletes `0/1` an
 tunnel. Hence:
 - Before starting an OpenVPN profile that redirects the gateway (`OVPNAnalyzer.redirectsGateway`: a
   local `redirect-gateway`; unknown → the last session's log shows it was pushed), `ConnectionManager`
-  reads the IPv4 routing table (`RoutingTable.ipv4Routes`, `sysctl NET_RT_DUMP`) and refuses with
+  reads the IPv4 routing table (`RoutingTable.trafficRoutes`: `ipv4Routes`, `sysctl NET_RT_DUMP`; Linux:
+  LINUX.md) and refuses with
   `PTError.otherVPNActive("utunN")` when `default`, `0/1` or `128/1` (unscoped) goes through a VPN
   interface (`utun`, `ppp`, `ipsec`, `tun`, `tap`) that is not one of PassTunnel's running sessions (their
-  interface comes from "Opened utun device …" / "Interface pppN is UP" in their logs).
+  interface comes from "Opened utun device …" / "Interface pppN is UP" in their logs; on Linux also
+  "TUN/TAP device tunN opened" / "DCO device tunN opened").
   `passtunnel connect --force` skips the check.
 - While connecting, the log is checked (`VPNLog.setupProblem`): a failed DNS hook or a failed route for
   `0/1`, `128/1`, `default` (or the IPv6 equivalents) is `PTError.setupFailed` — the session is stopped
@@ -642,7 +779,10 @@ tunnel. Hence:
 - Tests never touch the real Keychain service or real support dir: they set `PASSTUNNEL_HOME` and
   `PASSTUNNEL_KEYCHAIN_SERVICE`. `MCPServerTests` drive `MCPServer` through its `send` closure with
   `FakeHelper`, `FakeAuthenticator` and a fixed `HelperInspecting`. Management-socket tests run their own fake server on a socket in a
-  temp dir. Tests never use the Secure Enclave or show a prompt: `ConnectionManagerTests` and
+  temp dir. The Linux secret stores' tests use `FakeTools` for `secret-tool` and `systemd-creds` and a
+  temp dir for the file store (LINUX.md, Rules, for the one opt-in CI round trip with a real
+  keyring). Tests never use the Secure Enclave or show a prompt: `ConnectionManagerTests` and
   `SecretVaultTests` inject `FakeAuthenticator` (a software P-256 key).
-- Swift language mode 5 (tools 5.10), macOS 13 APIs, no third-party dependencies except Sparkle (updates,
-  pinned to an exact version in `Package.swift`).
+- Swift language mode 5 (tools 5.10), macOS 13 APIs, no third-party dependencies except Sparkle (updates)
+  and swift-crypto (CryptoKit's API for PassTunnelKit, and scrypt from its CryptoExtras for the Linux
+  file store; used on Linux only), each pinned to an exact version in `Package.swift`.

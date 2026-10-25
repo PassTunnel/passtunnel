@@ -80,7 +80,7 @@ themed() {
 
 echo "==> Converting screenshots"
 themed "$RENDER/main" main 640                                  # hero: main window
-themed "$RENDER/editor/editor-one-time-code" editor-code 480    # profile editor, One-time code section
+themed "$RENDER/editor/editor-one-time-code" editor-code 480    # profile editor sheet
 themed "$RENDER/settings-general" settings-general 400          # Settings, General
 themed "$RENDER/onboarding-2" onboarding-helper 440             # onboarding: install the helper
 

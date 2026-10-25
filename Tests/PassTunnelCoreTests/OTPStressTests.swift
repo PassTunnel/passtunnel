@@ -154,6 +154,35 @@ final class OTPComposerEdgeTests: CoreTestCase {
         }
     }
 
+    /// The parts shown in the editor's "Server receives" are what `compose` sends, in the same order.
+    func testPartsMatchCompose() {
+        func joined(_ parts: [OTPComposer.Part]) -> String {
+            parts.map { part -> String in
+                switch part {
+                case .password: return "pw"
+                case .code: return "123456"
+                case .text(let text): return text
+                }
+            }.joined()
+        }
+        let templates = OTPTemplatePreset.allCases.map(\.rawValue)
+            + ["pin{otp}", "{otp}{otp}", "{{otp}}", "a{b{otp}", "🔐{password}·{otp}✓", "{password}", "{x}{otp}", ""]
+        for template in templates {
+            let parts = OTPComposer.parts(delivery: .combined, template: template)
+            XCTAssertFalse(parts.separateCode, template)
+            XCTAssertEqual(joined(parts.secret), compose("pw", "123456", .combined, template).0, template)
+        }
+        XCTAssertEqual(OTPComposer.parts(delivery: .combined, template: "{password}:{otp}").secret,
+                       [.password, .text(":"), .code])
+        XCTAssertEqual(OTPComposer.parts(delivery: .combined, template: "{password}").secret, [.password, .code],
+                       "an invalid template falls back to append")
+        for template in templates {
+            let parts = OTPComposer.parts(delivery: .separate, template: template)
+            XCTAssertEqual(parts.secret, [.password], template)
+            XCTAssertTrue(parts.separateCode, template)
+        }
+    }
+
     func testHostilePasswordsAndCodes() {
         let long = String(repeating: "ş🔥x", count: 5000)
         XCTAssertEqual(compose(long, "1", .combined, "{password}:{otp}").0, long + ":1")

@@ -32,7 +32,7 @@
   "tools": [
     { "name": "list_profiles", "description": "Profiles with type, state, whether connecting asks for Touch ID, auto-reconnect" },
     { "name": "get_status", "description": "State, tunnel IP, since when, last error; whether the helper is installed and current" },
-    { "name": "get_logs", "description": "The last lines (up to 500) of a profile's VPN log, with credentials redacted" },
+    { "name": "get_logs", "description": "The last lines (up to 500) of a profile's VPN log, or of PassTunnel's activity log for it, with credentials redacted" },
     { "name": "diagnose", "description": "App version, helper state, and per profile whether config, server and saved credentials are in place" },
     { "name": "connect", "description": "Connect a profile (only with Allow connect and disconnect)" },
     { "name": "disconnect", "description": "Disconnect a profile (only with Allow connect and disconnect)" }

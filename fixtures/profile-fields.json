@@ -79,6 +79,13 @@
       "stored": "true"
     },
     {
+      "type": "openvpn",
+      "key": "connect_at_login",
+      "value": "on",
+      "canonical_key": "connect_at_login",
+      "stored": "true"
+    },
+    {
       "type": "forti",
       "key": "health_host",
       "value": "10.0.0.5:443",
@@ -227,6 +234,15 @@
       "value": "maybe",
       "error": {
         "detail": "auto_reconnect",
+        "kind": "invalid_field"
+      }
+    },
+    {
+      "type": "forti",
+      "key": "connect_at_login",
+      "value": "later",
+      "error": {
+        "detail": "connect_at_login",
         "kind": "invalid_field"
       }
     },

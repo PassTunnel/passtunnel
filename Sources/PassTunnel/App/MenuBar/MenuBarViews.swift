@@ -170,7 +170,7 @@ private struct ModernSettingsButton: View {
 }
 
 /// Hands `openSettings` (macOS 14+) to the app delegate for alerts and notifications.
-private struct SettingsOpenerRegistration: View {
+struct SettingsOpenerRegistration: View {
     var body: some View {
         if #available(macOS 14, *) {
             Registrar()

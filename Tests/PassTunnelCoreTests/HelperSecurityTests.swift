@@ -115,6 +115,7 @@ final class HelperRequestDecodingTests: XCTestCase {
 
 // MARK: - Profile IDs and file checks
 
+#if os(macOS)
 extension HelperCoreTests {
     func testMoreInvalidProfileIDs() throws {
         let lookalikes = [
@@ -200,6 +201,8 @@ extension HelperCoreTests {
             "log /etc/x", "log-append /etc/x", "cd /", "config /tmp/other.ovpn", "setenv BASH_ENV /tmp/x",
             "setenv PATH /tmp", "setenv opt up /tmp/x", "--Up /tmp/x", "route-up /tmp/x", "dns-updown /tmp/x",
             "auth-user-pass /var/root/secret", "ca /etc/ssl/ca.pem", "writepid /etc/x", "user nobody",
+            "mode server", "tls-server", "server 10.8.0.0 255.255.255.0", "client-crresponse /tmp/x",
+            "setenv opt client-crresponse /tmp/x", "mktun", "dev ../tmp/x1",
         ]
         for line in dangerous {
             try writeConfig("client\nremote vpn.example.com 1194\n\(line)\n")
@@ -235,6 +238,7 @@ extension HelperCoreTests {
         XCTAssertEqual(plan.tool, .openvpn)
     }
 }
+#endif
 
 // MARK: - Forti field injection
 
@@ -363,7 +367,7 @@ final class SessionPolicyTests: XCTestCase {
         XCTAssertEqual(SessionPolicy.visible(to: bob, sessions: both)["acme"], 300)
         XCTAssertEqual(SessionPolicy.stopDecision(profileID: "acme", uid: alice, sessions: both), .terminate(pid: 100))
         XCTAssertEqual(SessionPolicy.stopDecision(profileID: "acme", uid: bob, sessions: both), .terminate(pid: 300))
-        XCTAssertEqual(SessionPolicy.sockets(visibleTo: bob, sessions: both)["acme"], "/var/run/passtunnel/502/acme/mgmt.sock")
+        XCTAssertEqual(SessionPolicy.sockets(visibleTo: bob, sessions: both)["acme"], PT.helperRunRoot + "/502/acme/mgmt.sock")
         XCTAssertNotEqual(Set(both.map(\.key)).count, Set(both.map(\.profileID)).count)
     }
 
@@ -373,7 +377,7 @@ final class SessionPolicyTests: XCTestCase {
         XCTAssertEqual(SessionPolicy.visible(to: 503, sessions: sessions), [:])
         XCTAssertEqual(SessionPolicy.visible(to: 0, sessions: sessions), [:], "root only sees its own sessions")
         XCTAssertEqual(SessionPolicy.sockets(visibleTo: alice, sessions: sessions),
-                       ["acme": "/var/run/passtunnel/501/acme/mgmt.sock"])
+                       ["acme": PT.helperRunRoot + "/501/acme/mgmt.sock"])
         XCTAssertEqual(SessionPolicy.sockets(visibleTo: 503, sessions: sessions), [:])
     }
 
@@ -410,6 +414,7 @@ final class SessionPolicyTests: XCTestCase {
 
 // MARK: - Code signature checks
 
+#if os(macOS)
 final class CodeSignatureTests: XCTestCase {
     var dir: URL!
     var tool: String { dir.appendingPathComponent("tool").path }
@@ -507,6 +512,7 @@ final class CodeSignatureTests: XCTestCase {
         XCTAssertEqual(status(tool, ownIdentifier), errSecSuccess, "the untouched copy still validates")
     }
 }
+#endif
 
 // MARK: - Secrets never printed
 

@@ -1,8 +1,16 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto   // swift-crypto: the same API, outside Apple platforms
+#endif
 import Foundation
+#if canImport(LocalAuthentication)
 import LocalAuthentication
+#endif
 import PassTunnelKit
+#if canImport(Security)
 import Security
+#endif
 
 /// A profile's protection key as created: the private key's opaque data (for the Secure Enclave, its
 /// wrapped blob) and the public key secrets are encrypted to.
@@ -47,6 +55,36 @@ public protocol UserAuthenticator: AnyObject {
     func unlock(keyData: Data, reason: String) async throws -> UnlockedProtectionKey
 }
 
+// The authenticator of this platform: the Secure Enclave on the Mac. Linux cannot ask for a
+// confirmation yet (docs/LINUX.md): protected profiles fail there with `auth_unavailable`.
+#if os(macOS)
+public typealias PlatformAuthenticator = SecureEnclaveAuthenticator
+#else
+public typealias PlatformAuthenticator = UnavailableAuthenticator
+#endif
+
+/// No way to confirm: keys cannot be made (`isAvailable` is false) and nothing can be unlocked, so the
+/// protection cannot be turned on and a protected secret is never used (`PTError.protectionUnavailable`).
+/// Never reports a key as unusable, which would remove the encrypted items.
+public final class UnavailableAuthenticator: UserAuthenticator {
+    public init() {}
+
+    public var isAvailable: Bool { false }
+
+    public func createKey() throws -> ProtectionKey {
+        throw PTError.protectionUnavailable
+    }
+
+    public func publicKey(keyData: Data) throws -> P256.KeyAgreement.PublicKey {
+        throw PTError.protectionUnavailable
+    }
+
+    public func unlock(keyData: Data, reason: String) async throws -> UnlockedProtectionKey {
+        throw PTError.protectionUnavailable
+    }
+}
+
+#if os(macOS)
 /// CryptoKit Secure Enclave P-256 key-agreement keys with the access control
 /// `[.privateKeyUsage, .userPresence]`: Touch ID or the login password (an Apple Watch where set up),
 /// so adding or removing a fingerprint never makes the key unusable. The private key never leaves
@@ -160,6 +198,7 @@ public enum ConfirmationWording {
         hasTouchID ? String(localized: "Confirm with Touch ID") : String(localized: "Confirm with your password")
     }
 }
+#endif
 
 /// What a confirmation is for; chooses the sentence in the system prompt.
 public enum UserPresenceAction: String, CaseIterable, Sendable {

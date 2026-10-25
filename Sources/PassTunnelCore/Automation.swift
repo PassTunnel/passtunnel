@@ -1,4 +1,8 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto   // swift-crypto: the same API, outside Apple platforms
+#endif
 import Foundation
 import PassTunnelKit
 import PassTunnelShared
@@ -39,6 +43,8 @@ public enum AutomationErrorCode: String, Codable, CaseIterable, Sendable {
     case helperOutdated = "helper_outdated"
     case helperUnavailable = "helper_unavailable"
     case connectFailed = "connect_failed"
+    case serverUnreachable = "server_unreachable"
+    case hostNotFound = "host_not_found"
     case credentialsRejected = "credentials_rejected"
     case credentialsMissing = "credentials_missing"
     case otherVPNActive = "other_vpn_active"
@@ -55,7 +61,8 @@ public enum AutomationErrorCode: String, Codable, CaseIterable, Sendable {
         case .profileNotFound, .notConnected: return AutomationExit.notFound
         case .inputRequired, .cancelled, .authCancelled, .authUnavailable: return AutomationExit.confirmation
         case .helperNotInstalled, .helperOutdated, .helperUnavailable: return AutomationExit.helper
-        case .connectFailed, .credentialsRejected, .credentialsMissing, .otherVPNActive, .destinationChanged:
+        case .connectFailed, .serverUnreachable, .hostNotFound, .credentialsRejected, .credentialsMissing, .otherVPNActive,
+             .destinationChanged:
             return AutomationExit.connectFailed
         case .timeout: return AutomationExit.timeout
         case .configInvalid, .fileError, .keychainError, .internal: return AutomationExit.error
@@ -66,9 +73,10 @@ public enum AutomationErrorCode: String, Codable, CaseIterable, Sendable {
     public static func of(_ error: Error) -> AutomationErrorCode {
         switch error {
         case let e as AutomationError: return e.code
+        case let e as ConnectFailedError: return of(e.error)
         case is CLIUsageError: return .invalidArgument
         case is DestinationChangedError: return .destinationChanged
-        case is ProtectionKeyMismatch, is ProtectionKeyUnusable: return .keychainError
+        case is ProtectionKeyMismatch, is ProtectionKeyUnusable, is SecretStoreUnavailable: return .keychainError
         case is CancellationError: return .cancelled
         case let e as HelperClientError:
             switch e {
@@ -93,6 +101,8 @@ public enum AutomationErrorCode: String, Codable, CaseIterable, Sendable {
         case .keychain, .protectedSecretUnreadable: return .keychainError
         case .missingPassword, .missingTOTPSecret, .missingCredential: return .credentialsMissing
         case .helperFailed, .connectFailed, .setupFailed, .connectCancelled: return .connectFailed
+        case .serverUnreachable: return .serverUnreachable
+        case .hostNotFound: return .hostNotFound
         case .authFailed: return .credentialsRejected
         case .connectTimeout: return .timeout
         case .otherVPNActive: return .otherVPNActive
@@ -115,18 +125,41 @@ public struct AutomationError: Error, Equatable, LocalizedError {
     public var errorDescription: String? { message }
 }
 
-/// `{"code": …, "message": …}`: the object under `"error"` in `--json` output.
+/// A connect that failed, with why (`ConnectionManager.failures`): what `AutomationService.connect` throws,
+/// so the error object carries the `failure`. Its code and message are the underlying error's.
+public struct ConnectFailedError: Error, LocalizedError {
+    public var error: Error
+    public var failure: ConnectionFailure
+
+    public init(_ error: Error, failure: ConnectionFailure) {
+        self.error = error
+        self.failure = failure
+    }
+
+    public var errorDescription: String? { error.localizedDescription }
+
+    /// The error itself, without a `ConnectFailedError` around it.
+    public static func underlying(_ error: Error) -> Error {
+        (error as? ConnectFailedError)?.error ?? error
+    }
+}
+
+/// `{"code": …, "message": …}`: the object under `"error"` in `--json` output; a failed connect adds
+/// `failure`.
 public struct ErrorReport: Codable, Equatable {
     public var code: String
     public var message: String
+    public var failure: ConnectionFailure?
 
-    public init(code: AutomationErrorCode, message: String) {
+    public init(code: AutomationErrorCode, message: String, failure: ConnectionFailure? = nil) {
         self.code = code.rawValue
         self.message = message
+        self.failure = failure
     }
 
     public init(_ error: Error) {
-        self.init(code: AutomationErrorCode.of(error), message: error.localizedDescription)
+        self.init(code: AutomationErrorCode.of(error), message: error.localizedDescription,
+                  failure: (error as? ConnectFailedError)?.failure)
     }
 }
 
@@ -152,6 +185,8 @@ public struct ProfileSummary: Codable, Equatable {
     /// Connecting asks for Touch ID or the Mac password (`require_auth` protects a secret it uses).
     public var protected: Bool
     public var autoReconnect: Bool
+    /// Connected when the app opens at login (if it can connect without asking).
+    public var connectAtLogin: Bool
     /// disconnected / connecting / connected; only when the caller asked the helper (MCP).
     public var state: String?
 
@@ -167,6 +202,7 @@ public struct ProfileSummary: Codable, Equatable {
         requireAuth = p.requireAuth.rawValue
         self.protected = Self.isProtected(p)
         autoReconnect = p.autoReconnect
+        connectAtLogin = p.connectAtLogin
         self.state = state.map(ProfileStatus.stateName)
     }
 
@@ -195,14 +231,16 @@ public struct ProfileStatus: Codable, Equatable {
     public var health: String?
     /// Why the last attempt failed (this process only).
     public var error: String?
+    /// The same, typed: kind, the server's reply, whether the sign-in and a code were sent.
+    public var failure: ConnectionFailure?
     public var warning: String?
     /// Connected, but the management interface did not answer: ip and since may be stale.
     public var statusUnavailable: Bool?
 
     public init(id: String, name: String, type: String, state: String, phase: String? = nil, ip: String? = nil,
                 since: Date? = nil, durationSeconds: Int? = nil, isDefault: Bool, protected: Bool = false,
-                autoReconnect: Bool = false, health: String? = nil, error: String? = nil, warning: String? = nil,
-                statusUnavailable: Bool? = nil) {
+                autoReconnect: Bool = false, health: String? = nil, error: String? = nil, failure: ConnectionFailure? = nil,
+                warning: String? = nil, statusUnavailable: Bool? = nil) {
         self.id = id
         self.name = name
         self.type = type
@@ -216,6 +254,7 @@ public struct ProfileStatus: Codable, Equatable {
         self.autoReconnect = autoReconnect
         self.health = health
         self.error = error
+        self.failure = failure
         self.warning = warning
         self.statusUnavailable = statusUnavailable
     }
@@ -276,12 +315,25 @@ public struct ProfileList: Codable, Equatable {
 }
 
 /// `log ID --json` and `get_logs`: the last lines of the profile's VPN log, with anything that looks
-/// like a credential replaced by `<redacted>`.
+/// like a credential replaced by `<redacted>`; with `--activity` / `source: "activity"`, the last events
+/// of its activity log, worded, and as objects. Never a code digit.
 public struct LogReport: Codable, Equatable {
     public var id: String
     public var lines: [String]
     /// The log has more lines than were returned.
     public var truncated: Bool
+    /// "raw": the VPN tool's output; "activity": what PassTunnel did and saw (`ActivityLog`).
+    public var source: String
+    /// Activity only: the events `lines` word, oldest first.
+    public var events: [ActivityEvent]?
+
+    public init(id: String, lines: [String], truncated: Bool, source: String = "raw", events: [ActivityEvent]? = nil) {
+        self.id = id
+        self.lines = lines
+        self.truncated = truncated
+        self.source = source
+        self.events = events
+    }
 }
 
 /// `version --json`.
@@ -302,6 +354,8 @@ public struct DiagnoseReport: Codable, Equatable {
     public var inApplications: Bool
     public var helper: HelperReport
     public var profiles: [ProfileCheck]
+    /// Linux: where passwords and TOTP secrets are kept, and whether that store can be used.
+    public var secretStore: SecretStoreReport?
 }
 
 public struct ProfileCheck: Codable, Equatable {
@@ -332,13 +386,18 @@ public struct AppInfo: Equatable {
         self.appPath = appPath
     }
 
-    /// From `Bundle.main` ("dev" for a build without an Info.plist).
+    /// From `Bundle.main` ("dev" for a build without an Info.plist). On Linux, which has no Info.plist,
+    /// the version compiled in (`BuildVersion`) and the executable's path.
     public static var current: AppInfo {
+        #if os(Linux)
+        return AppInfo(version: BuildVersion.version, build: BuildVersion.build, appPath: Bundle.main.executablePath ?? "")
+        #else
         let info = Bundle.main.infoDictionary
         return AppInfo(version: info?["CFBundleShortVersionString"] as? String ?? "dev",
                        build: info?["CFBundleVersion"] as? String,
                        appPath: Bundle.main.bundleURL.pathExtension == "app" ? Bundle.main.bundlePath
                                                                           : Bundle.main.executablePath ?? "")
+        #endif
     }
 
     public var inApplications: Bool { appPath.hasPrefix("/Applications/") }
@@ -366,8 +425,11 @@ public protocol HelperInspecting {
     func report() async -> HelperReport
 }
 
-/// `SMAppService` status, then the running helper's protocol and build (5 s timeout per call).
+/// `SMAppService` status, then the running helper's protocol and build (5 s timeout per call). On
+/// Linux passtunneld (docs/LINUX.md): `not_installed` without its socket, else `enabled`, and from
+/// `hello` (5 s) whether it answers and is the installed build.
 public struct SystemHelperInspector: HelperInspecting {
+    #if os(macOS)
     public init() {}
 
     public func report() async -> HelperReport {
@@ -386,6 +448,36 @@ public struct SystemHelperInspector: HelperInspecting {
         }
         return r
     }
+    #else
+    public let socketPath: String
+    public let timeout: TimeInterval
+    /// The build the daemon must report (`HelperBuild.installedDaemon`, worked out only when the
+    /// daemon answers); nil: not compared.
+    private let expectedBuild: () -> String?
+
+    public init(socketPath: String = PT.daemonSocketPath(), timeout: TimeInterval = 5,
+                expectedBuild: @autoclosure @escaping () -> String? = HelperBuild.installedDaemon) {
+        self.socketPath = socketPath
+        self.timeout = timeout
+        self.expectedBuild = expectedBuild
+    }
+
+    public func report() async -> HelperReport {
+        let client = UnixSocketHelperClient(socketPath: socketPath, timeout: timeout, expectedBuild: nil)
+        guard client.isInstalled else { return HelperReport(state: HelperReport.stateName(.notRegistered), responding: false) }
+        var r = HelperReport(state: HelperReport.stateName(.enabled), responding: false)
+        do {
+            let hello = try await client.hello()
+            r.responding = true
+            r.protocolVersion = hello.protocolVersion
+            r.outdated = hello.protocolVersion != PT.helperProtocolVersion
+                || !HelperBuild.matches(helper: hello.build, expected: expectedBuild())
+        } catch {
+            r.error = error.localizedDescription
+        }
+        return r
+    }
+    #endif
 }
 
 // MARK: - Confirmation without a prompt

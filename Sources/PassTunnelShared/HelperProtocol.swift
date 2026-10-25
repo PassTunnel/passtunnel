@@ -1,3 +1,5 @@
+// macOS only: the XPC interface (Objective-C).
+#if os(macOS)
 import Foundation
 
 /// XPC interface of the privileged helper. Payloads are JSON (`HelperRequest` → `HelperResponse`)
@@ -9,3 +11,4 @@ import Foundation
     func build(reply: @escaping (String) -> Void)
     func perform(_ request: Data, reply: @escaping (Data) -> Void)
 }
+#endif

@@ -8,6 +8,7 @@ Implementation details are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - [Components and privileges](#components-and-privileges)
 - [The privileged helper](#the-privileged-helper)
 - [OpenVPN configuration sanitizer](#openvpn-configuration-sanitizer)
+- [Importing an OpenVPN configuration](#importing-an-openvpn-configuration)
 - [Secrets and files](#secrets-and-files)
 - [Confirm with Touch ID (Secure Enclave)](#confirm-with-touch-id-secure-enclave)
 - [Updates](#updates)
@@ -21,7 +22,7 @@ Please **do not open a public issue** for security problems.
 Report it privately through GitHub: on
 [github.com/passtunnel/passtunnel](https://github.com/passtunnel/passtunnel) open the **Security**
 tab and choose **Report a vulnerability** (private vulnerability reporting / security advisories).
-Include the version (Settings → About), your macOS version, the steps to reproduce and what an
+Include the version (at the bottom of Settings → General), your macOS version, the steps to reproduce and what an
 attacker gains.
 
 You can expect an acknowledgement within a few days. Fixes are released as a new version and
@@ -186,20 +187,32 @@ reported with its line number, and nothing is run until the config is clean. The
 with the same tokenizer when it imports them (embedding referenced files, removing credential
 blocks), so the app and the helper never read a line differently.
 
-**Rejected directives** (they run programs, load code, write files as root, or override the
-helper's settings):
+**Rejected directives** (they run programs, load code, read or write files as root, override the
+helper's settings, or make OpenVPN something other than a client connection):
 
 ```
 up  down  route-up  route-pre-down  ipchange  learn-address
-client-connect  client-disconnect  tls-verify  auth-user-pass-verify  tls-crypt-v2-verify
-plugin  dns-updown  iproute
-daemon  writepid  cd  chroot  user  group  config
-status  replay-persist  tmp-dir  tls-export-cert  dev-node
-client-config-dir  ifconfig-pool-persist
-engine  providers  pkcs11-providers  capath
+client-connect  client-disconnect  client-crresponse  tls-verify  auth-user-pass-verify
+tls-crypt-v2-verify  plugin  dns-updown  iproute
+daemon  writepid  cd  chroot  user  group  setcon  config
+status  replay-persist  tmp-dir  tls-export-cert  dev-node  memstats
+client-config-dir  ifconfig-pool-persist  port-share
+engine  providers  pkcs11-providers  capath  show-pkcs11-ids
+server  server-ipv6  server-bridge  tls-server  inetd      (server modes)
+genkey  mktun  rmtun  help  version  test-crypto           (standalone modes)
+show-ciphers  show-digests  show-engines  show-tls  show-curves  show-groups
+show-gateway  show-net  show-net-up  show-adapters  show-valid-subnets  allow-nonadmin
+win-sys  service  msg-channel
 management*  log*            (every directive starting with these)
 script-security N            (when N > 1)
+mode M                       (unless M is p2p)
+dev NAME                     (unless NAME is tun, tap, utun or null, optionally followed by
+                              letters, digits, - or _)
 ```
+
+The list was checked against the option parser of OpenVPN 2.4 to 2.7. A configuration cannot make
+OpenVPN a server or run one of its standalone commands, and a device name can never be a path:
+OpenVPN opens `/dev/<name>` for some devices on macOS.
 
 **Other rules**
 
@@ -217,8 +230,72 @@ script-security N            (when N > 1)
   and unclosed blocks are rejected, and so is a backslash outside single quotes that does not escape
   `\`, `"` or whitespace. OpenVPN refuses those too, except a backslash at the end of a line, which
   it would take as escaping the line break; PassTunnel rejects that as well.
+- **A byte order mark only at the start of the file.** OpenVPN skips a UTF-8 BOM only as the first
+  bytes of the file. A line that starts with U+FEFF anywhere else (a later line, also inside an
+  inline block, or a second BOM on the first line) is rejected, so stripping the lines above it can
+  never make it the file's BOM. When you import an `.ovpn`, a referenced file's own BOM is left out
+  of the block it is embedded in.
 - **`static-challenge` is stripped** (lines or blocks), because PassTunnel answers the challenge
   itself.
+
+The helper applies these rules to every configuration at every connect, whatever the app did before.
+When you import a file, the app leaves out some of the refused lines instead of refusing the file
+([below](#importing-an-openvpn-configuration)); the rules above do not change.
+
+## Importing an OpenVPN configuration
+
+When you import an `.ovpn` file, PassTunnel reads it before anything is saved: no profile file and no
+Keychain item exists until the profile is added. Files the configuration refers to are embedded from
+its folder; then each line the [sanitizer](#openvpn-configuration-sanitizer) would refuse is either
+**skipped** or **blocks** the file.
+
+- **Skipped** lines are the ones whose whole effect PassTunnel replaces or does not need. You see
+  them before the profile is added (`passtunnel import` prints them; `--json` returns them as
+  `skipped`), and the stored configuration keeps each as a comment,
+  `# PassTunnel skipped: up /etc/openvpn/update-dns`. The sanitizer is not relaxed: it still runs at
+  every connect, so a skipped line that came back would stop the connection.
+- **Blocking** lines refuse the file. All of them are listed with their line numbers, and nothing is
+  created.
+
+| Skipped | Why leaving it out is safe |
+|---|---|
+| `up`, `down`, `route-up`, `route-pre-down`, `ipchange` | Programs run at points of the connection. PassTunnel never runs scripts from a profile; DNS comes from what the server sends, through PassTunnel's own hook. |
+| `iproute` | The program for addresses and routes (Linux builds of OpenVPN); OpenVPN uses its own. |
+| `script-security` above 1, or without a valid level | It only allows scripts. OpenVPN's default level, 1, applies, and the helper sets the level on its command line anyway. `script-security 0` and `1` stay. |
+| `dns-updown` | A DNS script (or `disable`, `force`); the helper passes its own hook after the configuration. |
+| `daemon`, `cd`, `chroot`, `user`, `group` | How OpenVPN runs as a process. The helper starts and supervises it in the foreground, as root so that routes and DNS are undone when it stops; no file is read from a working directory, since every file must be inline. |
+| `writepid`, `status`, `tmp-dir`, `tls-export-cert` | Files OpenVPN would write as root that nothing in PassTunnel reads (`tls-export-cert` only feeds a `tls-verify` script, which blocks). |
+| `log`, `log-append` | PassTunnel keeps the connection's log itself. |
+| `management`, `management-client`, `management-client-user`, `management-client-group`, `management-hold`, `management-query-passwords`, `management-query-proxy`, `management-query-remote`, `management-forget-disconnect`, `management-signal`, `management-up-down`, `management-log-cache` | The helper sets up the management interface itself. |
+| `setenv` of anything but client metadata | Variables only scripts see. PassTunnel runs none, and they could steer its DNS hook. The metadata `setenv` lines listed above stay. |
+
+Everything else the sanitizer refuses blocks the file, in particular:
+
+- checking the server or the sign-in: `tls-verify`, `auth-user-pass-verify`, `tls-crypt-v2-verify`;
+- loading code: `plugin`, `engine`, `providers`, `pkcs11-providers`, `show-pkcs11-ids`;
+- files outside the configuration: a referenced file that cannot be embedded (missing, a device, too
+  large), proxy credentials in a file, `config`, `capath`, `dev-node`, `replay-persist` (it also keeps
+  replay protection across restarts), `client-config-dir`, `ifconfig-pool-persist`;
+- a private key or certificate from another program: `management-external-key`,
+  `management-external-cert`;
+- server-only directives and server modes, since the file is then not a client configuration:
+  `learn-address`, `client-connect`, `client-disconnect`, `client-crresponse`, `port-share`,
+  `management-client-auth`, `auth-gen-token-secret` with a file, `server`, `server-ipv6`,
+  `server-bridge`, `tls-server`, `inetd`, `mode` other than `p2p`;
+- standalone modes, which do something else instead of connecting: `genkey`, `mktun`, `rmtun`,
+  `help`, `version`, `test-crypto`, the `show-…` listings, `allow-nonadmin`;
+- `memstats`, `setcon`, `win-sys`, `service`, `msg-channel`, and a `dev` name that is not a device
+  type;
+- blocks named after a refused directive (`<plugin>…</plugin>`), unclosed blocks, and lines OpenVPN
+  would reject or read differently (too long, NUL bytes, bad escapes, unterminated quotes, a
+  byte order mark that does not start the file);
+- any other `log…` or `management…` name, and anything this table does not list: a rule added to
+  the sanitizer blocks until it is decided here.
+
+`setenv opt <directive>` is decided like the directive. Words inside an inline block such as
+`<ca>…</ca>` are its content, not directives. A skipped line inside a `<connection>` block becomes a
+comment in that block. The comment is at most 254 bytes, so OpenVPN reads it as one line, and control
+characters in it are replaced.
 
 ## Secrets and files
 
@@ -264,10 +341,16 @@ script-security N            (when N > 1)
   exported by an earlier version) is dropped.
 - **Clipboard.** A copied code, or password + code, is put on the clipboard for this Mac only (not
   Universal Clipboard), marked concealed and transient so clipboard managers skip it, and cleared
-  after 30 seconds unless something else was copied meanwhile. `passtunnel code -c` does the same:
-  it leaves a small detached process behind that clears the clipboard.
+  after 1 minute (30 seconds or 2 minutes in Settings → General → Clear copied code) unless
+  something else was copied meanwhile. `passtunnel code -c` does the same: it leaves a small
+  detached process behind that clears the clipboard.
 - **Auto-type** (off by default) needs Accessibility permission, which is requested only when you
   enable it. Global shortcuts use Carbon hotkeys and do not need any permission.
+- **Scan QR on screen** (macOS 14 and later) uses the system's content picker: you pick the window or
+  display, and that pick is all PassTunnel can capture, without Screen Recording permission. Only if
+  macOS does not let it capture the pick does PassTunnel offer, after saying why, one picture of each
+  display, which needs Screen Recording permission (macOS asks the first time). The pictures are read
+  for a QR code in memory and never saved or sent.
 - **No test hooks in releases.** `passtunnel debug drop`, which ends a connection as if the server
   had (and which any process in your login session could trigger through the running app), exists
   only in debug builds.
@@ -275,7 +358,10 @@ script-security N            (when N > 1)
 ## Confirm with Touch ID (Secure Enclave)
 
 Off by default, per profile (`require_auth`: `off`, `connect`, `always`; on a Mac without Touch ID the
-setting is called "Confirm with your password", and the login password is the confirmation). Without it, anyone using your
+setting is called "Confirm with your password", and the login password is the confirmation). The profile
+editor has one switch, "Require Touch ID before connecting" ("Require your Mac password before connecting"
+without Touch ID): on is `always`; `connect` is set with
+`passtunnel set ID require_auth=connect` and shows in the editor as on, with a footnote. Without it, anyone using your
 Mac while you are logged in can connect with one click, because the app may read its own Keychain items
 without asking.
 
@@ -312,7 +398,9 @@ would let a recent Touch ID unlock of the Mac count as the confirmation, which i
 this option is for. A connected session keeps its
 decrypted secrets in memory so an automatic reconnect after a drop needs no prompt; they are
 overwritten (best effort) when you disconnect or the session ends. After the Mac was asleep, a
-dropped protected profile is not reconnected on its own: a notification asks you to reconnect. Each
+dropped protected profile is not reconnected on its own: a notification asks you to reconnect. In the
+same way, "Connect at login" never asks at login: a protected profile set to connect at login gets a
+notification you click to connect (and confirm). Each
 CLI command is a separate process and asks every time it needs a protected secret; `passtunnel mcp`
 is one process for as long as the MCP client runs it, so the window (and its end on sleep and
 screen lock) applies within it.
@@ -406,7 +494,12 @@ command yourself, limited further by the read-only default.**
   masked by value only when they are stored in plain text; one protected by Confirm with Touch ID
   is not decrypted for this, so only the keyword and pattern rules apply to it. It returns at most
   500 lines; when the log is longer than the 256 KB it reads, the first, partial line is dropped.
-  Log lines do contain server names, your user name and IP addresses.
+  Log lines do contain server names, your user name and IP addresses. With `source: "activity"` it
+  returns PassTunnel's own activity log instead (`profiles/<id>/activity.jsonl`, mode 0600: connecting,
+  code waits, what was sent, sign-in accepted or rejected, drops), which never holds a password and
+  keeps a one-time code as at most its first three digits, for the app; `get_logs` and
+  `passtunnel log --activity` leave those digits out and pass the server's reply through the same
+  redaction.
 - **Strict arguments.** `profile_id` must be a valid profile id (the same pattern profile folders
   use: lowercase letters, digits and single dashes); unknown arguments, wrong types and
   out-of-range numbers are refused before anything is read.
@@ -443,11 +536,11 @@ PassTunnel cannot defend against an attacker who already controls your account o
 - **Malware running as your user** can read your profile folder (configs and embedded keys) and
   logs, can ask the Keychain for PassTunnel's items (macOS shows a consent prompt because the
   requester is not PassTunnel; if you allow it, the secrets are disclosed), and can watch your
-  screen or clipboard, where codes appear when you copy (for 30 seconds) or auto-type them. It can
-  also run the `passtunnel` command, the same signed binary as the app, so the Keychain and the
-  helper treat it like the app: it reads secrets that are not protected by Confirm with Touch ID
-  without any prompt, and it can change a profile's settings and connect it, which sends your
-  password to the server it chose. [Confirm with Touch ID](#confirm-with-touch-id-secure-enclave)
+  screen or clipboard, where codes appear when you copy (for 1 minute by default) or auto-type
+  them. It can also run the `passtunnel` command, the same signed binary as the app, so the
+  Keychain and the helper treat it like the app: it reads secrets that are not protected by Confirm
+  with Touch ID without any prompt, and it can change a profile's settings and connect it, which
+  sends your password to the server it chose. [Confirm with Touch ID](#confirm-with-touch-id-secure-enclave)
   prevents this for the secrets it protects: using them asks, the prompt names the server, and a
   changed destination always asks again.
 - **Other accounts on this Mac.** Every local account can use the helper. Sessions are kept apart (a

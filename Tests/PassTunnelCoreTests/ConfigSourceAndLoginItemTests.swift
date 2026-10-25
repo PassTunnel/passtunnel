@@ -66,6 +66,7 @@ final class ConfigSourceTests: CoreTestCase {
     }
 }
 
+#if os(macOS)
 final class LoginItemTests: XCTestCase {
     private func openEvent(property: OSType?) -> NSAppleEventDescriptor {
         let event = NSAppleEventDescriptor(eventClass: AEEventClass(kCoreEventClass), eventID: AEEventID(kAEOpenApplication),
@@ -92,9 +93,25 @@ final class LoginItemTests: XCTestCase {
         XCTAssertFalse(LoginItem.isBackgroundLaunch(arguments: ["--background"], launchEvent: nil))
     }
 
+    /// Never registered without the user's choice: the question comes once there is a profile, only while the login
+    /// item is off, and not again once answered. The status is not read when the rest already says no.
+    func testAsksAfterFirstProfile() {
+        XCTAssertTrue(LoginItem.asksAfterFirstProfile(answered: false, hasProfiles: true, status: .disabled))
+        for status in [LoginItemStatus.enabled, .requiresApproval, .unavailable] {
+            XCTAssertFalse(LoginItem.asksAfterFirstProfile(answered: false, hasProfiles: true, status: status), "\(status)")
+        }
+        func unread() -> LoginItemStatus {
+            XCTFail("status read")
+            return .disabled
+        }
+        XCTAssertFalse(LoginItem.asksAfterFirstProfile(answered: true, hasProfiles: true, status: unread()))
+        XCTAssertFalse(LoginItem.asksAfterFirstProfile(answered: false, hasProfiles: false, status: unread()))
+    }
+
     func testUnavailableOutsideAppBundle() {
         // The test runner is not an .app, so the status never reaches SMAppService.
         XCTAssertFalse(LoginItem.isAvailable)
         XCTAssertEqual(LoginItem.status, .unavailable)
     }
 }
+#endif

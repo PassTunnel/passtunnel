@@ -1,0 +1,8 @@
+client
+remote vpn.example.com
+mode server
+client-crresponse /tmp/x
+show-ciphers
+memstats /tmp/x
+dev ../tmp/x1
+up /tmp/x

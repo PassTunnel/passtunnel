@@ -40,23 +40,27 @@ secret in the Keychain and fills in the current code (and your password) every t
 **One-time codes, handled**
 
 - **No more typing codes.** The TOTP secret lives in the macOS Keychain; PassTunnel generates the
-  code and sends it with your password when you click Connect. If fewer than 8 seconds are left in
-  the current window, it waits for a fresh code instead of racing the clock.
+  code and sends it with your password when you click Connect. If 5 seconds or less are left in
+  the current window, it waits for a fresh code instead of racing the clock (a setting, on by
+  default). A code that was already sent is never sent again.
 - **Any format your server expects.** Append, prepend, `password:code`, `password,code`, or a custom
   template with any literal text, or send the code separately (OpenVPN static challenge, FortiGate
   OTP field). See [Configuring the code format](#configuring-the-code-format).
 - **Authenticator-style main window.** Every profile shows its live code in large digits with a
-  countdown ring. Click to copy; the clipboard is cleared again after 30 seconds. Codes can be
-  hidden until copied.
+  countdown ring. Click to copy; the clipboard is cleared again after 1 minute (or 30 seconds, or
+  2 minutes, in Settings), unless you copied something else meanwhile. Codes can be hidden until
+  you click them.
 - **QR import.** Drop a screenshot of your provider's QR code, choose an image or paste from the
-  clipboard. Digits, period and algorithm (SHA-1/256/512) are read from the `otpauth://` link.
-  Pasting a Base32 secret or an `otpauth://` link works too.
+  clipboard, or (macOS 14 and later) scan the QR code where it is on screen, for example in your
+  browser, without saving a screenshot. Digits, period and algorithm (SHA-1/256/512) are read from the
+  `otpauth://` link. Pasting a Base32 secret or an `otpauth://` link works too.
 - **Auto-type (optional, off by default).** With global shortcuts on, ⌃⌥C types the current code into
   the focused field (also in the menu bar menu), for web portals and other places that still ask for it. Needs Accessibility
   permission, which is only requested when you turn the feature on.
-- **Confirm with Touch ID (optional, per profile).** Touch ID or your Mac password before connecting,
-  or also before showing codes; the saved secrets are then encrypted with a key in the Mac's Secure
-  Enclave, so a one-click connect needs you, not just your unlocked Mac.
+- **Confirm with Touch ID (optional, per profile).** Touch ID or your Mac password before connecting
+  and before showing codes (the command line can also set it to ask before connecting only); the saved
+  secrets are then encrypted with a key in the Mac's Secure Enclave, so a one-click connect needs you,
+  not just your unlocked Mac.
 
 **VPN client**
 
@@ -65,7 +69,8 @@ secret in the Keychain and fills in the current code (and your password) every t
 - **Menu bar badges.** One colored badge per pinned or active profile (letter, icon or both), five
   color palettes, and an alert when a connection drops unexpectedly.
 - **Stays connected.** Optional auto-reconnect with backoff, a health check host inside the VPN,
-  reconnect after wake, and a reminder before a server-side session limit runs out.
+  reconnect after wake, chosen profiles connected at login, and a reminder before a server-side
+  session limit runs out.
 - **Several VPNs at once**, each with its own status, log and settings.
 - **Shareable profiles.** Export a `.passtunnel` file for your team. It never contains passwords,
   TOTP secrets or user names.
@@ -142,7 +147,8 @@ scripts/build-app.sh                  # → build/PassTunnel.app (ad-hoc signed)
 `build-app.sh` builds a release binary, assembles the bundle, copies `openvpn`, `openfortivpn` and
 their libraries in (`scripts/bundle-tools.sh`, with their license files), compiles the helper with
 the code-signature hashes of exactly these tools and libraries, and signs everything inside-out with
-the hardened runtime.
+the hardened runtime. An ad-hoc build signs the app without library validation: an ad-hoc signature
+has no Team ID, so macOS would otherwise refuse to load `Sparkle.framework` into it.
 
 > [!IMPORTANT]
 > The helper only talks to an app, and only runs tools, signed with the project's Developer ID Team ID.
@@ -183,13 +189,16 @@ Use the **+** button in the toolbar, or drop a file onto the window:
 
 Then open the profile editor (**⋯ → Edit…**):
 
-- **Sign-in:** user name (leave empty to be asked each time) and password: saved in the Keychain,
-  asked each time, or none (certificate-only OpenVPN).
-- **One-time code:** *Generate* (TOTP), *Ask each time*, or *None*. With *Generate*, scan the QR code
-  or paste the secret, and compare the live code with your phone before saving.
+- **Sign-in:** user name (leave empty to be asked each time) and password, saved in the Keychain.
+  Under **Advanced** the password can be asked each time instead, or not used (certificate-only OpenVPN).
+- **One-time code:** **Scan QR on screen** (macOS 14 and later), choose the QR code image or paste the
+  secret (or drop the screenshot on the card),
+  and compare the live code with your phone before saving. **Code format** sets how the code is sent;
+  *Server receives* shows the result, with the password masked. Under **Advanced** the code can be asked
+  each time or not used.
 
 <p align="center">
-  <img src="docs/images/editor-one-time-code.png" width="580" alt="Profile editor, One-time code section: QR drop zone, live code, advanced TOTP settings, delivery and format">
+  <img src="docs/images/editor-one-time-code.png" width="660" alt="Profile editor: name, configuration, user name and password; the one-time code with its live code; the Append format and what the server receives, with the password masked; switches for Touch ID and reconnecting">
 </p>
 
 Secrets are written to the Keychain only when you press **Save**.
@@ -217,11 +226,11 @@ disconnects the default profile, **⌃⌥C** copies the current code, or types i
 
 ## Configuring the code format
 
-Servers disagree on how the one-time code should arrive. Choose it per profile under **One-time
-code → Send the code**.
+Servers disagree on how the one-time code should arrive. Choose it per profile in the editor's
+**Code format** popup.
 
-**With the password** (combined): the code and password are joined into one password using a
-template. `{password}` and `{otp}` are replaced; any other text is sent as typed. The template must
+**With the password** (Append, Prepend, password:code, password,code, Custom template): the code and
+password are joined into one password using a template. `{password}` and `{otp}` are replaced; any other text is sent as typed. The template must
 contain `{otp}`; `{password}` is optional.
 
 With the password `secret` and the code `123456`:
@@ -235,14 +244,15 @@ With the password `secret` and the code `123456`:
 | Custom | `{password}#{otp}` | `secret#123456` |
 | Custom (code only) | `{otp}` | `123456` |
 
-**Separately**: the password and the code are sent on their own:
+**Sent separately**: the password and the code are sent on their own:
 
 - **OpenVPN:** as a static-challenge response (`SCRV1:…`). PassTunnel selects this automatically
   when the imported `.ovpn` contains `static-challenge`.
 - **FortiGate:** in openfortivpn's separate OTP field. This is the default for new FortiGate
   profiles.
 
-The editor shows a live example of the result as you change the format.
+As you change the format, the editor's *Server receives* shows the result with the profile's user
+name and the live code; the password is always masked.
 
 ## Command line
 
@@ -254,7 +264,7 @@ are derived from the profile name (`Work` → `work`).
 passtunnel                          # status of all profiles
 passtunnel connect                  # connect the default profile
 passtunnel connect work             # connect a specific profile
-passtunnel code work -c             # print the live code and seconds left, copy it (for 30 s)
+passtunnel code work -c             # print the live code and seconds left, copy it (for 1 min by default)
 passtunnel status work --json       # exit code 3 when not connected
 passtunnel disconnect --all
 
@@ -269,6 +279,7 @@ passtunnel add Lab --type forti
 passtunnel set lab host=203.0.113.10 port=443 username=sam
 
 passtunnel log work -f
+passtunnel log work --activity                # what PassTunnel did: connecting, codes, sign-in, drops
 passtunnel helper status
 passtunnel completion zsh > ~/.zfunc/_passtunnel
 ```
@@ -298,12 +309,13 @@ connection and tell you what is wrong.
 [![Install in Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/en/install-mcp?name=passtunnel&config=eyJjb21tYW5kIjoiL0FwcGxpY2F0aW9ucy9QYXNzVHVubmVsLmFwcC9Db250ZW50cy9NYWNPUy9QYXNzVHVubmVsIiwiYXJncyI6WyJtY3AiXX0%3D) [![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_PassTunnel_MCP-0098FF?logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect?url=vscode%3Amcp%2Finstall%3F%257B%2522name%2522%253A%2522passtunnel%2522%252C%2522command%2522%253A%2522%2FApplications%2FPassTunnel.app%2FContents%2FMacOS%2FPassTunnel%2522%252C%2522args%2522%253A%255B%2522mcp%2522%255D%257D)
 
 [![passtunnel MCP server – quality and maintenance score on Glama](https://glama.ai/mcp/servers/PassTunnel/passtunnel/badges/card.svg)](https://glama.ai/mcp/servers/PassTunnel/passtunnel)
+[![Listed on mcpservers.org](https://mcpservers.org/badge.svg)](https://mcpservers.org/servers/passtunnel/passtunnel)
 
 | Tool | What it does |
 |---|---|
-| `list_profiles` | Profiles with type, state, whether connecting asks for Touch ID, auto-reconnect |
-| `get_status` | State, tunnel IP, since when, last error; whether the helper is installed and current |
-| `get_logs` | The last lines (up to 500) of a profile's VPN log, with anything that looks like a credential redacted |
+| `list_profiles` | Profiles with type, state, whether connecting asks for Touch ID, auto-reconnect, connect at login |
+| `get_status` | State, tunnel IP, since when, last error and why (sign-in rejected, server unreachable or not found, …; whether the sign-in was sent); whether the helper is installed and current |
+| `get_logs` | The last lines (up to 500) of a profile's VPN log, with anything that looks like a credential redacted; with `source: "activity"`, what PassTunnel did instead (connecting, code waits, sign-in accepted or rejected, drops), without passwords or code digits |
 | `diagnose` | App version and location, helper state, and per profile whether config, server and saved credentials are in place |
 | `connect`, `disconnect` | Only with `--allow-connect` |
 
@@ -403,10 +415,13 @@ as new backends; see [Contributing](#contributing).
 <summary><b>My .ovpn file is rejected. Why?</b></summary>
 
 The helper runs OpenVPN as root, so it refuses directives that would run scripts, load plugins, or
-read and write arbitrary files: for example `up`, `down`, `plugin`, `script-security 2`, `log`,
-`management` or a `ca` that points at an external file. Files referenced at import time are embedded
-automatically. The error lists every offending line. The complete list is in
-[SECURITY.md](SECURITY.md#openvpn-configuration-sanitizer).
+read and write arbitrary files. When you import a file, lines whose only effect PassTunnel takes care
+of itself (scripts such as `up` and `down` with `script-security 2`, `log`, `management`, `daemon`, …)
+are skipped: you see them before the profile is added, and they stay in the saved configuration as
+comments. Lines with a role in security (`tls-verify`, `plugin`, `config`, a `ca` file that is not
+next to the `.ovpn`, …) still refuse the file, and the error lists every one. Files referenced at
+import time are embedded automatically. The complete lists are in
+[SECURITY.md](SECURITY.md#importing-an-openvpn-configuration).
 </details>
 
 <details>
@@ -441,7 +456,7 @@ each time* if you use a hardware token or SMS.
 1. **Disconnect** all profiles.
 2. **Remove the helper:** Settings → Helper → *Remove Helper…*, or `passtunnel helper uninstall`.
    Do this *before* deleting the app.
-3. **Turn off launch at login:** Settings → General → *Launch at login*. Check that nothing is left
+3. **Turn off launch at login:** Settings → General → *Open at login, in the menu bar*. Check that nothing is left
    under System Settings → General → Login Items.
 4. **Quit** PassTunnel and move `PassTunnel.app` to the Trash.
 5. **Delete your data:**
@@ -493,7 +508,8 @@ PASSTUNNEL_RENDER=/tmp/passtunnel-shots "$(swift build --show-bin-path)/PassTunn
 ```
 
 This writes the main window (light/dark, empty state, hidden codes), the credential sheet, menu bar
-badges for every palette, every Settings tab, the onboarding steps and the profile editor states.
+badges for every palette, every Settings tab, the onboarding steps, the profile editor states and the
+design system's tokens and components.
 The images in [`docs/images`](docs/images) come from it.
 
 ## Contributing
@@ -515,7 +531,8 @@ Merging `dev` into `main` releases. The workflow, title rules and checks are in
   `Sources/PassTunnel/Resources/Localizable.xcstrings`.
 - A change to behavior the phone apps share (codes, otpauth links, OpenVPN configs, share files,
   slugs, profile merging) updates the golden cases in [`fixtures/`](fixtures/README.md) too.
-- No third-party Swift dependencies besides Sparkle (updates). Run `swift test` before sending a PR.
+- No third-party Swift dependencies besides Sparkle (updates) and swift-crypto (CryptoKit's API on
+  Linux). Run `swift test` before sending a PR.
 
 ## License
 
@@ -545,8 +562,8 @@ vardır. QR kodu ekran görüntüsünden okunur. Profilleri kimlik bilgisi içer
 dosyalarıyla ekibinizle paylaşabilir, aynı işlemleri `passtunnel` komut satırı aracıyla da
 yapabilirsiniz. `passtunnel mcp` ile Claude gibi yapay zekâ asistanları VPN durumunu okuyabilir ve
 sorunları teşhis edebilir (varsayılan olarak yalnızca okur; parola, anahtar ya da kod vermez).
-İsterseniz profil başına “Touch ID ile onayla” seçeneğini açın: PassTunnel bağlanmadan
-(ya da kodları göstermeden) önce Touch ID ya da Mac parolanızla onay ister ve kayıtlı parola ile TOTP anahtarını
+İsterseniz profil başına “Bağlanmadan önce Touch ID iste” seçeneğini açın: PassTunnel bağlanmadan
+ve kodları göstermeden önce Touch ID ya da Mac parolanızla onay ister ve kayıtlı parola ile TOTP anahtarını
 Mac'in Secure Enclave'indeki bir anahtarla şifreler. Arayüz Türkçe ve İngilizcedir ve macOS dilinizi izler.
 
 **Kurulum:** İmzalı ve notarize edilmiş

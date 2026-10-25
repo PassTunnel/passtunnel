@@ -1,0 +1,2 @@
+﻿static-challenge "Eode" 1
+﻿static-challenge "Eode"

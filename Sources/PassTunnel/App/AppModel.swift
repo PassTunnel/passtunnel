@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import PassTunnelCLI
 import PassTunnelCore
 import PassTunnelKit
 import PassTunnelShared
@@ -51,6 +52,9 @@ final class AppModel: ObservableObject {
     @Published var alert: AppAlert?
     @Published var pendingDelete: Profile?
     @Published var showOnboarding = false
+    /// The .ovpn under review in the redesigned window's detail (`ImportReviewView`); nil when none. Selecting a
+    /// profile leaves it, as Cancel does: nothing was written.
+    @Published var importReview: ImportReviewModel?
     @Published var settingsTab: SettingsTab = .general
     @Published private(set) var droppedUnseen: Set<String> = []
     @Published private(set) var helperStatus: HelperStatus = .notRegistered
@@ -105,7 +109,8 @@ final class AppModel: ObservableObject {
             .store(in: &bag)
         guard live else { return }
         connections.start()
-        showOnboarding = !UserDefaults.standard.bool(forKey: Self.onboardingKey)
+        // The redesigned window has no onboarding sheet: its first-run view and a question after the first profile.
+        showOnboarding = !NewInterface.isEnabled && !UserDefaults.standard.bool(forKey: Self.onboardingKey)
         refreshHelperStatus()
         connections.events
             .receive(on: DispatchQueue.main)
@@ -231,6 +236,8 @@ final class AppModel: ObservableObject {
 
     private func prefsChanged(from old: Preferences) {
         do { try prefs.save(paths: paths) } catch { showError(error) }
+        // Turning "Hide codes until clicked" on or off starts again from hidden codes.
+        if prefs.hideCodes != old.hideCodes && !revealedCodes.isEmpty { revealedCodes = [:] }
         onPrefsChanged?(old, prefs)
     }
 
@@ -279,6 +286,28 @@ final class AppModel: ObservableObject {
         helperUpdating = false
         refreshHelperStatus()
         checkHelperVersion()
+    }
+
+    /// The helper can start a connection: approved, answering with this copy's build, not being updated.
+    private var helperReady: Bool {
+        guard helperStatus == .enabled else { return false }
+        // The first question may have gone unanswered while launchd was still starting the helper.
+        if helperRelation == nil { checkHelperVersion() }
+        return helperRelation == .current && !helperUpdating
+    }
+
+    /// Opened at login: connects the profiles set to connect at login (`LoginConnector`) once the helper (after an
+    /// automatic update, if one is due) and the network are ready.
+    func connectAtLogin() {
+        let network = NetworkPath()
+        network.start()
+        let connector = LoginConnector(manager: connections, readiness: { [weak self] in
+            LoginConnector.Readiness(helper: self?.helperReady ?? false, network: network.isSatisfied)
+        }, notify: { Notifier.shared.post($0) })
+        Task {
+            await connector.run()
+            network.stop()
+        }
     }
 
     /// After the app was updated, the helper still runs the previous build. Update it right away when
@@ -339,6 +368,8 @@ final class AppModel: ObservableObject {
     }
     var previewUnreachable: Set<String> = []
     var previewReconnecting: [String: ReconnectInfo] = [:]
+    /// Render override: connects waiting for a fresh code until then (`ConnectionManager.codeWaitUntil`).
+    var previewCodeWaits: [String: Date] = [:]
 
     func reconnectInfo(_ id: String) -> ReconnectInfo? {
         if previewStates != nil { return previewReconnecting[id] }
@@ -411,6 +442,13 @@ final class AppModel: ObservableObject {
         missingSecret.remove(id)
     }
 
+    /// The current window hides the code of `p` at `date`: "Hide codes until clicked" is on and no click showed it in
+    /// the last 20 s (`revealedCodes`, the same as the code card's; decision D-5). Locked codes have their own rule.
+    func isCodeHidden(_ p: Profile, at date: Date) -> Bool {
+        CodeCard.isMasked(locked: false, hidden: prefs.hideCodes, protected: false, revealedUntil: revealedCodes[p.id],
+                          at: date)
+    }
+
     // MARK: confirmation (Touch ID / password)
 
     var vault: SecretVault { connections.vault }
@@ -427,6 +465,39 @@ final class AppModel: ObservableObject {
         guard let p = storedProfile(p) else { return }
         whenUnlocked(p, [.totp], .code) { _ in }
     }
+
+    // MARK: code card (redesigned window)
+
+    /// Until when a click in the detail's code card shows the codes of a profile that hides them (decision D-5).
+    @Published private(set) var revealedCodes: [String: Date] = [:]
+    /// The last code or password + code copied, for the "Copied ✓" of the code card.
+    @Published private(set) var lastCopy: CodeCard.Copy?
+
+    /// The TOTP secret of `p` is stored encrypted ("Confirm with Touch ID"), unlocked or not.
+    func isCodeProtected(_ p: Profile) -> Bool {
+        if previewStates != nil { return previewLockedCodes.contains(p.id) }
+        return protectedTOTP.contains(p.id)
+    }
+
+    /// The redesigned window shows bullets instead of the codes of `p` at `date` (`CodeCard.isMasked`).
+    func codesMasked(_ p: Profile, at date: Date) -> Bool {
+        CodeCard.isMasked(locked: isCodeLocked(p), hidden: prefs.hideCodes, protected: isCodeProtected(p),
+                          revealedUntil: revealedCodes[p.id], at: date)
+    }
+
+    /// A click on the code card's masked code: shows the codes of `p` there for 20 s, after the confirmation when
+    /// they are locked. A cancel does nothing.
+    func revealCodes(_ p: Profile) {
+        guard let stored = storedProfile(p) else { return }
+        whenUnlocked(stored, [.totp], .code) { [self] _ in
+            let now = Date()
+            revealedCodes = revealedCodes.filter { $0.value > now }
+            revealedCodes[stored.id] = now.addingTimeInterval(CodeCard.revealDuration)
+        }
+    }
+
+    /// Render override for "Copied ✓".
+    func setPreviewCopy(_ copy: CodeCard.Copy?) { lastCopy = copy }
 
     /// Runs `body` once the secrets `kinds` of `p` are readable: at once when they are stored in plain
     /// text or unlocked, else after the user confirms (which decrypts them). `body` gets whether a
@@ -455,8 +526,12 @@ final class AppModel: ObservableObject {
         reload()
     }
 
+    /// The main window is open and on screen: not closed, minimized, hidden, on another Space or covered
+    /// by other windows.
     private var mainWindowVisible: Bool {
-        NSApp.windows.contains(where: { $0.isVisible && $0.identifier?.rawValue.hasPrefix("main") == true })
+        NSApp.windows.contains(where: {
+            $0.isVisible && $0.occlusionState.contains(.visible) && $0.identifier?.rawValue.hasPrefix("main") == true
+        })
     }
 
     // MARK: actions
@@ -498,13 +573,29 @@ final class AppModel: ObservableObject {
             _ = try? store.update(p.id) { $0.lastUsername = user }
             reload()
         }
+        let wasActive = state(p.id).isActive
         Task {
             do {
                 try await connections.connect(p.id, given: given)
+                if !wasActive { announceConnected(p.id, .user) }
             } catch {
                 handleConnectError(error, profile: p)
             }
         }
+    }
+
+    /// "Connected to <Profile>" (`ConnectionNotice.announcesConnect`); reconnects come as events instead.
+    private func announceConnected(_ id: String, _ origin: ConnectionNotice.ConnectOrigin) {
+        guard state(id).isConnected,
+              ConnectionNotice.announcesConnect(origin, mainWindowVisible: mainWindowVisible) else { return }
+        Notifier.shared.post(ConnectionNotice.connected(noticeSubject(id), profileID: id))
+    }
+
+    /// The Stop action of a drop notification: ends the automatic reconnect, an attempt under way
+    /// included, like Cancel Connecting. Does nothing once the reconnect is over (an older notification).
+    func stopReconnecting(_ id: String) {
+        guard connections.reconnecting[id] != nil, let p = profile(id) else { return }
+        disconnect(p)
     }
 
     func disconnect(_ p: Profile) {
@@ -549,9 +640,17 @@ final class AppModel: ObservableObject {
                 showToast(String(localized: "No code available"), symbol: "exclamationmark.circle.fill")
                 return
             }
-            Pasteboard.copy(c, concealed: true)
+            copySecret(c)
+            lastCopy = CodeCard.Copy(profileID: stored.id, kind: .code, at: Date(),
+                                     window: TOTP.counter(params: stored.totp))
             showToast(String(localized: "Code copied"))
         }
+    }
+
+    /// Every code and password + code the app copies: cleared after the time chosen in Settings
+    /// (`Preferences.clearClipboardAfter`) if the pasteboard still holds it.
+    private func copySecret(_ text: String) {
+        Pasteboard.copySecret(text, clearingAfter: TimeInterval(prefs.clearClipboardAfter))
     }
 
     func copyPasswordAndCode(_ p: Profile) {
@@ -564,7 +663,9 @@ final class AppModel: ObservableObject {
             let otp = currentCode(for: p)
             let composed = OTPComposer.compose(password: password, otp: otp, delivery: .combined,
                                                template: p.otpTemplate, type: p.type)
-            Pasteboard.copy(composed.secret, concealed: true)
+            copySecret(composed.secret)
+            lastCopy = CodeCard.Copy(profileID: p.id, kind: .passwordAndCode, at: Date(),
+                                     window: TOTP.counter(params: p.totp))
             showToast(String(localized: "Password and code copied"))
         }
     }
@@ -595,7 +696,7 @@ final class AppModel: ObservableObject {
             Notifier.shared.post(title: String(localized: "Allow PassTunnel to type codes"),
                                  body: String(localized: "Turn on PassTunnel in System Settings → Privacy & Security → Accessibility."),
                                  profileID: nil)
-            Pasteboard.copy(c, concealed: true)
+            copySecret(c)
             return
         }
         AutoType.type(c)
@@ -681,6 +782,14 @@ final class AppModel: ObservableObject {
     /// Onboarding step 3 "Start PassTunnel at login": nil until the user has seen the checkbox.
     @Published var onboardingStartAtLogin: Bool?
 
+    /// Shows the review of `draft` in the redesigned window's detail instead of a profile or the add view (a new one
+    /// replaces a review still open).
+    func startImportReview(_ draft: ImportDraft) {
+        importReview = ImportReviewModel(draft: draft)
+        addingProfile = false
+        selection = nil
+    }
+
     func finishOnboarding() {
         UserDefaults.standard.set(true, forKey: Self.onboardingKey)
         if showOnboarding {
@@ -688,6 +797,17 @@ final class AppModel: ObservableObject {
             applyOnboardingLoginChoice()
         }
         showOnboarding = false
+    }
+
+    /// The redesigned window's detail shows the add view ("Add a VPN", `FirstRunView`): the sidebar's +.
+    @Published var addingProfile = false
+
+    /// The redesigned window asks "Open PassTunnel at login?" once the first profile is there, instead of the
+    /// onboarding sheet (decision D-18). The answer is applied like the sheet's checkbox and ends onboarding.
+    func answerOpenAtLogin(_ open: Bool) {
+        onboardingStartAtLogin = open
+        applyOnboardingLoginChoice()
+        UserDefaults.standard.set(true, forKey: Self.onboardingKey)
     }
 
     /// Registers the login item when the user left "Start PassTunnel at login" checked. Nothing is
@@ -722,42 +842,10 @@ final class AppModel: ObservableObject {
         }
         Notifier.shared.handle(event, model: self)
     }
-}
 
-enum Pasteboard {
-    /// How long a copied code (or password + code) stays on the pasteboard.
-    static let secretLifetime: TimeInterval = 30
-    /// nspasteboard.org markers: clipboard managers skip concealed entries and do not keep transient ones.
-    static let concealedType = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
-    static let transientType = NSPasteboard.PasteboardType("org.nspasteboard.TransientType")
-
-    /// `concealed`: a secret (`copySecret`), cleared again after `secretLifetime`.
-    static func copy(_ text: String, concealed: Bool) {
-        guard concealed else {
-            let pb = NSPasteboard.general
-            pb.clearContents()
-            pb.setString(text, forType: .string)
-            return
-        }
-        let count = copySecret(text)
-        DispatchQueue.main.asyncAfter(deadline: .now() + secretLifetime) { clear(ifUnchangedSince: count) }
-    }
-
-    /// Puts a secret on the general pasteboard for this Mac only (not Universal Clipboard), marked
-    /// concealed and transient. Returns the pasteboard's change count after the copy.
-    @discardableResult
-    static func copySecret(_ text: String) -> Int {
-        let pb = NSPasteboard.general
-        pb.prepareForNewContents(with: .currentHostOnly)
-        pb.setString(text, forType: .string)
-        pb.setString("", forType: concealedType)
-        pb.setString("", forType: transientType)
-        return pb.changeCount
-    }
-
-    /// Empties the pasteboard unless something else was copied after `changeCount`.
-    static func clear(ifUnchangedSince changeCount: Int) {
-        let pb = NSPasteboard.general
-        if pb.changeCount == changeCount { pb.clearContents() }
+    /// What a notification about `id` says about the profile.
+    func noticeSubject(_ id: String) -> ConnectionNotice.Subject {
+        guard let p = profile(id) else { return ConnectionNotice.Subject(name: id) }
+        return ConnectionNotice.Subject(p, state: state(id), store: store)
     }
 }

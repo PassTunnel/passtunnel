@@ -1,0 +1,1243 @@
+{
+  "about": "Reading an .ovpn for the review before import: the lines PassTunnel skips (left in the stored configuration as comments) and the ones that refuse the file, the configuration it would store, the servers, certificates and sign-in it finds, and what the profile still needs.",
+  "review": [
+    {
+      "name": "the design's sample: a script and the level that allows it are skipped",
+      "config": "client\ndev tun\nremote vpn.example.com 1194 udp\nscript-security 2\nup /etc/openvpn/update-dns\n<ca>\n-----BEGIN CERTIFICATE-----\nMIIBCA==\n-----END CERTIFICATE-----\n</ca>\n<cert>\n-----BEGIN CERTIFICATE-----\nMIIBCB==\n-----END CERTIFICATE-----\n</cert>\n<key>\n-----BEGIN PRIVATE KEY-----\nMIIBCC==\n-----END PRIVATE KEY-----\n</key>\nauth-user-pass\n",
+      "blocking": [],
+      "certificates": [
+        {
+          "file": null,
+          "name": "ca"
+        },
+        {
+          "file": null,
+          "name": "cert"
+        },
+        {
+          "file": null,
+          "name": "key"
+        }
+      ],
+      "needs": [
+        "username",
+        "password"
+      ],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": null,
+      "password_mode": "keychain",
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "1194",
+          "tcp": false
+        }
+      ],
+      "skipped": [
+        {
+          "directive": "script-security",
+          "line": 4,
+          "reason": "script_security",
+          "text": "script-security 2"
+        },
+        {
+          "directive": "up",
+          "line": 5,
+          "reason": "program",
+          "text": "up /etc/openvpn/update-dns"
+        }
+      ],
+      "stored": "client\ndev tun\nremote vpn.example.com 1194 udp\n# PassTunnel skipped: script-security 2\n# PassTunnel skipped: up /etc/openvpn/update-dns\n<ca>\n-----BEGIN CERTIFICATE-----\nMIIBCA==\n-----END CERTIFICATE-----\n</ca>\n<cert>\n-----BEGIN CERTIFICATE-----\nMIIBCB==\n-----END CERTIFICATE-----\n</cert>\n<key>\n-----BEGIN PRIVATE KEY-----\nMIIBCC==\n-----END PRIVATE KEY-----\n</key>\nauth-user-pass\n",
+      "username": null
+    },
+    {
+      "name": "a config the sanitizer accepts is stored as it is (static-challenge too: the helper removes it)",
+      "config": "client\nremote vpn.example.com 443 tcp\n# up /tmp/x.sh\nscript-security 1\nauth-user-pass\nstatic-challenge \"Code\" 1\n",
+      "blocking": [],
+      "certificates": [],
+      "needs": [
+        "username",
+        "password",
+        "code_secret"
+      ],
+      "otp_delivery": "separate",
+      "otp_mode": "ask",
+      "password": null,
+      "password_mode": "keychain",
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "443",
+          "tcp": true
+        }
+      ],
+      "skipped": [],
+      "stored": "client\nremote vpn.example.com 443 tcp\n# up /tmp/x.sh\nscript-security 1\nauth-user-pass\nstatic-challenge \"Code\" 1\n",
+      "username": null
+    },
+    {
+      "name": "script-security 0 and 1 stay; 2, 3 and an unreadable level are skipped (OpenVPN's default, 1, applies)",
+      "config": "client\nscript-security 0\nscript-security 1\nscript-security 2\nscript-security 3 system\nscript-security\nscript-security x\n",
+      "blocking": [],
+      "certificates": [],
+      "needs": [],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": null,
+      "password_mode": "none",
+      "servers": [],
+      "skipped": [
+        {
+          "directive": "script-security",
+          "line": 4,
+          "reason": "script_security",
+          "text": "script-security 2"
+        },
+        {
+          "directive": "script-security",
+          "line": 5,
+          "reason": "script_security",
+          "text": "script-security 3 system"
+        },
+        {
+          "directive": "script-security",
+          "line": 6,
+          "reason": "script_security",
+          "text": "script-security"
+        },
+        {
+          "directive": "script-security",
+          "line": 7,
+          "reason": "script_security",
+          "text": "script-security x"
+        }
+      ],
+      "stored": "client\nscript-security 0\nscript-security 1\n# PassTunnel skipped: script-security 2\n# PassTunnel skipped: script-security 3 system\n# PassTunnel skipped: script-security\n# PassTunnel skipped: script-security x\n",
+      "username": null
+    },
+    {
+      "name": "client metadata setenv stays; any other variable is skipped",
+      "config": "client\nsetenv CLIENT_CERT 0\nsetenv IV_GUI_VER \"Acme 1.0\"\nsetenv UV_TEAM blue\nsetenv FRIENDLY_NAME Work\nsetenv PATH /tmp\nsetenv BASH_ENV /tmp/x\n",
+      "blocking": [],
+      "certificates": [],
+      "needs": [],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": null,
+      "password_mode": "none",
+      "servers": [],
+      "skipped": [
+        {
+          "directive": "setenv PATH",
+          "line": 6,
+          "reason": "environment",
+          "text": "setenv PATH /tmp"
+        },
+        {
+          "directive": "setenv BASH_ENV",
+          "line": 7,
+          "reason": "environment",
+          "text": "setenv BASH_ENV /tmp/x"
+        }
+      ],
+      "stored": "client\nsetenv CLIENT_CERT 0\nsetenv IV_GUI_VER \"Acme 1.0\"\nsetenv UV_TEAM blue\nsetenv FRIENDLY_NAME Work\n# PassTunnel skipped: setenv PATH /tmp\n# PassTunnel skipped: setenv BASH_ENV /tmp/x\n",
+      "username": null
+    },
+    {
+      "name": "setenv opt is read like the directive it names",
+      "config": "client\nsetenv opt up /tmp/x.sh\nsetenv opt script-security 2\nsetenv opt block-outside-dns\nsetenv opt plugin /tmp/p.so\n",
+      "blocking": [
+        {
+          "directive": "plugin",
+          "line": 5,
+          "reason": "not allowed",
+          "text": "setenv opt plugin /tmp/p.so"
+        }
+      ],
+      "certificates": [],
+      "needs": [],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": null,
+      "password_mode": "none",
+      "servers": [],
+      "skipped": [
+        {
+          "directive": "up",
+          "line": 2,
+          "reason": "program",
+          "text": "setenv opt up /tmp/x.sh"
+        },
+        {
+          "directive": "script-security",
+          "line": 3,
+          "reason": "script_security",
+          "text": "setenv opt script-security 2"
+        }
+      ],
+      "stored": null,
+      "username": null
+    },
+    {
+      "name": "every directive that is skipped",
+      "config": "client\nup /tmp/a\ndown /tmp/a\nroute-up /tmp/a\nroute-pre-down /tmp/a\nipchange /tmp/a\niproute /tmp/ip\ndns-updown force\ndaemon\ncd /etc/openvpn\nchroot /var/empty\nuser nobody\ngroup nobody\nwritepid /tmp/pid\nstatus /tmp/status 10\ntmp-dir /tmp\ntls-export-cert /tmp\nlog /tmp/log\nlog-append /tmp/log\nmanagement 127.0.0.1 7505\nmanagement-client\nmanagement-client-user alice\nmanagement-client-group staff\nmanagement-hold\nmanagement-query-passwords\nmanagement-query-proxy\nmanagement-query-remote\nmanagement-forget-disconnect\nmanagement-signal\nmanagement-up-down\nmanagement-log-cache 100\n",
+      "blocking": [],
+      "certificates": [],
+      "needs": [],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": null,
+      "password_mode": "none",
+      "servers": [],
+      "skipped": [
+        {
+          "directive": "up",
+          "line": 2,
+          "reason": "program",
+          "text": "up /tmp/a"
+        },
+        {
+          "directive": "down",
+          "line": 3,
+          "reason": "program",
+          "text": "down /tmp/a"
+        },
+        {
+          "directive": "route-up",
+          "line": 4,
+          "reason": "program",
+          "text": "route-up /tmp/a"
+        },
+        {
+          "directive": "route-pre-down",
+          "line": 5,
+          "reason": "program",
+          "text": "route-pre-down /tmp/a"
+        },
+        {
+          "directive": "ipchange",
+          "line": 6,
+          "reason": "program",
+          "text": "ipchange /tmp/a"
+        },
+        {
+          "directive": "iproute",
+          "line": 7,
+          "reason": "program",
+          "text": "iproute /tmp/ip"
+        },
+        {
+          "directive": "dns-updown",
+          "line": 8,
+          "reason": "dns",
+          "text": "dns-updown force"
+        },
+        {
+          "directive": "daemon",
+          "line": 9,
+          "reason": "process",
+          "text": "daemon"
+        },
+        {
+          "directive": "cd",
+          "line": 10,
+          "reason": "process",
+          "text": "cd /etc/openvpn"
+        },
+        {
+          "directive": "chroot",
+          "line": 11,
+          "reason": "process",
+          "text": "chroot /var/empty"
+        },
+        {
+          "directive": "user",
+          "line": 12,
+          "reason": "process",
+          "text": "user nobody"
+        },
+        {
+          "directive": "group",
+          "line": 13,
+          "reason": "process",
+          "text": "group nobody"
+        },
+        {
+          "directive": "writepid",
+          "line": 14,
+          "reason": "process",
+          "text": "writepid /tmp/pid"
+        },
+        {
+          "directive": "status",
+          "line": 15,
+          "reason": "process",
+          "text": "status /tmp/status 10"
+        },
+        {
+          "directive": "tmp-dir",
+          "line": 16,
+          "reason": "process",
+          "text": "tmp-dir /tmp"
+        },
+        {
+          "directive": "tls-export-cert",
+          "line": 17,
+          "reason": "process",
+          "text": "tls-export-cert /tmp"
+        },
+        {
+          "directive": "log",
+          "line": 18,
+          "reason": "logging",
+          "text": "log /tmp/log"
+        },
+        {
+          "directive": "log-append",
+          "line": 19,
+          "reason": "logging",
+          "text": "log-append /tmp/log"
+        },
+        {
+          "directive": "management",
+          "line": 20,
+          "reason": "management",
+          "text": "management 127.0.0.1 7505"
+        },
+        {
+          "directive": "management-client",
+          "line": 21,
+          "reason": "management",
+          "text": "management-client"
+        },
+        {
+          "directive": "management-client-user",
+          "line": 22,
+          "reason": "management",
+          "text": "management-client-user alice"
+        },
+        {
+          "directive": "management-client-group",
+          "line": 23,
+          "reason": "management",
+          "text": "management-client-group staff"
+        },
+        {
+          "directive": "management-hold",
+          "line": 24,
+          "reason": "management",
+          "text": "management-hold"
+        },
+        {
+          "directive": "management-query-passwords",
+          "line": 25,
+          "reason": "management",
+          "text": "management-query-passwords"
+        },
+        {
+          "directive": "management-query-proxy",
+          "line": 26,
+          "reason": "management",
+          "text": "management-query-proxy"
+        },
+        {
+          "directive": "management-query-remote",
+          "line": 27,
+          "reason": "management",
+          "text": "management-query-remote"
+        },
+        {
+          "directive": "management-forget-disconnect",
+          "line": 28,
+          "reason": "management",
+          "text": "management-forget-disconnect"
+        },
+        {
+          "directive": "management-signal",
+          "line": 29,
+          "reason": "management",
+          "text": "management-signal"
+        },
+        {
+          "directive": "management-up-down",
+          "line": 30,
+          "reason": "management",
+          "text": "management-up-down"
+        },
+        {
+          "directive": "management-log-cache",
+          "line": 31,
+          "reason": "management",
+          "text": "management-log-cache 100"
+        }
+      ],
+      "stored": "client\n# PassTunnel skipped: up /tmp/a\n# PassTunnel skipped: down /tmp/a\n# PassTunnel skipped: route-up /tmp/a\n# PassTunnel skipped: route-pre-down /tmp/a\n# PassTunnel skipped: ipchange /tmp/a\n# PassTunnel skipped: iproute /tmp/ip\n# PassTunnel skipped: dns-updown force\n# PassTunnel skipped: daemon\n# PassTunnel skipped: cd /etc/openvpn\n# PassTunnel skipped: chroot /var/empty\n# PassTunnel skipped: user nobody\n# PassTunnel skipped: group nobody\n# PassTunnel skipped: writepid /tmp/pid\n# PassTunnel skipped: status /tmp/status 10\n# PassTunnel skipped: tmp-dir /tmp\n# PassTunnel skipped: tls-export-cert /tmp\n# PassTunnel skipped: log /tmp/log\n# PassTunnel skipped: log-append /tmp/log\n# PassTunnel skipped: management 127.0.0.1 7505\n# PassTunnel skipped: management-client\n# PassTunnel skipped: management-client-user alice\n# PassTunnel skipped: management-client-group staff\n# PassTunnel skipped: management-hold\n# PassTunnel skipped: management-query-passwords\n# PassTunnel skipped: management-query-proxy\n# PassTunnel skipped: management-query-remote\n# PassTunnel skipped: management-forget-disconnect\n# PassTunnel skipped: management-signal\n# PassTunnel skipped: management-up-down\n# PassTunnel skipped: management-log-cache 100\n",
+      "username": null
+    },
+    {
+      "name": "checking the server or the sign-in blocks",
+      "config": "client\nup /tmp/a\ntls-verify /tmp/check.sh\nauth-user-pass-verify /tmp/x via-env\ntls-crypt-v2-verify /tmp/x\n",
+      "blocking": [
+        {
+          "directive": "tls-verify",
+          "line": 3,
+          "reason": "not allowed",
+          "text": "tls-verify /tmp/check.sh"
+        },
+        {
+          "directive": "auth-user-pass-verify",
+          "line": 4,
+          "reason": "not allowed",
+          "text": "auth-user-pass-verify /tmp/x via-env"
+        },
+        {
+          "directive": "tls-crypt-v2-verify",
+          "line": 5,
+          "reason": "not allowed",
+          "text": "tls-crypt-v2-verify /tmp/x"
+        }
+      ],
+      "certificates": [],
+      "needs": [],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": null,
+      "password_mode": "none",
+      "servers": [],
+      "skipped": [
+        {
+          "directive": "up",
+          "line": 2,
+          "reason": "program",
+          "text": "up /tmp/a"
+        }
+      ],
+      "stored": null,
+      "username": null
+    },
+    {
+      "name": "loading code blocks",
+      "config": "client\nplugin /tmp/p.so\nengine dynamic\nproviders legacy\npkcs11-providers /tmp/p11.dylib\nshow-pkcs11-ids /tmp/p11.dylib\n",
+      "blocking": [
+        {
+          "directive": "plugin",
+          "line": 2,
+          "reason": "not allowed",
+          "text": "plugin /tmp/p.so"
+        },
+        {
+          "directive": "engine",
+          "line": 3,
+          "reason": "not allowed",
+          "text": "engine dynamic"
+        },
+        {
+          "directive": "providers",
+          "line": 4,
+          "reason": "not allowed",
+          "text": "providers legacy"
+        },
+        {
+          "directive": "pkcs11-providers",
+          "line": 5,
+          "reason": "not allowed",
+          "text": "pkcs11-providers /tmp/p11.dylib"
+        },
+        {
+          "directive": "show-pkcs11-ids",
+          "line": 6,
+          "reason": "not allowed",
+          "text": "show-pkcs11-ids /tmp/p11.dylib"
+        }
+      ],
+      "certificates": [],
+      "needs": [],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": null,
+      "password_mode": "none",
+      "servers": [],
+      "skipped": [],
+      "stored": null,
+      "username": null
+    },
+    {
+      "name": "reading files outside the configuration blocks",
+      "config": "client\nconfig other.ovpn\ncapath /etc/ssl/certs\ndev-node /dev/tun0\nreplay-persist /tmp/replay\nclient-config-dir /etc/ccd\nifconfig-pool-persist /tmp/pool\n",
+      "blocking": [
+        {
+          "directive": "config",
+          "line": 2,
+          "reason": "not allowed",
+          "text": "config other.ovpn"
+        },
+        {
+          "directive": "capath",
+          "line": 3,
+          "reason": "not allowed",
+          "text": "capath /etc/ssl/certs"
+        },
+        {
+          "directive": "dev-node",
+          "line": 4,
+          "reason": "not allowed",
+          "text": "dev-node /dev/tun0"
+        },
+        {
+          "directive": "replay-persist",
+          "line": 5,
+          "reason": "not allowed",
+          "text": "replay-persist /tmp/replay"
+        },
+        {
+          "directive": "client-config-dir",
+          "line": 6,
+          "reason": "not allowed",
+          "text": "client-config-dir /etc/ccd"
+        },
+        {
+          "directive": "ifconfig-pool-persist",
+          "line": 7,
+          "reason": "not allowed",
+          "text": "ifconfig-pool-persist /tmp/pool"
+        }
+      ],
+      "certificates": [],
+      "needs": [],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": null,
+      "password_mode": "none",
+      "servers": [],
+      "skipped": [],
+      "stored": null,
+      "username": null
+    },
+    {
+      "name": "server-only directives block: this is not a client configuration",
+      "config": "client\nlearn-address /tmp/x\nclient-connect /tmp/x\nclient-disconnect /tmp/x\nport-share 127.0.0.1 443\nmanagement-client-auth\n",
+      "blocking": [
+        {
+          "directive": "learn-address",
+          "line": 2,
+          "reason": "not allowed",
+          "text": "learn-address /tmp/x"
+        },
+        {
+          "directive": "client-connect",
+          "line": 3,
+          "reason": "not allowed",
+          "text": "client-connect /tmp/x"
+        },
+        {
+          "directive": "client-disconnect",
+          "line": 4,
+          "reason": "not allowed",
+          "text": "client-disconnect /tmp/x"
+        },
+        {
+          "directive": "port-share",
+          "line": 5,
+          "reason": "not allowed",
+          "text": "port-share 127.0.0.1 443"
+        },
+        {
+          "directive": "management-client-auth",
+          "line": 6,
+          "reason": "not allowed",
+          "text": "management-client-auth"
+        }
+      ],
+      "certificates": [],
+      "needs": [],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": null,
+      "password_mode": "none",
+      "servers": [],
+      "skipped": [],
+      "stored": null,
+      "username": null
+    },
+    {
+      "name": "server and standalone modes block, also next to a line that would be skipped",
+      "config": "client\nmode server\ntls-server\nclient-crresponse /tmp/x\nmktun\ndev ../tmp/x1\nup /tmp/x\n",
+      "blocking": [
+        {
+          "directive": "mode",
+          "line": 2,
+          "reason": "only mode p2p is allowed",
+          "text": "mode server"
+        },
+        {
+          "directive": "tls-server",
+          "line": 3,
+          "reason": "not allowed",
+          "text": "tls-server"
+        },
+        {
+          "directive": "client-crresponse",
+          "line": 4,
+          "reason": "not allowed",
+          "text": "client-crresponse /tmp/x"
+        },
+        {
+          "directive": "mktun",
+          "line": 5,
+          "reason": "not allowed",
+          "text": "mktun"
+        },
+        {
+          "directive": "dev",
+          "line": 6,
+          "reason": "must be tun, tap, utun or null, optionally followed by letters, digits, - or _",
+          "text": "dev ../tmp/x1"
+        }
+      ],
+      "certificates": [],
+      "needs": [],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": null,
+      "password_mode": "none",
+      "servers": [],
+      "skipped": [
+        {
+          "directive": "up",
+          "line": 7,
+          "reason": "program",
+          "text": "up /tmp/x"
+        }
+      ],
+      "stored": null,
+      "username": null
+    },
+    {
+      "name": "a key or certificate from another program, other log and management names, and genkey block",
+      "config": "client\nmanagement-external-key\nmanagement-external-cert macosx-keychain\nlogfile /tmp/x\nmanagement-new\ngenkey secret /tmp/key\n",
+      "blocking": [
+        {
+          "directive": "management-external-key",
+          "line": 2,
+          "reason": "the private key would come from another program",
+          "text": "management-external-key"
+        },
+        {
+          "directive": "management-external-cert",
+          "line": 3,
+          "reason": "the certificate would come from another program",
+          "text": "management-external-cert macosx-keychain"
+        },
+        {
+          "directive": "logfile",
+          "line": 4,
+          "reason": "not allowed",
+          "text": "logfile /tmp/x"
+        },
+        {
+          "directive": "management-new",
+          "line": 5,
+          "reason": "not allowed",
+          "text": "management-new"
+        },
+        {
+          "directive": "genkey",
+          "line": 6,
+          "reason": "not allowed",
+          "text": "genkey secret /tmp/key"
+        }
+      ],
+      "certificates": [],
+      "needs": [],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": null,
+      "password_mode": "none",
+      "servers": [],
+      "skipped": [],
+      "stored": null,
+      "username": null
+    },
+    {
+      "name": "blocks of refused directives block, directive names inside a block are its content",
+      "config": "client\n<ca>\nup /tmp/x.sh\nplugin /tmp/p.so\n</ca>\n<up>\n/tmp/x.sh\n</up>\n<plugin>\n/tmp/p.so\n</plugin>\n",
+      "blocking": [
+        {
+          "directive": "<up>",
+          "line": 6,
+          "reason": "not allowed",
+          "text": "<up>"
+        },
+        {
+          "directive": "<plugin>",
+          "line": 9,
+          "reason": "not allowed",
+          "text": "<plugin>"
+        }
+      ],
+      "certificates": [
+        {
+          "file": null,
+          "name": "ca"
+        }
+      ],
+      "needs": [],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": null,
+      "password_mode": "none",
+      "servers": [],
+      "skipped": [],
+      "stored": null,
+      "username": null
+    },
+    {
+      "name": "connection blocks: a skipped line becomes a comment in its block",
+      "config": "client\n<connection>\nremote vpn.example.com 443 tcp\nup /tmp/x.sh\n</connection>\n<connection>\nremote vpn2.example.com\n  route-up \"/tmp/y z\"\n</connection>\n",
+      "blocking": [],
+      "certificates": [],
+      "needs": [],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": null,
+      "password_mode": "none",
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "443",
+          "tcp": true
+        },
+        {
+          "host": "vpn2.example.com",
+          "port": "1194",
+          "tcp": false
+        }
+      ],
+      "skipped": [
+        {
+          "directive": "up",
+          "line": 4,
+          "reason": "program",
+          "text": "up /tmp/x.sh"
+        },
+        {
+          "directive": "route-up",
+          "line": 8,
+          "reason": "program",
+          "text": "route-up \"/tmp/y z\""
+        }
+      ],
+      "stored": "client\n<connection>\nremote vpn.example.com 443 tcp\n# PassTunnel skipped: up /tmp/x.sh\n</connection>\n<connection>\nremote vpn2.example.com\n# PassTunnel skipped: route-up \"/tmp/y z\"\n</connection>\n",
+      "username": null
+    },
+    {
+      "name": "an unclosed connection block blocks the file",
+      "config": "client\n<connection>\nremote vpn.example.com\nup /tmp/x.sh\n",
+      "blocking": [
+        {
+          "directive": "<connection>",
+          "line": 2,
+          "reason": "block is never closed",
+          "text": "<connection>"
+        }
+      ],
+      "certificates": [],
+      "needs": [],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": null,
+      "password_mode": "none",
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "1194",
+          "tcp": false
+        }
+      ],
+      "skipped": [
+        {
+          "directive": "up",
+          "line": 4,
+          "reason": "program",
+          "text": "up /tmp/x.sh"
+        }
+      ],
+      "stored": null,
+      "username": null
+    },
+    {
+      "name": "CR LF and a BOM: line numbers are the file's, the stored text has neither",
+      "config": "\ufeffup /tmp/x.sh\r\nclient\r\nremote vpn.example.com\r\ndown /tmp/y\r\n",
+      "blocking": [],
+      "certificates": [],
+      "needs": [],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": null,
+      "password_mode": "none",
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "1194",
+          "tcp": false
+        }
+      ],
+      "skipped": [
+        {
+          "directive": "up",
+          "line": 1,
+          "reason": "program",
+          "text": "up /tmp/x.sh"
+        },
+        {
+          "directive": "down",
+          "line": 4,
+          "reason": "program",
+          "text": "down /tmp/y"
+        }
+      ],
+      "stored": "# PassTunnel skipped: up /tmp/x.sh\nclient\nremote vpn.example.com\n# PassTunnel skipped: down /tmp/y\n",
+      "username": null
+    },
+    {
+      "name": "only the file's BOM is skipped: a later line that starts with one blocks",
+      "config": "\ufeffup /tmp/x.sh\n\ufeffdown /tmp/y\nremote vpn.example.com\n",
+      "blocking": [
+        {
+          "directive": "(line)",
+          "line": 2,
+          "reason": "starts with a byte order mark (only the first line of the file may)",
+          "text": "�down /tmp/y"
+        }
+      ],
+      "certificates": [],
+      "needs": [],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": null,
+      "password_mode": "none",
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "1194",
+          "tcp": false
+        }
+      ],
+      "skipped": [
+        {
+          "directive": "up",
+          "line": 1,
+          "reason": "program",
+          "text": "up /tmp/x.sh"
+        }
+      ],
+      "stored": null,
+      "username": null
+    },
+    {
+      "name": "leading dashes and capitals are read as the sanitizer reads them",
+      "config": "client\n--up /tmp/x.sh\nUP /tmp/y.sh\n---Daemon\n",
+      "blocking": [],
+      "certificates": [],
+      "needs": [],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": null,
+      "password_mode": "none",
+      "servers": [],
+      "skipped": [
+        {
+          "directive": "up",
+          "line": 2,
+          "reason": "program",
+          "text": "--up /tmp/x.sh"
+        },
+        {
+          "directive": "up",
+          "line": 3,
+          "reason": "program",
+          "text": "UP /tmp/y.sh"
+        },
+        {
+          "directive": "daemon",
+          "line": 4,
+          "reason": "process",
+          "text": "---Daemon"
+        }
+      ],
+      "stored": "client\n# PassTunnel skipped: --up /tmp/x.sh\n# PassTunnel skipped: UP /tmp/y.sh\n# PassTunnel skipped: ---Daemon\n",
+      "username": null
+    },
+    {
+      "name": "a long skipped line is cut so that its comment stays one line for OpenVPN",
+      "config": "client\nup /tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+      "blocking": [],
+      "certificates": [],
+      "needs": [],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": null,
+      "password_mode": "none",
+      "servers": [],
+      "skipped": [
+        {
+          "directive": "up",
+          "line": 2,
+          "reason": "program",
+          "text": "up /tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…"
+        }
+      ],
+      "stored": "client\n# PassTunnel skipped: up /tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…\n",
+      "username": null
+    },
+    {
+      "name": "a line longer than OpenVPN reads blocks",
+      "config": "client\nup /tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+      "blocking": [
+        {
+          "directive": "(line)",
+          "line": 2,
+          "reason": "longer than 254 characters",
+          "text": "up /tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…"
+        }
+      ],
+      "certificates": [],
+      "needs": [],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": null,
+      "password_mode": "none",
+      "servers": [],
+      "skipped": [],
+      "stored": null,
+      "username": null
+    },
+    {
+      "name": "control and bidirectional characters are shown as replacement characters, tabs as spaces",
+      "config": "client\nup /tmp/\u001b[2Jx\u202ey\tz\n",
+      "blocking": [],
+      "certificates": [],
+      "needs": [],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": null,
+      "password_mode": "none",
+      "servers": [],
+      "skipped": [
+        {
+          "directive": "up",
+          "line": 2,
+          "reason": "program",
+          "text": "up /tmp/�[2Jx�y z"
+        }
+      ],
+      "stored": "client\n# PassTunnel skipped: up /tmp/�[2Jx�y z\n",
+      "username": null
+    },
+    {
+      "name": "a line OpenVPN rejects blocks, even with a skippable name",
+      "config": "client\nup /tmp/a\\qb\ndown 'open\n",
+      "blocking": [
+        {
+          "directive": "(line)",
+          "line": 2,
+          "reason": "a backslash may only escape \\, \" or whitespace",
+          "text": "up /tmp/a\\qb"
+        },
+        {
+          "directive": "(line)",
+          "line": 3,
+          "reason": "unterminated quote",
+          "text": "down 'open"
+        }
+      ],
+      "certificates": [],
+      "needs": [],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": null,
+      "password_mode": "none",
+      "servers": [],
+      "skipped": [],
+      "stored": null,
+      "username": null
+    },
+    {
+      "name": "a comment that looks like a skipped line is a comment",
+      "config": "client\n# PassTunnel skipped: up /tmp/x.sh\nremote vpn.example.com\n",
+      "blocking": [],
+      "certificates": [],
+      "needs": [],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": null,
+      "password_mode": "none",
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "1194",
+          "tcp": false
+        }
+      ],
+      "skipped": [],
+      "stored": "client\n# PassTunnel skipped: up /tmp/x.sh\nremote vpn.example.com\n",
+      "username": null
+    },
+    {
+      "name": "embedded files: the lines are numbered as in the file, the certificates name their files",
+      "config": "client\nremote vpn.example.com 1194\nca ca.crt\ncert client.crt\nkey \"client key.pem\"\ntls-auth ta.key 1\nauth-user-pass creds.txt\naskpass pass.txt\nup /tmp/x.sh\n",
+      "files": {
+        "ca.crt": "-----BEGIN CERTIFICATE-----\nMIIBCA==\n-----END CERTIFICATE-----\n",
+        "client key.pem": "-----BEGIN PRIVATE KEY-----\nMIIBCC==\n-----END PRIVATE KEY-----\n",
+        "client.crt": "-----BEGIN CERTIFICATE-----\nMIIBCB==\n-----END CERTIFICATE-----\n",
+        "ta.key": "-----BEGIN OpenVPN Static key V1-----\n0123abcd\n-----END OpenVPN Static key V1-----\n"
+      },
+      "blocking": [],
+      "certificates": [
+        {
+          "file": "ca.crt",
+          "name": "ca"
+        },
+        {
+          "file": "client.crt",
+          "name": "cert"
+        },
+        {
+          "file": "client key.pem",
+          "name": "key"
+        },
+        {
+          "file": "ta.key",
+          "name": "tls-auth"
+        }
+      ],
+      "needs": [
+        "username",
+        "password"
+      ],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": null,
+      "password_mode": "keychain",
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "1194",
+          "tcp": false
+        }
+      ],
+      "skipped": [
+        {
+          "directive": "up",
+          "line": 9,
+          "reason": "program",
+          "text": "up /tmp/x.sh"
+        }
+      ],
+      "stored": "client\nremote vpn.example.com 1194\n<ca>\n-----BEGIN CERTIFICATE-----\nMIIBCA==\n-----END CERTIFICATE-----\n</ca>\n<cert>\n-----BEGIN CERTIFICATE-----\nMIIBCB==\n-----END CERTIFICATE-----\n</cert>\n<key>\n-----BEGIN PRIVATE KEY-----\nMIIBCC==\n-----END PRIVATE KEY-----\n</key>\n<tls-auth>\n-----BEGIN OpenVPN Static key V1-----\n0123abcd\n-----END OpenVPN Static key V1-----\n</tls-auth>\nkey-direction 1\nauth-user-pass\n# PassTunnel skipped: up /tmp/x.sh\n",
+      "username": null
+    },
+    {
+      "name": "lines of an embedded file that are too long block at the line that refers to it, once",
+      "config": "client\nremote vpn.example.com\nca ca.crt\n",
+      "files": {
+        "ca.crt": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\nBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n"
+      },
+      "blocking": [
+        {
+          "directive": "(line)",
+          "line": 3,
+          "reason": "longer than 254 characters",
+          "text": "ca ca.crt"
+        }
+      ],
+      "certificates": [
+        {
+          "file": "ca.crt",
+          "name": "ca"
+        }
+      ],
+      "needs": [],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": null,
+      "password_mode": "none",
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "1194",
+          "tcp": false
+        }
+      ],
+      "skipped": [],
+      "stored": null,
+      "username": null
+    },
+    {
+      "name": "a missing referenced file refuses the file before anything else",
+      "config": "client\nup /tmp/x.sh\nca missing.crt\n",
+      "files": {
+        "ca.crt": "-----BEGIN CERTIFICATE-----\nMIIBCA==\n-----END CERTIFICATE-----\n"
+      },
+      "error": {
+        "detail": "missing.crt",
+        "kind": "ovpn_referenced_file"
+      }
+    },
+    {
+      "name": "an inline user name and password are reported, not stored",
+      "config": "client\nremote vpn.example.com\n<auth-user-pass>\nalice\ns3cret\n</auth-user-pass>\nup /tmp/x\n",
+      "blocking": [],
+      "certificates": [],
+      "needs": [
+        "username",
+        "password"
+      ],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": "s3cret",
+      "password_mode": "keychain",
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "1194",
+          "tcp": false
+        }
+      ],
+      "skipped": [
+        {
+          "directive": "up",
+          "line": 7,
+          "reason": "program",
+          "text": "up /tmp/x"
+        }
+      ],
+      "stored": "client\nremote vpn.example.com\nauth-user-pass\n# PassTunnel skipped: up /tmp/x\n",
+      "username": "alice"
+    },
+    {
+      "name": "a static challenge needs a code secret, sent apart",
+      "config": "client\nremote vpn.example.com\nauth-user-pass\nstatic-challenge \"Enter code\" 1\n",
+      "blocking": [],
+      "certificates": [],
+      "needs": [
+        "username",
+        "password",
+        "code_secret"
+      ],
+      "otp_delivery": "separate",
+      "otp_mode": "ask",
+      "password": null,
+      "password_mode": "keychain",
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "1194",
+          "tcp": false
+        }
+      ],
+      "skipped": [],
+      "stored": "client\nremote vpn.example.com\nauth-user-pass\nstatic-challenge \"Enter code\" 1\n",
+      "username": null
+    },
+    {
+      "name": "certificate only: nothing to sign in with",
+      "config": "client\nremote vpn.example.com\npkcs12 bundle.p12\n",
+      "binary_files": {
+        "bundle.p12": "AAECAwQFBgcICQ=="
+      },
+      "blocking": [],
+      "certificates": [
+        {
+          "file": "bundle.p12",
+          "name": "pkcs12"
+        }
+      ],
+      "needs": [],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": null,
+      "password_mode": "none",
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "1194",
+          "tcp": false
+        }
+      ],
+      "skipped": [],
+      "stored": "client\nremote vpn.example.com\n<pkcs12>\nAAECAwQFBgcICQ==\n</pkcs12>\n",
+      "username": null
+    },
+    {
+      "name": "servers: each remote with the port and protocol in effect for it",
+      "config": "client\nproto tcp\nport 443\nremote vpn.example.com\nremote 2001:db8::1 1195 udp\n<connection>\nremote vpn2.example.com\nproto udp\n</connection>\n<connection>\nremote vpn3.example.com\nport 8443\n</connection>\npeer-fingerprint AB:CD:EF\n",
+      "blocking": [],
+      "certificates": [
+        {
+          "file": null,
+          "name": "peer-fingerprint"
+        }
+      ],
+      "needs": [],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": null,
+      "password_mode": "none",
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "443",
+          "tcp": true
+        },
+        {
+          "host": "2001:db8::1",
+          "port": "1195",
+          "tcp": false
+        },
+        {
+          "host": "vpn2.example.com",
+          "port": "443",
+          "tcp": false
+        },
+        {
+          "host": "vpn3.example.com",
+          "port": "8443",
+          "tcp": true
+        }
+      ],
+      "skipped": [],
+      "stored": "client\nproto tcp\nport 443\nremote vpn.example.com\nremote 2001:db8::1 1195 udp\n<connection>\nremote vpn2.example.com\nproto udp\n</connection>\n<connection>\nremote vpn3.example.com\nport 8443\n</connection>\npeer-fingerprint AB:CD:EF\n",
+      "username": null
+    },
+    {
+      "name": "proxy credentials from a file block, the auto methods do not",
+      "config": "client\nhttp-proxy proxy.example.com 8080 auto\nhttp-proxy proxy.example.com 8080 creds.txt\nsocks-proxy proxy.example.com 1080 /etc/creds\n",
+      "blocking": [
+        {
+          "directive": "http-proxy",
+          "line": 3,
+          "reason": "references an external credentials file; embed it inline",
+          "text": "http-proxy proxy.example.com 8080 creds.txt"
+        },
+        {
+          "directive": "socks-proxy",
+          "line": 4,
+          "reason": "references an external credentials file",
+          "text": "socks-proxy proxy.example.com 1080 /etc/creds"
+        }
+      ],
+      "certificates": [],
+      "needs": [],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": null,
+      "password_mode": "none",
+      "servers": [],
+      "skipped": [],
+      "stored": null,
+      "username": null
+    }
+  ]
+}

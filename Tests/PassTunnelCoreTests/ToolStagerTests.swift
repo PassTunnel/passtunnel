@@ -1,3 +1,5 @@
+// macOS only, like ToolStager.
+#if os(macOS)
 import Darwin
 import XCTest
 @testable import PassTunnelShared
@@ -290,3 +292,4 @@ final class ToolStagerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: runRoot + "/tools"))
     }
 }
+#endif

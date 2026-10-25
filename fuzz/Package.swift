@@ -21,6 +21,8 @@ let package = Package(
         .target(name: "FuzzSupport", dependencies: ["FuzzDriver"]),
         .executableTarget(name: "FuzzOVPNSanitizer",
                           dependencies: ["FuzzSupport", .product(name: "PassTunnelKit", package: "PassTunnel")]),
+        .executableTarget(name: "FuzzOVPNImport",
+                          dependencies: ["FuzzSupport", .product(name: "PassTunnelKit", package: "PassTunnel")]),
         .executableTarget(name: "FuzzFortiConfig",
                           dependencies: ["FuzzSupport", .product(name: "PassTunnelKit", package: "PassTunnel")]),
         .executableTarget(name: "FuzzManagementParser",

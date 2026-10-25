@@ -1,0 +1,15 @@
+client
+<connection>
+remote vpn.example.com 443 tcp
+up /tmp/x.sh
+# comment
+</connection>
+<connection>
+remote vpn2.example.com
+  route-up "/tmp/y z"
+<ca>
+up /in/block
+</ca>
+</connection>
+<connection>
+up /x

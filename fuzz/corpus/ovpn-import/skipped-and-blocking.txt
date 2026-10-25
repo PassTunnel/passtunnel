@@ -1,0 +1,14 @@
+client
+setenv opt up /tmp/x
+setenv PATH /tmp
+setenv CLIENT_CERT 0
+script-security 3 system
+--log-append /tmp/l
+management 127.0.0.1 7505
+management-external-key
+daemon
+USER nobody
+tls-verify /tmp/v
+plugin /tmp/p.so
+ca /etc/ssl/ca.pem
+socks-proxy p.example.com 1080 /etc/creds
