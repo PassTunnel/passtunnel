@@ -96,7 +96,9 @@ enum RenderSnapshots {
                 snapshot(MainView().environmentObject(model), size: CGSize(width: 680, height: 470),
                          dark: dark, to: out, name: "main", window: true)
             }
+            // "Hide codes until clicked", with the first code clicked: it shows for 20 s, the others stay hidden.
             model.prefs.hideCodes = true
+            if let first = model.profiles.first { model.revealCodes(first) }
             snapshot(MainView().environmentObject(model), size: CGSize(width: 680, height: 470),
                      dark: false, to: out, name: "main-hidden-codes", window: true)
             model.prefs.hideCodes = false
@@ -153,7 +155,8 @@ enum RenderSnapshots {
                              name: "settings-\(tab.rawValue)", window: true)
                 }
             }
-            snapshot(GeneralSettings(previewLoginStatus: .requiresApproval).frame(width: 540).environmentObject(model),
+            let approval = GeneralSettings(previewLoginStatus: .requiresApproval, fullHeight: true, licensesAvailable: true)
+            snapshot(approval.frame(width: 540).environmentObject(model),
                      size: nil, dark: false, to: out, name: "settings-general-login-approval", window: true)
 
             // Onboarding.
@@ -268,7 +271,8 @@ enum RenderSnapshots {
     @ViewBuilder
     private static func tabView(_ tab: SettingsTab, model: AppModel) -> some View {
         switch tab {
-        case .general: GeneralSettings(previewLoginStatus: .enabled)
+        // The whole page, not the scrolling window; the menu bar card as the interface in use shows it.
+        case .general: GeneralSettings(previewLoginStatus: .enabled, fullHeight: true, licensesAvailable: true)
         case .shortcuts: ShortcutSettings(previewTrusted: false)
         case .helper:
             let real = BundledTools.load()

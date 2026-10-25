@@ -533,7 +533,7 @@ struct ProfileEditorView: View {
     private var connectAtLoginFootnote: String? {
         guard p.connectAtLogin else { return nil }
         if !model.opensAtLogin {
-            return String(localized: "PassTunnel itself does not open at login. Turn on “Launch at login” in Settings → General.")
+            return String(localized: "PassTunnel itself does not open at login. Turn on “Open at login, in the menu bar” in Settings → General.")
         }
         let saved = model.normalized
         let asks = !saved.unattended || !SecretVault.protectedKinds(saved).isDisjoint(with: SecretVault.usedKinds(saved))

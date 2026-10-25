@@ -232,6 +232,8 @@ final class AppModel: ObservableObject {
 
     private func prefsChanged(from old: Preferences) {
         do { try prefs.save(paths: paths) } catch { showError(error) }
+        // Turning "Hide codes until clicked" on or off starts again from hidden codes.
+        if prefs.hideCodes != old.hideCodes && !revealedCodes.isEmpty { revealedCodes = [:] }
         onPrefsChanged?(old, prefs)
     }
 
@@ -434,6 +436,13 @@ final class AppModel: ObservableObject {
     func forgetSecrets(_ id: String) {
         secretCache[id] = nil
         missingSecret.remove(id)
+    }
+
+    /// The current window hides the code of `p` at `date`: "Hide codes until clicked" is on and no click showed it in
+    /// the last 20 s (`revealedCodes`, the same as the code card's; decision D-5). Locked codes have their own rule.
+    func isCodeHidden(_ p: Profile, at date: Date) -> Bool {
+        CodeCard.isMasked(locked: false, hidden: prefs.hideCodes, protected: false, revealedUntil: revealedCodes[p.id],
+                          at: date)
     }
 
     // MARK: confirmation (Touch ID / password)

@@ -142,7 +142,8 @@ struct CountdownRing: View {
 }
 
 /// Large live code with countdown; click copies. A locked code (stored encrypted, "Confirm with Touch ID")
-/// is masked with a lock; click asks for Touch ID or the Mac password and shows it.
+/// is masked with a lock; click asks for Touch ID or the Mac password and shows it. A code hidden by "Hide codes
+/// until clicked" shows for 20 s after a click, and the next click copies it.
 struct LiveCodeView: View {
     @EnvironmentObject private var model: AppModel
     let profile: Profile
@@ -175,12 +176,13 @@ struct LiveCodeView: View {
             } else if let c = model.code(for: profile, at: date) {
                 let period = Double(max(1, profile.totp.period))
                 let remaining = period - date.timeIntervalSince1970.truncatingRemainder(dividingBy: period)
+                let hidden = model.isCodeHidden(profile, at: date)
                 Button {
-                    model.copyCode(profile)
+                    if hidden { model.revealCodes(profile) } else { model.copyCode(profile) }
                 } label: {
                     HStack(spacing: 8) {
-                        CodeText(code: c.code, hidden: model.prefs.hideCodes, fontSize: fontSize)
-                            .foregroundStyle(model.prefs.hideCodes ? Color.secondary : remaining <= 5 ? Color.red : Color.primary)
+                        CodeText(code: c.code, hidden: hidden, fontSize: fontSize)
+                            .foregroundStyle(hidden ? Color.secondary : remaining <= 5 ? Color.red : Color.primary)
                         CountdownRing(remaining: remaining, period: period, size: fontSize * 0.95)
                     }
                     .fixedSize()
@@ -189,9 +191,9 @@ struct LiveCodeView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(CodeButtonStyle())
-                .help(String(localized: "Click to copy the code"))
-                .accessibilityLabel(model.prefs.hideCodes
-                    ? String(localized: "One-time code, hidden. Click to copy.")
+                .help(hidden ? String(localized: "Click to show the code") : String(localized: "Click to copy the code"))
+                .accessibilityLabel(hidden
+                    ? String(localized: "One-time code, hidden. Click to show it.")
                     : String(localized: "One-time code \(c.code.map(String.init).joined(separator: " ")), \(Int(remaining)) seconds left. Click to copy."))
                 .accessibilityIdentifier("profile.\(profile.id).code")
             }

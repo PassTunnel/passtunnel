@@ -49,7 +49,7 @@ secret in the Keychain and fills in the current code (and your password) every t
 - **Authenticator-style main window.** Every profile shows its live code in large digits with a
   countdown ring. Click to copy; the clipboard is cleared again after 1 minute (or 30 seconds, or
   2 minutes, in Settings), unless you copied something else meanwhile. Codes can be hidden until
-  copied.
+  you click them.
 - **QR import.** Drop a screenshot of your provider's QR code, choose an image or paste from the
   clipboard. Digits, period and algorithm (SHA-1/256/512) are read from the `otpauth://` link.
   Pasting a Base32 secret or an `otpauth://` link works too.
@@ -450,7 +450,7 @@ each time* if you use a hardware token or SMS.
 1. **Disconnect** all profiles.
 2. **Remove the helper:** Settings → Helper → *Remove Helper…*, or `passtunnel helper uninstall`.
    Do this *before* deleting the app.
-3. **Turn off launch at login:** Settings → General → *Launch at login*. Check that nothing is left
+3. **Turn off launch at login:** Settings → General → *Open at login, in the menu bar*. Check that nothing is left
    under System Settings → General → Login Items.
 4. **Quit** PassTunnel and move `PassTunnel.app` to the Trash.
 5. **Delete your data:**
