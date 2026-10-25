@@ -49,3 +49,8 @@ updates:
     groups:
       docker:
         patterns: ["*"]
+    # The runtime stage's ubuntu follows the build image's release and is moved by hand with it, so
+    # only the digest of the pinned tag comes from here.
+    ignore:
+      - dependency-name: ubuntu
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
