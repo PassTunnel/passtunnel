@@ -845,6 +845,66 @@
         }
       }
     },
+    "(not the installed build; restart it: systemctl restart passtunnel)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(yüklü derleme değil; yeniden başlatın: systemctl restart passtunnel)"
+          }
+        }
+      }
+    },
+    "Could not reach the PassTunnel daemon (passtunneld): %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel arka plan hizmetine (passtunneld) ulaşılamadı: %@"
+          }
+        }
+      }
+    },
+    "Daemon (passtunneld): installed, but not answering" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arka plan hizmeti (passtunneld): yüklü, ancak yanıt vermiyor"
+          }
+        }
+      }
+    },
+    "Daemon (passtunneld): running (protocol %lld)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arka plan hizmeti (passtunneld): çalışıyor (protokol %lld)"
+          }
+        }
+      }
+    },
+    "The PassTunnel daemon (passtunneld) belongs to another version of PassTunnel (version %lld, expected %lld). Install the same version of both, then restart the daemon (systemctl restart passtunnel)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel arka plan hizmeti (passtunneld) başka bir PassTunnel sürümüne ait (sürüm %1$lld, beklenen %2$lld). İkisinin de aynı sürümünü yükleyin, ardından hizmeti yeniden başlatın (systemctl restart passtunnel)."
+          }
+        }
+      }
+    },
+    "The running PassTunnel daemon (passtunneld) is not the one installed with this passtunnel. Restart it (systemctl restart passtunnel)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Çalışan PassTunnel arka plan hizmeti (passtunneld) bu passtunnel ile yüklenmiş olan değil. Yeniden başlatın (systemctl restart passtunnel)."
+          }
+        }
+      }
+    },
     "connect to “%@” (%@)" : {
       "localizations" : {
         "tr" : {

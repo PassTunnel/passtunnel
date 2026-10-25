@@ -70,4 +70,12 @@ package.products.removeAll { !["PassTunnelKit", "PassTunnelShared", "PassTunnelC
 // Linux only: on the Mac the app binary is the command. The product names the binary.
 package.targets.append(.executableTarget(name: "PassTunnelCommand", dependencies: ["PassTunnelCLI"]))
 package.products.append(.executable(name: "passtunnel", targets: ["PassTunnelCommand"]))
+// passtunneld, the root daemon (docs/LINUX.md). Like PassTunnelHelper it is built from Shared and
+// VPNConfig and nothing else: its logic is the library PassTunnelDaemon (so the tests can run it with
+// injected paths and uids), which the executable PassTunnelDaemonCommand wraps.
+package.targets.append(.target(name: "PassTunnelDaemon", dependencies: ["PassTunnelShared", "PassTunnelVPNConfig"]))
+package.targets.append(.executableTarget(name: "PassTunnelDaemonCommand", dependencies: ["PassTunnelDaemon", "PassTunnelShared"]))
+package.products.append(.executable(name: "passtunneld", targets: ["PassTunnelDaemonCommand"]))
+package.targets.append(.testTarget(name: "PassTunnelDaemonTests",
+                                   dependencies: ["PassTunnelDaemon", "PassTunnelShared", "PassTunnelCore", "PassTunnelVPNConfig"]))
 #endif

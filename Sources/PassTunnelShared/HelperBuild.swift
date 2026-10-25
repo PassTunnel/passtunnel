@@ -51,6 +51,36 @@ public enum HelperBuild {
     /// bare `swift build`), in which case builds are not compared.
     public static let bundled: String? = currentExecutablePath.flatMap { digest(ofFile: bundledHelperPath(nextTo: $0)) }
 
+    #if os(Linux)
+    /// Executable name of the Linux daemon. It hashes itself (`/proc/self/exe`) once at start and
+    /// reports the digest in `hello` (docs/LINUX.md).
+    public static let daemonExecutableName = "passtunneld"
+
+    /// The daemon installed together with the `passtunnel` at `executable` (symlinks resolved):
+    /// `<prefix>/sbin/passtunneld` for `<prefix>/bin/passtunnel` (the packages' /usr, the tarball's
+    /// /usr/local), else `passtunneld` in the same directory (a development build). Nil when neither
+    /// is a file.
+    public static func installedDaemonPath(nextTo executable: String) -> String? {
+        let real = HelperCore.realPath(executable) ?? executable
+        let dir = (real as NSString).deletingLastPathComponent
+        let candidates = [
+            ((dir as NSString).deletingLastPathComponent as NSString).appendingPathComponent("sbin/" + daemonExecutableName),
+            (dir as NSString).appendingPathComponent(daemonExecutableName),
+        ]
+        return candidates.first { path in
+            var st = stat()
+            return stat(path, &st) == 0 && (st.st_mode & S_IFMT) == S_IFREG
+        }
+    }
+
+    /// Digest of the daemon installed with the running `passtunnel`: what the running daemon must
+    /// report, as `bundled` is on the Mac. A difference means the daemon still runs an earlier binary
+    /// (restart it) or comes from another installation. Nil when there is none (tests), in which case
+    /// builds are not compared.
+    public static let installedDaemon: String? = currentExecutablePath
+        .flatMap(installedDaemonPath(nextTo:)).flatMap(digest(ofFile:))
+    #endif
+
     /// True unless both builds are known and differ.
     public static func matches(helper: String, expected: String?) -> Bool {
         guard let expected else { return true }
