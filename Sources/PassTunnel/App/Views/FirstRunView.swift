@@ -104,13 +104,20 @@ private struct FileDropZone: View {
 
 // MARK: - Tiles
 
-/// The ways in besides a file, one tile each, in this order. Scanning a QR code on screen joins them as the first one
-/// (macOS 14 and later, decision D-20).
+/// The ways in besides a file, one tile each, in this order. Scanning a QR code on screen is the first one, on macOS 14
+/// and later only (decision D-20: the system's content picker came with macOS 14).
 enum AddOption: CaseIterable {
-    case qrImage, byHand
+    case scanScreen, qrImage, byHand
+
+    /// The tiles this Mac shows.
+    static var shown: [AddOption] {
+        if #available(macOS 14, *) { return allCases }
+        return allCases.filter { $0 != .scanScreen }
+    }
 
     var symbol: String {
         switch self {
+        case .scanScreen: return "qrcode.viewfinder"
         case .qrImage: return "photo"
         case .byHand: return "keyboard"
         }
@@ -118,6 +125,7 @@ enum AddOption: CaseIterable {
 
     var title: String {
         switch self {
+        case .scanScreen: return String(localized: "Scan a QR code on screen")
         case .qrImage: return String(localized: "Use a QR image")
         case .byHand: return String(localized: "Enter details by hand")
         }
@@ -125,6 +133,7 @@ enum AddOption: CaseIterable {
 
     var detail: String {
         switch self {
+        case .scanScreen: return String(localized: "Select the authenticator QR open in your browser.")
         case .qrImage: return String(localized: "A screenshot or a photo of the QR.")
         case .byHand: return String(localized: "Server, user name, password and code secret.")
         }
@@ -132,14 +141,16 @@ enum AddOption: CaseIterable {
 
     var identifier: String {
         switch self {
+        case .scanScreen: return "firstRun.scanScreen"
         case .qrImage: return "firstRun.qrImage"
         case .byHand: return "firstRun.byHand"
         }
     }
 
-    /// Both ask OpenVPN or FortiGate, then open a new profile's editor: with the code filled in for a QR image.
+    /// Each asks OpenVPN or FortiGate, then opens a new profile's editor: with the code filled in for a scanned QR.
     @MainActor func run() {
         switch self {
+        case .scanScreen: ImportActions.newProfileFromScreen()
         case .qrImage: ImportActions.newProfileFromQR()
         case .byHand: ImportActions.newProfileByHand()
         }
@@ -150,7 +161,7 @@ enum AddOption: CaseIterable {
 private struct AddTiles: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            ForEach(AddOption.allCases, id: \.self) { AddTile(option: $0) }
+            ForEach(AddOption.shown, id: \.self) { AddTile(option: $0) }
         }
         .fixedSize(horizontal: false, vertical: true)
     }

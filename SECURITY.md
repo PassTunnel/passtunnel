@@ -330,6 +330,11 @@ characters in it are replaced.
   detached process behind that clears the clipboard.
 - **Auto-type** (off by default) needs Accessibility permission, which is requested only when you
   enable it. Global shortcuts use Carbon hotkeys and do not need any permission.
+- **Scan QR on screen** (macOS 14 and later) uses the system's content picker: you pick the window or
+  display, and that pick is all PassTunnel can capture, without Screen Recording permission. Only if
+  macOS does not let it capture the pick does PassTunnel offer, after saying why, one picture of each
+  display, which needs Screen Recording permission (macOS asks the first time). The pictures are read
+  for a QR code in memory and never saved or sent.
 - **No test hooks in releases.** `passtunnel debug drop`, which ends a connection as if the server
   had (and which any process in your login session could trigger through the running app), exists
   only in debug builds.

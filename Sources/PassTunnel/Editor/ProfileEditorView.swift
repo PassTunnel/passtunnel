@@ -339,11 +339,19 @@ struct ProfileEditorView: View {
             EditorRow(Text("One-time code")) { codeSummary }
             if model.usesCredentials {
                 EditorRow(nil) {
-                    HStack(spacing: Spacing.xs) {
-                        Button("Choose image…") { chooseQRImage() }
-                            .buttonStyle(.secondaryCapsule(.compact))
-                        Button("Paste secret") { model.pasteSecret() }
-                            .buttonStyle(.secondaryCapsule(.compact))
+                    // One row when the three fit (they do not in every language), else the scan on a row of its own.
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: Spacing.xs) {
+                            scanScreenButton
+                            imageButtons
+                        }
+                        VStack(alignment: .leading, spacing: Spacing.xs) {
+                            scanScreenButton
+                            HStack(spacing: Spacing.xs) { imageButtons }
+                        }
+                    }
+                    if model.scanningScreen {
+                        EditorHint("Choose the window or screen that shows the QR code.")
                     }
                     if !model.isAdvanced(.totpSecret) {
                         EditorInlineError(message: model.error(.totpSecret))
@@ -374,6 +382,23 @@ struct ProfileEditorView: View {
             }
         }
         .id(Self.anchor(.totpSecret))
+    }
+
+    /// "Scan QR on screen", hidden on macOS 13: the system's content picker came with macOS 14 (decision D-20).
+    @ViewBuilder private var scanScreenButton: some View {
+        if #available(macOS 14, *) {
+            Button("Scan QR on screen") { model.scanScreen() }
+                .buttonStyle(.secondaryCapsule(.compact))
+                .disabled(model.scanningScreen)
+                .accessibilityIdentifier("editor.scanScreen")
+        }
+    }
+
+    @ViewBuilder private var imageButtons: some View {
+        Button("Choose image…") { chooseQRImage() }
+            .buttonStyle(.secondaryCapsule(.compact))
+        Button("Paste secret") { model.pasteSecret() }
+            .buttonStyle(.secondaryCapsule(.compact))
     }
 
     /// The secret's summary and live code, or what the profile does instead (asks, none, empty).
@@ -410,7 +435,11 @@ struct ProfileEditorView: View {
                 switch p.otpMode {
                 case .totp:
                     Text("Scan the QR code your VPN provider gave you").typography(.body).foregroundStyle(Palette.fg)
-                    EditorHint("Drop a screenshot here, choose the image, or paste the secret.")
+                    if #available(macOS 14, *) {
+                        EditorHint("Scan it on screen, drop a screenshot here, choose the image, or paste the secret.")
+                    } else {
+                        EditorHint("Drop a screenshot here, choose the image, or paste the secret.")
+                    }
                 case .ask:
                     Text("Ask each time").typography(.body).foregroundStyle(Palette.fg)
                     EditorHint("PassTunnel asks for the code each time you connect.")

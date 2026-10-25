@@ -165,6 +165,20 @@ enum ImportActions {
         startProfile(with: uri)
     }
 
+    /// The first run's "Scan a QR code on screen" (macOS 14 and later): the QR code the user picks on screen
+    /// (`ScreenQRScanner`) starts a new profile like a QR image does. Cancelling does nothing.
+    @MainActor static func newProfileFromScreen() {
+        guard #available(macOS 14, *) else { return }
+        Task {
+            do {
+                guard let uri = try await ScreenQRScanner.shared.scan() else { return }
+                startProfile(with: uri)
+            } catch {
+                showError(String(localized: "No usable code was found."), error)
+            }
+        }
+    }
+
     @MainActor private static func chooseQRImage() -> URL? {
         let panel = NSOpenPanel()
         panel.title = String(localized: "Add Code from QR")
