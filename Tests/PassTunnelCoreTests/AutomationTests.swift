@@ -868,6 +868,52 @@ final class MCPServerTests: XCTestCase {
         XCTAssertEqual(helper.stops, ["acme"])
     }
 
+    /// Two connected tunnels that claim the same networks or names: the second connect goes ahead and says
+    /// so in `warnings`; the result of any other call has none.
+    func testConnectWarnsAboutOverlappingTunnels() async throws {
+        let base = "client\nremote vpn.example.com 1194\nauth-user-pass\n"
+        try makeOpenVPN("Work", config: base + "route 10.0.0.0 255.0.0.0\ndhcp-option DOMAIN-ROUTE example.com\n")
+        try makeOpenVPN("Lab", config: base + "route 10.9.0.0 255.255.0.0\ndhcp-option DOMAIN-ROUTE Example.com\n")
+        try makeOpenVPN("Apart", config: base + "route 172.16.0.0 255.240.0.0\n")
+        let server = makeServer(allowConnect: true)
+
+        let work = try await structured(server, "connect", ["profile_id": "work"])
+        XCTAssertEqual(work["state"] as? String, "connected")
+        XCTAssertNil(work["warnings"], "nothing else is connected")
+
+        let apart = try await structured(server, "connect", ["profile_id": "apart"])
+        XCTAssertEqual(apart["state"] as? String, "connected")
+        XCTAssertNil(apart["warnings"])
+
+        let lab = try await structured(server, "connect", ["profile_id": "lab"])
+        XCTAssertEqual(lab["state"] as? String, "connected", "a warning, not a refusal")
+        let warnings = try XCTUnwrap(lab["warnings"] as? [[String: Any]])
+        XCTAssertEqual(warnings.count, 1)
+        XCTAssertEqual(warnings[0]["kind"] as? String, "overlap")
+        XCTAssertEqual(warnings[0]["with"] as? String, "work")
+        XCTAssertEqual(warnings[0]["name"] as? String, "Work")
+        XCTAssertEqual(warnings[0]["routes"] as? [String], ["10.9.0.0/16"])
+        XCTAssertEqual(warnings[0]["domains"] as? [String], ["example.com"])
+        XCTAssertNil(warnings[0]["all_traffic"])
+        XCTAssertTrue(logs.contains { $0.contains("overlaps with work") }, "\(logs)")
+
+        let status = try await structured(server, "get_status", ["profile_id": "lab"])
+        let profiles = try XCTUnwrap(status["profiles"] as? [[String: Any]])
+        XCTAssertNil(profiles.first?["warnings"], "only the result of a connect has them")
+
+        // The schema says so, so clients know the field.
+        let list = try await reply(server, request(9, "tools/list"))
+        let tools = try XCTUnwrap((list["result"] as? [String: Any])?["tools"] as? [[String: Any]])
+        let connect = try XCTUnwrap(tools.first { $0["name"] as? String == "connect" })
+        let output = try XCTUnwrap(connect["outputSchema"] as? [String: Any])
+        let properties = try XCTUnwrap(output["properties"] as? [String: Any])
+        let schema = try XCTUnwrap(properties["warnings"] as? [String: Any])
+        XCTAssertEqual(schema["type"] as? String, "array")
+        let item = try XCTUnwrap((schema["items"] as? [String: Any])?["properties"] as? [String: Any])
+        XCTAssertEqual(Set(item.keys), ["kind", "with", "name", "routes", "domains", "all_traffic"])
+        XCTAssertTrue((connect["description"] as? String ?? "").contains("warnings"))
+    }
+
     /// A failed connect says why: the error carries a `failure` object, and `get_status` keeps it.
     func testAFailedConnectSaysWhy() async throws {
         try makeOpenVPN(otp: .totp)

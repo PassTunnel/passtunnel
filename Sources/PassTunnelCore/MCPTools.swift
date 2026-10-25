@@ -116,7 +116,7 @@ final class MCPTools {
 
     static let connectTools: [Tool] = [
         Tool(name: "connect", title: "Connect a VPN profile",
-             description: "Connects a VPN profile and, by default, waits until it is connected or has failed. \(MCPWording.connectProtected) Profiles that ask for a user name, password or code on every connect cannot be connected this way. A failure carries a failure object (why, the server's reply, whether the sign-in was sent); a rejected sign-in is never retried, so do not retry it either. Connecting changes \(MCPWording.theMachines) network routes; only connect when the user asked for it.",
+             description: "Connects a VPN profile and, by default, waits until it is connected or has failed. \(MCPWording.connectProtected) Profiles that ask for a user name, password or code on every connect cannot be connected this way. A failure carries a failure object (why, the server's reply, whether the sign-in was sent); a rejected sign-in is never retried, so do not retry it either. The result's warnings list connected profiles whose tunnels claim some of the same networks or DNS names (kind overlap): that traffic goes through only one of the two tunnels. The connection goes ahead; tell the user. Connecting changes \(MCPWording.theMachines) network routes; only connect when the user asked for it.",
              input: Schema.object(["profile_id": Schema.profileID(optional: false),
                                    "wait": Schema.boolean(default: true, "Wait until connected or failed; false returns at once with state connecting."),
                                    "timeout_seconds": Schema.integer(1, maxTimeout, default: defaultTimeout,
@@ -222,8 +222,9 @@ final class MCPTools {
             let list = p.needs.map(\.displayName).joined(separator: ", ")
             throw AutomationError(.inputRequired, String(localized: "This profile asks for: \(list). Connect it in PassTunnel or in a terminal."))
         }
-        try await manager.checkCanStart(id)
+        let overlaps = try await manager.checkCanStart(id)
         log("connect \(id)")
+        if !overlaps.isEmpty { log("connect \(id): overlaps with \(overlaps.map(\.profileID).joined(separator: ", "))") }
         try await manager.vault.unlock(p, for: .connect)
         if wait {
             try await service.connect(id, timeout: timeout, joining: false)
@@ -240,7 +241,7 @@ final class MCPTools {
                 try? await Task.sleep(nanoseconds: 10_000_000)
             }
         }
-        return service.status(p)
+        return service.status(p, overlaps: overlaps)
     }
 
     func drain() async {
@@ -369,11 +370,17 @@ enum Schema {
         "tries": int, "clock": clock,
     ], required: ["kind", "at", "credentials_sent", "code_sent"])
 
+    /// `ConnectWarning`: another connected tunnel takes over some of the same networks or DNS names.
+    static let warning = result([
+        "kind": oneOf(["overlap"]), "with": string, "name": string, "routes": array(string), "domains": array(string),
+        "all_traffic": array(string),
+    ], required: ["kind", "with", "name", "routes", "domains"])
+
     static let profileStatus = result([
         "id": string, "name": string, "type": vpnType, "state": state, "phase": string, "ip": string,
         "since": ["type": "string", "format": "date-time"], "duration_seconds": int, "is_default": bool, "protected": bool,
         "auto_reconnect": bool, "health": oneOf(["reachable", "unreachable"]), "error": string, "failure": failure,
-        "warning": string, "status_unavailable": bool,
+        "warning": string, "status_unavailable": bool, "warnings": array(warning),
     ], required: ["id", "name", "type", "state", "is_default", "protected", "auto_reconnect"])
 
     static let helper = result([

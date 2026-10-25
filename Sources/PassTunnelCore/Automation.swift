@@ -236,11 +236,14 @@ public struct ProfileStatus: Codable, Equatable {
     public var warning: String?
     /// Connected, but the management interface did not answer: ip and since may be stale.
     public var statusUnavailable: Bool?
+    /// What the user should know about a connect that went ahead anyway (`connect`): another tunnel claims
+    /// the same networks or names. Only the result of a connect has it.
+    public var warnings: [ConnectWarning]?
 
     public init(id: String, name: String, type: String, state: String, phase: String? = nil, ip: String? = nil,
                 since: Date? = nil, durationSeconds: Int? = nil, isDefault: Bool, protected: Bool = false,
                 autoReconnect: Bool = false, health: String? = nil, error: String? = nil, failure: ConnectionFailure? = nil,
-                warning: String? = nil, statusUnavailable: Bool? = nil) {
+                warning: String? = nil, statusUnavailable: Bool? = nil, warnings: [ConnectWarning]? = nil) {
         self.id = id
         self.name = name
         self.type = type
@@ -257,6 +260,7 @@ public struct ProfileStatus: Codable, Equatable {
         self.failure = failure
         self.warning = warning
         self.statusUnavailable = statusUnavailable
+        self.warnings = warnings
     }
 
     static func stateName(_ state: ConnectionState) -> String {
@@ -265,6 +269,38 @@ public struct ProfileStatus: Codable, Equatable {
         case .connecting: return "connecting"
         case .connected: return "connected"
         }
+    }
+}
+
+/// A warning that comes with the result of a `connect`: the connection goes ahead, the caller says so.
+/// `kind` "overlap": the profile `with` (id; `name` is how it is called) is connected and takes over some of
+/// the same networks (`routes`, CIDR) or DNS names (`domains`) as the profile being connected, so that
+/// traffic goes through only one of the two tunnels. `all_traffic` lists the profiles (ids) that send all
+/// traffic through their tunnel, when any does.
+public struct ConnectWarning: Codable, Equatable {
+    public var kind: String
+    public var with: String
+    public var name: String
+    public var routes: [String]
+    public var domains: [String]
+    public var allTraffic: [String]?
+
+    public init(kind: String = "overlap", with: String, name: String, routes: [String], domains: [String],
+                allTraffic: [String]? = nil) {
+        self.kind = kind
+        self.with = with
+        self.name = name
+        self.routes = routes
+        self.domains = domains
+        self.allTraffic = allTraffic
+    }
+
+    /// The warning for `overlap` found while connecting profile `id`.
+    public init(_ overlap: ProfileOverlap, connecting id: String) {
+        let summary = overlap.summary
+        let all = (summary.firstTakesAllTraffic ? [id] : []) + (summary.secondTakesAllTraffic ? [overlap.profileID] : [])
+        self.init(with: overlap.profileID, name: overlap.name, routes: summary.routes.map(\.description),
+                  domains: summary.domains, allTraffic: all.isEmpty ? nil : all)
     }
 }
 

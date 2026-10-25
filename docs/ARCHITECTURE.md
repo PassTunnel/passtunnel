@@ -164,7 +164,10 @@ public enum PT {
     one JSON object per line, 0600; appended under `profiles/<id>/.activity.lock` and replaced atomically, so
     the app and CLI processes can write at once; no password, a code as at most its first three digits),
     `profiles/<id>/clock.json` (the last `ClockOffset` measured for the profile: a FortiGate gateway's time
-    after a rejected sign-in, 0600)
+    after a rejected sign-in, 0600),
+    `profiles/<id>/network.json` (`ProfileNetwork`: the routes and DNS options of the last connect, 0600, replaced
+    atomically; read only if it is a regular file of the user without group or other access, for the profile's
+    current destination, otherwise ignored)
     (the OpenVPN management socket is in the helper's run directory, see below)
   - Linux only (`~/.local/share/passtunnel/`, LINUX.md): `secrets/<account>.cred` (systemd-creds
     store), `secrets.enc` and `.secrets.lock` (file store)
@@ -760,6 +763,28 @@ tunnel. Hence:
   interface comes from "Opened utun device …" / "Interface pppN is UP" in their logs; on Linux also
   "TUN/TAP device tunN opened" / "DCO device tunN opened").
   `passtunnel connect --force` skips the check.
+- Two tunnels that claim the same routes or DNS names are a warning, never a refusal (`NetworkClaims`, Kit;
+  `ProfileNetwork`, Core). `ConnectionManager.checkCanStart(id)` (after the check above) also returns the
+  `ProfileOverlap`s of `id` with PassTunnel's own running sessions (the helper's `status` plus the manager's
+  active states; `overlaps(for:)` is the same without the other-VPN check, for `--force`), and the CLI and the
+  MCP `connect` warn and go ahead (`ConnectWarning`, CLI-JSON.md). What a profile claims is
+  `OVPNAnalyzer.networkClaims(config, pushed:)`: its `route`, `route-ipv6`, `redirect-gateway`, `dhcp-option`
+  and `dns` lines and the options its server pushed, less what `route-nopull`, `route-noexec` and
+  `pull-filter` refuse (a route via `net_gateway` or `remote_host` does not use the tunnel). The push is
+  read from the log at `--verb 3`, which PassTunnel runs unless the config says otherwise: OpenVPN logs
+  `PUSH: Received control message: 'PUSH_REPLY,…'` at its `D_PUSH` level (3), in several lines for a big
+  push (`push-continue 1` on all but the last); `VPNLog.pushedOptions` keeps only routes, redirects and DNS,
+  and reads server text with limits (a line of at most 16 KB, 512 bytes and printable ASCII per option, 1024
+  options). openfortivpn logs only the gateway's DNS (`Got addresses: …, ns […], ns_suffix […]`), its routes
+  come from the routing table through the tunnel interface (`RoutingTable.routes(onInterface:)`: the Mac's
+  IPv4 table, Linux's rtnetlink; link-local, multicast and the session's own address left out). After every
+  connect this process started, the options go to `profiles/<id>/network.json` together with the
+  `ProfileDestination` fingerprint they belong to: the check runs before the new tunnel exists, so it uses
+  that file (a profile that never connected is compared by its config lines only), and for a profile that
+  runs, its log first. `NetworkClaims.overlaps` is exact CIDR math for IPv4 and IPv6 (containment both ways,
+  `/0`, host routes), names match when equal or one is a suffix of the other on a label boundary, and a tunnel
+  that carries all traffic meets anything the other claims. The warning does not say which tunnel gets the
+  traffic (the Mac keeps the first of two identical routes, a narrower route wins over a broader one).
 - While connecting, the log is checked (`VPNLog.setupProblem`): a failed DNS hook or a failed route for
   `0/1`, `128/1`, `default` (or the IPv6 equivalents) is `PTError.setupFailed` — the session is stopped
   instead of being reported connected (with the caveat above about OpenVPN's teardown; the pre-connect

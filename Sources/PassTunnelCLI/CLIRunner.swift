@@ -238,9 +238,11 @@ final class CLIRunner {
                 // It ended before it could be followed: connect as usual, with the checks below.
             }
         }
+        var overlaps: [ProfileOverlap] = []
         do {
             // Before "Connecting …" and before asking for credentials.
-            if !force { try await manager.checkCanStart(p.id) }
+            overlaps = force ? await manager.overlaps(for: p.id) : try await manager.checkCanStart(p.id)
+            warn(of: overlaps, connecting: p)
             try await manager.vault.unlock(p, for: .connect)
             let given = try askForNeeds(p)
             try await connectShowingProgress(p, given: given, force: force, timeout: timeout)
@@ -250,8 +252,20 @@ final class CLIRunner {
             CLITerminal.err(CLITerminal.dim(String(localized: "Use --force to connect anyway.")))
             return AutomationErrorCode.otherVPNActive.exitCode
         }
-        if json { try printJSON(automation.status(p)) }
+        if json { try printJSON(automation.status(p, overlaps: overlaps)) }
         return Exit.ok
+    }
+
+    /// Tells the user, on stderr, that tunnels already connected claim some of what `p` does. The connect
+    /// goes ahead either way.
+    private func warn(of overlaps: [ProfileOverlap], connecting p: Profile) {
+        guard !overlaps.isEmpty else { return }
+        let palette = Preferences.load().badgePalette
+        for overlap in overlaps {
+            let lines = overlap.messageLines(connecting: p.name)
+            CLITerminal.err(CLITerminal.colored(lines[0], palette.color(.connecting)))
+            for line in lines.dropFirst() { CLITerminal.err("  " + line) }
+        }
     }
 
     private func connectShowingProgress(_ p: Profile, given: [CredentialField: String], joining: Bool = false,
@@ -359,8 +373,11 @@ final class CLIRunner {
             try await manager.disconnect(p.id)
             if !json { CLITerminal.out(String(localized: "Disconnected: \(p.name)")) }
         } else {
+            let overlaps = await manager.overlaps(for: p.id)
+            warn(of: overlaps, connecting: p)
             try await manager.vault.unlock(p, for: .connect)
             try await connectShowingProgress(p, given: try askForNeeds(p))
+            if json { try printJSON(automation.status(p, overlaps: overlaps)); return Exit.ok }
         }
         if json { try printJSON(automation.status(p)) }
         return Exit.ok

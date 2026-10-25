@@ -15,7 +15,7 @@ the MCP server has no such tool.
 - [Options for scripts](#options-for-scripts)
 - [Exit codes](#exit-codes)
 - [Errors](#errors)
-- [Objects](#objects): [ProfileSummary](#profilesummary), [ProfileStatus](#profilestatus), [ConnectionFailure](#connectionfailure), [ClockOffset](#clockoffset), [HelperReport](#helperreport), [SecretStoreReport](#secretstorereport), [LogReport](#logreport), [ActivityEvent](#activityevent), [DiagnoseReport](#diagnosereport)
+- [Objects](#objects): [ProfileSummary](#profilesummary), [ProfileStatus](#profilestatus), [ConnectWarning](#connectwarning), [ConnectionFailure](#connectionfailure), [ClockOffset](#clockoffset), [HelperReport](#helperreport), [SecretStoreReport](#secretstorereport), [LogReport](#logreport), [ActivityEvent](#activityevent), [DiagnoseReport](#diagnosereport)
 - [Commands](#commands)
 
 ## Options for scripts
@@ -143,8 +143,43 @@ From `status`, `connect`, `disconnect`, `toggle` and the MCP tools `get_status`,
 (`reachable` / `unreachable`, only from a process that runs health checks), `error` (why the last
 attempt in this process failed) and `failure` (the same as a [ConnectionFailure](#connectionfailure);
 also after a cancelled attempt, which has no `error`), `warning` (connected, but part of the network
-setup failed) and `status_unavailable` (connected, but the management interface did not answer: `ip`
-and `since` may be stale).
+setup failed), `status_unavailable` (connected, but the management interface did not answer: `ip`
+and `since` may be stale) and `warnings` (only in the result of `connect`: a list of
+[ConnectWarning](#connectwarning)).
+
+### ConnectWarning
+
+Something to know about a `connect` that went ahead anyway: `warnings` in the ProfileStatus a `connect`
+(or a `toggle` that connects) returns (CLI with `--json`, and the MCP tool), always an array of objects, left out when there is none. The
+connection is never refused for it; the CLI also prints it on stderr.
+
+```json
+{
+  "all_traffic" : [
+    "lab"
+  ],
+  "domains" : [
+    "example.com"
+  ],
+  "kind" : "overlap",
+  "name" : "Work",
+  "routes" : [
+    "10.9.0.0/16"
+  ],
+  "with" : "work"
+}
+```
+
+`kind` `overlap`: the profile `with` (its id; `name` is what it is called) is connected, and its tunnel
+takes over some of the same networks or DNS names as the profile being connected, so traffic for them
+goes through only one of the two tunnels. `routes`: the networks both send through their tunnel (CIDR,
+IPv4 and IPv6; where one holds the other, the narrower), `domains`: the DNS names both look up through
+theirs (equal, or one inside the other: `corp.example.com` is inside `example.com`, `notexample.com` is
+not), `all_traffic`: the profiles (ids) among the two that send all traffic through their tunnel, when any
+does (that meets whatever the other takes over). What a tunnel takes over comes from the profile's
+`route`, `redirect-gateway`, `dhcp-option` and `dns` lines and from what its server pushed (or, for
+FortiGate, handed out and routed) the last time it connected, so a profile that has not connected yet is
+compared by its own lines only. New kinds may be added.
 
 ### ConnectionFailure
 
@@ -355,7 +390,7 @@ the ones you do not know.
 |---|---|
 | `status` | array of ProfileStatus |
 | `status ID` | ProfileStatus (exit 3 when not connected) |
-| `connect [ID] [--force] [--wait] [--timeout S]` | ProfileStatus after connecting; already connected: its status |
+| `connect [ID] [--force] [--wait] [--timeout S]` | ProfileStatus after connecting, with [`warnings`](#connectwarning) when tunnels overlap; already connected: its status |
 | `disconnect [ID] [--wait] [--timeout S]` | ProfileStatus |
 | `disconnect --all [--wait]` | array of ProfileStatus |
 | `toggle [ID]` | ProfileStatus |
