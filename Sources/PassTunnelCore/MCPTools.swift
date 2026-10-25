@@ -13,6 +13,7 @@ enum MCPWording {
     static let connectProtected = "A protected profile cannot be connected on Linux yet: it is refused with auth_unavailable."
     static let instructionsProtected = "A protected profile cannot be connected on Linux yet: connect refuses it with auth_unavailable."
     static let timeout = "How long to wait for the connection."
+    static let timeServer = "the NTP server this computer is set up with"
     #else
     static let thisMachines = "this Mac's"
     static let theMachines = "the Mac's"
@@ -20,6 +21,7 @@ enum MCPWording {
     static let connectProtected = "If the profile is protected, the user must confirm with Touch ID on the Mac: tell them a prompt is waiting."
     static let instructionsProtected = "A protected profile shows a Touch ID prompt on the Mac that the user must confirm; tell the user to look for it."
     static let timeout = "How long to wait for the connection (after the Touch ID confirmation)."
+    static let timeServer = "Apple's time server (time.apple.com)"
     #endif
 }
 
@@ -95,7 +97,7 @@ final class MCPTools {
              input: Schema.object([:]), output: Schema.object(["profiles": Schema.array(Schema.profileSummary)], required: ["profiles"]),
              readOnly: true),
         Tool(name: "get_status", title: "Get connection status",
-             description: "Returns the connection state of every profile (or only profile_id): disconnected, connecting or connected, the tunnel IP, since when, the last error and why it happened (failure: auth_rejected, host_not_found, unreachable, configuration, setup, timeout, cancelled or failed; the server's reply; whether the sign-in and a one-time code were sent), and whether the privileged helper that starts VPNs is installed and current.",
+             description: "Returns the connection state of every profile (or only profile_id): disconnected, connecting or connected, the tunnel IP, since when, the last error and why it happened (failure: auth_rejected, host_not_found, unreachable, configuration, setup, timeout, cancelled or failed; the server's reply; whether the sign-in and a one-time code were sent; for a rejected sign-in, clock: how far \(MCPWording.thisMachines) clock was off, when known), and whether the privileged helper that starts VPNs is installed and current.",
              input: Schema.object(["profile_id": Schema.profileID(optional: true)]), output: Schema.statusReport, readOnly: true),
         Tool(name: "get_logs", title: "Read VPN log",
              description: "Returns the last lines of a profile's VPN log, for explaining why a connection failed. source \"raw\" (the default): the OpenVPN or openfortivpn output of the current or last session. source \"activity\": what PassTunnel did and saw, also for sessions the app or a terminal started (connecting, waiting for a fresh code, credentials sent, sign-in accepted or rejected, connected, drops, reconnects, stopped by the user), as sentences in lines and as typed events. Anything that looks like a credential is replaced by <redacted>; passwords and one-time codes are never included.",
@@ -107,8 +109,9 @@ final class MCPTools {
                                   required: ["profile_id"]),
              output: Schema.logReport, readOnly: true),
         Tool(name: "diagnose", title: "Diagnose PassTunnel",
-             description: "Checks the PassTunnel installation and every profile without connecting: app version and location, helper installed/enabled/outdated, and per profile whether the configuration, server and saved credentials are in place (never their values). Start here when something does not work.",
-             input: Schema.object([:]), output: Schema.diagnose, readOnly: true),
+             description: "Checks the PassTunnel installation and every profile without connecting: app version and location, helper installed/enabled/outdated, and per profile whether the configuration, server and saved credentials are in place (never their values) and the last clock measurement (a FortiGate gateway's time, taken after it rejected a sign-in). Start here when something does not work. A clock off by \(ClockOffset.warnSeconds) s or more makes one-time codes fail.",
+             input: Schema.object(["check_clock": Schema.boolean(default: false, "Also ask \(MCPWording.timeServer) how far \(MCPWording.thisMachines) clock is off. This contacts that server, so set it only when the user asked to check the clock.")]),
+             output: Schema.diagnose, readOnly: true),
     ]
 
     static let connectTools: [Tool] = [
@@ -175,8 +178,9 @@ final class MCPTools {
             try args.finish()
             return source == "activity" ? try service.activity(id, lines: lines) : try service.logs(id, lines: lines)
         case "diagnose":
+            let checkClock = try args.boolean("check_clock") ?? false
             try args.finish()
-            return await service.diagnose()
+            return await service.diagnose(checkClock: checkClock)
         case "connect" where allowConnect:
             let id = try args.profileID(required: true)!
             let wait = try args.boolean("wait") ?? true
@@ -352,11 +356,17 @@ enum Schema {
     ], required: ["id", "name", "type", "is_default", "pinned", "username", "password_mode", "otp_mode", "require_auth",
                   "protected", "auto_reconnect", "connect_at_login"])
 
+    /// `ClockOffset`: how far the clock is off; positive when it is behind.
+    static let clock = result([
+        "offset_seconds": int, "source": oneOf(ClockOffset.Source.allCases.map(\.rawValue)), "server": string,
+        "checked_at": ["type": "string", "format": "date-time"],
+    ], required: ["offset_seconds", "source", "checked_at"])
+
     /// `ConnectionFailure`: why the last connect failed.
     static let failure = result([
         "kind": oneOf(ConnectionFailure.Kind.allCases.map(\.rawValue)), "at": ["type": "string", "format": "date-time"],
         "reply": string, "reason": string, "credentials_sent": bool, "code_sent": bool, "code_seconds_left": int,
-        "tries": int,
+        "tries": int, "clock": clock,
     ], required: ["kind", "at", "credentials_sent", "code_sent"])
 
     static let profileStatus = result([
@@ -395,7 +405,7 @@ enum Schema {
     static let profileCheck = result([
         "id": string, "name": string, "type": vpnType, "ok": bool, "server": string, "protected": bool,
         "password_saved": bool, "totp_saved": bool, "asks_for": array(oneOf(["username", "password", "otp"])),
-        "problems": array(errorReport),
+        "problems": array(errorReport), "clock": clock,
     ], required: ["id", "name", "type", "ok", "server", "protected", "asks_for", "problems"])
 
     static let secretStore = result([
@@ -406,7 +416,7 @@ enum Schema {
     static let diagnose: [String: Any] = {
         var properties: [String: Any] = [
             "version": string, "build": string, "app_path": string, "in_applications": bool, "helper": helper,
-            "profiles": array(profileCheck),
+            "profiles": array(profileCheck), "clock": clock, "clock_error": string,
         ]
         #if os(Linux)
         properties["secret_store"] = secretStore

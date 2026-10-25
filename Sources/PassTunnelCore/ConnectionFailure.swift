@@ -42,6 +42,10 @@ public struct ConnectionFailure: Codable, Equatable, Sendable {
     public var codeSecondsLeft: Int?
     /// unreachable: how many tries the log shows.
     public var tries: Int?
+    /// authRejected: how far this computer's clock was off, when it was measured after the rejection
+    /// (the FortiGate gateway's time, `ConnectionManager.checkGatewayClock`) or on request since
+    /// (`ConnectionManager.checkClock`).
+    public var clock: ClockOffset?
 
     public init(kind: Kind, at: Date, reply: String? = nil, reason: String? = nil, credentialsSent: Bool = false,
                 codeSent: Bool = false, codeSecondsLeft: Int? = nil, tries: Int? = nil) {
@@ -122,6 +126,7 @@ public struct ConnectionFailure: Codable, Equatable, Sendable {
         case .authRejected:
             if let reply, !reply.isEmpty { parts.append(String(localized: "The server answered: \(reply).")) }
             if codeSent, let left = codeSecondsLeft { parts.append(String(localized: "The code was sent with \(left) s left.")) }
+            if let clock { parts.append(clock.sentence) }
             parts.append(String(localized: "Not retried, to avoid a lockout."))
         case .unreachable, .hostNotFound:
             if let tries, tries > 1 { parts.append(String(localized: "No answer after \(tries) tries.")) }

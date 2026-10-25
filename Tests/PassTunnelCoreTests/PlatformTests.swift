@@ -508,6 +508,24 @@ final class CLIPlatformTests: XCTestCase {
     }
     #endif
 
+    /// `diagnose` is in the help and every completion script, with `--check-clock`.
+    @MainActor
+    func testDiagnoseCommandInHelpAndCompletion() {
+        XCTAssertTrue(CLIHelp.usage(for: nil).contains("passtunnel diagnose [--check-clock] [--json]"))
+        #if os(Linux)
+        XCTAssertTrue(CLIHelp.summary("diagnose").contains("NTP server"))
+        #else
+        XCTAssertTrue(CLIHelp.summary("diagnose").contains("time.apple.com"))
+        #endif
+        for shell in CLICommand.Shell.allCases {
+            let script = CLICompletions.script(for: shell)
+            XCTAssertTrue(script.contains("diagnose"), "\(shell)")
+            XCTAssertTrue(script.contains("check-clock"), "\(shell)")
+        }
+        XCTAssertTrue(CLIRunner.wantsJSON(.diagnose(json: true)))
+        XCTAssertFalse(CLIRunner.wantsJSON(.diagnose(checkClock: true)))
+    }
+
     /// `secret-store` exists on Linux only, with help and completion there; the Mac's command line,
     /// help and completion scripts stay as they were.
     func testSecretStoreCommandIsLinuxOnly() throws {

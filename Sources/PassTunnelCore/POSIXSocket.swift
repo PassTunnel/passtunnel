@@ -3,8 +3,8 @@ import Foundation
 import Glibc
 #endif
 
-/// The socket calls whose spelling differs between Darwin and Linux: `SOCK_STREAM` (an enum on
-/// Glibc), SIGPIPE (a socket option on Darwin, a flag on every send on Linux) and `sun_len` (Darwin
+/// The socket calls whose spelling differs between Darwin and Linux: `SOCK_STREAM` and `SOCK_DGRAM`
+/// (enums on Glibc), SIGPIPE (a socket option on Darwin, a flag on every send on Linux) and `sun_len` (Darwin
 /// only). Also used by the tests' fake servers.
 enum POSIXSocket {
     /// `SOCK_STREAM` as `socket()` and `addrinfo` take it.
@@ -13,6 +13,15 @@ enum POSIXSocket {
         Int32(SOCK_STREAM.rawValue)
         #else
         SOCK_STREAM
+        #endif
+    }
+
+    /// `SOCK_DGRAM`, the same way.
+    static var datagram: Int32 {
+        #if canImport(Glibc)
+        Int32(SOCK_DGRAM.rawValue)
+        #else
+        SOCK_DGRAM
         #endif
     }
 

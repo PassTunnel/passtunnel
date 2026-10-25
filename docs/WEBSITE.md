@@ -135,7 +135,8 @@ the main page, then one readable column (`.doc`): eyebrow "Privacy", `h1`, a one
 what the policy covers (the Mac app and CLI, the Android and iPhone apps, described as in
 development, and this website), information collected (none), what stays on the device (per
 platform), network connections (per platform: the user's VPN servers, the Mac's health check and
-*Fetch fingerprint*, Sparkle update checks to GitHub, the local MCP server), permissions (per
+*Fetch fingerprint*, its clock checks (the FortiGate gateway after a rejected sign-in, Apple's time
+server on request), Sparkle update checks to GitHub, the local MCP server), permissions (per
 platform), this website, children, changes (the public repository history) and contact (GitHub
 issues and the security policy; no email address). Every statement must match `SECURITY.md`,
 `docs/APP.md`, `docs/ARCHITECTURE.md` and `docs/MOBILE.md`: a change to what the apps store, send or

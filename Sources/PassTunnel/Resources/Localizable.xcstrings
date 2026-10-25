@@ -383,6 +383,16 @@
         }
       }
     },
+    "(checked %@ ago)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(%@ önce ölçüldü)"
+          }
+        }
+      }
+    },
     "(out of date; “passtunnel helper install” updates it)" : {
       "localizations" : {
         "tr" : {
@@ -743,6 +753,36 @@
         }
       }
     },
+    "Check the installation and every profile without connecting, with the last clock measurement. --check-clock also asks Apple’s time server (time.apple.com) how far the clock is off." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kurulumu ve her profili bağlanmadan denetler, son saat ölçümünü de gösterir. --check-clock, saatin ne kadar saptığını Apple’ın zaman sunucusuna (time.apple.com) da sorar."
+          }
+        }
+      }
+    },
+    "Check the installation and every profile without connecting, with the last clock measurement. --check-clock also asks the NTP server this computer is set up with how far the clock is off." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kurulumu ve her profili bağlanmadan denetler, son saat ölçümünü de gösterir. --check-clock, saatin ne kadar saptığını bu bilgisayarın ayarlı olduğu NTP sunucusuna da sorar."
+          }
+        }
+      }
+    },
+    "Checking the clock with the gateway is not available on this system." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saati ağ geçidiyle denetlemek bu sistemde kullanılamıyor."
+          }
+        }
+      }
+    },
     "Choose an .ovpn or .passtunnel file." : {
       "localizations" : {
         "tr" : {
@@ -1049,6 +1089,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "“%@” oturum açılırken bağlanamadı"
+          }
+        }
+      }
+    },
+    "Could not reach the server: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucuya ulaşılamadı: %@"
           }
         }
       }
@@ -1433,6 +1483,16 @@
         }
       }
     },
+    "No time server is set up on this system." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu sistemde ayarlı bir zaman sunucusu yok."
+          }
+        }
+      }
+    },
     "None in the file" : {
       "localizations" : {
         "tr" : {
@@ -1449,6 +1509,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Eklenmedi"
+          }
+        }
+      }
+    },
+    "Not in /Applications: the helper can be installed and updated only from there." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/Applications içinde değil: yardımcı yalnızca oradan yüklenip güncellenebilir."
           }
         }
       }
@@ -2133,12 +2203,52 @@
         }
       }
     },
+    "The clock could not be checked: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saat denetlenemedi: %@"
+          }
+        }
+      }
+    },
     "The code was sent with %lld s left." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kod, süresinin dolmasına %lld sn kala gönderildi."
+          }
+        }
+      }
+    },
+    "The gateway address is not valid." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ağ geçidi adresi geçerli değil."
+          }
+        }
+      }
+    },
+    "The gateway’s answer did not include its time." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ağ geçidinin yanıtında saati yoktu."
+          }
+        }
+      }
+    },
+    "The gateway’s certificate is not trusted, so its time was not read." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ağ geçidinin sertifikasına güvenilmiyor, bu yüzden saati okunmadı."
           }
         }
       }
@@ -2183,12 +2293,32 @@
         }
       }
     },
+    "The server did not answer in time." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu zamanında yanıt vermedi."
+          }
+        }
+      }
+    },
     "The server name %@ could not be found. Check the server address and the network connection." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sunucu adı bulunamadı: %@. Sunucu adresini ve ağ bağlantısını denetleyin."
+          }
+        }
+      }
+    },
+    "The server’s answer was not understood." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucunun yanıtı anlaşılamadı."
           }
         }
       }
@@ -2219,6 +2349,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bu Mac çevrimdışı."
+          }
+        }
+      }
+    },
+    "This profile asks for: %@." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu profil şunları soruyor: %@."
           }
         }
       }
@@ -8411,6 +8551,66 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sonra sunucuyu, kullanıcı adını, parolayı ve kodun gizli anahtarını girersiniz."
+          }
+        }
+      }
+    },
+    "Your clock is %lld s ahead of the gateway’s, so one-time codes made from it are likely refused. Fix the clock, then try again." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saatiniz ağ geçidininkinden %lld sn ileride, bu yüzden ona göre üretilen tek kullanımlık kodlar büyük olasılıkla reddedilir. Saati düzeltip yeniden deneyin."
+          }
+        }
+      }
+    },
+    "Your clock is %lld s ahead of the time server %@, so one-time codes made from it are likely refused. Fix the clock, then try again." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saatiniz %2$@ zaman sunucusundan %1$lld sn ileride, bu yüzden ona göre üretilen tek kullanımlık kodlar büyük olasılıkla reddedilir. Saati düzeltip yeniden deneyin."
+          }
+        }
+      }
+    },
+    "Your clock is %lld s behind the gateway’s, so one-time codes made from it are likely refused. Fix the clock, then try again." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saatiniz ağ geçidininkinden %lld sn geride, bu yüzden ona göre üretilen tek kullanımlık kodlar büyük olasılıkla reddedilir. Saati düzeltip yeniden deneyin."
+          }
+        }
+      }
+    },
+    "Your clock is %lld s behind the time server %@, so one-time codes made from it are likely refused. Fix the clock, then try again." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saatiniz %2$@ zaman sunucusundan %1$lld sn geride, bu yüzden ona göre üretilen tek kullanımlık kodlar büyük olasılıkla reddedilir. Saati düzeltip yeniden deneyin."
+          }
+        }
+      }
+    },
+    "Your clock matches the gateway’s, %lld s apart." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saatiniz ağ geçidininkiyle uyuşuyor, aradaki fark %lld sn."
+          }
+        }
+      }
+    },
+    "Your clock matches the time server %@, %lld s apart." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saatiniz %1$@ zaman sunucusuyla uyuşuyor, aradaki fark %2$lld sn."
           }
         }
       }
