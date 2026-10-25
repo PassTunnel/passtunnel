@@ -573,6 +573,16 @@
         }
       }
     },
+    "Activity" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Etkinlik"
+          }
+        }
+      }
+    },
     "Add a name to finish." : {
       "localizations" : {
         "tr" : {
@@ -1233,6 +1243,26 @@
         }
       }
     },
+    "Errors only" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yalnızca hatalar"
+          }
+        }
+      }
+    },
+    "Format: %@ · sent at %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Biçim: %1$@ · %2$@ saatinde gönderildi"
+          }
+        }
+      }
+    },
     "Found in the file" : {
       "localizations" : {
         "tr" : {
@@ -1249,6 +1279,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Konum: %@ · OpenVPN · aşağıda adlandırın"
+          }
+        }
+      }
+    },
+    "hidden" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "gizli"
           }
         }
       }
@@ -1443,6 +1483,16 @@
         }
       }
     },
+    "No errors" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hata yok"
+          }
+        }
+      }
+    },
     "No passphrase was given." : {
       "localizations" : {
         "tr" : {
@@ -1513,6 +1563,16 @@
         }
       }
     },
+    "Not connected yet" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Henüz bağlanılmadı"
+          }
+        }
+      }
+    },
     "Not in /Applications: the helper can be installed and updated only from there." : {
       "localizations" : {
         "tr" : {
@@ -1549,6 +1609,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Eksik yok"
+          }
+        }
+      }
+    },
+    "Nothing to show" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gösterilecek bir şey yok"
           }
         }
       }
@@ -1739,6 +1809,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Parola gizli bilgi deposuna kaydedildi (%@)."
+          }
+        }
+      }
+    },
+    "Passwords are never shown, and only the first three digits of a code." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parolalar hiçbir zaman gösterilmez, koddan yalnızca ilk üç hane gösterilir."
           }
         }
       }
@@ -2123,6 +2203,26 @@
         }
       }
     },
+    "Show all" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tümünü göster"
+          }
+        }
+      }
+    },
+    "Show raw log" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ham günlüğü göster"
+          }
+        }
+      }
+    },
     "Show the Dock icon" : {
       "localizations" : {
         "tr" : {
@@ -2369,6 +2469,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "TLS anahtarı"
+          }
+        }
+      }
+    },
+    "Today" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bugün"
           }
         }
       }
@@ -8521,6 +8631,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "e"
+          }
+        }
+      }
+    },
+    "Yesterday" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dün"
           }
         }
       }

@@ -217,8 +217,23 @@ and at least 820×560:
     the next code" with the next code in the rows while a connect waits for a fresh one; for a code asked each time
     "· asks for the code when connecting" and dimmed example digits, as without a secret ("· no secret added yet");
     "Password only, no one-time code"; a certificate-only OpenVPN profile shows only "Certificate only: …". The
-    line that says when the code was sent ("· sent at 09:41:02") needs the activity log; until then a connected
-    profile shows the preview line. VoiceOver reads the card as one element.
+    footer of a profile that is connected says when the sign-in was sent instead of "preview with the current code":
+    "Format: Append · sent at 09:41:02" (the last `sending` of the activity log, taken only when it came shortly
+    before the tunnel did, `ActivityEvent.sentAt(connectedSince:in:)`; the rows still show the current code). A
+    connect that waits keeps "will send the next code". VoiceOver reads the card as one element.
+  - **Activity** (`ActivityCard` in `Views/ActivityViews.swift`, under the code cards, full width): the last six events
+    of the profile's activity log (`ActivityLog`, written by the app and the CLI), oldest first, each as the time
+    (`HH:mm:ss`, `fg3`) and the sentence in 11.5 pt SF Mono (`ActivityEvent.sentence(showingCodeDigits: true)`:
+    the password as eight bullets, a code as its first three digits and bullets, "Sending sam / ••••••••+604 •••").
+    Errors are red (`ActivityEvent.tone`: link dropped, no answer, sign-in rejected, failed), waits for a code amber,
+    the rest in the text color; the card is live while a session runs (`ActivityFeed`: the app's own events at once,
+    the file's changes, such as a session the CLI runs, within a second). Without events it says "Not connected yet".
+    VoiceOver reads each entry as one element, hidden values as "hidden". "Show all" opens the log window.
+  - **Activity window** (`ActivityLogWindow`, the `Window` scene `activity-log`, not in the Window menu): the window
+    of the profile in `AppModel.activityLogProfile`, titled with its name; its whole activity under day headings
+    (Today, Yesterday, then the date), scrolled to the latest, with the text selectable. "Errors only" shows the red
+    entries; "Show raw log" opens the VPN tool's `vpn.log` as ⋯ → Show Log does (disabled without one). The footnote
+    says passwords are never shown and codes only by their first three digits.
   - **Masked codes** (decision D-5, `CodeCard.isMasked`, `AppModel.codesMasked`): codes hidden in Settings
     (`hideCodes`) and codes whose TOTP secret is stored encrypted ("Confirm with Touch ID"), unlocked or not, show as
     "••• •••" for the current and the next code, as bullets in "What the server receives" and in the sidebar row.
@@ -733,7 +748,8 @@ others not yet.
 - The `main-split` renders show the redesigned window with the sample profiles, light and dark, once per state of
   the selected profile (`main-split`, `-waiting`, `-dropped`, `-off`, `-failed`), then the code cards with the code
   locked, hidden, just copied, in the smallest window and with a custom format (`-locked`, `-hidden`, `-copied`,
-  `-narrow`, `-template`); they are not on the website.
+  `-narrow`, `-template`); they are not on the website. Every profile there has sample activity
+  (`AppModel.previewActivity`); `activity-log`, `-errors` and `-empty` show the log window.
   The `import-review` renders show the import review in that window: as designed (two lines skipped, the code
   secret missing), `-ready` with the secret added, `-certificate` (a certificate-only file whose keys come from
   files next to it) and `-narrow` at the window's smallest size.

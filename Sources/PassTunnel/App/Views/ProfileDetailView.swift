@@ -3,14 +3,42 @@ import PassTunnelKit
 import SwiftUI
 
 /// The selected profile in the redesigned window: its name, where it connects, the main button and the status
-/// line, then the current code and what the server receives (CodeCards.swift). Edit and ⋯ are in the toolbar.
+/// line, then the current code and what the server receives (CodeCards.swift) and the activity (ActivityViews.swift).
+/// Edit and ⋯ are in the toolbar.
 struct ProfileDetailView: View {
     @EnvironmentObject private var model: AppModel
     let profile: Profile
 
     var body: some View {
+        // Keyed by the profile: another one reads its own activity from the start.
+        DetailPage(model: model, profile: profile)
+            .id(profile.id)
+            .toolbar {
+                // Trailing (`primaryAction` is the leading edge on macOS).
+                ToolbarItemGroup(placement: .automatic) {
+                    Button(String(localized: "Edit")) { model.edit(profile) }
+                        .accessibilityIdentifier("profile.\(profile.id).edit")
+                    DetailMoreMenu(profile: profile)
+                }
+            }
+    }
+}
+
+private struct DetailPage: View {
+    @EnvironmentObject private var model: AppModel
+    let profile: Profile
+    @StateObject private var activity: ActivityFeed
+
+    init(model: AppModel, profile: Profile) {
+        self.profile = profile
+        _activity = StateObject(wrappedValue: ActivityFeed(model, profile.id))
+    }
+
+    var body: some View {
         let status = model.displayStatus(profile)
         let server = model.serverSummary(profile)
+        // When the sign-in of the connection that is up was sent.
+        let sentAt = status.connectedSince.flatMap { ActivityEvent.sentAt(connectedSince: $0, in: activity.events) }
         ScrollView {
             VStack(alignment: .leading, spacing: Spacing.m) {
                 HStack(alignment: .bottom, spacing: Spacing.m) {
@@ -30,21 +58,18 @@ struct ProfileDetailView: View {
                     DetailActionButton(profile: profile, action: status.action)
                 }
                 ProfileStatusLine(status: status, server: server.address, now: model.previewNow)
-                DetailCodeCards(profile: profile)
+                DetailCodeCards(profile: profile, sentAt: sentAt)
+                ActivityCard(profile: profile, feed: activity)
             }
             .padding(.horizontal, Spacing.xl)
             .padding(.top, Spacing.s)
             .padding(.bottom, Spacing.l)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .toolbar {
-            // Trailing (`primaryAction` is the leading edge on macOS).
-            ToolbarItemGroup(placement: .automatic) {
-                Button(String(localized: "Edit")) { model.edit(profile) }
-                    .accessibilityIdentifier("profile.\(profile.id).edit")
-                DetailMoreMenu(profile: profile)
-            }
+        .onReceive(model.connections.activity) { record in
+            if record.profileID == profile.id { activity.refresh(force: true) }
         }
+        .task { await activity.follow() }
     }
 }
 

@@ -114,6 +114,48 @@ public struct ActivityEvent: Equatable, Sendable {
         return prefix.isEmpty ? nil : String(prefix)
     }
 
+    /// How the app colors an event: a failure red, a wait for a code amber, anything else plain. The words
+    /// always say what happened too.
+    public enum Tone: Sendable {
+        case neutral, wait, error
+    }
+
+    public var tone: Tone {
+        switch kind {
+        case .waitingForCode: return .wait
+        case .linkDropped, .unreachable, .rejected, .failed: return .error
+        case .connecting, .sending, .authAccepted, .connected, .reconnecting, .nextTry, .stoppedByUser,
+             .disconnectedByUser:
+            return .neutral
+        }
+    }
+
+    /// "09:41:02": the time of day in `timeZone`, 24-hour whatever the Mac's region.
+    public static func clockTime(_ date: Date, timeZone: TimeZone = .current) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let c = calendar.dateComponents([.hour, .minute, .second], from: date)
+        return String(format: "%02d:%02d:%02d", c.hour ?? 0, c.minute ?? 0, c.second ?? 0)
+    }
+
+    /// The last `sending` in `events` (oldest first): when the credentials went to the VPN tool, and the
+    /// code's seconds left then.
+    public static func lastSending(in events: [ActivityEvent]) -> (at: Date, sending: Sending)? {
+        for event in events.reversed() {
+            if case .sending(let s) = event.kind { return (event.at, s) }
+        }
+        return nil
+    }
+
+    /// When the sign-in of a connection that is up since `since` was sent: the last `sending`, if it came
+    /// shortly before the tunnel did (the connect takes seconds, a FortiGate up to two minutes). A `sending`
+    /// from an earlier session, or none, gives nil.
+    public static func sentAt(connectedSince since: Date, in events: [ActivityEvent]) -> Date? {
+        guard let sent = lastSending(in: events)?.at else { return nil }
+        let before = since.timeIntervalSince(sent)
+        return before >= -5 && before <= 300 ? sent : nil
+    }
+
     /// The event without any code digits: what the CLI and the MCP server report.
     public func withoutCodeDigits() -> ActivityEvent {
         var copy = self
@@ -202,6 +244,13 @@ public struct ActivityEvent: Equatable, Sendable {
         case .disconnectedByUser:
             return String(localized: "Disconnected by you")
         }
+    }
+
+    /// `sentence` for VoiceOver: the bullets of a hidden password or code are read as "hidden"
+    /// ("Sending alice / hidden+604 hidden").
+    public func spokenSentence(showingCodeDigits: Bool = false) -> String {
+        sentence(showingCodeDigits: showingCodeDigits)
+            .replacingOccurrences(of: "•+(?: •+)*", with: String(localized: "hidden"), options: .regularExpression)
     }
 
     /// "No answer (Connection refused)": the tool's words, untranslated, after the sentence.
