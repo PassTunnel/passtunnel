@@ -166,6 +166,8 @@ class DNSTestCase: DaemonTestCase {
     var resolvconf: String { root + "/usr/sbin/resolvconf" }
     let indexes = IndexBox()
     var renameFails = false
+    /// The fake /etc is read-only, as /etc is inside passtunnel.service.
+    var readOnlyEtc = false
     static let original = "# from the network\nnameserver 192.0.2.1\nsearch lan\noptions edns0\n"
 
     override func setUpWithError() throws {
@@ -186,6 +188,7 @@ class DNSTestCase: DaemonTestCase {
         system.resolvedTargets = [root + "/run/systemd/resolve/", root + "/usr/lib/systemd/resolv.conf"]
         system.resolvectl = [resolvectl]
         system.resolvconf = [resolvconf, root + "/sbin/resolvconf"]
+        system.resolvconfConf = root + "/etc/resolvconf.conf"
         system.owner = me
         system.base = base
         let indexes = self.indexes
@@ -193,6 +196,8 @@ class DNSTestCase: DaemonTestCase {
         if renameFails {
             system.renameFile = { _, _ in EBUSY }
         }
+        let etc = root + "/etc", readOnlyEtc = self.readOnlyEtc
+        system.isReadOnly = { readOnlyEtc && $0 == etc }
         return system
     }
 
@@ -336,6 +341,29 @@ final class DNSFileBackendTests: DNSTestCase {
         XCTAssertFalse(exists(resolvConf + ".passtunnel"))
         applier.revert(in: session)
         XCTAssertEqual(resolvConfText, Self.original)
+    }
+
+    /// Inside passtunnel.service /etc is read-only and the file a bind mount of its own: rewritten in
+    /// place, nothing created next to it.
+    func testReadOnlyEtcIsRewrittenInPlace() throws {
+        readOnlyEtc = true
+        let session = try session()
+        var before = stat()
+        XCTAssertEqual(lstat(resolvConf, &before), 0)
+        try applier.apply(Self.full, interface: "tun0", in: session)
+        XCTAssertEqual(resolvConfText, Self.applied)
+        XCTAssertEqual(try String(contentsOfFile: session.path + "/dns.resolv.conf", encoding: .utf8), Self.original)
+        var after = stat()
+        XCTAssertEqual(lstat(resolvConf, &after), 0)
+        XCTAssertEqual(after.st_ino, before.st_ino)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root + "/etc"), ["resolv.conf"])
+        // Shorter than what it replaces: cut to its length.
+        try applier.apply(try DNSSettings(servers: ["192.0.2.53"], fullTunnel: true), interface: "tun0", in: session)
+        XCTAssertTrue(resolvConfText.hasSuffix("options edns0\n"), resolvConfText)
+        applier.revert(in: session)
+        XCTAssertEqual(resolvConfText, Self.original)
+        XCTAssertEqual(lstat(resolvConf, &after), 0)
+        XCTAssertEqual(after.st_ino, before.st_ino)
     }
 
     func testTwoTunnels() throws {
@@ -548,6 +576,44 @@ final class DNSResolvconfBackendTests: DNSTestCase {
         unlink(resolvConf)
         XCTAssertEqual(symlink("../run/resolvconf/resolv.conf", resolvConf), 0)
         XCTAssertEqual(try applier.chooseBackend().0, .resolvconf)
+    }
+
+    /// openresolv writes /etc/resolv.conf in place unless `resolv_conf_mv` is set; then it renames a
+    /// new file over it, which cannot work where /etc is read-only (inside passtunnel.service): refused
+    /// there with a reason, never left to fail silently.
+    func testOpenresolvThatReplacesTheFile() throws {
+        try makeFakeTool(resolvconf, name: "resolvconf")
+        try "# openresolv\nresolv_conf_mv=YES\n".write(toFile: root + "/etc/resolvconf.conf", atomically: false, encoding: .utf8)
+        readOnlyEtc = true
+        let session = try session()
+        XCTAssertThrowsError(try applier.apply(Self.full, interface: "tun0", in: session)) {
+            XCTAssertEqual($0 as? DNSFailure, .resolvconfReplaces(root + "/etc/resolvconf.conf", root + "/etc"))
+            XCTAssertTrue(String(describing: $0).contains("remove resolv_conf_mv"), "\($0)")
+        }
+        XCTAssertEqual(callLog, "", "resolvconf did not run")
+        XCTAssertNil(recorded(session))
+        readOnlyEtc = false
+        XCTAssertEqual(try applier.apply(Self.full, interface: "tun0", in: session), .resolvconf, "where /etc is writable")
+        applier.revert(in: session)
+        readOnlyEtc = true
+        try "resolv_conf_mv=yes\nresolv_conf_mv=no\n".write(toFile: root + "/etc/resolvconf.conf", atomically: false, encoding: .utf8)
+        XCTAssertEqual(try applier.apply(Self.full, interface: "tun0", in: session), .resolvconf, "in place: fine")
+        applier.revert(in: session)
+    }
+
+    func testResolvConfMvSetting() throws {
+        let path = base + "/resolvconf.conf"
+        let cases: [(String, Bool)] = [
+            ("resolv_conf_mv=yes\n", true), ("  resolv_conf_mv=\"Yes\" # rename\n", true), ("resolv_conf_mv=1", true),
+            ("\tresolv_conf_mv='on';\n", true), ("resolv_conf_mv=true\n", true),
+            ("# resolv_conf_mv=yes\n", false), ("resolv_conf_mv=no\n", false), ("resolv_conf_mv=\n", false),
+            ("resolv_conf_mv=yes\nresolv_conf_mv=NO\n", false), ("resolv_conf=/etc/resolv.conf\n", false), ("", false),
+        ]
+        for (text, replaces) in cases {
+            try text.write(toFile: path, atomically: false, encoding: .utf8)
+            XCTAssertEqual(DNSApplier.replacesResolvConf(path), replaces, text)
+        }
+        XCTAssertFalse(DNSApplier.replacesResolvConf(base + "/none"))
     }
 
     /// systemd's resolvconf is resolvectl under another name: without systemd-resolved it does not

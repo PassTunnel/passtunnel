@@ -31,6 +31,8 @@ public struct DNSSystem {
     public var resolvedTargets = ["/run/systemd/resolve/", "/usr/lib/systemd/resolv.conf", "/lib/systemd/resolv.conf"]
     public var resolvectl = ["/usr/bin/resolvectl", "/bin/resolvectl"]
     public var resolvconf = ["/usr/sbin/resolvconf", "/sbin/resolvconf"]
+    /// openresolv's configuration, read for `resolv_conf_mv` only.
+    public var resolvconfConf = "/etc/resolvconf.conf"
     /// Who must own the tools, the paths above them and /etc/resolv.conf (root, but in tests), and where
     /// the `TrustedPath` checks start.
     public var owner: uid_t = 0
@@ -44,6 +46,9 @@ public struct DNSSystem {
     }
     /// `rename(2)`, returning 0 or the error; tests make it fail as it does on a mount point.
     public var renameFile: (String, String) -> Int32 = { rename($0, $1) == 0 ? 0 : errno }
+    /// A directory on a read-only mount (`EROFS`), as /etc is inside passtunnel.service; tests say so
+    /// of their fake /etc.
+    public var isReadOnly: (String) -> Bool = { access($0, W_OK) != 0 && errno == EROFS }
 
     static let toolTimeout: TimeInterval = 10
 
@@ -261,11 +266,39 @@ public struct DNSApplier {
                 }
                 return (.resolved, tool)
             }
-            if let tool = try trustedResolvconf() { return (.resolvconf, tool) }
+            if let tool = try trustedResolvconf() { return (.resolvconf, try checkedResolvconf(tool)) }
             throw DNSFailure.unexpectedLink(path, target)
         }
-        if let tool = try trustedResolvconf() { return (.resolvconf, tool) }
+        if let tool = try trustedResolvconf() { return (.resolvconf, try checkedResolvconf(tool)) }
         return (.file, nil)
+    }
+
+    /// openresolv writes /etc/resolv.conf in place, unless `resolv_conf_mv` asks it to rename a new
+    /// file over it, which cannot work where /etc is read-only (inside passtunnel.service): refused
+    /// there, rather than left to fail without a word.
+    func checkedResolvconf(_ tool: String) throws -> String {
+        let directory = (system.resolvConf as NSString).deletingLastPathComponent
+        guard Self.replacesResolvConf(system.resolvconfConf), system.isReadOnly(directory) else { return tool }
+        throw DNSFailure.resolvconfReplaces(system.resolvconfConf, directory)
+    }
+
+    /// Whether openresolv's configuration sets `resolv_conf_mv` to a true value (the last assignment
+    /// counts, as in the shell that reads it).
+    static func replacesResolvConf(_ path: String) -> Bool {
+        var st = stat()
+        guard lstat(path, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG, st.st_size <= 64 << 10,
+              let text = try? String(contentsOfFile: path, encoding: .utf8) else { return false }
+        var replaces = false
+        for raw in text.split(whereSeparator: \.isNewline) {
+            let line = raw.drop { $0 == " " || $0 == "\t" }
+            guard line.hasPrefix("resolv_conf_mv=") else { continue }
+            let value = line.dropFirst("resolv_conf_mv=".count)
+                .prefix { !" \t;#".contains($0) }
+                .filter { $0 != "\"" && $0 != "'" }
+                .lowercased()
+            replaces = ["yes", "true", "on", "1"].contains(value)
+        }
+        return replaces
     }
 
     /// The real path of the first candidate that exists, once it passed `TrustedPath`; nil when none
@@ -338,6 +371,9 @@ public struct DNSApplier {
         guard fstat(fd, &opened) == 0, opened.st_ino == st.st_ino, opened.st_dev == st.st_dev else {
             throw DNSFailure.notARegularFile(path)
         }
+        // Inside passtunnel.service the file is systemd's bind mount of the one there was when the unit
+        // started; one renamed over it since (by a network manager) leaves this one with no name.
+        guard opened.st_nlink > 0 else { throw DNSFailure.detached(path) }
         var data = Data()
         var buffer = [UInt8](repeating: 0, count: 8192)
         while true {
@@ -354,14 +390,22 @@ public struct DNSApplier {
     /// Written next to /etc/resolv.conf, then renamed over it.
     var temporaryPath: String { system.resolvConf + ".passtunnel" }
 
-    /// Replaces /etc/resolv.conf atomically: a new file in the same directory, synced, renamed over it.
-    /// A file that cannot be replaced because it is a mount point (as containers bind-mount it) is
-    /// rewritten in place instead.
+    /// Replaces /etc/resolv.conf atomically where it can: a new file in the same directory, synced,
+    /// renamed over it. Where it cannot, the file is rewritten in place: inside passtunnel.service,
+    /// where /etc is read-only and the file a bind mount of its own (`ReadWritePaths`), and where a
+    /// container runtime bind-mounts it (rename fails with `EBUSY`).
     func writeResolvConf(_ data: Data, mode: mode_t, group: gid_t) throws {
         let path = system.resolvConf, temp = temporaryPath
-        if unlink(temp) != 0, errno != ENOENT { throw DNSFailure.system("remove \(temp)", errno) }
+        guard !system.isReadOnly((path as NSString).deletingLastPathComponent) else { return try rewriteInPlace(data) }
+        if unlink(temp) != 0, errno != ENOENT {
+            if errno == EROFS { return try rewriteInPlace(data) }
+            throw DNSFailure.system("remove \(temp)", errno)
+        }
         let fd = open(temp, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
-        guard fd >= 0 else { throw DNSFailure.system("create \(temp)", errno) }
+        guard fd >= 0 else {
+            if errno == EROFS { return try rewriteInPlace(data) }
+            throw DNSFailure.system("create \(temp)", errno)
+        }
         do {
             if geteuid() == 0, fchown(fd, system.owner, group) != 0 { throw DNSFailure.system("chown \(temp)", errno) }
             guard fchmod(fd, mode) == 0 else { throw DNSFailure.system("chmod \(temp)", errno) }
@@ -387,6 +431,8 @@ public struct DNSApplier {
         }
     }
 
+    /// The whole content written at once from the start, the file cut to its length, synced. The
+    /// content it replaces is in the session directory already (`DNSRecord`).
     private func rewriteInPlace(_ data: Data) throws {
         let path = system.resolvConf
         let fd = open(path, O_WRONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
@@ -396,6 +442,7 @@ public struct DNSApplier {
         guard fstat(fd, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG, st.st_uid == system.owner else {
             throw DNSFailure.notARegularFile(path)
         }
+        guard st.st_nlink > 0 else { throw DNSFailure.detached(path) }
         try Self.writeAll(fd, data, at: 0, path: path)
         guard ftruncate(fd, off_t(data.count)) == 0 else { throw DNSFailure.system("truncate \(path)", errno) }
         guard fsync(fd) == 0 else { throw DNSFailure.system("sync \(path)", errno) }

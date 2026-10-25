@@ -133,10 +133,19 @@ The macOS rules apply where they make sense; these replace the ones built on cod
   CAP_CHOWN CAP_DAC_OVERRIDE CAP_KILL` (trimmed to what testing shows openvpn and pppd need),
   `DevicePolicy=closed` with `DeviceAllow=/dev/net/tun` and `/dev/ppp`, `ProtectSystem=strict` with
   `/run/passtunnel` and what the DNS hook writes (it runs inside the unit, a child of OpenVPN)
-  writable: `/etc`, because the file backend replaces `/etc/resolv.conf` by renaming a file written
-  next to it, which needs the directory (openresolv writes the file itself, too), and
-  `/run/resolvconf` (resolvconf's records, when it is installed); systemd-resolved needs neither (it
-  is told over D-Bus, and lets `CAP_NET_ADMIN` through), `PrivateTmp`. Not set, unlike the first
+  writable: `-/etc/resolv.conf` and `-/run/resolvconf` (`-`: skipped when missing at start), never
+  all of `/etc`, which would let every tool the daemon runs as root change the system's
+  configuration. `/etc/resolv.conf` is then a bind mount of its own in a read-only `/etc`, so the
+  file backend rewrites it in place (as openresolv does by default; set to rename a file over it,
+  `resolv_conf_mv`, it cannot work there, and the set-up fails saying so). The bind mount holds the
+  file there was when the unit started: one renamed over it later (a network manager without
+  systemd-resolved) is out of the daemon's reach until it restarts, which a set-up says ("restart
+  passtunnel.service"). systemd follows a link at `/etc/resolv.conf` and applies the entry to its
+  target: into `/run/resolvconf` (Debian's resolvconf) it is redundant beside `-/run/resolvconf` and
+  dropped (so resolvconf can still rename its `resolv.conf` there); into `/run/systemd/resolve` the
+  file there becomes writable inside the unit and is never written (systemd-resolved is told over
+  D-Bus and lets `CAP_NET_ADMIN` through; the daemon's own view of the stub file may keep old search
+  domains until it restarts). `PrivateTmp`. Not set, unlike the first
   plan: `ProtectHome=read-only`, because the daemon creates the session log in the user's profile
   directory (possible once the client opens the log, or it moves out of the home directory);
   `RuntimeDirectory=passtunnel`, because systemd would remove it, and the socket of
@@ -186,16 +195,22 @@ every value of it is treated as hostile: it ends up in the hands of root.
     systemd-resolved has dropped its settings.
   - else `resolvconf` (Debian's or openresolv, not systemd's stand-in, which is resolvectl):
     `resolvconf -a <dev>.passtunnel` with up to three `nameserver` lines and a `search` line on
-    standard input, `-d` to revert.
+    standard input, `-d` to revert. Debian's writes `/run/resolvconf/resolv.conf` (renamed into
+    place), openresolv `/etc/resolv.conf` in place; openresolv set to rename a file over it instead
+    (`resolv_conf_mv` in `/etc/resolvconf.conf`) is refused where `/etc` is read-only (inside the
+    unit), before it runs.
   - else `/etc/resolv.conf` itself when it is a regular file of root (a link anywhere else is never
     followed, and fails the set-up): a block at the top (`# PassTunnel <dev> begin: …` to
     `# PassTunnel <dev> end`) with up to three servers and the search domains, and the file's own
     `nameserver` lines (and `search` and `domain`, when the tunnel brings domains) disabled with the
     mark `#PassTunnel <dev># `. A resolv.conf cannot route names, so every name goes through the
-    tunnel here. Written atomically: a new file next to it, synced, renamed over it; a file that is
-    a mount point (containers bind-mount it) cannot be replaced and is rewritten in place. The revert
-    writes back the previous content when the file is still what was written; one changed meanwhile
-    loses only the block and the marks; one replaced since is left alone.
+    tunnel here. Written atomically where it can be: a new file next to it, synced, renamed over it.
+    Inside the unit (`/etc` read-only, the file a bind mount) and where a container runtime
+    bind-mounts it (rename fails with `EBUSY`) it is rewritten in place instead: the whole content
+    in one write from the start, cut to its length, synced; what it replaces is in the session
+    directory first. A file that lost its name (replaced after the unit started) fails the set-up.
+    The revert writes back the previous content when the file is still what was written; one changed
+    meanwhile loses only the block and the marks; one replaced since is left alone.
   - The tools run only from fixed paths (`/usr/bin/resolvectl`, `/bin/resolvectl`;
     `/usr/sbin/resolvconf`, `/sbin/resolvconf`), checked as the VPN tools are (`TrustedPath`), with
     the fixed environment and argument lists of `Sys.spawn` (never a shell), 10 s each.
