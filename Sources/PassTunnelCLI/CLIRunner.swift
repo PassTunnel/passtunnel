@@ -375,7 +375,7 @@ final class CLIRunner {
         let now = Date()
         let code = TOTP.code(secret: secret, params: p.totp, at: now)
         let left = TOTP.remaining(params: p.totp, at: now)
-        if copy { try CLIClipboard.copyConcealed(code) }
+        if copy { try CLIClipboard.copyConcealed(code, clearingAfter: Preferences.load().clearClipboardAfter) }
         if json {
             try printJSON(CodeJSON(profile: p.id, code: code, remaining: left, period: p.totp.period))
         } else if CLITerminal.stdoutIsTTY {

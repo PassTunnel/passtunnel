@@ -16,12 +16,12 @@
         state: 'Disconnected',
         button: 'Connect',
         status: 'Click Connect: your password and this code go out together.',
-        statusLow: 'Under 8 seconds left. Connect would wait for the next code.'
+        statusLow: '5 seconds or less left. Connect would wait for the next code.'
       },
       waiting: {
         state: 'Waiting',
         button: 'Waiting for a fresh code · {secs} s',
-        status: 'Under 8 seconds left in this window, so PassTunnel waits for a fresh code.',
+        status: '5 seconds or less left in this window, so PassTunnel waits for a fresh code.',
         announce: 'Waiting for a fresh code before connecting.'
       },
       sending: {
@@ -245,7 +245,7 @@
   if (!demo) return;
 
   var WINDOW = 30000;
-  var MIN_LEFT = 8;        // seconds; with less, PassTunnel waits for the next window
+  var MIN_LEFT = 5;        // seconds; with this or less, PassTunnel waits for the next window
   var CONNECTING = 1400;   // ms shown as "Connecting…"
   var CIRCUMFERENCE = 2 * Math.PI * 34;
 
@@ -293,7 +293,7 @@
   function render(now) {
     var left = (WINDOW - (now % WINDOW)) / 1000;
     var secs = Math.max(1, Math.ceil(left));
-    var low = left < MIN_LEFT;
+    var low = left <= MIN_LEFT;
     var code = codeFor(windowOf(now));
     var strings = STRINGS.demo[state.phase];
 
@@ -335,7 +335,7 @@
       setPhase('idle');
     } else if (state.phase === 'idle') {
       var left = (WINDOW - (now % WINDOW)) / 1000;
-      if (left >= MIN_LEFT) {
+      if (left > MIN_LEFT) {
         state.sendAt = now;
         state.sent = codeFor(windowOf(now));
         setPhase('sending');

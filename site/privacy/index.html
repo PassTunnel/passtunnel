@@ -75,7 +75,7 @@
       <p class="eyebrow">Privacy</p>
       <h1 id="doc-title">Privacy policy</h1>
       <p class="doc-lead">PassTunnel does not collect any information about you. Your profiles, passwords and TOTP secrets stay on your device, and the apps connect only to the VPN servers you set up and, on the Mac, to GitHub to check for updates.</p>
-      <p class="doc-date">Last updated: <time datetime="2026-10-23">October 23, 2026</time></p>
+      <p class="doc-date">Last updated: <time datetime="2026-10-24">October 24, 2026</time></p>
     </header>
 
     <div class="card card-soft doc-summary">
@@ -115,7 +115,7 @@
         <li><strong>Passwords and TOTP secrets</strong> are stored in your login Keychain. They are not synced to iCloud Keychain; like the rest of the login keychain, they are included in your Mac’s backups and moved by Migration Assistant. With <em>Confirm with Touch ID</em> turned on for a profile, they are encrypted with a key that never leaves the Mac’s Secure Enclave.</li>
         <li><strong>Profiles and settings</strong> are files in <code>~/Library/Application Support/PassTunnel</code>, readable only by your user account. They contain no passwords or TOTP secrets, but an OpenVPN configuration may contain certificates and keys from your VPN provider.</li>
         <li><strong>Connection logs</strong> (<code>vpn.log</code>, one per profile, in the same folder) start empty for every connection and are trimmed when they grow past 5 MB. They contain server names, your user name and IP addresses, but not your password or one-time codes: the VPN tools receive them in files only the system can read and run at a log level that does not record them. When the MCP server or <code>passtunnel log --json</code> returns a log, values that look like credentials are masked as well.</li>
-        <li><strong>Copied codes</strong> stay on this Mac (no Universal Clipboard), are marked so clipboard managers skip them, and are cleared after 30 seconds.</li>
+        <li><strong>Copied codes</strong> stay on this Mac (no Universal Clipboard), are marked so clipboard managers skip them, and are cleared after 1 minute (or 30 seconds or 2 minutes, as you choose in Settings) unless something else was copied meanwhile.</li>
       </ul>
 
       <h3>Android</h3>

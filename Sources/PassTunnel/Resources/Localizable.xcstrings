@@ -6576,6 +6576,86 @@
           }
         }
       }
+    },
+    "Clear copied code" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopyalanan kodu temizle"
+          }
+        }
+      }
+    },
+    "After 30 seconds" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "30 saniye sonra"
+          }
+        }
+      }
+    },
+    "After 1 minute" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 dakika sonra"
+          }
+        }
+      }
+    },
+    "After 2 minutes" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "2 dakika sonra"
+          }
+        }
+      }
+    },
+    "The clipboard is cleared only if it still holds what PassTunnel copied." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pano yalnızca PassTunnel’ın kopyaladığını hâlâ içeriyorsa temizlenir."
+          }
+        }
+      }
+    },
+    "Wait for a fresh code" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni kod bekle"
+          }
+        }
+      }
+    },
+    "If the current code has %lld s or less left" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geçerli kodun %lld sn ya da daha az süresi kaldıysa"
+          }
+        }
+      }
+    },
+    "A code that was already sent is never sent again: PassTunnel always waits for the next one." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gönderilmiş bir kod bir daha gönderilmez: PassTunnel her zaman bir sonrakini bekler."
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

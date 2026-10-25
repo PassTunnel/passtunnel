@@ -119,10 +119,31 @@ struct GeneralSettings: View {
 
             Section {
                 Toggle(String(localized: "Hide codes until copied"), isOn: $model.prefs.hideCodes)
+                Picker(String(localized: "Clear copied code"), selection: $model.prefs.clearClipboardAfter) {
+                    ForEach(Preferences.clearClipboardChoices, id: \.self) { seconds in
+                        Text(Self.clearLabel(seconds)).tag(seconds)
+                    }
+                }
+                .accessibilityIdentifier("settings.clearClipboard")
             } header: {
                 Text(String(localized: "Privacy"))
             } footer: {
-                Text(String(localized: "Codes are shown as ••• ••• in the window and the menu. Clicking still copies them."))
+                (Text(String(localized: "Codes are shown as ••• ••• in the window and the menu. Clicking still copies them."))
+                    + Text(verbatim: " ")
+                    + Text(String(localized: "The clipboard is cleared only if it still holds what PassTunnel copied.")))
+                    .settingsFooter()
+            }
+
+            Section {
+                Toggle(isOn: $model.prefs.waitForFreshCode) {
+                    SettingLabel(String(localized: "Wait for a fresh code"),
+                                 String(localized: "If the current code has \(Preferences.freshCodeSeconds) s or less left"))
+                }
+                .accessibilityIdentifier("settings.waitForFreshCode")
+            } header: {
+                Text(String(localized: "Connection"))
+            } footer: {
+                Text(String(localized: "A code that was already sent is never sent again: PassTunnel always waits for the next one."))
                     .settingsFooter()
             }
 
@@ -229,6 +250,15 @@ struct GeneralSettings: View {
         case 5: return String(localized: "5 minutes")
         case 15: return String(localized: "15 minutes")
         default: return String(localized: "\(minutes) minutes")
+        }
+    }
+
+    static func clearLabel(_ seconds: Int) -> String {
+        switch seconds {
+        case 30: return String(localized: "After 30 seconds")
+        case 60: return String(localized: "After 1 minute")
+        case 120: return String(localized: "After 2 minutes")
+        default: return String(localized: "\(seconds) seconds")
         }
     }
 

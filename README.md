@@ -40,14 +40,16 @@ secret in the Keychain and fills in the current code (and your password) every t
 **One-time codes, handled**
 
 - **No more typing codes.** The TOTP secret lives in the macOS Keychain; PassTunnel generates the
-  code and sends it with your password when you click Connect. If fewer than 8 seconds are left in
-  the current window, it waits for a fresh code instead of racing the clock.
+  code and sends it with your password when you click Connect. If 5 seconds or less are left in
+  the current window, it waits for a fresh code instead of racing the clock (a setting, on by
+  default). A code that was already sent is never sent again.
 - **Any format your server expects.** Append, prepend, `password:code`, `password,code`, or a custom
   template with any literal text, or send the code separately (OpenVPN static challenge, FortiGate
   OTP field). See [Configuring the code format](#configuring-the-code-format).
 - **Authenticator-style main window.** Every profile shows its live code in large digits with a
-  countdown ring. Click to copy; the clipboard is cleared again after 30 seconds. Codes can be
-  hidden until copied.
+  countdown ring. Click to copy; the clipboard is cleared again after 1 minute (or 30 seconds, or
+  2 minutes, in Settings), unless you copied something else meanwhile. Codes can be hidden until
+  copied.
 - **QR import.** Drop a screenshot of your provider's QR code, choose an image or paste from the
   clipboard. Digits, period and algorithm (SHA-1/256/512) are read from the `otpauth://` link.
   Pasting a Base32 secret or an `otpauth://` link works too.
@@ -255,7 +257,7 @@ are derived from the profile name (`Work` → `work`).
 passtunnel                          # status of all profiles
 passtunnel connect                  # connect the default profile
 passtunnel connect work             # connect a specific profile
-passtunnel code work -c             # print the live code and seconds left, copy it (for 30 s)
+passtunnel code work -c             # print the live code and seconds left, copy it (for 1 min by default)
 passtunnel status work --json       # exit code 3 when not connected
 passtunnel disconnect --all
 

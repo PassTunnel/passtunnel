@@ -264,8 +264,9 @@ script-security N            (when N > 1)
   exported by an earlier version) is dropped.
 - **Clipboard.** A copied code, or password + code, is put on the clipboard for this Mac only (not
   Universal Clipboard), marked concealed and transient so clipboard managers skip it, and cleared
-  after 30 seconds unless something else was copied meanwhile. `passtunnel code -c` does the same:
-  it leaves a small detached process behind that clears the clipboard.
+  after 1 minute (30 seconds or 2 minutes in Settings → General → Clear copied code) unless
+  something else was copied meanwhile. `passtunnel code -c` does the same: it leaves a small
+  detached process behind that clears the clipboard.
 - **Auto-type** (off by default) needs Accessibility permission, which is requested only when you
   enable it. Global shortcuts use Carbon hotkeys and do not need any permission.
 - **No test hooks in releases.** `passtunnel debug drop`, which ends a connection as if the server
@@ -443,11 +444,11 @@ PassTunnel cannot defend against an attacker who already controls your account o
 - **Malware running as your user** can read your profile folder (configs and embedded keys) and
   logs, can ask the Keychain for PassTunnel's items (macOS shows a consent prompt because the
   requester is not PassTunnel; if you allow it, the secrets are disclosed), and can watch your
-  screen or clipboard, where codes appear when you copy (for 30 seconds) or auto-type them. It can
-  also run the `passtunnel` command, the same signed binary as the app, so the Keychain and the
-  helper treat it like the app: it reads secrets that are not protected by Confirm with Touch ID
-  without any prompt, and it can change a profile's settings and connect it, which sends your
-  password to the server it chose. [Confirm with Touch ID](#confirm-with-touch-id-secure-enclave)
+  screen or clipboard, where codes appear when you copy (for 1 minute by default) or auto-type
+  them. It can also run the `passtunnel` command, the same signed binary as the app, so the
+  Keychain and the helper treat it like the app: it reads secrets that are not protected by Confirm
+  with Touch ID without any prompt, and it can change a profile's settings and connect it, which
+  sends your password to the server it chose. [Confirm with Touch ID](#confirm-with-touch-id-secure-enclave)
   prevents this for the secrets it protects: using them asks, the prompt names the server, and a
   changed destination always asks again.
 - **Other accounts on this Mac.** Every local account can use the helper. Sessions are kept apart (a

@@ -218,6 +218,39 @@ final class JSONAndPreferencesTests: CoreTestCase {
         XCTAssertEqual(Preferences.load(), p)
     }
 
+    func testFreshCodeAndClipboardPreferences() throws {
+        func decode(_ json: String) throws -> Preferences {
+            try JSONCoding.decode(Preferences.self, from: Data(json.utf8))
+        }
+        XCTAssertTrue(Preferences().waitForFreshCode)
+        XCTAssertEqual(Preferences().clearClipboardAfter, 60)
+        XCTAssertEqual(Preferences.freshCodeSeconds, 5)
+        XCTAssertEqual(Preferences.clearClipboardChoices, [30, 60, 120])
+
+        // A config.json from before these settings.
+        let old = try decode(#"{"hide_codes":true,"auth_reuse_minutes":5}"#)
+        XCTAssertTrue(old.waitForFreshCode)
+        XCTAssertEqual(old.clearClipboardAfter, 60)
+
+        XCTAssertFalse(try decode(#"{"wait_for_fresh_code":false}"#).waitForFreshCode)
+        XCTAssertTrue(try decode(#"{"wait_for_fresh_code":"no"}"#).waitForFreshCode, "unreadable: the default")
+        for seconds in Preferences.clearClipboardChoices {
+            XCTAssertEqual(try decode(#"{"clear_clipboard_after":\#(seconds)}"#).clearClipboardAfter, seconds)
+        }
+        for other in ["0", "-30", "45", "3600", #""30""#, "null", "true", "60.5"] {
+            XCTAssertEqual(try decode(#"{"clear_clipboard_after":\#(other)}"#).clearClipboardAfter, 60, other)
+        }
+
+        var p = Preferences()
+        p.waitForFreshCode = false
+        p.clearClipboardAfter = 120
+        try p.save()
+        let text = try String(contentsOf: AppPaths.default.configURL, encoding: .utf8)
+        XCTAssertTrue(text.contains(#""wait_for_fresh_code" : false"#), text)
+        XCTAssertTrue(text.contains(#""clear_clipboard_after" : 120"#), text)
+        XCTAssertEqual(Preferences.load(), p)
+    }
+
     func testBadgePalettes() {
         XCTAssertEqual(BadgePalette.allCases.map(\.rawValue), ["pastel", "vivid", "soft", "candy", "earth"])
         for palette in BadgePalette.allCases {
