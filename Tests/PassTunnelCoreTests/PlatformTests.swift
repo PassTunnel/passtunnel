@@ -183,7 +183,8 @@ final class SecretStoreTests: CoreTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: home.appendingPathComponent("secrets.enc").path))
         XCTAssertNil(Preferences.load().secretStoreUsed, "nothing was saved, nothing recorded")
 
-        let manager = ConnectionManager(store: store, helper: UnavailableHelperClient(), routes: { [] })
+        let noDaemon = UnixSocketHelperClient(socketPath: "/nonexistent/passtunnel/daemon.sock", expectedBuild: nil)
+        let manager = ConnectionManager(store: store, helper: noDaemon, routes: { [] })
         let automation = AutomationService(store: store, manager: manager)
         let report = await automation.diagnose()
         XCTAssertEqual(report.secretStore?.name, "file")
@@ -333,29 +334,34 @@ final class PlatformValueTests: XCTestCase {
         #endif
     }
 
-    func testUnavailableHelper() async {
+    #if os(Linux)
+    /// Without the daemon's socket, the daemon is not installed (the tests never look at /run).
+    func testDaemonNotInstalled() async {
+        let missing = "/nonexistent/passtunnel/daemon.sock"
+        let client = UnixSocketHelperClient(socketPath: missing, timeout: 1, expectedBuild: nil)
+        XCTAssertFalse(client.isInstalled)
         do {
-            _ = try await UnavailableHelperClient.shared.perform(.status, timeout: 1)
+            _ = try await client.perform(.status, timeout: 1)
             XCTFail("expected an error")
         } catch {
             XCTAssertEqual(error as? HelperClientError, .notInstalled)
             XCTAssertEqual(AutomationErrorCode.of(error), .helperNotInstalled)
         }
         do {
-            try await UnavailableHelperClient.shared.ensureCompatible()
+            try await client.ensureCompatible()
             XCTFail("expected an error")
         } catch {
             XCTAssertEqual(error as? HelperClientError, .notInstalled)
         }
-        #if os(Linux)
-        XCTAssertTrue(ConnectionManager.defaultHelper is UnavailableHelperClient)
-        let report = await SystemHelperInspector().report()
+        let defaultClient = ConnectionManager.defaultHelper as? UnixSocketHelperClient
+        XCTAssertEqual(defaultClient?.socketPath, "/run/passtunnel/daemon.sock")
+        let report = await SystemHelperInspector(socketPath: missing).report()
         XCTAssertEqual(report.state, "not_installed")
         XCTAssertFalse(report.responding)
         XCTAssertTrue(VaultExpiry.systemSources.isEmpty, "nothing is decrypted on Linux yet")
         XCTAssertEqual(RoutingTable.ipv4Routes(), [])
-        #endif
     }
+    #endif
 
     func testUnavailableAuthenticator() async {
         let auth = UnavailableAuthenticator()

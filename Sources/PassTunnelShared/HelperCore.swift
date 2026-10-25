@@ -109,6 +109,11 @@ public struct HelperCore {
     public static let systemCAFile = FortiConfig.systemCAFile
     /// Inside root-owned `/var/empty`, and never created.
     public static let missingDirectory = "/var/empty/passtunnel-none"
+    #if os(Linux)
+    /// The tools' only environment. The distribution's tools use the distribution's OpenSSL, whose
+    /// configuration (system-wide crypto policies, the CA store) applies unchanged.
+    public static let fixedEnvironment = ["PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL=C"]
+    #else
     /// The tools' only environment. The OpenSSL variables keep the bundled libcrypto from loading a
     /// config file, providers or engines from its compiled-in (Homebrew) prefix, and point its default
     /// trust store at the system's CA bundle.
@@ -120,9 +125,13 @@ public struct HelperCore {
         "SSL_CERT_FILE=\(systemCAFile)",
         "SSL_CERT_DIR=/var/empty",
     ]
+    #endif
 
     public var runRoot: String
     public var dnsUpdownSource: String?
+    /// Whether the OpenVPN that will run knows `--dns-updown` (2.7 and later, as the Mac's bundled
+    /// build). OpenVPN 2.6, which Linux distributions ship, does not; it then gets no DNS option.
+    public var openVPNHasDNSUpdown = true
     public var homeDirectory: (uid_t) -> String?
     public var userName: (uid_t) -> String?
 
@@ -261,7 +270,8 @@ public struct HelperCore {
             let dnsPath = try stageDNSScript(in: runDir)
             let args = Self.openVPNArguments(configPath: configPath, mgmtSocket: socketPath, clientUser: clientUser,
                                              authFile: authPath, dnsUpdown: dnsPath,
-                                             verbosity: Self.openVPNVerbosity(sanitized))
+                                             verbosity: Self.openVPNVerbosity(sanitized),
+                                             hasDNSUpdown: openVPNHasDNSUpdown)
             let logFD = try dir.createLogFile(logName)
             return LaunchPlan(profileID: s.profileID, ownerUID: uid, tool: .openvpn, arguments: args,
                               runDir: runDir, sessionDir: session, logFD: logFD, dnsUpdownPath: dnsPath,
@@ -296,8 +306,11 @@ public struct HelperCore {
     /// Management is a unix socket that OpenVPN only serves to `clientUser` (peer credentials check).
     /// The DNS hook is always explicit: OpenVPN's compiled-in default points into the build machine's
     /// Homebrew prefix, which must never be executed as root. `verbosity` comes from `openVPNVerbosity`.
+    /// Without `hasDNSUpdown` (OpenVPN 2.6, which rejects the option) and without a hook, scripts stay
+    /// limited to OpenVPN's built-in commands and nothing changes DNS.
     public static func openVPNArguments(configPath: String, mgmtSocket: String, clientUser: String,
-                                        authFile: String?, dnsUpdown: String?, verbosity: Int = defaultVerbosity) -> [String] {
+                                        authFile: String?, dnsUpdown: String?, verbosity: Int = defaultVerbosity,
+                                        hasDNSUpdown: Bool = true) -> [String] {
         var args = [
             "--config", configPath,
             "--verb", String(min(max(0, verbosity), maxVerbosity)),
@@ -310,8 +323,10 @@ public struct HelperCore {
         if let authFile { args += ["--auth-user-pass", authFile] }
         if let dnsUpdown {
             args += ["--script-security", "2", "--dns-updown", dnsUpdown]
-        } else {
+        } else if hasDNSUpdown {
             args += ["--script-security", "1", "--dns-updown", "disable"]
+        } else {
+            args += ["--script-security", "1"]
         }
         return args
     }
@@ -410,7 +425,7 @@ public struct HelperCore {
     }
 
     /// `path` must be a real directory owned by us with mode exactly `mode`; created if missing.
-    static func ensureRootOwnedDir(_ path: String, mode: mode_t = runDirMode) throws {
+    public static func ensureRootOwnedDir(_ path: String, mode: mode_t = runDirMode) throws {
         var st = stat()
         if lstat(path, &st) != 0 {
             guard errno == ENOENT else { throw Failure.system("stat \(path)", errno) }
@@ -515,12 +530,19 @@ public struct HelperCore {
         return String(cString: p)
     }
 
-    /// What `fd` refers to (`F_GETPATH`). Nil elsewhere than on the Mac, so `openProfileDir` refuses
-    /// every directory there until the Linux daemon has its own check.
+    /// What `fd` refers to: `F_GETPATH` on the Mac, the `/proc/self/fd` link on Linux (which ends in
+    /// " (deleted)" for a removed entry, so that never matches). Nil elsewhere, where `openProfileDir`
+    /// therefore refuses every directory.
     static func path(of fd: Int32) -> String? {
         #if os(macOS)
         var buf = [CChar](repeating: 0, count: Int(MAXPATHLEN))
         guard fcntl(fd, F_GETPATH, &buf) != -1 else { return nil }
+        return String(cString: buf)
+        #elseif os(Linux)
+        var buf = [CChar](repeating: 0, count: 4097)
+        let n = readlink("/proc/self/fd/\(fd)", &buf, buf.count - 1)
+        guard n > 0, n < buf.count - 1 else { return nil }
+        buf[n] = 0
         return String(cString: buf)
         #else
         return nil
@@ -643,8 +665,19 @@ public final class SessionDirectory {
         guard ProfileDirectory.isPlainName(name) else { return false }
         var st = stat()
         guard fstatat(fd, name, &st, AT_SYMLINK_NOFOLLOW) == 0, (st.st_mode & S_IFMT) == S_IFSOCK else { return false }
+        #if os(Linux)
+        // The mode first, while root owns the socket: changing the mode of another user's file needs
+        // CAP_FOWNER, which the daemon's capability bounding set leaves out. glibc carries out
+        // AT_SYMLINK_NOFOLLOW through fchmodat2 or /proc; where neither works, the entry was just seen
+        // to be a socket in a directory only root can change, so following it is no risk.
+        if st.st_mode & 0o777 != 0o600, fchmodat(fd, name, 0o600, AT_SYMLINK_NOFOLLOW) != 0 {
+            _ = fchmodat(fd, name, 0o600, 0)
+        }
+        if st.st_uid != ownerUID { _ = fchownat(fd, name, ownerUID, gid_t.max, AT_SYMLINK_NOFOLLOW) }
+        #else
         if st.st_uid != ownerUID { _ = fchownat(fd, name, ownerUID, gid_t.max, AT_SYMLINK_NOFOLLOW) }
         _ = fchmodat(fd, name, 0o600, AT_SYMLINK_NOFOLLOW)
+        #endif
         guard fstatat(fd, name, &st, AT_SYMLINK_NOFOLLOW) == 0 else { return false }
         return (st.st_mode & S_IFMT) == S_IFSOCK && st.st_uid == ownerUID && st.st_mode & 0o777 == 0o600
     }
