@@ -101,7 +101,9 @@ public enum OVPNInliner {
                 guard let s = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else {
                     throw PTError.ovpnReferencedFile(path)
                 }
-                body = s.replacingOccurrences(of: "\r\n", with: "\n").trimmingCharacters(in: .newlines)
+                // The file's own BOM: inside the block it would start a later line, which the sanitizer refuses.
+                let content = s.hasPrefix("\u{FEFF}") ? s.dropFirst() : Substring(s)
+                body = content.replacingOccurrences(of: "\r\n", with: "\n").trimmingCharacters(in: .newlines)
                 // The content must not close the block early.
                 if lines(body).contains(where: { isBlockEnd($0, tag: name) }) {
                     throw PTError.ovpnReferencedFile(path)
@@ -157,9 +159,10 @@ public enum OVPNInliner {
         var removing: (block: CredentialBlock, lines: [String])?
         var changed = false
 
-        for rawLine in lines(text) {
+        for (index, rawLine) in lines(text).enumerated() {
             var line = rawLine
             if line.hasSuffix("\r") { line.removeLast() }
+            if index == 0, line.hasPrefix("\u{FEFF}") { line.removeFirst() }
             if let current = removing {
                 if isBlockEnd(line, tag: current.block.rawValue) {
                     finish(current.block, current.lines, into: &result, out: &out)

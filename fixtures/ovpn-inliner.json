@@ -227,6 +227,27 @@
       "output": "<ca>\nCERT\n</ca>\nremote vpn.example.com 1194\n"
     },
     {
+      "name": "a referenced file's BOM is not embedded",
+      "config": "\ufeffclient\r\nca ca.crt\r\n",
+      "files": {
+        "ca.crt": "\ufeffCERT\r\n"
+      },
+      "output": "client\n<ca>\nCERT\n</ca>\n"
+    },
+    {
+      "name": "a BOM starting a later line",
+      "config": "client\n\ufeffca ca.crt\n",
+      "files": {
+        "ca.crt": "CERT\n"
+      },
+      "error": {
+        "kind": "ovpn_not_allowed",
+        "violations": [
+          "line 2: (line) (starts with a byte order mark (only the first line of the file may))"
+        ]
+      }
+    },
+    {
       "name": "forbidden options are reported",
       "config": "client\nca ca.crt\nscript-security 2\nup /tmp/x.sh\n",
       "files": {
@@ -409,6 +430,16 @@
       "name": "block tag with dashes and other case",
       "config": "--<Auth-User-Pass>\nalice\npw\n</auth-user-pass>\n",
       "output": "auth-user-pass\n",
+      "password": "pw",
+      "removed": [
+        "auth-user-pass"
+      ],
+      "username": "alice"
+    },
+    {
+      "name": "a block on the first line, after the file's BOM",
+      "config": "\ufeff<auth-user-pass>\nalice\npw\n</auth-user-pass>\nclient\n",
+      "output": "auth-user-pass\nclient\n",
       "password": "pw",
       "removed": [
         "auth-user-pass"

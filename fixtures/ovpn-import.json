@@ -748,6 +748,41 @@
       "username": null
     },
     {
+      "name": "only the file's BOM is skipped: a later line that starts with one blocks",
+      "config": "\ufeffup /tmp/x.sh\n\ufeffdown /tmp/y\nremote vpn.example.com\n",
+      "blocking": [
+        {
+          "directive": "(line)",
+          "line": 2,
+          "reason": "starts with a byte order mark (only the first line of the file may)",
+          "text": "�down /tmp/y"
+        }
+      ],
+      "certificates": [],
+      "needs": [],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": null,
+      "password_mode": "none",
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "1194",
+          "tcp": false
+        }
+      ],
+      "skipped": [
+        {
+          "directive": "up",
+          "line": 1,
+          "reason": "program",
+          "text": "up /tmp/x.sh"
+        }
+      ],
+      "stored": null,
+      "username": null
+    },
+    {
       "name": "leading dashes and capitals are read as the sanitizer reads them",
       "config": "client\n--up /tmp/x.sh\nUP /tmp/y.sh\n---Daemon\n",
       "blocking": [],

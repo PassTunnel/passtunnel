@@ -76,6 +76,50 @@ final class OVPNSanitizerFuzzTests: XCTestCase {
         XCTAssertTrue(violations("\u{FEFF}").isEmpty)
     }
 
+    /// OpenVPN skips a BOM only at the start of the file. A U+FEFF that starts any other line is refused,
+    /// so stripping the lines above it can never turn it into the file's BOM (a fuzzer finding).
+    func testByteOrderMarkOnlyAtTheStartOfTheFile() throws {
+        let found = "\u{FEFF}static-challenge \"Eode\" 1\n\u{FEFF}static-challenge \"Eode\""
+        XCTAssertEqual(violations(found).map(\.line), [2])
+        XCTAssertEqual(violations(found).map(\.reason), [OVPNSanitizer.misplacedBOM])
+        XCTAssertEqual(violations("client\n\u{FEFF}up /tmp/x\n").map(\.line), [2])
+        XCTAssertEqual(violations("client\n\u{FEFF}remote vpn.example.com\n").map(\.line), [2], "a harmless directive too")
+        XCTAssertEqual(violations("client\n\u{FEFF}# note\n").map(\.line), [2], "a comment too")
+        XCTAssertEqual(violations("client\n\u{FEFF}\n").map(\.line), [2], "a BOM alone")
+        XCTAssertEqual(violations("<ca>\n\u{FEFF}-----BEGIN CERTIFICATE-----\n</ca>\n").map(\.line), [2], "inside a block")
+        XCTAssertEqual(violations("<connection>\n\u{FEFF}remote vpn.example.com\n</connection>\n").map(\.line), [2])
+        XCTAssertEqual(violations("\u{FEFF}\u{FEFF}client\n").map(\.line), [1], "a second BOM on the first line")
+        XCTAssertTrue(violations("\u{FEFF}client\nremote vpn.example.com 1194\u{FEFF}\n").isEmpty,
+                      "elsewhere U+FEFF is an ordinary character")
+        XCTAssertEqual(try OVPNSanitizer.sanitize("\u{FEFF}static-challenge \"Code\" 1\nclient\n"), "client\n",
+                       "the file's BOM goes with its stripped first line")
+    }
+
+    /// The fuzzer's property, with a BOM before any of the lines: whatever is accepted is accepted again
+    /// unchanged, and only the first line may start with a BOM.
+    func testIdempotentWithByteOrderMarks() throws {
+        let pieces = ["static-challenge \"Code\" 1", "<static-challenge>\nx\n</static-challenge>", "client",
+                      "# note", "", "<ca>\nx\n</ca>", "remote vpn.example.com"]
+        for a in pieces { for b in pieces { for c in pieces {
+            for mask in 0..<8 {
+                let text = [a, b, c].enumerated()
+                    .map { mask & (1 << $0.offset) != 0 ? "\u{FEFF}" + $0.element : $0.element }
+                    .joined(separator: "\n")
+                guard let once = try? OVPNSanitizer.sanitize(text) else {
+                    XCTAssertTrue(mask > 1, "only a later BOM is refused: \(text.debugDescription)")
+                    continue
+                }
+                XCTAssertTrue(mask <= 1, "a later BOM is refused: \(text.debugDescription)")
+                XCTAssertEqual(try OVPNSanitizer.sanitize(once), once, text.debugDescription)
+            }
+        }}}
+    }
+
+    func testVerbosityAfterABOM() {
+        XCTAssertEqual(OVPNSanitizer.verbosity(of: "\u{FEFF}verb 1\n"), 1, "the file's BOM is skipped, as by sanitize")
+        XCTAssertNil(OVPNSanitizer.verbosity(of: "client\n\u{FEFF}verb 1\n"), "a later BOM is part of the name")
+    }
+
     func testQuotingAndEscapes() {
         XCTAssertTrue(violations("remote \"vpn example\" 1194\nverify-x509-name 'CN=Acme, O=Acme' subject\n").isEmpty)
         for line in ["\"up\" \"/tmp/x y\"", "u\\p /tmp/x", "\"--plugin\" x", "\\-\\-down x"] {
@@ -247,6 +291,27 @@ final class OVPNInlinerStressTests: CoreTestCase {
         XCTAssertEqual(out, "<ca>\nCERT\n</ca>\nremote vpn.example.com 1194\n")
     }
 
+    /// A file saved with a BOM is embedded without it: inside the block it would start a later line.
+    func testReferencedFileBOMIsNotEmbedded() throws {
+        let configs = try dir("bom")
+        try Data("\u{FEFF}CERT\r\n".utf8).write(to: configs.appendingPathComponent("ca.crt"))
+        let out = try OVPNInliner.prepare("\u{FEFF}client\r\nca ca.crt\r\n", baseDir: configs)
+        XCTAssertEqual(out, "client\n<ca>\nCERT\n</ca>\n")
+    }
+
+    /// The inliner keeps a later BOM line as it is, and the sanitizer's check refuses it.
+    func testLaterBOMLineIsRefusedOnImport() throws {
+        let configs = try dir("later-bom")
+        try Data("CERT\n".utf8).write(to: configs.appendingPathComponent("ca.crt"))
+        let text = "client\n\u{FEFF}ca ca.crt\n"
+        XCTAssertEqual(try OVPNInliner.inline(text, baseDir: configs), text)
+        XCTAssertThrowsError(try OVPNInliner.prepare(text, baseDir: configs)) {
+            XCTAssertEqual($0 as? PTError, .ovpnNotAllowed(["line 2: (line) (\(OVPNSanitizer.misplacedBOM))"]))
+        }
+        XCTAssertEqual(OVPNAnalyzer.analyze("client\n\u{FEFF}remote vpn.example.com\n").remotes, [],
+                       "the analyzer does not read the line either")
+    }
+
     func testContentThatOpenVPNWouldReadAsTheBlockEndIsRefused() throws {
         let configs = try dir("end")
         for body in ["A\n</ca>\nB", "A\n  </CA>\nB", "A\n\r</ca>\nB", "A\n\u{0B}</ca>\nB"] {
@@ -330,6 +395,12 @@ final class OVPNTokenizerParityTests: CoreTestCase {
         // Escapes OpenVPN accepts still work.
         try Data("x\n".utf8).write(to: dir.appendingPathComponent("my ca.crt"))
         XCTAssertEqual(try OVPNInliner.inline("ca my\\ ca.crt", baseDir: dir), "<ca>\nx\n</ca>")
+
+        // The file's BOM does not hide a credential block on the first line.
+        let first = OVPNInliner.strippingCredentials("\u{FEFF}<auth-user-pass>\nalice\npw\n</auth-user-pass>\nclient\n")
+        XCTAssertEqual(first.text, "auth-user-pass\nclient\n")
+        XCTAssertEqual(first.username, "alice")
+        XCTAssertEqual(OVPNInliner.strippingCredentials("\u{FEFF}auth-user-pass [inline]\n").text, "auth-user-pass\n")
 
         // Credential stripping keeps a line it cannot read; the sanitizer then rejects it.
         let odd = "client\nauth-user-pass\\q [inline]\n"
