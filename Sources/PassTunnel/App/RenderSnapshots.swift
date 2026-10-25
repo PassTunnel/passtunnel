@@ -331,12 +331,126 @@ enum RenderSnapshots {
         renderActivityLog(ids[0], "activity-log")
         renderActivityLog(ids[5], "activity-log-errors", errorsOnly: true)
         renderActivityLog(ids[2], "activity-log-empty")
+        renderErrorStates(model, ids: ids, now: now, to: out)
 
         model.selection = selection
         model.previewCodeWaits = [:]
         model.previewReconnecting = [:]
         model.previewActivity = [:]
         model.setPreviewDropped(sample.dropped)
+    }
+
+    /// The error states of the redesigned window (ClockBanner.swift, FailureCards.swift, OverlapSheet.swift), light and
+    /// dark: `error-rejected-clock` (Work, a sign-in the server rejected, the gateway's clock 48 s behind, with the banner),
+    /// `error-rejected` (the clock not checked yet), `error-rejected-clock-ok` (the time server says the clock is right),
+    /// `error-unreachable` (Home Lab, the next try in 18 s), `-offline`, `-ended`, `error-host-not-found`, `error-other`
+    /// (a failure with the tool's reason), `error-clock-banner` (a connected profile) and `overlap-sheet`. Sets its own
+    /// overrides and leaves the model as it found it.
+    private static func renderErrorStates(_ model: AppModel, ids: [String], now: Date, to out: URL) {
+        let (work, dataCenter, homeLab, staging, travel) = (ids[0], ids[1], ids[2], ids[3], ids[5])
+        let states = model.previewStates
+        let errors = model.previewErrors
+        let activity = model.previewActivity
+        let before = model.selection
+        defer {
+            model.previewStates = states
+            model.previewErrors = errors
+            model.previewActivity = activity
+            model.previewFailures = FailurePreview()
+            model.selection = before
+        }
+        // The profile under test is not connected; the others keep their states.
+        func render(_ name: String, profile: String, failure: ConnectionFailure?, error: String,
+                    retry: UnreachableRetry? = nil, network: NetworkStatus = .unknown, clocks: [ClockOffset] = [],
+                    events: [ActivityEvent] = [], size: CGSize = CGSize(width: 1080, height: 700)) {
+            model.previewStates = states?.filter { $0.key != profile }
+            model.previewErrors = (errors ?? [:]).merging([profile: error]) { $1 }
+            model.previewActivity = [profile: events]
+            model.previewFailures = FailurePreview(failures: failure.map { [profile: $0] } ?? [:],
+                                                   retries: retry.map { [profile: $0] } ?? [:], network: network, clocks: clocks)
+            model.selection = profile
+            for dark in [false, true] {
+                snapshot(SplitWindowRender().environmentObject(model), size: size, dark: dark, to: out, name: name, window: true)
+            }
+        }
+        func event(_ ago: TimeInterval, _ kind: ActivityEvent.Kind) -> ActivityEvent { ActivityEvent(at: now.addingTimeInterval(-ago), kind) }
+        func clock(_ offset: Int, _ source: ClockOffset.Source, _ server: String) -> ClockOffset {
+            ClockOffset(offsetSeconds: offset, source: source, server: server, checkedAt: now.addingTimeInterval(-4))
+        }
+
+        // Sign-in rejected: the code was fresh (22 s left), the clock behind (the gateway's time), and the password.
+        var rejected = ConnectionFailure(kind: .authRejected, at: now.addingTimeInterval(-2), reply: "AUTH_FAILED",
+                                         credentialsSent: true, codeSent: true, codeSecondsLeft: 22)
+        let rejectedError = PTError.authFailed("").localizedDescription
+        let sent = ActivityEvent.Kind.sending(.init(username: "sam", password: true, code: true, codePrefix: "604", secondsLeft: 22,
+                                                    format: OTPTemplatePreset.append.rawValue))
+        let rejectedEvents = [event(5, .connecting(host: "vpn.example.com", port: 1194, transport: "udp")), event(3, sent),
+                              event(2, .rejected(reply: "AUTH_FAILED"))]
+        let behind = clock(48, .gateway, "vpn.example.com")
+        rejected.clock = behind
+        render("error-rejected-clock", profile: work, failure: rejected, error: rejectedError, clocks: [behind], events: rejectedEvents)
+        rejected.clock = nil
+        render("error-rejected", profile: work, failure: rejected, error: rejectedError, events: rejectedEvents)
+        let right = clock(2, .timeServer, "time.apple.com")
+        rejected.clock = right
+        render("error-rejected-clock-ok", profile: work, failure: rejected, error: rejectedError, clocks: [right], events: rejectedEvents)
+
+        // Server unreachable: three tries, the next in 18 s; then offline; then the tries are over.
+        let timeout = "Connection timed out"
+        let failure = ConnectionFailure(kind: .unreachable, at: now.addingTimeInterval(-12), reason: timeout, tries: 3)
+        let unreachableError = PTError.serverUnreachable(server: "203.0.113.10:443", reason: timeout, log: "").localizedDescription
+        let unreachableEvents = [event(42, .connecting(host: "203.0.113.10", port: 443, transport: "tcp")),
+                                 event(12, .unreachable(tries: 3, reason: timeout)), event(12, .nextTry(at: now.addingTimeInterval(18)))]
+        let wifi = NetworkStatus(online: true, interface: .wifi)
+        func retry(next: TimeInterval?, waiting: Bool = false) -> UnreachableRetry {
+            UnreachableRetry(tries: 3, maxTries: 5, nextTryAt: next.map { now.addingTimeInterval($0) }, waitingForNetwork: waiting,
+                             firstFailedAt: now.addingTimeInterval(-42), lastFailedAt: now.addingTimeInterval(-12))
+        }
+        render("error-unreachable", profile: homeLab, failure: failure, error: unreachableError, retry: retry(next: 18), network: wifi,
+               events: unreachableEvents)
+        render("error-unreachable-offline", profile: homeLab, failure: failure, error: unreachableError,
+               retry: retry(next: nil, waiting: true), network: NetworkStatus(online: false), events: unreachableEvents)
+        render("error-unreachable-ended", profile: homeLab, failure: failure, error: unreachableError, network: wifi,
+               events: unreachableEvents)
+
+        // A name that was not found, and another failure with the tool's reason.
+        render("error-host-not-found", profile: staging, failure: ConnectionFailure(kind: .hostNotFound, at: now),
+               error: PTError.hostNotFound(server: "staging.example.net:443", log: "").localizedDescription,
+               events: [event(4, .connecting(host: "staging.example.net", port: 443, transport: "tcp")),
+                        event(2, .failed(kind: .hostNotFound, reason: nil, credentialsSent: false))])
+        render("error-other", profile: travel, failure: ConnectionFailure(kind: .failed, at: now, reason: "Connection reset by peer"),
+               error: String(localized: "The VPN connection could not be established. See the log for details."),
+               events: [event(4, .connecting(host: "vpn2.example.com", port: 1194, transport: "udp")),
+                        event(2, .failed(kind: .failed, reason: "Connection reset by peer", credentialsSent: false))])
+
+        // The banner over a profile that is connected.
+        model.previewStates = states
+        model.previewErrors = errors
+        model.previewActivity = activity
+        model.previewFailures = FailurePreview(clocks: [behind])
+        model.selection = work
+        for dark in [false, true] {
+            snapshot(SplitWindowRender().environmentObject(model), size: CGSize(width: 1080, height: 700), dark: dark, to: out,
+                     name: "error-clock-banner", window: true)
+        }
+        model.previewFailures = FailurePreview(clocks: [behind])
+        model.selection = work
+        for dark in [false, true] {
+            snapshot(SplitWindowRender().environmentObject(model), size: CGSize(width: 820, height: 640), dark: dark, to: out,
+                     name: "error-clock-banner-narrow", window: true)
+        }
+
+        // "Data Center overlaps with Work": the same network and the same names, behind different DNS servers.
+        let theirs = NetworkClaims(routes: [CIDR("10.0.0.0/8")!], dnsServers: ["10.8.0.1"], dnsDomains: ["example.com"])
+        let mine = NetworkClaims(routes: [CIDR("10.0.0.0/8")!, CIDR("10.9.0.0/16")!], dnsServers: ["10.9.0.1"], dnsDomains: ["example.com"])
+        if let p = model.profile(dataCenter) {
+            let overlap = ProfileOverlap(profileID: work, name: "Work", overlaps: mine.overlaps(with: theirs), mine: mine, theirs: theirs)
+            for dark in [false, true] {
+                snapshot(OverlapSheet(request: OverlapRequest(profile: p, overlaps: [overlap]))
+                            .background(Palette.background).environmentObject(model),
+                         size: nil, dark: dark, to: out, name: "overlap-sheet")
+            }
+        }
     }
 
     /// The activity of the sample profiles, matching their states: Work connected (sent just before it came up, after

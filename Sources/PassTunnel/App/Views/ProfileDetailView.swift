@@ -4,7 +4,8 @@ import SwiftUI
 
 /// The selected profile in the redesigned window: its name, where it connects, the main button and the status
 /// line, then the current code and what the server receives (CodeCards.swift) and the activity (ActivityViews.swift).
-/// Edit and ⋯ are in the toolbar.
+/// After a failure a card says what happened instead of the code cards (FailureCards.swift), and a clock that is off has
+/// a banner above it all (ClockBanner.swift). Edit and ⋯ are in the toolbar.
 struct ProfileDetailView: View {
     @EnvironmentObject private var model: AppModel
     let profile: Profile
@@ -41,6 +42,8 @@ private struct DetailPage: View {
         let sentAt = status.connectedSince.flatMap { ActivityEvent.sentAt(connectedSince: $0, in: activity.events) }
         ScrollView {
             VStack(alignment: .leading, spacing: Spacing.m) {
+                // Above the detail of any profile.
+                if let clock = model.clockWarning { ClockBanner(clock: clock) }
                 HStack(alignment: .bottom, spacing: Spacing.m) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(verbatim: profile.name)
@@ -58,7 +61,11 @@ private struct DetailPage: View {
                     DetailActionButton(profile: profile, action: status.action)
                 }
                 ProfileStatusLine(status: status, server: server.address, now: model.previewNow)
-                DetailCodeCards(profile: profile, sentAt: sentAt)
+                if model.showsFailureCard(profile, status) {
+                    FailureCard(profile: profile, status: status, server: server.address)
+                } else {
+                    DetailCodeCards(profile: profile, sentAt: sentAt)
+                }
                 ActivityCard(profile: profile, feed: activity)
             }
             .padding(.horizontal, Spacing.xl)
