@@ -435,12 +435,42 @@
         }
       }
     },
+    "A screenshot or a photo of the QR." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "QR kodunun ekran görüntüsü ya da fotoğrafı."
+          }
+        }
+      }
+    },
     "Active connections stop while the helper is replaced." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Yardımcı değiştirilirken etkin bağlantılar kesilir."
+          }
+        }
+      }
+    },
+    "Add a VPN" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir VPN ekleyin"
+          }
+        }
+      }
+    },
+    "Add one to get started." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Başlamak için bir profil ekleyin."
           }
         }
       }
@@ -501,6 +531,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Güncellemeleri Denetle…"
+          }
+        }
+      }
+    },
+    "Choose an .ovpn or .passtunnel file." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir .ovpn ya da .passtunnel dosyası seçin."
+          }
+        }
+      }
+    },
+    "Choose File…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dosya Seç…"
           }
         }
       }
@@ -765,6 +815,16 @@
         }
       }
     },
+    "Drop a .passtunnel or .ovpn file here" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir .passtunnel ya da .ovpn dosyasını buraya bırakın"
+          }
+        }
+      }
+    },
     "Drop a screenshot here, choose the image, or paste the secret." : {
       "localizations" : {
         "tr" : {
@@ -781,6 +841,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Düzenle"
+          }
+        }
+      }
+    },
+    "Enter details by hand" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilgileri elle gir"
           }
         }
       }
@@ -855,6 +925,26 @@
         }
       }
     },
+    "No profiles yet." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Henüz profil yok."
+          }
+        }
+      }
+    },
+    "Not Now" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Şimdi Değil"
+          }
+        }
+      }
+    },
     "Notify when a connection drops" : {
       "localizations" : {
         "tr" : {
@@ -875,12 +965,32 @@
         }
       }
     },
+    "Open at Login" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oturum Açıldığında Aç"
+          }
+        }
+      }
+    },
     "Open at login, in the menu bar" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Oturum açıldığında menü çubuğunda aç"
+          }
+        }
+      }
+    },
+    "Open PassTunnel at login?" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel oturum açıldığında açılsın mı?"
           }
         }
       }
@@ -901,6 +1011,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "PassTunnel’ın kendisi oturum açıldığında açılmıyor. Ayarlar → Genel bölümünde “Oturum açıldığında menü çubuğunda aç” ayarını açın."
+          }
+        }
+      }
+    },
+    "PassTunnel works out the one-time code and sends it with your password when you connect. No account. Your passwords and secrets stay on this Mac." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel tek kullanımlık kodu kendisi hesaplar ve bağlandığınızda parolanızla birlikte gönderir. Hesap gerekmez. Parolalarınız ve gizli anahtarlarınız bu Mac’te kalır."
           }
         }
       }
@@ -1115,6 +1235,16 @@
         }
       }
     },
+    "Server, user name, password and code secret." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu, kullanıcı adı, parola ve kodun gizli anahtarı."
+          }
+        }
+      }
+    },
     "Set to ask only before connecting: showing, copying or typing the code does not ask. Turn the switch off and on again to ask for the code too." : {
       "localizations" : {
         "tr" : {
@@ -1191,6 +1321,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ kodunu yaz"
+          }
+        }
+      }
+    },
+    "Use a QR image" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "QR görüntüsü kullan"
           }
         }
       }
@@ -2261,6 +2401,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "PassTunnel'da onayınız bekleniyor…"
+          }
+        }
+      }
+    },
+    "What kind of VPN is it?" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu ne tür bir VPN?"
+          }
+        }
+      }
+    },
+    "What kind of VPN is this code for?" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu kod ne tür bir VPN için?"
           }
         }
       }
@@ -7293,6 +7453,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Daha sonra Ayarlar → Genel bölümünden açabilirsiniz."
+          }
+        }
+      }
+    },
+    "You enter the server, user name, password and code secret next." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sonra sunucuyu, kullanıcı adını, parolayı ve kodun gizli anahtarını girersiniz."
           }
         }
       }

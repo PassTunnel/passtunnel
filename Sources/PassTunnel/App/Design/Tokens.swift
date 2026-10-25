@@ -128,6 +128,10 @@ struct Typography {
     static let detailTitle = Typography(font: .system(size: 28, weight: .bold), tracking: -0.56)
     /// First-run and error screens (26 bold, −0.02 em).
     static let screenTitle = Typography(font: .largeTitle.bold(), tracking: -0.52)
+    /// The paragraph under a screen title (14, line height 1.5).
+    static let intro = Typography(font: .system(size: 14), lineSpacing: 4)
+    /// The line in the first run's drop zone (15 semibold).
+    static let dropTitle = Typography(font: .title3.weight(.semibold))
     /// Import review (22 bold).
     static let reviewTitle = Typography(font: .title.bold())
     /// Dialogs (17 bold, −0.01 em).
