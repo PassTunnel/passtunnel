@@ -51,7 +51,17 @@ One binary, two modes:
      destination; a `config.ovpn` the app cannot read fails the connect with `missingConfig` before any
      secret is read; a helper reply `config_changed` → `DestinationChangedError`, not retried) / `startForti`
   4. wait until connected (timeout 60 s OpenVPN, 120 s Forti); on auth failure read the log tail and throw
-     `PTError.authFailed(details)`; on timeout stop the process.
+     `PTError.authFailed(details)`; on timeout stop the process. When the tool exits or the time is up,
+     the log decides (`VPNLog.verdict`): a name that did not resolve is `PTError.hostNotFound`, a server
+     that never answered (refused, timed out, no route, no TLS answer; or nothing at all in time after the
+     tool tried) `PTError.serverUnreachable` with the tool's reason, else `connectFailed` / `connectTimeout`.
+  5. any failure is kept typed in `failures[id]` (`ConnectionFailure`: kind, the server's reply, the tool's
+     reason, whether the sign-in reached the server — the TLS session came up — and whether a code went
+     with it and with how many seconds left, tries); a cancelled attempt too, though it sets no
+     `lastError`. When the sign-in never reached the server, the `.last-otp` record this attempt wrote is
+     put back as it was (unless another process wrote one since; never after a cancel, whose tool may still
+     be on its way), so the next connect does not wait for a fresh code. A rejected sign-in is never retried (decision D-7): neither by an automatic reconnect nor
+     by a health-forced one.
 - `disconnect(_ id:)` → helper `stop`; marks the profile *user-stopped* so it is not treated as a drop.
 - Drop detection: only `connected → disconnected` with no action in flight and not user-stopped.
   Then: notification (if enabled, see Notifications) and, if `profile.autoReconnect && profile.unattended`
@@ -87,7 +97,9 @@ One binary, two modes:
   `expiring`, the seconds to wait), `sending` once the helper has the credentials (user name, whether a
   password and a code went, the code's seconds left and template or `separate`), `auth_accepted`
   (OpenVPN `PUSH_REPLY` or a management state past AUTH, openfortivpn "Authenticated."; at the latest
-  when connected), `connected` (address) or `rejected` (the server's `AUTH_FAILED…` reply). A session it
+  when connected), `connected` (address), or its failure: `rejected` (the server's `AUTH_FAILED…` reply),
+  `unreachable` (tries, reason) or `failed` (the `ConnectionFailure` kind, reason, whether the sign-in was
+  sent; nothing for a cancel, which `disconnect` records). A session it
   only follows records nothing (its owner does). Drops record `link_dropped` (whether it reconnects),
   automatic attempts `reconnecting` (attempt of total) and, after a failed one, `next_try`;
   `disconnect` records `disconnected_by_user` when the session was up (for a session this process has
@@ -518,9 +530,13 @@ with `auth_unavailable`.
 Exit codes (`AutomationExit`, `AutomationErrorCode.exitCode`): 0 ok, 1 other error, 2 usage /
 invalid argument, 3 not found or (`status ID`) not connected, 4 confirmation or input cancelled or
 not possible, 5 helper missing, unapproved, outdated or not answering (also `helper status`), 6
-connect failed (incl. other VPN, destination changed, credentials rejected or missing), 7 timeout,
-130 interrupted. With `--json`, a failure prints `{"error":{"code","message"}}` on stdout (usage
-errors too, `CLICommand.requestsJSON`); the human output is unchanged.
+connect failed (incl. server unreachable, host not found, other VPN, destination changed, credentials
+rejected or missing), 7 timeout, 130 interrupted. With `--json`, a failure prints
+`{"error":{"code","message"}}` on stdout (usage errors too, `CLICommand.requestsJSON`); a failed connect
+adds `failure` (`ConnectFailedError`, thrown by `AutomationService.connect` around the error with
+`ConnectionManager.failures[id]`). The human output adds the failure's facts after the message
+(`ConnectionFailure.details`: "The server answered: AUTH_FAILED. The code was sent with 22 s left. Not
+retried, to avoid a lockout.").
 
 `--wait` / `--timeout` (`AutomationService.connect`): the connect already waited for the result;
 `--timeout` bounds it, counted after the Touch ID confirmation. On a timeout the half-started
@@ -632,7 +648,8 @@ default true, `timeout_seconds` 1–600, default 60) and `disconnect` (`profile_
 automation objects of `--json`. `connect` mirrors the CLI: refresh, already connected → status,
 already connecting → wait for it, `needs` → `input_required`, `checkCanStart`, `vault.unlock` (Touch
 ID on the Mac), then `AutomationService.connect`; `wait: false` returns once the attempt shows as
-connecting and lets it finish in the server. The server never calls `ConnectionManager.start()`
+connecting and lets it finish in the server. A failed `connect` is an error result whose error object
+carries `failure`; `get_status` shows it too (`ProfileStatus.failure`, in the outputSchema). The server never calls `ConnectionManager.start()`
 (no polling, no auto-reconnect of its own).
 
 The app and the CLI share the files and the Keychain. The app never acts on a cached profile:

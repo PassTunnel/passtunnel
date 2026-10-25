@@ -28,8 +28,11 @@ final class ActivityLogTests: CoreTestCase {
          .sending(Self.sending),
          .sending(.init(username: "alice", password: true, code: false)),
          .authAccepted, .connected(address: "10.8.0.6"), .linkDropped(willReconnect: true),
-         .reconnecting(attempt: 2, of: 3), .unreachable(tries: 3), .nextTry(at: t0.addingTimeInterval(30)),
-         .rejected(reply: "AUTH_FAILED,Invalid OTP"), .rejected(reply: nil), .stoppedByUser, .disconnectedByUser]
+         .reconnecting(attempt: 2, of: 3), .unreachable(tries: 3, reason: "Connection refused"),
+         .unreachable(tries: 1, reason: nil), .nextTry(at: t0.addingTimeInterval(30)),
+         .rejected(reply: "AUTH_FAILED,Invalid OTP"), .rejected(reply: nil),
+         .failed(kind: .hostNotFound, reason: "Name or service not known", credentialsSent: false),
+         .failed(kind: .timeout, reason: nil, credentialsSent: true), .stoppedByUser, .disconnectedByUser]
     }
 
     // MARK: JSON
@@ -178,7 +181,15 @@ final class ActivityLogTests: CoreTestCase {
         XCTAssertEqual(say(.connected(address: "10.8.0.6")), "Connected, 10.8.0.6")
         XCTAssertEqual(say(.linkDropped(willReconnect: true)), "Link dropped, reconnecting")
         XCTAssertEqual(say(.reconnecting(attempt: 2, of: 3)), "Reconnecting, attempt 2 of 3")
-        XCTAssertEqual(say(.unreachable(tries: 3)), "No answer after 3 tries")
+        XCTAssertEqual(say(.unreachable(tries: 3, reason: nil)), "No answer after 3 tries")
+        XCTAssertEqual(say(.unreachable(tries: 1, reason: "Connection refused")), "No answer (Connection refused)")
+        XCTAssertEqual(say(.failed(kind: .hostNotFound, reason: "Name or service not known", credentialsSent: false)),
+                       "Server name not found (Name or service not known)")
+        XCTAssertEqual(say(.failed(kind: .configuration, reason: "certificate has expired", credentialsSent: false)),
+                       "Configuration or certificate refused (certificate has expired)")
+        XCTAssertEqual(say(.failed(kind: .setup, reason: nil, credentialsSent: true)), "Network setup failed")
+        XCTAssertEqual(say(.failed(kind: .timeout, reason: nil, credentialsSent: true)), "Did not connect in time")
+        XCTAssertEqual(say(.failed(kind: .failed, reason: nil, credentialsSent: false)), "Could not connect")
         XCTAssertEqual(say(.nextTry(at: t0.addingTimeInterval(30))), "Next try in 30 s")
         XCTAssertEqual(say(.rejected(reply: "AUTH_FAILED")), "Sign-in rejected: AUTH_FAILED. Stopped. Not retrying, to avoid a lockout")
         XCTAssertEqual(say(.stoppedByUser), "Stopped by you")

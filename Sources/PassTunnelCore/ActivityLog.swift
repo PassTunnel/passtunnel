@@ -30,12 +30,16 @@ public struct ActivityEvent: Equatable, Sendable {
         case linkDropped(willReconnect: Bool)
         /// An automatic reconnect attempt starts.
         case reconnecting(attempt: Int, of: Int)
-        /// The server did not answer after this many tries.
-        case unreachable(tries: Int)
+        /// The server did not answer after this many tries; `reason` in the tool's words ("Connection refused").
+        /// The sign-in was not sent.
+        case unreachable(tries: Int, reason: String?)
         /// The next automatic attempt starts then.
         case nextTry(at: Date)
         /// The server refused the sign-in; `reply` is what it answered ("AUTH_FAILED,…"), when it said anything.
         case rejected(reply: String?)
+        /// The attempt failed otherwise (`ConnectionFailure.Kind`: host not found, configuration, setup,
+        /// timeout, failed), with the tool's words when it gave some.
+        case failed(kind: ConnectionFailure.Kind, reason: String?, credentialsSent: Bool)
         /// The user stopped a connect, a wait for a code or the automatic reconnects.
         case stoppedByUser
         /// The user ended a connection that was up.
@@ -90,6 +94,7 @@ public struct ActivityEvent: Equatable, Sendable {
         case .unreachable: return "unreachable"
         case .nextTry: return "next_try"
         case .rejected: return "rejected"
+        case .failed: return "failed"
         case .stoppedByUser: return "stopped_by_user"
         case .disconnectedByUser: return "disconnected_by_user"
         }
@@ -97,7 +102,7 @@ public struct ActivityEvent: Equatable, Sendable {
 
     /// Every `event` value, for schemas.
     public static let names = ["connecting", "waiting_for_code", "sending", "auth_accepted", "connected", "link_dropped",
-                               "reconnecting", "unreachable", "next_try", "rejected", "stopped_by_user",
+                               "reconnecting", "unreachable", "next_try", "rejected", "failed", "stopped_by_user",
                                "disconnected_by_user"]
 
     /// At most the first three digits of `code`, never more than half of it, so a short typed code is not
@@ -174,18 +179,35 @@ public struct ActivityEvent: Equatable, Sendable {
             return willReconnect ? String(localized: "Link dropped, reconnecting") : String(localized: "Link dropped")
         case let .reconnecting(attempt, of):
             return String(localized: "Reconnecting, attempt \(attempt) of \(of)")
-        case .unreachable(let tries):
-            return tries > 1 ? String(localized: "No answer after \(tries) tries") : String(localized: "No answer")
+        case let .unreachable(tries, reason):
+            let text = tries > 1 ? String(localized: "No answer after \(tries) tries") : String(localized: "No answer")
+            return Self.adding(reason, to: text)
         case .nextTry(let next):
             return String(localized: "Next try in \(max(0, Int(next.timeIntervalSince(at).rounded(.up)))) s")
         case .rejected(let reply):
             guard let reply, !reply.isEmpty else { return String(localized: "Sign-in rejected. Stopped. Not retrying, to avoid a lockout") }
             return String(localized: "Sign-in rejected: \(reply). Stopped. Not retrying, to avoid a lockout")
+        case let .failed(kind, reason, _):
+            let text: String
+            switch kind {
+            case .hostNotFound: text = String(localized: "Server name not found")
+            case .configuration: text = String(localized: "Configuration or certificate refused")
+            case .setup: text = String(localized: "Network setup failed")
+            case .timeout: text = String(localized: "Did not connect in time")
+            case .authRejected, .unreachable, .cancelled, .failed: text = String(localized: "Could not connect")
+            }
+            return Self.adding(reason, to: text)
         case .stoppedByUser:
             return String(localized: "Stopped by you")
         case .disconnectedByUser:
             return String(localized: "Disconnected by you")
         }
+    }
+
+    /// "No answer (Connection refused)": the tool's words, untranslated, after the sentence.
+    private static func adding(_ reason: String?, to text: String) -> String {
+        guard let reason, !reason.isEmpty else { return text }
+        return text + " (" + reason + ")"
     }
 
     /// The password and code as the template puts them together: "••••••••+482 •••" for
@@ -229,7 +251,7 @@ extension ActivityEvent: Codable {
     enum Key: String, CodingKey {
         case at, event, host, port, transport = "protocol", reason, seconds, codePrefix = "code_prefix", username,
              password, code, secondsLeft = "seconds_left", format, address, willReconnect = "will_reconnect",
-             attempt, of, tries, nextAt = "next_at", reply
+             attempt, of, tries, nextAt = "next_at", reply, failure, credentialsSent = "credentials_sent"
     }
 
     public init(from decoder: Decoder) throws {
@@ -254,9 +276,14 @@ extension ActivityEvent: Codable {
         case "link_dropped": kind = .linkDropped(willReconnect: try c.decode(Bool.self, forKey: .willReconnect))
         case "reconnecting":
             kind = .reconnecting(attempt: try c.decode(Int.self, forKey: .attempt), of: try c.decode(Int.self, forKey: .of))
-        case "unreachable": kind = .unreachable(tries: try c.decode(Int.self, forKey: .tries))
+        case "unreachable":
+            kind = .unreachable(tries: try c.decode(Int.self, forKey: .tries), reason: try c.decodeIfPresent(String.self, forKey: .reason))
         case "next_try": kind = .nextTry(at: try c.decode(Date.self, forKey: .nextAt))
         case "rejected": kind = .rejected(reply: try c.decodeIfPresent(String.self, forKey: .reply))
+        case "failed":
+            kind = .failed(kind: try c.decode(ConnectionFailure.Kind.self, forKey: .failure),
+                           reason: try c.decodeIfPresent(String.self, forKey: .reason),
+                           credentialsSent: try c.decode(Bool.self, forKey: .credentialsSent))
         case "stopped_by_user": kind = .stoppedByUser
         case "disconnected_by_user": kind = .disconnectedByUser
         case let other:
@@ -291,12 +318,17 @@ extension ActivityEvent: Codable {
         case let .reconnecting(attempt, of):
             try c.encode(attempt, forKey: .attempt)
             try c.encode(of, forKey: .of)
-        case .unreachable(let tries):
+        case let .unreachable(tries, reason):
             try c.encode(tries, forKey: .tries)
+            try c.encodeIfPresent(reason, forKey: .reason)
         case .nextTry(let next):
             try c.encode(next, forKey: .nextAt)
         case .rejected(let reply):
             try c.encodeIfPresent(reply, forKey: .reply)
+        case let .failed(kind, reason, credentialsSent):
+            try c.encode(kind, forKey: .failure)
+            try c.encodeIfPresent(reason, forKey: .reason)
+            try c.encode(credentialsSent, forKey: .credentialsSent)
         case .authAccepted, .stoppedByUser, .disconnectedByUser:
             break
         }

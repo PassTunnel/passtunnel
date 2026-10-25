@@ -1526,6 +1526,7 @@ final class ConnectionManagerTests: XCTestCase {
         let sent = ActivityEvent.Kind.sending(.init(username: "alice", password: true, code: false))
         XCTAssertEqual(Array(m.activity(p.id).map(\.kind).dropFirst(4)),
                        [.linkDropped(willReconnect: true), .reconnecting(attempt: 1, of: 3), acme,
+                        .failed(kind: .failed, reason: nil, credentialsSent: false),
                         .nextTry(at: t0.addingTimeInterval(5 + 15)), .reconnecting(attempt: 2, of: 3), acme, sent,
                         .authAccepted, .connected(address: "10.8.0.6")])
     }
@@ -1556,6 +1557,115 @@ final class ConnectionManagerTests: XCTestCase {
         let stopped = try await app.disconnect(p.id)
         XCTAssertFalse(stopped)
         XCTAssertEqual(Array(app.activity(p.id).map(\.kind).suffix(2)), [.linkDropped(willReconnect: true), .stoppedByUser])
+    }
+
+    // MARK: failures
+
+    static let refusedLog = "2026-10-25 09:41:00 Attempting to establish TCP connection with [AF_INET]203.0.113.10:1194\n"
+        + "2026-10-25 09:41:00 TCP: connect to [AF_INET]203.0.113.10:1194 failed: Connection refused\n"
+
+    /// A server that never answered got nothing: the failure says so, and the code's period is given back
+    /// (the record from before is restored), so trying again does not wait for a fresh code.
+    func testAnUnreachableServerGetsNoCode() async throws {
+        let p = try makeOpenVPN(otp: .totp)
+        let before = ConnectionManager.UsedOTPWindow(counter: TOTP.counter(params: p.totp, at: t0) - 1, period: 30)
+        try JSONCoding.write(before, to: store.dir(p.id).appendingPathComponent(ConnectionManager.usedOTPFile), mode: 0o600)
+        helper.openVPNStateLine = nil
+        helper.startLog = Self.refusedLog
+        var timing = ConnectionManager.Timing()
+        timing.openVPNTimeout = 2
+        let m = makeManager(timing: timing)
+        do { try await m.connect(p.id); XCTFail("connected") } catch {
+            XCTAssertEqual(error as? PTError, .serverUnreachable(server: "vpn.example.com:1194", reason: "Connection refused",
+                                                                log: VPNLog.tail(Self.refusedLog)))
+        }
+        XCTAssertEqual(m.failures[p.id], ConnectionFailure(kind: .unreachable, at: t0.addingTimeInterval(2), reason: "Connection refused",
+                                                           credentialsSent: false, codeSent: false, tries: 1))
+        XCTAssertEqual(m.usedCode(p.id), before, "the code never reached the server")
+        XCTAssertEqual(helper.stops, [p.id])
+        XCTAssertEqual(m.activity(p.id).last?.kind, .unreachable(tries: 1, reason: "Connection refused"))
+        XCTAssertNotNil(m.lastError[p.id])
+
+        // Trying again in the same period sends the same period's code at once.
+        helper.openVPNStateLine = { LoopingManagementServer.connectedLine(since: $0) }
+        helper.startLog = ""
+        try await m.connect(p.id)
+        XCTAssertFalse(m.activity(p.id).contains { if case .waitingForCode = $0.kind { return true }; return false })
+        XCTAssertNil(m.failures[p.id], "cleared by the next attempt")
+    }
+
+    func testARejectedSignInUsedTheCodeAndIsNotRetried() async throws {
+        let p = try makeOpenVPN(otp: .totp, autoReconnect: true)
+        helper.openVPNStateLine = nil
+        let log = "2026-10-25 09:41:01 Control Channel: TLSv1.3, cipher TLSv1.3 TLS_AES_256_GCM_SHA384\n"
+            + "2026-10-25 09:41:02 AUTH: Received control message: AUTH_FAILED,Invalid OTP\n"
+        helper.startLog = log
+        let m = makeManager()
+        do { try await m.connect(p.id); XCTFail("connected") } catch PTError.authFailed {}
+        XCTAssertEqual(m.failures[p.id], ConnectionFailure(kind: .authRejected, at: t0, reply: "AUTH_FAILED,Invalid OTP",
+                                                           credentialsSent: true, codeSent: true, codeSecondsLeft: 10))
+        XCTAssertEqual(m.usedCode(p.id), .init(counter: TOTP.counter(params: p.totp, at: t0), period: 30), "the code was used")
+        XCTAssertEqual(helper.starts.count, 1, "never retried")
+        XCTAssertNil(m.reconnecting[p.id])
+    }
+
+    func testAServerNameThatDoesNotResolve() async throws {
+        let p = try makeOpenVPN()
+        helper.openVPNStateLine = nil
+        helper.startLog = "2026-10-25 09:41:00 RESOLVE: Cannot resolve host address: vpn.example.com:1194 (Name or service not known)\n"
+        let m = makeManager()
+        do { try await m.connect(p.id); XCTFail("connected") } catch {
+            XCTAssertEqual(error as? PTError, .hostNotFound(server: "vpn.example.com:1194", log: VPNLog.tail(helper.startLog)))
+        }
+        XCTAssertEqual(m.failures[p.id]?.kind, .hostNotFound)
+        XCTAssertEqual(m.failures[p.id]?.reason, "Name or service not known")
+        XCTAssertEqual(m.activity(p.id).last?.kind, .failed(kind: .hostNotFound, reason: "Name or service not known", credentialsSent: false))
+    }
+
+    /// The tool tried and nothing answered within the connect's limit: unreachable, not a plain timeout.
+    /// A log that says nothing at all stays a timeout (`testProcessExitAndTimeout`).
+    func testNoAnswerUntilTheLimitIsUnreachable() async throws {
+        let p = try makeOpenVPN()
+        helper.openVPNStateLine = nil
+        helper.startLog = "2026-10-25 09:41:00 UDPv4 link remote: [AF_INET]203.0.113.10:1194\n"
+        let m = makeManager()
+        do { try await m.connect(p.id); XCTFail("connected") } catch {
+            XCTAssertEqual(error as? PTError, .serverUnreachable(server: "vpn.example.com:1194", reason: "no answer within 60 seconds",
+                                                                log: VPNLog.tail(helper.startLog)))
+        }
+        XCTAssertEqual(AutomationErrorCode.of(PTError.serverUnreachable(server: "", reason: "", log: "")), .serverUnreachable)
+
+        // Reached, then nothing: a timeout after the sign-in was sent.
+        helper.startLog = "2026-10-25 09:41:01 Control Channel: TLSv1.3, cipher TLSv1.3 TLS_AES_256_GCM_SHA384\n"
+        do { try await m.connect(p.id); XCTFail("connected") } catch { XCTAssertEqual(error as? PTError, .connectTimeout(60)) }
+        XCTAssertEqual(m.failures[p.id]?.kind, .timeout)
+        XCTAssertEqual(m.failures[p.id]?.credentialsSent, true)
+    }
+
+    func testFortiThatExitsWithoutAnAnswer() async throws {
+        var p = try store.create(name: "Acme Forti", type: .forti)
+        p.host = "vpn.example.com"
+        p.port = 10443
+        p.username = "alice"
+        try store.save(p)
+        try Secrets.set(p.id, .password, "pw")
+        helper.startLog = "ERROR:  connect: Operation timed out\nINFO:   Closed connection to gateway.\n"
+        helper.onStatus = { [helper] _ in helper!.simulateExit(p.id) }   // openfortivpn gave up
+        let m = makeManager()
+        do { try await m.connect(p.id); XCTFail("connected") } catch {
+            XCTAssertEqual(error as? PTError, .serverUnreachable(server: "vpn.example.com:10443", reason: "Operation timed out",
+                                                                log: VPNLog.tail(helper.startLog)))
+        }
+        XCTAssertEqual(m.failures[p.id]?.credentialsSent, false)
+    }
+
+    func testCancelledAttemptsAreTypedButNotShownAsErrors() async throws {
+        let m = makeManager()
+        let p = try await makeProtected(in: m, otp: .totp)
+        authenticator.results = [PTError.userConfirmationCancelled]
+        do { try await m.connect(p.id); XCTFail("connected") } catch { XCTAssertEqual(error as? PTError, .userConfirmationCancelled) }
+        XCTAssertEqual(m.failures[p.id], ConnectionFailure(kind: .cancelled, at: t0))
+        XCTAssertNil(m.lastError[p.id])
     }
 
     /// A session another process started is that process's to record.

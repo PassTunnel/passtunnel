@@ -438,6 +438,120 @@ public enum VPNLog {
         text.contains("PUSH_REPLY") || text.contains("Authenticated.") || text.contains("has allocated a VPN")
     }
 
+    // MARK: why an attempt failed
+
+    /// The credentials went to the server: OpenVPN sends them right after the TLS handshake ("Control
+    /// Channel: TLSv1.3, …", then "Peer Connection Initiated"), openfortivpn in its login request once it
+    /// is "Connected to gateway"; or the server answered the sign-in.
+    public static func credentialsSent(_ text: String) -> Bool {
+        let markers = ["Control Channel: ", "Peer Connection Initiated", "PUSH_REPLY", "Initialization Sequence Completed",
+                       "Connected to gateway.", "Authenticated.", "has allocated a VPN", "Tunnel is up and running"]
+        return markers.contains { text.contains($0) } || isAuthFailure(text)
+    }
+
+    /// What a failed attempt's log says went wrong, and the tool's words for it.
+    public struct Verdict: Equatable, Sendable {
+        /// `.authRejected`, `.configuration`, `.hostNotFound` or `.unreachable`.
+        public var kind: ConnectionFailure.Kind
+        /// "Connection refused", "Name or service not known", "certificate has expired"; nil when the log
+        /// gives none.
+        public var reason: String?
+    }
+
+    /// A rejected sign-in first, then a refused configuration or certificate; otherwise, unless the
+    /// credentials were sent (the server was reached), the last sign that the server's name did not
+    /// resolve or that it did not answer. Lines of OpenVPN (2.5 to 2.7) and openfortivpn, as the Mac and
+    /// Linux word them ("Operation timed out" / "Connection timed out", "nodename nor servname provided,
+    /// or not known" / "Name or service not known"). nil when nothing is recognized.
+    public static func verdict(_ text: String) -> Verdict? {
+        if isAuthFailure(text) { return Verdict(kind: .authRejected, reason: nil) }
+        var network: Verdict?
+        for raw in text.split(whereSeparator: \.isNewline) {
+            let line = withoutTimestamp(raw)
+            if let reason = configurationProblem(line) { return Verdict(kind: .configuration, reason: reason) }
+            if let reason = unresolvedHost(line) {
+                network = Verdict(kind: .hostNotFound, reason: reason)
+            } else if let reason = noAnswer(line) {
+                network = Verdict(kind: .unreachable, reason: reason)
+            }
+        }
+        return credentialsSent(text) ? nil : network
+    }
+
+    /// The tool tried to reach the server (whether or not it answered): what tells a server that is not
+    /// there from a log that says nothing.
+    public static func attempted(_ text: String) -> Bool {
+        let markers = ["link remote: ", "Attempting to establish TCP connection", "TCP connection established",
+                       "TLS: Initial packet from", "TLS key negotiation failed"]
+        return markers.contains { text.contains($0) } || verdict(text) != nil
+    }
+
+    /// How many times the tool tried to reach a server: OpenVPN's UDP "link remote" and TCP "Attempting to
+    /// establish" lines, openfortivpn's failed connects; at least 1.
+    public static func tries(_ text: String) -> Int {
+        var n = 0
+        for raw in text.split(whereSeparator: \.isNewline) {
+            let line = withoutTimestamp(raw)
+            if (line.hasPrefix("UDP") && line.contains("link remote: ")) || line.hasPrefix("Attempting to establish TCP connection")
+                || (line.hasPrefix("ERROR:") && line.contains(" connect: ")) {
+                n += 1
+            }
+        }
+        return max(1, n)
+    }
+
+    /// OpenVPN "Options error: …", "VERIFY ERROR: depth=0, error=certificate has expired: …", "Cannot load
+    /// …", a private key it cannot decrypt, an OpenSSL "certificate verify failed"; openfortivpn
+    /// "Gateway certificate validation failed, …" (its gateway is not the trusted certificate).
+    static func configurationProblem(_ line: String) -> String? {
+        if let r = line.range(of: "Options error: ") { return String(line[r.upperBound...]) }
+        if let r = line.range(of: "VERIFY ERROR: ") {
+            let rest = line[r.upperBound...]
+            guard let e = rest.range(of: "error=") else { return String(rest) }
+            return String(rest[e.upperBound...].prefix { $0 != ":" })
+        }
+        for marker in ["Gateway certificate validation failed", "certificate verify failed", "Cannot load ",
+                       "private key password verification failed"] where line.contains(marker) {
+            return marker == "Cannot load " ? line : marker
+        }
+        return nil
+    }
+
+    /// OpenVPN "RESOLVE: Cannot resolve host address: vpn.example.com:1194 (Name or service not known)",
+    /// openfortivpn "ERROR:  getaddrinfo: nodename nor servname provided, or not known" → the reason.
+    static func unresolvedHost(_ line: String) -> String? {
+        if line.contains("Cannot resolve host address") {
+            guard let open = line.lastIndex(of: "("), line.hasSuffix(")") else { return "" }
+            return String(line[line.index(after: open)..<line.index(before: line.endIndex)])
+        }
+        if let r = line.range(of: "getaddrinfo: ") { return String(line[r.upperBound...]) }
+        return nil
+    }
+
+    /// OpenVPN "TCP: connect to [AF_INET]203.0.113.10:443 failed: Connection refused", "TLS Error: TLS key
+    /// negotiation failed to occur within 60 seconds (check your network connectivity)", "Server poll
+    /// timeout", "read UDPv4 [ECONNREFUSED]: Connection refused (fd=3,code=111)", "write UDPv4: Network is
+    /// unreachable (fd=3,code=51)"; openfortivpn "ERROR:  connect: Operation timed out", "Could not connect
+    /// to gateway" → the reason.
+    static func noAnswer(_ line: String) -> String? {
+        if line.hasPrefix("TCP: connect to "), let r = line.range(of: " failed: ") { return String(line[r.upperBound...]) }
+        if let r = line.range(of: "TLS key negotiation failed to occur within ") {
+            return "TLS key negotiation failed to occur within " + line[r.upperBound...].prefix { $0 != "(" }
+                .trimmingCharacters(in: .whitespaces)
+        }
+        if line.contains("Server poll timeout") { return "Server poll timeout" }
+        if line.hasPrefix("read UDP") || line.hasPrefix("write UDP"), let colon = line.range(of: ": ") {
+            var reason = line[colon.upperBound...]
+            if let paren = reason.range(of: " (", options: .backwards), reason.hasSuffix(")") { reason = reason[..<paren.lowerBound] }
+            let lower = reason.lowercased()
+            let network = ["refused", "unreachable", "no route", "timed out", "host is down"]
+            return network.contains { lower.contains($0) } ? String(reason) : nil
+        }
+        if line.hasPrefix("ERROR:"), let r = line.range(of: " connect: ") { return String(line[r.upperBound...]) }
+        if line.contains("Could not connect to gateway") { return "Could not connect to gateway" }
+        return nil
+    }
+
     static let fatalMarkers = [
         "Exiting due to fatal error", "Options error", "Cannot resolve host address",
         "Gateway certificate validation failed", "Could not connect to gateway", "PassTunnel: ",

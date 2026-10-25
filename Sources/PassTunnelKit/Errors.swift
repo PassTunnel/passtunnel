@@ -31,6 +31,8 @@ public enum PTError: Error, Equatable, LocalizedError {
     case helperFailed(String)              // the helper refused the request
     case authFailed(String)                // log tail
     case connectFailed(String)             // the VPN tool exited; log tail
+    case serverUnreachable(server: String, reason: String, log: String)   // no answer, refused, no route: nothing sent; log tail
+    case hostNotFound(server: String, log: String)   // the server's name did not resolve; log tail
     case connectTimeout(Int)               // seconds
     case connectCancelled
     case otherVPNActive(String)            // interface of the VPN that already takes all traffic
@@ -104,6 +106,12 @@ public enum PTError: Error, Equatable, LocalizedError {
             return String(localized: "The server rejected the sign-in. Check the user name, password and one-time code.")
         case .connectFailed:
             return String(localized: "The VPN connection could not be established. See the log for details.")
+        case let .serverUnreachable(server, reason, _):
+            if server.isEmpty { return String(localized: "The server could not be reached: \(reason). Your sign-in was not sent.") }
+            return String(localized: "The server \(server) could not be reached: \(reason). Your sign-in was not sent.")
+        case let .hostNotFound(server, _):
+            if server.isEmpty { return String(localized: "The server’s name could not be found. Check the server address and the network connection.") }
+            return String(localized: "The server name \(server) could not be found. Check the server address and the network connection.")
         case .connectTimeout(let seconds):
             return String(localized: "The VPN did not connect within \(seconds) seconds.")
         case .connectCancelled:
@@ -139,7 +147,9 @@ extension PTError {
     /// Log excerpt attached to connection failures (empty for other errors).
     public var logTail: String {
         switch self {
-        case .authFailed(let tail), .connectFailed(let tail), .setupFailed(_, let tail): return tail
+        case .authFailed(let tail), .connectFailed(let tail), .setupFailed(_, let tail), .serverUnreachable(_, _, let tail),
+             .hostNotFound(_, let tail):
+            return tail
         default: return ""
         }
     }

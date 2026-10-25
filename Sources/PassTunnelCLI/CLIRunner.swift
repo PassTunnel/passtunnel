@@ -63,7 +63,7 @@ final class CLIRunner {
         } else if let e = error as? CLIUsageError {
             CLITerminal.fail(e.message)
             CLITerminal.err(CLIHelp.usage(for: e.command))
-        } else if (error as? PTError) == .userConfirmationCancelled {
+        } else if (ConnectFailedError.underlying(error) as? PTError) == .userConfirmationCancelled {
             // The user cancelled the Touch ID / password prompt: nothing happened, nothing to explain.
             CLITerminal.err(error.localizedDescription)
         } else {
@@ -101,7 +101,8 @@ final class CLIRunner {
 
     private func report(_ error: Error) {
         CLITerminal.fail(error.localizedDescription)
-        if let tail = (error as? PTError)?.logTail, !tail.isEmpty {
+        if let details = (error as? ConnectFailedError)?.failure.details { CLITerminal.err(details) }
+        if let tail = (ConnectFailedError.underlying(error) as? PTError)?.logTail, !tail.isEmpty {
             CLITerminal.err(tail.split(separator: "\n").map { "  " + $0 }.joined(separator: "\n"))
         }
     }
@@ -242,7 +243,8 @@ final class CLIRunner {
             try await manager.vault.unlock(p, for: .connect)
             let given = try askForNeeds(p)
             try await connectShowingProgress(p, given: given, force: force, timeout: timeout)
-        } catch PTError.otherVPNActive(let other) where !json {
+        } catch {
+            guard !json, case PTError.otherVPNActive(let other)? = ConnectFailedError.underlying(error) as? PTError else { throw error }
             CLITerminal.fail(PTError.otherVPNActive(other).localizedDescription)
             CLITerminal.err(CLITerminal.dim(String(localized: "Use --force to connect anyway.")))
             return AutomationErrorCode.otherVPNActive.exitCode

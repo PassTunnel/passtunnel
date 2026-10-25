@@ -350,6 +350,8 @@ public final class ConnectionManager: ObservableObject {
     @Published public private(set) var lastError: [String: String] = [:]
     /// Log excerpt for the last error (tooltip / "Show log").
     @Published public private(set) var lastErrorLog: [String: String] = [:]
+    /// Why the last connect failed, typed (also for a cancelled one, which leaves `lastError` empty).
+    @Published public private(set) var failures: [String: ConnectionFailure] = [:]
     @Published public private(set) var health: [String: HealthState] = [:]
     @Published public private(set) var reconnecting: [String: ReconnectInfo] = [:]
     /// Why the last helper `status` call failed (nil when it worked).
@@ -694,6 +696,7 @@ public final class ConnectionManager: ObservableObject {
                     lastError[id] = error.localizedDescription
                     lastErrorLog[id] = ""
                 }
+                failures[id] = ConnectionFailure.of(error, log: nil, handed: nil, at: clock.now())
                 throw error
             }
             if let inFlight = connectTasks[id] { return try await inFlight.value }
@@ -791,8 +794,10 @@ public final class ConnectionManager: ObservableObject {
         setUserStoppedMarker(id, false)
         lastError[id] = nil
         lastErrorLog[id] = nil
+        failures[id] = nil
         warnings[id] = nil
         setState(id, .connecting(Phase.preparing))
+        var progress = AttemptProgress()
 
         do {
             // Always the profile as stored now (the CLI may have changed it), never a cached copy.
@@ -800,10 +805,12 @@ public final class ConnectionManager: ObservableObject {
             let status = await currentStatus()
             if let session = session(id, in: status) {
                 role?(.followed)
+                progress.toolRan = true
                 return try await follow(p, token: token, session: session)
             }
             if followOnly { throw NothingToFollow() }
             role?(.started)
+            progress.owned = true
             if p.type == .openvpn && !force { try checkNoOtherFullTunnel(p, running: status?.running ?? [:]) }
             vault.reconcile(p)   // a setting edited by hand: encrypt what it protects before use
             let destination = ProfileDestination.of(p, store: store)
@@ -816,6 +823,7 @@ public final class ConnectionManager: ObservableObject {
             // A helper left running from another app version would misplace or reject the session.
             try await helper.ensureCompatible()
             record(id, connectingEvent(p))
+            progress.recorded = true
 
             var otp = creds.otp
             var codeTime: Date?
@@ -853,19 +861,25 @@ public final class ConnectionManager: ObservableObject {
                 // Another process started it in the meantime: the helper refuses a second session.
                 if let session = session(id, in: await currentStatus()) {
                     role?(.followed)
+                    progress.owned = false
+                    progress.toolRan = true
                     return try await follow(p, token: token, session: session)
                 }
                 throw PTError.helperFailed(response.error ?? "")
             }
-            if let codeTime { rememberUsedCode(p, at: codeTime) }   // the tool has it now, whatever happens next
+            progress.toolRan = true
+            let sent = sending(p, username: creds.username ?? "", password: creds.password ?? "", otp: otp, codeTime: codeTime)
+            progress.handed = ConnectionFailure.Handed(code: sent.code, codeSecondsLeft: sent.secondsLeft)
+            if let codeTime {
+                // The tool has it now; given back if it never reaches the server (`noteFailure`).
+                progress.usedCode = (usedCode(id), rememberUsedCode(p, at: codeTime))
+            }
             if actionToken[id] != token {
                 // Disconnected while the helper was starting the tool; its stop may have come first.
                 await stopQuietly(id)
                 throw PTError.connectCancelled
             }
-            if let username = creds.username {
-                record(id, .sending(sending(p, username: username, password: creds.password ?? "", otp: otp, codeTime: codeTime)))
-            }
+            if creds.username != nil { record(id, .sending(sent)) }
 
             if let socket = response.mgmtSocket { mgmtSockets[id] = socket }
             let result = try await waitUntilConnected(p, token: token, socketPath: response.mgmtSocket ?? socketPath(id),
@@ -884,6 +898,7 @@ public final class ConnectionManager: ObservableObject {
             }
         } catch {
             let cancelled = actionToken[id] != token
+            if !(error is NothingToFollow) { noteFailure(id, cancelled ? PTError.connectCancelled : error, progress) }
             if cancelled { throw PTError.connectCancelled }
             setState(id, .disconnected)
             if (error as? PTError) == .connectCancelled || (error as? PTError) == .userConfirmationCancelled
@@ -1134,10 +1149,80 @@ public final class ConnectionManager: ObservableObject {
         usedCode(id).map { Date(timeIntervalSince1970: TimeInterval($0.counter) * TimeInterval($0.period)) }
     }
 
-    private func rememberUsedCode(_ p: Profile, at date: Date) {
-        guard FileManager.default.fileExists(atPath: store.dir(p.id).path) else { return }
+    @discardableResult
+    private func rememberUsedCode(_ p: Profile, at date: Date) -> UsedOTPWindow {
         let used = UsedOTPWindow(counter: TOTP.counter(params: p.totp, at: date), period: max(1, p.totp.period))
+        guard FileManager.default.fileExists(atPath: store.dir(p.id).path) else { return used }
         try? JSONCoding.write(used, to: usedCodeURL(p.id), mode: 0o600)
+        return used
+    }
+
+    /// Puts back the record that a code which never reached the server replaced (none: removes it).
+    private func restoreUsedCode(_ id: String, _ previous: UsedOTPWindow?) {
+        guard FileManager.default.fileExists(atPath: store.dir(id).path) else { return }
+        if let previous {
+            try? JSONCoding.write(previous, to: usedCodeURL(id), mode: 0o600)
+        } else {
+            try? FileManager.default.removeItem(at: usedCodeURL(id))
+        }
+    }
+
+    /// How far a connect got, for the failure it may end with.
+    struct AttemptProgress {
+        /// This manager started the session (not one another process started, which it follows).
+        var owned = false
+        /// `connecting` is in the activity.
+        var recorded = false
+        /// The VPN tool ran for this attempt (or the followed session's does): its log is about it.
+        var toolRan = false
+        /// What the tool was given.
+        var handed: ConnectionFailure.Handed?
+        /// The used-code record before this attempt, and the one it wrote.
+        var usedCode: (previous: UsedOTPWindow?, written: UsedOTPWindow)?
+    }
+
+    /// Keeps why the attempt failed (`failures`), records it in the activity of a session this manager
+    /// started, and gives the code's period back when the code never reached the server, so the next
+    /// connect need not wait for a fresh code (only if no other process recorded a code since). Not after
+    /// a cancel: the tool may still be on its way to the server while the stop is under way.
+    private func noteFailure(_ id: String, _ error: Error, _ progress: AttemptProgress) {
+        let log = progress.toolRan ? VPNLog.read(store.logURL(id)) : nil
+        let failure = ConnectionFailure.of(error, log: log, handed: progress.handed, at: clock.now())
+        failures[id] = failure
+        if let used = progress.usedCode, !failure.credentialsSent, failure.kind != .cancelled, usedCode(id) == used.written {
+            restoreUsedCode(id, used.previous)
+        }
+        guard progress.owned && progress.recorded else { return }
+        switch failure.kind {
+        case .authRejected: record(id, .rejected(reply: failure.reply))
+        case .unreachable: record(id, .unreachable(tries: failure.tries ?? 1, reason: failure.reason))
+        case .cancelled: break   // `disconnect` records the stop
+        case .hostNotFound, .configuration, .setup, .timeout, .failed:
+            record(id, .failed(kind: failure.kind, reason: failure.reason, credentialsSent: failure.credentialsSent))
+        }
+    }
+
+    /// The server was never reached, as its log tells: `hostNotFound`, or `serverUnreachable` with the
+    /// tool's reason; after `timeout` seconds also when the tool tried and nothing answered. nil when the
+    /// log tells otherwise (or nothing).
+    private func unreached(_ p: Profile, log: String, timeout: TimeInterval? = nil) -> PTError? {
+        let tail = VPNLog.tail(log)
+        let verdict = VPNLog.verdict(log)
+        switch verdict?.kind {
+        case .hostNotFound?: return .hostNotFound(server: serverAddress(p), log: tail)
+        case .unreachable?: return .serverUnreachable(server: serverAddress(p), reason: verdict?.reason ?? "", log: tail)
+        default: break
+        }
+        guard let timeout, verdict == nil, !VPNLog.credentialsSent(log), VPNLog.attempted(log) else { return nil }
+        return .serverUnreachable(server: serverAddress(p), reason: String(localized: "no answer within \(Int(timeout)) seconds"),
+                                  log: tail)
+    }
+
+    /// "vpn.example.com:1194", "[2001:db8::1]:443": the server a connect goes to; "" when unknown.
+    private func serverAddress(_ p: Profile) -> String {
+        guard case let .connecting(host, port, _) = connectingEvent(p), !host.isEmpty else { return "" }
+        let name = host.contains(":") ? "[\(host)]" : host
+        return port.map { "\(name):\($0)" } ?? name
     }
 
     /// Polls until `p` is connected. When `owned` is false (a session another process started), the
@@ -1156,21 +1241,17 @@ public final class ConnectionManager: ObservableObject {
             accepted = true
             record(id, .authAccepted)
         }
-        func rejected(_ log: String) -> PTError {
-            if owned { record(id, .rejected(reply: VPNLog.authFailureReply(log))) }
-            return PTError.authFailed(VPNLog.tail(log))
-        }
 
         while true {
             try checkToken(id, token)
             let log = VPNLog.read(logURL)
             if VPNLog.isAuthFailure(log) {
                 if owned { await stopQuietly(id) }
-                throw rejected(log)
+                throw PTError.authFailed(VPNLog.tail(log))
             }
             if VPNLog.isFatal(log) {
                 if owned { await stopQuietly(id) }
-                throw PTError.connectFailed(VPNLog.tail(log))
+                throw unreached(p, log: log) ?? PTError.connectFailed(VPNLog.tail(log))
             }
             try await checkSetup(p, log: log, owned: owned)
             if VPNLog.authAccepted(log) { noteAccepted() }
@@ -1186,7 +1267,7 @@ public final class ConnectionManager: ObservableObject {
                     }
                     if s.name == "RECONNECTING" && s.detail.lowercased().contains("auth") {
                         if owned { await stopQuietly(id) }
-                        throw rejected(VPNLog.read(logURL))
+                        throw PTError.authFailed(VPNLog.tail(VPNLog.read(logURL)))
                     }
                     // Past the sign-in: the server is sending the tunnel settings.
                     if ["GET_CONFIG", "ASSIGN_IP", "ADD_ROUTES"].contains(s.name) { noteAccepted() }
@@ -1208,13 +1289,13 @@ public final class ConnectionManager: ObservableObject {
                     // Stopped by a disconnect in another process (app ↔ CLI): a cancel, not a failure.
                     if hasUserStoppedMarker(id) { throw PTError.connectCancelled }
                     let final = VPNLog.read(logURL)
-                    if VPNLog.isAuthFailure(final) { throw rejected(final) }
-                    throw PTError.connectFailed(VPNLog.tail(final))
+                    if VPNLog.isAuthFailure(final) { throw PTError.authFailed(VPNLog.tail(final)) }
+                    throw unreached(p, log: final) ?? PTError.connectFailed(VPNLog.tail(final))
                 }
             }
             if clock.now().timeIntervalSince(started) >= timeout {
                 if owned { await stopQuietly(id) }
-                throw PTError.connectTimeout(Int(timeout))
+                throw unreached(p, log: VPNLog.read(logURL), timeout: timeout) ?? PTError.connectTimeout(Int(timeout))
             }
             do { try await clock.sleep(timing.connectCheckInterval) } catch { throw PTError.connectCancelled }
         }
@@ -1565,6 +1646,7 @@ public final class ConnectionManager: ObservableObject {
         states[id] = nil
         lastError[id] = nil
         lastErrorLog[id] = nil
+        failures[id] = nil
         sessionActive.remove(id)
         userStopped.remove(id)
     }

@@ -43,7 +43,8 @@ public final class AutomationService {
         let m = manager
         var s = ProfileStatus(id: p.id, name: p.name, type: p.type.rawValue, state: "disconnected",
                               isDefault: store.defaultID == p.id, protected: ProfileSummary.isProtected(p),
-                              autoReconnect: p.autoReconnect, error: m.lastError[p.id])
+                              autoReconnect: p.autoReconnect, error: m.lastError[p.id],
+                              failure: m.failures[p.id].map { Self.redacted($0, id: p.id) })
         switch m.state(p.id) {
         case .disconnected: break
         case .connecting(let phase): s.state = "connecting"; s.phase = phase
@@ -58,6 +59,16 @@ public final class AutomationService {
             }
         }
         return s
+    }
+
+    /// The failure with the server's reply and the tool's reason passed through `LogRedactor`, as the log is.
+    static func redacted(_ failure: ConnectionFailure, id: String) -> ConnectionFailure {
+        guard failure.reply != nil || failure.reason != nil else { return failure }
+        let redactor = LogRedactor(secrets: SecretKind.allCases.compactMap { Secrets.get(id, $0) })
+        var f = failure
+        f.reply = f.reply.map(redactor.redact)
+        f.reason = f.reason.map(redactor.redact)
+        return f
     }
 
     /// Whole seconds from `start` to `end`: 0 when `end` is not later or the difference is not finite,
@@ -96,16 +107,23 @@ public final class AutomationService {
     /// under way and only wants to wait for it; throws `ConnectionManager.NothingToFollow` when it has
     /// ended meanwhile, so the caller can run its own checks before starting one. The caller asks for
     /// the confirmation first (`vault.unlock`), so the time a prompt stays open does not count.
-    /// `role` is passed on to `ConnectionManager.connect` (the CLI's Ctrl-C handler uses it).
+    /// `role` is passed on to `ConnectionManager.connect` (the CLI's Ctrl-C handler uses it). A failure the
+    /// manager typed (`ConnectionManager.failures`) comes as a `ConnectFailedError` around the error.
     public func connect(_ id: String, given: [CredentialField: String] = [:], force: Bool = false,
                         timeout: TimeInterval?, joining: Bool,
                         role: ((ConnectionManager.ConnectRole) -> Void)? = nil) async throws {
         let manager = self.manager
         let attempt = Attempt()
         let run = { @MainActor in
-            try await manager.connect(id, given: given, force: force, followOnly: joining) {
-                attempt.started = $0 == .started
-                role?($0)
+            do {
+                try await manager.connect(id, given: given, force: force, followOnly: joining) {
+                    attempt.started = $0 == .started
+                    role?($0)
+                }
+            } catch let error where !(error is ConnectionManager.NothingToFollow) {
+                // Set by the attempt that threw (each attempt clears it first).
+                guard let failure = manager.failures[id] else { throw error }
+                throw ConnectFailedError(error, failure: Self.redacted(failure, id: id))
             }
         }
         guard let timeout else {
@@ -344,6 +362,10 @@ extension ActivityEvent {
             copy.kind = .sending(s)
         case .rejected(let reply):
             copy.kind = .rejected(reply: reply.map(redactor.redact))
+        case let .unreachable(tries, reason):
+            copy.kind = .unreachable(tries: tries, reason: reason.map(redactor.redact))
+        case let .failed(failure, reason, sent):
+            copy.kind = .failed(kind: failure, reason: reason.map(redactor.redact), credentialsSent: sent)
         default:
             break
         }

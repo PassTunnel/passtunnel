@@ -95,7 +95,7 @@ final class MCPTools {
              input: Schema.object([:]), output: Schema.object(["profiles": Schema.array(Schema.profileSummary)], required: ["profiles"]),
              readOnly: true),
         Tool(name: "get_status", title: "Get connection status",
-             description: "Returns the connection state of every profile (or only profile_id): disconnected, connecting or connected, the tunnel IP, since when, the last error, and whether the privileged helper that starts VPNs is installed and current.",
+             description: "Returns the connection state of every profile (or only profile_id): disconnected, connecting or connected, the tunnel IP, since when, the last error and why it happened (failure: auth_rejected, host_not_found, unreachable, configuration, setup, timeout, cancelled or failed; the server's reply; whether the sign-in and a one-time code were sent), and whether the privileged helper that starts VPNs is installed and current.",
              input: Schema.object(["profile_id": Schema.profileID(optional: true)]), output: Schema.statusReport, readOnly: true),
         Tool(name: "get_logs", title: "Read VPN log",
              description: "Returns the last lines of a profile's VPN log, for explaining why a connection failed. source \"raw\" (the default): the OpenVPN or openfortivpn output of the current or last session. source \"activity\": what PassTunnel did and saw, also for sessions the app or a terminal started (connecting, waiting for a fresh code, credentials sent, sign-in accepted or rejected, connected, drops, reconnects, stopped by the user), as sentences in lines and as typed events. Anything that looks like a credential is replaced by <redacted>; passwords and one-time codes are never included.",
@@ -113,7 +113,7 @@ final class MCPTools {
 
     static let connectTools: [Tool] = [
         Tool(name: "connect", title: "Connect a VPN profile",
-             description: "Connects a VPN profile and, by default, waits until it is connected or has failed. \(MCPWording.connectProtected) Profiles that ask for a user name, password or code on every connect cannot be connected this way. Connecting changes \(MCPWording.theMachines) network routes; only connect when the user asked for it.",
+             description: "Connects a VPN profile and, by default, waits until it is connected or has failed. \(MCPWording.connectProtected) Profiles that ask for a user name, password or code on every connect cannot be connected this way. A failure carries a failure object (why, the server's reply, whether the sign-in was sent); a rejected sign-in is never retried, so do not retry it either. Connecting changes \(MCPWording.theMachines) network routes; only connect when the user asked for it.",
              input: Schema.object(["profile_id": Schema.profileID(optional: false),
                                    "wait": Schema.boolean(default: true, "Wait until connected or failed; false returns at once with state connecting."),
                                    "timeout_seconds": Schema.integer(1, maxTimeout, default: defaultTimeout,
@@ -352,11 +352,18 @@ enum Schema {
     ], required: ["id", "name", "type", "is_default", "pinned", "username", "password_mode", "otp_mode", "require_auth",
                   "protected", "auto_reconnect", "connect_at_login"])
 
+    /// `ConnectionFailure`: why the last connect failed.
+    static let failure = result([
+        "kind": oneOf(ConnectionFailure.Kind.allCases.map(\.rawValue)), "at": ["type": "string", "format": "date-time"],
+        "reply": string, "reason": string, "credentials_sent": bool, "code_sent": bool, "code_seconds_left": int,
+        "tries": int,
+    ], required: ["kind", "at", "credentials_sent", "code_sent"])
+
     static let profileStatus = result([
         "id": string, "name": string, "type": vpnType, "state": state, "phase": string, "ip": string,
         "since": ["type": "string", "format": "date-time"], "duration_seconds": int, "is_default": bool, "protected": bool,
-        "auto_reconnect": bool, "health": oneOf(["reachable", "unreachable"]), "error": string, "warning": string,
-        "status_unavailable": bool,
+        "auto_reconnect": bool, "health": oneOf(["reachable", "unreachable"]), "error": string, "failure": failure,
+        "warning": string, "status_unavailable": bool,
     ], required: ["id", "name", "type", "state", "is_default", "protected", "auto_reconnect"])
 
     static let helper = result([
@@ -373,9 +380,10 @@ enum Schema {
     /// One `ActivityEvent` (never with code digits); which fields it has depends on `event`.
     static let activityEvent = result([
         "at": dateTime, "event": oneOf(ActivityEvent.names), "host": string, "port": int, "protocol": string,
-        "reason": oneOf(["used", "expiring"]), "seconds": int, "username": string, "password": bool, "code": bool,
+        "reason": string, "seconds": int, "username": string, "password": bool, "code": bool,
         "seconds_left": int, "format": string, "address": string, "will_reconnect": bool, "attempt": int, "of": int,
-        "tries": int, "next_at": dateTime, "reply": string,
+        "tries": int, "next_at": dateTime, "reply": string, "failure": oneOf(ConnectionFailure.Kind.allCases.map(\.rawValue)),
+        "credentials_sent": bool,
     ], required: ["at", "event"])
 
     static let logReport = result(["id": string, "lines": array(string), "truncated": bool,
