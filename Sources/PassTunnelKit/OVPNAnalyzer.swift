@@ -60,6 +60,17 @@ public enum OVPNAnalyzer {
             self.tcp = tcp
             self.others = others
         }
+
+        /// "vpn.example.com:1194", "[2001:db8::1]:1194".
+        public var address: String { Self.address(host: host, port: port) }
+
+        /// `address`, followed by "+N more" when there are other `remote` lines.
+        public var server: String { others > 0 ? String(localized: "\(address) +\(others) more") : address }
+
+        /// A server as host:port, an IPv6 address in brackets (also for FortiGate's gateway).
+        public static func address(host: String, port: String) -> String {
+            host.contains(":") ? "[\(host)]:\(port)" : "\(host):\(port)"
+        }
     }
 
     /// The first `remote` and how it is reached: `remote host [port] [proto]`, else the `port` / `rport` and
@@ -94,10 +105,7 @@ public enum OVPNAnalyzer {
     /// "[2001:db8::1]:1194 · UDP"; "" when there is no `remote`.
     public static func endpointDescription(_ text: String) -> String {
         guard let endpoint = endpoint(text) else { return "" }
-        let host = endpoint.host.contains(":") ? "[\(endpoint.host)]" : endpoint.host
-        var address = "\(host):\(endpoint.port)"
-        if endpoint.others > 0 { address = String(localized: "\(address) +\(endpoint.others) more") }
-        return "\(address) · \(endpoint.tcp ? "TCP" : "UDP")"   // protocol names stay untranslated
+        return "\(endpoint.server) · \(endpoint.tcp ? "TCP" : "UDP")"   // protocol names stay untranslated
     }
 
     /// Whether the profile sends all traffic through the tunnel: true with a local `redirect-gateway`,

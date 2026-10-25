@@ -725,6 +725,16 @@
         }
       }
     },
+    "Edit" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Düzenle"
+          }
+        }
+      }
+    },
     "Enter the password to save it in the Keychain, or choose “Ask each time” under Advanced." : {
       "localizations" : {
         "tr" : {
@@ -875,6 +885,16 @@
         }
       }
     },
+    "Profiles" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profiller"
+          }
+        }
+      }
+    },
     "Quit" : {
       "localizations" : {
         "tr" : {
@@ -981,6 +1001,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Yalnızca bağlanmadan önce soracak şekilde ayarlı: kodu göstermek, kopyalamak ya da yazmak onay istemez. Kod için de sorması için düğmeyi kapatıp yeniden açın."
+          }
+        }
+      }
+    },
+    "Settings" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ayarlar"
+          }
+        }
+      }
+    },
+    "Try again" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tekrar dene"
           }
         }
       }

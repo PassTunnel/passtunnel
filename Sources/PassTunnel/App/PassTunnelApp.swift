@@ -14,12 +14,19 @@ struct PassTunnelApp: App {
 
     var body: some Scene {
         Window(Text(verbatim: "PassTunnel"), id: "main") {
-            MainView()
-                .environmentObject(model)
-                .frame(minWidth: 520, idealWidth: 600, minHeight: 360, idealHeight: 480)
-                .background { MainWindowObserver() }
+            Group {
+                if NewInterface.isEnabled {
+                    MainSplitView()
+                        .frame(minWidth: 820, idealWidth: 1080, minHeight: 560, idealHeight: 700)
+                } else {
+                    MainView()
+                        .frame(minWidth: 520, idealWidth: 600, minHeight: 360, idealHeight: 480)
+                }
+            }
+            .environmentObject(model)
+            .background { MainWindowObserver() }
         }
-        .defaultSize(width: 600, height: 500)
+        .defaultSize(NewInterface.isEnabled ? CGSize(width: 1080, height: 700) : CGSize(width: 600, height: 500))
         .commands {
             CheckForUpdatesCommand()
             AppCommands(model: model)
@@ -68,16 +75,20 @@ struct AppCommands: Commands {
             Button(String(localized: "Add Code from QR…")) { ImportActions.addCodeFromQR(profileID: model.selection) }
         }
         CommandMenu(String(localized: "Profile")) {
-            let selected = model.selection.flatMap(model.profile)
-            Button(String(localized: "Connect or Disconnect")) { selected.map(model.primaryAction) }
-                .keyboardShortcut(.return, modifiers: [.command])
-                .disabled(selected == nil)
-            Button(String(localized: "Copy Code")) { selected.map(model.copyCode) }
-                .keyboardShortcut("c", modifiers: [.command, .shift])
-                .disabled(selected.map(model.hasCode) != true)
-            Button(String(localized: "Edit…")) { selected.map(model.edit) }
-                .keyboardShortcut("e")
-                .disabled(selected == nil)
+            if NewInterface.isEnabled {
+                SplitWindowCommands(model: model)
+            } else {
+                let selected = model.selection.flatMap(model.profile)
+                Button(String(localized: "Connect or Disconnect")) { selected.map(model.primaryAction) }
+                    .keyboardShortcut(.return, modifiers: [.command])
+                    .disabled(selected == nil)
+                Button(String(localized: "Copy Code")) { selected.map(model.copyCode) }
+                    .keyboardShortcut("c", modifiers: [.command, .shift])
+                    .disabled(selected.map(model.hasCode) != true)
+                Button(String(localized: "Edit…")) { selected.map(model.edit) }
+                    .keyboardShortcut("e")
+                    .disabled(selected == nil)
+            }
             Divider()
             Button(String(localized: "Toggle Default Profile")) { model.toggleDefault() }
                 .disabled(model.profiles.isEmpty)

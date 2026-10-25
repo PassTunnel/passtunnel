@@ -513,6 +513,17 @@ final class OVPNAnalyzerTests: CoreTestCase {
         XCTAssertEqual(OVPNAnalyzer.redirectsGateway("pull-filter ignore 'redirect-gateway'\n"), false)
         XCTAssertEqual(OVPNAnalyzer.redirectsGateway("pull-filter ignore \"redirect-gateway\n"), nil, "rejected line")
     }
+
+    /// The parts the main window shows ("vpn.example.com:1194 · OpenVPN · UDP", "Connecting to vpn.example.com:1194…").
+    func testEndpointAddressAndServer() {
+        let e = OVPNAnalyzer.endpoint("remote vpn.example.com 1194\nremote vpn2.example.com 443 tcp\n")
+        XCTAssertEqual(e?.address, "vpn.example.com:1194")
+        XCTAssertEqual(e?.server, "vpn.example.com:1194 +1 more")
+        XCTAssertEqual(OVPNAnalyzer.endpoint("remote vpn.example.com\n")?.server, "vpn.example.com:1194")
+        XCTAssertEqual(OVPNAnalyzer.endpoint("remote 2001:db8::1 1194\n")?.address, "[2001:db8::1]:1194")
+        XCTAssertEqual(OVPNAnalyzer.Endpoint.address(host: "198.51.100.7", port: "443"), "198.51.100.7:443")
+        XCTAssertEqual(OVPNAnalyzer.Endpoint.address(host: "2001:db8::2", port: "443"), "[2001:db8::2]:443")
+    }
 }
 
 final class ProfileStoreTests: CoreTestCase {

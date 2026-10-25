@@ -3,7 +3,8 @@ import PassTunnelKit
 import SwiftUI
 
 // The profile's status in the redesigned views: `DisplayStatus` (Core) gives the state and its words, this file
-// the icon, the color and the views that show them. The current window and menu still use `StatusKind`.
+// the icon, the color and the views that show them. The redesigned window (`NewInterface`) uses them; the current
+// window and menu still use `StatusKind`.
 
 extension AppModel {
     /// The one status `p` shows in the redesigned views; from the render overrides while they are set.
@@ -14,8 +15,8 @@ extension AppModel {
             return DisplayStatus(DisplayStatus.Facts(p, in: connections, droppedUnseen: dropped))
         }
         return DisplayStatus(DisplayStatus.Facts(
-            p, state: state(id), reconnect: reconnectInfo(id), lastError: error(id), notResponding: isUnreachable(id),
-            droppedUnseen: dropped))
+            p, state: state(id), reconnect: reconnectInfo(id), codeWaitUntil: previewCodeWaits[id], lastError: error(id),
+            notResponding: isUnreachable(id), droppedUnseen: dropped))
     }
 }
 
@@ -94,7 +95,8 @@ struct ProfileStatusLine: View {
 }
 
 /// A row's status (sidebar, menu bar panel): the dot and the short words (11.5 medium) in the state's color,
-/// wrapping to a second line rather than truncating.
+/// wrapping to a second line rather than truncating. On the accent color of a selected row the words follow the
+/// row's text (macOS 14 and later); the dot keeps its color.
 struct ProfileStatusRow: View {
     let status: DisplayStatus
     var now: Date?
@@ -106,7 +108,7 @@ struct ProfileStatusRow: View {
                     .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
                 Text(verbatim: status.summary(at: date))
                     .typography(.rowStatus)
-                    .foregroundStyle(status.textColor)
+                    .rowForeground(status.textColor)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .accessibilityElement(children: .combine)
@@ -121,6 +123,38 @@ struct ProfileStatusDot: View {
 
     var body: some View {
         StatusDot(status.symbol, size: size, tint: status.isError ? Palette.redDot : nil)
+    }
+}
+
+extension View {
+    /// `style`, except on the accent color of a selected row in a focused list, where text takes `emphasized`, a
+    /// style that follows the row (white). The list tells only from macOS 14 on; before, `style` stays.
+    func rowForeground<S: ShapeStyle>(_ style: S, emphasized: HierarchicalShapeStyle = .secondary) -> some View {
+        modifier(RowForeground(style: AnyShapeStyle(style), emphasized: AnyShapeStyle(emphasized)))
+    }
+}
+
+private struct RowForeground: ViewModifier {
+    let style: AnyShapeStyle
+    let emphasized: AnyShapeStyle
+
+    func body(content: Content) -> some View {
+        if #available(macOS 14, *) {
+            content.modifier(Prominence(style: style, emphasized: emphasized))
+        } else {
+            content.foregroundStyle(style)
+        }
+    }
+
+    @available(macOS 14, *)
+    private struct Prominence: ViewModifier {
+        let style: AnyShapeStyle
+        let emphasized: AnyShapeStyle
+        @Environment(\.backgroundProminence) private var prominence
+
+        func body(content: Content) -> some View {
+            content.foregroundStyle(prominence == .increased ? emphasized : style)
+        }
     }
 }
 
