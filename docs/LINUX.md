@@ -214,8 +214,10 @@ store, which exists in debug builds only, and the Mac's tests a Keychain service
    - 2c: `passtunneld` with group-based access, the DNS hook, Linux routes and log parsing: connect
      and disconnect work.
    - 2d: the release tarball and the `Dockerfile`.
-3. **Packages:** polkit, systemd units, nfpm packages, the apt/dnf repository, release automation,
-   install tests on the target distributions.
+3. **Packages:** polkit, systemd units, nfpm packages, the apt/dnf repository, release automation
+   (with it, how commits with the scope `linux` count: until then they are left out of the app's
+   releases, see [RELEASING.md](RELEASING.md#how-a-release-happens)), install tests on the target
+   distributions.
 4. **Desktop app:** from the new design: main window with live codes, profile editor, import review,
    tray where the desktop has one (KDE, Ubuntu) and background app with notifications on stock
    GNOME, the polkit prompt for protected profiles.
