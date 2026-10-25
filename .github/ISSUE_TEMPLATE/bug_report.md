@@ -18,7 +18,7 @@ A clear description of the problem.
 **Expected behavior**
 
 **Environment**
-- PassTunnel version (Settings → About):
+- PassTunnel version (at the bottom of Settings → General):
 - Installed from: release / Homebrew / built from source
 - macOS version and Mac (Apple silicon / Intel):
 - VPN type: OpenVPN / FortiGate

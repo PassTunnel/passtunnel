@@ -425,6 +425,16 @@
         }
       }
     },
+    "A click shows a hidden code for %lld seconds; copying never shows it." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gizli bir koda tıklamak onu %lld saniye gösterir; kopyalamak hiçbir zaman göstermez."
+          }
+        }
+      }
+    },
     "Active connections stop while the helper is replaced." : {
       "localizations" : {
         "tr" : {
@@ -785,12 +795,32 @@
         }
       }
     },
+    "Hide codes until clicked" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kodları tıklanana kadar gizle"
+          }
+        }
+      }
+    },
     "It cannot be used here: %@" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Burada kullanılamıyor: %@"
+          }
+        }
+      }
+    },
+    "Licenses" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lisanslar"
           }
         }
       }
@@ -825,6 +855,16 @@
         }
       }
     },
+    "Notify when a connection drops" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir bağlantı koptuğunda bildir"
+          }
+        }
+      }
+    },
     "On Linux the PassTunnel package installs and removes the daemon (passtunneld): install or remove the package instead." : {
       "localizations" : {
         "tr" : {
@@ -835,12 +875,32 @@
         }
       }
     },
-    "PassTunnel itself does not open at login. Turn on “Launch at login” in Settings → General." : {
+    "Open at login, in the menu bar" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "PassTunnel’ın kendisi oturum açıldığında açılmıyor. Ayarlar → Genel bölümünde “Oturum açıldığında başlat”ı açın."
+            "value" : "Oturum açıldığında menü çubuğunda aç"
+          }
+        }
+      }
+    },
+    "Other" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diğer"
+          }
+        }
+      }
+    },
+    "PassTunnel itself does not open at login. Turn on “Open at login, in the menu bar” in Settings → General." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel’ın kendisi oturum açıldığında açılmıyor. Ayarlar → Genel bölümünde “Oturum açıldığında menü çubuğunda aç” ayarını açın."
           }
         }
       }
@@ -931,6 +991,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Başa ekle"
+          }
+        }
+      }
+    },
+    "Privacy policy" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gizlilik politikası"
           }
         }
       }
@@ -1061,6 +1131,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ayarlar"
+          }
+        }
+      }
+    },
+    "Show the Dock icon" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dock simgesini göster"
+          }
+        }
+      }
+    },
+    "Source code" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kaynak kodu"
           }
         }
       }
@@ -2266,16 +2356,6 @@
         }
       }
     },
-    "About" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hakkında"
-          }
-        }
-      }
-    },
     "Accessibility permission granted" : {
       "localizations" : {
         "tr" : {
@@ -2846,16 +2926,6 @@
         }
       }
     },
-    "Codes are shown as ••• ••• in the window and the menu. Clicking still copies them." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Kodlar pencerede ve menüde ••• ••• olarak gösterilir. Tıklayınca yine kopyalanır."
-          }
-        }
-      }
-    },
     "Command-line tool" : {
       "localizations" : {
         "tr" : {
@@ -2932,16 +3002,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bağlı değilse bağlanır, bağlıysa bağlantıyı keser."
-          }
-        }
-      }
-    },
-    "Connect your VPN without ever typing a one-time code again." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "VPN’inize bir daha hiç tek kullanımlık kod yazmadan bağlanın."
           }
         }
       }
@@ -3976,16 +4036,6 @@
         }
       }
     },
-    "Hide codes until copied" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Kodları kopyalanana kadar gizle"
-          }
-        }
-      }
-    },
     "Icon" : {
       "localizations" : {
         "tr" : {
@@ -4252,16 +4302,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sonra"
-          }
-        }
-      }
-    },
-    "Launch at login" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Oturum açıldığında başlat"
           }
         }
       }
@@ -4932,16 +4972,6 @@
         }
       }
     },
-    "One-time code, hidden. Click to copy." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tek kullanımlık kod gizli. Kopyalamak için tıklayın."
-          }
-        }
-      }
-    },
     "One-time code: " : {
       "localizations" : {
         "tr" : {
@@ -5018,16 +5048,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sürümler Sayfasını Aç"
-          }
-        }
-      }
-    },
-    "Open source under the MIT License. Bundled VPN tools keep their own licenses (Settings → Helper)." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "MIT Lisansı ile açık kaynak. Paketteki VPN araçları kendi lisanslarını korur (Ayarlar → Yardımcı)."
           }
         }
       }
@@ -5128,16 +5148,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "PassTunnel VPN’inize bağlanır; parolanızı ve geçerli tek kullanımlık kodu sizin yerinize girer."
-          }
-        }
-      }
-    },
-    "PassTunnel keeps running in the menu bar when its window is closed." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Penceresi kapatıldığında PassTunnel menü çubuğunda çalışmaya devam eder."
           }
         }
       }
@@ -5382,16 +5392,6 @@
         }
       }
     },
-    "Privacy" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Gizlilik"
-          }
-        }
-      }
-    },
     "Privileged helper" : {
       "localizations" : {
         "tr" : {
@@ -5538,16 +5538,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Değiştir…"
-          }
-        }
-      }
-    },
-    "Report an Issue" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sorun Bildir"
           }
         }
       }
@@ -5782,16 +5772,6 @@
         }
       }
     },
-    "Show in Dock" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dock’ta göster"
-          }
-        }
-      }
-    },
     "Show in Finder" : {
       "localizations" : {
         "tr" : {
@@ -5938,16 +5918,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bir sorun oluştu"
-          }
-        }
-      }
-    },
-    "Source Code" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Kaynak Kodu"
           }
         }
       }
@@ -6926,16 +6896,6 @@
         }
       }
     },
-    "Unexpected disconnects" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Beklenmedik kopmalar"
-          }
-        }
-      }
-    },
     "Unexpected reply from the OpenVPN management interface: %@" : {
       "localizations" : {
         "tr" : {
@@ -7262,16 +7222,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bağlı bir VPN sağlık kontrolü sunucusuna ulaşamadığında."
-          }
-        }
-      }
-    },
-    "When a connection drops without you disconnecting it, and when it comes back." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Siz kesmeden bir bağlantı koptuğunda ve geri geldiğinde."
           }
         }
       }

@@ -90,7 +90,11 @@ Sidebar-less single list, one row per profile (drag to reorder → `order`):
               OpenVPN · alice · connected 1 h 12 m · 10.8.0.6        ⋯
 ```
 - The live code (if the profile has TOTP) is large, monospaced, grouped 3+3; a circular countdown
-  ring; click copies it (toast "Copied"). Hidden behind "•••" when `Preferences.hideCodes`.
+  ring; click copies it (toast "Copied"). With "Hide codes until clicked" (`Preferences.hideCodes`, decision D-5)
+  it is "••• •••" until clicked: a click shows that profile's code for 20 s without copying it
+  (`AppModel.isCodeHidden`, on the `revealedCodes` of the redesigned window's code card), and a click while it shows
+  copies it. Copying elsewhere (the ⋯ menu, ⌘C, the menu bar, shortcuts) and auto-type never show a code, and the
+  menu bar keeps codes hidden.
   Every copied code and password + code goes through `Pasteboard.copySecret`: `.currentHostOnly` (no
   Universal Clipboard), marked `org.nspasteboard.ConcealedType` and `…TransientType`, and cleared after
   `Preferences.clearClipboardAfter` (Settings → "Clear copied code": 30 s, 1 minute (default) or
@@ -168,7 +172,8 @@ and at least 820×560:
     (`hideCodes`) and codes whose TOTP secret is stored encrypted ("Confirm with Touch ID"), unlocked or not, show as
     "••• •••" for the current and the next code, as bullets in "What the server receives" and in the sidebar row.
     A click on the code shows them for 20 s (`AppModel.revealCodes`), after the confirmation when they are locked;
-    copying never shows them. The menu bar panel and the current window keep their own rules.
+    copying never shows them. The menu bar panel keeps hidden codes hidden; the current window shares the 20 s of a
+    click for hidden codes (above) and keeps its own rule for locked ones.
 - **Profile menu**: ⌘↩ runs the main button, ⌘C copies the code (in a text field ⌘C stays the field's), ⇧⌘C the
   password and code, ⌘E edits; off while a sheet is open.
 - No toast (the copy buttons say "Copied ✓", VoiceOver still announces "Code copied") and no window subtitle.
@@ -214,8 +219,8 @@ the sheet closes and `AppModel.delete` runs), Cancel, Save (Add Profile for a ne
    (still set with `passtunnel set ID require_auth=connect`) shows as on with a footnote: showing codes does not
    ask, or, without a saved password, that the TOTP secret is encrypted and showing the code asks too; switching it
    off and on makes it `always`. "Connect at login" (`connectAtLogin`, `editor.connectAtLogin`; see Launch at
-   login), with a footnote while it is on and PassTunnel itself does not open at login ("Turn on “Launch at login”
-   in Settings → General.", from `LoginItem.status`), else when connecting asks first (not `unattended`, or a
+   login), with a footnote while it is on and PassTunnel itself does not open at login ("Turn on “Open at login, in the menu
+   bar” in Settings → General.", from `LoginItem.status`), else when connecting asks first (not `unattended`, or a
    protected secret): a notification at login offers the connection then. "Reconnect automatically if the link
    drops" (`autoReconnect`), disabled with the reason when the profile is not `unattended`.
 
@@ -292,7 +297,7 @@ window unless noted.
 - `reconnected` (after a drop, after wake, or the forced reconnect of a health outage): "Connected to
   Acme VPN" (below).
 - `reconnectFailed`: "Could not reconnect Acme VPN" / the reason, Connect action.
-- These four follow **Unexpected disconnects** (`notifyOnDrop`). `unreachable` / `reachableAgain` ("Acme VPN
+- These four follow **Notify when a connection drops** (`notifyOnDrop`). `unreachable` / `reachableAgain` ("Acme VPN
   is not responding" / "… is responding again") follow **Health check failures** (`notifyHealth`);
   `sessionEnding` ("Acme VPN session is ending" / "The session limit is reached in 10 minutes.") follows
   **Session limit** (`sessionNotifyMin` > 0). `droppedWhileAsleep` and `destinationChanged` (wording under
@@ -314,17 +319,33 @@ updating, `HelperAutoUpdate`) and "Allow PassTunnel to type codes" (auto-type wi
 
 ## Settings (`Settings` scene, tabs)
 
-- **General**: launch at login (`SMAppService.mainApp`), show in Dock, install CLI, appearance,
-  badge palette (pastel / vivid / soft / candy / earth — the menu bar colors for connected /
-  connecting / disconnected), show lock symbol; **Privacy**: hide codes, "Clear copied code" after
-  30 seconds / 1 minute / 2 minutes (`clearClipboardAfter`, default 1 minute, `settings.clearClipboard`;
-  only if the clipboard still holds what PassTunnel copied); **Connection**: "Wait for a fresh code" /
-  "If the current code has 5 s or less left" (`waitForFreshCode`, default on,
-  `settings.waitForFreshCode`; a code already sent is never sent again, whatever the setting);
-  **Security**: "Ask again after" 1 / 5 / 15 minutes (`authReuseMinutes`, `settings.authReuse`): how
-  long one confirmation unlocks a profile.
-- **Notifications**: unexpected drop (and the reconnect after it), health, session-limit (minutes before);
-  see Notifications.
+Four tabs (decision D-12): General, Shortcuts, Helper and Updates. Settings are the same in both interfaces
+(`NewInterface`).
+
+- **General** (`Settings/GeneralSettings.swift`): one scrolling page of cards in the design system's style (an
+  uppercase label over a hairline card of 44 pt rows, the monochrome switch at the trailing edge, a note under the
+  card):
+  - **General**: "Open at login, in the menu bar" (`SMAppService.mainApp`, see Launch at login; under it the
+    Login Items approval with Open Login Items…, or why it is not available), "Show the Dock icon" (`showInDock`),
+    "Hide codes until clicked" (`hideCodes`, see Main window), "Clear copied code" after 30 seconds / 1 minute /
+    2 minutes (`clearClipboardAfter`, default 1 minute, `settings.clearClipboard`; only if the clipboard still holds
+    what PassTunnel copied).
+  - **Connection**: "Wait for a fresh code" / "If the current code has 5 s or less left" (`waitForFreshCode`,
+    default on, `settings.waitForFreshCode`; a code already sent is never sent again, whatever the setting) and
+    "Notify when a connection drops" (`notifyOnDrop`, the drop and the reconnect after it; see Notifications).
+  - **Notifications**: "Health check failures" (`notifyHealth`), "Session limit" (`sessionNotifyMin`, with the
+    minutes before), Open Notification Settings….
+  - **Security**: "Ask again after" 1 / 5 / 15 minutes (`authReuseMinutes`, `settings.authReuse`): how long one
+    confirmation unlocks a profile.
+  - **Menu bar**, only while the current menu bar is in use (`!NewInterface.isEnabled`; the panel of the new
+    interface has no badges, decision D-6): badge palette (pastel / vivid / soft / candy / earth — the menu bar
+    colors for connected / connecting / disconnected) with a preview, show lock symbol.
+  - **Other**: appearance (system / light / dark), the command-line tool (Install… / Reinstall, see CLI).
+  - Footer (what the About tab had): Licenses (the bundled tools' licenses, the sheet of Helper → Show
+    Licenses…), Privacy policy (the website's privacy page, `https://passtunnel.github.io/privacy/`, `AppInfo.privacyURL`),
+    Source code (the GitHub repository), and the version.
+
+  The window shows 600 pt of the page and scrolls; the `settings-general` render shows all of it.
 - **Shortcuts**: enable global hotkeys (default off): ⌃⌥V connect/disconnect default profile,
   ⌃⌥C type/copy code.
 - **Helper**: status (enabled / needs approval / not installed / needs an update / updating) with Install /
@@ -351,7 +372,6 @@ updating, `HelperAutoUpdate`) and "Allow PassTunnel to type codes" (auto-type wi
   false). The updater starts in `PassTunnelApp.init` only, so the CLI and the screenshot renderer
   never start it; unbundled runs show the tab disabled. A scheduled update in the menu-bar-only state
   switches to a regular app (Dock icon) without taking focus. Releases: docs/RELEASING.md.
-- **About**: version, GitHub link, license (MIT).
 
 `Preferences` (Core) gets: `badgePalette` (string enum above), `appearance` (system/light/dark),
 `showLock`, `hideCodes`, `clearClipboardAfter` (seconds: 30, 60 or 120; others → 60),
@@ -619,8 +639,10 @@ client errors) must have Turkish translations.
   literal in the sources is missing from the catalog, lacks a Turkish value, or changes placeholders.
 - `PASSTUNNEL_RENDER_LANG=tr` renders the `PASSTUNNEL_RENDER` screenshots in Turkish (from a bundle
   with the compiled `tr.lproj`, e.g. the app `build-app.sh` makes). Renders include `main-code-locked`
-  (`AppModel.previewLockedCodes`; no Secure Enclave key is made), `editor/editor-require-auth`,
-  `editor/editor-connect-at-login` (with the footnote of an app that does not open at login) and the menu bar
+  (`AppModel.previewLockedCodes`; no Secure Enclave key is made), `main-hidden-codes` ("Hide codes until clicked",
+  the first code clicked), `settings-general` (the whole page; `-PTNewInterface YES` leaves out the menu bar
+  card), `editor/editor-require-auth`, `editor/editor-connect-at-login` (with the footnote of an app that does not
+  open at login) and the menu bar
   panel of the new interface: `menubar-panel` (three profiles in mixed states, auto-type on), `menubar-panel-scroll`
   (six) and `menubar-panel-empty`.
 - `PASSTUNNEL_RENDER_SCALE=4` renders at that backing scale (1–8; default 2). `scripts/site-assets.sh`
