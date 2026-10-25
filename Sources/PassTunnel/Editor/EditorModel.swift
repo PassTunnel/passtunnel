@@ -9,12 +9,14 @@ import PassTunnelVPNConfig
 final class EditorModel: ObservableObject {
     enum Field: Hashable {
         case name, config, host, port, trustedCert, sessionLimit, healthHost
-        case username, password, confirmPassword, totpSecret, template, general
+        case username, password, totpSecret, template, badge, general
     }
 
-    enum TemplateChoice: Hashable {
+    /// The "Code format" popup: a template preset, a custom template, or the code sent on its own.
+    enum FormatChoice: Hashable {
         case preset(OTPTemplatePreset)
         case custom
+        case separate
     }
 
     let isNew: Bool
@@ -33,20 +35,22 @@ final class EditorModel: ObservableObject {
 
     // OpenVPN configuration
     @Published var configURL: URL?          // chosen, not yet copied
-    @Published var configRemote = ""
+    @Published var configServer = ""        // "vpn.example.com:1194 · UDP"
     @Published var hasConfig = false
     @Published var configError: String?
 
     // Sign-in
     @Published var newPassword = ""
-    @Published var confirmPassword = ""
     let passwordStored: Bool
 
     // One-time code
     @Published var totpInput = ""
     @Published var newTOTPSecret: Data?
     @Published var totpSourceLabel = ""     // "Acme · alice" from a scanned link
+    /// The secret typed under Advanced is not usable.
     @Published var totpInputError: String?
+    /// "Choose image…", "Paste secret" or a drop found no usable code.
+    @Published var scanError: String?
     @Published var scanMessage: String?
     private var clearingInput = false
     let storedTOTPSecret: Data?
@@ -98,7 +102,7 @@ final class EditorModel: ObservableObject {
 
     /// For `EditorPreviewRenderer`: a fixed state with no store or Keychain access.
     init(preview profile: Profile, isNew: Bool, passwordStored: Bool = false, storedTOTP: Data? = nil,
-         storedTOTPProtected: Bool = false, configRemote: String = "", now: Date? = nil) {
+         storedTOTPProtected: Bool = false, configServer: String = "", now: Date? = nil) {
         self.store = ProfileStore(paths: AppPaths(root: FileManager.default.temporaryDirectory
             .appendingPathComponent("PassTunnelPreview-\(UUID().uuidString)")))
         self.vault = SecretVault()
@@ -111,14 +115,14 @@ final class EditorModel: ObservableObject {
         self.original = isNew ? nil : profile
         self.passwordStored = passwordStored
         self.storedTOTPSecret = storedTOTP
-        self.configRemote = configRemote
-        self.hasConfig = !configRemote.isEmpty
+        self.configServer = configServer
+        self.hasConfig = !configServer.isEmpty
         self.customTemplate = !Self.isPreset(profile.otpTemplate)
         self.previewNow = now
     }
 
-    /// Fixed "now" for rendered previews (date formatting).
-    private var previewNow: Date?
+    /// Fixed "now" for rendered previews (date formatting, the live code).
+    private(set) var previewNow: Date?
 
     func changeType(_ type: VPNType) {
         guard allowsTypeChange, type != draft.type else { return }
@@ -127,7 +131,7 @@ final class EditorModel: ObservableObject {
         if type == .forti && draft.passwordMode == .none { draft.passwordMode = .keychain }
         configURL = nil
         configError = nil
-        configRemote = ""
+        configServer = ""
     }
 
     static func blank(_ type: VPNType) -> Profile {
@@ -170,6 +174,26 @@ final class EditorModel: ObservableObject {
         draft.requireAuth != .off && (original?.requireAuth ?? .off) == .off && !isPreview && !vault.isAvailable
     }
 
+    /// The editor's one switch for "Confirm with Touch ID" (decision D-4): on asks before connecting and before
+    /// showing codes (`always`). A profile set to `connect` (the CLI keeps all three levels) shows as on; turning
+    /// the switch off and on again makes it `always`.
+    var requireAuthOn: Bool {
+        get { draft.requireAuth != .off }
+        set { draft.requireAuth = newValue ? .always : .off }
+    }
+
+    /// Showing, copying or typing the code asks first: `always`, or `connect` without a saved password (the TOTP
+    /// secret is then the one encrypted, see `SecretVault`).
+    var codesAskFirst: Bool {
+        let p = normalized
+        return p.requireAuth == .always || (p.requireAuth == .connect && p.passwordMode != .keychain)
+    }
+
+    /// "Secret added · 6 digits · 30 s"
+    var secretSummary: String {
+        String(localized: "Secret added · \(draft.totp.digits) digits · \(draft.totp.period) s")
+    }
+
     /// The profile as it would be saved (used for `unattended`).
     var normalized: Profile { Self.normalize(draft) }
 
@@ -188,24 +212,33 @@ final class EditorModel: ObservableObject {
         return p
     }
 
-    var templateChoice: TemplateChoice {
-        get { customTemplate ? .custom : (OTPTemplatePreset(rawValue: draft.otpTemplate).map(TemplateChoice.preset) ?? .custom) }
+    /// Picking a preset or a custom template sends the code with the password; "Sent separately" keeps the
+    /// template for when the user switches back.
+    var formatChoice: FormatChoice {
+        get {
+            if draft.otpDelivery == .separate { return .separate }
+            if customTemplate { return .custom }
+            return OTPTemplatePreset(rawValue: draft.otpTemplate).map(FormatChoice.preset) ?? .custom
+        }
         set {
             switch newValue {
             case .preset(let preset):
+                draft.otpDelivery = .combined
                 customTemplate = false
                 draft.otpTemplate = preset.rawValue
             case .custom:
+                draft.otpDelivery = .combined
                 customTemplate = true
+            case .separate:
+                draft.otpDelivery = .separate
             }
         }
     }
 
-    /// Example of what is sent with password "secret" and code "123456", or nil if the template is invalid.
-    var templateExample: String? {
-        guard (try? OTPComposer.validate(template: draft.otpTemplate)) != nil else { return nil }
-        return OTPComposer.compose(password: "secret", otp: "123456", delivery: .combined,
-                                   template: draft.otpTemplate, type: draft.type).secret
+    /// What the server receives, in order, for the masked preview; nil while the template is invalid.
+    var sentParts: (secret: [OTPComposer.Part], separateCode: Bool)? {
+        if draft.otpDelivery == .combined, (try? OTPComposer.validate(template: draft.otpTemplate)) == nil { return nil }
+        return OTPComposer.parts(delivery: draft.otpDelivery, template: draft.otpTemplate)
     }
 
     // MARK: validation
@@ -244,19 +277,12 @@ final class EditorModel: ObservableObject {
             do { try Profile.checkUsername(p.username, type: p.type) } catch { e[.username] = error.localizedDescription }
         }
 
-        if p.passwordMode == .keychain {
-            if !newPassword.isEmpty && !confirmPassword.isEmpty && newPassword != confirmPassword {
-                e[.confirmPassword] = String(localized: "The passwords do not match.")
-            } else if attemptedSave && !newPassword.isEmpty && newPassword != confirmPassword {
-                e[.confirmPassword] = String(localized: "Type the password again to confirm it.")
-            }
-            if attemptedSave && newPassword.isEmpty && !passwordStored {
-                e[.password] = String(localized: "Enter the password to save it in the Keychain, or choose “Ask each time”.")
-            }
+        if p.passwordMode == .keychain && attemptedSave && newPassword.isEmpty && !passwordStored {
+            e[.password] = String(localized: "Enter the password to save it in the Keychain, or choose “Ask each time” under Advanced.")
         }
 
         if p.otpMode == .totp {
-            if let totpInputError { e[.totpSecret] = totpInputError }
+            if let message = totpInputError ?? scanError { e[.totpSecret] = message }
             else if attemptedSave && effectiveTOTPSecret == nil && !storedTOTPProtected {
                 e[.totpSecret] = String(localized: "Scan the QR code or paste the secret to generate codes.")
             }
@@ -273,16 +299,32 @@ final class EditorModel: ObservableObject {
 
     func error(_ field: Field) -> String? { errors[field] }
 
-    /// Order used to scroll to the first problem.
-    static let fieldOrder: [Field] = [.name, .config, .host, .port, .trustedCert, .sessionLimit, .healthHost,
-                                      .username, .password, .confirmPassword, .totpSecret, .template, .general]
+    /// Order used to scroll to the first problem: the cards from the top, then Advanced.
+    static let fieldOrder: [Field] = [.name, .config, .host, .port, .trustedCert, .username, .password,
+                                      .totpSecret, .template, .general, .sessionLimit, .healthHost]
 
     var firstErrorField: Field? {
         let e = errors
         return Self.fieldOrder.first { e[$0] != nil }
     }
 
+    /// The field is under Advanced (the secret only when the error is about the text typed there).
+    func isAdvanced(_ field: Field) -> Bool {
+        switch field {
+        case .sessionLimit, .healthHost, .badge: return true
+        case .totpSecret: return totpInputError != nil
+        default: return false
+        }
+    }
+
     // MARK: OpenVPN configuration
+
+    /// The configuration's file name: the chosen file, or the one the stored copy was imported from.
+    var configFileName: String? {
+        if let url = configURL { return url.lastPathComponent }
+        guard hasConfig else { return nil }
+        return draft.configSourceName ?? String(localized: "Imported configuration")
+    }
 
     /// "acme.ovpn · imported 3 Oct" for the stored configuration, or the chosen file's name.
     var configSummary: String? {
@@ -317,7 +359,7 @@ final class EditorModel: ObservableObject {
         let url = store.ovpnURL(draft.id)
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { hasConfig = false; return }
         hasConfig = true
-        configRemote = OVPNAnalyzer.serverDescription(text)
+        configServer = OVPNAnalyzer.endpointDescription(text)
     }
 
     /// Checks a chosen .ovpn now (referenced files, forbidden directives) so problems show
@@ -340,7 +382,7 @@ final class EditorModel: ObservableObject {
             let prepared = stripped.text
             let analysis = OVPNAnalyzer.analyze(prepared)
             configURL = url
-            configRemote = OVPNAnalyzer.serverDescription(analysis.remotes)
+            configServer = OVPNAnalyzer.endpointDescription(prepared)
             configError = nil
             if let user = stripped.username, draft.username.trimmingCharacters(in: .whitespaces).isEmpty {
                 draft.username = user
@@ -348,7 +390,6 @@ final class EditorModel: ObservableObject {
             if let password = stripped.password, newPassword.isEmpty {
                 draft.passwordMode = .keychain
                 newPassword = password
-                confirmPassword = password
             }
             if isNew {
                 draft.passwordMode = analysis.passwordMode
@@ -366,7 +407,8 @@ final class EditorModel: ObservableObject {
 
     // MARK: one-time code
 
-    /// Parses the secret field: an otpauth:// link (sets digits/period/algorithm too) or Base32/hex.
+    /// Parses the secret field under Advanced: an otpauth:// link (sets digits/period/algorithm too) or
+    /// Base32/hex.
     func applyTOTPInput() {
         let text = totpInput.trimmingCharacters(in: .whitespacesAndNewlines)
         if clearingInput && text.isEmpty {
@@ -381,11 +423,14 @@ final class EditorModel: ObservableObject {
             totpSourceLabel = ""
             return
         }
+        scanError = nil
+        scanMessage = nil
         do {
             if text.lowercased().hasPrefix("otpauth") {
                 apply(try OTPAuthURI(text))
             } else {
                 newTOTPSecret = try TOTP.decodeSecret(text)
+                draft.otpMode = .totp
                 totpSourceLabel = ""
                 totpInputError = nil
             }
@@ -404,6 +449,7 @@ final class EditorModel: ObservableObject {
             totpInput = ""
         }
         totpInputError = nil
+        scanError = nil
         saveErrors[.totpSecret] = nil
         totpSourceLabel = [uri.issuer, uri.account].filter { !$0.isEmpty }.joined(separator: " · ")
         scanMessage = String(localized: "Code added. Compare it with your authenticator app, then Save.")
@@ -421,31 +467,55 @@ final class EditorModel: ObservableObject {
         scan { try QRDecoder.otpAuth(in: cg) }
     }
 
-    /// Clipboard: an image (screenshot of a QR code), an image file, or an otpauth link as text.
-    func scanClipboard() {
+    /// "Paste secret": a secret or an otpauth link as text, an image (screenshot of a QR code) or an image file.
+    func pasteSecret() {
         let pb = NSPasteboard.general
         if let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
            let url = urls.first {
             scanImage(at: url)
         } else if let image = NSImage(pasteboard: pb) {
             scanImage(image)
-        } else if let text = pb.string(forType: .string), !text.isEmpty {
-            totpInput = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            applyTOTPInput()
-            if totpInputError == nil { scanMessage = String(localized: "Code added. Compare it with your authenticator app, then Save.") }
+        } else if let text = pb.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
+            do {
+                if text.lowercased().hasPrefix("otpauth") {
+                    apply(try OTPAuthURI(text))
+                } else {
+                    let secret = try TOTP.decodeSecret(text)
+                    apply(secret)
+                }
+            } catch {
+                fail(error)
+            }
         } else {
-            scanMessage = nil
-            totpInputError = String(localized: "The clipboard does not contain an image. Copy a screenshot of the QR code first.")
+            fail(nil)
         }
+    }
+
+    /// A bare secret (no digits, period or algorithm: the current ones stay).
+    private func apply(_ secret: Data) {
+        newTOTPSecret = secret
+        draft.otpMode = .totp
+        if !totpInput.isEmpty {
+            clearingInput = true
+            totpInput = ""
+        }
+        totpInputError = nil
+        scanError = nil
+        saveErrors[.totpSecret] = nil
+        totpSourceLabel = ""
+        scanMessage = String(localized: "Code added. Compare it with your authenticator app, then Save.")
     }
 
     private func scan(_ body: () throws -> OTPAuthURI) {
         do { apply(try body()) } catch { fail(error) }
     }
 
-    private func fail(_ error: Error) {
+    /// nil: the clipboard holds nothing usable.
+    private func fail(_ error: Error?) {
         scanMessage = nil
-        totpInputError = error.localizedDescription
+        saveErrors[.totpSecret] = nil
+        scanError = error?.localizedDescription
+            ?? String(localized: "Copy the secret, an otpauth:// link or a screenshot of the QR code first.")
     }
 
     // MARK: Forti fingerprint

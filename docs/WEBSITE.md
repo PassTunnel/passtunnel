@@ -92,8 +92,8 @@ closes on Escape, on outside click and when a link is chosen).
 2. **One-time codes, handled.** Format picker (Append, Prepend, password:code, password,code,
    Custom template, Sent separately) showing what the server receives; Custom template shows the
    `{password}` / `{otp}` placeholders; Sent separately shows the password and the code as two
-   fields (OpenVPN static challenge, FortiGate OTP field). Next to it the profile editor's
-   one-time code screenshot. Four cards: authenticator-style window (live codes, countdown ring,
+   fields (OpenVPN static challenge, FortiGate OTP field). Next to it the profile editor
+   screenshot (a saved profile with its code and what the server receives). Four cards: authenticator-style window (live codes, countdown ring,
    click to copy, clipboard cleared after 1 minute, codes can be hidden), QR import (drop, choose or
    paste), Touch ID per profile (secrets then encrypted with a Secure Enclave key), auto-type
    shortcut ⌃⌥C.
@@ -163,7 +163,7 @@ scripts/site-assets.sh          # builds the app, renders, converts to WebP, wri
 ```
 
 The script runs `PASSTUNNEL_RENDER=<tmp> .build/…/PassTunnel`, picks the screens the site uses
-(main window light/dark at identical sizes, profile editor one-time code section, menu bar badges
+(main window light/dark at identical sizes, the profile editor sheet, menu bar badges
 for every palette light/dark, General settings, helper onboarding step), writes the screenshots as
 1x, 1.5x and 2x near-lossless WebP and the menu bar badges and icons as 1x and 2x lossless WebP,
 the favicon and Apple touch icon from `Resources/AppIcon.icns`, and the 1200×630 social image from

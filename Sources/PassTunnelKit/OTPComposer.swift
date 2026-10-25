@@ -43,6 +43,42 @@ public enum OTPComposer {
         }
     }
 
+    /// One part of what the server receives: the password, the code, or text from the template.
+    public enum Part: Equatable, Sendable {
+        case password, code
+        case text(String)
+    }
+
+    /// What `compose` sends, as parts in order, so it can be shown without the password (the editor's "Server
+    /// receives"). `.combined`: the template's parts (an invalid template falls back to `OTPTemplatePreset.append`,
+    /// as in `compose`), `separateCode` false. `.separate`: the password alone, and `separateCode` true: the code
+    /// goes in a field of its own (the OpenVPN static challenge, the FortiGate `otp` field).
+    public static func parts(delivery: OTPDelivery, template: String) -> (secret: [Part], separateCode: Bool) {
+        guard delivery == .combined else { return ([.password], true) }
+        let t = (try? validate(template: template)) != nil ? template : OTPTemplatePreset.append.rawValue
+        var parts: [Part] = []
+        var literal = ""
+        var rest = Substring(t)
+        while !rest.isEmpty {
+            let token: Part
+            if rest.hasPrefix(passwordToken) {
+                token = .password
+                rest = rest.dropFirst(passwordToken.count)
+            } else if rest.hasPrefix(otpToken) {
+                token = .code
+                rest = rest.dropFirst(otpToken.count)
+            } else {
+                literal.append(rest.removeFirst())
+                continue
+            }
+            if !literal.isEmpty { parts.append(.text(literal)) }
+            literal = ""
+            parts.append(token)
+        }
+        if !literal.isEmpty { parts.append(.text(literal)) }
+        return (parts, false)
+    }
+
     private static func placeholders(in template: String) -> [String] {
         var out: [String] = []
         var i = template.startIndex

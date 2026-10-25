@@ -415,12 +415,12 @@
         }
       }
     },
-    "Anyone using this Mac while you are logged in can connect with one click." : {
+    "Append" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Oturumunuz açıkken bu Mac’i kullanan herkes tek tıkla bağlanabilir."
+            "value" : "Sona ekle"
           }
         }
       }
@@ -445,26 +445,6 @@
         }
       }
     },
-    "Before connecting" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bağlanmadan önce"
-          }
-        }
-      }
-    },
-    "Before connecting and showing codes" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bağlanmadan ve kodları göstermeden önce"
-          }
-        }
-      }
-    },
     "Cancelled." : {
       "localizations" : {
         "tr" : {
@@ -481,6 +461,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Güncellemeleri Denetle…"
+          }
+        }
+      }
+    },
+    "Choose image…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Görüntü seç…"
           }
         }
       }
@@ -535,6 +525,16 @@
         }
       }
     },
+    "Code format" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kod biçimi"
+          }
+        }
+      }
+    },
     "Confirm with Touch ID" : {
       "localizations" : {
         "tr" : {
@@ -575,12 +575,42 @@
         }
       }
     },
+    "Copy the secret, an otpauth:// link or a screenshot of the QR code first." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Önce gizli anahtarı, bir otpauth:// bağlantısını ya da QR kodunun ekran görüntüsünü kopyalayın."
+          }
+        }
+      }
+    },
     "Copying needs wl-copy (Wayland) or xclip (X11), and neither was found. Run the command without --copy." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kopyalamak için wl-copy (Wayland) ya da xclip (X11) gerekli, ikisi de bulunamadı. Komutu --copy olmadan çalıştırın."
+          }
+        }
+      }
+    },
+    "Custom template" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Özel şablon"
+          }
+        }
+      }
+    },
+    "DNS" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "DNS"
           }
         }
       }
@@ -595,12 +625,42 @@
         }
       }
     },
+    "Delete Profile…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profili Sil…"
+          }
+        }
+      }
+    },
     "Delete a profile and its saved password and TOTP secret." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bir profili, kayıtlı parolasını ve TOTP gizli anahtarını siler."
+          }
+        }
+      }
+    },
+    "Drop a screenshot here, choose the image, or paste the secret." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir ekran görüntüsünü buraya bırakın, görüntüyü seçin ya da gizli anahtarı yapıştırın."
+          }
+        }
+      }
+    },
+    "Enter the password to save it in the Keychain, or choose “Ask each time” under Advanced." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anahtar Zinciri’ne kaydetmek için parolayı girin ya da Gelişmiş bölümünde “Her seferinde sor”u seçin."
           }
         }
       }
@@ -621,6 +681,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "PassTunnel gizli bilgi dosyası için yeni parola ifadesi (%@): "
+          }
+        }
+      }
+    },
+    "No configuration chosen" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yapılandırma seçilmedi"
           }
         }
       }
@@ -695,6 +765,36 @@
         }
       }
     },
+    "Paste secret" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gizli anahtarı yapıştır"
+          }
+        }
+      }
+    },
+    "Prepend" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Başa ekle"
+          }
+        }
+      }
+    },
+    "Reconnect automatically if the link drops" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlantı koparsa otomatik olarak yeniden bağlan"
+          }
+        }
+      }
+    },
     "Repeat the passphrase: " : {
       "localizations" : {
         "tr" : {
@@ -705,12 +805,102 @@
         }
       }
     },
+    "Require Touch ID before connecting" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlanmadan önce Touch ID iste"
+          }
+        }
+      }
+    },
+    "Require your Mac password before connecting" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlanmadan önce Mac parolanızı iste"
+          }
+        }
+      }
+    },
+    "Routes" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yönlendirmeler"
+          }
+        }
+      }
+    },
     "Save the password or TOTP secret (Base32 or otpauth:// link) in the secret store. Reads from the terminal without echo, or from standard input." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Parolayı ya da TOTP gizli anahtarını (Base32 veya otpauth:// bağlantısı) gizli bilgi deposuna kaydeder. Terminalden ekrana yansıtmadan ya da standart girdiden okur."
+          }
+        }
+      }
+    },
+    "Secret added · %lld digits · %lld s" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gizli anahtar eklendi · %1$lld basamak · %2$lld sn"
+          }
+        }
+      }
+    },
+    "Sent separately" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ayrı gönderilir"
+          }
+        }
+      }
+    },
+    "Server receives" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucuya giden"
+          }
+        }
+      }
+    },
+    "Set to ask only before connecting: showing, copying or typing the code does not ask. Turn the switch off and on again to ask for the code too." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yalnızca bağlanmadan önce soracak şekilde ayarlı: kodu göstermek, kopyalamak ya da yazmak onay istemez. Kod için de sorması için düğmeyi kapatıp yeniden açın."
+          }
+        }
+      }
+    },
+    "User name" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kullanıcı adı"
+          }
+        }
+      }
+    },
+    "hidden password" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "gizli parola"
           }
         }
       }
@@ -2086,16 +2276,6 @@
         }
       }
     },
-    "Append (password + code)" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sona ekle (parola + kod)"
-          }
-        }
-      }
-    },
     "Approve it in PassTunnel, then turn on PassTunnel in System Settings → General → Login Items." : {
       "localizations" : {
         "tr" : {
@@ -2356,16 +2536,6 @@
         }
       }
     },
-    "Choose Image…" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Görüntü Seç…"
-          }
-        }
-      }
-    },
     "Choose OpenVPN Configuration" : {
       "localizations" : {
         "tr" : {
@@ -2412,16 +2582,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kodu kopyalamak için tıklayın"
-          }
-        }
-      }
-    },
-    "Code" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Kod"
           }
         }
       }
@@ -2502,16 +2662,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Yapılandırılıyor…"
-          }
-        }
-      }
-    },
-    "Confirm password" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Parolayı onayla"
           }
         }
       }
@@ -2956,16 +3106,6 @@
         }
       }
     },
-    "Custom…" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Özel…"
-          }
-        }
-      }
-    },
     "Dark" : {
       "localizations" : {
         "tr" : {
@@ -3156,16 +3296,6 @@
         }
       }
     },
-    "Drop a screenshot here, or:" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bir ekran görüntüsünü buraya bırakın ya da:"
-          }
-        }
-      }
-    },
     "Drop to import" : {
       "localizations" : {
         "tr" : {
@@ -3286,32 +3416,12 @@
         }
       }
     },
-    "Enter the password to save it in the Keychain, or choose “Ask each time”." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Anahtar Zinciri’ne kaydetmek için parolayı girin ya da “Her seferinde sor”u seçin."
-          }
-        }
-      }
-    },
     "Error: %@" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Hata: %@"
-          }
-        }
-      }
-    },
-    "Example" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Örnek"
           }
         }
       }
@@ -3382,16 +3492,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Listedeki ilk profil"
-          }
-        }
-      }
-    },
-    "Format" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Biçim"
           }
         }
       }
@@ -3826,16 +3926,6 @@
         }
       }
     },
-    "Leave empty to keep the saved one" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Kayıtlı olanı korumak için boş bırakın"
-          }
-        }
-      }
-    },
     "Let PassTunnel generate the code, so you never type it again." : {
       "localizations" : {
         "tr" : {
@@ -4106,16 +4196,6 @@
         }
       }
     },
-    "New password" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Yeni parola"
-          }
-        }
-      }
-    },
     "Next: add the configuration in the app, or import an .ovpn file with “passtunnel import FILE”." : {
       "localizations" : {
         "tr" : {
@@ -4142,16 +4222,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kod yok"
-          }
-        }
-      }
-    },
-    "No code is needed to sign in." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Oturum açmak için kod gerekmiyor."
           }
         }
       }
@@ -4352,16 +4422,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "kayıtlı değil"
-          }
-        }
-      }
-    },
-    "Not saved yet" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Henüz kaydedilmedi"
           }
         }
       }
@@ -4842,16 +4902,6 @@
         }
       }
     },
-    "Paste from Clipboard" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Panodan Yapıştır"
-          }
-        }
-      }
-    },
     "Paste the secret or an otpauth:// link" : {
       "localizations" : {
         "tr" : {
@@ -4938,16 +4988,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Hazırlanıyor…"
-          }
-        }
-      }
-    },
-    "Prepend (code + password)" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Başa ekle (kod + parola)"
           }
         }
       }
@@ -5062,16 +5102,6 @@
         }
       }
     },
-    "Reconnect automatically" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Otomatik yeniden bağlan"
-          }
-        }
-      }
-    },
     "Reconnecting in %lld s (%@)" : {
       "localizations" : {
         "tr" : {
@@ -5098,16 +5128,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Yeniden bağlanıyor… (%@)"
-          }
-        }
-      }
-    },
-    "Reconnects after an unexpected drop or when the health check keeps failing." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Beklenmedik bir kopmadan sonra ya da sağlık kontrolü art arda başarısız olduğunda yeniden bağlanır."
           }
         }
       }
@@ -5318,36 +5338,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Gizli anahtar"
-          }
-        }
-      }
-    },
-    "Send the code" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Kodu gönder"
-          }
-        }
-      }
-    },
-    "Separately" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ayrı"
-          }
-        }
-      }
-    },
-    "Server: %@" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sunucu: %@"
           }
         }
       }
@@ -5712,16 +5702,6 @@
         }
       }
     },
-    "The clipboard does not contain an image. Copy a screenshot of the QR code first." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Panoda görüntü yok. Önce QR kodunun ekran görüntüsünü kopyalayın."
-          }
-        }
-      }
-    },
     "The code belongs to a VPN profile. Add or import the VPN, then add its code." : {
       "localizations" : {
         "tr" : {
@@ -5738,16 +5718,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kod, profili kaydettiğinizde eklenir."
-          }
-        }
-      }
-    },
-    "The code is joined to the password and sent as one password, in the format below." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Kod parolaya eklenir ve aşağıdaki biçimde tek bir parola olarak gönderilir."
           }
         }
       }
@@ -6160,16 +6130,6 @@
         }
       }
     },
-    "The passwords do not match." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Parolalar eşleşmiyor."
-          }
-        }
-      }
-    },
     "the period is not valid" : {
       "localizations" : {
         "tr" : {
@@ -6576,16 +6536,6 @@
         }
       }
     },
-    "Type it again" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Yeniden yazın"
-          }
-        }
-      }
-    },
     "Type the code for me" : {
       "localizations" : {
         "tr" : {
@@ -6602,16 +6552,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Geçerli kodu yaz"
-          }
-        }
-      }
-    },
-    "Type the password again to confirm it." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Onaylamak için parolayı yeniden yazın."
           }
         }
       }
@@ -6982,26 +6922,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bu kod hangi VPN için?"
-          }
-        }
-      }
-    },
-    "With the password" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Parolayla birlikte"
-          }
-        }
-      }
-    },
-    "With the password “secret” and the code “123456”." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "“secret” parolası ve “123456” koduyla."
           }
         }
       }

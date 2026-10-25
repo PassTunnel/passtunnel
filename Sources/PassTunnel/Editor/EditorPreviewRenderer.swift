@@ -10,56 +10,95 @@ enum EditorPreviewRenderer {
         let name: String
         let model: EditorModel
         var dark = false
-        var height: CGFloat
+        var height: CGFloat = EditorPreviewRenderer.height
         var showAdvanced = false
-        var codeSectionOnly = false
     }
 
-    static let width: CGFloat = 580
+    /// The sheet's ideal size.
+    static let width: CGFloat = 660
+    static let height: CGFloat = 700
 
     /// Well-known sample secret from authenticator documentation (not a real account).
     static let sampleSecret = "JBSWY3DPEHPK3PXP"
 
+    /// Imported on 3 October of the current year, rendered 17 days later at 10:00:07 (fixed so screenshots,
+    /// codes included, are stable).
+    private static let imported: Date = {
+        let calendar = Calendar.current
+        let year = calendar.component(.year, from: Date())
+        return calendar.date(from: DateComponents(year: year, month: 10, day: 3, hour: 10)) ?? Date()
+    }()
+    private static let now = imported.addingTimeInterval(17 * 86_400 + 7)
+
     @MainActor static func states() -> [State] {
         var out: [State] = []
 
-        out.append(State(name: "editor-new-openvpn", model: EditorModel(preview: EditorModel.blank(.openvpn), isNew: true),
-                         height: 1120))
-        out.append(State(name: "editor-new-forti", model: EditorModel(preview: EditorModel.blank(.forti), isNew: true),
-                         height: 1300))
+        for dark in [false, true] {
+            out.append(State(name: "editor-new-openvpn\(dark ? "-dark" : "")",
+                             model: EditorModel(preview: EditorModel.blank(.openvpn), isNew: true, now: now), dark: dark))
+        }
+        out.append(State(name: "editor-new-forti", model: EditorModel(preview: EditorModel.blank(.forti), isNew: true, now: now),
+                         height: 920))
 
-        let forti = EditorModel(preview: EditorModel.blank(.forti), isNew: true)
+        let forti = EditorModel(preview: EditorModel.blank(.forti), isNew: true, now: now)
         forti.draft.host = "https://vpn.example.com"
         forti.draft.trustedCert = "12:34"
         _ = forti.save()   // preview models only validate
-        out.append(State(name: "editor-new-forti-errors", model: forti, height: 1450))
+        out.append(State(name: "editor-new-forti-errors", model: forti, height: 1000))
 
-        out.append(State(name: "editor-totp", model: totpModel(), height: 1800, showAdvanced: true))
-        out.append(State(name: "editor-totp-dark", model: totpModel(), dark: true, height: 1800, showAdvanced: true))
-
-        // Just the One-time code section (website screenshot).
+        // A saved FortiGate profile.
         for dark in [false, true] {
-            out.append(State(name: "editor-one-time-code\(dark ? "-dark" : "")", model: totpModel(), dark: dark,
-                             height: 640, showAdvanced: true, codeSectionOnly: true))
+            out.append(State(name: "editor-forti\(dark ? "-dark" : "")", model: fortiModel(), dark: dark, height: 960))
         }
 
+        // A saved OpenVPN profile with a secret just scanned from a QR code.
+        for dark in [false, true] {
+            out.append(State(name: "editor-totp\(dark ? "-dark" : "")", model: totpModel(), dark: dark))
+        }
+
+        // The whole sheet for the website: a saved profile with its secret ("Work", as on the site). The height
+        // keeps the 480 px wide site image a whole number of pixels high at 1x, 1.5x and 2x.
+        for dark in [false, true] {
+            out.append(State(name: "editor-one-time-code\(dark ? "-dark" : "")", model: workModel(), dark: dark,
+                             height: 704))
+        }
+
+        // Everything under Advanced.
+        for dark in [false, true] {
+            out.append(State(name: "editor-advanced\(dark ? "-dark" : "")", model: totpModel(), dark: dark,
+                             height: 1700, showAdvanced: true))
+        }
+
+        // Generate chosen, no secret yet.
+        out.append(State(name: "editor-code-empty",
+                         model: EditorModel(preview: workProfile(), isNew: false, passwordStored: true,
+                                            configServer: "vpn.example.com:1194 · UDP", now: now)))
+
+        let separate = workModel()
+        separate.formatChoice = .separate
+        out.append(State(name: "editor-separate", model: separate))
+
         let custom = totpModel()
-        custom.templateChoice = .custom
+        custom.formatChoice = .custom
         custom.draft.otpTemplate = "{password}-{code}"
-        out.append(State(name: "editor-template-error", model: custom, height: 1800))
+        _ = custom.save()
+        out.append(State(name: "editor-template-error", model: custom))
 
         let customOK = totpModel()
-        customOK.templateChoice = .custom
+        customOK.formatChoice = .custom
         customOK.draft.otpTemplate = "{password}#{otp}"
-        out.append(State(name: "editor-template-custom", model: customOK, height: 1800))
+        out.append(State(name: "editor-template-custom", model: customOK))
 
         let typing = totpModel()
         typing.newPassword = "new-secret"
-        out.append(State(name: "editor-password-typing", model: typing, height: 1800))
+        out.append(State(name: "editor-password-typing", model: typing))
 
-        // "Confirm with Touch ID" set to always: the stored code stays hidden until confirmed.
-        out.append(State(name: "editor-require-auth", model: protectedModel(), height: 1800))
-        out.append(State(name: "editor-require-auth-dark", model: protectedModel(), dark: true, height: 1800))
+        // "Confirm with Touch ID" on: the stored code stays hidden until confirmed.
+        for dark in [false, true] {
+            out.append(State(name: "editor-require-auth\(dark ? "-dark" : "")", model: protectedModel(.always), dark: dark))
+        }
+        // Set to ask before connecting only (the CLI's middle level): the switch is on, with a footnote.
+        out.append(State(name: "editor-require-auth-connect", model: protectedModel(.connect)))
         return out
     }
 
@@ -71,30 +110,56 @@ enum EditorPreviewRenderer {
         p.otpMode = .totp
         p.otpDelivery = .combined
         p.healthHost = "10.0.0.5"
-        // Imported on 3 October of the current year (fixed so screenshots are stable).
-        let calendar = Calendar.current
-        let year = calendar.component(.year, from: Date())
-        let imported = calendar.date(from: DateComponents(year: year, month: 10, day: 3, hour: 10)) ?? Date()
         p.configSourceName = "acme.ovpn"
         p.configImportedAt = imported
-        let model = EditorModel(preview: p, isNew: false, passwordStored: true, configRemote: "vpn.example.com",
-                                now: imported.addingTimeInterval(17 * 86_400))
+        let model = EditorModel(preview: p, isNew: false, passwordStored: true,
+                                configServer: "vpn.example.com:1194 · UDP", now: now)
         if let uri = try? OTPAuthURI("otpauth://totp/Acme:alice?secret=\(sampleSecret)&issuer=Acme") {
             model.apply(uri)
         }
         return model
     }
 
-    /// A saved profile that asks for Touch ID before connecting and before showing its code.
-    @MainActor private static func protectedModel() -> EditorModel {
+    private static func workProfile() -> Profile {
+        var p = Profile(id: "work", name: "Work", type: .openvpn)
+        p.username = "alice"
+        p.otpMode = .totp
+        p.otpDelivery = .combined
+        p.autoReconnect = true
+        p.configSourceName = "Work.ovpn"
+        p.configImportedAt = imported
+        return p
+    }
+
+    @MainActor private static func workModel() -> EditorModel {
+        EditorModel(preview: workProfile(), isNew: false, passwordStored: true,
+                    storedTOTP: try? TOTP.decodeSecret(sampleSecret), configServer: "vpn.example.com:1194 · UDP", now: now)
+    }
+
+    @MainActor private static func fortiModel() -> EditorModel {
+        var p = Profile(id: "office", name: "Office", type: .forti)
+        p.host = "vpn.example.com"
+        p.port = 443
+        p.trustedCert = String(repeating: "3f", count: 32)
+        p.username = "alice"
+        p.otpMode = .totp
+        p.otpDelivery = .separate
+        return EditorModel(preview: p, isNew: false, passwordStored: true, storedTOTP: try? TOTP.decodeSecret(sampleSecret),
+                           now: now)
+    }
+
+    /// A saved profile protected by "Confirm with Touch ID" at `level`.
+    @MainActor private static func protectedModel(_ level: AuthRequirement) -> EditorModel {
         var p = Profile(id: "acme", name: "Acme VPN", type: .openvpn)
         p.icon = "building.2"
         p.badgeStyle = .both
         p.username = "alice"
         p.otpMode = .totp
-        p.requireAuth = .always
-        return EditorModel(preview: p, isNew: false, passwordStored: true, storedTOTPProtected: true,
-                           configRemote: "vpn.example.com")
+        p.requireAuth = level
+        // At `connect` with a saved password the TOTP secret stays plain, so its code shows.
+        return EditorModel(preview: p, isNew: false, passwordStored: true,
+                           storedTOTP: level == .always ? nil : try? TOTP.decodeSecret(sampleSecret),
+                           storedTOTPProtected: level == .always, configServer: "vpn.example.com:1194 · UDP", now: now)
     }
 
     /// Writes one PNG per state into `dir` and returns their URLs.
@@ -111,7 +176,7 @@ enum EditorPreviewRenderer {
 
     @MainActor static func render(_ state: State) -> Data? {
         let size = NSSize(width: width, height: state.height)
-        let root = ProfileEditorView(model: state.model, showAdvanced: state.showAdvanced, codeSectionOnly: state.codeSectionOnly)
+        let root = ProfileEditorView(model: state.model, showAdvanced: state.showAdvanced)
             .frame(width: size.width, height: size.height)
             .background(Color(nsColor: .windowBackgroundColor))
             .environment(\.colorScheme, state.dark ? .dark : .light)

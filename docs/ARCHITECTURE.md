@@ -286,6 +286,8 @@ public struct OTPAuthURI { label, issuer, secret: Data, params: TOTPParams; init
 public enum OVPNAnalyzer {
     public static func analyze(_ text: String) -> (passwordMode, otpMode, otpDelivery, remote: String, remotes: [String])
     public static func serverDescription(_ remotes: [String]) -> String   // "vpn.example.com +2 more"; also (_ text:)
+    public static func endpoint(_ text: String) -> Endpoint?   // first remote: host, port, tcp, others
+    public static func endpointDescription(_ text: String) -> String   // "vpn.example.com:1194 +2 more · UDP"
     public static func redirectsGateway(_ text: String) -> Bool?
 }
 // static-challenge in the file → otpMode .ask, otpDelivery .separate; otherwise .combined
@@ -293,10 +295,14 @@ public enum OVPNAnalyzer {
 // sanitizer and OpenVPN read them: quotes and escapes resolved, comments dropped, lines OpenVPN rejects
 // skipped, inline block contents skipped (<connection> blocks read), `setenv opt <directive>` applied
 // when the name is exact. `remotes` = every `remote` host in file order, `remote` = the first.
+// `endpoint`: the port and transport of the `remote` line, else the `port`/`rport` and `proto` lines of its
+// <connection> block, then those outside any block (the last of each), else 1194 and UDP.
 public enum OTPComposer {
     public static func validate(template: String) throws               // must contain "{otp}"
     public static func compose(password: String, otp: String?, delivery: OTPDelivery, template: String,
                                type: VPNType) -> (secret: String, separateOTP: String?)
+    public static func parts(delivery: OTPDelivery, template: String) -> (secret: [Part], separateCode: Bool)
+        // what compose sends, as .password / .code / .text in order: the editor's masked "Server receives"
 }
 public struct ShareFile: Codable              // {"passtunnel_profile":1, "profile":{…minus username,last_username,order,mgmt_port,pinned}, "files":{"config.ovpn": base64}} (config without credential blocks)
     // fileExtension "passtunnel", typeIdentifier "com.furkanprlk.passtunnel.profile" (exported by the app, conforms to public.json)
