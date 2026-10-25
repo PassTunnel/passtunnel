@@ -342,6 +342,47 @@ final class MCPServerTests: XCTestCase {
         XCTAssertNotNil(tools.first?["outputSchema"])
     }
 
+    /// The Mac's texts stay exactly as listed in MCP directories; Linux says "this computer" and, in
+    /// place of the Touch ID prompt, that protected profiles are refused (docs/LINUX.md).
+    func testInstructionsAndDescriptionsAreWordedPerPlatform() async throws {
+        let server = makeServer(allowConnect: true)
+        let handshake = try await self.reply(server, ["jsonrpc": "2.0", "id": 1, "method": "initialize", "params": [
+            "protocolVersion": "2025-06-18", "capabilities": [String: Any](), "clientInfo": ["name": "test", "version": "1"],
+        ]])
+        let instructions = try XCTUnwrap((handshake["result"] as? [String: Any])?["instructions"] as? String)
+        let list = try await self.reply(server, request(2, "tools/list"))
+        let tools = try XCTUnwrap((list["result"] as? [String: Any])?["tools"] as? [[String: Any]])
+        var descriptions: [String: String] = [:]
+        for tool in tools { descriptions[tool["name"] as? String ?? ""] = tool["description"] as? String }
+        let connect = try XCTUnwrap(tools.first { $0["name"] as? String == "connect" })
+        let properties = try XCTUnwrap((connect["inputSchema"] as? [String: Any])?["properties"] as? [String: Any])
+        let timeout = try XCTUnwrap((properties["timeout_seconds"] as? [String: Any])?["description"] as? String)
+
+        let base = "(OpenVPN and FortiGate SSL VPN). Profiles are identified by their id (from list_profiles). "
+            + "The tools never return passwords, TOTP secrets, one-time codes, keys or configuration files, and they cannot create, change or delete profiles."
+        let connectText = try XCTUnwrap(descriptions["connect"])
+        let listText = try XCTUnwrap(descriptions["list_profiles"])
+        #if os(Linux)
+        XCTAssertEqual(instructions, "PassTunnel manages this computer's VPN connections " + base
+                       + " connect and disconnect are enabled. A protected profile cannot be connected on Linux yet: connect refuses it with auth_unavailable.")
+        XCTAssertTrue(listText.hasSuffix(" protected=true means connecting is refused on Linux for now (auth_unavailable): there is no confirmation to ask for yet."))
+        XCTAssertTrue(connectText.contains("A protected profile cannot be connected on Linux yet: it is refused with auth_unavailable."))
+        XCTAssertTrue(connectText.contains("Connecting changes this computer's network routes;"))
+        XCTAssertEqual(timeout, "How long to wait for the connection.")
+        for text in [instructions, timeout] + Array(descriptions.values) {
+            XCTAssertFalse(text.contains("Mac"), text)
+            XCTAssertFalse(text.contains("Touch ID"), text)
+        }
+        #else
+        XCTAssertEqual(instructions, "PassTunnel manages this Mac's VPN connections " + base
+                       + " connect and disconnect are enabled. A protected profile shows a Touch ID prompt on the Mac that the user must confirm; tell the user to look for it.")
+        XCTAssertTrue(listText.hasSuffix(" protected=true means connecting asks the user for Touch ID on the Mac."))
+        XCTAssertTrue(connectText.contains("If the profile is protected, the user must confirm with Touch ID on the Mac: tell them a prompt is waiting."))
+        XCTAssertTrue(connectText.contains("Connecting changes the Mac's network routes;"))
+        XCTAssertEqual(timeout, "How long to wait for the connection (after the Touch ID confirmation).")
+        #endif
+    }
+
     func testInitializeWithAnUnknownVersionGetsTheNewestHandshakeVersion() async throws {
         let server = makeServer()
         for requested in ["1999-01-01", "2026-07-28"] {

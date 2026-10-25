@@ -483,13 +483,28 @@ final class CLIPlatformTests: XCTestCase {
     }
 
     #if os(Linux)
-    /// `helper install|uninstall` belong to the package on Linux.
-    @MainActor func testHelperInstallIsThePackages() async {
+    /// `helper install|uninstall` are done by hand from the tarball on Linux, and the message says so
+    /// (there is no package until phase 3).
+    @MainActor func testHelperInstallIsTheTarballs() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("passtunnel-stderr-\(UUID().uuidString)")
+        XCTAssertTrue(FileManager.default.createFile(atPath: file.path, contents: nil))
+        defer { try? FileManager.default.removeItem(at: file) }
+        let output = try FileHandle(forWritingTo: file)
+        let saved = dup(STDERR_FILENO)
+        dup2(output.fileDescriptor, STDERR_FILENO)
         let runner = CLIRunner()
         let install = await runner.run(.helper(.install))
-        XCTAssertEqual(install, AutomationExit.usage)
         let uninstall = await runner.run(.helper(.uninstall))
+        dup2(saved, STDERR_FILENO)
+        close(saved)
+        try output.close()
+        XCTAssertEqual(install, AutomationExit.usage)
         XCTAssertEqual(uninstall, AutomationExit.usage)
+        let text = try String(contentsOf: file, encoding: .utf8)
+        XCTAssertEqual(text.components(separatedBy: "README").count - 1, 2, "once per command: \(text)")
+        XCTAssertTrue(text.contains("tarball"), text)
+        XCTAssertTrue(text.contains("docs/LINUX.md"), text)
+        XCTAssertFalse(text.contains("package"), text)
     }
     #endif
 

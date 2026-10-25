@@ -1015,12 +1015,12 @@
         }
       }
     },
-    "On Linux the PassTunnel package installs and removes the daemon (passtunneld): install or remove the package instead." : {
+    "On Linux, passtunneld is installed and removed by hand from the release tarball, not by this command. Follow the README in the tarball; docs/LINUX.md has the details: https://github.com/PassTunnel/passtunnel/blob/main/docs/LINUX.md" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Linux’ta arka plan hizmetini (passtunneld) PassTunnel paketi yükler ve kaldırır: bunun yerine paketi yükleyin ya da kaldırın."
+            "value" : "Linux’ta passtunneld bu komutla değil, sürüm arşivinden (tarball) elle yüklenir ve kaldırılır. Arşivdeki README’yi izleyin; ayrıntılar docs/LINUX.md içinde: https://github.com/PassTunnel/passtunnel/blob/main/docs/LINUX.md"
           }
         }
       }
@@ -1861,6 +1861,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Her komut için seçenekler: --no-input terminalde hiçbir şey sormaz (PASSTUNNEL_NO_INPUT=1 de olur), --no-auth-prompt Touch ID’yi hiç göstermez."
+          }
+        }
+      }
+    },
+    "Options for every command: --no-input never asks on the terminal (also PASSTUNNEL_NO_INPUT=1), --no-auth-prompt never asks for a confirmation." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Her komut için seçenekler: --no-input terminalde hiçbir şey sormaz (PASSTUNNEL_NO_INPUT=1 de olur), --no-auth-prompt hiçbir onay istemez."
           }
         }
       }

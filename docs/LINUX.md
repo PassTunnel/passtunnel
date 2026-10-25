@@ -312,6 +312,9 @@ what the server pushes, and every value of it is treated as hostile: it ends up 
 - **Combine.** Linux has none. A small stand-in in Core (`ObservableObject`, `@Published` with
   `sink`/`compactMap`, `PassthroughSubject`, `AnyCancellable`), compiled only where Combine is
   missing; the Mac keeps Combine and macOS 13.
+- **MCP texts.** The server's instructions and the tool descriptions say "this computer" instead of
+  "this Mac" and, instead of the Touch ID prompt, that a protected profile cannot be connected on
+  Linux yet (`auth_unavailable`, see Secrets). The Mac's texts are unchanged (`MCPWording`).
 - **MCP input.** JSON-RPC parameters are decoded into a small `JSONValue` enum on every platform
   instead of telling booleans from numbers with CoreFoundation (`MCPTools.isBool`); the MCP fuzzer
   covers the new decoder.
@@ -321,8 +324,9 @@ what the server pushes, and every value of it is treated as hostile: it ends up 
   Linux instead of `Info.plist`.
 - **Language.** English: the `String(localized:)` stand-in of PassTunnelKit is used by Core and the
   CLI on Linux. Turkish follows by turning `Localizable.xcstrings` into a lookup table at build time.
-- **Commands that differ.** `helper install`/`uninstall` explain that the package installs and
-  removes the daemon, and fail with `invalid_argument`. `code --copy` uses `wl-copy` (Wayland) or
+- **Commands that differ.** `helper install`/`uninstall` explain that the daemon is installed and
+  removed by hand from the release tarball (its README; the package comes with Phase 3), and fail
+  with `invalid_argument`. `--no-auth-prompt` is worded as never asking for a confirmation. `code --copy` uses `wl-copy` (Wayland) or
   `xclip` (X11) when present and fails with `invalid_argument` otherwise. As on the Mac, the code is
   cleared after `clear_clipboard_after` in `config.json` (30, 60 or 120 s, default 60) if PassTunnel
   still owns the clipboard: a process left behind runs the tool in the foreground, where it serves
