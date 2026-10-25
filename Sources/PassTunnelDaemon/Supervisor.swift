@@ -354,12 +354,14 @@ final class Supervisor {
 
     // MARK: - State of the previous instance
 
-    /// Records pid, owner, executable, profile directory and management socket, so that the next
-    /// instance can stop a tool this one leaves behind.
+    /// Records pid, owner, executable, profile directory, management socket, boot ID and start time, so
+    /// that the next instance can stop a tool this one leaves behind, and only that process
+    /// (`PreviousInstance`). The child is not reaped yet: its pid, and so its start time, is its own.
     private func writeState(plan: HelperCore.LaunchPlan, pid: pid_t, executable: String) {
         let text = "\(pid)\n\(plan.ownerUID)\n\(executable)\n\(plan.profileDir.path)\n\(plan.mgmtSocket ?? "")\n"
+            + PreviousInstance.identityLines(of: pid)
         do {
-            try HelperCore.checkLines(text, count: 5, file: Self.stateFileName)
+            try HelperCore.checkLines(text, count: 7, file: Self.stateFileName)
             try HelperCore.writeNewFile(plan.runDir + "/" + Self.stateFileName, Data(text.utf8), mode: 0o600)
         } catch {
             DaemonLog.info("not recording the state of \(plan.profileID): \(error)")

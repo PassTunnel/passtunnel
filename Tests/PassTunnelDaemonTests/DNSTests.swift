@@ -39,9 +39,17 @@ final class DNSSettingsTests: XCTestCase {
     }
 
     func testInterfaces() throws {
-        for name in ["tun0", "ppp0", "tap1", "ovpn-acme", "tun.1", "x"] { XCTAssertEqual(try DNSSettings.interface(name), name) }
+        for name in ["tun0", "ppp0", "tap1", "ovpn-acme", "tun.1", "x", "0x", "1.2"] {
+            XCTAssertEqual(try DNSSettings.interface(name), name)
+        }
         for name in ["", "-tun0", ".tun0", "tun0 ", "tun/0", "eth0:1", "tun0;x", String(repeating: "t", count: 16), "tün0"] {
             XCTAssertThrowsError(try DNSSettings.interface(name), name)
+        }
+        // Digits only: resolvectl (and others) read that as an interface index.
+        for name in ["2", "10", "007", "4294967295"] {
+            XCTAssertThrowsError(try DNSSettings.interface(name), name) {
+                XCTAssertEqual($0 as? DNSFailure, .invalid("interface", name))
+            }
         }
     }
 
@@ -232,6 +240,10 @@ class DNSTestCase: DaemonTestCase {
         try? String(contentsOfFile: session.path + "/" + DNSRecord.fileName, encoding: .utf8)
     }
 
+    /// The file backend's baseline in the run root, as `ResolvConfBaseline` writes it.
+    var baselinePath: String { runRoot + "/" + ResolvConfBaseline.fileName }
+    var baselineText: String? { try? String(contentsOfFile: baselinePath, encoding: .utf8) }
+
     var callLog: String { (try? String(contentsOfFile: calls, encoding: .utf8)) ?? "" }
     var resolvConfText: String { (try? String(contentsOfFile: resolvConf, encoding: .utf8)) ?? "<none>" }
 
@@ -274,17 +286,19 @@ final class DNSFileBackendTests: DNSTestCase {
         XCTAssertNotEqual(after.st_ino, before.st_ino, "replaced by rename, not rewritten")
         XCTAssertEqual(after.st_mode & 0o7777, 0o644)
         XCTAssertFalse(exists(resolvConf + ".passtunnel"))
+        XCTAssertEqual(recorded(session), "passtunnel-dns 2\nfile\ntun0\n7\n1\n192.0.2.53 2001:db8::53\ncorp.example.com\n")
         let digest = HelperCore.sha256Hex(Data(Self.applied.utf8))
-        XCTAssertEqual(recorded(session), "passtunnel-dns 1\nfile\ntun0\n7\n\(digest)\nprevious\n")
-        XCTAssertEqual(try String(contentsOfFile: session.path + "/dns.resolv.conf", encoding: .utf8), Self.original)
+        XCTAssertEqual(baselineText, "passtunnel-resolv-base 1\n\(digest)\nfile\n" + Self.original)
         var st = stat()
-        XCTAssertEqual(lstat(session.path + "/dns", &st), 0)
-        XCTAssertEqual(st.st_mode & 0o777, 0o600)
+        for path in [session.path + "/dns", baselinePath] {
+            XCTAssertEqual(lstat(path, &st), 0)
+            XCTAssertEqual(st.st_mode & 0o777, 0o600, path)
+        }
 
         XCTAssertEqual(applier.revert(in: session), "restored the DNS of tun0 (/etc/resolv.conf)")
         XCTAssertEqual(resolvConfText, Self.original)
         XCTAssertNil(recorded(session))
-        XCTAssertFalse(exists(session.path + "/dns.resolv.conf"))
+        XCTAssertFalse(exists(baselinePath))
         XCTAssertNil(applier.revert(in: session), "nothing left to revert")
     }
 
@@ -322,9 +336,10 @@ final class DNSFileBackendTests: DNSTestCase {
         let session = try session()
         try applier.apply(Self.full, interface: "tun0", in: session)
         XCTAssertTrue(resolvConfText.hasPrefix("# PassTunnel tun0 begin"), resolvConfText)
-        XCTAssertTrue(recorded(session)?.hasSuffix("\nnone\n") == true)
+        XCTAssertTrue(baselineText?.hasSuffix("\nnone\n") == true, baselineText ?? "<none>")
         applier.revert(in: session)
         XCTAssertFalse(exists(resolvConf))
+        XCTAssertFalse(exists(baselinePath))
     }
 
     /// A container bind-mounts its resolv.conf: rename fails with EBUSY, so it is rewritten in place.
@@ -352,7 +367,7 @@ final class DNSFileBackendTests: DNSTestCase {
         XCTAssertEqual(lstat(resolvConf, &before), 0)
         try applier.apply(Self.full, interface: "tun0", in: session)
         XCTAssertEqual(resolvConfText, Self.applied)
-        XCTAssertEqual(try String(contentsOfFile: session.path + "/dns.resolv.conf", encoding: .utf8), Self.original)
+        XCTAssertTrue(baselineText?.hasSuffix("\nfile\n" + Self.original) == true, baselineText ?? "<none>")
         var after = stat()
         XCTAssertEqual(lstat(resolvConf, &after), 0)
         XCTAssertEqual(after.st_ino, before.st_ino)
@@ -366,16 +381,106 @@ final class DNSFileBackendTests: DNSTestCase {
         XCTAssertEqual(after.st_ino, before.st_ino)
     }
 
-    func testTwoTunnels() throws {
+    /// The file with only tun1's DNS in effect: what two tunnels give while tun1 is the newer one.
+    static let appliedTun1 = """
+    # PassTunnel tun1 begin: DNS of the VPN, removed when it disconnects
+    nameserver 198.51.100.53
+    search example.net
+    # PassTunnel tun1 end
+    # from the network
+    #PassTunnel tun1# nameserver 192.0.2.1
+    #PassTunnel tun1# search lan
+    options edns0
+
+    """
+    static let tun1 = try! DNSSettings(servers: ["198.51.100.53"], searchDomains: ["example.net"], fullTunnel: true)
+
+    /// Two tunnels at once: the newer one's DNS is in effect; the older one ending changes nothing, and
+    /// the file's own servers never come back while a tunnel is up.
+    func testTwoTunnelsOlderEndsFirst() throws {
         let one = try session("one"), two = try session("two")
         try applier.apply(Self.full, interface: "tun0", in: one)
-        try applier.apply(try DNSSettings(servers: ["198.51.100.53"], fullTunnel: true), interface: "tun1", in: two)
-        XCTAssertTrue(resolvConfText.hasPrefix("# PassTunnel tun1 begin"), resolvConfText)
-        applier.revert(in: one)
-        XCTAssertTrue(resolvConfText.hasPrefix("# PassTunnel tun1 begin"), resolvConfText)
-        XCTAssertFalse(resolvConfText.contains("tun0"), resolvConfText)
-        applier.revert(in: two)
+        try applier.apply(Self.tun1, interface: "tun1", in: two)
+        XCTAssertEqual(resolvConfText, Self.appliedTun1)
+        XCTAssertEqual(applier.revert(in: one), "restored the DNS of tun0 (/etc/resolv.conf)")
+        XCTAssertEqual(resolvConfText, Self.appliedTun1, "tun1 is still up: the file's own lines stay disabled")
+        XCTAssertEqual(applier.revert(in: two), "restored the DNS of tun1 (/etc/resolv.conf)")
         XCTAssertEqual(resolvConfText, Self.original)
+        XCTAssertFalse(exists(baselinePath))
+    }
+
+    /// The newer one ending gives the older one's DNS back, never the file's own.
+    func testTwoTunnelsNewerEndsFirst() throws {
+        let one = try session("one"), two = try session("two")
+        try applier.apply(Self.full, interface: "tun0", in: one)
+        try applier.apply(Self.tun1, interface: "tun1", in: two)
+        applier.revert(in: two)
+        XCTAssertEqual(resolvConfText, Self.applied)
+        applier.revert(in: one)
+        XCTAssertEqual(resolvConfText, Self.original)
+    }
+
+    /// Three sessions ending in any order, with the file changed by someone else in between: every
+    /// state is made from the baseline and the newest session left, and the change stays.
+    func testOverlappingSessionsWithOutsideChange() throws {
+        let one = try session("one"), two = try session("two"), three = try session("three")
+        indexes.set(["tun0": 7, "tun1": 8, "tun2": 9])
+        try applier.apply(Self.full, interface: "tun0", in: one)
+        try applier.apply(Self.tun1, interface: "tun1", in: two)
+        try applier.apply(try DNSSettings(servers: ["198.51.100.99"], fullTunnel: true), interface: "tun2", in: three)
+        XCTAssertTrue(resolvConfText.hasPrefix("# PassTunnel tun2 begin"), resolvConfText)
+        try (resolvConfText + "options ndots:2\n").write(toFile: resolvConf, atomically: false, encoding: .utf8)
+        applier.revert(in: two)
+        XCTAssertTrue(resolvConfText.hasPrefix("# PassTunnel tun2 begin"), resolvConfText)
+        XCTAssertTrue(resolvConfText.contains("\n#PassTunnel tun2# nameserver 192.0.2.1\n"), resolvConfText)
+        applier.revert(in: three)
+        XCTAssertEqual(resolvConfText, Self.applied + "options ndots:2\n")
+        applier.revert(in: one)
+        XCTAssertEqual(resolvConfText, Self.original + "options ndots:2\n")
+    }
+
+    /// The hook (a process of its own) and the daemon (FortiGate) work on the same registry: anything
+    /// with the run root's lock and its session directories. Here two appliers stand in for them.
+    func testHookAndDaemonShareTheRegistry() throws {
+        let hook = applier, daemon = DNSApplier(system: system, runRoot: runRoot)
+        let openvpn = try session("openvpn"), forti = try session("forti")
+        indexes.set(["tun0": 7, "ppp0": 8])
+        try hook.apply(Self.full, interface: "tun0", in: openvpn)
+        try daemon.apply(Self.tun1, interface: "ppp0", in: forti)
+        XCTAssertEqual(hook.fileSessions().map(\.interface), ["ppp0", "tun0"])
+        XCTAssertEqual(daemon.fileSessions(excluding: forti.path).map(\.interface), ["tun0"])
+        hook.revert(in: openvpn)
+        XCTAssertTrue(resolvConfText.hasPrefix("# PassTunnel ppp0 begin"), resolvConfText)
+        XCTAssertFalse(resolvConfText.contains("\nnameserver 192.0.2.1\n"), resolvConfText)
+        daemon.revert(in: forti)
+        XCTAssertEqual(resolvConfText, Self.original)
+    }
+
+    /// The lock is the run root's, whoever holds it: a change waits for it, and gives up in time.
+    func testChangesWaitForTheLock() throws {
+        let session = try session()
+        let held = try applier.lock()
+        var quick = applier
+        quick.lockTimeout = 0.2
+        XCTAssertThrowsError(try quick.apply(Self.full, interface: "tun0", in: session)) {
+            XCTAssertEqual($0 as? DNSFailure, .busy)
+        }
+        close(held)
+        XCTAssertNil(recorded(session))
+        XCTAssertEqual(resolvConfText, Self.original)
+    }
+
+    /// A session that crashed between its steps (its record gone, the baseline still there) is
+    /// cleaned up by `restoreUnclaimed`, as a starting daemon runs it.
+    func testUnclaimedBaselineIsRestored() throws {
+        let session = try session()
+        try applier.apply(Self.full, interface: "tun0", in: session)
+        XCTAssertNil(applier.restoreUnclaimed(), "claimed by a session")
+        DNSRecord.remove(in: session)
+        XCTAssertEqual(applier.restoreUnclaimed(), "restored \(resolvConf), which no session uses any more")
+        XCTAssertEqual(resolvConfText, Self.original)
+        XCTAssertFalse(exists(baselinePath))
+        XCTAssertNil(applier.restoreUnclaimed(), "nothing left")
     }
 
     /// A block of the same interface whose record went missing (a crash) is not carried on.
@@ -429,26 +534,58 @@ final class DNSFileBackendTests: DNSTestCase {
         let lines = String(decoding: applied, as: UTF8.self).components(separatedBy: "\n")
         XCTAssertEqual(Array(lines.suffix(6)), ["#PassTunnel tun0# nameserver 192.0.2.1", " nameserver x", "nameservers",
                                                 "#PassTunnel tun0# search\tlan", "#PassTunnel tun0# domain lan", "#nameserver y"])
-        XCTAssertEqual(ResolvConf.strip(applied, interface: "tun0"), previous)
-        XCTAssertNil(ResolvConf.strip(previous, interface: "tun0"))
-        XCTAssertNil(ResolvConf.strip(applied, interface: "tun00"), "another interface's block is not touched")
+        XCTAssertEqual(ResolvConf.stripAll(applied), previous)
+        XCTAssertNil(ResolvConf.stripAll(previous))
+        // Blocks and marks of any interface go (one a crash left behind too); text that only looks like
+        // them stays.
+        let leftovers = ResolvConf.begin("tun7") + [0x0A] + Array("nameserver 198.51.100.7\n".utf8) + ResolvConf.end("tun7")
+            + [0x0A] + ResolvConf.mark("ppp0") + Array("nameserver 192.0.2.9\n".utf8)
+        let lookalikes = Array("# PassTunnel tun8 begin: DNS of the VPN, removed when it disconnects\nnameserver 192.0.2.8\n".utf8)
+            + Array("#PassTunnel tun 0# x\n#PassTunnel -x# y\n#PassTunnel tun0#z\n".utf8)
+        XCTAssertEqual(ResolvConf.stripAll(leftovers + lookalikes),
+                       Array("nameserver 192.0.2.9\n".utf8) + lookalikes, "a block without its end is not one")
+        XCTAssertNil(ResolvConf.stripAll(lookalikes))
         // Bytes that are not UTF-8 survive.
         let binary: [UInt8] = [0x23, 0xFF, 0xFE, 0x0A] + Array("nameserver 192.0.2.1".utf8)
-        XCTAssertEqual(ResolvConf.strip(ResolvConf.apply(Self.full, interface: "tun0", to: binary), interface: "tun0"), binary)
+        XCTAssertEqual(ResolvConf.stripAll(ResolvConf.apply(Self.full, interface: "tun0", to: binary)), binary)
     }
 
-    func testRecordParsing() {
-        let digest = String(repeating: "a", count: 64)
-        XCTAssertEqual(DNSRecord(text: "passtunnel-dns 1\nfile\ntun0\n7\n\(digest)\nprevious\n"),
-                       DNSRecord(backend: .file, interface: "tun0", index: 7, written: digest, hadPrevious: true))
-        XCTAssertEqual(DNSRecord(text: "passtunnel-dns 1\nresolved\ntun0\n7\n-\nnone\n"),
+    func testRecordParsing() throws {
+        let full = try DNSSettings(servers: ["192.0.2.53", "2001:db8::53"], searchDomains: ["corp.example.com"], fullTunnel: true)
+        let file = DNSRecord(backend: .file, interface: "tun0", index: 7, serial: 3, settings: full)
+        XCTAssertEqual(file.text, "passtunnel-dns 2\nfile\ntun0\n7\n3\n192.0.2.53 2001:db8::53\ncorp.example.com\n")
+        XCTAssertEqual(DNSRecord(text: file.text), file)
+        XCTAssertEqual(DNSRecord(text: "passtunnel-dns 2\nfile\ntun0\n7\n1\n192.0.2.53\n-\n"),
+                       DNSRecord(backend: .file, interface: "tun0", index: 7, serial: 1,
+                                 settings: try DNSSettings(servers: ["192.0.2.53"], fullTunnel: true)))
+        XCTAssertEqual(DNSRecord(text: "passtunnel-dns 2\nresolved\ntun0\n7\n-\n-\n-\n"),
                        DNSRecord(backend: .resolved, interface: "tun0", index: 7))
-        for bad in ["", "passtunnel-dns 2\nresolved\ntun0\n7\n-\nnone\n", "passtunnel-dns 1\nother\ntun0\n7\n-\nnone\n",
-                    "passtunnel-dns 1\nresolved\n-tun0\n7\n-\nnone\n", "passtunnel-dns 1\nresolved\ntun0\n07\n-\nnone\n",
-                    "passtunnel-dns 1\nresolved\ntun0\n7\n\(digest)\nnone\n", "passtunnel-dns 1\nfile\ntun0\n7\n-\nnone\n",
-                    "passtunnel-dns 1\nfile\ntun0\n7\n\(digest.uppercased())\nnone\n", "passtunnel-dns 1\nresolved\ntun0\n7\n-\nnone\nx\n",
-                    "passtunnel-dns 1\nresolved\ntun0\n7\n-\nnone"] {
+        for bad in ["", "passtunnel-dns 1\nresolved\ntun0\n7\n-\nnone\n", "passtunnel-dns 2\nother\ntun0\n7\n-\n-\n-\n",
+                    "passtunnel-dns 2\nresolved\n-tun0\n7\n-\n-\n-\n", "passtunnel-dns 2\nresolved\ntun0\n07\n-\n-\n-\n",
+                    "passtunnel-dns 2\nresolved\ntun0\n0\n-\n-\n-\n", "passtunnel-dns 2\nresolved\n7\n7\n-\n-\n-\n",
+                    "passtunnel-dns 2\nresolved\ntun0\n7\n1\n192.0.2.53\n-\n", "passtunnel-dns 2\nfile\ntun0\n7\n-\n-\n-\n",
+                    "passtunnel-dns 2\nfile\ntun0\n7\n0\n192.0.2.53\n-\n", "passtunnel-dns 2\nfile\ntun0\n7\n01\n192.0.2.53\n-\n",
+                    "passtunnel-dns 2\nfile\ntun0\n7\n1\n2001:DB8::53\n-\n", "passtunnel-dns 2\nfile\ntun0\n7\n1\n192.0.2.53  192.0.2.54\n-\n",
+                    "passtunnel-dns 2\nfile\ntun0\n7\n1\n192.0.2.53\nCorp.example.com\n",
+                    "passtunnel-dns 2\nfile\ntun0\n7\n1\n192.0.2.53\n~corp.example.com\n",
+                    "passtunnel-dns 2\nfile\ntun0\n7\n1\n192.0.2.53\n-\nx\n", "passtunnel-dns 2\nresolved\ntun0\n7\n-\n-\n-"] {
             XCTAssertNil(DNSRecord(text: bad), bad)
+        }
+    }
+
+    func testBaselineParsing() {
+        let digest = String(repeating: "a", count: 64)
+        let content: [UInt8] = Array("nameserver 192.0.2.1\n".utf8) + [0xFF, 0x0A]
+        let saved = ResolvConfBaseline(written: digest, content: content)
+        XCTAssertEqual(ResolvConfBaseline(bytes: saved.bytes), saved)
+        let none = ResolvConfBaseline(written: digest, content: nil)
+        XCTAssertEqual(ResolvConfBaseline(bytes: none.bytes), none)
+        XCTAssertEqual(ResolvConfBaseline(bytes: Array("passtunnel-resolv-base 1\n\(digest)\nfile\n".utf8)),
+                       ResolvConfBaseline(written: digest, content: []), "an empty file")
+        for bad in ["", "passtunnel-resolv-base 2\n\(digest)\nfile\n", "passtunnel-resolv-base 1\n\(digest.uppercased())\nfile\n",
+                    "passtunnel-resolv-base 1\nabc\nfile\n", "passtunnel-resolv-base 1\n\(digest)\nnone\nx",
+                    "passtunnel-resolv-base 1\n\(digest)\nother\n", "passtunnel-resolv-base 1\n\(digest)\nfile"] {
+            XCTAssertNil(ResolvConfBaseline(bytes: Array(bad.utf8)), bad)
         }
     }
 
@@ -467,28 +604,62 @@ final class DNSResolvedBackendTests: DNSTestCase {
         try useResolved()
         let session = try session()
         XCTAssertEqual(try applier.apply(Self.full, interface: "tun0", in: session), .resolved)
+        // The link by its index (tun0 is 7), never by its name.
         XCTAssertEqual(callLog, """
-        resolvectl dns tun0 192.0.2.53 2001:db8::53
-        resolvectl domain tun0 corp.example.com ~.
-        resolvectl default-route tun0 true
+        resolvectl dns 7 192.0.2.53 2001:db8::53
+        resolvectl domain 7 corp.example.com ~.
+        resolvectl default-route 7 true
 
         """)
-        XCTAssertEqual(recorded(session), "passtunnel-dns 1\nresolved\ntun0\n7\n-\nnone\n")
+        XCTAssertEqual(recorded(session), "passtunnel-dns 2\nresolved\ntun0\n7\n-\n-\n-\n")
         XCTAssertEqual(try String(contentsOfFile: root + "/run/systemd/resolve/stub-resolv.conf", encoding: .utf8),
                        "nameserver 127.0.0.53\n", "the link is never written through")
         XCTAssertEqual(applier.revert(in: session), "restored the DNS of tun0 (systemd-resolved)")
-        XCTAssertTrue(callLog.hasSuffix("resolvectl revert tun0\n"), callLog)
+        XCTAssertTrue(callLog.hasSuffix("resolvectl revert 7\n"), callLog)
     }
 
     func testSplitTunnel() throws {
         try useResolved()
         try applier.apply(Self.split, interface: "tun0", in: try session())
         XCTAssertEqual(callLog, """
-        resolvectl dns tun0 192.0.2.53
-        resolvectl domain tun0 corp.example.com ~example.net
-        resolvectl default-route tun0 false
+        resolvectl dns 7 192.0.2.53
+        resolvectl domain 7 corp.example.com ~example.net
+        resolvectl default-route 7 false
 
         """)
+    }
+
+    /// Right before each call the recorded index must still name the interface, and no interface may
+    /// be named like the index (newer resolvectl looks a number up as a name first).
+    func testLinkIsCheckedBeforeEveryCall() throws {
+        try useResolved()
+        let session = try session()
+        let tool = try XCTUnwrap(try applier.trustedTool(system.resolvectl))
+        let record = DNSRecord(backend: .resolved, interface: "tun0", index: 7)
+        indexes.set(["tun0": 9])          // replaced after apply looked it up
+        XCTAssertThrowsError(try applier.commit(record, settings: Self.full, tool: tool, root: -1)) {
+            XCTAssertEqual($0 as? DNSFailure, .interfaceChanged("tun0", 7))
+        }
+        indexes.set(["tun0": 7, "7": 3])  // someone named an interface "7"
+        XCTAssertThrowsError(try applier.apply(Self.full, interface: "tun0", in: session)) {
+            XCTAssertEqual($0 as? DNSFailure, .interfaceChanged("tun0", 7))
+            XCTAssertEqual(String(describing: $0), "tun0 is no longer interface 7, or another interface is named “7”")
+        }
+        XCTAssertEqual(callLog, "", "resolvectl never ran")
+        XCTAssertNil(recorded(session))
+        // Set up, then the same: the revert does not run either, and says why.
+        indexes.set(["tun0": 7])
+        try applier.apply(Self.full, interface: "tun0", in: session)
+        indexes.set(["tun0": 7, "7": 3])
+        let message = try XCTUnwrap(applier.revert(in: session))
+        XCTAssertTrue(message.hasPrefix("could not fully restore the DNS of tun0 (systemd-resolved): tun0 is no longer"), message)
+        XCTAssertFalse(callLog.contains("revert"), callLog)
+        // Another interface named with digits, but not this index, is no problem.
+        indexes.set(["tun0": 7])
+        try applier.apply(Self.full, interface: "tun0", in: session)
+        indexes.set(["tun0": 7, "8": 8])
+        XCTAssertEqual(applier.revert(in: session), "restored the DNS of tun0 (systemd-resolved)")
+        XCTAssertTrue(callLog.hasSuffix("resolvectl revert 7\n"), callLog)
     }
 
     /// Its link gone, systemd-resolved has forgotten it; a new link of that name is someone else's.
@@ -513,7 +684,7 @@ final class DNSResolvedBackendTests: DNSTestCase {
         XCTAssertThrowsError(try applier.apply(Self.full, interface: "tun0", in: session)) {
             XCTAssertEqual(String(describing: $0), "resolvectl domain failed (status 1): Failed to set DNS: Link tun0 not managed")
         }
-        XCTAssertTrue(callLog.hasSuffix("resolvectl revert tun0\n"), callLog)
+        XCTAssertTrue(callLog.hasSuffix("resolvectl revert 7\n"), callLog)
         XCTAssertNil(recorded(session))
     }
 
@@ -558,7 +729,7 @@ final class DNSResolvconfBackendTests: DNSTestCase {
                                        searchDomains: ["corp.example.com", "example.net"], fullTunnel: true)
         XCTAssertEqual(try applier.apply(settings, interface: "tun0", in: session), .resolvconf)
         XCTAssertEqual(callLog, """
-        resolvconf -a tun0.passtunnel
+        resolvconf -a tun0.passtunnel-7
         nameserver 192.0.2.1
         nameserver 192.0.2.2
         nameserver 192.0.2.3
@@ -567,7 +738,23 @@ final class DNSResolvconfBackendTests: DNSTestCase {
         """)
         XCTAssertEqual(resolvConfText, Self.original, "resolvconf's to write")
         applier.revert(in: session)
-        XCTAssertTrue(callLog.hasSuffix("resolvconf -d tun0.passtunnel\n"), callLog)
+        XCTAssertTrue(callLog.hasSuffix("resolvconf -d tun0.passtunnel-7\n"), callLog)
+    }
+
+    /// Records are per link: a session that ends after a later one got its interface name (a crashed
+    /// tool's reap racing a new tunnel) removes its own record, never the later one's.
+    func testRecordsArePerLink() throws {
+        try makeFakeTool(resolvconf, name: "resolvconf")
+        let old = try session("old"), new = try session("new")
+        try applier.apply(Self.full, interface: "tun0", in: old)
+        indexes.set(["tun0": 12])
+        try applier.apply(Self.full, interface: "tun0", in: new)
+        applier.revert(in: old)
+        XCTAssertTrue(callLog.contains("resolvconf -a tun0.passtunnel-7\n"), callLog)
+        XCTAssertTrue(callLog.contains("resolvconf -a tun0.passtunnel-12\n"), callLog)
+        XCTAssertTrue(callLog.hasSuffix("resolvconf -d tun0.passtunnel-7\n"), callLog)
+        applier.revert(in: new)
+        XCTAssertTrue(callLog.hasSuffix("resolvconf -d tun0.passtunnel-12\n"), callLog)
     }
 
     /// Debian's resolvconf links /etc/resolv.conf into its run directory.
@@ -827,6 +1014,28 @@ final class DaemonDNSTests: DNSTestCase {
         _ = try makeDNSDaemon()
         XCTAssertEqual(resolvConfText, Self.original)
         XCTAssertFalse(exists(runRoot + "/\(me)"))
+    }
+
+    /// Overlapping sessions of an earlier daemon on the file backend: every one reverted, in whatever
+    /// order the run root lists them, and the baseline is back.
+    func testStartingDaemonRevertsOverlappingSessions() throws {
+        indexes.set(["tun0": 7, "tun1": 8])
+        try applier.apply(Self.full, interface: "tun0", in: try session("one"))
+        try applier.apply(DNSFileBackendTests.tun1, interface: "tun1", in: try session("two"))
+        _ = try makeDNSDaemon()
+        XCTAssertEqual(resolvConfText, Self.original)
+        XCTAssertFalse(exists(baselinePath))
+    }
+
+    /// An earlier daemon died between the steps of a revert (the record gone, the file not restored):
+    /// the baseline no session claims is restored.
+    func testStartingDaemonRestoresAnUnclaimedBaseline() throws {
+        let session = try session()
+        try applier.apply(Self.full, interface: "tun0", in: session)
+        DNSRecord.remove(in: session)
+        _ = try makeDNSDaemon()
+        XCTAssertEqual(resolvConfText, Self.original)
+        XCTAssertFalse(exists(baselinePath))
     }
 
     func testArguments() {

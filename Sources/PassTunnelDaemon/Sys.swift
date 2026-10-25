@@ -122,6 +122,31 @@ enum Sys {
         dlsym(nil, name).map { unsafeBitCast($0, to: Function.self) }
     }
 
+    /// glibc's `pidfd_open` and `pidfd_send_signal` (2.36), looked up by name for the same reason: nil
+    /// where the C library lacks them (Ubuntu 22.04, RHEL 9); where the kernel does (before 5.3), their
+    /// calls fail with `ENOSYS`.
+    private typealias PidfdOpen = @convention(c) (pid_t, UInt32) -> Int32
+    private typealias PidfdSendSignal = @convention(c) (Int32, Int32, UnsafeMutableRawPointer?, UInt32) -> Int32
+    private static let pidfdOpenFunction: PidfdOpen? = libcFunction("pidfd_open")
+    private static let pidfdSendSignalFunction: PidfdSendSignal? = libcFunction("pidfd_send_signal")
+    /// `PIDFD_SIGNAL_PROCESS_GROUP` (Linux 6.9; earlier kernels refuse every flag with `EINVAL`).
+    static let pidfdSignalProcessGroup: UInt32 = 1 << 2
+
+    /// A pidfd of `pid` (close-on-exec, as every pidfd is), or nil: the process is gone, or the kernel
+    /// or the C library has no pidfds.
+    static func pidfdOpen(_ pid: pid_t) -> Int32? {
+        guard let call = pidfdOpenFunction else { return nil }
+        let fd = call(pid, 0)
+        return fd >= 0 ? fd : nil
+    }
+
+    /// Sends `sig` through `pidfd`, to the process's whole group with `processGroup`; 0, or the error
+    /// (`ESRCH` once the process has exited).
+    static func pidfdSignal(_ pidfd: Int32, _ sig: Int32, processGroup: Bool) -> Int32 {
+        guard let call = pidfdSendSignalFunction else { return ENOSYS }
+        return call(pidfd, sig, nil, processGroup ? pidfdSignalProcessGroup : 0) == 0 ? 0 : errno
+    }
+
     /// `posix_spawn` in a new process group: stdin from `inputFD` (else /dev/null), stdout and stderr to
     /// `outputFD`, every other descriptor closed, all signals at their default action, an empty signal mask.
     static func spawn(executable: String, arguments: [String], environment: [String],

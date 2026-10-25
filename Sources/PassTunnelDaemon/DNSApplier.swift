@@ -58,11 +58,15 @@ public struct DNSSystem {
 /// Sets and reverts the DNS of one session's tunnel, recording what it changes in the session's
 /// root-owned directory (`DNSRecord`) before it changes it, so that whoever ends the session (the hook
 /// when OpenVPN takes the tunnel down, the daemon when it reaps the tool, a starting daemon after a
-/// crash) can revert exactly that. One change at a time on the machine: the run root is locked.
+/// crash) can revert exactly that. One change at a time on the machine: the run root is locked, by the
+/// hook (a process of its own) and the daemon alike. On the file backend the session records are also
+/// the registry of the tunnels whose DNS /etc/resolv.conf carries: every change makes the file again
+/// from them and the baseline kept in the run root (`ResolvConfBaseline`), so sessions that overlap
+/// never restore each other's snapshots.
 /// Used by OpenVPN's DNS hook (`DNSHook`) and, for FortiGate's ppp interface, by the daemon:
 /// `supervisor.dns.apply(DNSSettings(servers:searchDomains:fullTunnel:), interface: "ppp0",
 /// in: job.sessionDir)` once the tunnel is up; `Supervisor` reverts it when it reaps the tool, and a
-/// starting daemon when one did not. `apply` and `revert(in:)` are the whole interface.
+/// starting daemon when one did not (`revert(in:)`, then `restoreUnclaimed()`).
 public struct DNSApplier {
     public var system: DNSSystem
     /// The run root, locked (`flock`) while DNS changes.
@@ -73,7 +77,10 @@ public struct DNSApplier {
     static let maxResolvConfBytes = 64 << 10
     /// glibc reads at most 3 nameservers; resolvconf passes them on.
     static let maxNameservers = 3
-    static let resolvconfSuffix = ".passtunnel"
+
+    /// resolvconf's record for a tunnel: one per link (name and index), so that a session never removes
+    /// the record of a later link that got the same name.
+    static func resolvconfRecord(_ record: DNSRecord) -> String { "\(record.interface).passtunnel-\(record.index)" }
 
     public init(system: DNSSystem = DNSSystem(), runRoot: String = PT.helperRunRoot) {
         self.system = system
@@ -83,80 +90,68 @@ public struct DNSApplier {
     // MARK: - Applying
 
     /// Applies `settings` for `interface`, which must exist. What an earlier call recorded for the
-    /// session is reverted first. On failure everything already changed is reverted and nothing stays
+    /// session is reverted first (on the file backend it is replaced, without the file's own servers
+    /// coming back in between). On failure everything already changed is reverted and nothing stays
     /// recorded. Returns the backend used.
     @discardableResult
     public func apply(_ settings: DNSSettings, interface: String, in session: SessionDirectory) throws -> DNSBackend {
         let name = try DNSSettings.interface(interface)
         guard let index = system.interfaceIndex(name) else { throw DNSFailure.noInterface(name) }
-        return try withLock {
+        return try withLock { root in
+            let (backend, tool) = try chooseBackend()
+            var record = DNSRecord(backend: backend, interface: name, index: index)
+            if backend == .file {
+                let serial = (fileSessions(excluding: session.path).map(\.serial).max() ?? 0) + 1
+                record = DNSRecord(backend: .file, interface: name, index: index, serial: serial,
+                                   settings: try DNSSettings(servers: settings.servers, searchDomains: settings.searchDomains,
+                                                             fullTunnel: true))
+            }
             if let earlier = try? DNSRecord.load(in: session) {
-                _ = undo(earlier, in: session)
+                if earlier.backend != .file || backend != .file { _ = undo(earlier, in: session, root: root) }
                 DNSRecord.remove(in: session)
             }
-            let plan = try prepare(settings, interface: name, index: index)
             do {
-                try plan.record.write(in: session, previous: plan.previous)
+                try record.write(in: session)
+                try commit(record, settings: settings, tool: tool, root: root)
             } catch {
+                _ = undo(record, in: session, root: root)
                 DNSRecord.remove(in: session)
                 throw error
             }
-            do {
-                try commit(plan)
-            } catch {
-                _ = undo(plan.record, in: session)
-                DNSRecord.remove(in: session)
-                throw error
-            }
-            return plan.record.backend
+            return backend
         }
     }
 
-    /// What `apply` will do, worked out before anything changes.
-    struct Plan {
-        let record: DNSRecord
-        let settings: DNSSettings
-        let tool: String?
-        /// File backend: the resolv.conf it replaces (nil: there was none) and what replaces it.
-        let previous: Data?
-        let content: Data?
-        let mode: mode_t
-        let group: gid_t
-    }
-
-    func prepare(_ settings: DNSSettings, interface: String, index: UInt32) throws -> Plan {
-        let (backend, tool) = try chooseBackend()
-        guard backend == .file else {
-            return Plan(record: DNSRecord(backend: backend, interface: interface, index: index),
-                        settings: settings, tool: tool, previous: nil, content: nil, mode: 0, group: 0)
-        }
-        let current = try readResolvConf()
-        var previous = current.map { [UInt8]($0.data) }
-        // A block of this interface whose record went missing (a crash) is not carried on.
-        if let p = previous, let stripped = ResolvConf.strip(p, interface: interface) { previous = stripped }
-        let content = Data(ResolvConf.apply(settings, interface: interface, to: previous ?? []))
-        let record = DNSRecord(backend: .file, interface: interface, index: index,
-                               written: HelperCore.sha256Hex(content), hadPrevious: current != nil)
-        return Plan(record: record, settings: settings, tool: nil, previous: previous.map { Data($0) }, content: content,
-                    mode: current.map { $0.mode } ?? 0o644, group: current.map { $0.group } ?? 0)
-    }
-
-    func commit(_ plan: Plan) throws {
-        let settings = plan.settings, interface = plan.record.interface
-        switch plan.record.backend {
+    /// Changes the DNS as `record` (written already) says. systemd-resolved is given the link's index,
+    /// never its name, each time after `checkLink`.
+    func commit(_ record: DNSRecord, settings: DNSSettings, tool: String?, root: Int32) throws {
+        switch record.backend {
         case .resolved:
-            let tool = plan.tool!
+            let tool = tool!, link = String(record.index)
             var domains = settings.searchDomains + settings.routingDomains.map { "~" + $0 }
             if settings.fullTunnel { domains.append("~.") }
-            try run(tool, "resolvectl", ["dns", interface] + settings.servers)
-            try run(tool, "resolvectl", ["domain", interface] + domains)
-            try run(tool, "resolvectl", ["default-route", interface, settings.fullTunnel ? "true" : "false"])
+            for arguments in [["dns", link] + settings.servers, ["domain", link] + domains,
+                              ["default-route", link, settings.fullTunnel ? "true" : "false"]] {
+                try checkLink(record)
+                try run(tool, "resolvectl", arguments)
+            }
         case .resolvconf:
             var text = settings.servers.prefix(Self.maxNameservers).map { "nameserver \($0)\n" }.joined()
             if !settings.searchDomains.isEmpty { text += "search " + settings.searchDomains.joined(separator: " ") + "\n" }
-            try run(plan.tool!, "resolvconf", ["-a", interface + Self.resolvconfSuffix], input: Data(text.utf8))
+            try run(tool!, "resolvconf", ["-a", Self.resolvconfRecord(record)], input: Data(text.utf8))
         case .file:
-            try writeResolvConf(plan.content!, mode: plan.mode, group: plan.group)
+            try updateResolvConf(root: root, sessions: fileSessions())
+        }
+    }
+
+    /// The recorded index still names the recorded interface, and no interface is named like the index:
+    /// `resolvectl` reads a number as an interface index, systemd 256 and later only once no interface
+    /// has it as its name or alternative name (both of which `if_nametoindex` finds). Interface indexes
+    /// are not reused soon (the kernel counts up), so a link that passes is the session's own.
+    func checkLink(_ record: DNSRecord) throws {
+        guard system.interfaceIndex(record.interface) == record.index,
+              system.interfaceIndex(String(record.index)).map({ $0 == record.index }) ?? true else {
+            throw DNSFailure.interfaceChanged(record.interface, record.index)
         }
     }
 
@@ -176,7 +171,8 @@ public struct DNSApplier {
     @discardableResult
     public func revert(in session: SessionDirectory) -> String? {
         let locked = try? lock()
-        defer { locked.map { _ = close($0) } }
+        let root = locked ?? open(runRoot, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        defer { if root >= 0 { close(root) } }
         let record: DNSRecord
         do {
             guard let loaded = try DNSRecord.load(in: session) else { return nil }
@@ -185,7 +181,7 @@ public struct DNSApplier {
             DNSRecord.remove(in: session)
             return "removed an unreadable DNS record: \(error)"
         }
-        let problems = undo(record, in: session)
+        let problems = undo(record, in: session, root: root)
         DNSRecord.remove(in: session)
         let what = "the DNS of \(record.interface) (\(record.backend.name))"
         let busy = locked == nil ? " (without the lock: \(DNSFailure.busy))" : ""
@@ -195,8 +191,8 @@ public struct DNSApplier {
         return "restored \(what)\(busy)"
     }
 
-    /// Undoes `record`; the problems met, if any.
-    func undo(_ record: DNSRecord, in session: SessionDirectory) -> [String] {
+    /// Undoes `record` of `session`; the problems met, if any.
+    func undo(_ record: DNSRecord, in session: SessionDirectory, root: Int32) -> [String] {
         do {
             switch record.backend {
             case .resolved:
@@ -206,14 +202,19 @@ public struct DNSApplier {
                 guard let tool = try trustedTool(system.resolvectl) else {
                     throw DNSFailure.missingTool("resolvectl", "the link was set up through systemd-resolved")
                 }
-                try run(tool, "resolvectl", ["revert", record.interface])
+                try checkLink(record)
+                try run(tool, "resolvectl", ["revert", String(record.index)])
             case .resolvconf:
                 guard let tool = try trustedResolvconf() else {
                     throw DNSFailure.missingTool("resolvconf", "the record was made with resolvconf")
                 }
-                try run(tool, "resolvconf", ["-d", record.interface + Self.resolvconfSuffix])
+                try run(tool, "resolvconf", ["-d", Self.resolvconfRecord(record)])
             case .file:
-                try restoreResolvConf(record, in: session)
+                do {
+                    try updateResolvConf(root: root, sessions: fileSessions(excluding: session.path))
+                } catch DNSFailure.unexpectedLink {
+                    // Replaced by a link since: someone else's now, left alone.
+                }
             }
             return []
         } catch {
@@ -221,33 +222,82 @@ public struct DNSApplier {
         }
     }
 
-    /// The resolv.conf written is replaced by the one it replaced; one changed since keeps its own
-    /// changes and loses only this interface's block and the marks on the lines it disabled; one
-    /// replaced by something else entirely (or by a link) is left alone.
-    private func restoreResolvConf(_ record: DNSRecord, in session: SessionDirectory) throws {
-        defer { _ = unlink(temporaryPath) }
-        let current: ResolvConfFile?
+    /// The file backend's baseline when no session claims it any more (a revert that failed, or a crash
+    /// between its steps): /etc/resolv.conf loses PassTunnel's lines, the baseline goes. Run by a
+    /// starting daemon once it reverted what the sessions of an earlier one recorded. Nil when there was
+    /// nothing to do, else a line for the log.
+    public func restoreUnclaimed() -> String? {
+        guard let root = try? lock() else { return nil }
+        defer { close(root) }
+        var st = stat()
+        guard fstatat(root, ResolvConfBaseline.fileName, &st, AT_SYMLINK_NOFOLLOW) == 0, fileSessions().isEmpty else { return nil }
         do {
-            current = try readResolvConf()
+            try updateResolvConf(root: root, sessions: [])
+            return "restored \(system.resolvConf), which no session uses any more"
         } catch DNSFailure.unexpectedLink {
-            return
+            ResolvConfBaseline.remove(in: root)
+            return nil
+        } catch {
+            return "could not restore \(system.resolvConf), which no session uses any more: \(error)"
         }
-        guard let current else { return }
-        if HelperCore.sha256Hex(current.data) == record.written {
-            if !record.hadPrevious {
-                guard unlink(system.resolvConf) == 0 || errno == ENOENT else {
+    }
+
+    // MARK: - The file backend
+
+    /// The registry of the file backend: the records of every session in the run root (but the one at
+    /// `excluding`) whose DNS is in /etc/resolv.conf, newest first. The hook and the daemon read it under
+    /// the run root's lock; a session leaves it when its record goes (`revert(in:)`, by its hook, the
+    /// daemon's reap or a starting daemon).
+    func fileSessions(excluding: String? = nil) -> [DNSRecord] {
+        let core = HelperCore(runRoot: runRoot)
+        var found: [DNSRecord] = []
+        for entry in PreviousInstance.entries(runRoot) {
+            guard let uid = uid_t(entry), String(uid) == entry, PreviousInstance.isRealDirectory(runRoot + "/" + entry) else {
+                continue
+            }
+            for id in PreviousInstance.entries(runRoot + "/" + entry) where HelperCore.isValidProfileID(id) {
+                guard let session = try? core.openRunDir(profileID: id, uid: uid), session.path != excluding,
+                      let record = try? DNSRecord.load(in: session), record.backend == .file else { continue }
+                found.append(record)
+            }
+        }
+        return found.sorted { ($0.serial, $0.interface) > ($1.serial, $1.interface) }
+    }
+
+    /// /etc/resolv.conf made again from the baseline and the newest of `sessions`: its block at the
+    /// top, the baseline's resolver lines disabled (a resolv.conf cannot route names, so the newest
+    /// tunnel's DNS is in effect, and an older one's comes back when it ends). With no session the
+    /// baseline comes back. The baseline is the recorded one while the file is still what PassTunnel
+    /// wrote; changed by someone else since, it is the file without PassTunnel's lines (their changes
+    /// stay); a file without any of them that no session needs any more is left alone.
+    func updateResolvConf(root: Int32, sessions: [DNSRecord]) throws {
+        let current = try readResolvConf()
+        let currentBytes = current.map { [UInt8]($0.data) }
+        let saved = ResolvConfBaseline.load(in: root, path: runRoot)
+        let unchanged = current.map { saved?.written == HelperCore.sha256Hex($0.data) } ?? false
+        let baseline: [UInt8]?
+        if unchanged, let saved {
+            baseline = saved.content
+        } else if let currentBytes {
+            baseline = ResolvConf.stripAll(currentBytes) ?? currentBytes
+        } else {
+            baseline = nil
+        }
+        guard let newest = sessions.first(where: { $0.settings != nil }), let settings = newest.settings else {
+            if unchanged || currentBytes.map({ ResolvConf.stripAll($0) != nil }) == true, let current {
+                if let baseline {
+                    try writeResolvConf(Data(baseline), mode: current.mode, group: current.group)
+                } else if unlink(system.resolvConf) != 0, errno != ENOENT {
                     throw DNSFailure.system("remove \(system.resolvConf)", errno)
                 }
-                return
             }
-            if let previous = DNSRecord.loadPrevious(in: session) {
-                try writeResolvConf(previous, mode: current.mode, group: current.group)
-                return
-            }
+            ResolvConfBaseline.remove(in: root)
+            return
         }
-        if let stripped = ResolvConf.strip([UInt8](current.data), interface: record.interface) {
-            try writeResolvConf(Data(stripped), mode: current.mode, group: current.group)
-        }
+        let content = ResolvConf.apply(settings, interface: newest.interface, to: baseline ?? [])
+        if unchanged, currentBytes == content { return }
+        try ResolvConfBaseline(written: HelperCore.sha256Hex(Data(content)), content: baseline).write(in: root, path: runRoot)
+        try writeResolvConf(Data(content), mode: current?.mode ?? 0o644, group: current?.group ?? 0)
     }
 
     // MARK: - Choosing
@@ -432,7 +482,7 @@ public struct DNSApplier {
     }
 
     /// The whole content written at once from the start, the file cut to its length, synced. The
-    /// content it replaces is in the session directory already (`DNSRecord`).
+    /// baseline it is made from is in the run root already (`ResolvConfBaseline`).
     private func rewriteInPlace(_ data: Data) throws {
         let path = system.resolvConf
         let fd = open(path, O_WRONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
@@ -481,121 +531,188 @@ public struct DNSApplier {
         return fd
     }
 
-    private func withLock<T>(_ body: () throws -> T) throws -> T {
+    /// `body` with the run root locked, given its descriptor.
+    private func withLock<T>(_ body: (Int32) throws -> T) throws -> T {
         let fd = try lock()
         defer { close(fd) }
-        return try body()
+        return try body(fd)
     }
 }
 
 /// What `DNSApplier` changed for a session, in its directory (`dns`, root's, 0600), written before the
-/// change: the backend, the interface (name and index) and, for the file backend, a digest of the
-/// resolv.conf written and whether there was one before, whose content is kept in `dns.resolv.conf`.
+/// change: the backend and the interface (name and index); for the file backend also when it was
+/// applied (`serial`, higher is newer) and the servers and search domains of its block, from which the
+/// file is made again whenever a session comes or goes.
 public struct DNSRecord: Equatable {
     public static let fileName = "dns"
-    static let previousFileName = "dns.resolv.conf"
-    static let header = "passtunnel-dns 1"
+    static let header = "passtunnel-dns 2"
+    static let maxBytes = 8192
 
     public let backend: DNSBackend
     public let interface: String
     public let index: UInt32
-    public let written: String?
-    public let hadPrevious: Bool
+    /// File backend only (0 and nil otherwise).
+    public let serial: UInt64
+    public let settings: DNSSettings?
 
-    init(backend: DNSBackend, interface: String, index: UInt32, written: String? = nil, hadPrevious: Bool = false) {
+    init(backend: DNSBackend, interface: String, index: UInt32, serial: UInt64 = 0, settings: DNSSettings? = nil) {
         self.backend = backend
         self.interface = interface
         self.index = index
-        self.written = written
-        self.hadPrevious = hadPrevious
+        self.serial = serial
+        self.settings = settings
     }
 
     var text: String {
-        "\(Self.header)\n\(backend.rawValue)\n\(interface)\n\(index)\n\(written ?? "-")\n\(hadPrevious ? "previous" : "none")\n"
+        func list(_ values: [String]) -> String { values.isEmpty ? "-" : values.joined(separator: " ") }
+        let file = settings.map { "\(serial)\n\(list($0.servers))\n\(list($0.searchDomains))" } ?? "-\n-\n-"
+        return "\(Self.header)\n\(backend.rawValue)\n\(interface)\n\(index)\n\(file)\n"
     }
 
-    /// Parses the record strictly (it is root's own, but it decides what a root process changes).
+    /// Parses the record strictly (it is root's own, but it decides what a root process changes): every
+    /// value is checked again as `DNSSettings` checks the server's.
     init?(text: String) {
         let lines = text.components(separatedBy: "\n")
-        guard lines.count == 7, lines[6].isEmpty, lines[0] == Self.header, let backend = DNSBackend(rawValue: lines[1]),
+        guard lines.count == 8, lines[7].isEmpty, lines[0] == Self.header, let backend = DNSBackend(rawValue: lines[1]),
               (try? DNSSettings.interface(lines[2])) != nil, let index = UInt32(lines[3]), String(index) == lines[3],
-              ["previous", "none"].contains(lines[5]) else { return nil }
-        let written: String? = lines[4] == "-" ? nil : lines[4]
-        if let written {
-            guard backend == .file, written.utf8.count == 64,
-                  written.utf8.allSatisfy({ ($0 >= 0x30 && $0 <= 0x39) || ($0 >= 0x61 && $0 <= 0x66) }) else { return nil }
-        } else if backend == .file {
-            return nil
+              index > 0 else { return nil }
+        guard backend == .file else {
+            guard lines[4...6].allSatisfy({ $0 == "-" }) else { return nil }
+            self.init(backend: backend, interface: lines[2], index: index)
+            return
         }
-        self.init(backend: backend, interface: lines[2], index: index, written: written, hadPrevious: lines[5] == "previous")
+        guard let serial = UInt64(lines[4]), String(serial) == lines[4], serial > 0,
+              let servers = Self.list(lines[5], DNSSettings.address), let search = Self.list(lines[6], DNSSettings.domain),
+              let settings = try? DNSSettings(servers: servers, searchDomains: search, fullTunnel: true) else { return nil }
+        self.init(backend: .file, interface: lines[2], index: index, serial: serial, settings: settings)
+    }
+
+    /// "-" for none, else values separated by single spaces, each in the form `check` gives it.
+    private static func list(_ line: String, _ check: (String) throws -> String) -> [String]? {
+        if line == "-" { return [] }
+        let values = line.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+        guard values.allSatisfy({ (try? check($0)) == $0 }) else { return nil }
+        return values
     }
 
     /// The record of `session`: nil when there is none, an error when it is not one.
     static func load(in session: SessionDirectory) throws -> DNSRecord? {
-        guard let data = try readFile(fileName, in: session, maxBytes: 4096) else { return nil }
+        guard let data = try RootFile.load(fileName, at: session.fd, path: session.path, maxBytes: maxBytes) else { return nil }
         guard let text = String(data: data, encoding: .utf8), let record = DNSRecord(text: text) else {
             throw DNSFailure.invalid("DNS record", session.path + "/" + fileName)
         }
         return record
     }
 
-    static func loadPrevious(in session: SessionDirectory) -> Data? {
-        (try? readFile(previousFileName, in: session, maxBytes: DNSApplier.maxResolvConfBytes)) ?? nil
-    }
-
-    /// Writes the record, and first what resolv.conf held (`previous`), each atomically.
-    func write(in session: SessionDirectory, previous: Data?) throws {
-        if let previous { try Self.writeFile(Self.previousFileName, previous, in: session) }
-        try HelperCore.checkLines(text, count: 6, file: Self.fileName)
-        try Self.writeFile(Self.fileName, Data(text.utf8), in: session)
+    /// Writes the record atomically.
+    func write(in session: SessionDirectory) throws {
+        try HelperCore.checkLines(text, count: 7, file: Self.fileName)
+        try RootFile.store(Self.fileName, Data(text.utf8), at: session.fd, path: session.path)
     }
 
     static func remove(in session: SessionDirectory) {
         _ = unlinkat(session.fd, fileName, 0)
-        _ = unlinkat(session.fd, previousFileName, 0)
+    }
+}
+
+/// The file backend's baseline, in the run root (`resolv.conf.base`, root's, 0600) while a session's
+/// DNS is in /etc/resolv.conf: the file as it is without PassTunnel (nil: there was none), and a digest
+/// of what PassTunnel wrote last, which tells whether anyone changed the file since.
+struct ResolvConfBaseline: Equatable {
+    static let fileName = "resolv.conf.base"
+    static let header = "passtunnel-resolv-base 1"
+
+    let written: String
+    let content: [UInt8]?
+
+    var bytes: [UInt8] {
+        Array("\(Self.header)\n\(written)\n\(content == nil ? "none" : "file")\n".utf8) + (content ?? [])
     }
 
-    private static func readFile(_ name: String, in session: SessionDirectory, maxBytes: Int) throws -> Data? {
-        let fd = openat(session.fd, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+    init(written: String, content: [UInt8]?) {
+        self.written = written
+        self.content = content
+    }
+
+    /// Three lines (header, digest, "file" or "none"), then the content as it was, byte for byte.
+    init?(bytes: [UInt8]) {
+        var lines: [[UInt8]] = []
+        var start = 0
+        while lines.count < 3, let end = bytes[start...].firstIndex(of: 0x0A) {
+            lines.append(Array(bytes[start..<end]))
+            start = end + 1
+        }
+        guard lines.count == 3, lines[0] == Array(Self.header.utf8), lines[1].count == 64,
+              lines[1].allSatisfy({ ($0 >= 0x30 && $0 <= 0x39) || ($0 >= 0x61 && $0 <= 0x66) }) else { return nil }
+        let rest = Array(bytes[start...])
+        switch String(decoding: lines[2], as: UTF8.self) {
+        case "file": self.init(written: String(decoding: lines[1], as: UTF8.self), content: rest)
+        case "none" where rest.isEmpty: self.init(written: String(decoding: lines[1], as: UTF8.self), content: nil)
+        default: return nil
+        }
+    }
+
+    /// Nil when there is none, or it cannot be read (the file is then taken as someone else's).
+    static func load(in root: Int32, path: String) -> ResolvConfBaseline? {
+        guard let data = try? RootFile.load(fileName, at: root, path: path, maxBytes: DNSApplier.maxResolvConfBytes + 256) else {
+            return nil
+        }
+        return ResolvConfBaseline(bytes: [UInt8](data))
+    }
+
+    func write(in root: Int32, path: String) throws {
+        try RootFile.store(Self.fileName, Data(bytes), at: root, path: path)
+    }
+
+    static func remove(in root: Int32) {
+        _ = unlinkat(root, fileName, 0)
+    }
+}
+
+/// Root's own small files in a root-owned directory, by descriptor: never through a link, written
+/// atomically (a new file, synced, renamed over the old one).
+enum RootFile {
+    static func load(_ name: String, at dir: Int32, path: String, maxBytes: Int) throws -> Data? {
+        let fd = openat(dir, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
         guard fd >= 0 else {
             if errno == ENOENT { return nil }
-            throw DNSFailure.system("open \(session.path)/\(name)", errno)
+            throw DNSFailure.system("open \(path)/\(name)", errno)
         }
         defer { close(fd) }
         var st = stat()
         guard fstat(fd, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG, st.st_uid == geteuid(), st.st_size <= maxBytes else {
-            throw DNSFailure.notARegularFile(session.path + "/" + name)
+            throw DNSFailure.notARegularFile(path + "/" + name)
         }
         var data = Data()
         var buffer = [UInt8](repeating: 0, count: 8192)
         while data.count <= maxBytes {
             let n = read(fd, &buffer, buffer.count)
             if n < 0, errno == EINTR { continue }
-            guard n >= 0 else { throw DNSFailure.system("read \(session.path)/\(name)", errno) }
+            guard n >= 0 else { throw DNSFailure.system("read \(path)/\(name)", errno) }
             if n == 0 { return data }
             data.append(contentsOf: buffer[0..<n])
         }
-        throw DNSFailure.tooLarge(session.path + "/" + name)
+        throw DNSFailure.tooLarge(path + "/" + name)
     }
 
-    private static func writeFile(_ name: String, _ data: Data, in session: SessionDirectory) throws {
+    static func store(_ name: String, _ data: Data, at dir: Int32, path: String) throws {
         let temp = "." + name + ".new"
-        if unlinkat(session.fd, temp, 0) != 0, errno != ENOENT { throw DNSFailure.system("remove \(session.path)/\(temp)", errno) }
-        let fd = openat(session.fd, temp, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
-        guard fd >= 0 else { throw DNSFailure.system("create \(session.path)/\(temp)", errno) }
+        if unlinkat(dir, temp, 0) != 0, errno != ENOENT { throw DNSFailure.system("remove \(path)/\(temp)", errno) }
+        let fd = openat(dir, temp, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard fd >= 0 else { throw DNSFailure.system("create \(path)/\(temp)", errno) }
         do {
-            try DNSApplier.writeAll(fd, data, at: nil, path: session.path + "/" + temp)
-            guard fsync(fd) == 0 else { throw DNSFailure.system("sync \(session.path)/\(temp)", errno) }
+            try DNSApplier.writeAll(fd, data, at: nil, path: path + "/" + temp)
+            guard fsync(fd) == 0 else { throw DNSFailure.system("sync \(path)/\(temp)", errno) }
             close(fd)
         } catch {
             close(fd)
-            unlinkat(session.fd, temp, 0)
+            unlinkat(dir, temp, 0)
             throw error
         }
-        guard renameat(session.fd, temp, session.fd, name) == 0 else {
+        guard renameat(dir, temp, dir, name) == 0 else {
             let err = errno
-            unlinkat(session.fd, temp, 0)
-            throw DNSFailure.system("rename \(session.path)/\(temp)", err)
+            unlinkat(dir, temp, 0)
+            throw DNSFailure.system("rename \(path)/\(temp)", err)
         }
     }
 }
