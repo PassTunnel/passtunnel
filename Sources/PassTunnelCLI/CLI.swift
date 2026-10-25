@@ -104,7 +104,7 @@ enum CLIHelp {
         ("default", "passtunnel default [ID] [--json]"),
         ("pin", "passtunnel pin ID [--json]"),
         ("unpin", "passtunnel unpin ID [--json]"),
-        ("log", "passtunnel log ID [-f|--follow] [-n N] [--json]"),
+        ("log", "passtunnel log ID [-f|--follow] [-n N] [--activity] [--json]"),
         ("helper", "passtunnel helper status|install|uninstall [--json]"),
         ("mcp", "passtunnel mcp [--allow-connect]"),
         ("completion", "passtunnel completion zsh|bash|fish"),
@@ -135,7 +135,7 @@ enum CLIHelp {
         case "default": return String(localized: "Show or set the default profile.")
         case "pin": return String(localized: "Always show the profile in the menu bar.")
         case "unpin": return String(localized: "Show the profile in the menu bar only while it is active.")
-        case "log": return String(localized: "Print the VPN log of a profile; -f keeps following it, -n prints only the last N lines.")
+        case "log": return String(localized: "Print the VPN log of a profile; -f keeps following it, -n prints only the last N lines. --activity prints what PassTunnel did instead: connecting, codes, sign-in, drops.")
         case "helper": return String(localized: "Show, install or remove the privileged helper.")
         case "mcp": return String(localized: "Run the MCP server for AI assistants on standard input and output. Read-only unless --allow-connect.")
         case "completion": return String(localized: "Print a shell completion script.")

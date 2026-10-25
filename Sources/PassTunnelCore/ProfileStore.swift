@@ -1,7 +1,7 @@
 import Foundation
 import PassTunnelKit
 
-/// Profiles on disk: `profiles/<id>/profile.json` (+ `config.ovpn`, `vpn.log`).
+/// Profiles on disk: `profiles/<id>/profile.json` (+ `config.ovpn`, `vpn.log`, `activity.jsonl`).
 /// Stateless and synchronous; every call re-reads the file system and the environment.
 public struct ProfileStore {
     public let paths: AppPaths
@@ -137,6 +137,8 @@ public struct ProfileStore {
     public func dir(_ id: String) -> URL { paths.profileDir(id) }
     public func ovpnURL(_ id: String) -> URL { dir(id).appendingPathComponent(Self.ovpnFile) }
     public func logURL(_ id: String) -> URL { dir(id).appendingPathComponent(Self.logFile) }
+    /// `activity.jsonl`: what `ConnectionManager` did and saw (`ActivityLog`).
+    public func activityURL(_ id: String) -> URL { dir(id).appendingPathComponent(ActivityLog.fileName) }
     func profileURL(_ id: String) -> URL { dir(id).appendingPathComponent(Self.profileFile) }
 
     /// Replaces the profile's config (0600) with a self-contained copy of `url`: referenced files

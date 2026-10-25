@@ -419,6 +419,25 @@ public enum VPNLog {
         authFailureMarkers.contains { text.range(of: $0, options: .caseInsensitive) != nil }
     }
 
+    /// What the server answered when it refused the sign-in: OpenVPN's control message from "AUTH_FAILED"
+    /// to the end of its line ("AUTH_FAILED", "AUTH_FAILED,Invalid OTP"); nil when the log has none.
+    public static func authFailureReply(_ text: String) -> String? {
+        for line in text.split(whereSeparator: \.isNewline) {
+            guard let r = line.range(of: "AUTH_FAILED") else { continue }
+            var reply = String(line[r.lowerBound...]).trimmingCharacters(in: .whitespaces)
+            if reply.hasSuffix("'") { reply.removeLast() }
+            return ActivityEvent.clean(reply)
+        }
+        return nil
+    }
+
+    /// The server accepted the sign-in: OpenVPN received the tunnel settings it pushes after it
+    /// ("PUSH: Received control message: 'PUSH_REPLY,…'"), openfortivpn says "Authenticated." or that
+    /// the gateway "has allocated a VPN".
+    public static func authAccepted(_ text: String) -> Bool {
+        text.contains("PUSH_REPLY") || text.contains("Authenticated.") || text.contains("has allocated a VPN")
+    }
+
     static let fatalMarkers = [
         "Exiting due to fatal error", "Options error", "Cannot resolve host address",
         "Gateway certificate validation failed", "Could not connect to gateway", "PassTunnel: ",

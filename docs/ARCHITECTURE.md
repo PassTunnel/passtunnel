@@ -39,7 +39,7 @@ A bundle without `dns-updown` pins an empty set for it, so the helper refuses an
 | `PassTunnelVPNConfig` | `OVPNSanitizer`, `FortiConfig`: the configurations the helper runs as root | — |
 | `PassTunnelKit` | the portable logic (Foundation, CryptoKit and Security only; builds for macOS 13, iOS 17 and Linux): model, `PTError`, `JSONCoding`, `TOTP`, `OTPAuthURI`, `OTPComposer`, `OVPNAnalyzer`, `OVPNInliner`, `OVPNSkipRules`, `OVPNImportReport`, `ShareFile`, `Slug`, `ProfileFields`, `ProfileMerge`, `SecretEnvelope`, `HealthCheck` (parsing) | VPNConfig (and swift-crypto on Linux) |
 | `PassTunnelShared` | XPC protocol, request/response types, `HelperCore` (request decoding, path checks, tool environment), `SessionPolicy`, `CodeSignature`, `Spawner` (verified, suspended launch), `PinnedTools`, `ToolStager` (root-owned copy of the tools and their dylibs), `HelperBuild`, identifiers | VPNConfig (and swift-crypto on Linux) |
-| `PassTunnelCore` | `ProfileStore` + `ImportDraft`, `ProfilesWatcher`, `Secrets` + `SecretStore` (Keychain; on Linux `SecretStores`: secret-service, systemd-creds, file), `SecretVault` + `UserAuthenticator` (Secure Enclave protection), `Preferences`, `HealthCheck.check` (the probe), `QRDecoder`, `OpenedFiles` (files the app is asked to open), `ScannedCodeTarget` (where a scanned code goes), `TLSFingerprint`, `HelperClient`, `HelperAutoUpdate`, `ConnectionManager` + `ProfileDestination`, `LoginConnector` (connect at login), CLI parsing (`CLICommand`, `CLIInvocation`), automation objects + `AutomationService`, `MCPServer` + `MCPTools` + `JSONValue` | Kit, VPNConfig, Shared (and swift-crypto's Crypto and CryptoExtras on Linux) |
+| `PassTunnelCore` | `ProfileStore` + `ImportDraft`, `ProfilesWatcher`, `Secrets` + `SecretStore` (Keychain; on Linux `SecretStores`: secret-service, systemd-creds, file), `SecretVault` + `UserAuthenticator` (Secure Enclave protection), `Preferences`, `HealthCheck.check` (the probe), `QRDecoder`, `OpenedFiles` (files the app is asked to open), `ScannedCodeTarget` (where a scanned code goes), `TLSFingerprint`, `HelperClient`, `HelperAutoUpdate`, `ConnectionManager` + `ProfileDestination`, `ActivityLog` + `ActivityEvent`, `LoginConnector` (connect at login), CLI parsing (`CLICommand`, `CLIInvocation`), automation objects + `AutomationService`, `MCPServer` + `MCPTools` + `JSONValue` | Kit, VPNConfig, Shared (and swift-crypto's Crypto and CryptoExtras on Linux) |
 | `PassTunnelCLI` | the `passtunnel` command: `PassTunnelCLI.run` (entry, `CLIHelp`), `CLIRunner`, `CLICompletions`, `CLITerminal`, `CLIClipboard`; `Pasteboard` (macOS: the app's too) | Core, Kit, Shared |
 | `PassTunnelHelper` | `main.swift` XPC listener, process supervision | Shared (and through it VPNConfig) |
 | `PassTunnel` | SwiftUI app, menu bar, onboarding, updates (`AppUpdater`); CLI mode runs `PassTunnelCLI` | CLI, Core, Kit, VPNConfig, Shared, Sparkle |
@@ -158,7 +158,10 @@ public enum PT {
   - `config.json` – preferences (`Preferences`), incl. `defaultProfile`
   - `profiles/<id>/profile.json`, `profiles/<id>/config.ovpn`, `profiles/<id>/vpn.log`,
     `profiles/<id>/.last-otp` (TOTP window of the last code sent, so app and CLI never reuse a code),
-    `profiles/<id>/.mgmt-state` (OpenVPN state shared by the app, which holds the management interface)
+    `profiles/<id>/.mgmt-state` (OpenVPN state shared by the app, which holds the management interface),
+    `profiles/<id>/activity.jsonl` (`ActivityLog`: the last 500 typed events of the profile's connections,
+    one JSON object per line, 0600; appended under `profiles/<id>/.activity.lock` and replaced atomically, so
+    the app and CLI processes can write at once; no password, a code as at most its first three digits)
     (the OpenVPN management socket is in the helper's run directory, see below)
   - Linux only (`~/.local/share/passtunnel/`, LINUX.md): `secrets/<account>.cred` (systemd-creds
     store), `secrets.enc` and `.secrets.lock` (file store)
@@ -448,7 +451,9 @@ that attempt has ended and the caller runs its own checks before starting) and d
 (`disconnect(_:wait:timeout:)`, polling `refresh`). `logs` drops management chatter and lines that
 look like key material (`LogRedactor.isKeyMaterial`: `TLS: tls_` traces, hex runs of 32+ digits
 except openfortivpn's `--trusted-cert` / `trusted-cert =` digest),
-then `LogRedactor` masks credentials. `PromptlessAuthenticator` wraps the Secure Enclave
+then `LogRedactor` masks credentials. `activity` (`log --activity`, `get_logs` with `source: "activity"`)
+returns the activity log's last events without code digits (`ActivityEvent.withoutCodeDigits`), their
+server, user name and reply passed through `LogRedactor`, each also worded with its local time. `PromptlessAuthenticator` wraps the Secure Enclave
 authenticator for `--no-auth-prompt`.
 
 ```

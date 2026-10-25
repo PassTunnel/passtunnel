@@ -15,7 +15,7 @@ the MCP server has no such tool.
 - [Options for scripts](#options-for-scripts)
 - [Exit codes](#exit-codes)
 - [Errors](#errors)
-- [Objects](#objects): [ProfileSummary](#profilesummary), [ProfileStatus](#profilestatus), [HelperReport](#helperreport), [SecretStoreReport](#secretstorereport)
+- [Objects](#objects): [ProfileSummary](#profilesummary), [ProfileStatus](#profilestatus), [HelperReport](#helperreport), [SecretStoreReport](#secretstorereport), [LogReport](#logreport), [ActivityEvent](#activityevent)
 - [Commands](#commands)
 
 ## Options for scripts
@@ -181,6 +181,66 @@ or a store's name. `chosen_by`: `environment` (`PASSTUNNEL_SECRET_STORE`), `sett
 the first secret was saved) or `auto` (detected, nothing recorded yet). `error` says why it is not
 available.
 
+### LogReport
+
+From `log ID --json` and the MCP tool `get_logs`.
+
+```json
+{
+  "id" : "work",
+  "lines" : [
+    "Peer Connection Initiated with [AF_INET]203.0.113.10:1194",
+    "Initialization Sequence Completed"
+  ],
+  "source" : "raw",
+  "truncated" : true
+}
+```
+
+`source` is `raw` for the VPN tool's log (OpenVPN or openfortivpn output of the current or last
+session) and `activity` for `log ID --activity` / `get_logs` with `source: "activity"`: the profile's
+activity log, what PassTunnel did and saw, also for sessions the app or another terminal started. Then
+`lines` words each event in the user's language with its local time ("2026-10-25 09:41:02  Connecting
+to vpn.example.com:1194 (UDP)") and `events` has the same events as [ActivityEvent](#activityevent)
+objects, oldest first. `truncated`: the log has more lines (or events) than were returned. In both,
+anything that looks like a credential is replaced by `<redacted>`.
+
+### ActivityEvent
+
+One event of the activity log (`profiles/<id>/activity.jsonl`, the last 500 events): `at` (ISO 8601),
+`event`, and the fields of that event.
+
+```json
+{
+  "at" : "2026-10-25T09:41:02Z",
+  "code" : true,
+  "event" : "sending",
+  "format" : "{password}{otp}",
+  "password" : true,
+  "seconds_left" : 22,
+  "username" : "alice"
+}
+```
+
+| `event` | Fields | When |
+|---|---|---|
+| `connecting` | `host`, `port` (absent when unknown), `protocol` (`udp`, `tcp`) | The VPN tool is started for this server (OpenVPN: the first `remote`) |
+| `waiting_for_code` | `reason` (`used`: this period's code was already sent; `expiring`: 5 s or less left), `seconds` | The next one-time code is waited for |
+| `sending` | `username`, `password` (a password was sent), `code` (a code was sent), `seconds_left` (the code's, from a TOTP secret), `format` (the template, e.g. `{password}{otp}`, or `separate`; only with a code) | The credentials were handed to the VPN tool |
+| `auth_accepted` | | The server accepted the sign-in |
+| `connected` | `address` (`""` when unknown) | The tunnel is up |
+| `link_dropped` | `will_reconnect` | The connection ended without anyone stopping it |
+| `reconnecting` | `attempt`, `of` | An automatic reconnect attempt starts |
+| `unreachable` | `tries` | The server did not answer |
+| `next_try` | `next_at` | The next automatic attempt starts then |
+| `rejected` | `reply` (what the server answered, e.g. `AUTH_FAILED`; absent when it said nothing) | The server refused the sign-in; not retried |
+| `stopped_by_user` | | A connect, a code wait or the automatic reconnects were stopped |
+| `disconnected_by_user` | | A connection that was up was ended |
+
+Never a password and never a code digit: the file keeps at most the first three digits of a code
+for the app, and the CLI and the MCP server leave them out. New kinds of events may be added; skip
+the ones you do not know.
+
 ## Commands
 
 | Command | `--json` result |
@@ -203,7 +263,8 @@ available.
 | `secret-store [STORE]` | Linux only: SecretStoreReport, after saving STORE when given (exit 1 when the store is not available) |
 | `default [ID]` | `{"default": "work"}`; `null` and exit 1 when none is set |
 | `pin ID`, `unpin ID` | ProfileSummary |
-| `log ID [-n N]` | LogReport: `{"id": "work", "lines": […], "truncated": false}`, the last N lines (at most 500) |
+| `log ID [-n N]` | LogReport: `{"id": "work", "lines": […], "source": "raw", "truncated": false}`, the last N lines (at most 500) |
+| `log ID --activity [-n N]` | LogReport with `"source": "activity"` and `events`, the last N events (at most 500) |
 | `helper status` | HelperReport (exit 5 unless enabled, answering and current) |
 | `version` | `{"version": "1.1.0", "build": "12", "app_path": "/Applications/PassTunnel.app", "helper_protocol_version": 3}` |
 
@@ -234,7 +295,7 @@ command with `config_invalid` instead, its message listing every such line.
 fails with `timeout`; a connection that was already on its way (started in the app or another
 terminal) is left alone. `log --json` drops OpenVPN's notes about PassTunnel's own management
 polls and replaces anything that looks like a credential with `<redacted>`; `log -f` cannot be
-combined with `--json`. `helper install` and `helper uninstall` have no JSON output.
+combined with `--json` or `--activity`. `helper install` and `helper uninstall` have no JSON output.
 
 ### Examples
 

@@ -81,6 +81,23 @@ One binary, two modes:
   replaces the automatic reconnect); clicking it or its Connect action runs `AppModel.connect`, which asks.
 - Disconnect never asks.
 - Session limit: notification `sessionNotifyMin` before `sessionLimitMin` elapses (once per session).
+- Activity log (`ActivityLog`, `profiles/<id>/activity.jsonl`): typed events, never sentences, so the app
+  also shows what the CLI or `passtunnel mcp` did. A connect this manager starts records `connecting`
+  (OpenVPN's first `remote` with its port and UDP/TCP; Forti host and port), `waiting_for_code` (`used` or
+  `expiring`, the seconds to wait), `sending` once the helper has the credentials (user name, whether a
+  password and a code went, the code's seconds left and template or `separate`), `auth_accepted`
+  (OpenVPN `PUSH_REPLY` or a management state past AUTH, openfortivpn "Authenticated."; at the latest
+  when connected), `connected` (address) or `rejected` (the server's `AUTH_FAILED…` reply). A session it
+  only follows records nothing (its owner does). Drops record `link_dropped` (whether it reconnects),
+  automatic attempts `reconnecting` (attempt of total) and, after a failed one, `next_try`;
+  `disconnect` records `disconnected_by_user` when the session was up (for a session this process has
+  not seen, from the tool's log) and `stopped_by_user` for a connect, a code wait or pending reconnects
+  it ended. The password is never recorded; a code at most as its first three digits (never more than
+  half of it), which only the app may show (`ActivityEvent.sentence(showingCodeDigits:)`); the CLI and
+  MCP leave them out (`withoutCodeDigits`). `activity(id)` reads the file, `lastSending(id)` gives "sent
+  at 09:41:02" / "Sent with 22 s left", and the `activity` publisher sends each event this process records.
+  The file keeps the last 500 events (mode 0600); writers take `.activity.lock` (flock) and replace the
+  file atomically, readers skip lines they cannot decode. The file watcher ignores both.
 
 ## Main window (authenticator-style)
 
@@ -484,7 +501,7 @@ passtunnel add NAME --type openvpn|forti / import FILE [--name N] / export ID [-
 passtunnel secret ID password|totp           reads from TTY (no echo) or stdin; totp accepts base32 or otpauth://
 passtunnel secret-store [STORE]              Linux only: the secret store in use; STORE sets it (below)
 passtunnel default ID / pin ID / unpin ID
-passtunnel log ID [-f] [-n N]
+passtunnel log ID [-f] [-n N] [--activity]   --activity: the activity log, worded (no code digits)
 passtunnel helper status|install|uninstall
 passtunnel mcp [--allow-connect]             MCP server on stdio (below)
 passtunnel completion zsh|bash|fish
@@ -607,7 +624,8 @@ no `_meta` without a handshake. Tool failures (including bad arguments) are resu
 requests it has, then exits 0.
 
 Tools (`MCPTools`): `list_profiles`, `get_status` (`profile_id`?), `get_logs` (`profile_id`,
-`lines` 1–500, default 50), `diagnose`; with `--allow-connect` also `connect` (`profile_id`, `wait`
+`lines` 1–500, default 50, `source` `raw` (default) or `activity`: `AutomationService.activity`, the
+worded lines plus `events`, without code digits), `diagnose`; with `--allow-connect` also `connect` (`profile_id`, `wait`
 default true, `timeout_seconds` 1–600, default 60) and `disconnect` (`profile_id`, `wait`,
 `timeout_seconds`). Each has an `inputSchema` (closed objects) and, from 2025-06-18, an
 `outputSchema` and `structuredContent`; the text content is the same JSON. Results are the

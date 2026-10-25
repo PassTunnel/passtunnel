@@ -277,6 +277,7 @@ passtunnel add Lab --type forti
 passtunnel set lab host=203.0.113.10 port=443 username=sam
 
 passtunnel log work -f
+passtunnel log work --activity                # what PassTunnel did: connecting, codes, sign-in, drops
 passtunnel helper status
 passtunnel completion zsh > ~/.zfunc/_passtunnel
 ```
@@ -312,7 +313,7 @@ connection and tell you what is wrong.
 |---|---|
 | `list_profiles` | Profiles with type, state, whether connecting asks for Touch ID, auto-reconnect, connect at login |
 | `get_status` | State, tunnel IP, since when, last error; whether the helper is installed and current |
-| `get_logs` | The last lines (up to 500) of a profile's VPN log, with anything that looks like a credential redacted |
+| `get_logs` | The last lines (up to 500) of a profile's VPN log, with anything that looks like a credential redacted; with `source: "activity"`, what PassTunnel did instead (connecting, code waits, sign-in accepted or rejected, drops), without passwords or code digits |
 | `diagnose` | App version and location, helper state, and per profile whether config, server and saved credentials are in place |
 | `connect`, `disconnect` | Only with `--allow-connect` |
 

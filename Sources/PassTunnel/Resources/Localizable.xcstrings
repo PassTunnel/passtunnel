@@ -403,6 +403,16 @@
         }
       }
     },
+    "--follow cannot be combined with --activity." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--follow, --activity ile birlikte kullanılamaz."
+          }
+        }
+      }
+    },
     "--follow cannot be combined with --json." : {
       "localizations" : {
         "tr" : {
@@ -663,6 +673,16 @@
         }
       }
     },
+    "Authentication accepted" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kimlik doğrulama kabul edildi"
+          }
+        }
+      }
+    },
     "Cancelled." : {
       "localizations" : {
         "tr" : {
@@ -813,6 +833,26 @@
         }
       }
     },
+    "Code %@ has %lld s left, waiting for the next one" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ kodunun %2$lld sn süresi kaldı, sonraki kod bekleniyor"
+          }
+        }
+      }
+    },
+    "Code %@ was already used, waiting for the next one" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ kodu zaten kullanıldı, sonraki kod bekleniyor"
+          }
+        }
+      }
+    },
     "Code format" : {
       "localizations" : {
         "tr" : {
@@ -893,12 +933,32 @@
         }
       }
     },
+    "Connected, %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlandı, %@"
+          }
+        }
+      }
+    },
     "Connecting asks you first, so at login PassTunnel shows a notification you click to connect." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bağlanmadan önce size soruluyor; bu yüzden oturum açıldığında PassTunnel, tıklayarak bağlanacağınız bir bildirim gösterir."
+          }
+        }
+      }
+    },
+    "Connecting to %@ (%@)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ adresine bağlanılıyor (%2$@)"
           }
         }
       }
@@ -959,6 +1019,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Özel şablon"
+          }
+        }
+      }
+    },
+    "Disconnected by you" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlantıyı siz kestiniz"
           }
         }
       }
@@ -1143,6 +1213,26 @@
         }
       }
     },
+    "Link dropped" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlantı koptu"
+          }
+        }
+      }
+    },
+    "Link dropped, reconnecting" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlantı koptu, yeniden bağlanıyor"
+          }
+        }
+      }
+    },
     "Missing. Paste the secret or choose an image of the QR code." : {
       "localizations" : {
         "tr" : {
@@ -1169,6 +1259,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "PassTunnel gizli bilgi dosyası için yeni parola ifadesi (%@): "
+          }
+        }
+      }
+    },
+    "Next try in %lld s" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld sn sonra yeniden denenecek"
+          }
+        }
+      }
+    },
+    "No answer" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yanıt yok"
+          }
+        }
+      }
+    },
+    "No answer after %lld tries" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld denemeden sonra yanıt yok"
           }
         }
       }
@@ -1493,6 +1613,16 @@
         }
       }
     },
+    "Print the VPN log of a profile; -f keeps following it, -n prints only the last N lines. --activity prints what PassTunnel did instead: connecting, codes, sign-in, drops." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir profilin VPN günlüğünü yazdırır; -f ile izlemeye devam eder, -n yalnızca son N satırı yazdırır. --activity bunun yerine PassTunnel'ın yaptıklarını yazdırır: bağlanma, kodlar, oturum açma, kopmalar."
+          }
+        }
+      }
+    },
     "Privacy policy" : {
       "localizations" : {
         "tr" : {
@@ -1529,6 +1659,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bağlantı koparsa otomatik olarak yeniden bağlan"
+          }
+        }
+      }
+    },
+    "Reconnecting, attempt %lld of %lld" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeniden bağlanıyor, deneme %1$lld/%2$lld"
           }
         }
       }
@@ -1633,6 +1773,36 @@
         }
       }
     },
+    "Sending %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ gönderiliyor"
+          }
+        }
+      }
+    },
+    "Sending %@ / %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ / %2$@ gönderiliyor"
+          }
+        }
+      }
+    },
+    "Sending %@ / %@, code %@ separately" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ / %2$@ gönderiliyor, %3$@ kodu ayrıca"
+          }
+        }
+      }
+    },
     "Sent separately" : {
       "localizations" : {
         "tr" : {
@@ -1713,6 +1883,26 @@
         }
       }
     },
+    "Sign-in rejected. Stopped. Not retrying, to avoid a lockout" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oturum açma reddedildi. Durduruldu. Hesap kilitlenmesin diye yeniden denenmiyor"
+          }
+        }
+      }
+    },
+    "Sign-in rejected: %@. Stopped. Not retrying, to avoid a lockout" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oturum açma reddedildi: %@. Durduruldu. Hesap kilitlenmesin diye yeniden denenmiyor"
+          }
+        }
+      }
+    },
     "Skipped lines (kept as comments in the stored configuration):" : {
       "localizations" : {
         "tr" : {
@@ -1753,12 +1943,32 @@
         }
       }
     },
+    "Stopped by you" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sizin tarafınızdan durduruldu"
+          }
+        }
+      }
+    },
     "The PassTunnel helper is not ready." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "PassTunnel yardımcısı hazır değil."
+          }
+        }
+      }
+    },
+    "There is no activity for this profile yet." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu profilin henüz etkinlik kaydı yok."
           }
         }
       }
@@ -2289,16 +2499,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sürümü yazdırır."
-          }
-        }
-      }
-    },
-    "Print the VPN log of a profile; -f keeps following it, -n prints only the last N lines." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bir profilin VPN günlüğünü yazdırır; -f ile izlemeye devam eder, -n yalnızca son N satırı yazdırır."
           }
         }
       }

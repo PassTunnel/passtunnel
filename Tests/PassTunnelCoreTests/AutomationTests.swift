@@ -38,6 +38,9 @@ final class AutomationCLITests: XCTestCase {
         XCTAssertEqual(try command("--version --json"), .version(json: true))
         assertUsage("log acme -f --json")
         assertUsage("log acme -n 0")
+        XCTAssertEqual(try command("log acme --activity --json -n 5"), .log(id: "acme", follow: false, json: true, lines: 5, activity: true))
+        XCTAssertEqual(try command("logs acme --activity"), .log(id: "acme", follow: false, activity: true))
+        assertUsage("log acme --activity -f")
         assertUsage("helper install --json")
         assertUsage("completion zsh --json")
     }
@@ -542,6 +545,8 @@ final class MCPServerTests: XCTestCase {
                              ("connect", ["profile_id": "acme", "timeout_seconds": 0]),
                              ("connect", ["profile_id": "acme", "wait": 1]), ("connect", ["profile_id": "acme", "timeout_seconds": true]),
                              ("get_logs", ["profile_id": "acme", "lines": 10.5]), ("get_status", ["profile_id": ["acme"]]),
+                             ("get_logs", ["profile_id": "acme", "source": "all"]), ("get_logs", ["profile_id": "acme", "source": 1]),
+                             ("get_logs", ["profile_id": "acme", "source": "Activity"]),
                              ("disconnect", ["profile_id": "acme", "force": true])] as [(String, [String: Any])] {
             let result = try await callTool(server, tool, args)
             XCTAssertEqual(errorCode(result), "invalid_argument", "\(tool) \(args)")
@@ -614,6 +619,55 @@ final class MCPServerTests: XCTestCase {
         try makeOpenVPN("Lab")
         let empty = try await structured(server, "get_logs", ["profile_id": "lab"])
         XCTAssertEqual(empty["lines"] as? [String], [])
+    }
+
+    /// `source: "activity"`: what PassTunnel did, worded and as objects, never with code digits, and
+    /// redacted like the VPN log.
+    func testGetLogsReturnsTheActivityWithoutCodeDigits() async throws {
+        let p = try makeOpenVPN(otp: .totp)
+        let server = makeServer(allowConnect: true)
+        _ = try await structured(server, "connect", ["profile_id": "acme"])
+        try ActivityLog(url: store.activityURL(p.id)).append(ActivityEvent(at: t0, .rejected(reply: "AUTH_FAILED,password=\(password)")))
+
+        let report = try await structured(server, "get_logs", ["profile_id": "acme", "source": "activity"])
+        XCTAssertEqual(report["source"] as? String, "activity")
+        XCTAssertEqual(report["truncated"] as? Bool, false)
+        let events = try XCTUnwrap(report["events"] as? [[String: Any]])
+        XCTAssertEqual(events.map { $0["event"] as? String }, ["connecting", "sending", "auth_accepted", "connected", "rejected"])
+        XCTAssertFalse(events.contains { $0["code_prefix"] != nil }, "no code digits")
+        XCTAssertEqual(events[0]["host"] as? String, "vpn.example.com")
+        XCTAssertEqual(events[0]["protocol"] as? String, "udp")
+        XCTAssertEqual(events[1]["code"] as? Bool, true)
+        XCTAssertEqual(events[1]["seconds_left"] as? Int, 10)
+        XCTAssertEqual(events[1]["at"] as? String, "2023-11-14T22:13:20Z")
+        XCTAssertEqual(events[4]["reply"] as? String, "AUTH_FAILED,password=<redacted>")
+        let lines = try XCTUnwrap(report["lines"] as? [String])
+        XCTAssertEqual(lines.count, 5)
+        XCTAssertTrue(lines[1].hasSuffix("  Sending alice / ••••••••+••• ••• · 10 s left"), lines[1])
+        XCTAssertFalse(lines.joined().contains(password))
+
+        let last = try await structured(server, "get_logs", ["profile_id": "acme", "source": "activity", "lines": 2])
+        XCTAssertEqual((last["events"] as? [[String: Any]])?.map { $0["event"] as? String }, ["connected", "rejected"])
+        XCTAssertEqual(last["truncated"] as? Bool, true)
+        let raw = try await structured(server, "get_logs", ["profile_id": "acme", "source": "raw"])
+        XCTAssertEqual(raw["source"] as? String, "raw")
+        XCTAssertNil(raw["events"])
+
+        // Nothing recorded yet: an empty list, not an error.
+        try makeOpenVPN("Lab")
+        let empty = try await structured(server, "get_logs", ["profile_id": "lab", "source": "activity"])
+        XCTAssertEqual(empty["lines"] as? [String], [])
+        XCTAssertEqual((empty["events"] as? [Any])?.count, 0)
+
+        // The schemas name the new argument and fields.
+        let list = await exchange(server, request(9, "tools/list"))
+        let tools = try XCTUnwrap((list?["result"] as? [String: Any])?["tools"] as? [[String: Any]])
+        let getLogs = try XCTUnwrap(tools.first { $0["name"] as? String == "get_logs" })
+        let source = try XCTUnwrap(((getLogs["inputSchema"] as? [String: Any])?["properties"] as? [String: Any])?["source"] as? [String: Any])
+        XCTAssertEqual(source["enum"] as? [String], ["raw", "activity"])
+        let output = try XCTUnwrap((getLogs["outputSchema"] as? [String: Any])?["properties"] as? [String: Any])
+        XCTAssertNotNil(output["events"])
+        XCTAssertEqual((getLogs["outputSchema"] as? [String: Any])?["required"] as? [String], ["id", "lines", "truncated"])
     }
 
     func testGetLogsLeavesOutKeyMaterial() async throws {
@@ -939,6 +993,7 @@ final class MCPServerTests: XCTestCase {
         for (name, args) in [("list_profiles", [:]), ("get_status", [:]), ("get_status", ["profile_id": "acme"]),
                              ("get_logs", ["profile_id": "acme", "lines": 500]), ("diagnose", [:]),
                              ("connect", ["profile_id": "acme"]), ("get_status", [:]),
+                             ("get_logs", ["profile_id": "acme", "source": "activity"]),
                              ("disconnect", ["profile_id": "acme"])] as [(String, [String: Any])] {
             let result = try await callTool(server, name, args)
             XCTAssertNotEqual(result["isError"] as? Bool, true, "\(name): \(result)")
