@@ -170,6 +170,8 @@ enum RenderSnapshots {
             snapshot(OnboardingView(step: 1).environmentObject(model), size: nil, dark: false, to: out,
                      name: "onboarding-2-approval")
 
+            renderSplitWindow(model, sample: sample, store: store, now: now, to: out)
+
             // The menu bar panel of the new interface (NewInterface): all six profiles, so the list scrolls; then
             // three (connected, Touch ID to connect with the code locked, dropped) with auto-type on. Last, as it
             // deletes sample profiles. Without an authenticator, turning on "Confirm with Touch ID" encrypts nothing
@@ -206,6 +208,32 @@ enum RenderSnapshots {
         _ = EditorPreviewRenderer.renderAll(to: out.appendingPathComponent("editor", isDirectory: true))
         print(out.path)
         return 0
+    }
+
+    /// The redesigned window (behind `NewInterface`, not on the website yet), once per state of the selected profile:
+    /// `main-split` connected, `-waiting` for a fresh code, `-dropped` and reconnecting, `-off`, `-failed`. Sets its
+    /// own overrides and leaves the model as it found it.
+    private static func renderSplitWindow(_ model: AppModel, sample: Sample, store: ProfileStore, now: Date, to out: URL) {
+        let ids = sample.ids   // work, lab, home, staging, client, travel
+        let configs = [ids[0]: "client\nremote vpn.example.com 1194 udp\n",
+                       ids[2]: "client\nproto tcp\nremote 203.0.113.10 443\n",
+                       ids[5]: "client\nremote vpn2.example.com 1194\nremote vpn3.example.com 1194\n"]
+        for (id, text) in configs { try? Data(text.utf8).write(to: store.ovpnURL(id)) }
+        model.previewCodeWaits = [ids[3]: now.addingTimeInterval(3.6)]
+        model.previewReconnecting = [ids[5]: ReconnectInfo(attempt: 1, maxAttempts: 3, at: now)]
+        let selection = model.selection
+        let shown = [(ids[0], ""), (ids[3], "-waiting"), (ids[5], "-dropped"), (ids[2], "-off"), (ids[4], "-failed")]
+        for (id, suffix) in shown {
+            model.selection = id
+            for dark in [false, true] {
+                snapshot(SplitWindowRender().environmentObject(model), size: CGSize(width: 1080, height: 700),
+                         dark: dark, to: out, name: "main-split\(suffix)", window: true)
+            }
+        }
+        model.selection = selection
+        model.previewCodeWaits = [:]
+        model.previewReconnecting = [:]
+        model.setPreviewDropped(sample.dropped)
     }
 
     @ViewBuilder
@@ -405,5 +433,47 @@ enum RenderSnapshots {
             return
         }
         for sub in view.subviews { hideToolbarGlass(in: sub) }
+    }
+}
+
+/// The redesigned window for the renders. On macOS 26 the window server draws the glass sidebar, and offscreen its
+/// rows stay blank: there the render lays the window's own sidebar and detail out as the window does (the sidebar
+/// 272 pt wide, 8 pt in, on the list's flat background instead of glass, its search field drawn in place).
+private struct SplitWindowRender: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        if #available(macOS 26, *) {
+            let shape = RoundedRectangle(cornerRadius: Radius.panel, style: .continuous)
+            HStack(spacing: 0) {
+                ProfileSidebar(previewWithoutSearch: true)
+                    .safeAreaInset(edge: .top, spacing: 0) { searchField }
+                    .frame(width: 272)
+                    .clipShape(shape)
+                    .edge(shape, Palette.glassEdge, width: Elevation.glassEdge)
+                    .padding(8)
+                if let p = model.selection.flatMap(model.profile) {
+                    ProfileDetailView(profile: p)
+                }
+            }
+        } else {
+            MainSplitView()
+        }
+    }
+
+    /// As macOS 26 draws the sidebar's search field.
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+            Text(String(localized: "Search profiles"))
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 10)
+        .frame(height: 28)
+        .background(Palette.card, in: Capsule())
+        .edge(Capsule(), Palette.line)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
     }
 }

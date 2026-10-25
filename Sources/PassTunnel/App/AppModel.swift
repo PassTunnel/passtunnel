@@ -340,6 +340,8 @@ final class AppModel: ObservableObject {
     }
     var previewUnreachable: Set<String> = []
     var previewReconnecting: [String: ReconnectInfo] = [:]
+    /// Render override: connects waiting for a fresh code until then (`ConnectionManager.codeWaitUntil`).
+    var previewCodeWaits: [String: Date] = [:]
 
     func reconnectInfo(_ id: String) -> ReconnectInfo? {
         if previewStates != nil { return previewReconnecting[id] }

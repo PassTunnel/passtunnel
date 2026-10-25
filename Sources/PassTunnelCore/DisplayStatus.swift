@@ -145,6 +145,39 @@ public enum DisplayStatus: Equatable, Sendable {
         }
     }
 
+    // MARK: action
+
+    /// The main button of the detail for a status; Return, a double click and ⌘↩ do the same.
+    public enum Action: CaseIterable, Sendable {
+        case connect, cancel, disconnect, stop, tryAgain
+
+        public var title: String {
+            switch self {
+            case .connect: return String(localized: "Connect")
+            case .cancel: return String(localized: "Cancel")
+            case .disconnect: return String(localized: "Disconnect")
+            case .stop: return String(localized: "Stop")
+            case .tryAgain: return String(localized: "Try again")
+            }
+        }
+
+        /// Connect and Try again start a connection; the others end the connection, the attempt under way or the
+        /// automatic reconnect.
+        public var connects: Bool { self == .connect || self == .tryAgain }
+    }
+
+    /// Connect at rest (also after a drop), Cancel on the way, Disconnect once up (whatever its problem), Stop
+    /// while it reconnects on its own, Try again after a failure.
+    public var action: Action {
+        switch self {
+        case .off, .protected, .dropped: return .connect
+        case .connecting, .waitingForCode: return .cancel
+        case .connected, .setupIncomplete, .notResponding, .statusUnavailable: return .disconnect
+        case .reconnecting: return .stop
+        case .failed: return .tryAgain
+        }
+    }
+
     // MARK: wording
 
     /// The short form, for sidebar rows and the menu bar panel: "Connected · 1h 12m".

@@ -137,6 +137,32 @@ final class DisplayStatusTests: XCTestCase {
         XCTAssertEqual(status(Facts(p, state: .disconnected, reconnect: reconnect)), .reconnecting(reconnect, freshCode: true))
     }
 
+    // MARK: main button
+
+    func testTheMainButtonFollowsTheStatus() {
+        let cases: [(DisplayStatus, DisplayStatus.Action)] = [
+            (.off, .connect),
+            (.protected, .connect),
+            (.dropped, .connect),
+            (.connecting(phase: "Signing in…"), .cancel),
+            (.waitingForCode(until: now), .cancel),
+            (.connected(connection), .disconnect),
+            (.setupIncomplete(connection, warning: "w"), .disconnect),
+            (.notResponding(connection), .disconnect),
+            (.statusUnavailable(connection), .disconnect),
+            (.reconnecting(reconnect, freshCode: true), .stop),
+            (.failed(.message(rejected)), .tryAgain),
+        ]
+        for (status, action) in cases {
+            XCTAssertEqual(status.action, action, "\(status)")
+        }
+    }
+
+    func testOnlyConnectAndTryAgainStartAConnection() {
+        XCTAssertEqual(DisplayStatus.Action.allCases.filter(\.connects), [.connect, .tryAgain])
+        XCTAssertEqual(DisplayStatus.Action.allCases.map(\.title), ["Connect", "Cancel", "Disconnect", "Stop", "Try again"])
+    }
+
     // MARK: words
 
     func testWords() {

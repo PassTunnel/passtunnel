@@ -87,7 +87,7 @@ private struct SearchWhenLong: ViewModifier {
     }
 }
 
-private struct DropHighlight: View {
+struct DropHighlight: View {
     var body: some View {
         RoundedRectangle(cornerRadius: 12, style: .continuous)
             .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 3, dash: [8, 5]))

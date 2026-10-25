@@ -123,6 +123,31 @@ Sidebar-less single list, one row per profile (drag to reorder → `order`):
   Files that start the app wait until launch has finished. The save panel of Share… and the import
   panel use the exported type (the extension's dynamic type in an unbundled `swift run`).
 
+### Redesigned window (behind a switch)
+
+The redesign replaces this window screen by screen behind a hidden switch (`NewInterface`, read once at launch):
+`defaults write com.furkanprlk.passtunnel PTNewInterface -bool YES`, then relaunch. Without it everything above
+stays as it is. With it, the main window (`MainSplitView`) is a `NavigationSplitView`, about 1080×700 by default
+and at least 820×560:
+- **Sidebar** (236–320 pt, 272 ideal): the search field, always there; the section "Profiles" with one row per
+  profile (`SidebarRow`): the name, the short status in the state's color with its dot (`ProfileStatusRow`) and the
+  live code in 13 pt SF Mono on the right ("••• •••" while it is locked or hidden). No icons, no buttons in the rows.
+  Drag to reorder (`order`), the context menu above, Return and double-click run the detail's main button. A bottom
+  bar holds `+` (the five add and import entries) and a gear that opens Settings.
+- **Detail** (`ProfileDetailView`): the name (28 bold), where it connects (`vpn.example.com:1194 · OpenVPN · UDP`
+  from the first `remote` of `config.ovpn`, `OVPNAnalyzer.endpoint`, with "+N more" when there are several;
+  `gw.example.net:443 · FortiGate`), the main button on the right and the long status line below
+  (`ProfileStatusLine`); then the current code view in a card. The main button is `DisplayStatus.action`: Connect
+  (also after a drop), Cancel while connecting or waiting for a fresh code, Disconnect once connected, Stop during
+  an automatic reconnect, Try again after a failure; Connect, Disconnect and Try again are primary capsules, Cancel
+  and Stop secondary, all as wide as the widest label. The toolbar has Edit and ⋯ (Copy Code, Copy Password +
+  Code, Share…, Show Log, Default Profile, Delete…). The window shows the default profile (else the first) when
+  nothing is selected.
+- **Profile menu**: ⌘↩ runs the main button, ⌘C copies the code (in a text field ⌘C stays the field's), ⇧⌘C the
+  password and code, ⌘E edits; off while a sheet is open.
+- No toast (VoiceOver still announces "Code copied") and no window subtitle. Sheets, alerts, the delete
+  confirmation and drag & drop import are the same as above.
+
 ## Profile editor (sheet)
 
 About 660 × 700 pt, shared by every window that edits profiles (`ProfileEditorView`, built from the design
@@ -474,7 +499,8 @@ CLI after commands that change profiles or secrets), when it becomes active, and
 
 The redesigned interface is built from tokens and base components in `Sources/PassTunnel/App/Design/`;
 of the screens above, the profile editor uses them (its rows, fields, switch and "Server receives" preview are in
-`Editor/EditorComponents.swift`), and so does the menu bar panel of the new interface; the others not yet.
+`Editor/EditorComponents.swift`), and so do the main window and the menu bar panel of the new interface; the
+others not yet.
 - `Tokens.swift`: `Palette` colors with light, dark and Increase Contrast values (dynamic `NSColor`s that follow
   the window's appearance). Mostly monochrome; green (connected), amber (waiting, the last 5 s) and red (errors)
   only ever come with an icon and words. Window and sidebar backgrounds are the system's, so fills, hairlines,
@@ -502,8 +528,13 @@ of the screens above, the profile editor uses them (its rows, fields, switch and
   its message for now; once Core reports why (a rejected sign-in, a server that does not answer), each reason
   becomes a `DisplayStatus.Failure` case. `Views/ProfileStatusViews.swift` adds the icon and color and the views
   `ProfileStatusLine` (detail), `ProfileStatusRow` (dot and short words) and `ProfileStatusDot`, fed by
-  `AppModel.displayStatus(_:)`; the menu bar panel shows the dot and the short words, the current window and menu
-  still use `StatusKind`. The `profile-status` render shows every state.
+  `AppModel.displayStatus(_:)`; the new window and the menu bar panel show them, the current window and menu still
+  use `StatusKind`. On a selected row's accent color the words turn white (macOS 14 and later; macOS 13 keeps the
+  state's color). The `profile-status` render shows every state.
+- The `main-split` renders show the redesigned window with the sample profiles, light and dark, once per state of
+  the selected profile (`main-split`, `-waiting`, `-dropped`, `-off`, `-failed`); they are not on the website.
+  Offscreen, the glass sidebar of macOS 26 draws without its rows, so there the render lays the window's sidebar
+  and detail out side by side, the sidebar on its flat list background.
 
 ## Accessibility
 
@@ -513,7 +544,8 @@ a label set inside a button's label with `children: .ignore` can leave the butto
 exposes it as `AXDescription` (read by VoiceOver and `AXUIElementCopyAttributeValue`), never as
 `AXTitle`, and does not list it in `AXAttributeNames`, so System Events shows `name` as missing value.
 For UI automation, key controls carry stable, unlocalized `.accessibilityIdentifier`s (`AXIdentifier`):
-`profile.<id>`, `profile.<id>.primary`, `profile.<id>.more`, `profile.<id>.code`, `main.add`,
+`profile.<id>`, `profile.<id>.primary`, `profile.<id>.more`, `profile.<id>.code`, `main.add` (in the redesigned
+window also `profile.<id>.edit` and `main.settings`; its sidebar rows read as name, status and code),
 `helper.install|update|loginItems|remove|licenses`, `onboarding.back|continue|done|installHelper|loginItems`,
 `editor.cancel|save|delete|advanced|requireAuth|revealCode`, `settings.authReuse`, and in the menu bar panel
 `menu.<id>.toggle`, `menu.add|copyCode|copyPasswordCode|typeCode|open|settings|quit`. The editor's switches are
