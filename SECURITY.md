@@ -11,6 +11,7 @@ Implementation details are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - [Importing an OpenVPN configuration](#importing-an-openvpn-configuration)
 - [Secrets and files](#secrets-and-files)
 - [Confirm with Touch ID (Secure Enclave)](#confirm-with-touch-id-secure-enclave)
+- [Network connections](#network-connections)
 - [Updates](#updates)
 - [MCP server and automation](#mcp-server-and-automation)
 - [What is not protected](#what-is-not-protected)
@@ -437,6 +438,32 @@ moment is not used either: the connect fails and asks you to connect again.
   `config.ovpn`) are not protected either: editing them does not decrypt anything and does not
   redirect secrets you already confirmed, but someone with your account can delete the items or the
   profile.
+
+## Network connections
+
+PassTunnel has no servers of its own. Apart from the VPN itself, the app and the `passtunnel`
+command connect only to:
+
+- **Your VPN servers**, through the bundled `openvpn` and `openfortivpn`. Your user name, password and
+  one-time code go only there.
+- **Hosts you set up:** a profile's health check host while it is connected, and the gateway you
+  entered when you click *Fetch fingerprint* (a TLS handshake that stops once the certificate is seen).
+- **The FortiGate gateway, after it rejected a sign-in,** to read its clock: one-time codes are worked
+  out from the clock, so a Mac whose clock is off sends codes the server refuses. Only after a
+  rejection, never at launch, and only to the gateway the VPN just signed in to: one `HEAD /` request
+  over TLS, which reads the `Date` header of the answer. The certificate must be the profile's
+  trusted certificate or one the system trusts for that name, as openfortivpn requires; otherwise the
+  connection ends before anything is sent. The request has no user name, password, code or cookie,
+  and the check gives up after 5 seconds. OpenVPN servers are never asked (they tell no reliable time).
+- **Apple's time server (`time.apple.com`), only when you ask:** `passtunnel diagnose --check-clock`
+  or the MCP tool `diagnose` with `check_clock`. One SNTP request
+  that carries no information about your Mac (not even its time: a random number takes its place),
+  and an answer that does not echo that number is ignored. On Linux the NTP server the system is set
+  up with is asked instead, and the gateway is never asked.
+- **GitHub, for updates** (below).
+
+The last clock measurement of a profile is kept in its folder (`clock.json`, `0600`): the offset in
+seconds, the host asked and when.
 
 ## Updates
 

@@ -356,6 +356,10 @@ public struct DiagnoseReport: Codable, Equatable {
     public var profiles: [ProfileCheck]
     /// Linux: where passwords and TOTP secrets are kept, and whether that store can be used.
     public var secretStore: SecretStoreReport?
+    /// Only when asked for (`--check-clock`, `check_clock`): how far the clock is off by the time server,
+    /// or why that could not be measured.
+    public var clock: ClockOffset?
+    public var clockError: String?
 }
 
 public struct ProfileCheck: Codable, Equatable {
@@ -372,6 +376,8 @@ public struct ProfileCheck: Codable, Equatable {
     /// Fields asked on every connect (user name, password, one-time code): not possible unattended.
     public var asksFor: [String]
     public var problems: [ErrorReport]
+    /// The last clock measurement for the profile (FortiGate: the gateway's time after a rejected sign-in).
+    public var clock: ClockOffset?
 }
 
 /// App identity for `version` and `diagnose`.

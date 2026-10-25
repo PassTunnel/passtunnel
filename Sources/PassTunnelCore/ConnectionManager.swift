@@ -364,6 +364,15 @@ public final class ConnectionManager: ObservableObject {
     @Published public private(set) var statusUnavailable: Set<String> = []
     /// While a connect waits for a fresh TOTP code: when that wait ends.
     @Published public private(set) var codeWaitUntil: [String: Date] = [:]
+    /// The last clock measurement per profile in this process (`lastClock` also reads the other
+    /// processes'): the FortiGate gateway's time, after it rejected a sign-in.
+    @Published public private(set) var clockOffsets: [String: ClockOffset] = [:]
+    /// The last check with the time server (`checkClock`, on request only).
+    @Published public private(set) var timeServerClock: ClockOffset?
+    /// Measures the clock (`ServerClock`); tests put in one that never goes to the network.
+    public var serverClock: ClockChecking = ServerClock()
+    private var clockChecks: [String: (seq: Int, task: Task<Void, Never>)] = [:]
+    private var clockCheckSeq = 0
 
     public let events = PassthroughSubject<ConnectionEvent, Never>()
     /// Every activity event this manager records, as it is appended to the profile's `activity.jsonl`
@@ -1189,6 +1198,7 @@ public final class ConnectionManager: ObservableObject {
         let log = progress.toolRan ? VPNLog.read(store.logURL(id)) : nil
         let failure = ConnectionFailure.of(error, log: log, handed: progress.handed, at: clock.now())
         failures[id] = failure
+        if failure.kind == .authRejected && progress.owned { checkGatewayClock(id, after: failure) }
         if let used = progress.usedCode, !failure.credentialsSent, failure.kind != .cancelled, usedCode(id) == used.written {
             restoreUsedCode(id, used.previous)
         }
@@ -1569,6 +1579,66 @@ public final class ConnectionManager: ObservableObject {
         events.send(.sessionEnding(profileID: p.id, minutes: Int(remaining.rounded(.up))))
     }
 
+    // MARK: clock
+
+    /// `profiles/<id>/clock.json`: the profile's last clock measurement (`ClockOffset`), for the other
+    /// processes (the app, the CLI's `diagnose`).
+    static let clockFile = "clock.json"
+
+    /// After a FortiGate rejected a sign-in this manager sent: one request to the gateway for its time
+    /// (`ServerClock`), in the background. The result is kept for the profile (`clockOffsets`,
+    /// `clock.json`) and added to the failure if that is still the profile's last one. Never at launch,
+    /// never for OpenVPN (its servers tell no reliable time).
+    private func checkGatewayClock(_ id: String, after failure: ConnectionFailure) {
+        guard let p = try? store.get(id), p.type == .forti else { return }
+        let host = p.host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard FortiConfig.isValidHost(host) else { return }
+        let port = p.port
+        let pin = TLSFingerprint.normalize(p.trustedCert)
+        let checker = serverClock
+        clockCheckSeq += 1
+        let seq = clockCheckSeq
+        clockChecks[id] = (seq, Task { [weak self] in
+            let measured = try? await checker.gateway(host: host, port: port, trustedCert: pin, timeout: ServerClock.gatewayTimeout)
+            guard let self else { return }
+            if self.clockChecks[id]?.seq == seq { self.clockChecks[id] = nil }
+            guard let measured else { return }
+            self.noteClock(id, measured)
+            if self.failures[id] == failure { self.failures[id]?.clock = measured }
+        })
+    }
+
+    /// Returns once the clock check started after `id`'s last rejected sign-in has finished (at most
+    /// `ServerClock.gatewayTimeout`), so a failure reported right after it carries the measurement.
+    public func clockCheckFinished(_ id: String) async {
+        await clockChecks[id]?.task.value
+    }
+
+    /// On request only (the app's Check button, `diagnose --check-clock`): asks the time server
+    /// (`ServerClock.timeServer`). The result is also added to each rejected sign-in's failure that has
+    /// no newer measurement.
+    public func checkClock() async throws -> ClockOffset {
+        let measured = try await serverClock.timeServer(timeout: ServerClock.timeServerTimeout)
+        timeServerClock = measured
+        for (id, failure) in failures where failure.kind == .authRejected
+            && (failure.clock?.checkedAt ?? .distantPast) <= measured.checkedAt {
+            failures[id]?.clock = measured
+        }
+        return measured
+    }
+
+    /// The last clock measurement for `id`: the newer of this process's and the one in `clock.json`.
+    public func lastClock(_ id: String) -> ClockOffset? {
+        let saved = try? JSONCoding.read(ClockOffset.self, from: store.dir(id).appendingPathComponent(Self.clockFile))
+        return [saved, clockOffsets[id]].compactMap { $0 }.max { $0.checkedAt < $1.checkedAt }
+    }
+
+    private func noteClock(_ id: String, _ measured: ClockOffset) {
+        clockOffsets[id] = measured
+        guard FileManager.default.fileExists(atPath: store.dir(id).path) else { return }
+        try? JSONCoding.write(measured, to: store.dir(id).appendingPathComponent(Self.clockFile), mode: 0o600)
+    }
+
     // MARK: activity
 
     /// The profile's activity, oldest first, as every process recorded it (`ActivityLog`).
@@ -1647,6 +1717,7 @@ public final class ConnectionManager: ObservableObject {
         lastError[id] = nil
         lastErrorLog[id] = nil
         failures[id] = nil
+        clockOffsets[id] = nil
         sessionActive.remove(id)
         userStopped.remove(id)
     }

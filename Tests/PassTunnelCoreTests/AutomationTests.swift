@@ -33,6 +33,7 @@ final class AutomationCLITests: XCTestCase {
         XCTAssertEqual(try command("pin acme --json"), .pin(id: "acme", json: true))
         XCTAssertEqual(try command("log acme --json -n 20"), .log(id: "acme", follow: false, json: true, lines: 20))
         XCTAssertEqual(try command("helper status --json"), .helper(.status, json: true))
+        XCTAssertEqual(try command("diagnose --json"), .diagnose(json: true))
         XCTAssertEqual(try command("version --json"), .version(json: true))
         XCTAssertEqual(try command("--version"), .version())
         XCTAssertEqual(try command("--version --json"), .version(json: true))
@@ -190,6 +191,8 @@ final class MCPServerTests: XCTestCase {
     var clock: FakeClock!
     var authenticator = FakeAuthenticator()
     var inspector = FixedHelperInspector()
+    /// The gateway and the time server: never the network.
+    var serverClock = FakeServerClock()
     var sent: [Data] = []
     var logs: [String] = []
     var store: ProfileStore { ProfileStore() }
@@ -211,6 +214,7 @@ final class MCPServerTests: XCTestCase {
         clock = FakeClock(t0)
         authenticator = FakeAuthenticator()
         inspector = FixedHelperInspector()
+        serverClock = FakeServerClock()
         sent = []
         logs = []
     }
@@ -228,6 +232,7 @@ final class MCPServerTests: XCTestCase {
         let manager = ConnectionManager(store: store, helper: helper, clock: clock ?? self.clock,
                                         healthProbe: { _ in (false, 0) }, preferences: { Preferences() },
                                         routes: { [] }, authenticator: authenticator ?? self.authenticator)
+        manager.serverClock = serverClock
         let automation = AutomationService(store: store, manager: manager, helperInspector: inspector,
                                            appInfo: AppInfo(version: "9.9.9", build: "99", appPath: "/Applications/PassTunnel.app"))
         return MCPServer(service: automation, allowConnect: allowConnect, serverVersion: "9.9.9",
@@ -770,6 +775,78 @@ final class MCPServerTests: XCTestCase {
         let text = sent.map { String(decoding: $0, as: UTF8.self) }.joined()
         XCTAssertFalse(text.contains(password))
         XCTAssertFalse(text.contains("/bin/sh"), "config contents stay out")
+    }
+
+    /// `diagnose` contacts the time server only with `check_clock`, and shows each profile's last
+    /// measurement.
+    func testDiagnoseChecksTheClockOnlyWhenAsked() async throws {
+        var forti = try store.create(name: "Forti", type: .forti)
+        forti.host = "vpn.example.com"
+        try store.save(forti)
+        let gateway = ClockOffset(offsetSeconds: 48, source: .gateway, server: "vpn.example.com", checkedAt: t0)
+        try JSONCoding.write(gateway, to: store.dir(forti.id).appendingPathComponent(ConnectionManager.clockFile), mode: 0o600)
+        let server = makeServer()
+
+        let plain = try await structured(server, "diagnose")
+        XCTAssertNil(plain["clock"])
+        XCTAssertNil(plain["clock_error"])
+        XCTAssertEqual(serverClock.timeServerCalls, 0)
+        let check = try XCTUnwrap((plain["profiles"] as? [[String: Any]])?.first)
+        let clock = try XCTUnwrap(check["clock"] as? [String: Any])
+        XCTAssertEqual(clock["offset_seconds"] as? Int, 48)
+        XCTAssertEqual(clock["source"] as? String, "gateway")
+        XCTAssertEqual(clock["server"] as? String, "vpn.example.com")
+        XCTAssertEqual(clock["checked_at"] as? String, "2023-11-14T22:13:20Z")
+
+        serverClock.timeServerResult = .success(ClockOffset(offsetSeconds: -3, source: .timeServer, server: "time.apple.com",
+                                                            checkedAt: t0))
+        let checked = try await structured(server, "diagnose", ["check_clock": true])
+        XCTAssertEqual((checked["clock"] as? [String: Any])?["offset_seconds"] as? Int, -3)
+        XCTAssertEqual((checked["clock"] as? [String: Any])?["source"] as? String, "time_server")
+        XCTAssertEqual(serverClock.timeServerCalls, 1)
+
+        serverClock.timeServerResult = .failure(ServerClock.Failure.timedOut)
+        let failed = try await structured(server, "diagnose", ["check_clock": true])
+        XCTAssertNil(failed["clock"])
+        XCTAssertEqual(failed["clock_error"] as? String, ServerClock.Failure.timedOut.localizedDescription)
+        let badArgument = try await toolError(server, "diagnose", ["check_clock": "yes"])
+        XCTAssertEqual(badArgument, "invalid_argument")
+        XCTAssertEqual(serverClock.timeServerCalls, 2)
+        XCTAssertEqual(serverClock.gatewayCalls, [], "diagnose never asks a gateway")
+
+        let list = await exchange(server, request(9, "tools/list"))
+        let tools = try XCTUnwrap((list?["result"] as? [String: Any])?["tools"] as? [[String: Any]])
+        let diagnose = try XCTUnwrap(tools.first { $0["name"] as? String == "diagnose" })
+        let input = try XCTUnwrap((diagnose["inputSchema"] as? [String: Any])?["properties"] as? [String: Any])
+        XCTAssertEqual((input["check_clock"] as? [String: Any])?["type"] as? String, "boolean")
+        let output = try XCTUnwrap((diagnose["outputSchema"] as? [String: Any])?["properties"] as? [String: Any])
+        XCTAssertEqual(((output["clock"] as? [String: Any])?["required"] as? [String]), ["offset_seconds", "source", "checked_at"])
+    }
+
+    /// A FortiGate's rejection: the failure that `connect` reports already has the gateway's time.
+    func testARejectedFortiConnectReportsTheClock() async throws {
+        var p = try store.create(name: "Forti", type: .forti)
+        p.host = "vpn.example.com"
+        p.username = "alice"
+        try store.save(p)
+        try Secrets.set(p.id, .password, password)
+        serverClock.gatewayResult = .success(ClockOffset(offsetSeconds: -52, source: .gateway, server: "vpn.example.com",
+                                                         checkedAt: t0))
+        helper.startLog = "INFO:   Connected to gateway.\n"
+            + "ERROR:  Could not authenticate to gateway. Please check the password, client certificate, etc.\n"
+        let server = makeServer(allowConnect: true)
+        let result = try await callTool(server, "connect", ["profile_id": "forti"])
+        XCTAssertEqual(errorCode(result), "credentials_rejected")
+        let text = try XCTUnwrap(((result["content"] as? [[String: Any]])?.first)?["text"] as? String)
+        let error = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])?["error"] as? [String: Any])
+        let clock = try XCTUnwrap((error["failure"] as? [String: Any])?["clock"] as? [String: Any])
+        XCTAssertEqual(clock["offset_seconds"] as? Int, -52)
+        XCTAssertEqual(clock["source"] as? String, "gateway")
+        XCTAssertEqual(serverClock.gatewayCalls.count, 1)
+
+        let status = try await structured(server, "get_status", ["profile_id": "forti"])
+        let failure = try XCTUnwrap((status["profiles"] as? [[String: Any]])?.first?["failure"] as? [String: Any])
+        XCTAssertEqual((failure["clock"] as? [String: Any])?["offset_seconds"] as? Int, -52)
     }
 
     func testConnectAndDisconnect() async throws {

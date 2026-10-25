@@ -61,6 +61,7 @@ enum CLICompletions {
             import) _arguments '--name' '--json' '*:file:_files' ;;
             add) _arguments '--type[VPN type]:type:(openvpn forti)' '--json' ;;
             helper) _values 'action' status install uninstall ;;
+            diagnose) _arguments '--check-clock[also ask the time server]' '--json' ;;
             \(zshSecretStore)mcp) _arguments '--allow-connect[also offer connect and disconnect]' '--no-auth-prompt' ;;
             list|version) _arguments '--json' ;;
             completion) _values 'shell' zsh bash fish ;;
@@ -99,6 +100,7 @@ enum CLICompletions {
             import) COMPREPLY=($(compgen -f -- "$cur")) ;;
             add) COMPREPLY=($(compgen -W "--type openvpn forti --json" -- "$cur")) ;;
             helper) COMPREPLY=($(compgen -W "status install uninstall --json" -- "$cur")) ;;
+            diagnose) COMPREPLY=($(compgen -W "--check-clock --json" -- "$cur")) ;;
             \(bashSecretStore)mcp) COMPREPLY=($(compgen -W "--allow-connect --no-auth-prompt" -- "$cur")) ;;
             list|version) COMPREPLY=($(compgen -W "--json --quiet" -- "$cur")) ;;
             completion) COMPREPLY=($(compgen -W "zsh bash fish" -- "$cur")) ;;
@@ -125,7 +127,7 @@ enum CLICompletions {
             "complete -c passtunnel -n '__fish_seen_subcommand_from completion' -a 'zsh bash fish'",
             "complete -c passtunnel -n '__fish_seen_subcommand_from help' -a '\(commands)'",
         ]
-        let commonJSONCommands = "status connect disconnect toggle code list show set add import export rm secret default pin unpin log helper version"
+        let commonJSONCommands = "status connect disconnect toggle code list show set add import export rm secret default pin unpin log diagnose helper version"
         #if os(Linux)
         lines.insert("complete -c passtunnel -n '__fish_seen_subcommand_from secret-store' -a '\(storeNames)'",
                      at: lines.count - 1)
@@ -136,7 +138,7 @@ enum CLICompletions {
         for (flag, cmds) in [("json", jsonCommands), ("all", "disconnect"), ("copy", "code"),
                              ("follow", "log"), ("lines", "log"), ("activity", "log"), ("yes", "rm"), ("force", "connect"), ("name", "import"),
                              ("output", "export"), ("wait", "connect disconnect"), ("timeout", "connect disconnect"),
-                             ("allow-connect", "mcp"), ("no-input", commands), ("no-auth-prompt", commands)] {
+                             ("allow-connect", "mcp"), ("check-clock", "diagnose"), ("no-input", commands), ("no-auth-prompt", commands)] {
             lines.append("complete -c passtunnel -n '__fish_seen_subcommand_from \(cmds)' -l \(flag)")
         }
         return lines.joined(separator: "\n") + "\n"

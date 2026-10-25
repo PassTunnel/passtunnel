@@ -121,6 +121,8 @@ public final class AutomationService {
                     role?($0)
                 }
             } catch let error where !(error is ConnectionManager.NothingToFollow) {
+                // After a rejected sign-in, the clock check (a few seconds at most), so the failure has it.
+                await manager.clockCheckFinished(id)
                 // Set by the attempt that threw (each attempt clears it first).
                 guard let failure = manager.failures[id] else { throw error }
                 throw ConnectFailedError(error, failure: Self.redacted(failure, id: id))
@@ -232,11 +234,17 @@ public final class AutomationService {
 
     // MARK: diagnose
 
-    public func diagnose() async -> DiagnoseReport {
+    /// `checkClock`: also asks the time server how far the clock is off (`ConnectionManager.checkClock`);
+    /// only on request, as it contacts that server.
+    public func diagnose(checkClock: Bool = false) async -> DiagnoseReport {
         let helper = await helperInspector.report()
-        return DiagnoseReport(version: appInfo.version, build: appInfo.build, appPath: appInfo.appPath,
-                              inApplications: appInfo.inApplications, helper: helper,
-                              profiles: store.list().map(check), secretStore: await Self.secretStoreReport())
+        var report = DiagnoseReport(version: appInfo.version, build: appInfo.build, appPath: appInfo.appPath,
+                                    inApplications: appInfo.inApplications, helper: helper,
+                                    profiles: store.list().map(check), secretStore: await Self.secretStoreReport())
+        if checkClock {
+            do { report.clock = try await manager.checkClock() } catch { report.clockError = error.localizedDescription }
+        }
+        return report
     }
 
     /// Linux: the secret store in use. Its availability check may run a tool for a few seconds, so
@@ -291,7 +299,7 @@ public final class AutomationService {
         return ProfileCheck(id: p.id, name: p.name, type: p.type.rawValue, ok: problems.isEmpty,
                             server: ProfileDestination.of(p, store: store).host, protected: ProfileSummary.isProtected(p),
                             passwordSaved: passwordSaved, totpSaved: totpSaved, asksFor: p.needs.map(\.rawValue),
-                            problems: problems.map(ErrorReport.init))
+                            problems: problems.map(ErrorReport.init), clock: manager.lastClock(p.id))
     }
 }
 

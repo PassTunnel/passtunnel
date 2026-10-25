@@ -37,9 +37,9 @@ A bundle without `dns-updown` pins an empty set for it, so the helper refuses an
 | Target | Owns | Depends on |
 |---|---|---|
 | `PassTunnelVPNConfig` | `OVPNSanitizer`, `FortiConfig`: the configurations the helper runs as root | — |
-| `PassTunnelKit` | the portable logic (Foundation, CryptoKit and Security only; builds for macOS 13, iOS 17 and Linux): model, `PTError`, `JSONCoding`, `TOTP`, `OTPAuthURI`, `OTPComposer`, `OVPNAnalyzer`, `OVPNInliner`, `OVPNSkipRules`, `OVPNImportReport`, `ShareFile`, `Slug`, `ProfileFields`, `ProfileMerge`, `SecretEnvelope`, `HealthCheck` (parsing) | VPNConfig (and swift-crypto on Linux) |
+| `PassTunnelKit` | the portable logic (Foundation, CryptoKit and Security only; builds for macOS 13, iOS 17 and Linux): model, `PTError`, `JSONCoding`, `TOTP`, `OTPAuthURI`, `OTPComposer`, `OVPNAnalyzer`, `OVPNInliner`, `OVPNSkipRules`, `OVPNImportReport`, `ShareFile`, `Slug`, `ProfileFields`, `ProfileMerge`, `SecretEnvelope`, `HealthCheck` (parsing), `ClockOffset` (clock offset, HTTP dates) | VPNConfig (and swift-crypto on Linux) |
 | `PassTunnelShared` | XPC protocol, request/response types, `HelperCore` (request decoding, path checks, tool environment), `SessionPolicy`, `CodeSignature`, `Spawner` (verified, suspended launch), `PinnedTools`, `ToolStager` (root-owned copy of the tools and their dylibs), `HelperBuild`, identifiers | VPNConfig (and swift-crypto on Linux) |
-| `PassTunnelCore` | `ProfileStore` + `ImportDraft`, `ProfilesWatcher`, `Secrets` + `SecretStore` (Keychain; on Linux `SecretStores`: secret-service, systemd-creds, file), `SecretVault` + `UserAuthenticator` (Secure Enclave protection), `Preferences`, `HealthCheck.check` (the probe), `QRDecoder`, `OpenedFiles` (files the app is asked to open), `ScannedCodeTarget` (where a scanned code goes), `TLSFingerprint`, `HelperClient`, `HelperAutoUpdate`, `ConnectionManager` + `ProfileDestination`, `ConnectionFailure`, `ActivityLog` + `ActivityEvent`, `LoginConnector` (connect at login), CLI parsing (`CLICommand`, `CLIInvocation`), automation objects + `AutomationService`, `MCPServer` + `MCPTools` + `JSONValue` | Kit, VPNConfig, Shared (and swift-crypto's Crypto and CryptoExtras on Linux) |
+| `PassTunnelCore` | `ProfileStore` + `ImportDraft`, `ProfilesWatcher`, `Secrets` + `SecretStore` (Keychain; on Linux `SecretStores`: secret-service, systemd-creds, file), `SecretVault` + `UserAuthenticator` (Secure Enclave protection), `Preferences`, `HealthCheck.check` (the probe), `QRDecoder`, `OpenedFiles` (files the app is asked to open), `ScannedCodeTarget` (where a scanned code goes), `TLSFingerprint`, `ServerClock` + `SNTP` (clock checks), `HelperClient`, `HelperAutoUpdate`, `ConnectionManager` + `ProfileDestination`, `ConnectionFailure`, `ActivityLog` + `ActivityEvent`, `LoginConnector` (connect at login), CLI parsing (`CLICommand`, `CLIInvocation`), automation objects + `AutomationService`, `MCPServer` + `MCPTools` + `JSONValue` | Kit, VPNConfig, Shared (and swift-crypto's Crypto and CryptoExtras on Linux) |
 | `PassTunnelCLI` | the `passtunnel` command: `PassTunnelCLI.run` (entry, `CLIHelp`), `CLIRunner`, `CLICompletions`, `CLITerminal`, `CLIClipboard`; `Pasteboard` (macOS: the app's too) | Core, Kit, Shared |
 | `PassTunnelHelper` | `main.swift` XPC listener, process supervision | Shared (and through it VPNConfig) |
 | `PassTunnel` | SwiftUI app, menu bar, onboarding, updates (`AppUpdater`), Scan QR on screen (`ScreenQRScanner`, ScreenCaptureKit, macOS 14 and later); CLI mode runs `PassTunnelCLI` | CLI, Core, Kit, VPNConfig, Shared, Sparkle |
@@ -120,11 +120,12 @@ The platform seams (Linux code stays in the same files behind `#if`; the Mac's b
   (`scripts/build-linux.sh`) compiles in `BuildVersion+Generated.swift` (never committed) with
   `-DPASSTUNNEL_BUILD_VERSION`; otherwise `0.0.0-dev` and no build number. The daemon, which links no
   Core, gets the same build number from `DaemonBuild+Generated.swift` (`DaemonBuild`).
-- **System calls.** `POSIXSocket` (`SOCK_STREAM`, `MSG_NOSIGNAL` for `SO_NOSIGPIPE`, no `sun_len`) for
-  the management socket and the health probe; Linux pings with `ping -n -q -c 1 -W <s>` (`-6` for IPv6)
+- **System calls.** `POSIXSocket` (`SOCK_STREAM`, `SOCK_DGRAM`, `MSG_NOSIGNAL` for `SO_NOSIGPIPE`, no
+  `sun_len`) for the management socket, the health probe and the SNTP client; Linux pings with `ping -n -q -c 1 -W <s>` (`-6` for IPv6)
   from `/usr/bin`, `/bin`, `/usr/sbin` or `/sbin`, never `PATH`.
 - **macOS only** (`#if os(macOS)`): `ProfilesWatcher`, `LoginItem`, `HelperInstaller`,
-  `HelperClient`, `QRDecoder`, `TLSFingerprint.fetch` (its digest formats are portable),
+  `HelperClient`, `QRDecoder`, `TLSFingerprint.fetch` (its digest formats are portable), `ServerClock.gateway`
+  (`#if canImport(Network)`; on Linux it fails with `unavailable`, LINUX.md),
   `HelperSessions.currentProcesses`, `RoutingTable.ipv4Routes` and `parse`, `ConfirmationWording`, and in Shared
   `CodeSignature`, `Spawner`, `ToolStager`, the XPC protocol and `HelperCore`'s `F_GETPATH` (Linux
   reads the `/proc/self/fd` link instead) and `fcopyfile` (only for the Mac's bundled DNS script;
@@ -161,7 +162,9 @@ public enum PT {
     `profiles/<id>/.mgmt-state` (OpenVPN state shared by the app, which holds the management interface),
     `profiles/<id>/activity.jsonl` (`ActivityLog`: the last 500 typed events of the profile's connections,
     one JSON object per line, 0600; appended under `profiles/<id>/.activity.lock` and replaced atomically, so
-    the app and CLI processes can write at once; no password, a code as at most its first three digits)
+    the app and CLI processes can write at once; no password, a code as at most its first three digits),
+    `profiles/<id>/clock.json` (the last `ClockOffset` measured for the profile: a FortiGate gateway's time
+    after a rejected sign-in, 0600)
     (the OpenVPN management socket is in the helper's run directory, see below)
   - Linux only (`~/.local/share/passtunnel/`, LINUX.md): `secrets/<account>.cred` (systemd-creds
     store), `secrets.enc` and `.secrets.lock` (file store)
@@ -782,7 +785,9 @@ tunnel. Hence:
   temp dir. The Linux secret stores' tests use `FakeTools` for `secret-tool` and `systemd-creds` and a
   temp dir for the file store (LINUX.md, Rules, for the one opt-in CI round trip with a real
   keyring). Tests never use the Secure Enclave or show a prompt: `ConnectionManagerTests` and
-  `SecretVaultTests` inject `FakeAuthenticator` (a software P-256 key).
+  `SecretVaultTests` inject `FakeAuthenticator` (a software P-256 key). No test asks a gateway or a time
+  server for the clock: managers get `FakeServerClock` (`ConnectionManager.serverClock`); `ServerClockTests`
+  run their own SNTP server (UDP) and, on the Mac, TLS server on 127.0.0.1.
 - Swift language mode 5 (tools 5.10), macOS 13 APIs, no third-party dependencies except Sparkle (updates)
   and swift-crypto (CryptoKit's API for PassTunnelKit, and scrypt from its CryptoExtras for the Linux
   file store; used on Linux only), each pinned to an exact version in `Package.swift`.

@@ -299,6 +299,8 @@ final class ConnectionManagerTests: XCTestCase {
     var routeTable: [RoutingTable.Route] = []
     /// Stands in for Touch ID: no test ever shows a real prompt.
     var authenticator = FakeAuthenticator()
+    /// Stands in for the gateway and the time server: no test goes to the network for the clock.
+    var serverClock = FakeServerClock()
     var store: ProfileStore { ProfileStore() }
 
     /// 1_700_000_000 is 20 s into a 30 s window: 10 s left.
@@ -321,6 +323,7 @@ final class ConnectionManagerTests: XCTestCase {
         routeTable = []
         prefs = Preferences()
         authenticator = FakeAuthenticator()
+        serverClock = FakeServerClock()
     }
 
     override func tearDown() async throws {
@@ -342,6 +345,7 @@ final class ConnectionManagerTests: XCTestCase {
                                   timing: timing,
                                   authenticator: authenticator)
         m.events.sink { [weak self] in self?.events.append($0) }.store(in: &bag)
+        m.serverClock = serverClock
         return m
     }
 
@@ -1607,6 +1611,98 @@ final class ConnectionManagerTests: XCTestCase {
         XCTAssertEqual(m.usedCode(p.id), .init(counter: TOTP.counter(params: p.totp, at: t0), period: 30), "the code was used")
         XCTAssertEqual(helper.starts.count, 1, "never retried")
         XCTAssertNil(m.reconnecting[p.id])
+        await m.clockCheckFinished(p.id)
+        XCTAssertEqual(serverClock.gatewayCalls, [], "an OpenVPN server tells no time")
+        XCTAssertEqual(serverClock.timeServerCalls, 0)
+        XCTAssertNil(m.failures[p.id]?.clock)
+    }
+
+    static let fortiRejected = "INFO:   Connected to gateway.\n"
+        + "ERROR:  Could not authenticate to gateway. Please check the password, client certificate, etc.\n"
+
+    func makeForti(trustedCert: String = "") throws -> Profile {
+        var p = try store.create(name: "Acme Forti", type: .forti)
+        p.host = "vpn.example.com"
+        p.port = 10443
+        p.username = "alice"
+        p.trustedCert = trustedCert
+        try store.save(p)
+        try Secrets.set(p.id, .password, "pw")
+        return p
+    }
+
+    /// A FortiGate that rejected the sign-in is asked for its time, once, as the VPN trusts it; the
+    /// failure carries the result, and the profile keeps it for other processes.
+    func testARejectedFortiSignInChecksTheGatewayClock() async throws {
+        let digest = String(repeating: "ab", count: 32)
+        let p = try makeForti(trustedCert: digest)
+        let measured = ClockOffset(offsetSeconds: 48, source: .gateway, server: "vpn.example.com", checkedAt: t0)
+        serverClock.gatewayResult = .success(measured)
+        helper.startLog = Self.fortiRejected
+        let m = makeManager()
+        do { try await m.connect(p.id); XCTFail("connected") } catch PTError.authFailed {}
+        await m.clockCheckFinished(p.id)
+
+        XCTAssertEqual(serverClock.gatewayCalls, [.init(host: "vpn.example.com", port: 10443, trustedCert: digest)])
+        XCTAssertEqual(serverClock.timeServerCalls, 0, "the time server only on request")
+        XCTAssertEqual(m.failures[p.id]?.kind, .authRejected)
+        XCTAssertEqual(m.failures[p.id]?.clock, measured)
+        XCTAssertEqual(m.failures[p.id]?.details,
+                       "Your clock is 48 s behind the gateway’s, so one-time codes made from it are likely refused. Fix the clock, "
+                       + "then try again. Not retried, to avoid a lockout.")
+        XCTAssertEqual(m.clockOffsets[p.id], measured)
+        let file = URL(fileURLWithPath: store.dir(p.id).path).appendingPathComponent(ConnectionManager.clockFile)
+        let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+        XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+        XCTAssertEqual(makeManager().lastClock(p.id), measured, "another process reads it from the profile")
+        XCTAssertEqual(helper.starts.count, 1, "never retried")
+
+        // The next attempt starts without it; a check that fails leaves no measurement behind.
+        serverClock.gatewayResult = .failure(ServerClock.Failure.untrusted)
+        let other = try makeForti()
+        do { try await m.connect(other.id); XCTFail("connected") } catch PTError.authFailed {}
+        await m.clockCheckFinished(other.id)
+        XCTAssertEqual(serverClock.gatewayCalls.last, .init(host: "vpn.example.com", port: 10443, trustedCert: nil))
+        XCTAssertNil(m.failures[other.id]?.clock)
+        XCTAssertNil(m.lastClock(other.id))
+    }
+
+    /// Only a rejected sign-in: a gateway that cannot be reached is not asked again for its time.
+    func testOtherFortiFailuresDoNotCheckTheClock() async throws {
+        let p = try makeForti()
+        helper.startLog = "ERROR:  connect: Operation timed out\nINFO:   Closed connection to gateway.\n"
+        helper.onStatus = { [helper] _ in helper!.simulateExit(p.id) }
+        let m = makeManager()
+        do { try await m.connect(p.id); XCTFail("connected") } catch {}
+        await m.clockCheckFinished(p.id)
+        XCTAssertEqual(m.failures[p.id]?.kind, .unreachable)
+        XCTAssertEqual(serverClock.gatewayCalls, [])
+    }
+
+    /// "Check" asks the time server and adds the result to a rejected sign-in's failure.
+    func testCheckingTheClockOnRequest() async throws {
+        let p = try makeOpenVPN()
+        helper.openVPNStateLine = nil
+        helper.startLog = "2026-10-25 09:41:01 Control Channel: TLSv1.3, cipher TLSv1.3 TLS_AES_256_GCM_SHA384\n"
+            + "2026-10-25 09:41:02 AUTH: Received control message: AUTH_FAILED\n"
+        let m = makeManager()
+        do { try await m.connect(p.id); XCTFail("connected") } catch PTError.authFailed {}
+        XCTAssertEqual(serverClock.timeServerCalls, 0)
+
+        let measured = ClockOffset(offsetSeconds: -31, source: .timeServer, server: "time.apple.com", checkedAt: t0.addingTimeInterval(5))
+        serverClock.timeServerResult = .success(measured)
+        let result = try await m.checkClock()
+        XCTAssertEqual(result, measured)
+        XCTAssertEqual(m.timeServerClock, measured)
+        XCTAssertEqual(m.failures[p.id]?.clock, measured)
+        XCTAssertEqual(serverClock.timeServerCalls, 1)
+        XCTAssertEqual(serverClock.gatewayCalls, [])
+
+        serverClock.timeServerResult = .failure(ServerClock.Failure.timedOut)
+        do { _ = try await m.checkClock(); XCTFail("expected a failure") } catch {
+            XCTAssertEqual(error as? ServerClock.Failure, .timedOut)
+        }
+        XCTAssertEqual(m.failures[p.id]?.clock, measured, "kept")
     }
 
     func testAServerNameThatDoesNotResolve() async throws {

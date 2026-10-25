@@ -383,9 +383,19 @@ what the server pushes, and every value of it is treated as hostile: it ends up 
   cleared after `clear_clipboard_after` in `config.json` (30, 60 or 120 s, default 60) if PassTunnel
   still owns the clipboard: a process left behind runs the tool in the foreground, where it serves
   the clipboard until another program takes it, and stops it only if it still does.
+- **Clock check.** After a FortiGate rejects a sign-in, the Mac asks the gateway for its time
+  (`ServerClock.gateway`, APP.md). Linux does not: Foundation's networking there cannot accept a
+  certificate by its SHA-256 the way openfortivpn's `trusted-cert` does, so the check would not trust
+  the gateway exactly as the VPN does; `ServerClock.gateway` fails with `unavailable` and the failure
+  has no `clock`. `diagnose --check-clock` (MCP `check_clock`) works: the same SNTP client asks the NTP
+  server the system is set up with, read from systemd-timesyncd's `NTP=` (`/etc/systemd/timesyncd.conf`
+  and its `.conf.d` drop-ins; else `FallbackNTP=`), else the first `server` or `pool` of chrony
+  (`/etc/chrony/chrony.conf`, `/etc/chrony.conf`) or ntpd (`/etc/ntpsec/ntp.conf`, `/etc/ntp.conf`).
+  Servers a service has built in or learned from DHCP are not known; with none in the files the check
+  reports `clock_error` ("No time server is set up on this system."). Never `time.apple.com` here.
 - **Not used on Linux:** the Mac's file watcher, login item, helper installer and auto-update, QR
-  decoding, reading TLS certificates (the fingerprint formats are shared) and distributed
-  notifications (all app-side or macOS-only).
+  decoding, reading TLS certificates (the fingerprint formats are shared), the gateway clock check
+  (above) and distributed notifications (all app-side or macOS-only).
 
 ## Secrets
 

@@ -15,7 +15,7 @@ the MCP server has no such tool.
 - [Options for scripts](#options-for-scripts)
 - [Exit codes](#exit-codes)
 - [Errors](#errors)
-- [Objects](#objects): [ProfileSummary](#profilesummary), [ProfileStatus](#profilestatus), [ConnectionFailure](#connectionfailure), [HelperReport](#helperreport), [SecretStoreReport](#secretstorereport), [LogReport](#logreport), [ActivityEvent](#activityevent)
+- [Objects](#objects): [ProfileSummary](#profilesummary), [ProfileStatus](#profilestatus), [ConnectionFailure](#connectionfailure), [ClockOffset](#clockoffset), [HelperReport](#helperreport), [SecretStoreReport](#secretstorereport), [LogReport](#logreport), [ActivityEvent](#activityevent), [DiagnoseReport](#diagnosereport)
 - [Commands](#commands)
 
 ## Options for scripts
@@ -179,8 +179,36 @@ went with it, so that code's period is used up; when it did not, PassTunnel give
 the next connect sends a code at once (not after `cancelled`). Present only when they apply: `reply` (the server's answer,
 `auth_rejected`), `reason` (the VPN tool's words, e.g. `Connection refused`, `Name or service not
 known`, `certificate has expired`), `code_seconds_left` (the code's seconds left when it was sent),
-`tries` (`unreachable`). `reply` and `reason` pass through the same redaction as `log --json`. New
-kinds may be added.
+`tries` (`unreachable`), `clock` (`auth_rejected`: a [ClockOffset](#clockoffset), how far the clock was
+off when it was measured after the rejection or checked on request since; see below). `reply` and
+`reason` pass through the same redaction as `log --json`. New kinds may be added.
+
+After a FortiGate rejects a sign-in, the process that sent it asks the gateway for its time (one
+`HEAD /` request over TLS, trusted as openfortivpn trusts the gateway; at most 5 s), so a wrong clock
+can be told from a wrong password. A failed `connect` waits for that check before it reports the
+failure. OpenVPN servers tell no reliable time: their `clock` comes only from `diagnose --check-clock`
+(on request) in the same process. Linux does not ask the gateway (docs/LINUX.md).
+
+### ClockOffset
+
+How far this computer's clock is from a time source: `clock` in ConnectionFailure and in
+[DiagnoseReport](#diagnosereport).
+
+```json
+{
+  "checked_at" : "2026-10-25T09:41:03Z",
+  "offset_seconds" : 48,
+  "server" : "vpn.example.com",
+  "source" : "gateway"
+}
+```
+
+`offset_seconds`: the source's time minus this computer's, in whole seconds; positive when this
+computer's clock is behind, negative when it is ahead. From 15 s either way, one-time codes made
+from this clock are likely refused. `source`: `gateway` (the FortiGate gateway's HTTP `Date`, after a
+rejected sign-in) or `time_server` (SNTP, only on request: `time.apple.com` on the Mac, the NTP
+server the system is set up with on Linux). `server`: the host that was asked. `checked_at`: when,
+by this computer's clock. New sources may be added.
 
 ### HelperReport
 
@@ -220,6 +248,45 @@ answers, systemd 256 or later for a user, a passphrase that can be had for the f
 or a store's name. `chosen_by`: `environment` (`PASSTUNNEL_SECRET_STORE`), `setting`, `recorded` (where
 the first secret was saved) or `auto` (detected, nothing recorded yet). `error` says why it is not
 available.
+
+### DiagnoseReport
+
+From `diagnose` and the MCP tool `diagnose`: the installation and what would stop each profile from
+connecting, without connecting and without any secret's value.
+
+```json
+{
+  "app_path" : "/Applications/PassTunnel.app",
+  "build" : "45",
+  "helper" : { "expected_protocol_version" : 3, "protocol_version" : 3, "responding" : true, "state" : "enabled" },
+  "in_applications" : true,
+  "profiles" : [
+    {
+      "asks_for" : [],
+      "clock" : { "checked_at" : "2026-10-25T09:41:03Z", "offset_seconds" : 48, "server" : "vpn.example.com", "source" : "gateway" },
+      "id" : "work",
+      "name" : "Work",
+      "ok" : true,
+      "password_saved" : true,
+      "problems" : [],
+      "protected" : false,
+      "server" : "vpn.example.com",
+      "totp_saved" : true,
+      "type" : "forti"
+    }
+  ],
+  "version" : "1.2.0"
+}
+```
+
+`helper`: a [HelperReport](#helperreport). Per profile: `ok` (nothing found that would stop a
+connect; the server can still refuse it), `server`, `protected`, `password_saved` / `totp_saved`
+(whether, never the value), `asks_for` (fields asked on every connect: `username`, `password`, `otp`),
+`problems` (error objects), and `clock`, the profile's last [ClockOffset](#clockoffset) when there is
+one (any process's; a FortiGate gateway's after a rejected sign-in). Linux adds `secret_store`, a
+[SecretStoreReport](#secretstorereport). With `--check-clock` (MCP: `check_clock: true`) the time
+server is asked as well: `clock` is its ClockOffset, or `clock_error` says why it could not be
+measured. Without it, `diagnose` contacts nothing.
 
 ### LogReport
 
@@ -306,6 +373,7 @@ the ones you do not know.
 | `pin ID`, `unpin ID` | ProfileSummary |
 | `log ID [-n N]` | LogReport: `{"id": "work", "lines": […], "source": "raw", "truncated": false}`, the last N lines (at most 500) |
 | `log ID --activity [-n N]` | LogReport with `"source": "activity"` and `events`, the last N events (at most 500) |
+| `diagnose [--check-clock]` | DiagnoseReport; `--check-clock` asks the time server too (exit 0 also when that fails: `clock_error`) |
 | `helper status` | HelperReport (exit 5 unless enabled, answering and current) |
 | `version` | `{"version": "1.1.0", "build": "12", "app_path": "/Applications/PassTunnel.app", "helper_protocol_version": 3}` |
 

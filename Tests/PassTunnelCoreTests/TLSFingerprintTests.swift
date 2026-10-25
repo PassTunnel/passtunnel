@@ -48,35 +48,7 @@ final class TLSFingerprintTests: XCTestCase {
     }
 
     func testReadsLeafCertificateFromLocalServer() async throws {
-        guard #available(macOS 15, *) else { throw XCTSkip("in-memory PKCS#12 import needs macOS 15") }
-        let openssl = "/usr/bin/openssl"
-        guard FileManager.default.isExecutableFile(atPath: openssl) else { throw XCTSkip("openssl not available") }
-
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("tlsfp-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let key = dir.appendingPathComponent("key.pem").path
-        let cert = dir.appendingPathComponent("cert.pem").path
-        let der = dir.appendingPathComponent("cert.der").path
-        let p12 = dir.appendingPathComponent("id.p12").path
-        try Self.run(openssl, ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", key, "-out", cert,
-                               "-days", "1", "-subj", "/CN=localhost"])
-        try Self.run(openssl, ["x509", "-in", cert, "-outform", "der", "-out", der])
-        try Self.run(openssl, ["pkcs12", "-export", "-in", cert, "-inkey", key, "-out", p12, "-passout", "pass:test"])
-        let expected = TLSFingerprint.sha256Hex(try Data(contentsOf: URL(fileURLWithPath: der)))
-
-        var items: CFArray?
-        let options: [String: Any] = [kSecImportExportPassphrase as String: "test",
-                                      kSecImportToMemoryOnly as String: true]
-        let status = SecPKCS12Import(try Data(contentsOf: URL(fileURLWithPath: p12)) as CFData,
-                                     options as CFDictionary, &items)
-        guard status == errSecSuccess,
-              let first = (items as? [[String: Any]])?.first,
-              let identityRef = first[kSecImportItemIdentity as String] else {
-            throw XCTSkip("could not import the test identity (\(status))")
-        }
-        let identity = identityRef as! SecIdentity
-
+        let (identity, expected) = try LocalTLSServer.testIdentity()
         let server = try LocalTLSServer(identity: identity)
         defer { server.stop() }
         let port = try await server.start()
@@ -121,14 +93,22 @@ final class TLSFingerprintTests: XCTestCase {
 }
 
 #if os(macOS)
-/// TLS listener on 127.0.0.1 with the given identity; accepts connections and does nothing else.
+/// TLS listener on 127.0.0.1 with the given identity; accepts connections, keeps what they send and,
+/// with `respond`, answers it.
 final class LocalTLSServer: @unchecked Sendable {
     let listener: NWListener
     let queue = DispatchQueue(label: "tls-test-server")
     private var connections: [NWConnection] = []
     private var started = false   // touched only on `queue`
+    /// What a connection sent so far → the answer to send (and then close), or nil to keep reading.
+    private let respond: ((Data) -> Data?)?
+    private var receivedData = Data()   // touched only on `queue`
 
-    init(identity: SecIdentity) throws {
+    /// Everything the clients sent after the handshake.
+    var received: Data { queue.sync { receivedData } }
+
+    init(identity: SecIdentity, respond: ((Data) -> Data?)? = nil) throws {
+        self.respond = respond
         let tls = NWProtocolTLS.Options()
         sec_protocol_options_set_local_identity(tls.securityProtocolOptions, sec_identity_create(identity)!)
         let params = NWParameters(tls: tls)
@@ -142,6 +122,7 @@ final class LocalTLSServer: @unchecked Sendable {
                 guard let self else { return }
                 self.connections.append(conn)
                 conn.start(queue: self.queue)
+                self.read(conn, sofar: Data())
             }
             listener.stateUpdateHandler = { [weak self] state in
                 guard let self, !self.started else { return }
@@ -159,11 +140,61 @@ final class LocalTLSServer: @unchecked Sendable {
         }
     }
 
+    private func read(_ conn: NWConnection, sofar: Data) {
+        conn.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, isComplete, error in
+            guard let self else { return }
+            var all = sofar
+            if let data {
+                all.append(data)
+                self.receivedData.append(data)
+                if let reply = self.respond?(all) {
+                    conn.send(content: reply, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { _ in })
+                    return
+                }
+            }
+            if isComplete || error != nil { return }
+            self.read(conn, sofar: all)
+        }
+    }
+
     func stop() {
         queue.sync {
             connections.forEach { $0.cancel() }
             listener.cancel()
         }
+    }
+
+    /// A throwaway self-signed identity for "localhost", made with openssl and imported in memory only
+    /// (never into a keychain), and its certificate's SHA-256. Skips without openssl or before macOS 15.
+    static func testIdentity() throws -> (identity: SecIdentity, sha256: String) {
+        guard #available(macOS 15, *) else { throw XCTSkip("in-memory PKCS#12 import needs macOS 15") }
+        let openssl = "/usr/bin/openssl"
+        guard FileManager.default.isExecutableFile(atPath: openssl) else { throw XCTSkip("openssl not available") }
+
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("tlsfp-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let key = dir.appendingPathComponent("key.pem").path
+        let cert = dir.appendingPathComponent("cert.pem").path
+        let der = dir.appendingPathComponent("cert.der").path
+        let p12 = dir.appendingPathComponent("id.p12").path
+        try TLSFingerprintTests.run(openssl, ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", key, "-out", cert,
+                                              "-days", "1", "-subj", "/CN=localhost"])
+        try TLSFingerprintTests.run(openssl, ["x509", "-in", cert, "-outform", "der", "-out", der])
+        try TLSFingerprintTests.run(openssl, ["pkcs12", "-export", "-in", cert, "-inkey", key, "-out", p12, "-passout", "pass:test"])
+        let digest = TLSFingerprint.sha256Hex(try Data(contentsOf: URL(fileURLWithPath: der)))
+
+        var items: CFArray?
+        let options: [String: Any] = [kSecImportExportPassphrase as String: "test",
+                                      kSecImportToMemoryOnly as String: true]
+        let status = SecPKCS12Import(try Data(contentsOf: URL(fileURLWithPath: p12)) as CFData,
+                                     options as CFDictionary, &items)
+        guard status == errSecSuccess,
+              let first = (items as? [[String: Any]])?.first,
+              let identityRef = first[kSecImportItemIdentity as String] else {
+            throw XCTSkip("could not import the test identity (\(status))")
+        }
+        return (identityRef as! SecIdentity, digest)
     }
 }
 #endif

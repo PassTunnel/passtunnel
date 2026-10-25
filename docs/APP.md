@@ -62,6 +62,19 @@ One binary, two modes:
      put back as it was (unless another process wrote one since; never after a cancel, whose tool may still
      be on its way), so the next connect does not wait for a fresh code. A rejected sign-in is never retried (decision D-7): neither by an automatic reconnect nor
      by a health-forced one.
+  6. clock check (decision D-16): after a FortiGate rejected a sign-in this manager sent, it asks the
+     gateway for its time in the background (`ServerClock.gateway`: one `HEAD /` over TLS to host:port,
+     accepted when the certificate's SHA-256 is the profile's trusted certificate or the system trusts it
+     (no network fetch for that), as openfortivpn decides; no credentials or cookies; the `Date` header
+     against the middle of the exchange; 5 s at most). The result (`ClockOffset`) goes to
+     `clockOffsets[id]`, to `profiles/<id>/clock.json` (0600; `lastClock` reads it for other processes)
+     and to `failures[id].clock` if that failure is still the last one. `clockCheckFinished(id)` waits for
+     it (`AutomationService.connect` does before reporting a failure). Never at launch, never for another
+     failure, never for OpenVPN (no reliable server time); Linux does not ask the gateway. `checkClock()`
+     (the app's Check button, `diagnose --check-clock`, on request only) asks the time server
+     (`ServerClock.timeServer`: SNTP to `time.apple.com`; on Linux the configured NTP server), keeps it in
+     `timeServerClock` and adds it to each rejected sign-in's failure that has no newer measurement.
+     Off by 15 s or more (`ClockOffset.isWrong`) makes codes fail.
 - `disconnect(_ id:)` → helper `stop`; marks the profile *user-stopped* so it is not treated as a drop.
 - Drop detection: only `connected → disconnected` with no action in flight and not user-stopped.
   Then: notification (if enabled, see Notifications) and, if `profile.autoReconnect && profile.unattended`
@@ -532,6 +545,8 @@ passtunnel secret ID password|totp           reads from TTY (no echo) or stdin; 
 passtunnel secret-store [STORE]              Linux only: the secret store in use; STORE sets it (below)
 passtunnel default ID / pin ID / unpin ID
 passtunnel log ID [-f] [-n N] [--activity]   --activity: the activity log, worded (no code digits)
+passtunnel diagnose [--check-clock]          installation, helper, each profile's problems and last clock
+                                             measurement; --check-clock also asks the time server
 passtunnel helper status|install|uninstall
 passtunnel mcp [--allow-connect]             MCP server on stdio (below)
 passtunnel completion zsh|bash|fish
@@ -659,7 +674,8 @@ requests it has, then exits 0.
 
 Tools (`MCPTools`): `list_profiles`, `get_status` (`profile_id`?), `get_logs` (`profile_id`,
 `lines` 1–500, default 50, `source` `raw` (default) or `activity`: `AutomationService.activity`, the
-worded lines plus `events`, without code digits), `diagnose`; with `--allow-connect` also `connect` (`profile_id`, `wait`
+worded lines plus `events`, without code digits), `diagnose` (`check_clock`, default false: also ask the
+time server, `AutomationService.diagnose(checkClock:)`); with `--allow-connect` also `connect` (`profile_id`, `wait`
 default true, `timeout_seconds` 1–600, default 60) and `disconnect` (`profile_id`, `wait`,
 `timeout_seconds`). Each has an `inputSchema` (closed objects) and, from 2025-06-18, an
 `outputSchema` and `structuredContent`; the text content is the same JSON. Results are the
@@ -667,14 +683,15 @@ automation objects of `--json`. `connect` mirrors the CLI: refresh, already conn
 already connecting → wait for it, `needs` → `input_required`, `checkCanStart`, `vault.unlock` (Touch
 ID on the Mac), then `AutomationService.connect`; `wait: false` returns once the attempt shows as
 connecting and lets it finish in the server. A failed `connect` is an error result whose error object
-carries `failure`; `get_status` shows it too (`ProfileStatus.failure`, in the outputSchema). The server never calls `ConnectionManager.start()`
+carries `failure`; `get_status` shows it too (`ProfileStatus.failure`, in the outputSchema), with
+`clock` once the gateway check after a rejected sign-in has answered. The server never calls `ConnectionManager.start()`
 (no polling, no auto-reconnect of its own).
 
 The app and the CLI share the files and the Keychain. The app never acts on a cached profile:
 connect, copy code, copy password + code and auto-type re-read the stored profile and Keychain item
 first, and single-field changes (pin, order, remembered user name) go through `ProfileStore.update`
 (read-modify-write). It reloads on `ProfilesWatcher` (FSEvents on the support directory, debounced;
-`vpn.log`, the management socket, markers and temp files are ignored), on `ProfileChangeSignal` (posted by the
+`vpn.log`, `activity.jsonl`, `clock.json`, the management socket, markers and temp files are ignored), on `ProfileChangeSignal` (posted by the
 CLI after commands that change profiles or secrets), when it becomes active, and every 5 s.
 
 ## Design system
