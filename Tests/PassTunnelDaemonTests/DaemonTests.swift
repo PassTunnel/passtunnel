@@ -539,7 +539,7 @@ final class PreviousInstanceTests: DaemonTestCase {
         try record("unverifiable", pid: other, executable: exe, identity: "")
 
         let stopped = PreviousInstance.cleanUp(runRoot: runRoot, keep: ["daemon.sock"], grace: 3)
-        XCTAssertEqual(stopped, [pid])
+        XCTAssertEqual(stopped, .init(signalled: [pid]))
         var status: Int32 = 0
         XCTAssertEqual(waitpid(pid, &status, 0), pid)
         XCTAssertEqual(status & 0x7F, SIGTERM, "stopped with SIGTERM")
@@ -582,6 +582,38 @@ final class PreviousInstanceTests: DaemonTestCase {
         var status: Int32 = 0
         XCTAssertEqual(waitpid(pid, &status, 0), pid)
         XCTAssertEqual(status & 0x7F, SIGTERM)
+    }
+
+    /// The pidfd calls themselves: a pidfd of a running child, a signal through it, then `ESRCH` for a
+    /// process that is gone (the kernel of the CI runners has pidfds).
+    func testPidfdCalls() throws {
+        let pid = try sleeper()
+        let pidfd = try XCTUnwrap(Sys.pidfdOpen(pid))
+        defer { close(pidfd) }
+        XCTAssertEqual(Sys.pid(ofPidfd: pidfd), pid)
+        XCTAssertEqual(Sys.pidfdSignal(pidfd, SIGTERM, processGroup: false), 0)
+        var status: Int32 = 0
+        XCTAssertEqual(waitpid(pid, &status, 0), pid)
+        XCTAssertEqual(status & 0x7F, SIGTERM)
+        XCTAssertEqual(Sys.pidfdSignal(pidfd, SIGTERM, processGroup: false), ESRCH)
+        XCTAssertNil(Sys.pidfdOpen(999999))
+    }
+
+    /// Without pidfds nothing is signalled at all, not even a verified process: by number the signal
+    /// could reach another process that took the pid over. The DNS is still reverted and the run root
+    /// cleaned up; the tool is left running.
+    func testNoPidfdsNoSignals() throws {
+        let pid = try sleeper()
+        let exe = try XCTUnwrap(PreviousInstance.executable(of: pid))
+        try record("acme", pid: pid, executable: exe, identity: PreviousInstance.identityLines(of: pid))
+        var none = PreviousInstance.Pidfds()
+        none.open = { _ in nil }
+        let state = try XCTUnwrap(PreviousInstance.readState(runRoot + "/\(me)/acme/state"))
+        XCTAssertEqual(PreviousInstance.identify(state), .same)
+        XCTAssertFalse(PreviousInstance.deliver(SIGKILL, to: state, pidfds: none))
+        XCTAssertEqual(PreviousInstance.cleanUp(runRoot: runRoot, keep: [], grace: 0.5, pidfds: none), .init())
+        XCTAssertEqual(PreviousInstance.processState(pid).map { "RS".contains($0) }, true, "left running")
+        XCTAssertEqual(PreviousInstance.entries(runRoot), [])
     }
 
     func testDaemonCleansUpWhenItStarts() throws {

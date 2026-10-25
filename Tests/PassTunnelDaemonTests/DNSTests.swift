@@ -174,6 +174,10 @@ class DNSTestCase: DaemonTestCase {
     var resolvconf: String { root + "/usr/sbin/resolvconf" }
     let indexes = IndexBox()
     var renameFails = false
+    /// A rewrite in place stops before cutting the file, as a writer that dies there leaves it.
+    var truncateFails = false
+    /// Runs right before PassTunnel checks the file it read and replaces it: another writer.
+    var otherWriter: ((String) -> Void)?
     /// The fake /etc is read-only, as /etc is inside passtunnel.service.
     var readOnlyEtc = false
     static let original = "# from the network\nnameserver 192.0.2.1\nsearch lan\noptions edns0\n"
@@ -204,6 +208,13 @@ class DNSTestCase: DaemonTestCase {
         if renameFails {
             system.renameFile = { _, _ in EBUSY }
         }
+        if truncateFails {
+            system.truncateFile = { _, _ in
+                errno = EIO
+                return -1
+            }
+        }
+        if let otherWriter { system.willReplace = otherWriter }
         let etc = root + "/etc", readOnlyEtc = self.readOnlyEtc
         system.isReadOnly = { readOnlyEtc && $0 == etc }
         return system
@@ -288,7 +299,7 @@ final class DNSFileBackendTests: DNSTestCase {
         XCTAssertFalse(exists(resolvConf + ".passtunnel"))
         XCTAssertEqual(recorded(session), "passtunnel-dns 2\nfile\ntun0\n7\n1\n192.0.2.53 2001:db8::53\ncorp.example.com\n")
         let digest = HelperCore.sha256Hex(Data(Self.applied.utf8))
-        XCTAssertEqual(baselineText, "passtunnel-resolv-base 1\n\(digest)\nfile\n" + Self.original)
+        XCTAssertEqual(baselineText, "passtunnel-resolv-base 2\n\(digest)\n\(Self.original.utf8.count)\n-\n" + Self.original)
         var st = stat()
         for path in [session.path + "/dns", baselinePath] {
             XCTAssertEqual(lstat(path, &st), 0)
@@ -336,7 +347,7 @@ final class DNSFileBackendTests: DNSTestCase {
         let session = try session()
         try applier.apply(Self.full, interface: "tun0", in: session)
         XCTAssertTrue(resolvConfText.hasPrefix("# PassTunnel tun0 begin"), resolvConfText)
-        XCTAssertTrue(baselineText?.hasSuffix("\nnone\n") == true, baselineText ?? "<none>")
+        XCTAssertTrue(baselineText?.hasSuffix("\n-\n-\n") == true, baselineText ?? "<none>")
         applier.revert(in: session)
         XCTAssertFalse(exists(resolvConf))
         XCTAssertFalse(exists(baselinePath))
@@ -367,7 +378,7 @@ final class DNSFileBackendTests: DNSTestCase {
         XCTAssertEqual(lstat(resolvConf, &before), 0)
         try applier.apply(Self.full, interface: "tun0", in: session)
         XCTAssertEqual(resolvConfText, Self.applied)
-        XCTAssertTrue(baselineText?.hasSuffix("\nfile\n" + Self.original) == true, baselineText ?? "<none>")
+        XCTAssertTrue(baselineText?.hasSuffix("\n-\n" + Self.original) == true, baselineText ?? "<none>")
         var after = stat()
         XCTAssertEqual(lstat(resolvConf, &after), 0)
         XCTAssertEqual(after.st_ino, before.st_ino)
@@ -456,31 +467,165 @@ final class DNSFileBackendTests: DNSTestCase {
         XCTAssertEqual(resolvConfText, Self.original)
     }
 
-    /// The lock is the run root's, whoever holds it: a change waits for it, and gives up in time.
+    /// The lock is the run root's, whoever holds it: a change waits for it, and gives up in time. A
+    /// revert that cannot take it changes nothing (registry, baseline and file stay) and keeps the
+    /// record, to be tried again.
     func testChangesWaitForTheLock() throws {
-        let session = try session()
-        let held = try applier.lock()
+        let other = try session("other"), session = try session()
         var quick = applier
         quick.lockTimeout = 0.2
+        var held = try applier.lock()
         XCTAssertThrowsError(try quick.apply(Self.full, interface: "tun0", in: session)) {
             XCTAssertEqual($0 as? DNSFailure, .busy)
         }
         close(held)
         XCTAssertNil(recorded(session))
         XCTAssertEqual(resolvConfText, Self.original)
+
+        try applier.apply(Self.full, interface: "tun0", in: session)
+        try applier.apply(Self.tun1, interface: "tun1", in: other)
+        let before = (resolvConfText, baselineText, recorded(session))
+        held = try applier.lock()
+        let message = try XCTUnwrap(quick.revert(in: session))
+        XCTAssertTrue(message.hasPrefix("could not restore DNS yet (another DNS change did not finish in time)"), message)
+        XCTAssertTrue(message.hasSuffix("kept, to be restored later"), message)
+        XCTAssertEqual(resolvConfText, before.0)
+        XCTAssertEqual(baselineText, before.1)
+        XCTAssertEqual(recorded(session), before.2, "still in the registry")
+        XCTAssertNil(quick.recover(), "nothing without the lock either")
+        close(held)
+        XCTAssertEqual(applier.revert(in: session), "restored the DNS of tun0 (/etc/resolv.conf)")
+        XCTAssertEqual(resolvConfText, Self.appliedTun1)
+        applier.revert(in: other)
+        XCTAssertEqual(resolvConfText, Self.original)
+    }
+
+    /// A writer that died between rewriting the file in place and cutting it to its length (here the
+    /// cut fails) leaves the start of the new file over the rest of the old one, with the old block's
+    /// servers in it. The journal in the run root says what was under way: the next change finishes
+    /// it, rather than taking the mixture for someone else's file.
+    func testInterruptedRewriteIsFinished() throws {
+        readOnlyEtc = true
+        try "nameserver 192.0.2.1\n".write(toFile: resolvConf, atomically: false, encoding: .utf8)
+        let session = try session()
+        try applier.apply(Self.full, interface: "tun0", in: session)
+        let applied = resolvConfText
+        truncateFails = true
+        let message = try XCTUnwrap(applier.revert(in: session))
+        XCTAssertTrue(message.hasPrefix("could not restore the DNS of tun0 (/etc/resolv.conf) yet: truncate"), message)
+        let mixed = resolvConfText
+        XCTAssertTrue(mixed.hasPrefix("nameserver 192.0.2.1\n"), mixed)
+        XCTAssertTrue(mixed.contains("\nnameserver 2001:db8::53\n"), "the VPN's server is left: \(mixed)")
+        XCTAssertEqual(mixed.utf8.count, applied.utf8.count)
+        XCTAssertNotNil(recorded(session), "kept")
+        XCTAssertTrue(baselineText?.contains("\n-\n") == false, "a change under way: \(baselineText ?? "<none>")")
+        truncateFails = false
+        XCTAssertEqual(applier.revert(in: session), "restored the DNS of tun0 (/etc/resolv.conf)")
+        XCTAssertEqual(resolvConfText, "nameserver 192.0.2.1\n")
+        XCTAssertFalse(exists(baselinePath))
+    }
+
+    /// The same finished by `recover` (a starting daemon, the daemon's retries), with the session still
+    /// registered, and then once no session uses the file any more.
+    func testInterruptedRewriteIsFinishedByRecover() throws {
+        readOnlyEtc = true
+        let session = try session()
+        try applier.apply(Self.full, interface: "tun0", in: session)
+        truncateFails = true
+        applier.revert(in: session)
+        truncateFails = false
+        XCTAssertNotNil(recorded(session))
+        XCTAssertEqual(applier.recover(), "finished an interrupted change of \(resolvConf)")
+        XCTAssertEqual(resolvConfText, Self.applied, "the session is still registered")
+        XCTAssertNil(applier.recover(), "nothing left to finish")
+        DNSRecord.remove(in: session)
+        XCTAssertEqual(applier.recover(), "restored \(resolvConf), which no session uses any more")
+        XCTAssertEqual(resolvConfText, Self.original)
+        XCTAssertFalse(exists(baselinePath))
+    }
+
+    func testInterruptedChanges() {
+        let previous = Array("abcdefgh".utf8), longer = Array("ABCDEFGHIJKL".utf8), shorter = Array("ABC".utf8)
+        let cases: [([UInt8]?, [UInt8]?, [UInt8]?, Bool)] = [
+            (previous, previous, longer, true), (longer, previous, longer, true),       // not begun, done
+            (Array("ABCdefgh".utf8), previous, longer, true),                           // in place, part way
+            (Array("ABCDEFGHIJ".utf8), previous, longer, true),                         // past the old end
+            (Array("ABCdefgh".utf8), previous, shorter, true),                          // written, not cut
+            (Array("ABCdefgX".utf8), previous, shorter, false),                         // and changed after
+            (Array("xbcdefgh".utf8), previous, longer, false), (Array("ABCDEFGHIJKX".utf8), previous, longer, false),
+            (Array("abcd".utf8), previous, longer, false),
+            (nil, previous, nil, true), (nil, nil, longer, true), (longer, nil, longer, true),
+            (Array("ABC".utf8), nil, longer, false), (nil, previous, longer, false), (previous, nil, nil, false),
+        ]
+        for (current, before, after, interrupted) in cases {
+            XCTAssertEqual(ResolvConfBaseline.isInterrupted(current, previous: before, intended: after), interrupted,
+                           "\(String(decoding: current ?? [], as: UTF8.self)) \(String(decoding: after ?? [], as: UTF8.self))")
+        }
+    }
+
+    /// The file a tunnel's block would make must be one PassTunnel can read back to restore it:
+    /// refused before anything changes.
+    func testOversizedResultIsRefused() throws {
+        let large = "# " + String(repeating: "x", count: DNSApplier.maxResolvConfBytes - 30) + "\nnameserver 192.0.2.1\n"
+        try large.write(toFile: resolvConf, atomically: false, encoding: .utf8)
+        let session = try session()
+        XCTAssertThrowsError(try applier.apply(Self.full, interface: "tun0", in: session)) {
+            XCTAssertEqual($0 as? DNSFailure, .wouldBeTooLarge(resolvConf))
+        }
+        XCTAssertEqual(resolvConfText, large)
+        XCTAssertNil(recorded(session))
+        XCTAssertFalse(exists(baselinePath))
+    }
+
+    /// Another writer replaces the file between PassTunnel reading and writing it: read again and
+    /// worked out anew, their file the baseline now; replaced every time, PassTunnel gives up and
+    /// leaves their file.
+    func testReplacementBetweenReadAndWrite() throws {
+        let session = try session()
+        let theirs = "nameserver 198.51.100.1\n", path = resolvConf
+        var replaced = 0
+        otherWriter = { _ in
+            replaced += 1
+            if replaced == 1 { try? theirs.write(toFile: path, atomically: true, encoding: .utf8) }
+        }
+        try applier.apply(Self.full, interface: "tun0", in: session)
+        XCTAssertTrue(resolvConfText.hasSuffix("# PassTunnel tun0 end\n#PassTunnel tun0# nameserver 198.51.100.1\n"), resolvConfText)
+        applier.revert(in: session)
+        XCTAssertEqual(resolvConfText, theirs)
+
+        replaced = 0
+        otherWriter = { _ in
+            replaced += 1
+            try? "nameserver 198.51.100.\(replaced)\n".write(toFile: path, atomically: true, encoding: .utf8)
+        }
+        XCTAssertThrowsError(try applier.apply(Self.full, interface: "tun0", in: session)) {
+            XCTAssertEqual($0 as? DNSFailure, .changedMeanwhile(path))
+        }
+        XCTAssertEqual(replaced, DNSApplier.writeAttempts)
+        XCTAssertEqual(resolvConfText, "nameserver 198.51.100.\(replaced)\n", "theirs, untouched")
+        XCTAssertNil(recorded(session))
+        XCTAssertFalse(exists(baselinePath))
+        // Changed in place (same file, other content) counts as well.
+        replaced = 0
+        otherWriter = { _ in
+            replaced += 1
+            if replaced == 1 { try? "nameserver 198.51.100.9\n".write(toFile: path, atomically: false, encoding: .utf8) }
+        }
+        try applier.apply(Self.full, interface: "tun0", in: session)
+        XCTAssertTrue(resolvConfText.hasSuffix("#PassTunnel tun0# nameserver 198.51.100.9\n"), resolvConfText)
     }
 
     /// A session that crashed between its steps (its record gone, the baseline still there) is
-    /// cleaned up by `restoreUnclaimed`, as a starting daemon runs it.
+    /// cleaned up by `recover`, as a starting daemon runs it.
     func testUnclaimedBaselineIsRestored() throws {
         let session = try session()
         try applier.apply(Self.full, interface: "tun0", in: session)
-        XCTAssertNil(applier.restoreUnclaimed(), "claimed by a session")
+        XCTAssertNil(applier.recover(), "claimed by a session")
         DNSRecord.remove(in: session)
-        XCTAssertEqual(applier.restoreUnclaimed(), "restored \(resolvConf), which no session uses any more")
+        XCTAssertEqual(applier.recover(), "restored \(resolvConf), which no session uses any more")
         XCTAssertEqual(resolvConfText, Self.original)
         XCTAssertFalse(exists(baselinePath))
-        XCTAssertNil(applier.restoreUnclaimed(), "nothing left")
+        XCTAssertNil(applier.recover(), "nothing left")
     }
 
     /// A block of the same interface whose record went missing (a crash) is not carried on.
@@ -576,15 +721,24 @@ final class DNSFileBackendTests: DNSTestCase {
     func testBaselineParsing() {
         let digest = String(repeating: "a", count: 64)
         let content: [UInt8] = Array("nameserver 192.0.2.1\n".utf8) + [0xFF, 0x0A]
-        let saved = ResolvConfBaseline(written: digest, content: content)
-        XCTAssertEqual(ResolvConfBaseline(bytes: saved.bytes), saved)
-        let none = ResolvConfBaseline(written: digest, content: nil)
-        XCTAssertEqual(ResolvConfBaseline(bytes: none.bytes), none)
-        XCTAssertEqual(ResolvConfBaseline(bytes: Array("passtunnel-resolv-base 1\n\(digest)\nfile\n".utf8)),
-                       ResolvConfBaseline(written: digest, content: []), "an empty file")
-        for bad in ["", "passtunnel-resolv-base 2\n\(digest)\nfile\n", "passtunnel-resolv-base 1\n\(digest.uppercased())\nfile\n",
-                    "passtunnel-resolv-base 1\nabc\nfile\n", "passtunnel-resolv-base 1\n\(digest)\nnone\nx",
-                    "passtunnel-resolv-base 1\n\(digest)\nother\n", "passtunnel-resolv-base 1\n\(digest)\nfile"] {
+        let after: [UInt8] = Array("nameserver 198.51.100.1\n".utf8)
+        let states = [
+            ResolvConfBaseline(written: digest, content: content),
+            ResolvConfBaseline(written: digest, content: nil),
+            ResolvConfBaseline(written: digest, content: []),
+            ResolvConfBaseline(written: HelperCore.sha256Hex(Data(after)), content: content,
+                               pending: .init(previous: content + [0x41], intended: after)),
+            ResolvConfBaseline(written: nil, content: nil, pending: .init(previous: after, intended: nil)),
+            ResolvConfBaseline(written: HelperCore.sha256Hex(Data(after)), content: nil, pending: .init(previous: nil, intended: after)),
+        ]
+        for state in states { XCTAssertEqual(ResolvConfBaseline(bytes: state.bytes), state, "\(state)") }
+        XCTAssertEqual(String(decoding: states[3].bytes.prefix(99), as: UTF8.self),
+                       "passtunnel-resolv-base 2\n\(HelperCore.sha256Hex(Data(after)))\n23\n24 24\n")
+        let head = "passtunnel-resolv-base 2\n\(digest)\n"
+        for bad in ["", "passtunnel-resolv-base 1\n\(digest)\n0\n-\n", head + "0\n-\nx", head + "1\n-\n", head + "01\n-\nx",
+                    head + "-1\n-\n", head + "x\n-\n", "passtunnel-resolv-base 2\n\(digest.uppercased())\n0\n-\n",
+                    "passtunnel-resolv-base 2\nabc\n0\n-\n", head + "0\n1 1\nab", "passtunnel-resolv-base 2\n-\n0\n1 1\nab",
+                    head + "0\n1\na", head + "0\n-", head + "\(DNSApplier.maxResolvConfBytes + 1)\n-\n"] {
             XCTAssertNil(ResolvConfBaseline(bytes: Array(bad.utf8)), bad)
         }
     }
@@ -646,14 +800,21 @@ final class DNSResolvedBackendTests: DNSTestCase {
             XCTAssertEqual(String(describing: $0), "tun0 is no longer interface 7, or another interface is named “7”")
         }
         XCTAssertEqual(callLog, "", "resolvectl never ran")
+        XCTAssertNotNil(recorded(session), "its revert could not run either: kept, to try again")
+        indexes.set([:])                  // the link went: systemd-resolved forgot it
+        XCTAssertEqual(applier.revert(in: session), "restored the DNS of tun0 (systemd-resolved)")
         XCTAssertNil(recorded(session))
-        // Set up, then the same: the revert does not run either, and says why.
+        // Set up, then the same: the revert does not run either, says why, and keeps the record.
         indexes.set(["tun0": 7])
         try applier.apply(Self.full, interface: "tun0", in: session)
         indexes.set(["tun0": 7, "7": 3])
         let message = try XCTUnwrap(applier.revert(in: session))
-        XCTAssertTrue(message.hasPrefix("could not fully restore the DNS of tun0 (systemd-resolved): tun0 is no longer"), message)
+        XCTAssertTrue(message.hasPrefix("could not restore the DNS of tun0 (systemd-resolved) yet: tun0 is no longer"), message)
         XCTAssertFalse(callLog.contains("revert"), callLog)
+        XCTAssertNotNil(recorded(session))
+        indexes.set(["tun0": 7])
+        XCTAssertEqual(applier.revert(in: session), "restored the DNS of tun0 (systemd-resolved)")
+        XCTAssertTrue(callLog.hasSuffix("resolvectl revert 7\n"), callLog)
         // Another interface named with digits, but not this index, is no problem.
         indexes.set(["tun0": 7])
         try applier.apply(Self.full, interface: "tun0", in: session)
@@ -955,14 +1116,79 @@ final class DNSHookTests: DNSTestCase {
 final class DaemonDNSTests: DNSTestCase {
     var hook: String { base + "/bin/passtunneld" }
 
-    func makeDNSDaemon() throws -> Daemon {
+    func makeDNSDaemon(_ configure: (inout Daemon.Options) -> Void = { _ in }) throws -> Daemon {
         FileManager.default.createFile(atPath: hook, contents: Data("#!/bin/sh\nexit 0\n".utf8),
                                        attributes: [.posixPermissions: 0o755])
         let system = self.system, hook = self.hook
         return try makeDaemon {
             $0.dns = system
             $0.dnsHook = hook
+            configure(&$0)
         }
+    }
+
+    /// The daemon reaps a tool while the run root's lock is held elsewhere: the session's DNS cannot be
+    /// restored yet, so its directory stays with the record only (no config, no auth file), the profile
+    /// cannot start again over it, and the daemon tries again until it is restored.
+    func testSessionWhoseDNSIsNotRestoredYetIsKept() throws {
+        let daemon = try makeDNSDaemon {
+            $0.dnsLockTimeout = 0.2
+            $0.dnsRetryInterval = 0.3
+        }
+        let pid = try XCTUnwrap(try response(daemon.socketPath, .startOpenVPN(start())).pid)
+        let session = try HelperCore(runRoot: runRoot).openRunDir(profileID: "acme", uid: me)
+        try applier.apply(Self.full, interface: "tun0", in: session)      // as the hook would
+        let held = try applier.lock()
+        kill(pid, SIGKILL)
+        XCTAssertTrue(eventually { (try? self.response(daemon.socketPath, .status))?.running == [:] })
+        XCTAssertTrue(eventually { PreviousInstance.entries(session.path) == [DNSRecord.fileName] },
+                      "\(PreviousInstance.entries(session.path))")
+        XCTAssertEqual(resolvConfText, DNSFileBackendTests.applied)
+        let refused = try response(daemon.socketPath, .startOpenVPN(start()))
+        XCTAssertFalse(refused.ok)
+        XCTAssertTrue(refused.error?.contains("not restored yet") == true, refused.error ?? "")
+        close(held)
+        XCTAssertTrue(eventually { self.resolvConfText == Self.original })
+        XCTAssertTrue(eventually { !self.exists(session.path) })
+        let again = try response(daemon.socketPath, .startOpenVPN(start()))
+        XCTAssertTrue(again.ok, again.error ?? "")
+        XCTAssertEqual(try response(daemon.socketPath, .stop(profileID: "acme")).pid, again.pid)
+    }
+
+    /// A starting daemon that cannot restore what an earlier one left (here the lock is held) keeps
+    /// the session's record and the baseline, removes everything else of the session (its secrets
+    /// among it), and tries again until it is restored.
+    func testStartingDaemonKeepsWhatItCouldNotRestore() throws {
+        let session = try session()
+        try "alice\npw123456\n".write(toFile: session.path + "/auth", atomically: false, encoding: .utf8)
+        try applier.apply(Self.full, interface: "tun0", in: session)
+        let held = try applier.lock()
+        _ = try makeDNSDaemon {
+            $0.dnsLockTimeout = 0.2
+            $0.dnsRetryInterval = 0.3
+        }
+        XCTAssertEqual(PreviousInstance.entries(session.path), [DNSRecord.fileName])
+        XCTAssertTrue(exists(baselinePath))
+        XCTAssertEqual(resolvConfText, DNSFileBackendTests.applied)
+        close(held)
+        XCTAssertTrue(eventually { self.resolvConfText == Self.original })
+        XCTAssertTrue(eventually { !self.exists(session.path) && !self.exists(self.baselinePath) })
+    }
+
+    /// The same when the file cannot be read (grown too large meanwhile): the baseline, the only copy
+    /// of the file as it was, is never swept away, and is restored once it can be.
+    func testStartingDaemonKeepsTheBaselineWhileRestoringFails() throws {
+        let session = try session()
+        try applier.apply(Self.full, interface: "tun0", in: session)
+        let applied = resolvConfText
+        try (applied + String(repeating: "#\n", count: DNSApplier.maxResolvConfBytes))
+            .write(toFile: resolvConf, atomically: false, encoding: .utf8)
+        _ = try makeDNSDaemon { $0.dnsRetryInterval = 0.3 }
+        XCTAssertTrue(exists(baselinePath))
+        XCTAssertNotNil(recorded(session))
+        try applied.write(toFile: resolvConf, atomically: false, encoding: .utf8)
+        XCTAssertTrue(eventually { self.resolvConfText == Self.original })
+        XCTAssertTrue(eventually { !self.exists(self.baselinePath) && !self.exists(session.path) })
     }
 
     func log() -> String { (try? String(contentsOfFile: profileDir("acme") + "/vpn.log", encoding: .utf8)) ?? "" }

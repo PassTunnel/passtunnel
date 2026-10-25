@@ -44,7 +44,7 @@ passtunnel mcp (stdio) ┴─▶ PassTunnelCore (as on the Mac: ProfileStore, Co
 | What | Path |
 |---|---|
 | Profiles, preferences, logs | `~/.local/share/passtunnel/` (same layout as the Mac's support dir: `config.json`, `profiles/<id>/…`); `PASSTUNNEL_HOME` overrides it for tests. `XDG_DATA_HOME` is not followed, because the daemon checks that profile directories are under the caller's home at this fixed subpath |
-| Run root | `/run/passtunnel/` (0711, root): `<uid>/<id>/` per session as on the Mac (`config.ovpn` or `openfortivpn.conf`, `auth`, `state`, `mgmt.sock`; for DNS the `dns-hook` link and the record `dns`), `daemon.lock` (one daemon per run root) and, while a tunnel's DNS is in `/etc/resolv.conf` itself, `resolv.conf.base` (below) |
+| Run root | `/run/passtunnel/` (0711, root): `<uid>/<id>/` per session as on the Mac (`config.ovpn` or `openfortivpn.conf`, `auth`, `state`, `mgmt.sock`; for DNS the `dns-hook` link and the record `dns`), `daemon.lock` (one daemon per run root) and, while a tunnel's DNS is in `/etc/resolv.conf` itself or something there is left to restore, `resolv.conf.base` (below) |
 | Daemon socket | `/run/passtunnel/daemon.sock` (0666, root; access is decided per request, below) |
 | Binaries | `/usr/bin/passtunnel`, `/usr/sbin/passtunneld` from the packages; `/usr/local/…` from the tarball |
 
@@ -146,13 +146,21 @@ The macOS rules apply where they make sense; these replace the ones built on cod
   (`/proc/sys/kernel/random/boot_id`) and the tool's start time (field 22 of `/proc/<pid>/stat`, read
   before the child is reaped). A recorded pid is signalled only while it provably is that process:
   the same boot, start time and executable (`/proc/<pid>/exe`), checked again right before every
-  signal (SIGTERM, and SIGKILL after the grace period). Where the kernel and the C library have
-  pidfds (glibc 2.36), the pidfd is opened before the check and the signal sent through it, so it
-  cannot reach a process that took the pid over in between; its process group goes through the
-  pidfd too on Linux 6.9, else by number right after the check (a group's number is not reused
-  while it has members). A `state` without boot and start time (from a development build before
-  they were recorded) cannot prove that: its pid is never signalled, only logged, since a stray tool
-  left running is better than a signal to an unrelated process; its DNS is still reverted.
+  signal (SIGTERM, and SIGKILL after the grace period). Signals go only through a pidfd
+  (`pidfd_open`, `pidfd_send_signal`, called through glibc's `syscall`, since glibc before 2.36 has
+  no wrappers), opened before the check, so they cannot reach a process that took the pid over in
+  between; nothing is ever signalled by number. Its process group goes through the pidfd too on
+  Linux 6.9 (`PIDFD_SIGNAL_PROCESS_GROUP`); before that only the tool itself is signalled (what is
+  left in its group are short-lived children, and under systemd the control group is stopped
+  anyway). Without pidfds (Linux before 5.3) nothing is signalled: the tool is left running and
+  logged, its DNS still reverted. So is a `state` without boot and start time (from a development
+  build before they were recorded), which cannot prove the process is the tool, since a stray tool
+  left running is better than a signal to an unrelated process.
+  A session whose DNS cannot be restored yet (the lock is held, the file cannot be read or written)
+  is not removed: its directory keeps the `dns` record and nothing else (the config and auth file
+  go), the run root keeps `resolv.conf.base`, the profile cannot start again over it ("not restored
+  yet"), and the daemon tries again every 15 s until it is restored; a starting daemon does the same
+  with what an earlier one left. Only what is restored, or no longer needed, is swept away.
 - **Sandbox** (`packaging/linux/passtunnel.service`, a first version, installed from the release
   tarball):
   `CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_SETUID CAP_SETGID
@@ -253,12 +261,22 @@ what the server pushes, and every value of it is treated as hostile: it ends up 
     with none the baseline itself. So a tunnel that ends while another is up never brings the file's
     own servers back. The baseline is the recorded one while the file is still what PassTunnel
     wrote; changed by someone else meanwhile, it is the file without any PassTunnel block or mark
-    (their change stays); a file without them that no session needs any more is left alone. Written
-    atomically where it can be: a new file next to it, synced, renamed over it. Inside the unit
-    (`/etc` read-only, the file a bind mount) and where a container runtime bind-mounts it (rename
-    fails with `EBUSY`) it is rewritten in place instead: the whole content in one write from the
-    start, cut to its length, synced; the baseline is in the run root first. A file that lost its
-    name (replaced after the unit started) fails the set-up.
+    (their change stays); a file without them that no session needs any more is left alone. A
+    result larger than PassTunnel reads back (64 KiB) is refused before anything changes, so every
+    file it writes is one it can restore. Written atomically where it can be: a new file next to it
+    (a name of the writer's own), synced, renamed over it. Inside the unit (`/etc` read-only, the
+    file a bind mount) and where a container runtime bind-mounts it (rename fails with `EBUSY`) it
+    is rewritten in place instead: the whole content in one write from the start, cut to its
+    length, synced. Every write is journalled first: `resolv.conf.base` notes the file before and
+    after the change, and a writer that dies in the middle (between the write and the cut, say)
+    leaves a change the next one finishes (any change, the daemon's retries, a starting daemon),
+    recognised as the start of the new content over the rest of the old one; anything else counts
+    as someone else's edit. Right before it writes, PassTunnel checks that the file is still the one
+    it read (the same inode and content); replaced or changed in between by another writer, it is
+    read again and the change worked out anew, three times in all, then the change fails and their
+    file stays. Only a writer that changes it in the instant between that check and the write goes
+    unseen: PassTunnel's lock cannot hold back writers outside it. A file that lost its name
+    (replaced after the unit started) fails the set-up.
   - The tools run only from fixed paths (`/usr/bin/resolvectl`, `/bin/resolvectl`;
     `/usr/sbin/resolvconf`, `/sbin/resolvconf`), checked as the VPN tools are (`TrustedPath`), with
     the fixed environment and argument lists of `Sys.spawn` (never a shell), 10 s each.
@@ -271,9 +289,12 @@ what the server pushes, and every value of it is treated as hostile: it ends up 
   as `connectFailed` before it looks for a failed set-up) and on 2.7 (`--dns-updown`). The hook
   reverts when OpenVPN takes the tunnel down; the daemon reverts whatever is still recorded when it
   reaps the tool (killed, crashed, or the daemon stopping), and a starting daemon what the sessions
-  of a previous instance recorded; with the record the session leaves the registry. A starting
-  daemon also gives back a baseline no session claims any more (an instance that died between the
-  steps of a revert).
+  of a previous instance recorded; with the record the session leaves the registry. Nothing of it
+  changes without the run root's lock: a revert that cannot take it within 10 s, or that fails,
+  keeps the record (and the session in the registry) for the next try (above). A failed set-up on
+  the file backend drops its record even so: the journal has what is left to finish. The daemon
+  also gives back a baseline no session claims any more (an instance that died between the steps
+  of a revert), and finishes a change left under way.
 - **FortiGate**, when the profile has `set_dns` (otherwise DNS is left alone): the daemon sets it
   itself, from openfortivpn's own output as its pipe delivers it (above), never from the log file,
   which belongs to the session's user, who could write any line into it. openfortivpn 1.21 prints,

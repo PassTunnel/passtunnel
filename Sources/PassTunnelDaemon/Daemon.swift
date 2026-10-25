@@ -33,6 +33,10 @@ public final class Daemon {
         public var maxConnections = 64
         public var maxConnectionsPerUser = 8
         public var stopGrace: TimeInterval = 5
+        /// How long a DNS change waits for the run root's lock, and how often DNS that could not be
+        /// restored yet is tried again.
+        public var dnsLockTimeout: TimeInterval = 10
+        public var dnsRetryInterval: TimeInterval = 15
         /// Who is on the other end of an accepted connection (`SO_PEERCRED`); replaced in tests.
         public var peer: (Int32) -> Caller? = Caller.of(socket:)
 
@@ -91,14 +95,16 @@ public final class Daemon {
         }
         lockFD = fd
         self.options = options
-        let dns = DNSApplier(system: options.dns, runRoot: options.runRoot)
-        PreviousInstance.cleanUp(runRoot: options.runRoot, keep: [PT.daemonSocketName, Self.lockName],
-                                 grace: options.stopGrace, dns: dns)
+        var dns = DNSApplier(system: options.dns, runRoot: options.runRoot)
+        dns.lockTimeout = options.dnsLockTimeout
+        let previous = PreviousInstance.cleanUp(runRoot: options.runRoot, keep: [PT.daemonSocketName, Self.lockName],
+                                                grace: options.stopGrace, dns: dns)
         var core = HelperCore(runRoot: options.runRoot, dnsUpdownSource: nil,
                               homeDirectory: options.users.home, userName: options.users.name)
         core.dnsHook = hook
         supervisor = Supervisor(core: core, tools: options.tools, dns: dns, interfaces: options.interfaces,
-                                reportWait: options.reportWait, stopGrace: options.stopGrace)
+                                reportWait: options.reportWait, stopGrace: options.stopGrace,
+                                pendingDNS: previous.pendingDNS, retryInterval: options.dnsRetryInterval)
     }
 
     deinit {

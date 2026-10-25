@@ -122,29 +122,31 @@ enum Sys {
         dlsym(nil, name).map { unsafeBitCast($0, to: Function.self) }
     }
 
-    /// glibc's `pidfd_open` and `pidfd_send_signal` (2.36), looked up by name for the same reason: nil
-    /// where the C library lacks them (Ubuntu 22.04, RHEL 9); where the kernel does (before 5.3), their
-    /// calls fail with `ENOSYS`.
-    private typealias PidfdOpen = @convention(c) (pid_t, UInt32) -> Int32
-    private typealias PidfdSendSignal = @convention(c) (Int32, Int32, UnsafeMutableRawPointer?, UInt32) -> Int32
-    private static let pidfdOpenFunction: PidfdOpen? = libcFunction("pidfd_open")
-    private static let pidfdSendSignalFunction: PidfdSendSignal? = libcFunction("pidfd_send_signal")
+    /// glibc's `syscall`, for `pidfd_open` and `pidfd_send_signal`, which glibc before 2.36 (Ubuntu
+    /// 22.04, RHEL 9) has no wrappers for. It is variadic in C, which Swift does not call; it is called
+    /// here through a fixed signature, which is sound on both targets: glibc implements it in assembly
+    /// that only moves the integer argument registers (x86_64: `%rdi`… and the stack slot of the sixth;
+    /// aarch64: `x0`…`x7`), where a variadic call passes these arguments too.
+    private typealias Syscall = @convention(c) (Int, Int, Int, Int, Int) -> Int
+    private static let syscallFunction: Syscall? = libcFunction("syscall")
+    /// The generic syscall numbers, the same on x86_64 and aarch64.
+    static let sysPidfdSendSignal = 424, sysPidfdOpen = 434
     /// `PIDFD_SIGNAL_PROCESS_GROUP` (Linux 6.9; earlier kernels refuse every flag with `EINVAL`).
-    static let pidfdSignalProcessGroup: UInt32 = 1 << 2
+    static let pidfdSignalProcessGroup = 1 << 2
 
     /// A pidfd of `pid` (close-on-exec, as every pidfd is), or nil: the process is gone, or the kernel
-    /// or the C library has no pidfds.
+    /// has no pidfds (before 5.3, or a seccomp filter refuses them).
     static func pidfdOpen(_ pid: pid_t) -> Int32? {
-        guard let call = pidfdOpenFunction else { return nil }
-        let fd = call(pid, 0)
-        return fd >= 0 ? fd : nil
+        guard let call = syscallFunction else { return nil }
+        let fd = call(sysPidfdOpen, Int(pid), 0, 0, 0)
+        return fd >= 0 ? Int32(fd) : nil
     }
 
     /// Sends `sig` through `pidfd`, to the process's whole group with `processGroup`; 0, or the error
-    /// (`ESRCH` once the process has exited).
+    /// (`ESRCH` once the process has exited, `EINVAL` for the group before Linux 6.9).
     static func pidfdSignal(_ pidfd: Int32, _ sig: Int32, processGroup: Bool) -> Int32 {
-        guard let call = pidfdSendSignalFunction else { return ENOSYS }
-        return call(pidfd, sig, nil, processGroup ? pidfdSignalProcessGroup : 0) == 0 ? 0 : errno
+        guard let call = syscallFunction else { return ENOSYS }
+        return call(sysPidfdSendSignal, Int(pidfd), Int(sig), 0, processGroup ? pidfdSignalProcessGroup : 0) == 0 ? 0 : errno
     }
 
     /// `posix_spawn` in a new process group: stdin from `inputFD` (else /dev/null), stdout and stderr to

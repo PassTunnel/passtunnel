@@ -3,16 +3,21 @@ import PassTunnelShared
 
 /// What an earlier daemon left in the run root: sessions it recorded (`<uid>/<id>/state`) whose tool
 /// may still run, the DNS they set up (`<uid>/<id>/dns`), and anything else. A starting daemon stops
-/// those tools (SIGTERM to their process groups, SIGKILL after the grace period), reverts that DNS and
-/// removes every session directory; it does not adopt them. Under systemd, `KillMode=control-group`
+/// those tools (SIGTERM, SIGKILL after the grace period), reverts that DNS and removes every session
+/// directory whose DNS is restored; it does not adopt them. Under systemd, `KillMode=control-group`
 /// has already stopped them.
 ///
 /// A recorded pid is signalled only while it is provably the recorded process: the same boot, the same
-/// start time and the same executable, checked again before every signal, through a pidfd where the
-/// kernel and the C library have one (then the signal cannot reach a process that took the pid over
-/// in between). A state without boot ID and start time (written by an earlier build) cannot prove
-/// that, and its pid is never signalled: a stray tool is left running and logged, rather than risking
-/// a signal to an unrelated process that got its pid.
+/// start time and the same executable, checked after a pidfd of it was opened and before every signal,
+/// which goes through that pidfd, so it cannot reach a process that took the pid over in between.
+/// Nothing is ever signalled by number: without pidfds (Linux before 5.3) a tool is left running and
+/// logged, and so is one whose state has no boot ID and start time (written by an earlier build). Its
+/// process group is signalled through the pidfd where the kernel can (6.9); before that only the
+/// tool itself is.
+///
+/// A session whose DNS cannot be restored yet (the lock is held, the file cannot be written) keeps its
+/// directory and record, and the run root its file-backend state (`ResolvConfBaseline`): the daemon
+/// tries again later (`Supervisor`).
 enum PreviousInstance {
     struct State: Equatable {
         let pid: pid_t
@@ -35,11 +40,25 @@ enum PreviousInstance {
         case unverifiable
     }
 
+    /// How processes are signalled: through pidfds only (`Sys`); replaced in tests.
+    struct Pidfds {
+        var open: (pid_t) -> Int32? = Sys.pidfdOpen
+        var signal: (Int32, Int32, Bool) -> Int32 = { Sys.pidfdSignal($0, $1, processGroup: $2) }
+    }
+
+    struct Outcome: Equatable {
+        /// The pids it signalled.
+        var signalled: [pid_t] = []
+        /// The sessions whose DNS is not restored yet, left in place for the daemon to try again.
+        var pendingDNS: [SessionPolicy.Key] = []
+    }
+
     /// Stops the recorded tools that still run, reverts the DNS of every session (with `dns`) and
-    /// removes everything in `runRoot` but the entries in `keep` (the daemon's socket and lock).
-    /// Returns the pids it signalled.
+    /// removes everything in `runRoot` but the entries in `keep` (the daemon's socket and lock), the
+    /// sessions whose DNS could not be restored, and the file backend's state while it is needed.
     @discardableResult
-    static func cleanUp(runRoot: String, keep: Set<String>, grace: TimeInterval = 5, dns: DNSApplier? = nil) -> [pid_t] {
+    static func cleanUp(runRoot: String, keep: Set<String>, grace: TimeInterval = 5, dns: DNSApplier? = nil,
+                        pidfds: Pidfds = Pidfds()) -> Outcome {
         var running: [State] = []
         for entry in entries(runRoot) where !keep.contains(entry) {
             let path = runRoot + "/" + entry
@@ -58,64 +77,77 @@ enum PreviousInstance {
                 }
             }
         }
+        var outcome = Outcome()
         var signalled: [State] = []
         for state in running {
             DaemonLog.info("stopping pid \(state.pid) of uid \(state.uid), left running by an earlier instance")
-            if deliver(SIGTERM, to: state) { signalled.append(state) }
+            if deliver(SIGTERM, to: state, pidfds: pidfds) { signalled.append(state) }
         }
         let deadline = Date().addingTimeInterval(grace)
         while signalled.contains(where: isAlive), Date() < deadline { usleep(100_000) }
         for state in signalled where isAlive(state) {
             DaemonLog.info("pid \(state.pid) ignored SIGTERM, killing it")
-            deliver(SIGKILL, to: state)
+            deliver(SIGKILL, to: state, pidfds: pidfds)
         }
+        outcome.signalled = signalled.map(\.pid)
         if let dns {
-            revertDNS(runRoot: runRoot, keep: keep, dns: dns)
-            if let message = dns.restoreUnclaimed() { DaemonLog.info(message) }
+            outcome.pendingDNS = revertDNS(runRoot: runRoot, keep: keep, dns: dns)
+            if let message = dns.recover() { DaemonLog.info(message) }
         }
-        for entry in entries(runRoot) where !keep.contains(entry) {
-            HelperCore.removeEntry(runRoot + "/" + entry)
+        let pending = Set(outcome.pendingDNS)
+        for entry in entries(runRoot) where !keep.contains(entry) && entry != ResolvConfBaseline.fileName {
+            let path = runRoot + "/" + entry
+            guard let uid = uid_t(entry), String(uid) == entry, isRealDirectory(path) else {
+                HelperCore.removeEntry(path)
+                continue
+            }
+            for id in entries(path) {
+                if pending.contains(SessionPolicy.Key(uid: uid, profileID: id)) {
+                    keepOnlyDNSRecord(in: path + "/" + id)
+                } else {
+                    HelperCore.removeEntry(path + "/" + id)
+                }
+            }
+            _ = rmdir(path)              // unless a session is left in it
         }
-        return signalled.map(\.pid)
+        return outcome
     }
 
-    /// The DNS each session directory records, reverted (its tool, stopped by now, did not).
-    static func revertDNS(runRoot: String, keep: Set<String>, dns: DNSApplier) {
+    /// The DNS each session directory records, reverted (its tool, stopped by now, did not). Returns
+    /// the sessions whose DNS is still recorded: not restored yet.
+    static func revertDNS(runRoot: String, keep: Set<String>, dns: DNSApplier) -> [SessionPolicy.Key] {
         let core = HelperCore(runRoot: runRoot)
+        var pending: [SessionPolicy.Key] = []
         for entry in entries(runRoot) where !keep.contains(entry) {
             guard let uid = uid_t(entry), String(uid) == entry, isRealDirectory(runRoot + "/" + entry) else { continue }
             for id in entries(runRoot + "/" + entry) {
-                guard HelperCore.isValidProfileID(id), let session = try? core.openRunDir(profileID: id, uid: uid),
-                      let message = dns.revert(in: session) else { continue }
-                DaemonLog.info("\(id) of uid \(uid), left by an earlier instance: \(message)")
+                guard HelperCore.isValidProfileID(id), let session = try? core.openRunDir(profileID: id, uid: uid) else { continue }
+                if let message = dns.revert(in: session) {
+                    DaemonLog.info("\(id) of uid \(uid), left by an earlier instance: \(message)")
+                }
+                if DNSRecord.isRecorded(in: session) { pending.append(SessionPolicy.Key(uid: uid, profileID: id)) }
             }
         }
+        return pending
     }
 
-    /// Sends `sig` to the recorded process, and to its whole process group when it leads one (as every
-    /// tool the daemon starts does), once `identify` says it is still the recorded one. With a pidfd
-    /// (opened before the check, so it refers to the checked process) the process itself, and on Linux
-    /// 6.9 its group too, is signalled through it; the group is otherwise signalled by number right after
-    /// the check, while its leader is known to run (a group's number is not reused while it has members).
-    /// False when nothing was sent.
+    /// Sends `sig` through a pidfd of the recorded process, opened before `identify` says it still is
+    /// that process; to its whole process group when it leads one (as every tool the daemon starts
+    /// does) and the kernel can (Linux 6.9), else to the process alone. Never by number: without a
+    /// pidfd nothing is sent. False when nothing was sent.
     @discardableResult
-    static func deliver(_ sig: Int32, to state: State) -> Bool {
-        let pidfd = Sys.pidfdOpen(state.pid)
-        defer { pidfd.map { _ = close($0) } }
-        guard identify(state) == .same else { return false }
-        let leadsGroup = getpgid(state.pid) == state.pid
-        guard let pidfd else {
-            if leadsGroup { kill(-state.pid, sig) }
-            return kill(state.pid, sig) == 0
-        }
-        if leadsGroup {
-            switch Sys.pidfdSignal(pidfd, sig, processGroup: true) {
-            case 0: return true
-            case EINVAL: kill(-state.pid, sig)          // before Linux 6.9
-            default: break
+    static func deliver(_ sig: Int32, to state: State, pidfds: Pidfds = Pidfds()) -> Bool {
+        guard let pidfd = pidfds.open(state.pid) else {
+            if identify(state) == .same {
+                DaemonLog.info("pid \(state.pid) of uid \(state.uid) is not signalled: this kernel has no pidfds, "
+                               + "and a signal by number could reach another process")
             }
+            return false
         }
-        return Sys.pidfdSignal(pidfd, sig, processGroup: false) == 0
+        defer { close(pidfd) }
+        guard identify(state) == .same else { return false }
+        if getpgid(state.pid) == state.pid, pidfds.signal(pidfd, sig, true) == 0 { return true }
+        return pidfds.signal(pidfd, sig, false) == 0
     }
 
     static func readState(_ path: String) -> State? {
@@ -201,6 +233,14 @@ enum PreviousInstance {
         guard n > 0 else { return nil }
         buf[n] = 0
         return String(cString: buf)
+    }
+
+    /// A session directory whose DNS is not restored yet loses everything but the record: the tool's
+    /// config and auth file hold secrets, and nothing else is needed to restore it.
+    static func keepOnlyDNSRecord(in dir: String) {
+        for name in entries(dir) where name != DNSRecord.fileName {
+            HelperCore.removeEntry(dir + "/" + name)
+        }
     }
 
     static func entries(_ dir: String) -> [String] {

@@ -112,6 +112,10 @@ public enum DNSFailure: Error, Equatable, CustomStringConvertible {
     case unexpectedLink(String, String)
     case notARegularFile(String)
     case tooLarge(String)
+    /// With the tunnel's block the file would be larger than PassTunnel reads back.
+    case wouldBeTooLarge(String)
+    /// Replaced or changed by someone else between PassTunnel reading and writing it, every time.
+    case changedMeanwhile(String)
     case untrustedTool(String, String)
     case missingTool(String, String)
     case toolFailed(String, Int32, String)
@@ -141,6 +145,10 @@ public enum DNSFailure: Error, Equatable, CustomStringConvertible {
             return "\(path) is a link to \(HelperCore.printable(target)), which PassTunnel does not change"
         case .notARegularFile(let path): return "\(path) is not a regular file owned by root"
         case .tooLarge(let path): return "\(path) is too large"
+        case .wouldBeTooLarge(let path):
+            return "\(path) would be larger than \(DNSApplier.maxResolvConfBytes >> 10) KiB with the VPN's DNS"
+        case .changedMeanwhile(let path):
+            return "\(path) kept being changed by something else while PassTunnel wrote it"
         case .untrustedTool(let path, let reason): return "refusing to run \(path): \(reason)"
         case .missingTool(let tool, let why): return "\(why), but \(tool) is not installed"
         case .toolFailed(let tool, let status, let output):
