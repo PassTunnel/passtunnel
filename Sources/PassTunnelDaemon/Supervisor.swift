@@ -51,7 +51,11 @@ final class Supervisor {
     private let reportWait: TimeInterval
     private let stopGrace: TimeInterval
     private var jobs: [Key: Job] = [:]
+    /// Ended sessions whose DNS is not restored yet (`DNSApplier.revert(in:)` kept their record): their
+    /// directories stay, with the record only, and are tried again every `retryInterval`.
+    private var pendingDNS: [Key: SessionDirectory] = [:]
     private var logTimer: DispatchSourceTimer?
+    private var retryTimer: DispatchSourceTimer?
 
     private var sessions: [SessionPolicy.Session] {
         jobs.values.map {
@@ -59,22 +63,65 @@ final class Supervisor {
         }
     }
 
+    /// `pendingDNS`: sessions of an earlier instance whose DNS it could not restore yet (`PreviousInstance`).
     init(core: HelperCore, tools: ToolResolving, dns: DNSApplier, interfaces: InterfaceSystem = InterfaceSystem(),
-         reportWait: TimeInterval = 10, stopGrace: TimeInterval = 5) {
+         reportWait: TimeInterval = 10, stopGrace: TimeInterval = 5, pendingDNS: [Key] = [], retryInterval: TimeInterval = 15) {
         self.core = core
         self.tools = tools
         self.dns = dns
         self.interfaces = interfaces
         self.reportWait = reportWait
         self.stopGrace = stopGrace
+        for key in pendingDNS {
+            if let session = try? core.openRunDir(profileID: key.profileID, uid: key.uid) { self.pendingDNS[key] = session }
+        }
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + Self.logCheckInterval, repeating: Self.logCheckInterval)
         timer.setEventHandler { [weak self] in self?.capLogs() }
         timer.resume()
         logTimer = timer
+        let retry = DispatchSource.makeTimerSource(queue: queue)
+        retry.schedule(deadline: .now() + retryInterval, repeating: retryInterval)
+        retry.setEventHandler { [weak self] in self?.retryDNS() }
+        retry.resume()
+        retryTimer = retry
     }
 
-    deinit { logTimer?.cancel() }
+    deinit {
+        logTimer?.cancel()
+        retryTimer?.cancel()
+    }
+
+    // MARK: - DNS not restored yet
+
+    /// Removes the directory of an ended session, unless its DNS is not restored yet: then only its
+    /// record stays (the tool's config, auth file and socket go), and it is tried again (`retryDNS`).
+    private func release(_ key: Key, _ session: SessionDirectory) {
+        guard DNSRecord.isRecorded(in: session) else {
+            return core.removeRunDir(profileID: key.profileID, uid: key.uid)
+        }
+        PreviousInstance.keepOnlyDNSRecord(in: session.path)
+        pendingDNS[key] = session
+        DaemonLog.info("\(key.profileID) of uid \(key.uid): DNS not restored yet, kept to try again")
+    }
+
+    /// Tries again to restore the DNS of `key`'s ended session; true once nothing is left of it.
+    @discardableResult
+    private func retryDNS(_ key: Key) -> Bool {
+        guard let session = pendingDNS[key] else { return true }
+        if let message = dns.revert(in: session) { DaemonLog.info("\(key.profileID) of uid \(key.uid): \(message)") }
+        guard !DNSRecord.isRecorded(in: session) else { return false }
+        pendingDNS[key] = nil
+        core.removeRunDir(profileID: key.profileID, uid: key.uid)
+        return true
+    }
+
+    /// Every ended session whose DNS is not restored yet, and what the file backend's state says is
+    /// left to do (`DNSApplier.recover`).
+    private func retryDNS() {
+        for key in pendingDNS.keys { retryDNS(key) }
+        if let message = dns.recover() { DaemonLog.info(message) }
+    }
 
     /// A long session must not fill the disk: logs above `HelperCore.maxLogBytes` keep only their ends.
     private func capLogs() {
@@ -128,6 +175,11 @@ final class Supervisor {
             try SessionPolicy.checkStart(profileID: profileID, uid: uid, sessions: sessions)
         } catch {
             return .failure(String(describing: error))
+        }
+        // A new session would replace the directory that still holds the last one's DNS record.
+        guard retryDNS(Key(uid: uid, profileID: profileID)) else {
+            DaemonLog.info("start of \(profileID) for uid \(uid) refused: the last session's DNS is not restored yet")
+            return .failure("The DNS settings of the last \(profileID) session are not restored yet. Try again shortly.")
         }
         let tool: ResolvedTool
         let plan: HelperCore.LaunchPlan
@@ -226,7 +278,7 @@ final class Supervisor {
                 kill(-job.pid, SIGKILL)
                 endDNSTask(job)
                 revertDNS(job)
-                core.removeRunDir(profileID: job.profileID, uid: job.ownerUID)
+                release(job.key, job.sessionDir)        // one not restored yet is left to the next instance
             }
         }
     }
@@ -263,7 +315,7 @@ final class Supervisor {
         jobs[key] = nil
         endDNSTask(job)
         revertDNS(job)
-        core.removeRunDir(profileID: job.profileID, uid: job.ownerUID)   // config, auth file, socket, state
+        release(key, job.sessionDir)                 // config, auth file, socket, state
         DaemonLog.info("\(job.profileID) of uid \(job.ownerUID) exited (pid \(pid), status \(status))")
         job.waiters.forEach { $0() }
     }
@@ -354,12 +406,14 @@ final class Supervisor {
 
     // MARK: - State of the previous instance
 
-    /// Records pid, owner, executable, profile directory and management socket, so that the next
-    /// instance can stop a tool this one leaves behind.
+    /// Records pid, owner, executable, profile directory, management socket, boot ID and start time, so
+    /// that the next instance can stop a tool this one leaves behind, and only that process
+    /// (`PreviousInstance`). The child is not reaped yet: its pid, and so its start time, is its own.
     private func writeState(plan: HelperCore.LaunchPlan, pid: pid_t, executable: String) {
         let text = "\(pid)\n\(plan.ownerUID)\n\(executable)\n\(plan.profileDir.path)\n\(plan.mgmtSocket ?? "")\n"
+            + PreviousInstance.identityLines(of: pid)
         do {
-            try HelperCore.checkLines(text, count: 5, file: Self.stateFileName)
+            try HelperCore.checkLines(text, count: 7, file: Self.stateFileName)
             try HelperCore.writeNewFile(plan.runDir + "/" + Self.stateFileName, Data(text.utf8), mode: 0o600)
         } catch {
             DaemonLog.info("not recording the state of \(plan.profileID): \(error)")

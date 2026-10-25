@@ -175,7 +175,11 @@ final class DaemonSessionTests: DaemonTestCase {
         XCTAssertTrue(exists(runDir + "/config.ovpn"))
         XCTAssertEqual(try String(contentsOfFile: runDir + "/auth", encoding: .utf8), "alice\npw123456\n")
         let state = try String(contentsOfFile: runDir + "/state", encoding: .utf8)
-        XCTAssertEqual(state, "\(pid)\n\(me)\n\(toolPath)\n\(profileDir("acme"))\n\(runDir)/mgmt.sock\n")
+        let identity = try XCTUnwrap(PreviousInstance.bootID()) + "\n\(try XCTUnwrap(PreviousInstance.startTime(of: pid)))\n"
+        XCTAssertEqual(state, "\(pid)\n\(me)\n\(toolPath)\n\(profileDir("acme"))\n\(runDir)/mgmt.sock\n" + identity)
+        let recorded = try XCTUnwrap(PreviousInstance.readState(runDir + "/state"))
+        XCTAssertEqual(recorded.bootID, PreviousInstance.bootID())
+        XCTAssertEqual(recorded.startTime, PreviousInstance.startTime(of: pid))
 
         // OpenVPN 2.6 gets no DNS option at all; the log is the profile's, owned by its user.
         let log = profileDir("acme") + "/vpn.log"
@@ -257,7 +261,8 @@ final class DaemonSessionTests: DaemonTestCase {
         XCTAssertEqual(st.st_mode & 0o777, 0o600)
         XCTAssertEqual(st.st_uid, geteuid())
         let state = try String(contentsOfFile: runDir + "/state", encoding: .utf8)
-        XCTAssertEqual(state, "\(pid)\n\(me)\n\(fortiPath)\n\(profileDir("acme"))\n\n")
+        XCTAssertEqual(state, "\(pid)\n\(me)\n\(fortiPath)\n\(profileDir("acme"))\n\n" + PreviousInstance.identityLines(of: pid))
+        XCTAssertFalse(PreviousInstance.identityLines(of: pid).hasPrefix("\n"))
 
         let log = profileDir("acme") + "/vpn.log"
         XCTAssertTrue(eventually { ((try? String(contentsOfFile: log, encoding: .utf8)) ?? "").contains("fake openfortivpn") })
@@ -490,39 +495,125 @@ final class LinuxProfileCheckTests: DaemonTestCase {
 // MARK: - The previous instance
 
 final class PreviousInstanceTests: DaemonTestCase {
-    func testStopsRecordedToolsAndCleansUp() throws {
-        try FileManager.default.createDirectory(atPath: runRoot + "/\(me)/acme", withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(atPath: runRoot + "/\(me)/gone", withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(atPath: runRoot + "/\(me)/recycled", withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(atPath: runRoot + "/junk", withIntermediateDirectories: true)
-        try "x".write(toFile: runRoot + "/file", atomically: true, encoding: .utf8)
-        try "keep".write(toFile: runRoot + "/daemon.sock", atomically: true, encoding: .utf8)
-
+    /// `sleep 30` in a process group of its own, as the daemon starts its tools; killed when the test ends
+    /// unless the test reaped it (then its pid may be another process's).
+    func sleeper() throws -> pid_t {
         let devNull = open("/dev/null", O_WRONLY | O_CLOEXEC)
         defer { close(devNull) }
         let pid = try Sys.spawn(executable: "/bin/sleep", arguments: ["30"], environment: HelperCore.fixedEnvironment,
                                 workingDirectory: "/", outputFD: devNull)
-        let other = try Sys.spawn(executable: "/bin/sleep", arguments: ["30"], environment: HelperCore.fixedEnvironment,
-                                  workingDirectory: "/", outputFD: devNull)
-        defer {
-            kill(other, SIGKILL)
+        addTeardownBlock {
+            var info = siginfo_t()
+            guard waitid(P_PID, id_t(pid), &info, WEXITED | WNOHANG | WNOWAIT) == 0 else { return }   // reaped already
+            kill(pid, SIGKILL)
             var status: Int32 = 0
-            waitpid(other, &status, 0)
+            waitpid(pid, &status, 0)
         }
+        return pid
+    }
+
+    /// A state file in `<runRoot>/<me>/<id>`: the five lines of the earlier format, then `identity`.
+    func record(_ id: String, pid: pid_t, executable: String, identity: String) throws {
+        try FileManager.default.createDirectory(atPath: runRoot + "/\(me)/\(id)", withIntermediateDirectories: true)
+        try ("\(pid)\n\(me)\n\(executable)\n/home/alice/x\n\n" + identity)
+            .write(toFile: runRoot + "/\(me)/\(id)/state", atomically: true, encoding: .utf8)
+    }
+
+    func testStopsRecordedToolsAndCleansUp() throws {
+        try FileManager.default.createDirectory(atPath: runRoot + "/junk", withIntermediateDirectories: true)
+        try "x".write(toFile: runRoot + "/file", atomically: true, encoding: .utf8)
+        try "keep".write(toFile: runRoot + "/daemon.sock", atomically: true, encoding: .utf8)
+
+        let pid = try sleeper(), other = try sleeper()
         let exe = try XCTUnwrap(PreviousInstance.executable(of: pid))
-        try "\(pid)\n\(me)\n\(exe)\n/home/alice/x\n\n".write(toFile: runRoot + "/\(me)/acme/state", atomically: true, encoding: .utf8)
-        try "999999\n\(me)\n\(exe)\n/home/alice/x\n\n".write(toFile: runRoot + "/\(me)/gone/state", atomically: true, encoding: .utf8)
-        // A live pid that runs something else than recorded is not touched.
-        try "\(other)\n\(me)\n/usr/sbin/openvpn\n/home/alice/x\n\n".write(toFile: runRoot + "/\(me)/recycled/state",
-                                                                           atomically: true, encoding: .utf8)
+        let boot = try XCTUnwrap(PreviousInstance.bootID())
+        let otherStart = try XCTUnwrap(PreviousInstance.startTime(of: other))
+        try record("acme", pid: pid, executable: exe, identity: PreviousInstance.identityLines(of: pid))
+        try record("gone", pid: 999999, executable: exe, identity: "\(boot)\n1\n")
+        // A live pid is not touched unless it is provably the recorded process: something else runs
+        // under it, it started at another time or in another boot, or the state cannot tell (written
+        // by an earlier build, without boot ID and start time).
+        try record("recycled", pid: other, executable: "/usr/sbin/openvpn", identity: "\(boot)\n\(otherStart)\n")
+        try record("restarted", pid: other, executable: exe, identity: "\(boot)\n\(otherStart + 1)\n")
+        try record("rebooted", pid: other, executable: exe, identity: "00000000-0000-4000-8000-000000000000\n\(otherStart)\n")
+        try record("unverifiable", pid: other, executable: exe, identity: "")
 
         let stopped = PreviousInstance.cleanUp(runRoot: runRoot, keep: ["daemon.sock"], grace: 3)
-        XCTAssertEqual(stopped, [pid])
+        XCTAssertEqual(stopped, .init(signalled: [pid]))
         var status: Int32 = 0
         XCTAssertEqual(waitpid(pid, &status, 0), pid)
         XCTAssertEqual(status & 0x7F, SIGTERM, "stopped with SIGTERM")
         XCTAssertEqual(kill(other, 0), 0)
+        XCTAssertEqual(PreviousInstance.processState(other).map { "RS".contains($0) }, true, "not signalled")
         XCTAssertEqual(PreviousInstance.entries(runRoot), ["daemon.sock"])
+    }
+
+    func testIdentify() throws {
+        let pid = try sleeper()
+        let exe = try XCTUnwrap(PreviousInstance.executable(of: pid))
+        let boot = try XCTUnwrap(PreviousInstance.bootID())
+        let start = try XCTUnwrap(PreviousInstance.startTime(of: pid))
+        let same = PreviousInstance.State(pid: pid, uid: me, executable: exe, bootID: boot, startTime: start)
+        XCTAssertEqual(PreviousInstance.identify(same), .same)
+        XCTAssertTrue(PreviousInstance.isAlive(same))
+        XCTAssertEqual(PreviousInstance.identify(.init(pid: pid, uid: me, executable: exe, bootID: boot, startTime: start + 1)), .gone)
+        XCTAssertEqual(PreviousInstance.identify(.init(pid: pid, uid: me, executable: exe,
+                                                       bootID: "00000000-0000-4000-8000-000000000000", startTime: start)), .gone)
+        XCTAssertEqual(PreviousInstance.identify(.init(pid: pid, uid: me, executable: "/usr/sbin/openvpn", bootID: boot,
+                                                       startTime: start)), .gone)
+        XCTAssertEqual(PreviousInstance.identify(.init(pid: pid, uid: me, executable: exe)), .unverifiable)
+        XCTAssertFalse(PreviousInstance.isAlive(.init(pid: pid, uid: me, executable: exe)))
+        XCTAssertEqual(PreviousInstance.identify(.init(pid: 999999, uid: me, executable: exe, bootID: boot, startTime: start)), .gone)
+        // A process started later has a later start time; our own started before it.
+        XCTAssertLessThanOrEqual(try XCTUnwrap(PreviousInstance.startTime(of: getpid())), start)
+    }
+
+    /// Every signal is preceded by the check: a state that is not the process is never signalled.
+    func testDeliverChecksFirst() throws {
+        let pid = try sleeper()
+        let exe = try XCTUnwrap(PreviousInstance.executable(of: pid))
+        let boot = try XCTUnwrap(PreviousInstance.bootID())
+        let start = try XCTUnwrap(PreviousInstance.startTime(of: pid))
+        XCTAssertFalse(PreviousInstance.deliver(SIGKILL, to: .init(pid: pid, uid: me, executable: exe, bootID: boot,
+                                                                   startTime: start + 1)))
+        XCTAssertFalse(PreviousInstance.deliver(SIGKILL, to: .init(pid: pid, uid: me, executable: exe)))
+        XCTAssertEqual(kill(pid, 0), 0, "still running")
+        XCTAssertTrue(PreviousInstance.deliver(SIGTERM, to: .init(pid: pid, uid: me, executable: exe, bootID: boot, startTime: start)))
+        var status: Int32 = 0
+        XCTAssertEqual(waitpid(pid, &status, 0), pid)
+        XCTAssertEqual(status & 0x7F, SIGTERM)
+    }
+
+    /// The pidfd calls themselves: a pidfd of a running child, a signal through it, then `ESRCH` for a
+    /// process that is gone (the kernel of the CI runners has pidfds).
+    func testPidfdCalls() throws {
+        let pid = try sleeper()
+        let pidfd = try XCTUnwrap(Sys.pidfdOpen(pid))
+        defer { close(pidfd) }
+        XCTAssertEqual(Sys.pid(ofPidfd: pidfd), pid)
+        XCTAssertEqual(Sys.pidfdSignal(pidfd, SIGTERM, processGroup: false), 0)
+        var status: Int32 = 0
+        XCTAssertEqual(waitpid(pid, &status, 0), pid)
+        XCTAssertEqual(status & 0x7F, SIGTERM)
+        XCTAssertEqual(Sys.pidfdSignal(pidfd, SIGTERM, processGroup: false), ESRCH)
+        XCTAssertNil(Sys.pidfdOpen(999999))
+    }
+
+    /// Without pidfds nothing is signalled at all, not even a verified process: by number the signal
+    /// could reach another process that took the pid over. The DNS is still reverted and the run root
+    /// cleaned up; the tool is left running.
+    func testNoPidfdsNoSignals() throws {
+        let pid = try sleeper()
+        let exe = try XCTUnwrap(PreviousInstance.executable(of: pid))
+        try record("acme", pid: pid, executable: exe, identity: PreviousInstance.identityLines(of: pid))
+        var none = PreviousInstance.Pidfds()
+        none.open = { _ in nil }
+        let state = try XCTUnwrap(PreviousInstance.readState(runRoot + "/\(me)/acme/state"))
+        XCTAssertEqual(PreviousInstance.identify(state), .same)
+        XCTAssertFalse(PreviousInstance.deliver(SIGKILL, to: state, pidfds: none))
+        XCTAssertEqual(PreviousInstance.cleanUp(runRoot: runRoot, keep: [], grace: 0.5, pidfds: none), .init())
+        XCTAssertEqual(PreviousInstance.processState(pid).map { "RS".contains($0) }, true, "left running")
+        XCTAssertEqual(PreviousInstance.entries(runRoot), [])
     }
 
     func testDaemonCleansUpWhenItStarts() throws {
@@ -537,13 +628,25 @@ final class PreviousInstanceTests: DaemonTestCase {
         let path = runRoot + "/state"
         try "42\n1000\n/usr/sbin/openvpn\n/home/alice/x\n/run/m\n".write(toFile: path, atomically: true, encoding: .utf8)
         XCTAssertEqual(PreviousInstance.readState(path), .init(pid: 42, uid: 1000, executable: "/usr/sbin/openvpn"))
-        for bad in ["1\n1000\n/usr/sbin/openvpn\n", "x\n1000\n/a\n", "42\n\n/a\n", "42\n1000\nrelative\n", "42\n"] {
+        let boot = "6a1b2c3d-0000-4e5f-8a9b-0123456789ab"
+        try "42\n1000\n/usr/sbin/openvpn\n/home/alice/x\n/run/m\n\(boot)\n12345\n".write(toFile: path, atomically: true, encoding: .utf8)
+        XCTAssertEqual(PreviousInstance.readState(path), .init(pid: 42, uid: 1000, executable: "/usr/sbin/openvpn",
+                                                               bootID: boot, startTime: 12345))
+        try "42\n1000\n/usr/sbin/openvpn\n/home/alice/x\n/run/m\n\n\n".write(toFile: path, atomically: true, encoding: .utf8)
+        XCTAssertEqual(PreviousInstance.readState(path), .init(pid: 42, uid: 1000, executable: "/usr/sbin/openvpn"),
+                       "none could be read when it was written")
+        for bad in ["1\n1000\n/usr/sbin/openvpn\n", "x\n1000\n/a\n", "42\n\n/a\n", "42\n1000\nrelative\n", "42\n",
+                    "42\n1000\n/a\n/h\n\n\(boot)\n\n", "42\n1000\n/a\n/h\n\n\n12345\n", "42\n1000\n/a\n/h\n\n\(boot)\n012\n",
+                    "42\n1000\n/a\n/h\n\n\(boot.uppercased())\n12\n", "42\n1000\n/a\n/h\n\nboot\n12\n", "42\n1000\n/a\n/h\n\n\(boot)\n-1\n"] {
             try bad.write(toFile: path, atomically: true, encoding: .utf8)
             XCTAssertNil(PreviousInstance.readState(path), bad)
         }
         let own = try XCTUnwrap(PreviousInstance.processState(getpid()))
         XCTAssertTrue("RS".contains(own), "\(own)")
         XCTAssertNil(PreviousInstance.processState(999999))
+        XCTAssertNil(PreviousInstance.startTime(of: 999999))
+        XCTAssertTrue(PreviousInstance.isBootID(try XCTUnwrap(PreviousInstance.bootID())))
+        XCTAssertNil(PreviousInstance.bootID(path: base + "/none"))
     }
 }
 

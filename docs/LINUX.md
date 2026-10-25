@@ -44,7 +44,7 @@ passtunnel mcp (stdio) ┴─▶ PassTunnelCore (as on the Mac: ProfileStore, Co
 | What | Path |
 |---|---|
 | Profiles, preferences, logs | `~/.local/share/passtunnel/` (same layout as the Mac's support dir: `config.json`, `profiles/<id>/…`); `PASSTUNNEL_HOME` overrides it for tests. `XDG_DATA_HOME` is not followed, because the daemon checks that profile directories are under the caller's home at this fixed subpath |
-| Run root | `/run/passtunnel/` (0711, root): `<uid>/<id>/` per session as on the Mac (`config.ovpn` or `openfortivpn.conf`, `auth`, `state`, `mgmt.sock`; for DNS the `dns-hook` link and the record `dns`, with `dns.resolv.conf`), and `daemon.lock` (one daemon per run root) |
+| Run root | `/run/passtunnel/` (0711, root): `<uid>/<id>/` per session as on the Mac (`config.ovpn` or `openfortivpn.conf`, `auth`, `state`, `mgmt.sock`; for DNS the `dns-hook` link and the record `dns`), `daemon.lock` (one daemon per run root) and, while a tunnel's DNS is in `/etc/resolv.conf` itself or something there is left to restore, `resolv.conf.base` (below) |
 | Daemon socket | `/run/passtunnel/daemon.sock` (0666, root; access is decided per request, below) |
 | Binaries | `/usr/bin/passtunnel`, `/usr/sbin/passtunneld` from the packages; `/usr/local/…` from the tarball |
 
@@ -140,9 +140,27 @@ The macOS rules apply where they make sense; these replace the ones built on cod
   then SIGKILL after 5 s; at most `SessionPolicy.maxSessionsPerUser` sessions per user; the session
   log is capped with `HelperCore.capLog`. On exit the DNS the session recorded is reverted (when its
   hook did not) and the run directory removed.
-  There is no adoption: a starting daemon stops tools recorded by a previous instance (when the pid
-  still runs the recorded executable, `/proc/<pid>/exe`), reverts the DNS their sessions recorded and
-  cleans up (under systemd `KillMode=control-group` has already stopped them).
+  There is no adoption: a starting daemon stops tools recorded by a previous instance, reverts the
+  DNS their sessions recorded and cleans up (under systemd `KillMode=control-group` has already
+  stopped them). The session's `state` records, besides pid, owner and executable, the boot
+  (`/proc/sys/kernel/random/boot_id`) and the tool's start time (field 22 of `/proc/<pid>/stat`, read
+  before the child is reaped). A recorded pid is signalled only while it provably is that process:
+  the same boot, start time and executable (`/proc/<pid>/exe`), checked again right before every
+  signal (SIGTERM, and SIGKILL after the grace period). Signals go only through a pidfd
+  (`pidfd_open`, `pidfd_send_signal`, called through glibc's `syscall`, since glibc before 2.36 has
+  no wrappers), opened before the check, so they cannot reach a process that took the pid over in
+  between; nothing is ever signalled by number. Its process group goes through the pidfd too on
+  Linux 6.9 (`PIDFD_SIGNAL_PROCESS_GROUP`); before that only the tool itself is signalled (what is
+  left in its group are short-lived children, and under systemd the control group is stopped
+  anyway). Without pidfds (Linux before 5.3) nothing is signalled: the tool is left running and
+  logged, its DNS still reverted. So is a `state` without boot and start time (from a development
+  build before they were recorded), which cannot prove the process is the tool, since a stray tool
+  left running is better than a signal to an unrelated process.
+  A session whose DNS cannot be restored yet (the lock is held, the file cannot be read or written)
+  is not removed: its directory keeps the `dns` record and nothing else (the config and auth file
+  go), the run root keeps `resolv.conf.base`, the profile cannot start again over it ("not restored
+  yet"), and the daemon tries again every 15 s until it is restored; a starting daemon does the same
+  with what an earlier one left. Only what is restored, or no longer needed, is swept away.
 - **Sandbox** (`packaging/linux/passtunnel.service`, a first version, installed from the release
   tarball):
   `CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_SETUID CAP_SETGID
@@ -188,9 +206,10 @@ what the server pushes, and every value of it is treated as hostile: it ends up 
   arguments `--down` appends.
 - **Its own session only.** The hook works in OpenVPN's working directory, which must be a session
   directory `<run root>/<uid>/<id>` (root's) whose `state` names the hook's parent process as the
-  session's tool (its pid, running the recorded executable); anything else is refused. It acts on the
-  interface OpenVPN names (`dev`: 1 to 15 letters, digits, `_`, `-` and `.`, and it must exist) and
-  notes its index, so that a revert never reaches another interface of that name.
+  session's tool (its pid, in the same boot, with the recorded start time and executable); anything
+  else is refused. It acts on the interface OpenVPN names (`dev`: 1 to 15 letters, digits, `_`, `-`
+  and `.`, not digits only, which tools read as an interface index; and it must exist) and notes its
+  index, so that a revert never reaches another interface of that name.
 - **What it reads.** The `dns_*` variables when there are any (`--dns`: all of OpenVPN 2.7's, which
   turns pushed `dhcp-option`s into them for `--dns-updown`, and 2.6's for pushed `dns` options), else
   2.6's `foreign_option_N` with `dhcp-option DNS`, `DNS6`, `DOMAIN`, `DOMAIN-SEARCH` and
@@ -206,43 +225,76 @@ what the server pushes, and every value of it is treated as hostile: it ends up 
   (and `"dns"`).
 - **Applying** (`DNSApplier`: `apply(settings, interface:, in: session)` and `revert(in: session)`,
   independent of OpenVPN; `DNSSettings` holds the checked values), one change at a time on the
-  machine (the run root is locked with `flock`), in this order of preference:
+  machine (the run root is locked with `flock`, by the hook and the daemon alike), in this order of
+  preference:
   - systemd-resolved, when `/etc/resolv.conf` is a link into `/run/systemd/resolve/` (or to its
     static `resolv.conf`): `resolvectl dns`, `domain` (the search domains, `~domain` for routing-only
     ones, and `~.` when every name goes through the tunnel) and `default-route` (yes only then) for
-    the link. `resolvectl revert` undoes it while the link (with that index) exists; once it is gone,
-    systemd-resolved has dropped its settings.
+    the link. The link is always given by its recorded index, never its name, and right before each
+    call the index must still name the interface and no interface may be named like the index
+    (`resolvectl` reads a number as an index, but systemd 256 and later first look it up as an
+    interface name or alternative name, which `if_nametoindex` finds as well);
+    otherwise nothing runs and the set-up fails. Indexes are not reused soon (the kernel counts up),
+    so a link that passes is the session's own. `resolvectl revert <index>` undoes it, after the same
+    check, while the link (with that index) exists; once it is gone, systemd-resolved has dropped its
+    settings. Each tunnel's settings belong to its own link, so sessions that overlap never touch
+    each other's.
   - else `resolvconf` (Debian's or openresolv, not systemd's stand-in, which is resolvectl):
-    `resolvconf -a <dev>.passtunnel` with up to three `nameserver` lines and a `search` line on
-    standard input, `-d` to revert. Debian's writes `/run/resolvconf/resolv.conf` (renamed into
-    place), openresolv `/etc/resolv.conf` in place; openresolv set to rename a file over it instead
-    (`resolv_conf_mv` in `/etc/resolvconf.conf`) is refused where `/etc` is read-only (inside the
-    unit), before it runs.
+    `resolvconf -a <dev>.passtunnel-<index>` with up to three `nameserver` lines and a `search` line
+    on standard input, `-d` to revert. resolvconf keeps a record per name and merges them itself, so
+    overlapping sessions are separate; the index in the name keeps a session that ends late (a
+    crashed tool's reap) from removing the record of a later link that got the same interface name.
+    Debian's writes `/run/resolvconf/resolv.conf` (renamed into place), openresolv `/etc/resolv.conf`
+    in place; openresolv set to rename a file over it instead (`resolv_conf_mv` in
+    `/etc/resolvconf.conf`) is refused where `/etc` is read-only (inside the unit), before it runs.
   - else `/etc/resolv.conf` itself when it is a regular file of root (a link anywhere else is never
     followed, and fails the set-up): a block at the top (`# PassTunnel <dev> begin: …` to
     `# PassTunnel <dev> end`) with up to three servers and the search domains, and the file's own
     `nameserver` lines (and `search` and `domain`, when the tunnel brings domains) disabled with the
     mark `#PassTunnel <dev># `. A resolv.conf cannot route names, so every name goes through the
-    tunnel here. Written atomically where it can be: a new file next to it, synced, renamed over it.
-    Inside the unit (`/etc` read-only, the file a bind mount) and where a container runtime
-    bind-mounts it (rename fails with `EBUSY`) it is rewritten in place instead: the whole content
-    in one write from the start, cut to its length, synced; what it replaces is in the session
-    directory first. A file that lost its name (replaced after the unit started) fails the set-up.
-    The revert writes back the previous content when the file is still what was written; one changed
-    meanwhile loses only the block and the marks; one replaced since is left alone.
+    tunnel here. The file is never patched on top of an earlier tunnel's: PassTunnel keeps one
+    baseline (the file without PassTunnel, in `<run root>/resolv.conf.base` with a digest of what it
+    wrote last) and a registry of the sessions whose DNS is in the file (their `dns` records, below,
+    each with its servers, search domains and an order of application), and every change, under the
+    lock, makes the file again from them: the baseline with the newest session's block (several
+    tunnels at once: the newest one's DNS is in effect, an older one's comes back when it ends), or
+    with none the baseline itself. So a tunnel that ends while another is up never brings the file's
+    own servers back. The baseline is the recorded one while the file is still what PassTunnel
+    wrote; changed by someone else meanwhile, it is the file without any PassTunnel block or mark
+    (their change stays); a file without them that no session needs any more is left alone. A
+    result larger than PassTunnel reads back (64 KiB) is refused before anything changes, so every
+    file it writes is one it can restore. Written atomically where it can be: a new file next to it
+    (a name of the writer's own), synced, renamed over it. Inside the unit (`/etc` read-only, the
+    file a bind mount) and where a container runtime bind-mounts it (rename fails with `EBUSY`) it
+    is rewritten in place instead: the whole content in one write from the start, cut to its
+    length, synced. Every write is journalled first: `resolv.conf.base` notes the file before and
+    after the change, and a writer that dies in the middle (between the write and the cut, say)
+    leaves a change the next one finishes (any change, the daemon's retries, a starting daemon),
+    recognised as the start of the new content over the rest of the old one; anything else counts
+    as someone else's edit. Right before it writes, PassTunnel checks that the file is still the one
+    it read (the same inode and content); replaced or changed in between by another writer, it is
+    read again and the change worked out anew, three times in all, then the change fails and their
+    file stays. Only a writer that changes it in the instant between that check and the write goes
+    unseen: PassTunnel's lock cannot hold back writers outside it. A file that lost its name
+    (replaced after the unit started) fails the set-up.
   - The tools run only from fixed paths (`/usr/bin/resolvectl`, `/bin/resolvectl`;
     `/usr/sbin/resolvconf`, `/sbin/resolvconf`), checked as the VPN tools are (`TrustedPath`), with
     the fixed environment and argument lists of `Sys.spawn` (never a shell), 10 s each.
 - **Recorded and reverted.** Before it changes anything, the hook records in the session directory
-  what it is about to change (`dns`: the backend, the interface and its index, a digest of the
-  resolv.conf it writes; `dns.resolv.conf`: the content that one replaces; root's, 0600). A failed
+  what it is about to change (`dns`: the backend, the interface and its index, and for
+  `/etc/resolv.conf` the servers and search domains of its block; root's, 0600). A failed
   set-up reverts what it did, removes the record and prints "setting DNS failed: …" to the session
   log, which the client turns into `PTError.setupFailed`, as on the Mac. OpenVPN goes on after it on
   2.6 (`--route-up`; a failed `--up` would end OpenVPN with a fatal error, which the client reports
   as `connectFailed` before it looks for a failed set-up) and on 2.7 (`--dns-updown`). The hook
   reverts when OpenVPN takes the tunnel down; the daemon reverts whatever is still recorded when it
   reaps the tool (killed, crashed, or the daemon stopping), and a starting daemon what the sessions
-  of a previous instance recorded.
+  of a previous instance recorded; with the record the session leaves the registry. Nothing of it
+  changes without the run root's lock: a revert that cannot take it within 10 s, or that fails,
+  keeps the record (and the session in the registry) for the next try (above). A failed set-up on
+  the file backend drops its record even so: the journal has what is left to finish. The daemon
+  also gives back a baseline no session claims any more (an instance that died between the steps
+  of a revert), and finishes a change left under way.
 - **FortiGate**, when the profile has `set_dns` (otherwise DNS is left alone): the daemon sets it
   itself, from openfortivpn's own output as its pipe delivers it (above), never from the log file,
   which belongs to the session's user, who could write any line into it. openfortivpn 1.21 prints,

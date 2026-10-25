@@ -120,7 +120,8 @@ public enum DNSHook {
         var effectiveUID: () -> uid_t = { geteuid() }
         var workingDirectory: () -> String? = { FileManager.default.currentDirectoryPath }
         var parent: () -> pid_t = { getppid() }
-        /// The recorded tool still runs what it ran (`PreviousInstance.isAlive`); replaced in tests.
+        /// The recorded tool is still the process the daemon started (`PreviousInstance.isAlive`: the same
+        /// boot, start time and executable); replaced in tests.
         var isRecordedTool: (PreviousInstance.State) -> Bool = PreviousInstance.isAlive
         var output: (String) -> Void = { line in
             let text = DNSHook.logPrefix + DaemonLog.oneLine(line) + "\n"

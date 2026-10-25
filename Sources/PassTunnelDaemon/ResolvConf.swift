@@ -4,8 +4,9 @@ import Foundation
 /// servers and search domains, and the file's own `nameserver` lines (and `search` and `domain` lines,
 /// when the tunnel brings domains) disabled by a mark of the same interface, so that nothing leaks past
 /// the tunnel. A resolv.conf cannot route names, so every name is resolved through the tunnel here.
-/// Taking the block and the marks out again gives back the file as it was, whatever else changed in
-/// it meanwhile. Works on bytes: the file is not necessarily UTF-8, and is restored exactly.
+/// `DNSApplier` makes it from the baseline (the file without PassTunnel) for the newest session; taking
+/// every block and mark out again gives back the baseline, whatever else changed in the file
+/// meanwhile. Works on bytes: the file is not necessarily UTF-8, and is restored exactly.
 enum ResolvConf {
     static func begin(_ interface: String) -> [UInt8] {
         Array("# PassTunnel \(interface) begin: DNS of the VPN, removed when it disconnects".utf8)
@@ -31,22 +32,21 @@ enum ResolvConf {
         return joined(block + rest)
     }
 
-    /// `text` without the block of `interface` and with the lines it disabled enabled again; nil when
-    /// none of it is there.
-    static func strip(_ text: [UInt8], interface: String) -> [UInt8]? {
+    /// `text` without any PassTunnel block (of whatever interface: one a crash left behind too) and with
+    /// every line a mark disabled enabled again; nil when none of it is there.
+    static func stripAll(_ text: [UInt8]) -> [UInt8]? {
         let all = lines(text)
-        let begin = begin(interface), end = end(interface), mark = mark(interface)
         var kept: [[UInt8]] = []
         var changed = false
         var i = 0
         while i < all.count {
-            if all[i] == begin, let close = all[(i + 1)...].firstIndex(of: end) {
+            if let interface = blockInterface(all[i]), let close = all[(i + 1)...].firstIndex(of: end(interface)) {
                 i = close + 1
                 changed = true
                 continue
             }
-            if all[i].starts(with: mark) {
-                kept.append(Array(all[i].dropFirst(mark.count)))
+            if let line = unmarked(all[i]) {
+                kept.append(line)
                 changed = true
             } else {
                 kept.append(all[i])
@@ -54,6 +54,28 @@ enum ResolvConf {
             i += 1
         }
         return changed ? joined(kept) : nil
+    }
+
+    /// The interface whose block `line` begins, if it begins one.
+    static func blockInterface(_ line: [UInt8]) -> String? {
+        let prefix = Array("# PassTunnel ".utf8), suffix = Array(" begin: DNS of the VPN, removed when it disconnects".utf8)
+        guard line.count > prefix.count + suffix.count, line.starts(with: prefix), line.suffix(suffix.count).elementsEqual(suffix),
+              let name = interfaceName(line[prefix.count..<(line.count - suffix.count)]) else { return nil }
+        return name
+    }
+
+    /// The line a mark (`#PassTunnel <interface># `) disabled; nil when it has none.
+    static func unmarked(_ line: [UInt8]) -> [UInt8]? {
+        let prefix = Array("#PassTunnel ".utf8)
+        guard line.starts(with: prefix), let close = line[prefix.count...].firstIndex(of: 0x23),        // "#"
+              let name = interfaceName(line[prefix.count..<close]) else { return nil }
+        let mark = mark(name)
+        return line.starts(with: mark) ? Array(line.dropFirst(mark.count)) : nil
+    }
+
+    private static func interfaceName(_ bytes: ArraySlice<UInt8>) -> String? {
+        guard bytes.allSatisfy({ $0 > 0x20 && $0 < 0x7F }) else { return nil }
+        return try? DNSSettings.interface(String(decoding: bytes, as: UTF8.self))
     }
 
     /// glibc reads a keyword only at the very start of a line, followed by a space or a tab.

@@ -83,10 +83,12 @@ public struct DNSSettings: Equatable, Sendable {
     }
 
     /// A network interface name as Linux allows it, narrowed to what tunnels are called: 1 to 15
-    /// (`IFNAMSIZ` - 1) ASCII letters, digits, `_`, `-` and `.`, starting with a letter or digit.
+    /// (`IFNAMSIZ` - 1) ASCII letters, digits, `_`, `-` and `.`, starting with a letter or digit, and
+    /// not digits only (which `resolvectl` and other tools read as an interface index).
     public static func interface(_ text: String) throws -> String {
         let bytes = Array(text.utf8)
         guard (1...15).contains(bytes.count), let first = bytes.first, isAlphanumeric(first),
+              !bytes.allSatisfy({ $0 >= 0x30 && $0 <= 0x39 }),
               bytes.allSatisfy({ isAlphanumeric($0) || $0 == 0x5F || $0 == 0x2D || $0 == 0x2E }) else {
             throw DNSFailure.invalid("interface", text)
         }
@@ -105,9 +107,15 @@ public enum DNSFailure: Error, Equatable, CustomStringConvertible {
     case tooMany(String, Int)
     case noUsableServer
     case noInterface(String)
+    /// The interface's index names another interface now, or `resolvectl` could take it for a name.
+    case interfaceChanged(String, UInt32)
     case unexpectedLink(String, String)
     case notARegularFile(String)
     case tooLarge(String)
+    /// With the tunnel's block the file would be larger than PassTunnel reads back.
+    case wouldBeTooLarge(String)
+    /// Replaced or changed by someone else between PassTunnel reading and writing it, every time.
+    case changedMeanwhile(String)
     case untrustedTool(String, String)
     case missingTool(String, String)
     case toolFailed(String, Int32, String)
@@ -131,10 +139,16 @@ public enum DNSFailure: Error, Equatable, CustomStringConvertible {
         case .noUsableServer:
             return "no DNS server PassTunnel can use (only DNS over TLS or HTTPS, or a port other than 53)"
         case .noInterface(let name): return "there is no interface \(name)"
+        case .interfaceChanged(let name, let index):
+            return "\(name) is no longer interface \(index), or another interface is named “\(index)”"
         case .unexpectedLink(let path, let target):
             return "\(path) is a link to \(HelperCore.printable(target)), which PassTunnel does not change"
         case .notARegularFile(let path): return "\(path) is not a regular file owned by root"
         case .tooLarge(let path): return "\(path) is too large"
+        case .wouldBeTooLarge(let path):
+            return "\(path) would be larger than \(DNSApplier.maxResolvConfBytes >> 10) KiB with the VPN's DNS"
+        case .changedMeanwhile(let path):
+            return "\(path) kept being changed by something else while PassTunnel wrote it"
         case .untrustedTool(let path, let reason): return "refusing to run \(path): \(reason)"
         case .missingTool(let tool, let why): return "\(why), but \(tool) is not installed"
         case .toolFailed(let tool, let status, let output):
