@@ -1031,8 +1031,46 @@ final class ConnectionManagerTests: XCTestCase {
         XCTAssertNil(m.warnings[p.id])
     }
 
+    /// Linux: the routes come with the kernel's kind of device, and sessions name their device in
+    /// OpenVPN's Linux lines.
+    func testLinuxTunnelsAndOwnSessions() async throws {
+        routeTable = [RoutingTable.Route(destination: "0.0.0.0", prefixLength: 0, interface: "wlp2s0"),
+                      RoutingTable.Route(destination: "0.0.0.0", prefixLength: 0, interface: "acme", tunnelDevice: true)]
+        let full = try makeFullTunnel("Full")
+        let m = makeManager()
+        do {
+            try await m.checkCanStart(full.id)
+            XCTFail("allowed over another VPN")
+        } catch {
+            XCTAssertEqual(error as? PTError, .otherVPNActive("acme"))
+        }
+        routeTable = [RoutingTable.Route(destination: "0.0.0.0", prefixLength: 1, interface: "tun0", tunnelDevice: true),
+                      RoutingTable.Route(destination: "128.0.0.0", prefixLength: 1, interface: "tun0", tunnelDevice: true)]
+        let split = try makeOpenVPN("Split")
+        try await m.connect(split.id)
+        try Data("2026-01-01 10:00:00 TUN/TAP device tun0 opened\n".utf8).write(to: store.logURL(split.id))
+        try await m.connect(full.id)
+        XCTAssertTrue(m.state(full.id).isConnected)
+    }
+
+    func testLinuxOtherFailedRouteLeavesAWarning() async throws {
+        let p = try makeOpenVPN()
+        helper.startLog = FullTunnelTests.linuxOpenVPNLog.replacingOccurrences(of: "Initialization Sequence Completed\n", with: """
+        net_route_v4_add: 10.30.0.0/16 via 10.8.0.1 dev [NULL] table 0 metric -1
+        2026-01-01 10:00:01 sitnl_send: rtnl: generic error (-101): Network is unreachable
+        2026-01-01 10:00:01 ERROR: Linux route add command failed
+        2026-01-01 10:00:01 Initialization Sequence Completed
+
+        """)
+        let m = makeManager()
+        try await m.connect(p.id)
+        XCTAssertTrue(m.state(p.id).isConnected)
+        XCTAssertEqual(m.warnings[p.id], "Connected, but part of the network setup failed: "
+                       + "net_route_v4_add: 10.30.0.0/16 via 10.8.0.1 dev [NULL] table 0 metric -1: Network is unreachable")
+    }
+
     func testLeftoverServerRouteLeavesNoWarning() async throws {
-        for log in [FullTunnelTests.leftoverServerRouteLog, FullTunnelTests.duplicateServerRouteLog] {
+        for log in [FullTunnelTests.leftoverServerRouteLog, FullTunnelTests.duplicateServerRouteLog, FullTunnelTests.linuxOpenVPNLog] {
             let p = try makeOpenVPN()
             helper.startLog = log
             let m = makeManager()
