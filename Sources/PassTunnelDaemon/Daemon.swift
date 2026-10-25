@@ -17,6 +17,11 @@ public final class Daemon {
         public var dnsHook: String?
         /// Where DNS is changed and reverted (`DNSApplier`); a fake root in tests.
         public var dns = DNSSystem()
+        /// The network interfaces, as the checks of a FortiGate session's ppp interface see them.
+        public var interfaces = InterfaceSystem()
+        /// How long a FortiGate DNS set-up waits, once the tunnel is up, for what openfortivpn did not
+        /// report yet.
+        public var reportWait: TimeInterval = 10
         /// `hello`'s `build`: hex SHA-256 of the executable (`HelperBuild.digest`).
         public var build = "unknown"
         /// `hello`'s `build_number` and every reply's `helper_build`; none in development builds.
@@ -92,7 +97,8 @@ public final class Daemon {
         var core = HelperCore(runRoot: options.runRoot, dnsUpdownSource: nil,
                               homeDirectory: options.users.home, userName: options.users.name)
         core.dnsHook = hook
-        supervisor = Supervisor(core: core, tools: options.tools, dns: dns, stopGrace: options.stopGrace)
+        supervisor = Supervisor(core: core, tools: options.tools, dns: dns, interfaces: options.interfaces,
+                                reportWait: options.reportWait, stopGrace: options.stopGrace)
     }
 
     deinit {

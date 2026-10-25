@@ -5,7 +5,10 @@ import PassTunnelShared
 /// Sessions are keyed by (owner uid, profile ID) (`SessionPolicy`). Each child has a thread of its own
 /// that waits for it to exit; then the DNS its session recorded is reverted (normally its hook has done
 /// that already) and the session directory removed. There is no adoption: tools recorded by an earlier
-/// instance are stopped when the daemon starts (`PreviousInstance`).
+/// instance are stopped when the daemon starts (`PreviousInstance`). FortiGate sessions print into a
+/// pipe the daemon reads (`OutputCopier`): it copies their output into the log and, for a profile with
+/// `set_dns`, sets the DNS openfortivpn reports there for the session's ppp interface (`FortiDNSWatch`,
+/// `SessionInterface`, `DNSApplier`), off the queue, on `dnsQueue`.
 final class Supervisor {
     typealias Key = SessionPolicy.Key
 
@@ -19,18 +22,33 @@ final class Supervisor {
         /// Our copy of the tool's log descriptor, for `HelperCore.capLog`.
         let logFD: Int32
         var waiters: [() -> Void] = []
+        /// FortiGate: copies the tool's output into the log.
+        var output: OutputCopier?
+        /// FortiGate with `set_dns`: what the output said about DNS so far.
+        var fortiDNS: FortiDNSWatch?
+        /// The highest interface index when the tool started: its ppp interface comes later.
+        var indexAtStart: UInt32 = 0
+        /// The DNS set-up handed to `dnsQueue`, if any.
+        var dnsTask: DNSTask?
 
         var key: Key { Key(uid: ownerUID, profileID: profileID) }
     }
 
     static let logCheckInterval: TimeInterval = 60
     static let stateFileName = "state"
+    static let noServers = "the gateway named no DNS servers; DNS is left as it is"
 
     let queue = DispatchQueue(label: "passtunneld.supervisor")
+    /// FortiGate DNS set-ups: they run tools and wait for the run root's lock, so not on `queue`.
+    let dnsQueue = DispatchQueue(label: "passtunneld.dns")
     private let core: HelperCore
     private let tools: ToolResolving
-    /// Reverts what a session's DNS hook left (`DNSApplier`); FortiGate sessions will apply through it too.
+    /// Reverts what a session's DNS hook left, and sets FortiGate's (`DNSApplier`).
     let dns: DNSApplier
+    private let interfaces: InterfaceSystem
+    /// How long the DNS set-up waits, once openfortivpn says the tunnel is up, for what it did not
+    /// report yet.
+    private let reportWait: TimeInterval
     private let stopGrace: TimeInterval
     private var jobs: [Key: Job] = [:]
     private var logTimer: DispatchSourceTimer?
@@ -41,10 +59,13 @@ final class Supervisor {
         }
     }
 
-    init(core: HelperCore, tools: ToolResolving, dns: DNSApplier, stopGrace: TimeInterval = 5) {
+    init(core: HelperCore, tools: ToolResolving, dns: DNSApplier, interfaces: InterfaceSystem = InterfaceSystem(),
+         reportWait: TimeInterval = 10, stopGrace: TimeInterval = 5) {
         self.core = core
         self.tools = tools
         self.dns = dns
+        self.interfaces = interfaces
+        self.reportWait = reportWait
         self.stopGrace = stopGrace
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + Self.logCheckInterval, repeating: Self.logCheckInterval)
@@ -74,7 +95,7 @@ final class Supervisor {
                     return try core.prepareOpenVPN(s, uid: uid)
                 })
             case .startForti(let s):
-                reply(self.start(profileID: s.profileID, uid: uid, tool: .openfortivpn) { _, core in
+                reply(self.start(profileID: s.profileID, uid: uid, tool: .openfortivpn, output: .copied(setDNS: s.setDNS)) { _, core in
                     // openfortivpn runs pppd from the path compiled into it: checked as a tool is.
                     _ = try self.tools.resolve(.pppd)
                     core.caFile = try self.tools.caBundle()
@@ -91,9 +112,16 @@ final class Supervisor {
         }
     }
 
+    /// Where a tool's output goes: straight into the log (OpenVPN), or through `OutputCopier`
+    /// (openfortivpn), followed for DNS when the profile has `set_dns`.
+    enum Output {
+        case log
+        case copied(setDNS: Bool)
+    }
+
     /// Checks the session limits and the tool, has `prepare` write the session's files (given the
     /// checked tool and a copy of the core to adjust), then spawns the tool and supervises it.
-    private func start(profileID: String, uid: uid_t, tool spec: ToolSpec,
+    private func start(profileID: String, uid: uid_t, tool spec: ToolSpec, output: Output = .log,
                        prepare: (ResolvedTool, inout HelperCore) throws -> HelperCore.LaunchPlan) -> HelperResponse {
         dispatchPrecondition(condition: .onQueue(queue))
         do {
@@ -112,20 +140,36 @@ final class Supervisor {
             return .failure(error)
         }
         defer { close(plan.logFD) }
+        var pipeFDs: (read: Int32, write: Int32)?
         do {
+            if case .copied = output { pipeFDs = try Sys.makePipe() }
+            defer { pipeFDs.map { _ = close($0.write) } }      // the tool has its own copy
+            let indexAtStart = pipeFDs == nil ? 0 : interfaces.highestIndex()
             let pid = try Sys.spawn(executable: tool.path, arguments: plan.arguments,
                                     environment: HelperCore.fixedEnvironment,
-                                    workingDirectory: plan.runDir, outputFD: plan.logFD)
+                                    workingDirectory: plan.runDir, outputFD: pipeFDs?.write ?? plan.logFD)
             writeState(plan: plan, pid: pid, executable: tool.path)
             let logCopy = fcntl(plan.logFD, F_DUPFD_CLOEXEC, 0)
-            let job = Job(profileID: plan.profileID, ownerUID: plan.ownerUID, pid: pid, executable: tool.path,
+            var job = Job(profileID: plan.profileID, ownerUID: plan.ownerUID, pid: pid, executable: tool.path,
                           sessionDir: plan.sessionDir, mgmtSocket: plan.mgmtSocket, logFD: logCopy)
+            if let fds = pipeFDs, case .copied(let setDNS) = output {
+                let key = job.key
+                let copier = OutputCopier(readFD: fds.read, logFD: fcntl(plan.logFD, F_DUPFD_CLOEXEC, 0)) { [weak self] line in
+                    self?.queue.async { self?.received(line, key: key, pid: pid) }
+                }
+                pipeFDs = (-1, fds.write)                        // the copier closes the read end
+                job.output = copier
+                job.fortiDNS = setDNS ? FortiDNSWatch() : nil
+                job.indexAtStart = indexAtStart
+                copier.start(name: "passtunneld.output.\(pid)")
+            }
             jobs[job.key] = job
             watch(job.key, pid: pid)
             if plan.mgmtSocket != nil { restrictSocketWhenReady(job.key, pid: pid, attempt: 0) }
             DaemonLog.info("started \(spec.name) \(tool.version) for \(profileID), uid \(uid), pid \(pid)")
             return .success(pid: pid, mgmtSocket: plan.mgmtSocket)
         } catch {
+            if let fds = pipeFDs, fds.read >= 0 { close(fds.read) }
             core.removeRunDir(profileID: profileID, uid: uid)
             let line = "PassTunnel: \(error)\n"
             _ = line.withCString { write(plan.logFD, $0, strlen($0)) }
@@ -180,13 +224,15 @@ final class Supervisor {
         queue.sync {
             for job in jobs.values {
                 kill(-job.pid, SIGKILL)
+                endDNSTask(job)
                 revertDNS(job)
                 core.removeRunDir(profileID: job.profileID, uid: job.ownerUID)
             }
         }
     }
 
-    /// What the session's DNS hook recorded and did not revert itself (the tool was killed, or died).
+    /// What the session's DNS hook (or, for FortiGate, the daemon) recorded and did not revert itself
+    /// (the tool was killed, or died; FortiGate's is always reverted here).
     private func revertDNS(_ job: Job) {
         if let message = dns.revert(in: job.sessionDir) {
             DaemonLog.info("\(job.profileID) of uid \(job.ownerUID): \(message)")
@@ -215,10 +261,95 @@ final class Supervisor {
         while waitpid(pid, &status, 0) == -1, errno == EINTR {}
         close(job.logFD)
         jobs[key] = nil
+        endDNSTask(job)
         revertDNS(job)
         core.removeRunDir(profileID: job.profileID, uid: job.ownerUID)   // config, auth file, socket, state
         DaemonLog.info("\(job.profileID) of uid \(job.ownerUID) exited (pid \(pid), status \(status))")
         job.waiters.forEach { $0() }
+    }
+
+    // MARK: - FortiGate DNS
+
+    /// A line of a FortiGate session's own output (never the log file's).
+    private func received(_ line: String, key: Key, pid: pid_t) {
+        guard let job = jobs[key], job.pid == pid, var watch = job.fortiDNS else { return }
+        let event = watch.feed(line)
+        jobs[key]?.fortiDNS = watch
+        switch event {
+        case .none:
+            break
+        case .waiting:
+            queue.asyncAfter(deadline: .now() + reportWait) { [weak self] in self?.stillWaiting(key, pid: pid) }
+        case .failed(let reason):
+            dnsFailed(job, reason)
+        case .ready(let addresses, let interface):
+            setDNS(job, addresses: addresses, interface: interface)
+        }
+    }
+
+    /// The tunnel came up, and openfortivpn still has not said everything DNS needs.
+    private func stillWaiting(_ key: Key, pid: pid_t) {
+        guard let job = jobs[key], job.pid == pid, var watch = job.fortiDNS, !watch.done else { return }
+        let missing = watch.missing
+        watch.giveUp()
+        jobs[key]?.fortiDNS = watch
+        dnsFailed(job, String(describing: DNSFailure.notReported(missing)))
+    }
+
+    /// Checks the values, then (on `dnsQueue`) the interface, and applies them. Every name goes through
+    /// the tunnel, as with openfortivpn's own `set-dns` on the Mac.
+    private func setDNS(_ job: Job, addresses: FortiOutput.Addresses, interface: String) {
+        guard !addresses.servers.isEmpty else {
+            job.output?.note(Self.noServers)
+            DaemonLog.info("\(job.profileID) of uid \(job.ownerUID): \(Self.noServers)")
+            return
+        }
+        let settings: DNSSettings
+        do {
+            settings = try DNSSettings(servers: addresses.servers, searchDomains: addresses.domains, fullTunnel: true)
+        } catch {
+            return dnsFailed(job, String(describing: error))
+        }
+        let task = DNSTask()
+        jobs[job.key]?.dnsTask = task
+        let dns = self.dns, interfaces = self.interfaces, session = job.sessionDir
+        let key = job.key, pid = job.pid, indexAtStart = job.indexAtStart
+        dnsQueue.async { [weak self] in
+            guard !task.isCancelled else { return }
+            let result = Result { () throws -> String in
+                let name = try SessionInterface.check(interface, address: addresses.local, createdAfter: indexAtStart,
+                                                      system: interfaces)
+                let backend = try dns.apply(settings, interface: name, in: session)
+                return DNSHook.describe(settings, interface: name, backend: backend)
+            }
+            self?.queue.async { self?.dnsDone(key, pid: pid, result) }
+        }
+    }
+
+    private func dnsDone(_ key: Key, pid: pid_t, _ result: Result<String, Error>) {
+        guard let job = jobs[key], job.pid == pid else { return }      // ended meanwhile: reverted on exit
+        switch result {
+        case .success(let message):
+            job.output?.note(message)
+            DaemonLog.info("\(job.profileID) of uid \(job.ownerUID): \(message)")
+        case .failure(let error):
+            dnsFailed(job, String(describing: error))
+        }
+    }
+
+    /// The session ends, as one whose DNS hook failed on the Mac: the client finds "setting DNS failed"
+    /// in the log (`PTError.setupFailed`). `DNSApplier.apply` has undone what it did.
+    private func dnsFailed(_ job: Job, _ reason: String) {
+        job.output?.note("setting DNS failed: " + reason)
+        DaemonLog.info("\(job.profileID) of uid \(job.ownerUID): setting DNS failed: \(reason)")
+        terminate(job)
+    }
+
+    /// No DNS set-up of `job` starts any more, and one that runs is waited for (it is reverted next).
+    private func endDNSTask(_ job: Job) {
+        guard let task = job.dnsTask else { return }
+        task.cancel()
+        dnsQueue.sync {}
     }
 
     // MARK: - State of the previous instance

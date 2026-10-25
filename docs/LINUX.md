@@ -126,8 +126,13 @@ The macOS rules apply where they make sense; these replace the ones built on cod
   names the distribution's CA bundle (`ca-file`, checked) and keeps the profile's `set-routes`, but
   `set-dns` and `pppd-use-peerdns` are always 0, so neither openfortivpn nor pppd (nor the
   distribution's ppp scripts) touch resolv.conf; the daemon applies DNS (below). Profile directory,
-  log, supervision, stop and the cleanup of a previous instance are those of OpenVPN; there is no
-  management socket. pppd runs in a session of its own on openfortivpn's pseudo-terminal: openfortivpn
+  supervision, stop and the cleanup of a previous instance are those of OpenVPN; there is no
+  management socket. openfortivpn's standard output and error (and pppd's, which it passes on) go to
+  a pipe only the daemon reads, not to the log: a thread per session (`OutputCopier`) copies every
+  byte into the session log as it comes, so the log reads as before and `HelperCore.capLog` trims it
+  the same way, and hands each line (at most 4 KiB; a longer one is copied but not read) to the
+  supervisor. The daemon's own lines in the log start with `passtunneld: ` and never break into one
+  of the tool's. pppd runs in a session of its own on openfortivpn's pseudo-terminal: openfortivpn
   stops it on its way out, and if openfortivpn is killed, pppd ends when the terminal goes.
 - **Supervision.** One waiter per child (a thread in `waitid(WNOWAIT)`, so the child is reaped only
   on the supervisor's queue and its pid cannot be reused while it is listed); `stop` sends SIGTERM,
@@ -236,9 +241,35 @@ every value of it is treated as hostile: it ends up in the hands of root.
   reverts when OpenVPN takes the tunnel down; the daemon reverts whatever is still recorded when it
   reaps the tool (killed, crashed, or the daemon stopping), and a starting daemon what the sessions
   of a previous instance recorded.
-- **FortiGate**: the daemon reads the servers and search domains openfortivpn logs once the tunnel
-  is up and applies them for the `ppp` interface through the same `DNSApplier`, when the profile has
-  `set_dns`.
+- **FortiGate**, when the profile has `set_dns` (otherwise DNS is left alone): the daemon sets it
+  itself, from openfortivpn's own output as its pipe delivers it (above), never from the log file,
+  which belongs to the session's user, who could write any line into it. openfortivpn 1.21 prints,
+  at its default verbosity, `INFO:   Got addresses: [<local>], ns [<server>, <server>], ns_suffix
+  [<domains>]` (servers from the gateway's configuration, `0.0.0.0` for none; `ns_suffix`, the search
+  domains separated by `;`, only when the gateway names any), `INFO:   Interface pppN is UP.` and
+  `INFO:   Tunnel is up and running.`; pppd prints `Using interface pppN`. Only whole lines that start
+  with exactly these words count (`FortiOutput`), in any order (`FortiDNSWatch`): once the tunnel is
+  up and the addresses and the interface are known, the set-up runs, once per session; if they are
+  not all known 10 s after the tunnel came up, or pppd and openfortivpn name different interfaces,
+  it fails.
+  - The values are checked as the hook checks OpenVPN's (`DNSSettings`: one bad value fails the
+    set-up). No server: "passtunneld: the gateway named no DNS servers; DNS is left as it is". Every
+    name goes through the tunnel (`fullTunnel`), as with openfortivpn's own `set-dns` on the Mac.
+  - The interface must be the session's, which the kernel confirms (`SessionInterface`) before
+    anything changes: named `pppN`, there now, a ppp device (`ARPHRD_PPP` in
+    `/sys/class/net/<name>/type`), created after the session started (a higher index than any
+    interface had when the daemon started openfortivpn) and carrying the address openfortivpn got for
+    the session (`getifaddrs`), which is how openfortivpn itself finds it. A line that a gateway got
+    into the output therefore cannot point the DNS at another interface.
+  - Applied with `DNSApplier.apply(_:interface:in:)` on a queue of its own (it runs tools and waits for
+    the run root's lock), recorded in the session directory as the hook's are, and reverted when the
+    tool exits (stopped, killed or crashed), when the daemon stops, and by a starting daemon
+    (`PreviousInstance`); the end of a session waits for a set-up that is still running, then
+    reverts it. The result goes into the session log: "passtunneld: DNS of ppp0 set through …", or
+    "passtunneld: setting DNS failed: …", after which the daemon ends the session. The client
+    reports that line as `PTError.setupFailed` (`setup_failed`), as on the Mac, and on Linux counts a
+    FortiGate profile with `set_dns` as connected only once one of these lines is there
+    (`ConnectionManager.fortiIsConnected`).
 
 ## Client side
 
@@ -398,7 +429,11 @@ and fakes for the system tools; the Mac's tests a Keychain service of their own)
        resolvconf and file backends (`DNSApplier`, which FortiGate reuses), recorded in the session
        directory and reverted by the hook, the daemon or the next daemon; the unit's writable paths
        for it. The Linux CI jobs run the hook as root on the container's resolv.conf (set and
-       reverted in both forms, the refusals, the revert by a starting daemon).
+       reverted in both forms, the refusals, the revert by a starting daemon). Linux routes and log
+       parsing (#91). FortiGate (#92): openfortivpn and pppd checked and run as above, its output
+       copied from a pipe, and its DNS set from that output for the session's ppp interface; the
+       Linux CI jobs start a FortiGate session against the daemon with the distribution's
+       openfortivpn and follow its DNS with a stand-in (no tunnel).
    - 2d: the release tarball and the `Dockerfile`.
 3. **Packages:** polkit, systemd units, nfpm packages, the apt/dnf repository, release automation
    (with it, how commits with the scope `linux` count: until then they are left out of the app's

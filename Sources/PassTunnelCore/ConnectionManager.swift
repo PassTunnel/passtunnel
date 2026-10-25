@@ -557,7 +557,7 @@ public final class ConnectionManager: ObservableObject {
         case .forti:
             guard isRunning else { return (.disconnected, false) }
             let log = VPNLog.read(store.logURL(p.id))
-            guard VPNLog.fortiIsUp(log) else { return (.connecting(Phase.connecting), false) }
+            guard fortiIsConnected(p, log: log) else { return (.connecting(Phase.connecting), false) }
             return (.connected(ip: VPNLog.fortiAddress(log) ?? "", since: connectedAt[p.id] ?? logCreated(p.id)), false)
         }
     }
@@ -1147,7 +1147,7 @@ public final class ConnectionManager: ObservableObject {
                     setState(id, Self.map(s))
                 }
             case .forti:
-                if VPNLog.fortiIsUp(log) { return (VPNLog.fortiAddress(log) ?? "", clock.now()) }
+                if fortiIsConnected(p, log: log) { return (VPNLog.fortiAddress(log) ?? "", clock.now()) }
             }
 
             let now = clock.now()
@@ -1172,11 +1172,29 @@ public final class ConnectionManager: ObservableObject {
     }
 
     /// An OpenVPN session whose DNS hook or all-traffic routes failed is unusable (another VPN is in
-    /// the way): stop it (when ours) and fail instead of reporting it connected.
+    /// the way): stop it (when ours) and fail instead of reporting it connected. On Linux the same for a
+    /// FortiGate session whose DNS passtunneld could not set (it ends the session itself as well).
     private func checkSetup(_ p: Profile, log: String, owned: Bool) async throws {
-        guard p.type == .openvpn, let problem = VPNLog.setupProblem(log), problem.allTraffic else { return }
+        guard p.type == .openvpn || Self.daemonSetsFortiDNS, let problem = VPNLog.setupProblem(log), problem.allTraffic else {
+            return
+        }
         if owned { await stopQuietly(p.id) }
         throw PTError.setupFailed(reason: problem.reason, log: VPNLog.tail(log))
+    }
+
+    /// Linux: passtunneld sets a FortiGate session's DNS itself (docs/LINUX.md, "DNS"); on the Mac
+    /// openfortivpn does, and nothing is waited for.
+    #if os(Linux)
+    static let daemonSetsFortiDNS = true
+    #else
+    static let daemonSetsFortiDNS = false
+    #endif
+
+    /// A FortiGate session is connected once openfortivpn's tunnel is up and, where passtunneld sets the
+    /// DNS of a profile with `set_dns`, once it said how that went.
+    func fortiIsConnected(_ p: Profile, log: String) -> Bool {
+        guard VPNLog.fortiIsUp(log) else { return false }
+        return !(Self.daemonSetsFortiDNS && p.setDNS) || VPNLog.fortiDNSSettled(log)
     }
 
     private func checkToken(_ id: String, _ token: Int) throws {

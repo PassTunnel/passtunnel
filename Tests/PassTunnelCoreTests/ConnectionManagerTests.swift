@@ -432,6 +432,71 @@ final class ConnectionManagerTests: XCTestCase {
         XCTAssertEqual(m.state(p.id), .disconnected)
     }
 
+    static let fortiUp = "INFO:   Got addresses: [10.212.134.200], ns [198.51.100.53, 198.51.100.54]\n"
+        + "INFO:   Interface ppp0 is UP.\nINFO:   Tunnel is up and running.\n"
+
+    func makeFortiWithDNS() throws -> Profile {
+        var p = try store.create(name: "Acme Forti", type: .forti)
+        p.host = "vpn.example.com"
+        p.username = "alice"
+        p.setDNS = true
+        try store.save(p)
+        try Secrets.set(p.id, .password, "pw")
+        return p
+    }
+
+    #if os(Linux)
+    /// Linux: passtunneld sets the DNS of a profile with `set_dns` once the tunnel is up; connected
+    /// only once it said how that went.
+    func testFortiWaitsForTheDaemonsDNS() async throws {
+        let p = try makeFortiWithDNS()
+        helper.startLog = Self.fortiUp
+            + "passtunneld: DNS of ppp0 set through systemd-resolved: 198.51.100.53, 198.51.100.54\n"
+        let m = makeManager()
+        try await m.connect(p.id)
+        XCTAssertTrue(m.state(p.id).isConnected)
+        try await m.disconnect(p.id)
+
+        helper.startLog = Self.fortiUp
+        var timing = ConnectionManager.Timing()
+        timing.fortiTimeout = 2
+        let waiting = makeManager(timing: timing)
+        do {
+            try await waiting.connect(p.id)
+            XCTFail("connected before the DNS was set")
+        } catch {
+            XCTAssertEqual(error as? PTError, .connectTimeout(2))
+        }
+        await waiting.refresh()
+        XCTAssertFalse(waiting.state(p.id).isConnected)
+    }
+
+    func testFortiDNSFailureIsASetupFailure() async throws {
+        let p = try makeFortiWithDNS()
+        helper.startLog = Self.fortiUp + "passtunneld: setting DNS failed: ppp0 is not this session's interface: "
+            + "it existed before the session started\n"
+        let m = makeManager()
+        do {
+            try await m.connect(p.id)
+            XCTFail("reported connected")
+        } catch {
+            guard case .setupFailed(let reason, _)? = error as? PTError else { return XCTFail("\(error)") }
+            XCTAssertEqual(reason, "passtunneld: setting DNS failed: ppp0 is not this session's interface: "
+                           + "it existed before the session started")
+        }
+        XCTAssertEqual(helper.stops, [p.id])
+    }
+    #else
+    /// The Mac: openfortivpn sets the DNS itself; nothing is waited for.
+    func testFortiDoesNotWaitForDNSOnTheMac() async throws {
+        let p = try makeFortiWithDNS()
+        helper.startLog = Self.fortiUp
+        let m = makeManager()
+        try await m.connect(p.id)
+        XCTAssertTrue(m.state(p.id).isConnected)
+    }
+    #endif
+
     /// A user name asked at connect time that openfortivpn would cut off is refused before anything
     /// is sent to the helper.
     func testFortiUsernameTooLongIsRefusedBeforeStarting() async throws {
