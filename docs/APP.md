@@ -207,10 +207,13 @@ and at least 820×560:
   - a dashed drop zone, "Drop a .passtunnel or .ovpn file here" with Choose File… (`ImportActions.importFile`: an
     `.ovpn`/`.conf` or `.passtunnel` file, imported as File → Import .ovpn… / Import Shared Profile… do); a drop on it
     is the window's drop, outlining the zone instead of the window;
-  - one tile per other way in, as wide as each other (`AddOption`): "Use a QR image" (an image file; its code is
-    read as everywhere, then "What kind of VPN is this code for?" asks OpenVPN or FortiGate and a new profile's
-    editor opens with the code filled in and the issuer as its name, `ImportActions.startProfile`) and "Enter details
-    by hand" (the same question, then the editor). Scanning a QR code on screen will be the first tile;
+  - one tile per other way in, as wide as each other (`AddOption`): "Scan a QR code on screen" / "Select the
+    authenticator QR open in your browser." (macOS 14 and later, hidden on macOS 13; the editor's Scan QR on screen,
+    `ScreenQRScanner`, then like a QR image, `ImportActions.newProfileFromScreen`), "Use a QR image" (an image file;
+    its code is read as everywhere, then "What kind of VPN is this code for?" asks OpenVPN or FortiGate and a new
+    profile's editor opens with the code filled in and the issuer as its name, `ImportActions.startProfile`) and
+    "Enter details by hand" (the same question, then the editor). No footnote about Screen Recording: the picker
+    needs no permission, and the fallback that does explains itself first;
   - while the helper is not installed, a card that says what it is for, with Install Helper
     (`HelperInstaller.registerRetrying`, as Settings → Helper; Login Items open when macOS asks for the approval),
     "Open Login Items…" while the approval is pending, and "The helper is installed and running." once it is, until
@@ -716,7 +719,7 @@ For UI automation, key controls carry stable, unlocalized `.accessibilityIdentif
 `profile.<id>`, `profile.<id>.primary`, `profile.<id>.more`, `profile.<id>.code`, `main.add` (in the redesigned
 window also `profile.<id>.edit`, `profile.<id>.copyCode`, `profile.<id>.copyPasswordCode`,
 `profile.<id>.serverReceives`, `main.settings` and
-`firstRun.chooseFile|qrImage|byHand|installHelper|loginItems|notNow|openAtLogin`; its sidebar rows read as name,
+`firstRun.chooseFile|scanScreen|qrImage|byHand|installHelper|loginItems|notNow|openAtLogin`; its sidebar rows read as name,
 status and code, its tiles as buttons with the line under the title as their hint),
 `helper.install|update|loginItems|remove|licenses`, `onboarding.back|continue|done|installHelper|loginItems`,
 `editor.cancel|save|delete|advanced|requireAuth|connectAtLogin|revealCode|scanScreen`, `settings.authReuse`, and in the

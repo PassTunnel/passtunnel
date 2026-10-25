@@ -1803,6 +1803,16 @@
         }
       }
     },
+    "Scan a QR code on screen" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ekranda QR kodu tara"
+          }
+        }
+      }
+    },
     "Scan it on screen, drop a screenshot here, choose the image, or paste the secret." : {
       "localizations" : {
         "tr" : {
@@ -1849,6 +1859,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Gizli anahtar eklendi · %1$lld basamak · %2$lld sn"
+          }
+        }
+      }
+    },
+    "Select the authenticator QR open in your browser." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tarayıcınızda açık olan doğrulayıcı QR kodunu seçin."
           }
         }
       }
