@@ -18,8 +18,8 @@ enum CLICompletions {
     static var commands: String { CLICommand.commandNames.joined(separator: " ") }
 
     /// Options offered after a profile id.
-    static let profileFlags = ["--json", "--all", "--copy", "--follow", "--lines", "--yes", "--force", "--wait", "--timeout",
-                               "--no-input", "--no-auth-prompt"]
+    static let profileFlags = ["--json", "--all", "--copy", "--follow", "--lines", "--activity", "--yes", "--force", "--wait",
+                               "--timeout", "--no-input", "--no-auth-prompt"]
 
     /// `secret-store` (Linux only): its cases, put in front of the `mcp` case of each script.
     static var storeNames: String { SecretStoreChoice.allCases.map(\.rawValue).joined(separator: " ") }
@@ -134,7 +134,7 @@ enum CLICompletions {
         let jsonCommands = commonJSONCommands
         #endif
         for (flag, cmds) in [("json", jsonCommands), ("all", "disconnect"), ("copy", "code"),
-                             ("follow", "log"), ("lines", "log"), ("yes", "rm"), ("force", "connect"), ("name", "import"),
+                             ("follow", "log"), ("lines", "log"), ("activity", "log"), ("yes", "rm"), ("force", "connect"), ("name", "import"),
                              ("output", "export"), ("wait", "connect disconnect"), ("timeout", "connect disconnect"),
                              ("allow-connect", "mcp"), ("no-input", commands), ("no-auth-prompt", commands)] {
             lines.append("complete -c passtunnel -n '__fish_seen_subcommand_from \(cmds)' -l \(flag)")

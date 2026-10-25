@@ -7,7 +7,7 @@ import Foundation
 /// Watches the support directory (profiles and `config.json`) with FSEvents and calls `onChange`
 /// on the main queue, debounced, when something another process (the CLI) or this one wrote may
 /// have changed what is stored. Noise the VPN tools produce while connected (`vpn.log`, the
-/// management socket, markers, the last-used code window, temp files of atomic writes) is ignored. The app's own writes also
+/// management socket, markers, the last-used code window, the activity log, temp files of atomic writes) is ignored. The app's own writes also
 /// trigger a call; a reload that finds nothing new must therefore be cheap and harmless.
 public final class ProfilesWatcher {
     public let paths: AppPaths
@@ -105,7 +105,7 @@ public final class ProfilesWatcher {
 
     /// Files that change while a VPN runs or that only exist mid-write; they never change a profile.
     static let ignoredNames: Set<String> = ["vpn.log", "mgmt.sock", ".lock", ".DS_Store", ".user-stopped", ".last-otp",
-                                                  ".mgmt-state"]
+                                                  ".mgmt-state", "activity.jsonl", ".activity.lock"]
 
     /// Whether an event can mean a changed profile, config or preference.
     public static func isRelevant(path: String, flags: FSEventStreamEventFlags = 0) -> Bool {

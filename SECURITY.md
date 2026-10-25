@@ -473,7 +473,12 @@ command yourself, limited further by the read-only default.**
   masked by value only when they are stored in plain text; one protected by Confirm with Touch ID
   is not decrypted for this, so only the keyword and pattern rules apply to it. It returns at most
   500 lines; when the log is longer than the 256 KB it reads, the first, partial line is dropped.
-  Log lines do contain server names, your user name and IP addresses.
+  Log lines do contain server names, your user name and IP addresses. With `source: "activity"` it
+  returns PassTunnel's own activity log instead (`profiles/<id>/activity.jsonl`, mode 0600: connecting,
+  code waits, what was sent, sign-in accepted or rejected, drops), which never holds a password and
+  keeps a one-time code as at most its first three digits, for the app; `get_logs` and
+  `passtunnel log --activity` leave those digits out and pass the server's reply through the same
+  redaction.
 - **Strict arguments.** `profile_id` must be a valid profile id (the same pattern profile folders
   use: lowercase letters, digits and single dashes); unknown arguments, wrong types and
   out-of-range numbers are refused before anything is read.

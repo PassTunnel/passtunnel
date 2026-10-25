@@ -79,7 +79,7 @@ final class CLIRunner {
              let .remove(_, _, json), let .secret(_, _, json), let .setDefault(_, json), let .pin(_, json),
              let .unpin(_, json), let .helper(_, json), let .version(json):
             return json
-        case let .connect(_, _, json, _, _), let .disconnect(_, _, json, _, _), let .log(_, _, json, _):
+        case let .connect(_, _, json, _, _), let .disconnect(_, _, json, _, _), let .log(_, _, json, _, _):
             return json
         #if os(Linux)
         case let .secretStore(_, json):
@@ -129,7 +129,8 @@ final class CLIRunner {
         case let .setDefault(id, _): return try setDefault(id)
         case let .pin(id, _): return try pin(id, true)
         case let .unpin(id, _): return try pin(id, false)
-        case let .log(id, follow, _, lines): return try await log(id, follow: follow, lines: lines)
+        case let .log(id, follow, _, lines, activity):
+            return activity ? try activityLog(id, lines: lines) : try await log(id, follow: follow, lines: lines)
         case let .helper(action, _): return try await helper(action)
         case let .mcp(allowConnect):
             return await MCPServer.runStdio(service: automation, allowConnect: allowConnect)
@@ -824,6 +825,20 @@ final class CLIRunner {
             try? await Task.sleep(nanoseconds: 500_000_000)
             dump()
         }
+    }
+
+    /// `log ID --activity`: the activity log worded, one event per line with its local time (the last
+    /// `lines`, else all kept); never a code digit. `--json`: `AutomationService.activity`.
+    private func activityLog(_ id: String, lines: Int?) throws -> Int32 {
+        let report = try automation.activity(id, lines: lines ?? AutomationService.maxLogLines)
+        if json {
+            try printJSON(report)
+        } else if report.lines.isEmpty {
+            CLITerminal.err(String(localized: "There is no activity for this profile yet."))
+        } else {
+            CLITerminal.out(report.lines.joined(separator: "\n"))
+        }
+        return Exit.ok
     }
 
     // MARK: helper

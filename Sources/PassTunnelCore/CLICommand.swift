@@ -44,7 +44,8 @@ public enum CLICommand: Equatable {
     case setDefault(id: String?, json: Bool = false)           // nil: print the current default
     case pin(id: String, json: Bool = false)
     case unpin(id: String, json: Bool = false)
-    case log(id: String, follow: Bool, json: Bool = false, lines: Int? = nil)   // lines: only the last N
+    // lines: only the last N; activity: the activity log (`ActivityLog`) instead of the VPN tool's
+    case log(id: String, follow: Bool, json: Bool = false, lines: Int? = nil, activity: Bool = false)
     case helper(HelperAction, json: Bool = false)              // json: `status` only
     case mcp(allowConnect: Bool)                               // MCP server on stdio (`MCPServer`)
     #if DEBUG
@@ -264,6 +265,7 @@ public enum CLICommand: Equatable {
         case "log":
             let follow = a.flag("--follow", "-f")
             let json = a.flag("--json")
+            let activity = a.flag("--activity")
             let lines = try a.option("--lines", "-n").map { text -> Int in
                 guard let n = Int(text), n > 0 else {
                     throw CLIUsageError(String(localized: "--lines needs a positive number."), command: name)
@@ -273,7 +275,8 @@ public enum CLICommand: Equatable {
             let id = try a.positional(String(localized: "profile"))
             try a.finish()
             if follow && json { throw CLIUsageError(String(localized: "--follow cannot be combined with --json."), command: name) }
-            return .log(id: id, follow: follow, json: json, lines: lines)
+            if follow && activity { throw CLIUsageError(String(localized: "--follow cannot be combined with --activity."), command: name) }
+            return .log(id: id, follow: follow, json: json, lines: lines, activity: activity)
         case "helper":
             let json = a.flag("--json")
             let actionText = try a.optionalPositional() ?? "status"

@@ -199,6 +199,19 @@ public final class AutomationService {
         return LogReport(id: id, lines: tail, truncated: all.count > count || size > VPNLog.maxReadBytes)
     }
 
+    /// The last `lines` events of the profile's activity log (`ActivityLog`), each worded in the user's
+    /// language with its local time, and as objects. Code digits are left out, and the text passes
+    /// through `LogRedactor` like the VPN log.
+    public func activity(_ id: String, lines: Int, timeZone: TimeZone = .current) throws -> LogReport {
+        _ = try store.get(id)
+        let count = min(max(lines, 1), Self.maxLogLines)
+        let all = ActivityLog(url: store.activityURL(id)).read()
+        let redactor = LogRedactor(secrets: SecretKind.allCases.compactMap { Secrets.get(id, $0) })
+        let events = all.suffix(count).map { $0.withoutCodeDigits().redacted(redactor) }
+        return LogReport(id: id, lines: events.map { $0.line(timeZone: timeZone) }, truncated: all.count > count,
+                         source: "activity", events: events)
+    }
+
     // MARK: diagnose
 
     public func diagnose() async -> DiagnoseReport {
@@ -315,5 +328,25 @@ public struct LogRedactor {
             out = regex.stringByReplacingMatches(in: out, range: NSRange(out.startIndex..., in: out), withTemplate: template)
         }
         return out
+    }
+}
+
+extension ActivityEvent {
+    /// The event with the text it carries from outside (server, user name, the server's reply) passed
+    /// through `redactor`, as the VPN log's lines are.
+    func redacted(_ redactor: LogRedactor) -> ActivityEvent {
+        var copy = self
+        switch kind {
+        case let .connecting(host, port, transport):
+            copy.kind = .connecting(host: redactor.redact(host), port: port, transport: transport)
+        case var .sending(s):
+            s.username = redactor.redact(s.username)
+            copy.kind = .sending(s)
+        case .rejected(let reply):
+            copy.kind = .rejected(reply: reply.map(redactor.redact))
+        default:
+            break
+        }
+        return copy
     }
 }

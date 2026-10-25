@@ -98,10 +98,12 @@ final class MCPTools {
              description: "Returns the connection state of every profile (or only profile_id): disconnected, connecting or connected, the tunnel IP, since when, the last error, and whether the privileged helper that starts VPNs is installed and current.",
              input: Schema.object(["profile_id": Schema.profileID(optional: true)]), output: Schema.statusReport, readOnly: true),
         Tool(name: "get_logs", title: "Read VPN log",
-             description: "Returns the last lines of a profile's VPN log (OpenVPN or openfortivpn output of the current or last session), for explaining why a connection failed. Anything that looks like a credential is replaced by <redacted>.",
+             description: "Returns the last lines of a profile's VPN log, for explaining why a connection failed. source \"raw\" (the default): the OpenVPN or openfortivpn output of the current or last session. source \"activity\": what PassTunnel did and saw, also for sessions the app or a terminal started (connecting, waiting for a fresh code, credentials sent, sign-in accepted or rejected, connected, drops, reconnects, stopped by the user), as sentences in lines and as typed events. Anything that looks like a credential is replaced by <redacted>; passwords and one-time codes are never included.",
              input: Schema.object(["profile_id": Schema.profileID(optional: false),
                                    "lines": Schema.integer(1, AutomationService.maxLogLines, default: defaultLogLines,
-                                                           "Number of lines from the end of the log.")],
+                                                           "Number of lines (or activity events) from the end of the log."),
+                                   "source": Schema.choice(Schema.logSources, default: "raw",
+                                                           "raw: the VPN tool's output; activity: PassTunnel's own record of the connection.")],
                                   required: ["profile_id"]),
              output: Schema.logReport, readOnly: true),
         Tool(name: "diagnose", title: "Diagnose PassTunnel",
@@ -169,8 +171,9 @@ final class MCPTools {
         case "get_logs":
             let id = try args.profileID(required: true)!
             let lines = try args.integer("lines", 1...AutomationService.maxLogLines) ?? Self.defaultLogLines
+            let source = try args.choice("source", Schema.logSources) ?? "raw"
             try args.finish()
-            return try service.logs(id, lines: lines)
+            return source == "activity" ? try service.activity(id, lines: lines) : try service.logs(id, lines: lines)
         case "diagnose":
             try args.finish()
             return await service.diagnose()
@@ -284,6 +287,15 @@ final class MCPTools {
             return Int(value)
         }
 
+        /// One of `allowed`, as a JSON string.
+        func choice(_ key: String, _ allowed: [String]) throws -> String? {
+            guard let raw = values.removeValue(forKey: key) else { return nil }
+            guard let value = raw.stringValue, allowed.contains(value) else {
+                throw AutomationError(.invalidArgument, "\(key) must be one of: \(allowed.joined(separator: ", ")).")
+            }
+            return value
+        }
+
         func finish() throws {
             if let key = values.keys.sorted().first {
                 throw AutomationError(.invalidArgument, "Unknown argument \(key) for \(tool).")
@@ -325,6 +337,10 @@ enum Schema {
         ["type": "integer", "minimum": min, "maximum": max, "default": value, "description": description]
     }
 
+    static func choice(_ values: [String], default value: String, _ description: String) -> [String: Any] {
+        ["type": "string", "enum": values, "default": value, "description": description]
+    }
+
     static let vpnType = oneOf(VPNType.allCases.map(\.rawValue))
     static let state = oneOf(["disconnected", "connecting", "connected"])
 
@@ -350,7 +366,21 @@ enum Schema {
 
     static let statusReport = result(["helper": helper, "profiles": array(profileStatus)], required: ["helper", "profiles"])
 
-    static let logReport = result(["id": string, "lines": array(string), "truncated": bool], required: ["id", "lines", "truncated"])
+    static let dateTime: [String: Any] = ["type": "string", "format": "date-time"]
+    /// `get_logs` sources: the VPN tool's output, PassTunnel's activity log.
+    static let logSources = ["raw", "activity"]
+
+    /// One `ActivityEvent` (never with code digits); which fields it has depends on `event`.
+    static let activityEvent = result([
+        "at": dateTime, "event": oneOf(ActivityEvent.names), "host": string, "port": int, "protocol": string,
+        "reason": oneOf(["used", "expiring"]), "seconds": int, "username": string, "password": bool, "code": bool,
+        "seconds_left": int, "format": string, "address": string, "will_reconnect": bool, "attempt": int, "of": int,
+        "tries": int, "next_at": dateTime, "reply": string,
+    ], required: ["at", "event"])
+
+    static let logReport = result(["id": string, "lines": array(string), "truncated": bool,
+                                   "source": oneOf(logSources), "events": array(activityEvent)],
+                                  required: ["id", "lines", "truncated"])
 
     static let errorReport = result(["code": string, "message": string], required: ["code", "message"])
 

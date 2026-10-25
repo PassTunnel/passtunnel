@@ -1428,4 +1428,143 @@ final class ConnectionManagerTests: XCTestCase {
         XCTAssertFalse(clock.sleeps.contains(5), "no backoff delay after wake")
         XCTAssertTrue(m.state(p.id).isConnected)
     }
+
+    // MARK: activity
+
+    let acme = ActivityEvent.Kind.connecting(host: "vpn.example.com", port: 1194, transport: "udp")
+
+    func testActivityOfAConnect() async throws {
+        let p = try makeOpenVPN(otp: .totp)
+        let m = makeManager()
+        var published: [ActivityRecord] = []
+        m.activity.sink { published.append($0) }.store(in: &bag)
+        try await m.connect(p.id)
+
+        let code = try code(at: t0)
+        let sent = ActivityEvent.Sending(username: "alice", password: true, code: true, codePrefix: String(code.prefix(3)),
+                                         secondsLeft: 10, format: "{password}{otp}")
+        let expected: [ActivityEvent] = [acme, .sending(sent), .authAccepted, .connected(address: "10.8.0.6")]
+            .map { ActivityEvent(at: t0, $0) }
+        XCTAssertEqual(m.activity(p.id), expected)
+        XCTAssertEqual(published, expected.map { ActivityRecord(profileID: p.id, event: $0) })
+        XCTAssertEqual(try mode(store.activityURL(p.id)), 0o600)
+        let text = try String(contentsOf: store.activityURL(p.id), encoding: .utf8)
+        XCTAssertFalse(text.contains(code), "at most the first three digits are kept")
+        XCTAssertEqual(m.lastSending(p.id)?.at, t0)
+        XCTAssertEqual(m.lastSending(p.id)?.sending.secondsLeft, 10)
+
+        // Another process (the CLI) reads the same file.
+        let cli = ConnectionManager(store: store, helper: helper, clock: clock)
+        XCTAssertEqual(cli.activity(p.id), expected)
+    }
+
+    func mode(_ url: URL) throws -> Int {
+        ((try FileManager.default.attributesOfItem(atPath: url.path))[.posixPermissions] as! NSNumber).intValue & 0o777
+    }
+
+    func testActivityOfCodeWaits() async throws {
+        let p = try makeOpenVPN(otp: .totp)
+        let m = makeManager()
+        try await m.connect(p.id)
+        try await m.disconnect(p.id)
+        try await m.connect(p.id)            // the same window: its code was sent
+        let kinds = m.activity(p.id).map(\.kind)
+        XCTAssertEqual(kinds[4], .disconnectedByUser)
+        XCTAssertEqual(kinds[5], acme)
+        XCTAssertEqual(kinds[6], .waitingForCode(reason: .used, seconds: 10, codePrefix: String(try code(at: t0).prefix(3))))
+        guard case .sending(let s) = kinds[7] else { return XCTFail("\(kinds)") }
+        XCTAssertEqual(s.codePrefix, String(try code(at: t0.addingTimeInterval(10.25)).prefix(3)))
+        XCTAssertEqual(s.secondsLeft, 29, "a fresh window")
+
+        // 4 s left in the window: the next code is waited for.
+        let q = try makeOpenVPN("Lab", otp: .totp)
+        clock = FakeClock(t0.addingTimeInterval(6))
+        try await makeManager().connect(q.id)
+        XCTAssertEqual(makeManager().activity(q.id).map(\.kind)[1],
+                       .waitingForCode(reason: .expiring, seconds: 4, codePrefix: String(try code(at: t0.addingTimeInterval(6)).prefix(3))))
+    }
+
+    func testActivityOfARejectedSignIn() async throws {
+        let p = try makeOpenVPN()
+        helper.openVPNStateLine = nil
+        helper.startLog = "2026-01-01 10:00:01 AUTH: Received control message: AUTH_FAILED,Invalid OTP\n"
+            + "2026-01-01 10:00:01 SIGTERM[soft,auth-failure] received, process exiting\n"
+        let m = makeManager()
+        do { try await m.connect(p.id); XCTFail("connected") } catch PTError.authFailed {}
+        XCTAssertEqual(m.activity(p.id).map(\.kind),
+                       [acme, .sending(.init(username: "alice", password: true, code: false)), .rejected(reply: "AUTH_FAILED,Invalid OTP")])
+    }
+
+    func testActivityOfAForti() async throws {
+        var p = try store.create(name: "Acme Forti", type: .forti)
+        p.host = "vpn.example.com"
+        p.port = 10443
+        p.username = "alice"
+        p.otpMode = .totp
+        try store.save(p)
+        try Secrets.set(p.id, .password, "pw")
+        try Secrets.set(p.id, .totp, totpSecret)
+        helper.startLog = "INFO:   Connected to gateway.\nINFO:   Authenticated.\n"
+            + "INFO:   Got addresses: [10.212.134.200], ns [10.0.0.1]\nINFO:   Tunnel is up and running.\n"
+        let m = makeManager()
+        try await m.connect(p.id)
+        let sent = ActivityEvent.Sending(username: "alice", password: true, code: true, codePrefix: String(try code(at: t0).prefix(3)),
+                                         secondsLeft: 10, format: "separate")
+        XCTAssertEqual(m.activity(p.id).map(\.kind), [.connecting(host: "vpn.example.com", port: 10443, transport: "tcp"),
+                                                      .sending(sent), .authAccepted, .connected(address: "10.212.134.200")])
+    }
+
+    func testActivityOfADropAndItsReconnects() async throws {
+        let p = try makeOpenVPN(autoReconnect: true)
+        let m = makeManager()
+        try await m.connect(p.id)
+        helper.failStarts = 1                                  // the first attempt fails
+        helper.simulateExit(p.id)
+        await m.refresh()
+        await waitUntil { self.events.count == 2 }
+        XCTAssertEqual(events.last, .reconnected(profileID: p.id))
+        let sent = ActivityEvent.Kind.sending(.init(username: "alice", password: true, code: false))
+        XCTAssertEqual(Array(m.activity(p.id).map(\.kind).dropFirst(4)),
+                       [.linkDropped(willReconnect: true), .reconnecting(attempt: 1, of: 3), acme,
+                        .nextTry(at: t0.addingTimeInterval(5 + 15)), .reconnecting(attempt: 2, of: 3), acme, sent,
+                        .authAccepted, .connected(address: "10.8.0.6")])
+    }
+
+    func testActivityOfStops() async throws {
+        let p = try makeOpenVPN(autoReconnect: true)
+        let m = makeManager()
+        try await m.disconnect(p.id)
+        XCTAssertEqual(m.activity(p.id), [], "nothing was running")
+
+        // A session another process started, not up yet: stopped; once up: disconnected.
+        helper.simulateExternalStart(p.id, profileDir: store.dir(p.id).path, since: t0)
+        try await ConnectionManager(store: store, helper: helper, clock: clock).disconnect(p.id)
+        XCTAssertEqual(m.activity(p.id).last?.kind, .stoppedByUser)
+        helper.simulateExternalStart(p.id, profileDir: store.dir(p.id).path, since: t0)
+        try Data("2026-01-01 10:00:01 Initialization Sequence Completed\n".utf8).write(to: store.logURL(p.id))
+        try await ConnectionManager(store: store, helper: helper, clock: clock).disconnect(p.id)
+        XCTAssertEqual(m.activity(p.id).last?.kind, .disconnectedByUser)
+
+        // Stopping the automatic reconnects after a drop.
+        var timing = ConnectionManager.Timing()
+        timing.reconnectDelays = [30, 30, 30]
+        let app = makeManager(clock: SystemClock(), timing: timing)
+        try await app.connect(p.id)
+        helper.simulateExit(p.id)
+        await app.refresh()
+        XCTAssertNotNil(app.reconnecting[p.id])
+        let stopped = try await app.disconnect(p.id)
+        XCTAssertFalse(stopped)
+        XCTAssertEqual(Array(app.activity(p.id).map(\.kind).suffix(2)), [.linkDropped(willReconnect: true), .stoppedByUser])
+    }
+
+    /// A session another process started is that process's to record.
+    func testFollowingASessionRecordsNothing() async throws {
+        let p = try makeOpenVPN()
+        helper.simulateExternalStart(p.id, profileDir: store.dir(p.id).path, since: t0)
+        let m = makeManager()
+        try await m.connect(p.id)
+        XCTAssertTrue(m.state(p.id).isConnected)
+        XCTAssertEqual(m.activity(p.id), [])
+    }
 }

@@ -283,12 +283,25 @@ public struct ProfileList: Codable, Equatable {
 }
 
 /// `log ID --json` and `get_logs`: the last lines of the profile's VPN log, with anything that looks
-/// like a credential replaced by `<redacted>`.
+/// like a credential replaced by `<redacted>`; with `--activity` / `source: "activity"`, the last events
+/// of its activity log, worded, and as objects. Never a code digit.
 public struct LogReport: Codable, Equatable {
     public var id: String
     public var lines: [String]
     /// The log has more lines than were returned.
     public var truncated: Bool
+    /// "raw": the VPN tool's output; "activity": what PassTunnel did and saw (`ActivityLog`).
+    public var source: String
+    /// Activity only: the events `lines` word, oldest first.
+    public var events: [ActivityEvent]?
+
+    public init(id: String, lines: [String], truncated: Bool, source: String = "raw", events: [ActivityEvent]? = nil) {
+        self.id = id
+        self.lines = lines
+        self.truncated = truncated
+        self.source = source
+        self.events = events
+    }
 }
 
 /// `version --json`.
