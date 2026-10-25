@@ -42,8 +42,9 @@ public enum VPNLog {
 
     // MARK: tunnel set-up
 
-    /// The tunnel interface the tool opened: OpenVPN "Opened utun device utun5", openfortivpn
-    /// "Interface ppp0 is UP".
+    /// The tunnel interface the tool opened: OpenVPN "Opened utun device utun5" (macOS), "TUN/TAP
+    /// device tun0 opened" or, with data channel offload, "DCO device tun0 opened" (Linux);
+    /// openfortivpn "Interface ppp0 is UP".
     public static func tunnelInterface(_ text: String) -> String? {
         for line in text.split(whereSeparator: \.isNewline) {
             for (marker, prefix) in [("Opened utun device ", "utun"), ("Interface ", "ppp")] {
@@ -51,15 +52,23 @@ public enum VPNLog {
                 let name = line[r.upperBound...].prefix { $0.isLetter || $0.isNumber }
                 if name.hasPrefix(prefix), name.count > prefix.count { return String(name) }
             }
+            for marker in ["TUN/TAP device ", "DCO device "] {
+                guard let r = line.range(of: marker) else { continue }
+                let rest = line[r.upperBound...]
+                let name = rest.prefix { $0.isASCII && ($0.isLetter || $0.isNumber || "-_.".contains($0)) }
+                if !name.isEmpty, rest.dropFirst(name.count).hasPrefix(" opened") { return String(name) }
+            }
         }
         return nil
     }
 
-    /// OpenVPN: the server pushed `redirect-gateway`, or OpenVPN added the `0/1` + `128/1` routes.
+    /// OpenVPN: the server pushed `redirect-gateway`, or OpenVPN added the `0/1` + `128/1` routes
+    /// (macOS `route`; Linux rtnetlink, or `ip` in builds that use it).
     public static func pushedRedirectGateway(_ text: String) -> Bool {
         text.split(whereSeparator: \.isNewline).contains { line in
             (line.contains("PUSH_REPLY") && line.contains("redirect-gateway"))
                 || (line.contains("route add -net 128.0.0.0 ") && line.contains(" 128.0.0.0"))
+                || line.contains("net_route_v4_add: 128.0.0.0/1 ") || line.contains(" route add 128.0.0.0/1 ")
         }
     }
 
@@ -81,7 +90,10 @@ public enum VPNLog {
     ///   three times (from `redirect-gateway`, from a config `route <server> … net_gateway`, and from the
     ///   same route pushed by the server); only the first one can succeed;
     /// - the host route to the server via the original default gateway (`isLeftoverServerRoute`);
-    /// and the "route add command failed" line that follows either.
+    /// and the "route add command failed" line that follows either. macOS logs each `route` command
+    /// with its outcome; Linux logs the route OpenVPN adds (`LinuxRoute`) and then only a failure
+    /// (`LinuxRoute.failure`), so a route followed by anything else was added. On Linux the reason is
+    /// the route's line with the error.
     public static func setupProblem(_ text: String) -> SetupProblem? {
         let servers = remoteAddresses(text)
         let gateway = defaultGateway(text)
@@ -89,12 +101,40 @@ public enum VPNLog {
         var skipCommandFailure = false
         var command: RouteCommand?           // the last `/sbin/route add …` OpenVPN ran
         var added: Set<String> = []          // RouteCommand.key of routes added in this session
+        var adding: LinuxRoute?              // Linux: the route OpenVPN is adding, until another line follows
+        var addingFailed = false
         for raw in text.split(whereSeparator: \.isNewline) {
             let line = withoutTimestamp(raw)
             let lower = line.lowercased()
             if lower.contains("setting dns failed") || lower.contains("dns-updown failed")
-                || (lower.contains("dns updown") && (lower.contains("failed") || lower.contains("error status"))) {
+                || (lower.contains("dns updown") && (lower.contains("failed") || lower.contains("error status")))
+                || lower.contains("failed running command (--up/--down)") {   // OpenVPN 2.6 on Linux runs the hook as --up
                 return SetupProblem(reason: line, allTraffic: true)
+            }
+            if let route = LinuxRoute(line) {
+                if let previous = adding, !addingFailed { added.insert(previous.key) }
+                adding = route
+                addingFailed = false
+                continue
+            }
+            if let route = adding {
+                if let error = LinuxRoute.failure(line) {
+                    // The second line of one failure ("NOTE: Linux route add command failed …") adds nothing.
+                    guard !addingFailed else { continue }
+                    addingFailed = true
+                    let failed = FailedRoute(destination: route.destination, gateway: route.gateway, error: error)
+                    if error.lowercased().contains("file exists"), added.contains(route.key)
+                        || isLeftoverServerRoute(failed, servers: servers, defaultGateway: gateway) {
+                        continue
+                    }
+                    let reason = route.line + ": " + error
+                    if allTrafficDestinations.contains(route.destination) { return SetupProblem(reason: reason, allTraffic: true) }
+                    if routeProblem == nil { routeProblem = SetupProblem(reason: reason, allTraffic: false) }
+                    continue
+                }
+                if line.hasPrefix("sitnl_") { continue }        // more about the same netlink request
+                if !addingFailed { added.insert(route.key) }
+                adding = nil
             }
             if line.hasPrefix("/sbin/route ") {
                 skipCommandFailure = false
@@ -158,6 +198,61 @@ public enum VPNLog {
         static func key(_ destination: String, after command: RouteCommand?) -> String {
             guard let command, command.destination == destination else { return destination }
             return destination + "/" + command.mask
+        }
+    }
+
+    /// A route OpenVPN adds on Linux, from its log line: through rtnetlink (the default build),
+    /// "net_route_v4_add: 0.0.0.0/1 via 10.8.0.1 dev [NULL] table 0 metric -1" or
+    /// "net_route_v6_add: 2000::/4 via :: dev tun0 table 0 metric -1"; with `ip` (builds with
+    /// iproute2), "/sbin/ip route add 0.0.0.0/1 via 10.8.0.1" or "/sbin/ip -6 route add 2000::/4 dev tun0".
+    struct LinuxRoute: Equatable {
+        var line: String
+        var destination: String
+        var prefix: String
+        var gateway: String              // empty when the route names none
+
+        /// What `RouteCommand.key` is on the Mac: destination and prefix length.
+        var key: String { destination + "/" + prefix }
+
+        init?(_ line: String) {
+            var tokens = line.split(separator: " ").map(String.init)
+            guard let first = tokens.first else { return nil }
+            if first == "net_route_v4_add:" || first == "net_route_v6_add:" {
+                tokens.removeFirst()
+            } else if first.hasPrefix("/"), first.hasSuffix("/ip") {
+                tokens.removeFirst()
+                if tokens.first == "-6" { tokens.removeFirst() }
+                guard tokens.count > 2, tokens[0] == "route", tokens[1] == "add" else { return nil }
+                tokens.removeFirst(2)
+            } else {
+                return nil
+            }
+            guard let target = tokens.first else { return nil }
+            let parts = target.split(separator: "/", maxSplits: 1).map(String.init)
+            guard let destination = parts.first, destination.contains(".") || destination.contains(":") else { return nil }
+            self.line = line
+            self.destination = destination
+            prefix = parts.count > 1 ? parts[1] : (destination.contains(":") ? "128" : "32")
+            if let via = tokens.firstIndex(of: "via"), via + 1 < tokens.count, tokens[via + 1] != "::" {
+                gateway = tokens[via + 1]
+            } else {
+                gateway = ""
+            }
+        }
+
+        /// The error of a failed route add on Linux, from the line logged right after the route:
+        /// "sitnl_send: rtnl: generic error (-17): File exists" (rtnetlink), "RTNETLINK answers: File
+        /// exists" (`ip`), or OpenVPN's own "NOTE: Linux route add command failed because route
+        /// exists" and "ERROR: Linux route add command failed…", which also follow the other two.
+        static func failure(_ line: String) -> String? {
+            if line.hasPrefix("sitnl_"), let open = line.range(of: "error ("),
+               let close = line.range(of: "): ", range: open.upperBound..<line.endIndex) {
+                return String(line[close.upperBound...])
+            }
+            if let r = line.range(of: "RTNETLINK answers: ") { return String(line[r.upperBound...]) }
+            if line.contains("Linux route add command failed because route exists") { return "File exists" }
+            if line.contains("Linux route"), line.contains("add command failed") { return line }
+            return nil
         }
     }
 
@@ -263,8 +358,9 @@ public enum VPNLog {
         return up
     }
 
-    /// OpenVPN's tunnel address from the last "/sbin/ifconfig utun6 10.8.0.6 …" (or
-    /// "net_addr_v4_add: 10.8.0.6/24 dev utun6") line.
+    /// OpenVPN's tunnel address from the last "/sbin/ifconfig utun6 10.8.0.6 …" line (macOS), or on
+    /// Linux "net_addr_v4_add: 10.8.0.6/24 dev tun0", "net_addr_ptp_v4_add: 10.8.0.6 peer 10.8.0.5 dev
+    /// tun0", or with `ip` "/sbin/ip addr add dev tun0 10.8.0.6/24 …" / "… dev tun0 local 10.8.0.6 peer …".
     public static func openVPNLocalIP(_ text: String) -> String? {
         var found: String?
         for line in text.split(whereSeparator: \.isNewline) {
@@ -272,8 +368,12 @@ public enum VPNLog {
             if let r = line.range(of: "/sbin/ifconfig utun") {
                 let tokens = line[r.upperBound...].split(separator: " ")
                 if tokens.count >= 2 { candidate = tokens[1] }
-            } else if let r = line.range(of: "net_addr_v4_add: ") {
+            } else if let r = line.range(of: "net_addr_v4_add: ") ?? line.range(of: "net_addr_ptp_v4_add: ") {
                 candidate = line[r.upperBound...].prefix { $0 != "/" && $0 != " " }
+            } else if let r = line.range(of: "/ip addr add dev ") {
+                let tokens = line[r.upperBound...].split(separator: " ")   // device, [local], address[/bits], …
+                let index = tokens.count > 2 && tokens[1] == "local" ? 2 : 1
+                if tokens.count > index { candidate = tokens[index].prefix { $0 != "/" } }
             }
             if let c = candidate, c.contains("."), c.allSatisfy({ $0.isNumber || $0 == "." }) { found = String(c) }
         }

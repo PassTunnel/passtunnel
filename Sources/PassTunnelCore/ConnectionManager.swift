@@ -414,7 +414,7 @@ public final class ConnectionManager: ObservableObject {
                 clock: ConnectionClock = SystemClock(),
                 healthProbe: @escaping HealthProbe = ConnectionManager.defaultHealthProbe,
                 preferences: @escaping () -> Preferences = { Preferences.load() },
-                routes: @escaping () -> [RoutingTable.Route] = RoutingTable.ipv4Routes,
+                routes: @escaping () -> [RoutingTable.Route] = RoutingTable.trafficRoutes,
                 timing: Timing = Timing(),
                 vault: SecretVault? = nil,
                 authenticator: UserAuthenticator? = nil) {

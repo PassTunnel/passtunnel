@@ -359,7 +359,6 @@ final class PlatformValueTests: XCTestCase {
         XCTAssertEqual(report.state, "not_installed")
         XCTAssertFalse(report.responding)
         XCTAssertTrue(VaultExpiry.systemSources.isEmpty, "nothing is decrypted on Linux yet")
-        XCTAssertEqual(RoutingTable.ipv4Routes(), [])
     }
     #endif
 

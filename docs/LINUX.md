@@ -159,14 +159,39 @@ Profiles never run scripts (the sanitizer removes them); DNS comes from what the
 
 ## Client side
 
-- **Routes.** The "another VPN already takes all traffic" check reads the main routing table and the
-  policy rules (rtnetlink, or `/proc/net/route` plus `ip -j rule`): `default`, `0/1` or `128/1`
-  through a VPN-type interface (`tun`, `tap`, `ppp`, `wg`, `tailscale`, …) that is not one of
-  PassTunnel's sessions refuses the connect (`other_vpn_active`; `--force` skips it).
-- **Log parsing.** `VPNLog` learns the Linux lines: the tunnel device ("TUN/TAP device tun0 opened",
-  "Interface ppp0 is UP"), addresses, and route/DNS failures as OpenVPN logs them through netlink on
-  Linux, so `setupProblem` and the warnings behave as on the Mac. Tests use recorded log lines with
-  example hosts only.
+- **Routes.** The "another VPN already takes all traffic" check (`RoutingTable.trafficRoutes`) reads
+  the links, the routes of every table and the policy rules, IPv4 and IPv6, from rtnetlink dumps (no
+  privileges, no external commands). It follows the rules in priority order as the kernel does for a
+  packet of a local program (no mark, any destination, the caller's uid): a rule applies when its
+  selectors match such a packet (none, `iif lo`, a mark of 0, a uid range holding the caller's uid)
+  or, for a `not` rule, when they do not. Each applying rule that looks up a table adds that table's
+  `default`, `0/1` and `128/1` routes (IPv6: `::/0`, `::/1`, `8000::/1`, and `2000::/3` or its halves,
+  which OpenVPN's `redirect-gateway ipv6` adds), less those the rule suppresses
+  (`suppress_prefixlength`, as wg-quick sets it); the walk ends at the first table whose routes cover
+  every destination and at a rule that drops all traffic. One of these routes through a VPN-type
+  interface that is not one of PassTunnel's sessions refuses the connect (`other_vpn_active`;
+  `--force` skips it). VPN-type: by the kernel's kind of device (`IFLA_INFO_KIND` `tun`, which tap
+  devices have too, `ppp`, `wireguard`, `ovpn-dco`, `ovpn`, `xfrm`, `vti`, `vti6`), or by name (the Mac's
+  `utun`, `ppp`, `ipsec`, `tun`, `tap`, and `wg`, `tailscale`, with a number); a modem (`wwan`) is not. PassTunnel's sessions are
+  the devices their logs name. So another OpenVPN client (`0/1` and `128/1` in the main table),
+  wg-quick (a default route in table 51820 behind a `not fwmark` rule) and Tailscale with an exit node
+  (table 52) are found, and a VPN for some destinations only is not.
+- **Log parsing.** `VPNLog` reads OpenVPN 2.6 and 2.7 on Linux: the device ("TUN/TAP device tun0
+  opened", with data channel offload "DCO device tun0 opened"), the address (`net_addr_v4_add`,
+  `net_addr_ptp_v4_add`; `ip addr add` in builds that run iproute2), each route it adds through
+  rtnetlink ("net_route_v4_add: 0.0.0.0/1 via 10.8.0.1 dev [NULL] table 0 metric -1", or
+  `net_route_v6_add`) and its failure, which follows it ("sitnl_send: rtnl: generic error (-17): File
+  exists", "NOTE: Linux route add command failed because route exists", "ERROR: Linux route add command
+  failed"; with iproute2 "/sbin/ip route add …" and "RTNETLINK answers: …"), and a DNS hook run as
+  `--up` that failed (2.6: "WARNING: Failed running command (--up/--down): …"). A route followed by
+  any other line was added. So `setupProblem` (a failed all-traffic route or DNS hook stops the
+  session, another failed route is a warning, "File exists" for a route the session added already or
+  for the leftover host route to the server is not counted), the address in `status` and the warnings
+  behave as on the Mac; the reason shown is the route's line with the error. openfortivpn writes the
+  same lines as on the Mac ("Got addresses: […]", "Interface ppp0 is UP", "Tunnel is up and running").
+  The tests use log lines in the formats of OpenVPN 2.6/2.7 and openfortivpn with example hosts and
+  documentation addresses, and rtnetlink messages for the tables; they run on the Mac and in the
+  Linux jobs, which also read the container's own tables.
 - **Combine.** Linux has none. A small stand-in in Core (`ObservableObject`, `@Published` with
   `sink`/`compactMap`, `PassthroughSubject`, `AnyCancellable`), compiled only where Combine is
   missing; the Mac keeps Combine and macOS 13.

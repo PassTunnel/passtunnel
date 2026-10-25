@@ -104,9 +104,14 @@ The platform seams (Linux code stays in the same files behind `#if`; the Mac's b
   `ensureCompatible`, `perform` for requests; no socket is `HelperClientError.notInstalled`). Linux's
   `SystemHelperInspector` reports `not_installed` without the socket, else `enabled`, and from
   `hello` whether the daemon answers and is the build installed with the running `passtunnel`
-  (`HelperBuild.installedDaemon`). `RoutingTable.ipv4Routes` stays empty until 2c, part 2.
+  (`HelperBuild.installedDaemon`).
   `HelperCore.fixedEnvironment` is `PATH` and `LC_ALL` only on Linux, and `openVPNHasDNSUpdown`
   leaves `--dns-updown` out for OpenVPN 2.6.
+- **Routes.** `RoutingTable.trafficRoutes` is the IPv4 table (`ipv4Routes`, `sysctl`) on the Mac and,
+  on Linux, the IPv4 and IPv6 routes of the tables the policy rules send ordinary traffic to, from
+  rtnetlink dumps of the links, routes and rules (`Netlink`: the messages are parsed, and the rules
+  followed, by code that builds and is tested everywhere; only `Netlink.dump`, the socket, is Linux's).
+  `Route.tunnelDevice` carries the kernel's kind of device there (LINUX.md, Client side).
 - **MCP input.** `MCPServer` decodes each line into a `JSONValue` with `JSONDecoder` on every
   platform, so JSON booleans are never numbers (no CoreFoundation `CFBoolean` check).
 - **Version.** `AppInfo.current` on Linux is `BuildVersion`: a release build compiles in
@@ -117,7 +122,7 @@ The platform seams (Linux code stays in the same files behind `#if`; the Mac's b
   from `/usr/bin`, `/bin`, `/usr/sbin` or `/sbin`, never `PATH`.
 - **macOS only** (`#if os(macOS)`): `ProfilesWatcher`, `LoginItem`, `HelperInstaller`,
   `HelperClient`, `QRDecoder`, `TLSFingerprint.fetch` (its digest formats are portable),
-  `HelperSessions.currentProcesses`, `RoutingTable.parse`, `ConfirmationWording`, and in Shared
+  `HelperSessions.currentProcesses`, `RoutingTable.ipv4Routes` and `parse`, `ConfirmationWording`, and in Shared
   `CodeSignature`, `Spawner`, `ToolStager`, the XPC protocol and `HelperCore`'s `F_GETPATH` (Linux
   reads the `/proc/self/fd` link instead) and `fcopyfile` (only for the Mac's bundled DNS script;
   the Linux daemon will be its own hook). On Linux `SessionDirectory.restrictSocket` sets the
@@ -706,10 +711,12 @@ another tunnel", and — inherent to OpenVPN — on teardown it deletes `0/1` an
 tunnel. Hence:
 - Before starting an OpenVPN profile that redirects the gateway (`OVPNAnalyzer.redirectsGateway`: a
   local `redirect-gateway`; unknown → the last session's log shows it was pushed), `ConnectionManager`
-  reads the IPv4 routing table (`RoutingTable.ipv4Routes`, `sysctl NET_RT_DUMP`) and refuses with
+  reads the IPv4 routing table (`RoutingTable.trafficRoutes`: `ipv4Routes`, `sysctl NET_RT_DUMP`; Linux:
+  LINUX.md) and refuses with
   `PTError.otherVPNActive("utunN")` when `default`, `0/1` or `128/1` (unscoped) goes through a VPN
   interface (`utun`, `ppp`, `ipsec`, `tun`, `tap`) that is not one of PassTunnel's running sessions (their
-  interface comes from "Opened utun device …" / "Interface pppN is UP" in their logs).
+  interface comes from "Opened utun device …" / "Interface pppN is UP" in their logs; on Linux also
+  "TUN/TAP device tunN opened" / "DCO device tunN opened").
   `passtunnel connect --force` skips the check.
 - While connecting, the log is checked (`VPNLog.setupProblem`): a failed DNS hook or a failed route for
   `0/1`, `128/1`, `default` (or the IPv6 equivalents) is `PTError.setupFailed` — the session is stopped
