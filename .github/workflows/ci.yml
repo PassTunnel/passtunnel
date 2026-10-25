@@ -484,13 +484,14 @@ jobs:
           path: .build/repositories
           key: swiftpm-repositories-${{ hashFiles('Package.resolved') }}
 
-      # As root in the build image, whose git is told (in its global configuration) that the runner's
-      # checkout is safe to read.
+      # As root in a throwaway container of the build image, whose git is told (in its global
+      # configuration) that the runner's files are safe to read: the checkout, and SwiftPM's clones
+      # when they come from the cache.
       - name: Build the tarball
         run: |
           set -euo pipefail
           docker run --rm -v "$PWD:/src" -w /src "$BUILD_IMAGE" \
-            bash -c 'git config --global --add safe.directory /src && scripts/build-linux.sh'
+            bash -c "git config --global --add safe.directory '*' && scripts/build-linux.sh"
           name="passtunnel-0.0.0-dev-linux-$ARCH"
           tar -tzf "dist/$name.tar.gz" | sort >files.txt
           printf '%s\n' "" LICENSE README.md THIRD_PARTY_NOTICES.md bin/ bin/passtunnel lib/ lib/systemd/ \
