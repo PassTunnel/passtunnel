@@ -8,8 +8,8 @@ import PassTunnelVPNConfig
 /// line that came back would be refused at connect time as before. Only lines whose whole effect PassTunnel
 /// replaces or does not need are skipped (`skippable`, `skippableManaged`). Everything else the sanitizer
 /// refuses blocks the file: directives with a role in checking the server or the sign-in, ones that load
-/// code or read files outside the configuration, server-only directives, malformed lines and blocks, and
-/// any name not listed here. SECURITY.md ("Importing an OpenVPN configuration") has the table.
+/// code or read files outside the configuration, server-only directives and server or standalone modes,
+/// malformed lines and blocks, and any name not listed here. SECURITY.md ("Importing an OpenVPN configuration") has the table.
 public enum OVPNSkipRules {
     /// Why a line can be left out. The raw values are stable (`passtunnel import --json`).
     public enum Reason: String, CaseIterable, Hashable, Sendable {
@@ -112,8 +112,13 @@ public enum OVPNSkipRules {
     /// - reading files outside the configuration: `config`, `capath`, `dev-node`, `replay-persist` (also
     ///   replay protection across restarts), `client-config-dir`, `ifconfig-pool-persist`;
     /// - server-only (the file is not a client configuration): `learn-address`, `client-connect`,
-    ///   `client-disconnect`, `port-share`;
-    /// - `genkey`, which writes a key and exits instead of connecting.
+    ///   `client-disconnect`, `client-crresponse`, `port-share`, and the server modes `server`,
+    ///   `server-ipv6`, `server-bridge`, `tls-server`, `inetd` (and `mode` other than `p2p`, refused with
+    ///   its own reason);
+    /// - standalone modes, which do something else instead of connecting: `genkey`, `mktun`, `rmtun`,
+    ///   `help`, `version`, `test-crypto`, the `show-…` listings, `allow-nonadmin`;
+    /// - a file or a process setting no client needs: `memstats`, `setcon`, `win-sys`, `service`,
+    ///   `msg-channel` (and a `dev` name that is not a device type, refused with its own reason).
     static let skippable: [String: Reason] = [
         // Programs OpenVPN runs as root at points of the connection. The helper never runs a program a
         // profile names: DNS is set by its own pinned hook (`--dns-updown` on its command line) from what

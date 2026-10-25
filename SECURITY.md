@@ -187,20 +187,32 @@ reported with its line number, and nothing is run until the config is clean. The
 with the same tokenizer when it imports them (embedding referenced files, removing credential
 blocks), so the app and the helper never read a line differently.
 
-**Rejected directives** (they run programs, load code, write files as root, or override the
-helper's settings):
+**Rejected directives** (they run programs, load code, read or write files as root, override the
+helper's settings, or make OpenVPN something other than a client connection):
 
 ```
 up  down  route-up  route-pre-down  ipchange  learn-address
-client-connect  client-disconnect  tls-verify  auth-user-pass-verify  tls-crypt-v2-verify
-plugin  dns-updown  iproute
-daemon  writepid  cd  chroot  user  group  config
-status  replay-persist  tmp-dir  tls-export-cert  dev-node
-client-config-dir  ifconfig-pool-persist
-engine  providers  pkcs11-providers  capath
+client-connect  client-disconnect  client-crresponse  tls-verify  auth-user-pass-verify
+tls-crypt-v2-verify  plugin  dns-updown  iproute
+daemon  writepid  cd  chroot  user  group  setcon  config
+status  replay-persist  tmp-dir  tls-export-cert  dev-node  memstats
+client-config-dir  ifconfig-pool-persist  port-share
+engine  providers  pkcs11-providers  capath  show-pkcs11-ids
+server  server-ipv6  server-bridge  tls-server  inetd      (server modes)
+genkey  mktun  rmtun  help  version  test-crypto           (standalone modes)
+show-ciphers  show-digests  show-engines  show-tls  show-curves  show-groups
+show-gateway  show-net  show-net-up  show-adapters  show-valid-subnets  allow-nonadmin
+win-sys  service  msg-channel
 management*  log*            (every directive starting with these)
 script-security N            (when N > 1)
+mode M                       (unless M is p2p)
+dev NAME                     (unless NAME is tun, tap, utun or null, optionally followed by
+                              letters, digits, - or _)
 ```
+
+The list was checked against the option parser of OpenVPN 2.4 to 2.7. A configuration cannot make
+OpenVPN a server or run one of its standalone commands, and a device name can never be a path:
+OpenVPN opens `/dev/<name>` for some devices on macOS.
 
 **Other rules**
 
@@ -266,10 +278,14 @@ Everything else the sanitizer refuses blocks the file, in particular:
   replay protection across restarts), `client-config-dir`, `ifconfig-pool-persist`;
 - a private key or certificate from another program: `management-external-key`,
   `management-external-cert`;
-- server-only directives, since the file is then not a client configuration: `learn-address`,
-  `client-connect`, `client-disconnect`, `port-share`, `management-client-auth`,
-  `auth-gen-token-secret` with a file;
-- `genkey`, which writes a key and exits instead of connecting;
+- server-only directives and server modes, since the file is then not a client configuration:
+  `learn-address`, `client-connect`, `client-disconnect`, `client-crresponse`, `port-share`,
+  `management-client-auth`, `auth-gen-token-secret` with a file, `server`, `server-ipv6`,
+  `server-bridge`, `tls-server`, `inetd`, `mode` other than `p2p`;
+- standalone modes, which do something else instead of connecting: `genkey`, `mktun`, `rmtun`,
+  `help`, `version`, `test-crypto`, the `show-…` listings, `allow-nonadmin`;
+- `memstats`, `setcon`, `win-sys`, `service`, `msg-channel`, and a `dev` name that is not a device
+  type;
 - blocks named after a refused directive (`<plugin>…</plugin>`), unclosed blocks, and lines OpenVPN
   would reject or read differently (too long, NUL bytes, bad escapes, unterminated quotes, a
   byte order mark that does not start the file);

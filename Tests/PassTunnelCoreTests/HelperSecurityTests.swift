@@ -201,6 +201,8 @@ extension HelperCoreTests {
             "log /etc/x", "log-append /etc/x", "cd /", "config /tmp/other.ovpn", "setenv BASH_ENV /tmp/x",
             "setenv PATH /tmp", "setenv opt up /tmp/x", "--Up /tmp/x", "route-up /tmp/x", "dns-updown /tmp/x",
             "auth-user-pass /var/root/secret", "ca /etc/ssl/ca.pem", "writepid /etc/x", "user nobody",
+            "mode server", "tls-server", "server 10.8.0.0 255.255.255.0", "client-crresponse /tmp/x",
+            "setenv opt client-crresponse /tmp/x", "mktun", "dev ../tmp/x1",
         ]
         for line in dangerous {
             try writeConfig("client\nremote vpn.example.com 1194\n\(line)\n")

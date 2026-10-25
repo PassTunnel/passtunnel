@@ -1,0 +1,15 @@
+mode server
+tls-server
+dev tun
+port 1194
+client-crresponse "/tmp/x y"
+<connection>
+remote vpn.example.com
+setenv opt --MODE server
+</connection>
+server 10.8.0.0 255.255.255.0
+mktun
+--rmtun
+<server-bridge>
+x
+</server-bridge>

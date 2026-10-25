@@ -561,6 +561,59 @@
       "username": null
     },
     {
+      "name": "server and standalone modes block, also next to a line that would be skipped",
+      "config": "client\nmode server\ntls-server\nclient-crresponse /tmp/x\nmktun\ndev ../tmp/x1\nup /tmp/x\n",
+      "blocking": [
+        {
+          "directive": "mode",
+          "line": 2,
+          "reason": "only mode p2p is allowed",
+          "text": "mode server"
+        },
+        {
+          "directive": "tls-server",
+          "line": 3,
+          "reason": "not allowed",
+          "text": "tls-server"
+        },
+        {
+          "directive": "client-crresponse",
+          "line": 4,
+          "reason": "not allowed",
+          "text": "client-crresponse /tmp/x"
+        },
+        {
+          "directive": "mktun",
+          "line": 5,
+          "reason": "not allowed",
+          "text": "mktun"
+        },
+        {
+          "directive": "dev",
+          "line": 6,
+          "reason": "must be tun, tap, utun or null, optionally followed by letters, digits, - or _",
+          "text": "dev ../tmp/x1"
+        }
+      ],
+      "certificates": [],
+      "needs": [],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": null,
+      "password_mode": "none",
+      "servers": [],
+      "skipped": [
+        {
+          "directive": "up",
+          "line": 7,
+          "reason": "program",
+          "text": "up /tmp/x"
+        }
+      ],
+      "stored": null,
+      "username": null
+    },
+    {
       "name": "a key or certificate from another program, other log and management names, and genkey block",
       "config": "client\nmanagement-external-key\nmanagement-external-cert macosx-keychain\nlogfile /tmp/x\nmanagement-new\ngenkey secret /tmp/key\n",
       "blocking": [

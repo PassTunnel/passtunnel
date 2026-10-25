@@ -2,6 +2,10 @@ import Foundation
 
 /// Checks an OpenVPN client config before the helper runs it as root.
 ///
+/// A denylist: it refuses every directive that runs a program, loads code, reads or writes a file the
+/// config names, or makes OpenVPN anything but a client connection (a server, a standalone command),
+/// checked against the option parser of OpenVPN 2.4 to 2.7.
+///
 /// The parser mirrors OpenVPN's own tokenizer (quotes, backslash escapes, `#`/`;` comments, a leading
 /// `--` on option names, `<tag>…</tag>` inline blocks, `setenv opt` prefixes) and errs on the strict
 /// side wherever the two could disagree: option names are compared case-insensitively with every
@@ -30,10 +34,11 @@ public enum OVPNSanitizer {
         public var errorDescription: String? { description }
     }
 
-    /// Directives that run programs, load code, write files as root or override the helper's settings.
+    /// Directives that run programs, load code, write files as root, override the helper's settings, or
+    /// make OpenVPN something other than a client connection.
     public static let forbiddenDirectives: Set<String> = [
         "up", "down", "route-up", "route-pre-down", "ipchange", "learn-address",
-        "client-connect", "client-disconnect", "tls-verify", "auth-user-pass-verify",
+        "client-connect", "client-disconnect", "client-crresponse", "tls-verify", "auth-user-pass-verify",
         "tls-crypt-v2-verify", "plugin", "dns-updown", "iproute",
         "daemon", "writepid", "cd", "chroot", "user", "group", "config",
         "status", "replay-persist", "tmp-dir", "tls-export-cert", "dev-node",
@@ -42,7 +47,25 @@ public enum OVPNSanitizer {
         "show-pkcs11-ids",      // loads the given PKCS#11 provider library
         "genkey",               // writes a key file (truncating it) at the given path
         "port-share",           // server only; writes journal files into a directory
+        "memstats",             // 2.6 on Linux: creates, truncates and finally deletes the given file
+        "setcon",               // Linux: changes the process's SELinux context, like user/group
+        // Server modes: OpenVPN would accept connections and run the server-side hooks.
+        "server", "server-ipv6", "server-bridge", "tls-server", "inetd",
+        // Standalone modes: a one-off command, or a change that outlives the session, instead of connecting.
+        "mktun", "rmtun", "help", "version", "test-crypto",
+        "show-ciphers", "show-digests", "show-engines", "show-tls", "show-curves", "show-groups",
+        "show-gateway", "show-net", "show-net-up", "show-adapters", "show-valid-subnets", "allow-nonadmin",
+        // Windows builds: the folder system programs are run from, and the service's internal options.
+        "win-sys", "service", "msg-channel",
     ]
+
+    /// The only `mode` OpenVPN may run in: `mode server` is a server.
+    static let allowedMode = "p2p"
+
+    /// `dev` names: OpenVPN's device types, optionally followed by a unit number or name. On macOS (and the
+    /// BSDs) OpenVPN opens `/dev/<dev>` for a `tap` device or when utun is not available, so any other name
+    /// could open an arbitrary device or file as root.
+    static let devicePrefixes = ["tun", "tap", "utun", "null"]
 
     /// Prefix families: `management*`, `log*`.
     public static let forbiddenPrefixes = ["management", "log"]
@@ -222,6 +245,15 @@ public enum OVPNSanitizer {
             guard let level = args.first.flatMap({ Int($0) }) else { return "invalid level" }
             return level > 1 ? "level above 1 allows scripts" : nil
         }
+        if name == "mode" {
+            return args.count == 1 && args[0].lowercased() == allowedMode ? nil : "only mode p2p is allowed"
+        }
+        if name == "dev" {
+            guard args.count == 1, isDeviceName(args[0]) else {
+                return "must be tun, tap, utun or null, optionally followed by letters, digits, - or _"
+            }
+            return nil
+        }
         if fileDirectives.contains(name), let file = args.first, !isInlineMarker(file) {
             if name == "dh", file.lowercased() == "none" { return nil }
             return "references an external file; embed it inline as <\(name)>…</\(name)>"
@@ -240,6 +272,20 @@ public enum OVPNSanitizer {
     }
 
     static func isInlineMarker(_ s: String) -> Bool { s.lowercased() == "[inline]" }
+
+    /// A device type in lowercase, as OpenVPN compares it, then only ASCII letters, digits, `-` and `_`:
+    /// no `/` or `.`, so the name can never become a path.
+    static func isDeviceName(_ s: String) -> Bool {
+        let bytes = Array(s.utf8)
+        guard let prefix = devicePrefixes.first(where: { bytes.starts(with: $0.utf8) }) else { return false }
+        return bytes.dropFirst(prefix.utf8.count).allSatisfy {
+            switch $0 {
+            case UInt8(ascii: "a")...UInt8(ascii: "z"), UInt8(ascii: "A")...UInt8(ascii: "Z"),
+                 UInt8(ascii: "0")...UInt8(ascii: "9"), UInt8(ascii: "-"), UInt8(ascii: "_"): return true
+            default: return false
+            }
+        }
+    }
 
     /// Lowercased with all leading dashes removed (OpenVPN itself only strips one `--`).
     static func normalize(_ token: String) -> String {
