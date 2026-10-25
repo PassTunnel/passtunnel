@@ -3,7 +3,7 @@ import PassTunnelKit
 import SwiftUI
 
 /// The selected profile in the redesigned window: its name, where it connects, the main button and the status
-/// line, then the live code (the current code view until the code card replaces it). Edit and ⋯ are in the toolbar.
+/// line, then the current code and what the server receives (CodeCards.swift). Edit and ⋯ are in the toolbar.
 struct ProfileDetailView: View {
     @EnvironmentObject private var model: AppModel
     let profile: Profile
@@ -30,18 +30,7 @@ struct ProfileDetailView: View {
                     DetailActionButton(profile: profile, action: status.action)
                 }
                 ProfileStatusLine(status: status, server: server.address, now: model.previewNow)
-                if model.hasCode(profile) {
-                    HStack(alignment: .top, spacing: Spacing.m) {
-                        Card {
-                            SectionLabel(String(localized: "Current code"))
-                            LiveCodeView(profile: profile, fontSize: 30)
-                                .padding(.leading, -8)   // the code view's own inset
-                        }
-                        .frame(maxWidth: .infinity)
-                        // The second column stays free for the card about what the server receives.
-                        Color.clear.frame(maxWidth: .infinity, maxHeight: 0)
-                    }
-                }
+                DetailCodeCards(profile: profile)
             }
             .padding(.horizontal, Spacing.xl)
             .padding(.top, Spacing.s)

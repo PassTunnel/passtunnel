@@ -431,6 +431,39 @@ final class AppModel: ObservableObject {
         whenUnlocked(p, [.totp], .code) { _ in }
     }
 
+    // MARK: code card (redesigned window)
+
+    /// Until when a click in the detail's code card shows the codes of a profile that hides them (decision D-5).
+    @Published private(set) var revealedCodes: [String: Date] = [:]
+    /// The last code or password + code copied, for the "Copied ✓" of the code card.
+    @Published private(set) var lastCopy: CodeCard.Copy?
+
+    /// The TOTP secret of `p` is stored encrypted ("Confirm with Touch ID"), unlocked or not.
+    func isCodeProtected(_ p: Profile) -> Bool {
+        if previewStates != nil { return previewLockedCodes.contains(p.id) }
+        return protectedTOTP.contains(p.id)
+    }
+
+    /// The redesigned window shows bullets instead of the codes of `p` at `date` (`CodeCard.isMasked`).
+    func codesMasked(_ p: Profile, at date: Date) -> Bool {
+        CodeCard.isMasked(locked: isCodeLocked(p), hidden: prefs.hideCodes, protected: isCodeProtected(p),
+                          revealedUntil: revealedCodes[p.id], at: date)
+    }
+
+    /// A click on the code card's masked code: shows the codes of `p` there for 20 s, after the confirmation when
+    /// they are locked. A cancel does nothing.
+    func revealCodes(_ p: Profile) {
+        guard let stored = storedProfile(p) else { return }
+        whenUnlocked(stored, [.totp], .code) { [self] _ in
+            let now = Date()
+            revealedCodes = revealedCodes.filter { $0.value > now }
+            revealedCodes[stored.id] = now.addingTimeInterval(CodeCard.revealDuration)
+        }
+    }
+
+    /// Render override for "Copied ✓".
+    func setPreviewCopy(_ copy: CodeCard.Copy?) { lastCopy = copy }
+
     /// Runs `body` once the secrets `kinds` of `p` are readable: at once when they are stored in plain
     /// text or unlocked, else after the user confirms (which decrypts them). `body` gets whether a
     /// prompt was shown. A cancel does nothing; a failure is shown.
@@ -573,6 +606,8 @@ final class AppModel: ObservableObject {
                 return
             }
             copySecret(c)
+            lastCopy = CodeCard.Copy(profileID: stored.id, kind: .code, at: Date(),
+                                     window: TOTP.counter(params: stored.totp))
             showToast(String(localized: "Code copied"))
         }
     }
@@ -594,6 +629,8 @@ final class AppModel: ObservableObject {
             let composed = OTPComposer.compose(password: password, otp: otp, delivery: .combined,
                                                template: p.otpTemplate, type: p.type)
             copySecret(composed.secret)
+            lastCopy = CodeCard.Copy(profileID: p.id, kind: .passwordAndCode, at: Date(),
+                                     window: TOTP.counter(params: p.totp))
             showToast(String(localized: "Password and code copied"))
         }
     }

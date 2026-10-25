@@ -211,25 +211,54 @@ enum RenderSnapshots {
     }
 
     /// The redesigned window (behind `NewInterface`, not on the website yet), once per state of the selected profile:
-    /// `main-split` connected, `-waiting` for a fresh code, `-dropped` and reconnecting, `-off`, `-failed`. Sets its
-    /// own overrides and leaves the model as it found it.
+    /// `main-split` connected, `-waiting` for a fresh code, `-dropped` and reconnecting, `-off`, `-failed`; then the
+    /// code card's other states on the first profile: `-locked`, `-hidden`, `-copied`, `-narrow` (the smallest window,
+    /// cards stacked) and `-template` (a custom code format). Sets its own overrides and leaves the model and the
+    /// profiles as it found them.
     private static func renderSplitWindow(_ model: AppModel, sample: Sample, store: ProfileStore, now: Date, to out: URL) {
         let ids = sample.ids   // work, lab, home, staging, client, travel
         let configs = [ids[0]: "client\nremote vpn.example.com 1194 udp\n",
                        ids[2]: "client\nproto tcp\nremote 203.0.113.10 443\n",
                        ids[5]: "client\nremote vpn2.example.com 1194\nremote vpn3.example.com 1194\n"]
         for (id, text) in configs { try? Data(text.utf8).write(to: store.ovpnURL(id)) }
-        model.previewCodeWaits = [ids[3]: now.addingTimeInterval(3.6)]
+        // A connect waits into the next window: shown 3.6 s before it starts.
+        let nextWindow = CodeCard.nextWindow(TOTPParams(), after: now)
+        let waitingNow = nextWindow.addingTimeInterval(-3.6)
+        model.previewCodeWaits = [ids[3]: nextWindow.addingTimeInterval(0.25)]
         model.previewReconnecting = [ids[5]: ReconnectInfo(attempt: 1, maxAttempts: 3, at: now)]
         let selection = model.selection
+        func render(_ suffix: String, size: CGSize = CGSize(width: 1080, height: 700)) {
+            for dark in [false, true] {
+                snapshot(SplitWindowRender().environmentObject(model), size: size, dark: dark, to: out,
+                         name: "main-split\(suffix)", window: true)
+            }
+        }
         let shown = [(ids[0], ""), (ids[3], "-waiting"), (ids[5], "-dropped"), (ids[2], "-off"), (ids[4], "-failed")]
         for (id, suffix) in shown {
             model.selection = id
-            for dark in [false, true] {
-                snapshot(SplitWindowRender().environmentObject(model), size: CGSize(width: 1080, height: 700),
-                         dark: dark, to: out, name: "main-split\(suffix)", window: true)
-            }
+            model.previewNow = suffix == "-waiting" ? waitingNow : now
+            render(suffix)
         }
+        model.previewNow = now
+
+        model.selection = ids[0]
+        model.previewLockedCodes = [ids[0]]
+        render("-locked")
+        model.previewLockedCodes = []
+        model.prefs.hideCodes = true
+        render("-hidden")
+        model.prefs.hideCodes = false
+        model.setPreviewCopy(CodeCard.Copy(profileID: ids[0], kind: .code, at: now,
+                                           window: TOTP.counter(params: TOTPParams(), at: now)))
+        render("-copied")
+        model.setPreviewCopy(nil)
+        render("-narrow", size: CGSize(width: 820, height: 640))
+        let template = model.profile(ids[0])?.otpTemplate ?? OTPTemplatePreset.append.rawValue
+        try? store.update(ids[0]) { $0.otpTemplate = "{otp}-{password}" }
+        model.reload()
+        render("-template")
+        try? store.update(ids[0]) { $0.otpTemplate = template }
+        model.reload()
         model.selection = selection
         model.previewCodeWaits = [:]
         model.previewReconnecting = [:]

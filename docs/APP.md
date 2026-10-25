@@ -131,22 +131,48 @@ stays as it is. With it, the main window (`MainSplitView`) is a `NavigationSplit
 and at least 820×560:
 - **Sidebar** (236–320 pt, 272 ideal): the search field, always there; the section "Profiles" with one row per
   profile (`SidebarRow`): the name, the short status in the state's color with its dot (`ProfileStatusRow`) and the
-  live code in 13 pt SF Mono on the right ("••• •••" while it is locked or hidden). No icons, no buttons in the rows.
-  Drag to reorder (`order`), the context menu above, Return and double-click run the detail's main button. A bottom
-  bar holds `+` (the five add and import entries) and a gear that opens Settings.
+  live code in 13 pt SF Mono on the right ("••• •••" while the detail masks it, below). No icons, no buttons in the
+  rows. Drag to reorder (`order`), the context menu above, Return and double-click run the detail's main button. A
+  bottom bar holds `+` (the five add and import entries) and a gear that opens Settings.
 - **Detail** (`ProfileDetailView`): the name (28 bold), where it connects (`vpn.example.com:1194 · OpenVPN · UDP`
   from the first `remote` of `config.ovpn`, `OVPNAnalyzer.endpoint`, with "+N more" when there are several;
   `gw.example.net:443 · FortiGate`), the main button on the right and the long status line below
-  (`ProfileStatusLine`); then the current code view in a card. The main button is `DisplayStatus.action`: Connect
+  (`ProfileStatusLine`); then the code cards below. The main button is `DisplayStatus.action`: Connect
   (also after a drop), Cancel while connecting or waiting for a fresh code, Disconnect once connected, Stop during
   an automatic reconnect, Try again after a failure; Connect, Disconnect and Try again are primary capsules, Cancel
   and Stop secondary, all as wide as the widest label. The toolbar has Edit and ⋯ (Copy Code, Copy Password +
   Code, Share…, Show Log, Default Profile, Delete…). The window shows the default profile (else the first) when
   nothing is selected.
+- **Code cards** (`Views/CodeCards.swift`; their rules are `CodeCard` and `ServerReceives` in Core): two hairline cards
+  in equal columns of the same height, stacked at full width when a column is too narrow for them (`CardColumns`).
+  - **Current code** (`CurrentCodeCard`, profiles with a TOTP secret): the code in 44 pt SF Mono, the 26 pt
+    countdown ring with the seconds beside it (in the text color; amber in the last 5 s and while a connect waits for
+    a fresh code; red is kept for errors), "Next 771 204" under it (the next window's code,
+    `CodeCard.nextWindow`), then the secondary capsules Copy code and, with the password in the Keychain, Copy
+    password + code (`copyCode`, `copyPasswordAndCode`, with every safeguard above). A copy from them, the Profile
+    menu or ⋯ turns the button's label into "Copied ✓" for 1.6 s, cleared early when the code changes
+    (`AppModel.lastCopy`, `CodeCard.Copy`); the buttons keep the width of the wider label. A click on the code
+    copies it. VoiceOver reads the code as one element ("Current code, 4 8 2, 9 1 3, 12 seconds left, next code 7 7
+    1, 2 0 4") whose action is the click.
+  - **What the server receives** (`ServerReceivesCard`, `ServerReceives`): one row per field in 13 pt SF Mono,
+    built from the profile's real format (`OTPComposer.parts`) and user name with a placeholder password, never the
+    real one: `user name  alice` ("asked when connecting" when it is asked), `password  ••••••••482913` (always eight
+    bullets, never the password's length, then the code where the format puts it); sent separately, `password
+    ••••••••` and a `code  482913` row. Footer: "Format: Append · preview with the current code", or "· will send
+    the next code" with the next code in the rows while a connect waits for a fresh one; for a code asked each time
+    "· asks for the code when connecting" and dimmed example digits, as without a secret ("· no secret added yet");
+    "Password only, no one-time code"; a certificate-only OpenVPN profile shows only "Certificate only: …". The
+    line that says when the code was sent ("· sent at 09:41:02") needs the activity log; until then a connected
+    profile shows the preview line. VoiceOver reads the card as one element.
+  - **Masked codes** (decision D-5, `CodeCard.isMasked`, `AppModel.codesMasked`): codes hidden in Settings
+    (`hideCodes`) and codes whose TOTP secret is stored encrypted ("Confirm with Touch ID"), unlocked or not, show as
+    "••• •••" for the current and the next code, as bullets in "What the server receives" and in the sidebar row.
+    A click on the code shows them for 20 s (`AppModel.revealCodes`), after the confirmation when they are locked;
+    copying never shows them. The menu bar panel and the current window keep their own rules.
 - **Profile menu**: ⌘↩ runs the main button, ⌘C copies the code (in a text field ⌘C stays the field's), ⇧⌘C the
   password and code, ⌘E edits; off while a sheet is open.
-- No toast (VoiceOver still announces "Code copied") and no window subtitle. Sheets, alerts, the delete
-  confirmation and drag & drop import are the same as above.
+- No toast (the copy buttons say "Copied ✓", VoiceOver still announces "Code copied") and no window subtitle.
+  Sheets, alerts, the delete confirmation and drag & drop import are the same as above.
 
 ## Profile editor (sheet)
 
@@ -532,7 +558,9 @@ others not yet.
   use `StatusKind`. On a selected row's accent color the words turn white (macOS 14 and later; macOS 13 keeps the
   state's color). The `profile-status` render shows every state.
 - The `main-split` renders show the redesigned window with the sample profiles, light and dark, once per state of
-  the selected profile (`main-split`, `-waiting`, `-dropped`, `-off`, `-failed`); they are not on the website.
+  the selected profile (`main-split`, `-waiting`, `-dropped`, `-off`, `-failed`), then the code cards with the code
+  locked, hidden, just copied, in the smallest window and with a custom format (`-locked`, `-hidden`, `-copied`,
+  `-narrow`, `-template`); they are not on the website.
   Offscreen, the glass sidebar of macOS 26 draws without its rows, so there the render lays the window's sidebar
   and detail out side by side, the sidebar on its flat list background.
 
@@ -545,7 +573,8 @@ exposes it as `AXDescription` (read by VoiceOver and `AXUIElementCopyAttributeVa
 `AXTitle`, and does not list it in `AXAttributeNames`, so System Events shows `name` as missing value.
 For UI automation, key controls carry stable, unlocalized `.accessibilityIdentifier`s (`AXIdentifier`):
 `profile.<id>`, `profile.<id>.primary`, `profile.<id>.more`, `profile.<id>.code`, `main.add` (in the redesigned
-window also `profile.<id>.edit` and `main.settings`; its sidebar rows read as name, status and code),
+window also `profile.<id>.edit`, `profile.<id>.copyCode`, `profile.<id>.copyPasswordCode`,
+`profile.<id>.serverReceives` and `main.settings`; its sidebar rows read as name, status and code),
 `helper.install|update|loginItems|remove|licenses`, `onboarding.back|continue|done|installHelper|loginItems`,
 `editor.cancel|save|delete|advanced|requireAuth|revealCode`, `settings.authReuse`, and in the menu bar panel
 `menu.<id>.toggle`, `menu.add|copyCode|copyPasswordCode|typeCode|open|settings|quit`. The editor's switches are
