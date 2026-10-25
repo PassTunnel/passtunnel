@@ -93,6 +93,13 @@ public enum OVPNSanitizer {
                 i += 1
                 continue
             }
+            // OpenVPN skips a BOM only at the start of the file. Anywhere else it would be part of the
+            // first token, and once an earlier line was stripped the line could become the first one.
+            if raw.hasPrefix("\u{FEFF}") {
+                violations.append(Violation(line: lineNo, directive: "(line)", reason: misplacedBOM))
+                i += 1
+                continue
+            }
 
             // Inside a verbatim block: only look for its end.
             if let top = blockStack.last, top.verbatim {
@@ -162,12 +169,14 @@ public enum OVPNSanitizer {
     public static func verbosity(of text: String) -> Int? {
         var level: Int?
         var block: (tag: String, verbatim: Bool)?
-        for line in splitLines(text) {
+        for (index, line) in splitLines(text).enumerated() {
+            var content = line.content
+            if index == 0, content.hasPrefix("\u{FEFF}") { content.removeFirst() }
             if let b = block {
-                if isBlockEnd(line.content, tag: b.tag) { block = nil; continue }
+                if isBlockEnd(content, tag: b.tag) { block = nil; continue }
                 if b.verbatim { continue }
             }
-            guard case .success(var tokens) = tokenize(line.content), !tokens.isEmpty else { continue }
+            guard case .success(var tokens) = tokenize(content), !tokens.isEmpty else { continue }
             if tokens.count == 1, let tag = blockTag(tokens[0]) {
                 block = (tag: tag, verbatim: normalize(tag) != "connection")
                 continue
@@ -282,6 +291,7 @@ public enum OVPNSanitizer {
     }
 
     static let badBackslash = "a backslash may only escape \\, \" or whitespace"
+    static let misplacedBOM = "starts with a byte order mark (only the first line of the file may)"
 
     static func tokenize(_ line: String) -> TokenizeResult {
         enum State { case initial, unquoted, quoted, squoted }

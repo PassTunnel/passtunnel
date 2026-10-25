@@ -218,6 +218,11 @@ script-security N            (when N > 1)
   and unclosed blocks are rejected, and so is a backslash outside single quotes that does not escape
   `\`, `"` or whitespace. OpenVPN refuses those too, except a backslash at the end of a line, which
   it would take as escaping the line break; PassTunnel rejects that as well.
+- **A byte order mark only at the start of the file.** OpenVPN skips a UTF-8 BOM only as the first
+  bytes of the file. A line that starts with U+FEFF anywhere else (a later line, also inside an
+  inline block, or a second BOM on the first line) is rejected, so stripping the lines above it can
+  never make it the file's BOM. When you import an `.ovpn`, a referenced file's own BOM is left out
+  of the block it is embedded in.
 - **`static-challenge` is stripped** (lines or blocks), because PassTunnel answers the challenge
   itself.
 
@@ -266,7 +271,8 @@ Everything else the sanitizer refuses blocks the file, in particular:
   `auth-gen-token-secret` with a file;
 - `genkey`, which writes a key and exits instead of connecting;
 - blocks named after a refused directive (`<plugin>…</plugin>`), unclosed blocks, and lines OpenVPN
-  would reject or read differently (too long, NUL bytes, bad escapes, unterminated quotes);
+  would reject or read differently (too long, NUL bytes, bad escapes, unterminated quotes, a
+  byte order mark that does not start the file);
 - any other `log…` or `management…` name, and anything this table does not list: a rule added to
   the sanitizer blocks until it is decided here.
 

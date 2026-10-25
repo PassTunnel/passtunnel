@@ -281,6 +281,7 @@ public enum OVPNInliner {
     // local config); share export strips both.
     // Lines are read with OVPNSanitizer's tokenizer (`tokens(of:)`, `inlineBlockTag`, `isInlineBlockEnd`), so
     // import and the helper never read a line differently; lines it rejects are kept for the sanitizer to report.
+    // Like the sanitizer, they skip a BOM only at the start of the file; a referenced file's own BOM is not embedded.
 }
 public enum Secrets {                               // Keychain (a SecretStore; see Targets for Linux)
     public static func get(_ profileID: String, _ kind: SecretKind) -> String?   // plain text only; nil if encrypted
@@ -650,10 +651,10 @@ Security rules (helper):
   `tls-verify`, `auth-user-pass-verify`, `plugin`, `script-security` > 1, `management*`, `log*`, `daemon`,
   `writepid`, `cd`, `chroot`, `user`/`group`, `config`, `show-pkcs11-ids`, `genkey`, `port-share`,
   external files incl. a `socks-proxy` credentials file, and, like OpenVPN's own parser, a backslash
-  outside single quotes that does not escape `\`, `"` or whitespace, or ends the line; strips
-  `static-challenge`; the same check for every config, also those whose import commented out refused
-  lines, `OVPNSkipRules`), writes the sanitized copy and the auth file
-  into the session's run directory, then runs openvpn with fixed flags (`--management <runDir>/mgmt.sock unix`
+  outside single quotes that does not escape `\`, `"` or whitespace, or ends the line, and a line that
+  starts with a byte order mark anywhere but at the start of the file; strips `static-challenge`; the same
+  check for every config, also those whose import commented out refused lines, `OVPNSkipRules`), writes
+  the sanitized copy and the auth file into the session's run directory, then runs openvpn with fixed flags (`--management <runDir>/mgmt.sock unix`
   `--management-client-user <caller's user name>` so only the calling user can talk to it, no
   `--management-hold`; `--verb N` with the config's last `verb` capped at 4, 3 when it sets none
   (`HelperCore.openVPNVerbosity`, from `OVPNSanitizer.verbosity(of:)`); `--auth-nocache`,

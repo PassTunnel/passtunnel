@@ -296,6 +296,60 @@
       "output": "\ufeff"
     },
     {
+      "name": "a BOM starting a later line is refused (OpenVPN skips one only at the start of the file)",
+      "config": "\ufeffstatic-challenge \"Eode\" 1\n\ufeffstatic-challenge \"Eode\"",
+      "violations": [
+        {
+          "directive": "(line)",
+          "line": 2,
+          "reason": "starts with a byte order mark (only the first line of the file may)"
+        }
+      ]
+    },
+    {
+      "name": "a later BOM line is refused even when it is a comment",
+      "config": "client\n\ufeff# note\n",
+      "violations": [
+        {
+          "directive": "(line)",
+          "line": 2,
+          "reason": "starts with a byte order mark (only the first line of the file may)"
+        }
+      ]
+    },
+    {
+      "name": "a later BOM line is refused inside an inline block",
+      "config": "<ca>\n\ufeff-----BEGIN CERTIFICATE-----\n</ca>\n",
+      "violations": [
+        {
+          "directive": "(line)",
+          "line": 2,
+          "reason": "starts with a byte order mark (only the first line of the file may)"
+        }
+      ]
+    },
+    {
+      "name": "a second BOM on the first line is refused",
+      "config": "\ufeff\ufeffclient\n",
+      "violations": [
+        {
+          "directive": "(line)",
+          "line": 1,
+          "reason": "starts with a byte order mark (only the first line of the file may)"
+        }
+      ]
+    },
+    {
+      "name": "the file's BOM goes with its stripped first line",
+      "config": "\ufeffstatic-challenge \"Code\" 1\nclient\n",
+      "output": "client\n"
+    },
+    {
+      "name": "U+FEFF inside a line is an ordinary character",
+      "config": "\ufeffclient\nremote vpn.example.com 1194\ufeff\n",
+      "output": "\ufeffclient\nremote vpn.example.com 1194\ufeff\n"
+    },
+    {
       "name": "static-challenge is removed",
       "config": "client\nstatic-challenge \"Enter code\" 1\nremote vpn.example.com\n--Static-Challenge 'x' 0\n",
       "output": "client\nremote vpn.example.com\n"
@@ -1627,6 +1681,14 @@
     {
       "config": "verb -3\n",
       "verb": 0
+    },
+    {
+      "config": "\ufeffverb 1\n",
+      "verb": 1
+    },
+    {
+      "config": "client\n\ufeffverb 1\n",
+      "verb": null
     }
   ]
 }

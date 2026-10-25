@@ -134,6 +134,21 @@ final class OVPNImportTests: CoreTestCase {
         XCTAssertEqual(draft.report.config, "client\n<ca>\n\(caPEM)</ca>\n# PassTunnel skipped: up /tmp/x.sh\nremote vpn.example.com\n")
     }
 
+    /// Only the file's BOM is skipped, as by the sanitizer: a later line that starts with one blocks, even
+    /// once the line above it is skipped, and a referenced file's own BOM is not embedded.
+    func testBOMOnlyAtTheStartOfTheFile() throws {
+        let r = try report("\u{FEFF}up /tmp/x.sh\n\u{FEFF}down /tmp/y\nremote vpn.example.com\n")
+        XCTAssertEqual(r.skipped.map(\.line), [1])
+        XCTAssertEqual(r.blocking, [OVPNSkipRules.Blocking(line: 2, directive: "(line)", text: "\u{FFFD}down /tmp/y",
+                                                          reason: OVPNSanitizer.misplacedBOM)])
+        XCTAssertNil(r.config)
+
+        let url = try folder("\u{FEFF}client\r\nca ca.crt\r\nremote vpn.example.com\r\n", files: ["ca.crt": "\u{FEFF}" + caPEM])
+        let draft = try store.analyzeOVPN(url)
+        XCTAssertEqual(draft.report.blocking, [])
+        XCTAssertEqual(draft.report.config, "client\n<ca>\n\(caPEM)</ca>\nremote vpn.example.com\n")
+    }
+
     /// The comment never grows past what OpenVPN reads as one line, and shows no control characters.
     func testLongAndControlCharacterLines() throws {
         let long = "up /tmp/" + String(repeating: "a", count: OVPNSanitizer.maxLineBytes - 8)
