@@ -393,6 +393,15 @@ helper only checks the tools' signing identifier and Team ID.
 - A `PinnedTools+Generated.swift` left by an interrupted build changes nothing for `swift build` /
   `swift test` (its contents are inside `#if PASSTUNNEL_TOOL_PINS`); the next `build-app.sh` rewrites it.
 
+## Linux tarball
+
+Not part of a release yet: Linux is released from phase 3 of [docs/LINUX.md](LINUX.md#phases), and
+`release.sh` and the release workflow build only the Mac files. `scripts/build-linux.sh --version
+1.2.0` builds `dist/passtunnel-1.2.0-linux-<arch>.tar.gz` on Linux (in the `swift:6.4.1-jammy`
+container, once per architecture), with the commit count as its build number, as `build-app.sh`
+gives the app; the CI jobs `Linux release` build it for every pull request with the development
+version `0.0.0-dev` and keep it as a workflow artifact. See [docs/LINUX.md](LINUX.md#distribution).
+
 ## Local test runs
 
 `scripts/release.sh 1.2.0-rc.1 --allow-branch` builds from the current branch (still needs a

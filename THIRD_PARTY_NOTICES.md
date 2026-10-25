@@ -1,8 +1,11 @@
 # Third-party notices
 
-PassTunnel's own source code is released under the [MIT License](LICENSE). Its only third-party
-Swift dependency is [Sparkle](https://sparkle-project.org) (MIT), the update framework, linked into
-the app and shipped as `Contents/Frameworks/Sparkle.framework`.
+PassTunnel's own source code is released under the [MIT License](LICENSE). The app's only
+third-party Swift dependency is [Sparkle](https://sparkle-project.org) (MIT), the update framework,
+linked into the app and shipped as `Contents/Frameworks/Sparkle.framework`. The Linux binaries link
+the Swift runtime, Foundation and swift-crypto instead; their notices are in
+[`packaging/linux/THIRD_PARTY_NOTICES.md`](packaging/linux/THIRD_PARTY_NOTICES.md), which the Linux
+release tarball carries with the license texts.
 
 The PassTunnel **app bundle** also ships the VPN tools it drives and the libraries they need. They
 are **separate, independent programs** that PassTunnel starts as child processes. They are not

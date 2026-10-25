@@ -10,7 +10,12 @@
 #                     Service round trip against a throwaway keyring, and, as root in the container,
 #                     a smoke test of `passtunneld` (an OpenVPN and a FortiGate session, no tunnel)
 #                     and of its DNS hook
-#   Release scripts   shellcheck of next-version.sh and its test, and the self-test of
+#   Linux release     the release tarball (scripts/build-linux.sh) built in the Swift image of Ubuntu
+#   (x86_64, aarch64) 22.04 and kept as an artifact, then tried in a clean Ubuntu 22.04: installed as
+#                     its README says, `passtunnel` and, as root, `passtunneld` with their build number
+#   Docker image      the Dockerfile built, and an MCP session with the image
+#   (x86_64, aarch64)
+#   Release scripts   shellcheck of next-version.sh, its test and build-linux.sh, and the self-test of
 #                     scripts/next-version.sh (in a temporary repository)
 #   Site              shellcheck of the site scripts and scripts/check-site.sh, the static checks
 #                     of the website in site/ (docs/WEBSITE.md)
@@ -441,6 +446,179 @@ jobs:
           test ! -e /run/passtunnel/0
           grep -q "ci-dns of uid 0, left by an earlier instance: restored the DNS of lo (/etc/resolv.conf)" dns-daemon.log
 
+  # The release tarball (scripts/build-linux.sh), built once per architecture in the Swift image of
+  # Ubuntu 22.04, the oldest supported, and kept as a workflow artifact (releases get it with phase 3
+  # of docs/LINUX.md). The same tarball is then tried in a clean Ubuntu 22.04 without Swift: the
+  # libraries the binaries load (no Swift runtime from the system, nothing missing) and the newest
+  # glibc they need; installed as its README says, the version and build number of `passtunnel`,
+  # `passtunneld` refusing to run as another user than root, and, as root, the daemon's hello and
+  # replies with the build number; `passtunnel` finds the daemon installed beside it and tells a
+  # replaced file from the daemon that runs.
+  linux-release:
+    name: Linux release (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    env:
+      ARCH: ${{ matrix.arch }}
+      # swift:6.4.1-jammy and ubuntu:22.04, pinned by the digests of their multi-arch indexes.
+      BUILD_IMAGE: swift:6.4.1-jammy@sha256:51729e0f6ed2f477490cd1e1132e5eddbf011b81092f4998fc8d88e5435e33cb
+      CLEAN_IMAGE: ubuntu:22.04@sha256:0a9887931b0e38af2e3487ed39e29436b0535c4f3f52e57745baaf79d1898956
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0    # the build number is the commit count
+
+      # SwiftPM's clones of the dependencies, keyed by Package.resolved: the build checks out the pinned
+      # revisions from them. Nothing that was built is cached.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build/repositories
+          key: swiftpm-repositories-${{ hashFiles('Package.resolved') }}
+
+      # As root in a throwaway container of the build image, whose git is told (in its global
+      # configuration) that the runner's files are safe to read: the checkout, and SwiftPM's clones
+      # when they come from the cache.
+      - name: Build the tarball
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/src" -w /src "$BUILD_IMAGE" \
+            bash -c "git config --global --add safe.directory '*' && scripts/build-linux.sh"
+          name="passtunnel-0.0.0-dev-linux-$ARCH"
+          tar -tzf "dist/$name.tar.gz" | sort >files.txt
+          printf '%s\n' "" LICENSE README.md THIRD_PARTY_NOTICES.md bin/ bin/passtunnel lib/ lib/systemd/ \
+            lib/systemd/system/ lib/systemd/system/passtunnel.service lib/systemd/system/passtunnel.socket \
+            licenses/ licenses/ICU-LICENSE.txt licenses/Swift-LICENSE.txt licenses/swift-asn1-LICENSE.txt \
+            licenses/swift-asn1-NOTICE.txt licenses/swift-crypto-LICENSE.txt licenses/swift-crypto-NOTICE.txt \
+            sbin/ sbin/passtunneld | sed "s|^|$name/|" | sort | diff - files.txt
+          test ! -e Sources/PassTunnelCore/BuildVersion+Generated.swift
+          test ! -e Sources/PassTunnelDaemon/DaemonBuild+Generated.swift
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: passtunnel-linux-${{ matrix.arch }}
+          path: dist/passtunnel-*-linux-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Smoke-test the tarball (clean Ubuntu 22.04)
+        run: |
+          set -euo pipefail
+          build="$(git rev-list --count HEAD)"
+          docker run --rm -i -v "$PWD/dist:/dist:ro" -e BUILD="$build" "$CLEAN_IMAGE" bash -s <<'EOF'
+          set -euo pipefail
+          if command -v swift; then echo "Swift is installed here"; exit 1; fi
+          cd "$(mktemp -d)"
+          tar -xzf "/dist/passtunnel-0.0.0-dev-linux-$(uname -m).tar.gz"
+          cd passtunnel-0.0.0-dev-linux-*
+          test "$(stat -c '%U %G %a' bin/passtunnel sbin/passtunneld | sort -u)" = "root root 755"
+          for exe in bin/passtunnel sbin/passtunneld; do
+            ldd "$exe" | tee ldd.txt
+            if grep -E 'not found|libswift|libFoundation|lib_Foundation|libdispatch|libBlocksRuntime|libicu' ldd.txt; then
+              echo "$exe needs the libraries above"; exit 1
+            fi
+            echo "$exe: newest glibc symbol version $(grep -ao 'GLIBC_2\.[0-9]*' "$exe" | sort -uV | tail -n 1)"
+          done
+
+          install -m 0755 bin/passtunnel /usr/local/bin/passtunnel
+          install -m 0755 sbin/passtunneld /usr/local/sbin/passtunneld
+          install -d -m 0755 /usr/local/lib/systemd/system
+          install -m 0644 lib/systemd/system/passtunnel.socket lib/systemd/system/passtunnel.service \
+            /usr/local/lib/systemd/system/
+          grep -qx 'ExecStart=/usr/local/sbin/passtunneld' /usr/local/lib/systemd/system/passtunnel.service
+          PASSTUNNEL_HOME="$(mktemp -d)"
+          export PASSTUNNEL_HOME
+          passtunnel --version | tee version.txt
+          grep -qx "PassTunnel 0.0.0-dev ($BUILD)" version.txt
+          if runuser -u nobody -- /usr/local/sbin/passtunneld 2>refused.txt; then echo "ran as nobody"; exit 1; fi
+          cat refused.txt
+          grep -qx 'passtunneld: passtunneld must run as root.' refused.txt
+
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends jq socat >/dev/null
+          passtunnel version --json \
+            | jq -e --arg build "$BUILD" '.version == "0.0.0-dev" and .build == $build and .app_path == "/usr/local/bin/passtunnel"'
+          passtunnel list --json | jq -e '. == []'
+          if passtunnel helper status --json >helper.json; then exit 1; fi
+          jq -e '.state == "not_installed"' helper.json
+
+          sock=/run/passtunnel/daemon.sock
+          /usr/local/sbin/passtunneld >daemon.log 2>&1 &
+          daemon=$!
+          trap 'kill "$daemon" 2>/dev/null || true; echo "--- daemon log"; cat daemon.log' EXIT
+          for _ in $(seq 100); do
+            reply="$(printf '%s\n' '{"op":"hello"}' | socat -t 5 - "UNIX-CONNECT:$sock" 2>/dev/null || true)"
+            case "$reply" in *'"protocol"'*) break ;; esac
+            sleep 0.1
+          done
+          digest="$(sha256sum /usr/local/sbin/passtunneld | cut -d' ' -f1)"
+          printf '%s\n' '{"op":"hello"}' | socat -t 5 - "UNIX-CONNECT:$sock" \
+            | jq -e --arg digest "$digest" --argjson n "$BUILD" '.protocol == 3 and .build == $digest and .build_number == $n'
+          printf '%s\n' '{"op":"perform","request":{"type":"status","protocol_version":3}}' | socat -t 5 - "UNIX-CONNECT:$sock" \
+            | jq -e --argjson n "$BUILD" '.ok and .running == {} and .helper_build == $n'
+          passtunnel helper status --json | jq -e '.state == "enabled" and .responding and .outdated == false'
+          # Another file in its place, as after an update before the restart: the running daemon is outdated.
+          cp /usr/local/sbin/passtunneld /usr/local/sbin/.passtunneld.new
+          printf 'x' >>/usr/local/sbin/.passtunneld.new
+          mv -f /usr/local/sbin/.passtunneld.new /usr/local/sbin/passtunneld
+          if passtunnel helper status --json >helper.json; then exit 1; fi
+          jq -e '.state == "enabled" and .responding and .outdated == true' helper.json
+          kill -TERM "$daemon"
+          wait "$daemon"
+          grep -q "listening on $sock, protocol 3, build $digest ($BUILD)" daemon.log
+          EOF
+
+  # The Dockerfile (`passtunnel mcp` for MCP directories) built on each architecture, then an MCP
+  # session with the image: initialize, tools/list and list_profiles, without a network, profiles or a
+  # secret store, as a user other than root.
+  docker:
+    name: Docker image (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build the image
+        run: docker build -t passtunnel-mcp:ci .
+
+      - name: MCP session with the image
+        run: |
+          set -euo pipefail
+          docker image inspect passtunnel-mcp:ci --format '{{.Config.User}} {{json .Config.Entrypoint}} {{.Size}}' \
+            | tee image.txt
+          grep -Eqx '10001:10001 \["passtunnel","mcp"\] [0-9]+' image.txt
+          docker run --rm --entrypoint passtunnel passtunnel-mcp:ci --version | grep -qx 'PassTunnel 0.0.0-dev'
+          printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
+            '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+            '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_profiles","arguments":{}}}' \
+            | docker run -i --rm --network none passtunnel-mcp:ci >mcp.jsonl
+          cat mcp.jsonl
+          jq -se 'INDEX(.id) as $r | length == 3
+            and $r["1"].result.protocolVersion == "2025-06-18" and $r["1"].result.serverInfo.version == "0.0.0-dev"
+            and [$r["2"].result.tools[].name] == ["list_profiles", "get_status", "get_logs", "diagnose"]
+            and $r["3"].result.isError == false and $r["3"].result.structuredContent == {"profiles": []}' mcp.jsonl
+
   scripts:
     name: Release scripts
     runs-on: ubuntu-latest
@@ -451,7 +629,7 @@ jobs:
           persist-credentials: false
 
       - name: Shellcheck
-        run: shellcheck --version && shellcheck scripts/next-version.sh scripts/test-next-version.sh
+        run: shellcheck --version && shellcheck scripts/next-version.sh scripts/test-next-version.sh scripts/build-linux.sh
 
       - name: Self-test of next-version.sh
         run: scripts/test-next-version.sh

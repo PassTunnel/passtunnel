@@ -35,6 +35,7 @@ if geteuid() != 0 { fail("passtunneld must run as root.") }
 // Hashed now: after a package update replaces the file, this process still reports its own build.
 var options = Daemon.Options()
 options.build = HelperBuild.digest(ofFile: "/proc/self/exe") ?? "unknown"
+options.buildNumber = DaemonBuild.number
 
 let daemon: Daemon = {
     do {
@@ -46,7 +47,8 @@ let daemon: Daemon = {
     }
 }()
 daemon.serve()
-DaemonLog.info("listening on \(daemon.socketPath), protocol \(PT.helperProtocolVersion), build \(options.build)")
+DaemonLog.info("listening on \(daemon.socketPath), protocol \(PT.helperProtocolVersion), build \(options.build)"
+               + (options.buildNumber.map { " (\($0))" } ?? ""))
 
 // The main thread waits for a stop signal itself. Not dispatchMain(): on Linux it parks the main
 // thread in sigsuspend with an empty mask, where SIGTERM would end the process without the cleanup.

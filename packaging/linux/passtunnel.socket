@@ -1,5 +1,5 @@
-# The socket of passtunneld, PassTunnel's root daemon on Linux (docs/LINUX.md). A first version: no
-# package or tarball installs it yet. systemd starts passtunnel.service on the first connection and
+# The socket of passtunneld, PassTunnel's root daemon on Linux (docs/LINUX.md), installed from the
+# release tarball (no package yet). systemd starts passtunnel.service on the first connection and
 # hands this socket over as descriptor 3 (LISTEN_FDS).
 
 [Unit]
