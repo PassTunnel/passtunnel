@@ -525,13 +525,25 @@ final class CLIRunner {
         let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         guard FileManager.default.fileExists(atPath: url.path) else { throw PTError.fileError(url.path) }
         let p: Profile
+        var skipped: [OVPNSkipRules.Skipped] = []
         if Self.looksLikeShareFile(url) {
             p = try store.importShare(url, name: name)
         } else {
-            p = try store.importOVPN(url, name: name)
+            let draft = try store.analyzeOVPN(url)
+            p = try store.commit(draft, name: name)
+            skipped = draft.skipped
         }
-        if json { try printJSON(automation.summary(p)); return Exit.ok }
+        if json {
+            try printJSON(ImportJSON(summary: automation.summary(p), skipped: skipped.map(SkippedLineJSON.init)))
+            return Exit.ok
+        }
         CLITerminal.out(String(localized: "Imported “\(p.name)” as \(p.id)."))
+        if !skipped.isEmpty {
+            CLITerminal.err(String(localized: "Skipped lines (kept as comments in the stored configuration):"))
+            for s in skipped {
+                CLITerminal.err("  " + String(localized: "line \(s.line): \(s.text)") + "  " + CLITerminal.dim(s.reason.message))
+            }
+        }
         if p.passwordMode == .keychain && Secrets.has(p.id, .password) {
             // Only from an inline <auth-user-pass> block: a new profile starts without Keychain items.
             #if os(Linux)
@@ -546,6 +558,35 @@ final class CLIRunner {
             CLITerminal.err(CLITerminal.dim(String(localized: "Save the TOTP secret with: passtunnel secret \(p.id) totp")))
         }
         return Exit.ok
+    }
+
+    /// `import --json`: the new profile's ProfileSummary plus `skipped`.
+    private struct ImportJSON: Encodable {
+        var summary: ProfileSummary
+        var skipped: [SkippedLineJSON]
+
+        enum CodingKeys: String, CodingKey { case skipped }
+
+        func encode(to encoder: Encoder) throws {
+            try summary.encode(to: encoder)
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(skipped, forKey: .skipped)
+        }
+    }
+
+    /// A line of the .ovpn left out of the stored configuration (docs/CLI-JSON.md).
+    struct SkippedLineJSON: Encodable, Equatable {
+        var line: Int
+        var directive: String
+        var text: String
+        var reason: String
+
+        init(_ s: OVPNSkipRules.Skipped) {
+            line = s.line
+            directive = s.directive
+            text = s.text
+            reason = s.reason.rawValue
+        }
     }
 
     static func looksLikeShareFile(_ url: URL) -> Bool {

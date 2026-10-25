@@ -412,10 +412,13 @@ as new backends; see [Contributing](#contributing).
 <summary><b>My .ovpn file is rejected. Why?</b></summary>
 
 The helper runs OpenVPN as root, so it refuses directives that would run scripts, load plugins, or
-read and write arbitrary files: for example `up`, `down`, `plugin`, `script-security 2`, `log`,
-`management` or a `ca` that points at an external file. Files referenced at import time are embedded
-automatically. The error lists every offending line. The complete list is in
-[SECURITY.md](SECURITY.md#openvpn-configuration-sanitizer).
+read and write arbitrary files. When you import a file, lines whose only effect PassTunnel takes care
+of itself (scripts such as `up` and `down` with `script-security 2`, `log`, `management`, `daemon`, …)
+are skipped: you see them before the profile is added, and they stay in the saved configuration as
+comments. Lines with a role in security (`tls-verify`, `plugin`, `config`, a `ca` file that is not
+next to the `.ovpn`, …) still refuse the file, and the error lists every one. Files referenced at
+import time are embedded automatically. The complete lists are in
+[SECURITY.md](SECURITY.md#importing-an-openvpn-configuration).
 </details>
 
 <details>

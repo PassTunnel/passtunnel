@@ -115,6 +115,12 @@ Sidebar-less single list, one row per profile (drag to reorder → `order`):
   code from QR…; search field when > 6 profiles.
 - Empty state: big call to action "Add your first VPN" with the three import options.
 - Drag & drop onto the window: `.ovpn`, `.conf`, `.passtunnel`, or an image containing a QR code.
+- Importing an `.ovpn` (Import .ovpn…, a drop; `ImportActions.importOVPN(at:)`): `ProfileStore.analyzeOVPN`
+  reads it without writing anything (`ImportDraft`), then `commit` creates the profile. Lines PassTunnel
+  skips ([SECURITY.md](../SECURITY.md#importing-an-openvpn-configuration)) are listed in an alert ("Some
+  lines of “work.ovpn” were skipped": each line, then why those kinds are safe to leave out) before the
+  new profile's editor opens; a blocking line refuses the file with every such line listed, and nothing
+  is created.
 - Opening a `.passtunnel` file (double-click in Finder, AirDrop, the Dock icon, `open`) imports it
   exactly like Import shared profile… (`ImportActions.importShared(at:)`: `ProfileStore.importShare`
   with all its checks, then the new profile's editor), with the main window brought forward. The
@@ -499,7 +505,11 @@ seconds one of 30, 60 or 120, else it exits with a usage error and does nothing)
 pasteboard after `clearClipboardAfter` from `config.json` (the app's setting, default 1 minute)
 unless something else was copied; the command itself returns at once. `import FILE` of an `.ovpn` with
 an inline `<auth-user-pass>` block moves its user name to the profile and its password to the Keychain
-(`ProfileStore.importOVPN`) and says so.
+(`ProfileStore.analyzeOVPN`, then `commit`) and says so. The lines it skipped (kept in the stored
+configuration as comments, [SECURITY.md](../SECURITY.md#importing-an-openvpn-configuration)) follow on
+stderr, "Skipped lines (kept as comments in the stored configuration):", one per line with why it is
+safe to leave out; `--json` adds them as `skipped` (docs/CLI-JSON.md). A blocking line fails the
+command with `config_invalid`, listing every such line.
 
 `secret-store [STORE]` exists on Linux only (the Mac has the Keychain; there the command, its help and
 completion are absent). Without STORE it prints the store in use, how it was chosen and, when it

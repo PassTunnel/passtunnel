@@ -173,8 +173,8 @@ The macOS rules apply where they make sense; these replace the ones built on cod
 
 ## DNS
 
-Profiles never run scripts (the sanitizer removes them); DNS comes from what the server pushes, and
-every value of it is treated as hostile: it ends up in the hands of root.
+Profiles never run scripts (the sanitizer refuses them, and an import leaves them out); DNS comes from
+what the server pushes, and every value of it is treated as hostile: it ends up in the hands of root.
 
 - **The hook.** `passtunneld dns-hook`: the daemon's own executable, which, like the daemon, refuses
   to run unless it is root's and writable by root only. OpenVPN runs it as root through `dns-hook` in

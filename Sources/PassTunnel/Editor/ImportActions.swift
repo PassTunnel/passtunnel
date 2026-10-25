@@ -39,11 +39,23 @@ enum ImportActions {
 
     @MainActor static func importOVPN(at url: URL) {
         do {
-            let p = try ProfileStore().importOVPN(url, name: nil)
+            let store = ProfileStore()
+            let draft = try store.analyzeOVPN(url)
+            let p = try store.commit(draft)
+            if !draft.skipped.isEmpty { showSkipped(draft) }
             finish(p.id)
         } catch {
             showError(String(localized: "The configuration could not be imported."), error)
         }
+    }
+
+    /// Lists the lines an import left out, with why each kind is safe to leave out.
+    @MainActor static func showSkipped(_ draft: ImportDraft) {
+        let lines = draft.skipped.map { String(localized: "line \($0.line): \($0.text)") }
+        var reasons: [String] = []
+        for s in draft.skipped where !reasons.contains(s.reason.message) { reasons.append(s.reason.message) }
+        showMessage(String(localized: "Some lines of “\(draft.fileName)” were skipped"),
+                    (lines + [""] + reasons).joined(separator: "\n"))
     }
 
     // MARK: share files

@@ -115,12 +115,12 @@ final class OVPNInlinerTests: CoreTestCase {
     }
 
     func testForbiddenDirectiveIsRejectedWithClearError() throws {
-        let url = try makeFolder("client\nca ca.crt\nscript-security 2\nup /tmp/x.sh\n")
+        let url = try makeFolder("client\nca ca.crt\nscript-security 2\nup /tmp/x.sh\nplugin /tmp/x.so\ntls-verify /tmp/v.sh\n")
         XCTAssertThrowsError(try store.importOVPN(url, name: "Acme")) { error in
             guard case .ovpnNotAllowed(let violations) = error as? PTError else { return XCTFail("\(error)") }
-            XCTAssertTrue(violations.contains { $0.contains("up") && $0.contains("line") }, "\(violations)")
-            XCTAssertTrue(violations.contains { $0.contains("script-security") }, "\(violations)")
-            XCTAssertTrue(error.localizedDescription.contains("up"))
+            // Line numbers of the file as written (ca.crt is embedded above them); skipped lines are not listed.
+            XCTAssertEqual(violations, ["line 5: plugin (not allowed)", "line 6: tls-verify (not allowed)"])
+            XCTAssertTrue(error.localizedDescription.contains("plugin"))
         }
         XCTAssertTrue(store.list().isEmpty)
         XCTAssertFalse(FileManager.default.fileExists(atPath: store.dir("acme").path))

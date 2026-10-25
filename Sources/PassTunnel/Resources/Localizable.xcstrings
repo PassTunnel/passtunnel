@@ -435,12 +435,42 @@
         }
       }
     },
+    "A DNS script. PassTunnel sets DNS from what the server sends." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir DNS betiği. PassTunnel, DNS’i sunucunun gönderdiklerine göre ayarlar."
+          }
+        }
+      }
+    },
+    "A log file. PassTunnel keeps the connection’s log itself." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir günlük dosyası. Bağlantının günlüğünü PassTunnel kendisi tutar."
+          }
+        }
+      }
+    },
     "A screenshot or a photo of the QR." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "QR kodunun ekran görüntüsü ya da fotoğrafı."
+          }
+        }
+      }
+    },
+    "A variable for scripts. PassTunnel runs none." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Betikler için bir değişken. PassTunnel hiçbir betik çalıştırmaz."
           }
         }
       }
@@ -471,6 +501,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Başlamak için bir profil ekleyin."
+          }
+        }
+      }
+    },
+    "Allows scripts. PassTunnel never runs scripts from a profile." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Betiklere izin verir. PassTunnel bir profildeki betikleri hiçbir zaman çalıştırmaz."
           }
         }
       }
@@ -521,6 +561,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "İptal edildi."
+          }
+        }
+      }
+    },
+    "Changes how OpenVPN runs or writes a file as root. PassTunnel runs the connection itself." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OpenVPN’in nasıl çalıştığını değiştirir ya da root olarak bir dosya yazar. Bağlantıyı PassTunnel kendisi yürütür."
           }
         }
       }
@@ -895,6 +945,16 @@
         }
       }
     },
+    "line %lld: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "satır %1$lld: %2$@"
+          }
+        }
+      }
+    },
     "New passphrase for the PassTunnel secrets file (%@): " : {
       "localizations" : {
         "tr" : {
@@ -991,6 +1051,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "PassTunnel oturum açıldığında açılsın mı?"
+          }
+        }
+      }
+    },
+    "OpenVPN’s management interface. PassTunnel sets it up itself." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OpenVPN’in yönetim arayüzü. PassTunnel bunu kendisi kurar."
           }
         }
       }
@@ -1195,6 +1265,16 @@
         }
       }
     },
+    "Runs a program. PassTunnel never runs scripts from a profile." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir program çalıştırır. PassTunnel bir profildeki betikleri hiçbir zaman çalıştırmaz."
+          }
+        }
+      }
+    },
     "Save the password or TOTP secret (Base32 or otpauth:// link) in the secret store. Reads from the terminal without echo, or from standard input." : {
       "localizations" : {
         "tr" : {
@@ -1271,6 +1351,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dock simgesini göster"
+          }
+        }
+      }
+    },
+    "Skipped lines (kept as comments in the stored configuration):" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Atlanan satırlar (kaydedilen yapılandırmada yorum olarak duruyor):"
+          }
+        }
+      }
+    },
+    "Some lines of “%@” were skipped" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” dosyasındaki bazı satırlar atlandı"
           }
         }
       }

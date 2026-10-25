@@ -1,0 +1,8 @@
+﻿up /tmp/x.sh
+client
+remote vpn.example.com
+down /tmp/y
+<auth-user-pass>
+alice
+pw
+</auth-user-pass>

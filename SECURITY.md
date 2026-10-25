@@ -8,6 +8,7 @@ Implementation details are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - [Components and privileges](#components-and-privileges)
 - [The privileged helper](#the-privileged-helper)
 - [OpenVPN configuration sanitizer](#openvpn-configuration-sanitizer)
+- [Importing an OpenVPN configuration](#importing-an-openvpn-configuration)
 - [Secrets and files](#secrets-and-files)
 - [Confirm with Touch ID (Secure Enclave)](#confirm-with-touch-id-secure-enclave)
 - [Updates](#updates)
@@ -219,6 +220,60 @@ script-security N            (when N > 1)
   it would take as escaping the line break; PassTunnel rejects that as well.
 - **`static-challenge` is stripped** (lines or blocks), because PassTunnel answers the challenge
   itself.
+
+The helper applies these rules to every configuration at every connect, whatever the app did before.
+When you import a file, the app leaves out some of the refused lines instead of refusing the file
+([below](#importing-an-openvpn-configuration)); the rules above do not change.
+
+## Importing an OpenVPN configuration
+
+When you import an `.ovpn` file, PassTunnel reads it before anything is saved: no profile file and no
+Keychain item exists until the profile is added. Files the configuration refers to are embedded from
+its folder; then each line the [sanitizer](#openvpn-configuration-sanitizer) would refuse is either
+**skipped** or **blocks** the file.
+
+- **Skipped** lines are the ones whose whole effect PassTunnel replaces or does not need. You see
+  them before the profile is added (`passtunnel import` prints them; `--json` returns them as
+  `skipped`), and the stored configuration keeps each as a comment,
+  `# PassTunnel skipped: up /etc/openvpn/update-dns`. The sanitizer is not relaxed: it still runs at
+  every connect, so a skipped line that came back would stop the connection.
+- **Blocking** lines refuse the file. All of them are listed with their line numbers, and nothing is
+  created.
+
+| Skipped | Why leaving it out is safe |
+|---|---|
+| `up`, `down`, `route-up`, `route-pre-down`, `ipchange` | Programs run at points of the connection. PassTunnel never runs scripts from a profile; DNS comes from what the server sends, through PassTunnel's own hook. |
+| `iproute` | The program for addresses and routes (Linux builds of OpenVPN); OpenVPN uses its own. |
+| `script-security` above 1, or without a valid level | It only allows scripts. OpenVPN's default level, 1, applies, and the helper sets the level on its command line anyway. `script-security 0` and `1` stay. |
+| `dns-updown` | A DNS script (or `disable`, `force`); the helper passes its own hook after the configuration. |
+| `daemon`, `cd`, `chroot`, `user`, `group` | How OpenVPN runs as a process. The helper starts and supervises it in the foreground, as root so that routes and DNS are undone when it stops; no file is read from a working directory, since every file must be inline. |
+| `writepid`, `status`, `tmp-dir`, `tls-export-cert` | Files OpenVPN would write as root that nothing in PassTunnel reads (`tls-export-cert` only feeds a `tls-verify` script, which blocks). |
+| `log`, `log-append` | PassTunnel keeps the connection's log itself. |
+| `management`, `management-client`, `management-client-user`, `management-client-group`, `management-hold`, `management-query-passwords`, `management-query-proxy`, `management-query-remote`, `management-forget-disconnect`, `management-signal`, `management-up-down`, `management-log-cache` | The helper sets up the management interface itself. |
+| `setenv` of anything but client metadata | Variables only scripts see. PassTunnel runs none, and they could steer its DNS hook. The metadata `setenv` lines listed above stay. |
+
+Everything else the sanitizer refuses blocks the file, in particular:
+
+- checking the server or the sign-in: `tls-verify`, `auth-user-pass-verify`, `tls-crypt-v2-verify`;
+- loading code: `plugin`, `engine`, `providers`, `pkcs11-providers`, `show-pkcs11-ids`;
+- files outside the configuration: a referenced file that cannot be embedded (missing, a device, too
+  large), proxy credentials in a file, `config`, `capath`, `dev-node`, `replay-persist` (it also keeps
+  replay protection across restarts), `client-config-dir`, `ifconfig-pool-persist`;
+- a private key or certificate from another program: `management-external-key`,
+  `management-external-cert`;
+- server-only directives, since the file is then not a client configuration: `learn-address`,
+  `client-connect`, `client-disconnect`, `port-share`, `management-client-auth`,
+  `auth-gen-token-secret` with a file;
+- `genkey`, which writes a key and exits instead of connecting;
+- blocks named after a refused directive (`<plugin>…</plugin>`), unclosed blocks, and lines OpenVPN
+  would reject or read differently (too long, NUL bytes, bad escapes, unterminated quotes);
+- any other `log…` or `management…` name, and anything this table does not list: a rule added to
+  the sanitizer blocks until it is decided here.
+
+`setenv opt <directive>` is decided like the directive. Words inside an inline block such as
+`<ca>…</ca>` are its content, not directives. A skipped line inside a `<connection>` block becomes a
+comment in that block. The comment is at most 254 bytes, so OpenVPN reads it as one line, and control
+characters in it are replaced.
 
 ## Secrets and files
 
