@@ -94,8 +94,8 @@ closes on Escape, on outside click and when a link is chosen).
    `{password}` / `{otp}` placeholders; Sent separately shows the password and the code as two
    fields (OpenVPN static challenge, FortiGate OTP field). Next to it the profile editor
    screenshot (a saved profile with its code and what the server receives). Four cards: authenticator-style window (live codes, countdown ring,
-   click to copy, clipboard cleared after 1 minute, codes can be hidden), QR import (drop, choose or
-   paste), Touch ID per profile (secrets then encrypted with a Secure Enclave key), auto-type
+   click to copy, clipboard cleared after 1 minute, codes can be hidden), QR import (scan on screen, drop,
+   choose or paste), Touch ID per profile (secrets then encrypted with a Secure Enclave key), auto-type
    shortcut ⌃⌥C.
 3. **VPN client.** OpenVPN and FortiGate SSL VPN with signed `openvpn` / `openfortivpn` bundled.
    Menu bar card: a neutral menu bar strip on a soft backdrop holding the real rendered badges,

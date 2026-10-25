@@ -52,6 +52,8 @@ final class EditorModel: ObservableObject {
     /// "Choose image…", "Paste secret" or a drop found no usable code.
     @Published var scanError: String?
     @Published var scanMessage: String?
+    /// "Scan QR on screen" is waiting for the system's picker or reading what was picked.
+    @Published var scanningScreen = false
     private var clearingInput = false
     let storedTOTPSecret: Data?
     /// A TOTP secret is saved, encrypted: its code shows only after a confirmation.
@@ -467,6 +469,21 @@ final class EditorModel: ObservableObject {
 
     func scanImage(_ image: NSImage) {
         take { try CodeSecretInput.fromImage(image) }
+    }
+
+    /// "Scan QR on screen" (macOS 14 and later): the window or display the user picks (`ScreenQRScanner`). Cancelling
+    /// changes nothing.
+    func scanScreen() {
+        guard #available(macOS 14, *), !isPreview, !scanningScreen else { return }
+        scanningScreen = true
+        Task {
+            defer { scanningScreen = false }
+            do {
+                if let uri = try await ScreenQRScanner.shared.scan() { apply(uri) }
+            } catch {
+                fail(error)
+            }
+        }
     }
 
     /// "Paste secret": a secret or an otpauth link as text, an image (screenshot of a QR code) or an image file.

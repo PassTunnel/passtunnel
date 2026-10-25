@@ -67,6 +67,17 @@ public enum QRDecoder {
         try otpAuth(from: payloads(in: image))
     }
 
+    /// The first `otpauth://` link in any of the images, in order (e.g. one picture of each display). Throws
+    /// `.noCode` when none of them has a QR code.
+    public static func otpAuth(inAny images: [CGImage]) throws -> OTPAuthURI {
+        var found: [String] = []
+        for image in images {
+            do { found += try payloads(in: image) } catch Failure.noCode { continue }
+        }
+        guard !found.isEmpty else { throw Failure.noCode }
+        return try otpAuth(from: found)
+    }
+
     public static func otpAuth(inImageData data: Data) throws -> OTPAuthURI {
         try otpAuth(from: payloads(inImageData: data))
     }

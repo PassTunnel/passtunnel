@@ -74,6 +74,18 @@ enum EditorPreviewRenderer {
                          model: EditorModel(preview: workProfile(), isNew: false, passwordStored: true,
                                             configServer: "vpn.example.com:1194 · UDP", now: now)))
 
+        // Scan QR on screen: waiting for the system's picker, and nothing found in what was picked.
+        if #available(macOS 14, *) {
+            let scanning = EditorModel(preview: workProfile(), isNew: false, passwordStored: true,
+                                       configServer: "vpn.example.com:1194 · UDP", now: now)
+            scanning.scanningScreen = true
+            out.append(State(name: "editor-scan-screen", model: scanning))
+            let nothing = EditorModel(preview: workProfile(), isNew: false, passwordStored: true,
+                                      configServer: "vpn.example.com:1194 · UDP", now: now)
+            nothing.scanError = ScreenQRScanner.ScanError.noCodeOnScreen.localizedDescription
+            out.append(State(name: "editor-scan-screen-none", model: nothing))
+        }
+
         let separate = workModel()
         separate.formatChoice = .separate
         out.append(State(name: "editor-separate", model: separate))

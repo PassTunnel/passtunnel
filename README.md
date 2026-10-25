@@ -51,8 +51,9 @@ secret in the Keychain and fills in the current code (and your password) every t
   2 minutes, in Settings), unless you copied something else meanwhile. Codes can be hidden until
   you click them.
 - **QR import.** Drop a screenshot of your provider's QR code, choose an image or paste from the
-  clipboard. Digits, period and algorithm (SHA-1/256/512) are read from the `otpauth://` link.
-  Pasting a Base32 secret or an `otpauth://` link works too.
+  clipboard, or (macOS 14 and later) scan the QR code where it is on screen, for example in your
+  browser, without saving a screenshot. Digits, period and algorithm (SHA-1/256/512) are read from the
+  `otpauth://` link. Pasting a Base32 secret or an `otpauth://` link works too.
 - **Auto-type (optional, off by default).** With global shortcuts on, ⌃⌥C types the current code into
   the focused field (also in the menu bar menu), for web portals and other places that still ask for it. Needs Accessibility
   permission, which is only requested when you turn the feature on.
@@ -190,7 +191,8 @@ Then open the profile editor (**⋯ → Edit…**):
 
 - **Sign-in:** user name (leave empty to be asked each time) and password, saved in the Keychain.
   Under **Advanced** the password can be asked each time instead, or not used (certificate-only OpenVPN).
-- **One-time code:** choose the QR code image or paste the secret (or drop the screenshot on the card),
+- **One-time code:** **Scan QR on screen** (macOS 14 and later), choose the QR code image or paste the
+  secret (or drop the screenshot on the card),
   and compare the live code with your phone before saving. **Code format** sets how the code is sent;
   *Server receives* shows the result, with the password masked. Under **Advanced** the code can be asked
   each time or not used.

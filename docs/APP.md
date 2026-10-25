@@ -269,11 +269,26 @@ the sheet closes and `AppModel.delete` runs), Cancel, Save (Add Profile for a ne
 2. **One-time code** (the hero card): with a secret, "Secret added · 6 digits · 30 s" (the issuer · account of a
    scanned link under it) and the live code with a small countdown ring, so the user can compare it with their
    phone; an encrypted saved secret shows "••• •••" with **Show** (`editor.revealCode`) instead. Without one, what
-   the profile does instead (Generate without a secret yet, Ask each time, None). **Choose image…** and **Paste
-   secret** (from the clipboard: a secret in Base32 or hex or an `otpauth://` link as text, an image, or an image
-   file), or an image dropped on the card; QR codes are read with Vision `VNDetectBarcodesRequest`, and an
-   `otpauth://` link also sets digits, period and algorithm. Adding a secret selects Generate. Certificate-only
-   profiles say they use no code.
+   the profile does instead (Generate without a secret yet, Ask each time, None). **Scan QR on screen** (below),
+   **Choose image…** and **Paste secret** (from the clipboard: a secret in Base32 or hex or an `otpauth://` link as
+   text, an image, or an image file), or an image dropped on the card; QR codes are read with Vision
+   `VNDetectBarcodesRequest`, and an `otpauth://` link also sets digits, period and algorithm (HOTP and
+   `otpauth-migration://` links are refused). Adding a secret selects Generate. The three buttons wrap onto two
+   rows when they do not fit. Certificate-only profiles say they use no code.
+
+   **Scan QR on screen** (`editor.scanScreen`, macOS 14 and later; hidden on macOS 13, decision D-20;
+   `ScreenQRScanner`): the system's content picker (`SCContentSharingPicker`, a single window or a single display,
+   PassTunnel's own windows left out) asks which window shows the QR code, for example the browser page of the
+   authenticator setup ("Choose the window or screen that shows the QR code." under the buttons meanwhile). What
+   the user picks is captured once with `SCScreenshotManager` at full resolution, which needs no Screen Recording
+   permission, and read like an image (`QRDecoder`); the picture stays in memory and is never written anywhere.
+   Cancelling the picker changes nothing. Only when the picker does not start or macOS refuses to capture the pick
+   does the sheet explain "Scan your screens instead?" (one picture of each display needs Screen Recording
+   permission, which macOS asks for the first time; the pictures stay in memory); Scan Screens then asks macOS
+   for the permission (`CGRequestScreenCaptureAccess`) and, once allowed, captures every display without
+   PassTunnel's windows and takes the first `otpauth://` link found (`QRDecoder.otpAuth(inAny:)`). Without the
+   permission it says where to allow it. Nothing found: "No QR code was found on the screen. Make sure the whole
+   code is visible, then scan again."
 3. **Code format** (when a code is used): one popup, Append, Prepend, password:code, password,code, Custom
    template (a monospaced field validated with `OTPComposer.validate`) and Sent separately (`otpDelivery`
    `.separate`: the OpenVPN static challenge or the FortiGate OTP field; the template is kept for switching back).
@@ -704,8 +719,8 @@ window also `profile.<id>.edit`, `profile.<id>.copyCode`, `profile.<id>.copyPass
 `firstRun.chooseFile|qrImage|byHand|installHelper|loginItems|notNow|openAtLogin`; its sidebar rows read as name,
 status and code, its tiles as buttons with the line under the title as their hint),
 `helper.install|update|loginItems|remove|licenses`, `onboarding.back|continue|done|installHelper|loginItems`,
-`editor.cancel|save|delete|advanced|requireAuth|connectAtLogin|revealCode`, `settings.authReuse`, and in the menu bar panel
-`menu.<id>.toggle`, `menu.add|copyCode|copyPasswordCode|typeCode|open|settings|quit`. The editor's switches are
+`editor.cancel|save|delete|advanced|requireAuth|connectAtLogin|revealCode|scanScreen`, `settings.authReuse`, and in the
+menu bar panel `menu.<id>.toggle`, `menu.add|copyCode|copyPasswordCode|typeCode|open|settings|quit`. The editor's switches are
 drawn by the app (monochrome) and read by VoiceOver as standard switches (`accessibilityRepresentation`). While the screen is locked, accessibility clients see no windows at all (the
 window server still lists them).
 
@@ -726,7 +741,7 @@ client errors) must have Turkish translations.
   (`AppModel.previewLockedCodes`; no Secure Enclave key is made), `main-hidden-codes` ("Hide codes until clicked",
   the first code clicked), `settings-general` (the whole page; `-PTNewInterface YES` leaves out the menu bar
   card), `editor/editor-require-auth`, `editor/editor-connect-at-login` (with the footnote of an app that does not
-  open at login) and the menu bar
+  open at login), `editor/editor-scan-screen` and `editor-scan-screen-none` (macOS 14 and later) and the menu bar
   panel of the new interface: `menubar-panel` (three profiles in mixed states, auto-type on), `menubar-panel-scroll`
   (six) and `menubar-panel-empty`.
 - `PASSTUNNEL_RENDER_SCALE=4` renders at that backing scale (1–8; default 2). `scripts/site-assets.sh`

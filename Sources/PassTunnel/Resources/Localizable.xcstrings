@@ -623,6 +623,16 @@
         }
       }
     },
+    "Allow PassTunnel to record the screen in System Settings → Privacy & Security, then scan again." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sistem Ayarları → Gizlilik ve Güvenlik bölümünde PassTunnel’ın ekranı kaydetmesine izin verin, sonra yeniden tarayın."
+          }
+        }
+      }
+    },
     "Allows scripts. PassTunnel never runs scripts from a profile." : {
       "localizations" : {
         "tr" : {
@@ -759,6 +769,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Görüntü seç…"
+          }
+        }
+      }
+    },
+    "Choose the window or screen that shows the QR code." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "QR kodunu gösteren pencereyi veya ekranı seçin."
           }
         }
       }
@@ -1233,6 +1253,16 @@
         }
       }
     },
+    "macOS did not let PassTunnel capture what you picked. PassTunnel can take one picture of each screen instead and read the QR code from it. This needs Screen Recording permission, which macOS asks for the first time. The pictures stay in memory and are never saved or sent." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS, seçtiğiniz içeriği PassTunnel’ın yakalamasına izin vermedi. PassTunnel bunun yerine her ekranın bir resmini alıp QR kodunu ondan okuyabilir. Bunun için Ekran Kaydı izni gerekir; macOS bu izni ilk seferde sorar. Resimler yalnızca bellekte tutulur, hiçbir zaman kaydedilmez veya gönderilmez."
+          }
+        }
+      }
+    },
     "Missing. Paste the secret or choose an image of the QR code." : {
       "localizations" : {
         "tr" : {
@@ -1319,6 +1349,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Henüz profil yok."
+          }
+        }
+      }
+    },
+    "No QR code was found on the screen. Make sure the whole code is visible, then scan again." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ekranda QR kodu bulunamadı. Kodun tamamının göründüğünden emin olun, sonra yeniden tarayın."
           }
         }
       }
@@ -1759,6 +1799,46 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Anahtar Zinciri’ne kaydedilir."
+          }
+        }
+      }
+    },
+    "Scan it on screen, drop a screenshot here, choose the image, or paste the secret." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ekranda tarayın, bir ekran görüntüsünü buraya bırakın, görüntüyü seçin ya da gizli anahtarı yapıştırın."
+          }
+        }
+      }
+    },
+    "Scan QR on screen" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ekranda QR tara"
+          }
+        }
+      }
+    },
+    "Scan Screens" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ekranları Tara"
+          }
+        }
+      }
+    },
+    "Scan your screens instead?" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bunun yerine ekranlarınız taransın mı?"
           }
         }
       }
