@@ -179,6 +179,36 @@
         }
       }
     },
+    "%@, a connection dropped" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, bir bağlantı koptu"
+          }
+        }
+      }
+    },
+    "%@, code %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@, kod %2$@"
+          }
+        }
+      }
+    },
+    "%@, code hidden" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, kod gizli"
+          }
+        }
+      }
+    },
     "%lld connected" : {
       "localizations" : {
         "tr" : {
@@ -565,12 +595,42 @@
         }
       }
     },
+    "Connect %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlan: %@"
+          }
+        }
+      }
+    },
     "Connect a profile (default: the default profile). Asks for missing input on a terminal. --wait gives up after --timeout seconds (default 60)." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bir profile bağlanır (varsayılan: varsayılan profil). Eksik bilgileri terminalde sorar. --wait, --timeout saniye sonra vazgeçer (varsayılan 60)."
+          }
+        }
+      }
+    },
+    "Copy %@ code" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ kodunu kopyala"
+          }
+        }
+      }
+    },
+    "Copy %@ password + code" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ parolasını ve kodunu kopyala"
           }
         }
       }
@@ -645,6 +705,16 @@
         }
       }
     },
+    "Disconnect %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlantıyı kes: %@"
+          }
+        }
+      }
+    },
     "Drop a screenshot here, choose the image, or paste the secret." : {
       "localizations" : {
         "tr" : {
@@ -715,6 +785,26 @@
         }
       }
     },
+    "PassTunnel · %lld connected" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel · %lld bağlı"
+          }
+        }
+      }
+    },
+    "PassTunnel, %lld connected" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel, %lld bağlı"
+          }
+        }
+      }
+    },
     "Passphrase for the PassTunnel secrets file: " : {
       "localizations" : {
         "tr" : {
@@ -781,6 +871,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Başa ekle"
+          }
+        }
+      }
+    },
+    "Quit" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Çık"
           }
         }
       }
@@ -881,6 +981,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Yalnızca bağlanmadan önce soracak şekilde ayarlı: kodu göstermek, kopyalamak ya da yazmak onay istemez. Kod için de sorması için düğmeyi kapatıp yeniden açın."
+          }
+        }
+      }
+    },
+    "Type %@ code" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ kodunu yaz"
           }
         }
       }

@@ -1097,6 +1097,12 @@ public final class ConnectionManager: ObservableObject {
         try? JSONCoding.read(UsedOTPWindow.self, from: usedCodeURL(id))
     }
 
+    /// When `id` last sent a one-time code (by this process or another): the start of that code's window; nil
+    /// when it never did. Reads the profile directory.
+    public func lastCodeSent(_ id: String) -> Date? {
+        usedCode(id).map { Date(timeIntervalSince1970: TimeInterval($0.counter) * TimeInterval($0.period)) }
+    }
+
     private func rememberUsedCode(_ p: Profile, at date: Date) {
         guard FileManager.default.fileExists(atPath: store.dir(p.id).path) else { return }
         let used = UsedOTPWindow(counter: TOTP.counter(params: p.totp, at: date), period: max(1, p.totp.period))

@@ -25,7 +25,9 @@ struct PassTunnelApp: App {
             AppCommands(model: model)
         }
 
-        MenuBarExtra {
+        // One of two menu bar items is in the menu bar: the current menu, or the panel of the new interface
+        // (`NewInterface`). A scene cannot be left out at run time, so each says with `isInserted` whether it is there.
+        MenuBarExtra(isInserted: .constant(!NewInterface.isEnabled)) {
             MenuBarMenu()
                 .environmentObject(model)
         } label: {
@@ -33,6 +35,15 @@ struct PassTunnelApp: App {
                 .environmentObject(model)
         }
         .menuBarExtraStyle(.menu)
+
+        MenuBarExtra(isInserted: .constant(NewInterface.isEnabled)) {
+            MenuBarPanel()
+                .environmentObject(model)
+        } label: {
+            MenuBarShieldLabel()
+                .environmentObject(model)
+        }
+        .menuBarExtraStyle(.window)
 
         Settings {
             SettingsView()

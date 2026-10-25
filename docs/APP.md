@@ -196,6 +196,34 @@ Title: lock symbol (optional) + one badge per *visible* profile (pinned, or conn
 dropped-until-seen), colored by state with the selected palette. Menu: per profile — name + status,
 Connect/Disconnect, Copy code; then Open PassTunnel (⌘O), Settings… (⌘,), Quit.
 
+### Menu bar panel (new interface)
+
+Behind the hidden switch of the redesign (`NewInterface`, `PTNewInterface`, decision D-23) the menu bar item is a
+panel instead (`MenuBar/MenuBarPanel.swift`, `.menuBarExtraStyle(.window)`): two `MenuBarExtra` scenes, and
+`isInserted` puts one of them in the menu bar. Without the switch the menu above is unchanged.
+- Status item: the shield glyph (`MenuBarIcon.shield`, a monochrome 16 pt template image), without badges, palettes
+  or lock symbol (their preferences stay). While a drop has not been seen (`droppedUnseen`) a small dot sits at its
+  top right; it goes when the panel closes or the main window opens. VoiceOver: "PassTunnel, 2 connected" ("PassTunnel,
+  not connected"), with ", a connection dropped" for the dot.
+- Panel, 330 pt wide, on the system's window material: header "PassTunnel · 2 connected" (just "PassTunnel" while
+  nothing is connected); one row per profile (at least 44 pt): 8 pt dot, name and the short `DisplayStatus` in its
+  color, the code in SF Mono 13 ("••• •••" while locked or hidden; `hideCodes` is never revealed here) and a switch,
+  on while the profile is connected, connecting or reconnecting (turning it off disconnects or cancels). More than
+  four rows scroll. Then, for `AppModel.copyTarget` (`CopyTarget`, Core: the default profile when it has a code, else
+  the one that sent a code last, `ConnectionManager.lastCodeSent` from `.last-otp`, else the first with a code):
+  "Copy Work code ⌘C", "Copy Work password + code ⇧⌘C" (with a password in the Keychain) and, while auto-type is on,
+  "Type Work code" (decision D-10; typed 0.3 s after the panel closed, into the field that had the focus). Last
+  "Open PassTunnel", "Settings… ⌘," and "Quit ⌘Q". Without profiles: "No VPN profiles yet" and "Add a VPN…".
+- A switch leaves the panel open; a profile that needs input opens the credential sheet in the main window, and
+  Touch ID asks as it does from the window. Every other item closes the panel first, through the status item's
+  button (SwiftUI's `toggleWindow:`) as a click on the shield does: closing the window itself would leave SwiftUI
+  taking the panel for open.
+- Keyboard (decision D-8): a window-style extra has none of a menu's, so a local event monitor handles the keys while
+  the panel is the key window. ↑ and ↓ move between the rows and items (Tab too), Return or Space uses the focused
+  one, Escape closes the panel, and ⌘C, ⇧⌘C, ⌘, and ⌘Q run their items whatever has the focus (a shortcut whose item
+  is not offered beeps instead of reaching the main menu). Focus shows the system focus ring. VoiceOver: each row is a
+  switch named "Connect Work" or "Disconnect Work", with the status and the code as its hint; the items are buttons.
+
 ## Notifications (`Notifier`)
 
 `ConnectionManager` never posts notifications: it sends `ConnectionEvent`s, and `ConnectionNotice.forEvent`
@@ -446,7 +474,7 @@ CLI after commands that change profiles or secrets), when it becomes active, and
 
 The redesigned interface is built from tokens and base components in `Sources/PassTunnel/App/Design/`;
 of the screens above, the profile editor uses them (its rows, fields, switch and "Server receives" preview are in
-`Editor/EditorComponents.swift`), the others not yet.
+`Editor/EditorComponents.swift`), and so does the menu bar panel of the new interface; the others not yet.
 - `Tokens.swift`: `Palette` colors with light, dark and Increase Contrast values (dynamic `NSColor`s that follow
   the window's appearance). Mostly monochrome; green (connected), amber (waiting, the last 5 s) and red (errors)
   only ever come with an icon and words. Window and sidebar backgrounds are the system's, so fills, hairlines,
@@ -474,8 +502,8 @@ of the screens above, the profile editor uses them (its rows, fields, switch and
   its message for now; once Core reports why (a rejected sign-in, a server that does not answer), each reason
   becomes a `DisplayStatus.Failure` case. `Views/ProfileStatusViews.swift` adds the icon and color and the views
   `ProfileStatusLine` (detail), `ProfileStatusRow` (dot and short words) and `ProfileStatusDot`, fed by
-  `AppModel.displayStatus(_:)`; the current window and menu still use `StatusKind`. The `profile-status` render
-  shows every state.
+  `AppModel.displayStatus(_:)`; the menu bar panel shows the dot and the short words, the current window and menu
+  still use `StatusKind`. The `profile-status` render shows every state.
 
 ## Accessibility
 
@@ -487,7 +515,8 @@ exposes it as `AXDescription` (read by VoiceOver and `AXUIElementCopyAttributeVa
 For UI automation, key controls carry stable, unlocalized `.accessibilityIdentifier`s (`AXIdentifier`):
 `profile.<id>`, `profile.<id>.primary`, `profile.<id>.more`, `profile.<id>.code`, `main.add`,
 `helper.install|update|loginItems|remove|licenses`, `onboarding.back|continue|done|installHelper|loginItems`,
-`editor.cancel|save|delete|advanced|requireAuth|revealCode`, `settings.authReuse`. The editor's switches are
+`editor.cancel|save|delete|advanced|requireAuth|revealCode`, `settings.authReuse`, and in the menu bar panel
+`menu.<id>.toggle`, `menu.add|copyCode|copyPasswordCode|typeCode|open|settings|quit`. The editor's switches are
 drawn by the app (monochrome) and read by VoiceOver as standard switches (`accessibilityRepresentation`). While the screen is locked, accessibility clients see no windows at all (the
 window server still lists them).
 
@@ -505,7 +534,9 @@ client errors) must have Turkish translations.
   literal in the sources is missing from the catalog, lacks a Turkish value, or changes placeholders.
 - `PASSTUNNEL_RENDER_LANG=tr` renders the `PASSTUNNEL_RENDER` screenshots in Turkish (from a bundle
   with the compiled `tr.lproj`, e.g. the app `build-app.sh` makes). Renders include `main-code-locked`
-  (`AppModel.previewLockedCodes`; no Secure Enclave key is made) and `editor/editor-require-auth`.
+  (`AppModel.previewLockedCodes`; no Secure Enclave key is made), `editor/editor-require-auth` and the menu bar
+  panel of the new interface: `menubar-panel` (three profiles in mixed states, auto-type on), `menubar-panel-scroll`
+  (six) and `menubar-panel-empty`.
 - `PASSTUNNEL_RENDER_SCALE=4` renders at that backing scale (1–8; default 2). `scripts/site-assets.sh`
   uses 4 for the website, together with `editor/editor-one-time-code` (the editor sheet of a saved profile with
   its secret, at a fixed time so the code is stable) and `menubar-badges-<palette>` (the menu bar badges alone,

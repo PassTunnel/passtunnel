@@ -110,6 +110,62 @@ enum MenuBarIcon {
         }
     }
 
+    // MARK: new interface
+
+    /// The status item of the new interface (`NewInterface`): a monochrome shield with the lock body cut out, 16 pt,
+    /// as a template image that the menu bar tints. While a drop has not been seen, a small dot sits at its top
+    /// right, cut free of the shield (no color: the menu bar draws template images in one).
+    static func shield(dropped: Bool) -> NSImage {
+        dropped ? droppedShield : plainShield
+    }
+
+    private static let plainShield = makeShield(dropped: false)
+    private static let droppedShield = makeShield(dropped: true)
+
+    private static func makeShield(dropped: Bool) -> NSImage {
+        let side: CGFloat = 16
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { _ in
+            // 20 grid units across the image, centered on the glyph: as tall as the system's status symbols.
+            let unit = side / 20
+            let transform = AffineTransform(m11: unit, m12: 0, m21: 0, m22: -unit,
+                                            tX: side / 2 - 12 * unit, tY: side / 2 + 11.3 * unit)
+            func fill(_ path: NSBezierPath) {
+                path.transform(using: transform)
+                path.fill()
+            }
+            NSColor.black.setFill()
+            fill(shieldOutline())
+            if dropped {
+                NSGraphicsContext.current?.compositingOperation = .clear
+                fill(NSBezierPath(ovalIn: NSRect(x: 14.7, y: 0.5, width: 7.4, height: 7.4)))
+                NSGraphicsContext.current?.compositingOperation = .sourceOver
+                fill(NSBezierPath(ovalIn: NSRect(x: 15.9, y: 1.7, width: 5, height: 5)))
+            }
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = "PassTunnel"
+        return image
+    }
+
+    /// The shield and its cut-out lock body on the glyph's 24-unit grid, y down.
+    private static func shieldOutline() -> NSBezierPath {
+        let path = NSBezierPath()
+        path.move(to: NSPoint(x: 6.6, y: 4.2))
+        path.curve(to: NSPoint(x: 12, y: 2.8), controlPoint1: NSPoint(x: 9, y: 4.2), controlPoint2: NSPoint(x: 10.7, y: 3.6))
+        path.curve(to: NSPoint(x: 17.4, y: 4.2), controlPoint1: NSPoint(x: 13.3, y: 3.6), controlPoint2: NSPoint(x: 15, y: 4.2))
+        path.curve(to: NSPoint(x: 18.4, y: 5.2), controlPoint1: NSPoint(x: 18.2, y: 4.2), controlPoint2: NSPoint(x: 18.4, y: 4.6))
+        path.line(to: NSPoint(x: 18.4, y: 11))
+        path.curve(to: NSPoint(x: 12, y: 19.8), controlPoint1: NSPoint(x: 18.4, y: 15.4), controlPoint2: NSPoint(x: 15.8, y: 18.2))
+        path.curve(to: NSPoint(x: 5.6, y: 11), controlPoint1: NSPoint(x: 8.2, y: 18.2), controlPoint2: NSPoint(x: 5.6, y: 15.4))
+        path.line(to: NSPoint(x: 5.6, y: 5.2))
+        path.curve(to: NSPoint(x: 6.6, y: 4.2), controlPoint1: NSPoint(x: 5.6, y: 4.6), controlPoint2: NSPoint(x: 5.8, y: 4.2))
+        path.close()
+        path.append(NSBezierPath(roundedRect: NSRect(x: 9.3, y: 9.8, width: 5.4, height: 4.2), xRadius: 1, yRadius: 1))
+        path.windingRule = .evenOdd
+        return path
+    }
+
     private static func lockImage(locked: Bool) -> NSImage? {
         symbolImage(locked ? "lock.fill" : "lock.open.fill", pointSize: 13)
     }

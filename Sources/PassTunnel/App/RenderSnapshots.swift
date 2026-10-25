@@ -55,6 +55,8 @@ enum RenderSnapshots {
             for dark in [false, true] {
                 snapshot(MainView().environmentObject(emptyModel), size: CGSize(width: 600, height: 560),
                          dark: dark, to: out, name: "main-empty", window: true)
+                snapshot(MenuBarPanelPreview(now: Date()).environmentObject(emptyModel), size: nil, dark: dark, to: out,
+                         name: "menubar-panel-empty")
             }
 
             // The design system (App/Design): every token and base component, also with Increase Contrast.
@@ -167,6 +169,35 @@ enum RenderSnapshots {
             model.refreshHelperStatus()
             snapshot(OnboardingView(step: 1).environmentObject(model), size: nil, dark: false, to: out,
                      name: "onboarding-2-approval")
+
+            // The menu bar panel of the new interface (NewInterface): all six profiles, so the list scrolls; then
+            // three (connected, Touch ID to connect with the code locked, dropped) with auto-type on. Last, as it
+            // deletes sample profiles. Without an authenticator, turning on "Confirm with Touch ID" encrypts nothing
+            // and makes no Secure Enclave key.
+            let panel = AppModel(paths: paths, connections: ConnectionManager(authenticator: UnavailableAuthenticator()),
+                                 live: false)
+            panel.previewNow = now
+            panel.previewStates = sample.states(now)
+            panel.previewErrors = sample.errors
+            panel.previewUnreachable = sample.unreachable
+            panel.setPreviewDropped(sample.dropped)
+            panel.prefs.autoType = false
+            for dark in [false, true] {
+                snapshot(MenuBarPanelPreview(now: now).environmentObject(panel), size: nil, dark: dark, to: out,
+                         name: "menubar-panel-scroll")
+            }
+            let (work, staging, travel) = (sample.ids[0], sample.ids[3], sample.ids[5])
+            for id in sample.ids where ![work, staging, travel].contains(id) { try store.delete(id) }
+            try store.update(staging) { $0.requireAuth = .always }
+            panel.reload()
+            panel.previewStates = sample.states(now).filter { $0.key == work }
+            panel.previewErrors = [:]
+            panel.previewLockedCodes = [staging]
+            panel.prefs.autoType = true
+            for dark in [false, true] {
+                snapshot(MenuBarPanelPreview(now: now).environmentObject(panel), size: nil, dark: dark, to: out,
+                         name: "menubar-panel")
+            }
         } catch {
             FileHandle.standardError.write(Data("render failed: \(error.localizedDescription)\n".utf8))
             return 1
