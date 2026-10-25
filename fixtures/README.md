@@ -60,6 +60,7 @@ and other control characters, line separator) are written as `\uXXXX` escapes. E
 | `ovpn-inliner.json` | `inline` | `config`, `files` (path → text), `binary_files` (path → Base64) | `output` or `error` | `OVPNInliner.inline` |
 | | `prepare` | same | `output` or `error` (inlined, then the sanitizer's check) | `OVPNInliner.prepare` |
 | | `strip_credentials` | `config`, `blocks` (optional; default both) | `output`, `username`, `password`, `removed` (sorted) | `OVPNInliner.strippingCredentials` |
+| `ovpn-import.json` | `review` | `config`, `files`, `binary_files` (as `inline`) | `stored` (the config an import stores, `null` when a line blocks it), `skipped` and `blocking` (`line` of the file as given, `directive`, `text`, `reason`: a skip reason code or the sanitizer's words), `servers` (`host`, `port`, `tcp`), `certificates` (`name`, `file` or `null`), `password_mode`, `otp_mode`, `otp_delivery`, `username`, `password`, `needs`; or `error` | `OVPNImportReport.make` |
 | `share-files.json` | `decode` | `file` (the file's JSON; a string is the raw text) | `profile` (every field), `files` (name → text), or `error` | `ShareFile.decode` |
 | | `encode` | `profile` (missing fields take their defaults), `files` (name → text) | `file` (the JSON written; `files` in Base64) | `ShareFile.data` |
 | `slugs.json` | `make` | `profile_name`, `max_length` (optional, default 24) | `id` | `Slug.make` |
@@ -68,8 +69,16 @@ and other control characters, line separator) are written as `\uXXXX` escapes. E
 | `profile-merge.json` | `merge` | `original`, `edited`, `current` (profiles; missing fields take their defaults) | `merged` (every field), `changed_fields` | `ProfileMerge` |
 | `profile-fields.json` | `set` | `type`, `key`, `value` (on a new profile `acme`) | `canonical_key`, `stored` (the value as `passtunnel show` prints it), or `error` | `ProfileFields.set` |
 
-`inline` and `prepare` write `files` and `binary_files` into a new temporary folder: the config's folder
-is `config/` in it, so `../shared/ca.crt` is a file next to that folder. Paths are always relative.
+`inline`, `prepare` and `review` write `files` and `binary_files` into a new temporary folder: the
+config's folder is `config/` in it, so `../shared/ca.crt` is a file next to that folder. Paths are always
+relative.
+
+`review` is the import of an `.ovpn` ([SECURITY.md](../SECURITY.md#importing-an-openvpn-configuration)):
+a line the sanitizer refuses is either skipped, and stored as the comment `# PassTunnel skipped: <text>`,
+or blocks the file. `text` is the line trimmed, at most 232 bytes of UTF-8 (cut with "…"), with control
+characters, line separators and bidirectional formatting shown as U+FFFD and tabs as spaces. The skip
+`reason` codes are `program`, `script_security`, `dns`, `process`, `logging`, `management` and
+`environment`.
 
 `make` folds Turkish letters itself, then transliterates with ICU's `Any-Latin; Latin-ASCII` (Android:
 `android.icu.text.Transliterator`, API 29).

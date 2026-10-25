@@ -23,26 +23,48 @@ public enum OVPNInliner {
     /// `auth-user-pass <file>` loses its path (PassTunnel supplies credentials) and `askpass` is dropped.
     /// Line endings are normalised to "\n".
     public static func inline(_ text: String, baseDir: URL) throws -> String {
+        try inlineMapped(text, baseDir: baseDir).text
+    }
+
+    /// `inline`'s result with where each of its lines came from, so a report on the inlined text can name
+    /// the lines of the file as the user wrote it.
+    struct Inlined {
+        var text: String
+        /// For every line of `text` (split at "\n"), the 1-based number of the line of the original it came
+        /// from; the lines of an embedded file count as the line that referenced it.
+        var origins: [Int]
+        /// The files embedded, in file order: the directive and the path as written, and its line.
+        var embedded: [(line: Int, directive: String, path: String)]
+    }
+
+    static func inlineMapped(_ text: String, baseDir: URL) throws -> Inlined {
         var out: [String] = []
+        var origins: [Int] = []
+        var embedded: [(line: Int, directive: String, path: String)] = []
         var verbatimTag: String?
+        func emit(_ s: String, from line: Int) {
+            out.append(s)
+            origins.append(contentsOf: repeatElement(line, count: lines(s).count))
+        }
 
         for (index, rawLine) in lines(text).enumerated() {
+            let lineNo = index + 1
             var line = rawLine
             if line.hasSuffix("\r") { line.removeLast() }
             if index == 0, line.hasPrefix("\u{FEFF}") { line.removeFirst() }   // UTF-8 BOM (Windows editors)
 
             if let tag = verbatimTag {
-                out.append(line)
+                emit(line, from: lineNo)
                 if isBlockEnd(line, tag: tag) { verbatimTag = nil }
                 continue
             }
             guard let tokens = tokenize(line), let first = tokens.first else {
-                out.append(line)   // blank, comment, or malformed (the sanitizer reports the latter)
+                emit(line, from: lineNo)   // blank, comment, or malformed (the sanitizer reports the latter)
                 continue
             }
             if tokens.count == 1, let tag = blockTag(first) {
                 if tag.lowercased() != "connection" { verbatimTag = tag }
-                out.append(line)
+                emit(line, from: lineNo)
                 continue
             }
 
@@ -54,16 +76,16 @@ public enum OVPNInliner {
             case "askpass":
                 continue
             case "auth-user-pass":
-                out.append(fileArg == nil ? line : "auth-user-pass")
+                emit(fileArg == nil ? line : "auth-user-pass", from: lineNo)
                 continue
             case "dh" where fileArg?.lowercased() == "none":
-                out.append(line)
+                emit(line, from: lineNo)
                 continue
             default:
                 break
             }
             guard inlinable.contains(name), let path = fileArg else {
-                out.append(line)
+                emit(line, from: lineNo)
                 continue
             }
             if name == "crl-verify", args.count > 1, args[1].lowercased() == "dir" {
@@ -85,14 +107,15 @@ public enum OVPNInliner {
                     throw PTError.ovpnReferencedFile(path)
                 }
             }
-            out.append("<\(name)>")
-            out.append(body)
-            out.append("</\(name)>")
+            emit("<\(name)>", from: lineNo)
+            emit(body, from: lineNo)
+            emit("</\(name)>", from: lineNo)
             if keyDirectionDirectives.contains(name), args.count > 1 {
-                out.append("key-direction \(args[1])")
+                emit("key-direction \(args[1])", from: lineNo)
             }
+            embedded.append((line: lineNo, directive: name, path: path))
         }
-        return out.joined(separator: "\n")
+        return Inlined(text: out.joined(separator: "\n"), origins: origins, embedded: embedded)
     }
 
     /// Inlines, then runs the helper's sanitizer so a config that would be refused at connect time

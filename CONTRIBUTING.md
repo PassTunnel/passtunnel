@@ -167,8 +167,9 @@ packages (`fix(deps): …`, a patch release, since those ship in the app). They 
 ## Fuzzing
 
 The code that parses untrusted text is fuzzed with libFuzzer. The harnesses live in their own
-package under [`fuzz/`](fuzz/) (one per target: the OpenVPN config sanitizer, FortiGate config
-rendering, the OpenVPN management-interface parser, `otpauth://` URIs and MCP JSON-RPC decoding).
+package under [`fuzz/`](fuzz/) (one per target: the OpenVPN config sanitizer, the import review that
+skips some of the lines it refuses, FortiGate config rendering, the OpenVPN management-interface parser,
+`otpauth://` URIs and MCP JSON-RPC decoding).
 That package is not part of the app: `swift build` and `swift test` at the repository root never
 build it, and nothing in it ships in any binary. It links the parsing libraries of the main package
 so the fuzzers run the exact sources the app and the helper use.

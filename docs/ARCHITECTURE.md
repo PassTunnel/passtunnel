@@ -37,9 +37,9 @@ A bundle without `dns-updown` pins an empty set for it, so the helper refuses an
 | Target | Owns | Depends on |
 |---|---|---|
 | `PassTunnelVPNConfig` | `OVPNSanitizer`, `FortiConfig`: the configurations the helper runs as root | — |
-| `PassTunnelKit` | the portable logic (Foundation, CryptoKit and Security only; builds for macOS 13, iOS 17 and Linux): model, `PTError`, `JSONCoding`, `TOTP`, `OTPAuthURI`, `OTPComposer`, `OVPNAnalyzer`, `OVPNInliner`, `ShareFile`, `Slug`, `ProfileFields`, `ProfileMerge`, `SecretEnvelope`, `HealthCheck` (parsing) | VPNConfig (and swift-crypto on Linux) |
+| `PassTunnelKit` | the portable logic (Foundation, CryptoKit and Security only; builds for macOS 13, iOS 17 and Linux): model, `PTError`, `JSONCoding`, `TOTP`, `OTPAuthURI`, `OTPComposer`, `OVPNAnalyzer`, `OVPNInliner`, `OVPNSkipRules`, `OVPNImportReport`, `ShareFile`, `Slug`, `ProfileFields`, `ProfileMerge`, `SecretEnvelope`, `HealthCheck` (parsing) | VPNConfig (and swift-crypto on Linux) |
 | `PassTunnelShared` | XPC protocol, request/response types, `HelperCore` (request decoding, path checks, tool environment), `SessionPolicy`, `CodeSignature`, `Spawner` (verified, suspended launch), `PinnedTools`, `ToolStager` (root-owned copy of the tools and their dylibs), `HelperBuild`, identifiers | VPNConfig (and swift-crypto on Linux) |
-| `PassTunnelCore` | `ProfileStore`, `ProfilesWatcher`, `Secrets` + `SecretStore` (Keychain; on Linux `SecretStores`: secret-service, systemd-creds, file), `SecretVault` + `UserAuthenticator` (Secure Enclave protection), `Preferences`, `HealthCheck.check` (the probe), `QRDecoder`, `OpenedFiles` (files the app is asked to open), `ScannedCodeTarget` (where a scanned code goes), `TLSFingerprint`, `HelperClient`, `HelperAutoUpdate`, `ConnectionManager` + `ProfileDestination`, `LoginConnector` (connect at login), CLI parsing (`CLICommand`, `CLIInvocation`), automation objects + `AutomationService`, `MCPServer` + `MCPTools` + `JSONValue` | Kit, VPNConfig, Shared (and swift-crypto's Crypto and CryptoExtras on Linux) |
+| `PassTunnelCore` | `ProfileStore` + `ImportDraft`, `ProfilesWatcher`, `Secrets` + `SecretStore` (Keychain; on Linux `SecretStores`: secret-service, systemd-creds, file), `SecretVault` + `UserAuthenticator` (Secure Enclave protection), `Preferences`, `HealthCheck.check` (the probe), `QRDecoder`, `OpenedFiles` (files the app is asked to open), `ScannedCodeTarget` (where a scanned code goes), `TLSFingerprint`, `HelperClient`, `HelperAutoUpdate`, `ConnectionManager` + `ProfileDestination`, `LoginConnector` (connect at login), CLI parsing (`CLICommand`, `CLIInvocation`), automation objects + `AutomationService`, `MCPServer` + `MCPTools` + `JSONValue` | Kit, VPNConfig, Shared (and swift-crypto's Crypto and CryptoExtras on Linux) |
 | `PassTunnelCLI` | the `passtunnel` command: `PassTunnelCLI.run` (entry, `CLIHelp`), `CLIRunner`, `CLICompletions`, `CLITerminal`, `CLIClipboard`; `Pasteboard` (macOS: the app's too) | Core, Kit, Shared |
 | `PassTunnelHelper` | `main.swift` XPC listener, process supervision | Shared (and through it VPNConfig) |
 | `PassTunnel` | SwiftUI app, menu bar, onboarding, updates (`AppUpdater`); CLI mode runs `PassTunnelCLI` | CLI, Core, Kit, VPNConfig, Shared, Sparkle |
@@ -262,7 +262,11 @@ public struct ProfileStore {                       // all methods throw PTError 
     public func dir(_ id: String) -> URL
     public func ovpnURL(_ id: String) -> URL
     public func setOVPN(_ id: String, from: URL) throws   // inlined, <auth-user-pass> stripped, sanitized, 0600
-    public func importOVPN(_ url: URL, name: String?) throws -> Profile   // uses OVPNAnalyzer; <auth-user-pass> → username + Keychain password
+    public func importOVPN(_ url: URL, name: String?) throws -> Profile   // analyzeOVPN, then commit with what the file holds
+    public func analyzeOVPN(_ url: URL) throws -> ImportDraft             // the review: writes nothing (no file, no Keychain item)
+    public func commit(_ draft: ImportDraft, name:, username:, password:, totpSecret: Data?, totp: TOTPParams, now:) throws -> Profile
+        // nil values come from the file; ovpnNotAllowed while the draft has blocking lines; the config is checked
+        // with the sanitizer again before it is written; <auth-user-pass> → username + Keychain password
     public func exportShare(_ id: String, to: URL) throws                 // ShareFile, 0600; config without credential blocks
     public func importShare(_ url: URL, name: String?) throws -> Profile  // drops an <auth-user-pass> block
 }
@@ -294,6 +298,7 @@ public enum TOTP {
 public struct OTPAuthURI { label, issuer, secret: Data, params: TOTPParams; init(_ uri: String) throws }   // otpauth://totp/...
 public enum OVPNAnalyzer {
     public static func analyze(_ text: String) -> (passwordMode, otpMode, otpDelivery, remote: String, remotes: [String])
+    public static func servers(_ text: String) -> [Server]   // every remote: host, port, tcp (as endpoint resolves them)
     public static func serverDescription(_ remotes: [String]) -> String   // "vpn.example.com +2 more"; also (_ text:)
     public static func endpoint(_ text: String) -> Endpoint?   // first remote: host, port, tcp, others
     public static func endpointDescription(_ text: String) -> String   // "vpn.example.com:1194 +2 more · UDP"
@@ -306,6 +311,22 @@ public enum OVPNAnalyzer {
 // when the name is exact. `remotes` = every `remote` host in file order, `remote` = the first.
 // `endpoint`: the port and transport of the `remote` line, else the `port`/`rport` and `proto` lines of its
 // <connection> block, then those outside any block (the last of each), else 1194 and UDP.
+public enum OVPNSkipRules {                       // which refused lines an import leaves out (SECURITY.md)
+    public static func apply(_ text: String) -> Result   // text with skipped lines as "# PassTunnel skipped: …", skipped, blocking
+    public static func skipReason(_ v: OVPNSanitizer.Violation) -> Reason?   // nil: the line blocks
+}
+public struct OVPNImportReport {                  // ImportDraft.report; golden cases: fixtures/ovpn-import.json
+    public static func make(_ text: String, baseDir: URL?) throws -> OVPNImportReport   // throws only for embedded files
+    config: String?   // inlined, skipped lines commented, <auth-user-pass> removed; nil with a blocking line
+    skipped, blocking // numbered as in the file (OVPNInliner.inlineMapped keeps each inlined line's origin)
+    servers, certificates (name, file it was embedded from), passwordMode, otpMode, otpDelivery, username, password
+    needs: [Field]    // username + password with auth-user-pass, codeSecret with static-challenge (ImportDraft adds .name)
+}
+// `OVPNSkipRules` classifies the violations `OVPNSanitizer.sanitize` reports, by directive and reason: a line is
+// skipped only when every violation on it is in the skip tables (`skippable`, `skippableManaged`, script-security,
+// non-metadata setenv); anything else, including any reason the tables do not know, blocks. The rewritten text is
+// checked with the sanitizer again, so "no blocking lines" always means the sanitizer accepts it. The sanitizer
+// itself, which the helper runs, is unchanged.
 public enum OTPComposer {
     public static func validate(template: String) throws               // must contain "{otp}"
     public static func compose(password: String, otp: String?, delivery: OTPDelivery, template: String,
@@ -629,7 +650,8 @@ Security rules (helper):
   `writepid`, `cd`, `chroot`, `user`/`group`, `config`, `show-pkcs11-ids`, `genkey`, `port-share`,
   external files incl. a `socks-proxy` credentials file, and, like OpenVPN's own parser, a backslash
   outside single quotes that does not escape `\`, `"` or whitespace, or ends the line; strips
-  `static-challenge`), writes the sanitized copy and the auth file
+  `static-challenge`; the same check for every config, also those whose import commented out refused
+  lines, `OVPNSkipRules`), writes the sanitized copy and the auth file
   into the session's run directory, then runs openvpn with fixed flags (`--management <runDir>/mgmt.sock unix`
   `--management-client-user <caller's user name>` so only the calling user can talk to it, no
   `--management-hold`; `--verb N` with the config's last `verb` capped at 4, 3 when it sets none

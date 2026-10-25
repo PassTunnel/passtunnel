@@ -89,6 +89,9 @@ enum FixtureRunner {
             "prepare": Group(inputs: ["config", "files", "binary_files"], run: { try inline($0, prepare: true) }),
             "strip_credentials": Group(inputs: ["config", "blocks"], run: stripCredentials),
         ],
+        "ovpn-import.json": [
+            "review": Group(inputs: ["config", "files", "binary_files"], run: review),
+        ],
         "share-files.json": [
             "decode": Group(inputs: ["file"], run: shareDecode),
             "encode": Group(inputs: ["profile", "files"], run: shareEncode),
@@ -281,6 +284,40 @@ enum FixtureRunner {
     /// The referenced files are written to a fresh temporary folder: `config/` is the config's folder,
     /// so "../x" names a file next to it.
     static func inline(_ c: [String: JSON], prepare: Bool) throws -> [String: JSON] {
+        try withConfigFolder(c) { base in
+            let text = try str(c, "config")
+            let out = prepare ? try OVPNInliner.prepare(text, baseDir: base) : try OVPNInliner.inline(text, baseDir: base)
+            return ["output": .string(out)]
+        }
+    }
+
+    /// `OVPNImportReport.make` with the files in a temporary folder, as `inline`.
+    static func review(_ c: [String: JSON]) throws -> [String: JSON] {
+        try withConfigFolder(c) { base in
+            let r = try OVPNImportReport.make(try str(c, "config"), baseDir: base)
+            func line(_ number: Int, _ directive: String, _ text: String, _ reason: String) -> JSON {
+                .object(["line": .number(Double(number)), "directive": .string(directive), "text": .string(text),
+                         "reason": .string(reason)])
+            }
+            return [
+                "stored": optional(r.config),
+                "skipped": .array(r.skipped.map { line($0.line, $0.directive, $0.text, $0.reason.rawValue) }),
+                "blocking": .array(r.blocking.map { line($0.line, $0.directive, $0.text, $0.reason) }),
+                "servers": .array(r.servers.map {
+                    .object(["host": .string($0.host), "port": .string($0.port), "tcp": .bool($0.tcp)])
+                }),
+                "certificates": .array(r.certificates.map { .object(["name": .string($0.name), "file": optional($0.file)]) }),
+                "password_mode": .string(r.passwordMode.rawValue), "otp_mode": .string(r.otpMode.rawValue),
+                "otp_delivery": .string(r.otpDelivery.rawValue),
+                "username": optional(r.username), "password": optional(r.password),
+                "needs": .array(r.needs.map { .string($0.rawValue) }),
+            ]
+        }
+    }
+
+    /// Writes `files` and `binary_files` into `config/` of a fresh temporary folder and runs `body` with it;
+    /// a `PTError` it throws is the case's `error`.
+    static func withConfigFolder(_ c: [String: JSON], _ body: (URL) throws -> [String: JSON]) throws -> [String: JSON] {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("passtunnel-fixtures-\(UUID().uuidString)")
         let base = root.appendingPathComponent("config", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -299,9 +336,7 @@ enum FixtureRunner {
             return d
         }
         do {
-            let text = try str(c, "config")
-            let out = prepare ? try OVPNInliner.prepare(text, baseDir: base) : try OVPNInliner.inline(text, baseDir: base)
-            return ["output": .string(out)]
+            return try body(base)
         } catch let e as PTError {
             return error(e)
         }

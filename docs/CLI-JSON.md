@@ -195,7 +195,8 @@ available.
 | `list` | array of ProfileSummary |
 | `show ID` | `{"profile": {…settings…}, "is_default", "password_saved", "totp_saved", "password_encrypted", "totp_encrypted", "config_file", "remote"}` |
 | `set ID key=value…` | the `show` object after the change |
-| `add NAME --type T`, `import FILE` | ProfileSummary of the new profile |
+| `add NAME --type T` | ProfileSummary of the new profile |
+| `import FILE` | ProfileSummary of the new profile with `skipped` (below) |
 | `export ID [-o FILE]` | `{"id": "work", "path": "/Users/alice/work.passtunnel"}` |
 | `rm ID --yes` | `{"id": "work", "deleted": true}` |
 | `secret ID password\|totp` | `{"id": "work", "secret": "totp", "saved": true, "encrypted": false}`, never the value or a code |
@@ -205,6 +206,28 @@ available.
 | `log ID [-n N]` | LogReport: `{"id": "work", "lines": […], "truncated": false}`, the last N lines (at most 500) |
 | `helper status` | HelperReport (exit 5 unless enabled, answering and current) |
 | `version` | `{"version": "1.1.0", "build": "12", "app_path": "/Applications/PassTunnel.app", "helper_protocol_version": 3}` |
+
+`import` adds `skipped` to the ProfileSummary: the lines of an `.ovpn` that PassTunnel left out of the
+stored configuration (kept there as comments, see
+[SECURITY.md](../SECURITY.md#importing-an-openvpn-configuration)); empty for a `.passtunnel` file.
+
+```json
+"skipped" : [
+  {
+    "directive" : "up",
+    "line" : 5,
+    "reason" : "program",
+    "text" : "up /etc/openvpn/update-dns"
+  }
+]
+```
+
+`line` is the line number in the file; `directive` is the directive as the sanitizer names it (`up`,
+`setenv PATH`); `text` is the line, trimmed, with control characters shown as `�` and cut to 232 bytes.
+`reason` is one of `program` (runs a program), `script_security` (a level above 1),
+`dns` (a DNS script), `process` (how OpenVPN runs, or a file it writes as root), `logging`,
+`management` and `environment` (a `setenv` for scripts). A line that refuses the file fails the
+command with `config_invalid` instead, its message listing every such line.
 
 `connect`, `disconnect` and `toggle` always waited for the result; `--wait` makes that explicit and
 `--timeout` bounds it. A `connect` that runs out of time stops the half-started connection and
