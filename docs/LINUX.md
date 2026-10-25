@@ -344,6 +344,11 @@ what the server pushes, and every value of it is treated as hostile: it ends up 
   the devices their logs name. So another OpenVPN client (`0/1` and `128/1` in the main table),
   wg-quick (a default route in table 51820 behind a `not fwmark` rule) and Tailscale with an exit node
   (table 52) are found, and a VPN for some destinations only is not.
+- **Overlap warnings.** The routes of a FortiGate tunnel for the check "two tunnels claim the same routes or
+  DNS names" (ARCHITECTURE.md) come from the same rtnetlink dumps (`RoutingTable.routes(onInterface:)`: the
+  main table's unicast routes, IPv4 and IPv6, through the link named like the tunnel interface); OpenVPN's
+  come from the push in its log, which 2.6 and 2.7 write at `--verb 3` as on the Mac. The comparison itself
+  (`NetworkClaims`, Kit) is the same code.
 - **Log parsing.** `VPNLog` reads OpenVPN 2.6 and 2.7 on Linux: the device ("TUN/TAP device tun0
   opened", with data channel offload "DCO device tun0 opened"), the address (`net_addr_v4_add`,
   `net_addr_ptp_v4_add`; `ip addr add` in builds that run iproute2), each route it adds through

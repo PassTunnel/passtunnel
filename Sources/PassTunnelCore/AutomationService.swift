@@ -61,6 +61,14 @@ public final class AutomationService {
         return s
     }
 
+    /// `status(p)` as the result of a connect that went ahead despite `overlaps` (`checkCanStart`):
+    /// with the warnings about them.
+    public func status(_ p: Profile, overlaps: [ProfileOverlap], now: Date = Date()) -> ProfileStatus {
+        var s = status(p, now: now)
+        if !overlaps.isEmpty { s.warnings = overlaps.map { ConnectWarning($0, connecting: p.id) } }
+        return s
+    }
+
     /// The failure with the server's reply and the tool's reason passed through `LogRedactor`, as the log is.
     static func redacted(_ failure: ConnectionFailure, id: String) -> ConnectionFailure {
         guard failure.reply != nil || failure.reason != nil else { return failure }

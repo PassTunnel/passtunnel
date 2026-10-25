@@ -553,6 +553,8 @@ passtunnel status [ID]
 passtunnel connect|disconnect|toggle [ID]    ID default: default profile; asks on TTY for `needs`
 passtunnel disconnect --all
 passtunnel connect [ID] --force              even if another VPN already takes all traffic
+                                             (a warning, on stderr, when a connected profile's tunnel claims
+                                             the same routes or DNS names; the connect goes ahead)
 passtunnel connect|disconnect … --wait [--timeout S]   bound the wait (default 60 s; --timeout implies --wait)
 passtunnel code [ID] [-c|--copy]             live code + seconds left
 passtunnel list / show ID / set ID key=value…   (keys as in the editor)
@@ -700,14 +702,17 @@ already connecting → wait for it, `needs` → `input_required`, `checkCanStart
 ID on the Mac), then `AutomationService.connect`; `wait: false` returns once the attempt shows as
 connecting and lets it finish in the server. A failed `connect` is an error result whose error object
 carries `failure`; `get_status` shows it too (`ProfileStatus.failure`, in the outputSchema), with
-`clock` once the gateway check after a rejected sign-in has answered. The server never calls `ConnectionManager.start()`
+`clock` once the gateway check after a rejected sign-in has answered. `checkCanStart`
+also returns the connected profiles whose routes or DNS names overlap with the profile's
+(`ProfileOverlap`, ARCHITECTURE.md): the connect goes ahead and its result carries them as `warnings`
+(`ConnectWarning`, CLI-JSON.md; the CLI prints them on stderr). The server never calls `ConnectionManager.start()`
 (no polling, no auto-reconnect of its own).
 
 The app and the CLI share the files and the Keychain. The app never acts on a cached profile:
 connect, copy code, copy password + code and auto-type re-read the stored profile and Keychain item
 first, and single-field changes (pin, order, remembered user name) go through `ProfileStore.update`
 (read-modify-write). It reloads on `ProfilesWatcher` (FSEvents on the support directory, debounced;
-`vpn.log`, `activity.jsonl`, `clock.json`, the management socket, markers and temp files are ignored), on `ProfileChangeSignal` (posted by the
+`vpn.log`, `activity.jsonl`, `clock.json`, `network.json`, the management socket, markers and temp files are ignored), on `ProfileChangeSignal` (posted by the
 CLI after commands that change profiles or secrets), when it becomes active, and every 5 s.
 
 ## Design system

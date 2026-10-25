@@ -111,6 +111,16 @@
         }
       }
     },
+    "%@ sends all traffic through its tunnel." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ tüm trafiği kendi tünelinden gönderiyor."
+          }
+        }
+      }
+    },
     "%@ session is ending" : {
       "localizations" : {
         "tr" : {
@@ -709,6 +719,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kimlik doğrulama kabul edildi"
+          }
+        }
+      }
+    },
+    "Both look up these names through their tunnel: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "İkisi de şu adları kendi tüneli üzerinden çözüyor: %@"
+          }
+        }
+      }
+    },
+    "Both send all traffic through their tunnel." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "İkisi de tüm trafiği kendi tünelinden gönderiyor."
+          }
+        }
+      }
+    },
+    "Both send these networks through their tunnel: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "İkisi de şu ağları kendi tünelinden gönderiyor: %@"
           }
         }
       }
@@ -2303,6 +2343,16 @@
         }
       }
     },
+    "That traffic can only go through one of the two tunnels." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu trafik iki tünelden yalnızca birinden geçebilir."
+          }
+        }
+      }
+    },
     "The clock could not be checked: %@" : {
       "localizations" : {
         "tr" : {
@@ -3599,6 +3649,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "PassTunnel'da onayınız bekleniyor…"
+          }
+        }
+      }
+    },
+    "Warning: %@ overlaps with %@." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uyarı: %1$@, %2$@ ile çakışıyor."
           }
         }
       }

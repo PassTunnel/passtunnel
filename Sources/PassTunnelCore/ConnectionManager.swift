@@ -389,6 +389,9 @@ public final class ConnectionManager: ObservableObject {
     private let healthProbe: HealthProbe
     private let preferences: () -> Preferences
     private let routes: () -> [RoutingTable.Route]
+    /// The routes through a tunnel interface (`RoutingTable.routes(onInterface:)`), read for a FortiGate
+    /// tunnel when it is up; replaced in tests.
+    var tunnelRoutes: (String) -> [RoutingTable.Route] = RoutingTable.routes(onInterface:)
 
     private var pollSeq = 0
     private var appliedSeq = 0
@@ -901,6 +904,7 @@ public final class ConnectionManager: ObservableObject {
             healthFailures[id] = 0
             keepSessionSecrets(p, stored, destination: destination)
             noteSetupProblems(p)
+            ProfileNetwork.record(p, store: store, tunnelRoutes: tunnelRoutes)
             if p.username.trimmingCharacters(in: .whitespaces).isEmpty, let u = creds.username, p.lastUsername != u {
                 // Only this field: the profile may have been edited (CLI, editor) while connecting.
                 _ = try? store.update(id) { $0.lastUsername = u }
@@ -949,13 +953,36 @@ public final class ConnectionManager: ObservableObject {
 
     /// The check `connect` runs before starting `id` (without `force`), on its own, so a caller can
     /// report a refusal before it says it is connecting. Nothing to check when the helper already runs
-    /// the profile (`connect` then follows that session).
-    public func checkCanStart(_ id: String) async throws {
+    /// the profile (`connect` then follows that session). Throws when another VPN takes all traffic;
+    /// returns the profiles of PassTunnel's own sessions whose routes or DNS names overlap with the
+    /// ones `id` takes (`overlaps(for:)`), which is a warning for the caller to show, never a refusal.
+    @discardableResult
+    public func checkCanStart(_ id: String) async throws -> [ProfileOverlap] {
         let p = try store.get(id)
-        guard p.type == .openvpn else { return }
         let status = await currentStatus()
-        guard status?.running?[id] == nil else { return }
-        try checkNoOtherFullTunnel(p, running: status?.running ?? [:])
+        guard status?.running?[id] == nil else { return [] }
+        if p.type == .openvpn { try checkNoOtherFullTunnel(p, running: status?.running ?? [:]) }
+        return overlaps(of: p, running: status?.running ?? [:])
+    }
+
+    /// The connected profiles (connecting ones too) whose tunnel takes over some of the same networks or DNS
+    /// names as `id`'s would (`NetworkClaims.overlaps`): what the app shows a sheet for ("Switch to …",
+    /// "Connect both") and the CLI and MCP warn about. From the profiles' configs and what their servers
+    /// pushed the last time they connected (`ProfileNetwork`), so a profile that never connected is only
+    /// compared by its own config lines. Empty for a profile that is already running, when nothing is
+    /// connected, and when anything cannot be read.
+    public func overlaps(for id: String) async -> [ProfileOverlap] {
+        guard let p = try? store.get(id) else { return [] }
+        let status = await currentStatus()
+        guard status?.running?[id] == nil else { return [] }
+        return overlaps(of: p, running: status?.running ?? [:])
+    }
+
+    private func overlaps(of p: Profile, running: [String: Int32]) -> [ProfileOverlap] {
+        let active = Set(running.keys).union(states.filter { $0.value.isActive }.keys).subtracting([p.id])
+        let others = active.sorted().compactMap { try? store.get($0) }
+        guard !others.isEmpty else { return [] }
+        return ProfileNetwork.overlaps(of: p, with: others, store: store, tunnelRoutes: tunnelRoutes)
     }
 
     /// Refuses to start a profile that takes all traffic while another VPN (not one of ours) already
