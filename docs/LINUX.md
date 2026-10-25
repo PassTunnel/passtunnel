@@ -171,8 +171,8 @@ Profiles never run scripts (the sanitizer removes them); DNS comes from what the
   every destination and at a rule that drops all traffic. One of these routes through a VPN-type
   interface that is not one of PassTunnel's sessions refuses the connect (`other_vpn_active`;
   `--force` skips it). VPN-type: by the kernel's kind of device (`IFLA_INFO_KIND` `tun`, which tap
-  devices have too, `ppp`, `wireguard`, `ovpn-dco`, `ovpn`, `xfrm`, `vti`, `vti6`), or by name (`tun`,
-  `tap`, `ppp`, `wg`, `tailscale` with a number); a modem (`wwan`) is not. PassTunnel's sessions are
+  devices have too, `ppp`, `wireguard`, `ovpn-dco`, `ovpn`, `xfrm`, `vti`, `vti6`), or by name (the Mac's
+  `utun`, `ppp`, `ipsec`, `tun`, `tap`, and `wg`, `tailscale`, with a number); a modem (`wwan`) is not. PassTunnel's sessions are
   the devices their logs name. So another OpenVPN client (`0/1` and `128/1` in the main table),
   wg-quick (a default route in table 51820 behind a `not fwmark` rule) and Tailscale with an exit node
   (table 52) are found, and a VPN for some destinations only is not.

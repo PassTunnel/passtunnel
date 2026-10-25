@@ -483,7 +483,7 @@ extension Netlink {
 /// OpenVPN would delete the other tunnel's `0/1` and `128/1` routes.
 public enum FullTunnelCheck {
     #if os(Linux)
-    static let vpnInterfacePrefixes = ["tun", "tap", "ppp", "wg", "tailscale"]
+    static let vpnInterfacePrefixes = ["utun", "ppp", "ipsec", "tun", "tap", "wg", "tailscale"]
     #else
     static let vpnInterfacePrefixes = ["utun", "ppp", "ipsec", "tun", "tap"]
     #endif
