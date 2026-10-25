@@ -96,6 +96,44 @@ final class ToolCheckTests: DaemonTestCase {
         chmod(base + "/bin", 0o755)
     }
 
+    func testFortiToolsAndVersions() throws {
+        XCTAssertEqual(ToolSpec.openfortivpn.candidates, ["/usr/bin/openfortivpn"])
+        XCTAssertEqual(ToolSpec.openfortivpn.minimum, ToolVersion(1, 21, 0))
+        XCTAssertEqual(ToolSpec.pppd.candidates, ["/usr/sbin/pppd"])
+        XCTAssertEqual(ToolSpec.firstVersion("1.21.0\n"), ToolVersion(1, 21, 0))
+        XCTAssertEqual(ToolSpec.firstVersion("v1.22.1-3-gabcdef0\n"), ToolVersion(1, 22, 1))
+        XCTAssertEqual(ToolSpec.firstVersion("openfortivpn 1.23.1\n"), ToolVersion(1, 23, 1))
+        XCTAssertEqual(ToolSpec.firstVersion("pppd version 2.4.9\n"), ToolVersion(2, 4, 9))
+        XCTAssertEqual(ToolSpec.firstVersion("pppd version 2.5.1\n"), ToolVersion(2, 5, 1))
+        XCTAssertNil(ToolSpec.firstVersion("pppd: unrecognized option '--version'\n"))
+        XCTAssertNil(ToolSpec.firstVersion(""))
+        let tools = SystemTools(owner: me, base: base)
+        XCTAssertEqual(try testTools.resolve(.openfortivpn), ResolvedTool(path: fortiPath, version: ToolVersion(1, 21, 0)))
+        XCTAssertEqual(try testTools.resolve(.pppd), ResolvedTool(path: pppdPath, version: ToolVersion(2, 4, 9)))
+        XCTAssertEqual(tools.caBundles, ["/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt",
+                                         "/etc/ssl/cert.pem"])
+    }
+
+    /// The first CA bundle that exists, resolved and checked like a tool.
+    func testCABundle() throws {
+        XCTAssertEqual(try fakeTools.caBundle(), caPath)
+        XCTAssertEqual(symlink(caPath, base + "/certs/link.pem"), 0)
+        var tools = fakeTools
+        tools.caBundles = [base + "/certs/link.pem"]
+        XCTAssertEqual(try tools.caBundle(), caPath, "a symlinked bundle is resolved")
+        chmod(base + "/certs", 0o777)
+        XCTAssertThrowsError(try tools.caBundle()) { error in
+            guard case .untrustedCABundle(let path, let reason) = error as? ToolFailure else { return XCTFail("\(error)") }
+            XCTAssertEqual(path, caPath)
+            XCTAssertTrue(reason.contains("writable"), reason)
+        }
+        chmod(base + "/certs", 0o755)
+        tools.caBundles = [base + "/none.pem"]
+        XCTAssertThrowsError(try tools.caBundle()) {
+            XCTAssertEqual($0 as? ToolFailure, .noCABundle(candidates: [base + "/none.pem"]))
+        }
+    }
+
     /// The version is read only from a file that passed the checks: an untrusted one never runs.
     func testUntrustedToolIsNeverRun() throws {
         chmod(toolPath, 0o777)

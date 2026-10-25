@@ -68,9 +68,20 @@ final class Supervisor {
         queue.async {
             switch request {
             case .startOpenVPN(let s):
-                reply(self.startOpenVPN(s, uid: uid))
-            case .startForti:
-                reply(.failure("FortiGate profiles cannot be connected on Linux yet: the daemon runs OpenVPN only for now."))
+                reply(self.start(profileID: s.profileID, uid: uid, tool: .openvpn) { tool, core in
+                    // The DNS hook as `--dns-updown` where OpenVPN knows it (2.7), else as `--route-up` and `--down`.
+                    core.openVPNHasDNSUpdown = tool.version >= ToolVersion(2, 7, 0)
+                    return try core.prepareOpenVPN(s, uid: uid)
+                })
+            case .startForti(let s):
+                reply(self.start(profileID: s.profileID, uid: uid, tool: .openfortivpn) { _, core in
+                    // openfortivpn runs pppd from the path compiled into it: checked as a tool is.
+                    _ = try self.tools.resolve(.pppd)
+                    core.caFile = try self.tools.caBundle()
+                    // openfortivpn and pppd never touch resolv.conf; the daemon applies DNS (docs/LINUX.md).
+                    core.fortiHandlesDNS = false
+                    return try core.prepareForti(s, uid: uid)
+                })
             case .stop(let id):
                 self.stop(profileID: id, uid: uid, reply: reply)
             case .status:
@@ -80,23 +91,24 @@ final class Supervisor {
         }
     }
 
-    private func startOpenVPN(_ s: OpenVPNStart, uid: uid_t) -> HelperResponse {
+    /// Checks the session limits and the tool, has `prepare` write the session's files (given the
+    /// checked tool and a copy of the core to adjust), then spawns the tool and supervises it.
+    private func start(profileID: String, uid: uid_t, tool spec: ToolSpec,
+                       prepare: (ResolvedTool, inout HelperCore) throws -> HelperCore.LaunchPlan) -> HelperResponse {
         dispatchPrecondition(condition: .onQueue(queue))
         do {
-            try SessionPolicy.checkStart(profileID: s.profileID, uid: uid, sessions: sessions)
+            try SessionPolicy.checkStart(profileID: profileID, uid: uid, sessions: sessions)
         } catch {
             return .failure(String(describing: error))
         }
         let tool: ResolvedTool
         let plan: HelperCore.LaunchPlan
         do {
-            tool = try tools.resolve(.openvpn)
+            tool = try tools.resolve(spec)
             var core = self.core
-            // The DNS hook as `--dns-updown` where OpenVPN knows it (2.7), else as `--route-up` and `--down`.
-            core.openVPNHasDNSUpdown = tool.version >= ToolVersion(2, 7, 0)
-            plan = try core.prepareOpenVPN(s, uid: uid)
+            plan = try prepare(tool, &core)
         } catch {
-            DaemonLog.info("start of \(s.profileID) for uid \(uid) refused: \(error)")
+            DaemonLog.info("start of \(profileID) for uid \(uid) refused: \(error)")
             return .failure(error)
         }
         defer { close(plan.logFD) }
@@ -111,13 +123,13 @@ final class Supervisor {
             jobs[job.key] = job
             watch(job.key, pid: pid)
             if plan.mgmtSocket != nil { restrictSocketWhenReady(job.key, pid: pid, attempt: 0) }
-            DaemonLog.info("started OpenVPN \(tool.version) for \(s.profileID), uid \(uid), pid \(pid)")
+            DaemonLog.info("started \(spec.name) \(tool.version) for \(profileID), uid \(uid), pid \(pid)")
             return .success(pid: pid, mgmtSocket: plan.mgmtSocket)
         } catch {
-            core.removeRunDir(profileID: s.profileID, uid: uid)
+            core.removeRunDir(profileID: profileID, uid: uid)
             let line = "PassTunnel: \(error)\n"
             _ = line.withCString { write(plan.logFD, $0, strlen($0)) }
-            DaemonLog.info("start of \(s.profileID) for uid \(uid) failed: \(error)")
+            DaemonLog.info("start of \(profileID) for uid \(uid) failed: \(error)")
             return .failure(String(describing: error))
         }
     }

@@ -51,7 +51,7 @@ passtunnel mcp (stdio) ┴─▶ PassTunnelCore (as on the Mac: ProfileStore, Co
 `PT.profilesSubpath`, `PT.helperRunRoot`, the `sun_path` limit (108 bytes on Linux) and the CA bundle
 become platform values. The CA bundle is the first of `/etc/ssl/certs/ca-certificates.crt`,
 `/etc/pki/tls/certs/ca-bundle.crt`, `/etc/ssl/cert.pem` that exists (`FortiConfig` takes it as a
-parameter).
+parameter), resolved and checked as the tools are (below).
 
 ## The daemon protocol
 
@@ -102,8 +102,10 @@ The macOS rules apply where they make sense; these replace the ones built on cod
   `realpath` once, then every component of the real path must be root-owned and not group- or
   world-writable, and the file a regular file. Nothing is pinned by hash: distribution binaries
   change with every security update, so trust rests on the package manager. Versions below
-  openvpn 2.6.0 or openfortivpn 1.21 are refused with a clear message. The checks run before every
-  start; the version is read by running the checked file (`openvpn --version`, killed after 5 s).
+  openvpn 2.6.0, openfortivpn 1.21 or pppd 2.4.7 are refused with a clear message. The checks run
+  before every start; the version is read by running the checked file (`openvpn --version`,
+  `openfortivpn --version`, `pppd --version`, killed after 5 s). pppd is run by openfortivpn from
+  the path compiled into it, `/usr/sbin/pppd`, so it is checked before every FortiGate start too.
 - **The daemon itself** refuses to start unless its own executable (`/proc/self/exe`, resolved) passes
   the same path checks, since OpenVPN runs it as root for DNS (below).
 - **Spawning.** `posix_spawn` of the checked path (no suspended start: there is no signature to
@@ -117,9 +119,16 @@ The macOS rules apply where they make sense; these replace the ones built on cod
   capped `--verb`), the sanitized config (`OVPNSanitizer`, unchanged) and `--script-security 2` with
   the DNS hook below, the only script it can run (the sanitizer removes every other). The management
   socket goes to the caller as on the Mac, its mode set before its owner (no `CAP_FOWNER` needed).
-- **FortiGate** runs openfortivpn with the config `FortiConfig.render` writes (typed fields only,
-  `checkRendered` as on the Mac), the Linux CA bundle, and its own DNS handling switched off; the
-  daemon applies DNS (below).
+- **FortiGate** runs openfortivpn as the Mac's helper does: `openfortivpn -c <run>/openfortivpn.conf`
+  and nothing else on its command line, the config written by `FortiConfig.render` (typed fields
+  only, `checkRendered` as on the Mac) into the session's run directory (0600, root), with the
+  password and the one-time code in it, never in an argument or the environment. On Linux the config
+  names the distribution's CA bundle (`ca-file`, checked) and keeps the profile's `set-routes`, but
+  `set-dns` and `pppd-use-peerdns` are always 0, so neither openfortivpn nor pppd (nor the
+  distribution's ppp scripts) touch resolv.conf; the daemon applies DNS (below). Profile directory,
+  log, supervision, stop and the cleanup of a previous instance are those of OpenVPN; there is no
+  management socket. pppd runs in a session of its own on openfortivpn's pseudo-terminal: openfortivpn
+  stops it on its way out, and if openfortivpn is killed, pppd ends when the terminal goes.
 - **Supervision.** One waiter per child (a thread in `waitid(WNOWAIT)`, so the child is reaped only
   on the supervisor's queue and its pid cannot be reused while it is listed); `stop` sends SIGTERM,
   then SIGKILL after 5 s; at most `SessionPolicy.maxSessionsPerUser` sessions per user; the session
@@ -131,7 +140,8 @@ The macOS rules apply where they make sense; these replace the ones built on cod
 - **Sandbox** (`packaging/linux/passtunnel.service`, a first version that nothing installs yet):
   `CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_SETUID CAP_SETGID
   CAP_CHOWN CAP_DAC_OVERRIDE CAP_KILL` (trimmed to what testing shows openvpn and pppd need),
-  `DevicePolicy=closed` with `DeviceAllow=/dev/net/tun` and `/dev/ppp`, `ProtectSystem=strict` with
+  `DevicePolicy=closed` with `DeviceAllow=/dev/net/tun` and `/dev/ppp` (the pseudo-terminal between
+  openfortivpn and pppd is among the standard devices `closed` allows), `ProtectSystem=strict` with
   `/run/passtunnel` and what the DNS hook writes (it runs inside the unit, a child of OpenVPN)
   writable: `-/etc/resolv.conf` and `-/run/resolvconf` (`-`: skipped when missing at start), never
   all of `/etc`, which would let every tool the daemon runs as root change the system's
@@ -145,7 +155,9 @@ The macOS rules apply where they make sense; these replace the ones built on cod
   dropped (so resolvconf can still rename its `resolv.conf` there); into `/run/systemd/resolve` the
   file there becomes writable inside the unit and is never written (systemd-resolved is told over
   D-Bus and lets `CAP_NET_ADMIN` through; the daemon's own view of the stub file may keep old search
-  domains until it restarts). `PrivateTmp`. Not set, unlike the first
+  domains until it restarts). `PrivateTmp`. FortiGate adds no path: pppd needs `CAP_NET_ADMIN` and
+  `/dev/ppp`, its pid file and database under `/run` stay unwritable (it only warns about them), and
+  the daemon applies the FortiGate DNS with the same code and paths as the hook. Not set, unlike the first
   plan: `ProtectHome=read-only`, because the daemon creates the session log in the user's profile
   directory (possible once the client opens the log, or it moves out of the home directory);
   `RuntimeDirectory=passtunnel`, because systemd would remove it, and the socket of

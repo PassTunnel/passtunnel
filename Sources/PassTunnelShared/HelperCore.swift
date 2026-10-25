@@ -142,6 +142,13 @@ public struct HelperCore {
     /// `--dns-updown` runs a path without arguments, so `passtunneld dns-hook` cannot be spelled there.
     public static let dnsHookName = "dns-hook"
     #endif
+    /// The CA bundle openfortivpn's config names (`ca-file`): the Mac's system bundle; the Linux daemon
+    /// sets the distribution's, checked, before every start.
+    public var caFile = HelperCore.systemCAFile
+    /// Whether openfortivpn and pppd change DNS themselves when the profile asks for the VPN's DNS
+    /// (`set-dns`, `pppd-use-peerdns`), as on the Mac. The Linux daemon applies DNS itself and turns
+    /// this off.
+    public var fortiHandlesDNS = true
     public var homeDirectory: (uid_t) -> String?
     public var userName: (uid_t) -> String?
 
@@ -297,7 +304,7 @@ public struct HelperCore {
     }
 
     public func prepareForti(_ s: FortiStart, uid: uid_t) throws -> LaunchPlan {
-        let text = try FortiConfig(s).render()
+        let text = try FortiConfig(s).render(caFile: caFile, handlesDNS: fortiHandlesDNS)
         let dir = try openProfileDir(s.profileDir, profileID: s.profileID, uid: uid)
         let logName = try logFileName(s.logPath, in: dir)
         let session = try makeRunDir(profileID: s.profileID, uid: uid)

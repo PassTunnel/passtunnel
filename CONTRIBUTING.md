@@ -140,15 +140,16 @@ swift build
 install -m 0755 "$(swift build --show-bin-path)/passtunneld" /usr/local/sbin/passtunneld
 /usr/local/sbin/passtunneld &              # its own socket: /run/passtunnel/daemon.sock
 "$(swift build --show-bin-path)/passtunnel" helper status --json
-apt-get update && apt-get install -y socat openvpn
+apt-get update && apt-get install -y socat openvpn openfortivpn
 printf '%s\n' '{"op":"hello"}' | socat - UNIX-CONNECT:/run/passtunnel/daemon.sock
 groupadd --system passtunnel               # root and this group may start connections
 ```
 
 Under systemd the daemon is started by `packaging/linux/passtunnel.socket` (socket activation); the
 unit files are not installed by anything yet. The tests never touch `/run/passtunnel`: they run the
-daemon's library with a temporary run root, home and user database, and a shell script in place of
-openvpn. The CI step "Smoke-test passtunneld" shows a full session with the distribution's openvpn.
+daemon's library with a temporary run root, home and user database, and shell scripts in place of
+openvpn, openfortivpn and pppd. The CI step "Smoke-test passtunneld" shows full sessions with the
+distribution's openvpn and openfortivpn.
 
 Code in these targets must keep building on Linux, without changing what the Mac does: Linux code
 goes in the same files behind `#if os(Linux)` / `#if canImport(…)` (the seams are listed in

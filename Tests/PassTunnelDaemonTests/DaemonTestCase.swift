@@ -3,14 +3,17 @@ import XCTest
 @testable import PassTunnelDaemon
 @testable import PassTunnelShared
 
-/// A temporary home with one profile (`acme`), a run root and a fake OpenVPN, all owned by the user
-/// running the tests (root in the Linux CI container). Nothing here touches /run/passtunnel or starts
-/// a tunnel: the "tool" is a shell script that sleeps.
+/// A temporary home with one profile (`acme`), a run root, fake OpenVPN, openfortivpn and pppd and a CA
+/// bundle, all owned by the user running the tests (root in the Linux CI container). Nothing here
+/// touches /run/passtunnel or starts a tunnel: the "tools" are shell scripts that sleep.
 class DaemonTestCase: XCTestCase {
     var base = ""
     var home: String { base + "/home" }
     var runRoot: String { base + "/run" }
     var toolPath: String { base + "/bin/openvpn" }
+    var fortiPath: String { base + "/bin/openfortivpn" }
+    var pppdPath: String { base + "/bin/pppd" }
+    var caPath: String { base + "/certs/ca-certificates.crt" }
     let me = geteuid()
     /// A user outside the group `passtunnel`.
     var stranger: uid_t { me + 4242 }
@@ -29,6 +32,12 @@ class DaemonTestCase: XCTestCase {
                                                 attributes: [.posixPermissions: 0o755])
         try Self.config.write(toFile: profileDir("acme") + "/config.ovpn", atomically: true, encoding: .utf8)
         try makeTool(version: "2.6.9")
+        try makeForti(version: "1.21.0")
+        try makePPPD(version: "2.4.9")
+        try FileManager.default.createDirectory(atPath: base + "/certs", withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o755])
+        try "-----BEGIN CERTIFICATE-----\n".write(toFile: caPath, atomically: true, encoding: .utf8)
+        chmod(caPath, 0o644)
         caller.uid = me
     }
 
@@ -70,20 +79,61 @@ class DaemonTestCase: XCTestCase {
         chmod(path, 0o755)
     }
 
-    /// The real checks and version reading, on files below `base` owned by the test's user.
-    var fakeTools: SystemTools {
-        SystemTools(owner: me, base: base)
+    /// The fake openfortivpn: prints a version for `--version`, else its arguments, then sleeps.
+    func makeForti(version: String) throws {
+        try makeScript(fortiPath, """
+        #!/bin/sh
+        if [ "$1" = "--version" ]; then echo "\(version)"; exit 0; fi
+        echo "fake openfortivpn $*"
+        exec sleep 30
+
+        """)
     }
 
-    /// What the daemon runs in these tests: every tool is the fake one at `toolPath`.
+    /// The fake pppd: only its version (openfortivpn would run it; the fake one does not).
+    func makePPPD(version: String) throws {
+        try makeScript(pppdPath, """
+        #!/bin/sh
+        echo "pppd version \(version)" >&2
+        exit 0
+
+        """)
+    }
+
+    func makeScript(_ path: String, _ script: String) throws {
+        try? FileManager.default.removeItem(atPath: path)
+        try script.write(toFile: path, atomically: true, encoding: .utf8)
+        chmod(path, 0o755)
+    }
+
+    /// The real checks and version reading, on files below `base` owned by the test's user.
+    var fakeTools: SystemTools {
+        SystemTools(owner: me, base: base, caBundles: [base + "/certs/none.crt", caPath])
+    }
+
+    /// What the daemon runs in these tests: each tool is its fake below `base`.
     struct TestTools: ToolResolving {
         let system: SystemTools
-        let path: String
+        /// Tool name → the fake that stands in for it.
+        let paths: [String: String]
 
         func resolve(_ spec: ToolSpec) throws -> ResolvedTool {
-            try system.resolve(ToolSpec(name: spec.name, candidates: [path], minimum: spec.minimum, package: spec.package,
+            try system.resolve(ToolSpec(name: spec.name, candidates: paths[spec.name].map { [$0] } ?? [],
+                                        minimum: spec.minimum, package: spec.package,
                                         versionArguments: spec.versionArguments, parseVersion: spec.parseVersion))
         }
+
+        func caBundle() throws -> String { try system.caBundle() }
+    }
+
+    var testTools: TestTools {
+        TestTools(system: fakeTools, paths: ["OpenVPN": toolPath, "openfortivpn": fortiPath, "pppd": pppdPath])
+    }
+
+    func fortiStart(_ id: String = "acme", setDNS: Bool = false) -> FortiStart {
+        let dir = profileDir(id)
+        return FortiStart(profileID: id, profileDir: dir, host: "vpn.example.com", username: "alice",
+                          password: "pw-forti", otp: "123456", setDNS: setDNS, logPath: dir + "/vpn.log")
     }
 
     func start(_ id: String = "acme", sha: String? = nil) -> OpenVPNStart {
@@ -98,7 +148,7 @@ class DaemonTestCase: XCTestCase {
         var options = Daemon.Options()
         options.runRoot = runRoot
         options.users = users
-        options.tools = TestTools(system: fakeTools, path: toolPath)
+        options.tools = testTools
         options.ownExecutable = nil
         options.build = "test-build"
         options.readTimeout = 2

@@ -44,7 +44,7 @@ A bundle without `dns-updown` pins an empty set for it, so the helper refuses an
 | `PassTunnelHelper` | `main.swift` XPC listener, process supervision | Shared (and through it VPNConfig) |
 | `PassTunnel` | SwiftUI app, menu bar, onboarding, updates (`AppUpdater`); CLI mode runs `PassTunnelCLI` | CLI, Core, Kit, VPNConfig, Shared, Sparkle |
 | `PassTunnelCommand` | Linux only: the `passtunnel` executable (product `passtunnel`), `PassTunnelCLI.run` | CLI |
-| `PassTunnelDaemon` | Linux only: the root daemon's logic ([LINUX.md](LINUX.md)): `Daemon` (socket, systemd activation, one request per connection), `DaemonCall` (the line protocol), `Access` + `UserDatabase` (root and the group `passtunnel`), `TrustedPath` + `SystemTools` (fixed tool paths, ownership and version checks), `Supervisor` (spawn, stop, exit), `PreviousInstance`; DNS: `DNSSettings` (checked servers and domains), `DNSApplier` + `DNSRecord` + `ResolvConf` (systemd-resolved, resolvconf or /etc/resolv.conf, recorded per session and reverted), `OpenVPNDNS` + `DNSHook` (`passtunneld dns-hook`) | Shared, VPNConfig |
+| `PassTunnelDaemon` | Linux only: the root daemon's logic ([LINUX.md](LINUX.md)): `Daemon` (socket, systemd activation, one request per connection), `DaemonCall` (the line protocol), `Access` + `UserDatabase` (root and the group `passtunnel`), `TrustedPath` + `SystemTools` (fixed tool paths, ownership and version checks, the CA bundle), `Supervisor` (OpenVPN and openfortivpn: spawn, stop, exit), `PreviousInstance`; DNS: `DNSSettings` (checked servers and domains), `DNSApplier` + `DNSRecord` + `ResolvConf` (systemd-resolved, resolvconf or /etc/resolv.conf, recorded per session and reverted), `OpenVPNDNS` + `DNSHook` (`passtunneld dns-hook`) | Shared, VPNConfig |
 | `PassTunnelDaemonCommand` | Linux only: the `passtunneld` executable (product `passtunneld`), also OpenVPN's DNS hook (`dns-hook`) | Daemon, Shared |
 
 The library product `PassTunnelKit` (targets `PassTunnelKit` and `PassTunnelVPNConfig`) is what the
@@ -63,8 +63,8 @@ the dependencies are declared on every platform). Like `PassTunnelHelper`, the d
 Shared and VPNConfig only; its logic is a library so that the tests run it with injected run root,
 home, user database and tools. The CI jobs `Linux (x86_64)` and `Linux (aarch64)` build them, run
 the tests that build there (golden cases included) in the official Swift container, and smoke-test
-the `passtunnel` binary and, as root, `passtunneld` (with the distribution's openvpn, no tunnel) and
-its DNS hook (on the container's resolv.conf).
+the `passtunnel` binary and, as root, `passtunneld` (with the distribution's openvpn and
+openfortivpn, no tunnel) and its DNS hook (on the container's resolv.conf).
 There `Crypto` from swift-crypto takes the place of CryptoKit
 (the same API, so codes and `ptse1:` envelopes are the same), `PTError.keychain` shows the bare
 `OSStatus`, and `String(localized:)` is an English-only stand-in (Kit's `Localization.swift`,
@@ -651,7 +651,9 @@ Security rules (helper):
   other line files for root (the OpenVPN `auth` file and its own `state` file) pass `HelperCore.checkLines`
   (exact line count, no NUL or CR), and the written `config.ovpn` is checked for NUL bytes once more.
   OTP is passed in the config (`otp = …`), so no pinentry is needed. Every config sets
-  `ca-file = /etc/ssl/cert.pem`, so openfortivpn never uses OpenSSL's compiled-in default store.
+  `ca-file = /etc/ssl/cert.pem`, so openfortivpn never uses OpenSSL's compiled-in default store
+  (`HelperCore.caFile`; the Linux daemon sets the distribution's bundle and `fortiHandlesDNS` false,
+  which renders `set-dns` and `pppd-use-peerdns` as 0: LINUX.md).
 - Tracks the pid it started per profile; `stop` only signals that pid (SIGTERM, then SIGKILL after 5 s).
   Several Forti/OpenVPN profiles may run at once, at most `SessionPolicy.maxSessionsPerUser` (8) per user.
   `SessionPolicy` decides, keyed by (caller uid, profile ID): two users may run the same ID; starting one of

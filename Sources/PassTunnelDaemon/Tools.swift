@@ -99,8 +99,8 @@ public struct ToolVersion: Comparable, CustomStringConvertible, Sendable {
 }
 
 /// A distribution tool the daemon runs: where it may be, which version it needs and how its version
-/// is read. OpenVPN only so far; openfortivpn (1.21, `/usr/bin/openfortivpn`) and pppd
-/// (`/usr/sbin/pppd`, checked, run by openfortivpn) follow with FortiGate support.
+/// is read. pppd is not run by the daemon but by openfortivpn (from the path compiled into it), so it
+/// is checked the same way before every FortiGate start.
 public struct ToolSpec {
     public let name: String
     /// Fixed paths; the first that exists is used.
@@ -114,11 +114,31 @@ public struct ToolSpec {
         name: "OpenVPN", candidates: ["/usr/sbin/openvpn", "/usr/bin/openvpn"], minimum: ToolVersion(2, 6, 0),
         package: "openvpn", versionArguments: ["--version"], parseVersion: ToolSpec.openVPNVersion)
 
+    public static let openfortivpn = ToolSpec(
+        name: "openfortivpn", candidates: ["/usr/bin/openfortivpn"], minimum: ToolVersion(1, 21, 0),
+        package: "openfortivpn", versionArguments: ["--version"], parseVersion: ToolSpec.firstVersion)
+
+    public static let pppd = ToolSpec(
+        name: "pppd", candidates: ["/usr/sbin/pppd"], minimum: ToolVersion(2, 4, 7),
+        package: "ppp", versionArguments: ["--version"], parseVersion: ToolSpec.firstVersion)
+
     /// The version on the first line of `openvpn --version`: "OpenVPN 2.6.9 x86_64-pc-linux-gnu […]".
     public static func openVPNVersion(_ output: String) -> ToolVersion? {
         for line in output.split(separator: "\n", omittingEmptySubsequences: true) {
             let words = line.split(separator: " ", omittingEmptySubsequences: true)
             if words.count >= 2, words[0] == "OpenVPN" { return ToolVersion(parsing: words[1]) }
+        }
+        return nil
+    }
+
+    /// The first word that is a version: `openfortivpn --version` prints "1.21.0" (or "v1.22.1-3-g…"
+    /// from a git build), `pppd --version` "pppd version 2.4.9".
+    public static func firstVersion(_ output: String) -> ToolVersion? {
+        for line in output.split(separator: "\n", omittingEmptySubsequences: true) {
+            for word in line.split(separator: " ", omittingEmptySubsequences: true) {
+                let text = word.hasPrefix("v") ? word.dropFirst() : word
+                if text.first?.isNumber == true, let version = ToolVersion(parsing: text) { return version }
+            }
         }
         return nil
     }
@@ -140,6 +160,8 @@ public enum ToolFailure: Error, Equatable, CustomStringConvertible {
     case untrusted(name: String, path: String, reason: String)
     case unknownVersion(name: String, path: String)
     case tooOld(name: String, version: ToolVersion, minimum: ToolVersion, package: String)
+    case noCABundle(candidates: [String])
+    case untrustedCABundle(path: String, reason: String)
 
     public var description: String {
         switch self {
@@ -152,6 +174,11 @@ public enum ToolFailure: Error, Equatable, CustomStringConvertible {
             return "Could not tell the version of \(name) at \(path)."
         case .tooOld(let name, let version, let minimum, let package):
             return "\(name) \(version) is too old: PassTunnel needs \(minimum) or later. Update the \(package) package."
+        case .noCABundle(let candidates):
+            return "No CA bundle to verify the gateway with (none of \(candidates.joined(separator: ", ")) exists). "
+                + "Install the distribution's ca-certificates package."
+        case .untrustedCABundle(let path, let reason):
+            return "Refusing to use the CA bundle \(path): \(reason)"
         }
     }
 }
@@ -159,23 +186,49 @@ public enum ToolFailure: Error, Equatable, CustomStringConvertible {
 /// Finds and checks a tool before every start; replaced in tests.
 public protocol ToolResolving {
     func resolve(_ spec: ToolSpec) throws -> ResolvedTool
+    /// The CA bundle openfortivpn verifies the gateway with: its real path, checked like a tool's.
+    func caBundle() throws -> String
 }
 
 /// The system's tools: the first existing candidate, resolved with `realpath` once, then that real
 /// path checked (`TrustedPath`) and the version read by running it with the fixed environment.
 public struct SystemTools: ToolResolving {
+    /// Where distributions keep the CA bundle (Debian and Ubuntu, Fedora and RHEL, others); the first
+    /// that exists is used (docs/LINUX.md).
+    public static let caBundles = ["/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt",
+                                   "/etc/ssl/cert.pem"]
+
     public var owner: uid_t
     public var base: String
+    public var caBundles: [String]
     /// Runs the tool for its version output; replaced in tests.
     public var versionOutput: (String, [String]) -> String?
 
-    public init(owner: uid_t = 0, base: String = "/",
+    public init(owner: uid_t = 0, base: String = "/", caBundles: [String] = SystemTools.caBundles,
                 versionOutput: @escaping (String, [String]) -> String? = { path, args in
                     ToolRunner.output(of: path, arguments: args)
                 }) {
         self.owner = owner
         self.base = base
+        self.caBundles = caBundles
         self.versionOutput = versionOutput
+    }
+
+    /// The first existing candidate, resolved, then checked as a tool is: only root can have changed
+    /// what openfortivpn (root) trusts.
+    public func caBundle() throws -> String {
+        guard let candidate = caBundles.first(where: { access($0, F_OK) == 0 }) else {
+            throw ToolFailure.noCABundle(candidates: caBundles)
+        }
+        guard let real = HelperCore.realPath(candidate) else {
+            throw ToolFailure.untrustedCABundle(path: candidate, reason: "its path cannot be resolved.")
+        }
+        do {
+            try TrustedPath.check(real, owner: owner, base: base)
+        } catch {
+            throw ToolFailure.untrustedCABundle(path: real, reason: String(describing: error))
+        }
+        return real
     }
 
     public func resolve(_ spec: ToolSpec) throws -> ResolvedTool {
