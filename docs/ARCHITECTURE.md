@@ -44,8 +44,8 @@ A bundle without `dns-updown` pins an empty set for it, so the helper refuses an
 | `PassTunnelHelper` | `main.swift` XPC listener, process supervision | Shared (and through it VPNConfig) |
 | `PassTunnel` | SwiftUI app, menu bar, onboarding, updates (`AppUpdater`); CLI mode runs `PassTunnelCLI` | CLI, Core, Kit, VPNConfig, Shared, Sparkle |
 | `PassTunnelCommand` | Linux only: the `passtunnel` executable (product `passtunnel`), `PassTunnelCLI.run` | CLI |
-| `PassTunnelDaemon` | Linux only: the root daemon's logic ([LINUX.md](LINUX.md)): `Daemon` (socket, systemd activation, one request per connection), `DaemonCall` (the line protocol), `Access` + `UserDatabase` (root and the group `passtunnel`), `TrustedPath` + `SystemTools` (fixed tool paths, ownership and version checks), `Supervisor` (spawn, stop, exit), `PreviousInstance` | Shared, VPNConfig |
-| `PassTunnelDaemonCommand` | Linux only: the `passtunneld` executable (product `passtunneld`) | Daemon, Shared |
+| `PassTunnelDaemon` | Linux only: the root daemon's logic ([LINUX.md](LINUX.md)): `Daemon` (socket, systemd activation, one request per connection), `DaemonCall` (the line protocol), `Access` + `UserDatabase` (root and the group `passtunnel`), `TrustedPath` + `SystemTools` (fixed tool paths, ownership and version checks), `Supervisor` (spawn, stop, exit), `PreviousInstance`; DNS: `DNSSettings` (checked servers and domains), `DNSApplier` + `DNSRecord` + `ResolvConf` (systemd-resolved, resolvconf or /etc/resolv.conf, recorded per session and reverted), `OpenVPNDNS` + `DNSHook` (`passtunneld dns-hook`) | Shared, VPNConfig |
+| `PassTunnelDaemonCommand` | Linux only: the `passtunneld` executable (product `passtunneld`), also OpenVPN's DNS hook (`dns-hook`) | Daemon, Shared |
 
 The library product `PassTunnelKit` (targets `PassTunnelKit` and `PassTunnelVPNConfig`) is what the
 iPhone app uses ([MOBILE.md](MOBILE.md)); `xcodebuild -scheme PassTunnelKit -destination
@@ -63,7 +63,8 @@ the dependencies are declared on every platform). Like `PassTunnelHelper`, the d
 Shared and VPNConfig only; its logic is a library so that the tests run it with injected run root,
 home, user database and tools. The CI jobs `Linux (x86_64)` and `Linux (aarch64)` build them, run
 the tests that build there (golden cases included) in the official Swift container, and smoke-test
-the `passtunnel` binary and, as root, `passtunneld` (with the distribution's openvpn, no tunnel).
+the `passtunnel` binary and, as root, `passtunneld` (with the distribution's openvpn, no tunnel) and
+its DNS hook (on the container's resolv.conf).
 There `Crypto` from swift-crypto takes the place of CryptoKit
 (the same API, so codes and `ptse1:` envelopes are the same), `PTError.keychain` shows the bare
 `OSStatus`, and `String(localized:)` is an English-only stand-in (Kit's `Localization.swift`,
@@ -105,8 +106,9 @@ The platform seams (Linux code stays in the same files behind `#if`; the Mac's b
   `SystemHelperInspector` reports `not_installed` without the socket, else `enabled`, and from
   `hello` whether the daemon answers and is the build installed with the running `passtunnel`
   (`HelperBuild.installedDaemon`).
-  `HelperCore.fixedEnvironment` is `PATH` and `LC_ALL` only on Linux, and `openVPNHasDNSUpdown`
-  leaves `--dns-updown` out for OpenVPN 2.6.
+  `HelperCore.fixedEnvironment` is `PATH` and `LC_ALL` only on Linux. There `HelperCore.dnsHook` (the
+  daemon's own executable) is linked into the session directory as `dns-hook`, which OpenVPN runs as
+  `--dns-updown` (2.7) or, where `openVPNHasDNSUpdown` is false (2.6), as `--route-up` and `--down`.
 - **Routes.** `RoutingTable.trafficRoutes` is the IPv4 table (`ipv4Routes`, `sysctl`) on the Mac and,
   on Linux, the IPv4 and IPv6 routes of the tables the policy rules send ordinary traffic to, from
   rtnetlink dumps of the links, routes and rules (`Netlink`: the messages are parsed, and the rules
@@ -125,7 +127,7 @@ The platform seams (Linux code stays in the same files behind `#if`; the Mac's b
   `HelperSessions.currentProcesses`, `RoutingTable.ipv4Routes` and `parse`, `ConfirmationWording`, and in Shared
   `CodeSignature`, `Spawner`, `ToolStager`, the XPC protocol and `HelperCore`'s `F_GETPATH` (Linux
   reads the `/proc/self/fd` link instead) and `fcopyfile` (only for the Mac's bundled DNS script;
-  the Linux daemon will be its own hook). On Linux `SessionDirectory.restrictSocket` sets the
+  the Linux daemon is its own hook). On Linux `SessionDirectory.restrictSocket` sets the
   socket's mode before handing it over. The CLI's macOS parts (the app
   hand-offs, `helper install`/`uninstall`, the concealed pasteboard) are under `#if` as well; on Linux
   `helper install`/`uninstall` fail with `invalid_argument` (the package installs the daemon), and

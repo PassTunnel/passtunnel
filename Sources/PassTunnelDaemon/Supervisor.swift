@@ -3,8 +3,9 @@ import PassTunnelShared
 
 /// Starts, tracks and stops the VPN tools, as the Mac's helper does; all state is confined to `queue`.
 /// Sessions are keyed by (owner uid, profile ID) (`SessionPolicy`). Each child has a thread of its own
-/// that waits for it to exit. There is no adoption: tools recorded by an earlier instance are stopped
-/// when the daemon starts (`stopPreviousInstance`).
+/// that waits for it to exit; then the DNS its session recorded is reverted (normally its hook has done
+/// that already) and the session directory removed. There is no adoption: tools recorded by an earlier
+/// instance are stopped when the daemon starts (`PreviousInstance`).
 final class Supervisor {
     typealias Key = SessionPolicy.Key
 
@@ -28,6 +29,8 @@ final class Supervisor {
     let queue = DispatchQueue(label: "passtunneld.supervisor")
     private let core: HelperCore
     private let tools: ToolResolving
+    /// Reverts what a session's DNS hook left (`DNSApplier`); FortiGate sessions will apply through it too.
+    let dns: DNSApplier
     private let stopGrace: TimeInterval
     private var jobs: [Key: Job] = [:]
     private var logTimer: DispatchSourceTimer?
@@ -38,9 +41,10 @@ final class Supervisor {
         }
     }
 
-    init(core: HelperCore, tools: ToolResolving, stopGrace: TimeInterval = 5) {
+    init(core: HelperCore, tools: ToolResolving, dns: DNSApplier, stopGrace: TimeInterval = 5) {
         self.core = core
         self.tools = tools
+        self.dns = dns
         self.stopGrace = stopGrace
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + Self.logCheckInterval, repeating: Self.logCheckInterval)
@@ -88,7 +92,7 @@ final class Supervisor {
         do {
             tool = try tools.resolve(.openvpn)
             var core = self.core
-            // DNS is left alone for now: `--dns-updown disable` where OpenVPN knows it (2.7), nothing on 2.6.
+            // The DNS hook as `--dns-updown` where OpenVPN knows it (2.7), else as `--route-up` and `--down`.
             core.openVPNHasDNSUpdown = tool.version >= ToolVersion(2, 7, 0)
             plan = try core.prepareOpenVPN(s, uid: uid)
         } catch {
@@ -164,8 +168,16 @@ final class Supervisor {
         queue.sync {
             for job in jobs.values {
                 kill(-job.pid, SIGKILL)
+                revertDNS(job)
                 core.removeRunDir(profileID: job.profileID, uid: job.ownerUID)
             }
+        }
+    }
+
+    /// What the session's DNS hook recorded and did not revert itself (the tool was killed, or died).
+    private func revertDNS(_ job: Job) {
+        if let message = dns.revert(in: job.sessionDir) {
+            DaemonLog.info("\(job.profileID) of uid \(job.ownerUID): \(message)")
         }
     }
 
@@ -191,6 +203,7 @@ final class Supervisor {
         while waitpid(pid, &status, 0) == -1, errno == EINTR {}
         close(job.logFD)
         jobs[key] = nil
+        revertDNS(job)
         core.removeRunDir(profileID: job.profileID, uid: job.ownerUID)   // config, auth file, socket, state
         DaemonLog.info("\(job.profileID) of uid \(job.ownerUID) exited (pid \(pid), status \(status))")
         job.waiters.forEach { $0() }

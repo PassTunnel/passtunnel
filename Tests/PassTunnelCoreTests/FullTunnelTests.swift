@@ -687,7 +687,15 @@ final class FullTunnelTests: XCTestCase {
     }
 
     func testLinuxDNSHookFailure() {
-        // OpenVPN 2.6 runs the daemon's hook as --up; 2.7 as --dns-updown (the Mac's lines).
+        // OpenVPN 2.6 runs the daemon's hook as --route-up and --down; 2.7 as --dns-updown (the Mac's
+        // lines). The hook says "setting DNS failed" first, unless it could not run at all.
+        let hook = "passtunneld dns-hook: setting DNS failed: invalid DNS server “192.0.2.1;x”"
+        let routeUp = "WARNING: Failed running command (--route-up): external program exited with error status: 1"
+        XCTAssertEqual(VPNLog.setupProblem(Self.linuxOpenVPNLog + hook + "\n2026-01-01 10:00:01 " + routeUp + "\n"),
+                       VPNLog.SetupProblem(reason: hook, allTraffic: true))
+        XCTAssertFalse(VPNLog.isFatal(Self.linuxOpenVPNLog + hook + "\n"))
+        XCTAssertEqual(VPNLog.setupProblem(Self.linuxOpenVPNLog + "2026-01-01 10:00:01 " + routeUp + "\n"),
+                       VPNLog.SetupProblem(reason: routeUp, allTraffic: true))
         let up = "2026-01-01 10:00:01 WARNING: Failed running command (--up/--down): external program exited with error status: 1\n"
         XCTAssertEqual(VPNLog.setupProblem(Self.linuxOpenVPNLog + up), VPNLog.SetupProblem(
             reason: "WARNING: Failed running command (--up/--down): external program exited with error status: 1", allTraffic: true))

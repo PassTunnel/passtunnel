@@ -23,16 +23,20 @@ RestartSec=2
 # The tools configure interfaces, routes and sockets (NET_ADMIN, NET_RAW) and may change user
 # (SETUID, SETGID); the daemon hands the log and the management socket to the user (CHOWN), works in
 # the user's profile directory (DAC_OVERRIDE) and stops the tools (KILL). It sets the management
-# socket's mode while root still owns it, so CAP_FOWNER is not needed.
+# socket's mode while root still owns it, so CAP_FOWNER is not needed. The DNS hook, which OpenVPN
+# runs inside this unit, is let through by systemd-resolved for NET_ADMIN.
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_SETUID CAP_SETGID CAP_CHOWN CAP_DAC_OVERRIDE CAP_KILL
 # The tun device for OpenVPN, /dev/ppp for openfortivpn's pppd (FortiGate, still to come); besides
 # these only the standard pseudo devices (/dev/null, /dev/urandom, /dev/ptmx, …).
 DevicePolicy=closed
 DeviceAllow=/dev/net/tun rw
 DeviceAllow=/dev/ppp rw
-# The file system read-only but for the run root. DNS (still to come) adds what it writes.
+# The file system read-only but for the run root and what the DNS hook writes: /etc, where it
+# replaces /etc/resolv.conf by renaming a file written next to it (which needs the directory, and
+# openresolv writes the file itself), and resolvconf's records in /run/resolvconf (when it is
+# installed). Where systemd-resolved manages DNS neither is written: it is told over D-Bus.
 ProtectSystem=strict
-ReadWritePaths=/run/passtunnel
+ReadWritePaths=/run/passtunnel /etc -/run/resolvconf
 PrivateTmp=yes
 
 # Not set, on purpose:

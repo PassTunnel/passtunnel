@@ -5,6 +5,13 @@ import PassTunnelShared
 // passtunneld, the root daemon of PassTunnel on Linux (docs/LINUX.md), started by systemd through
 // passtunnel.socket, or by hand (containers, development) with a socket of its own.
 
+// Also OpenVPN's DNS hook (`passtunneld dns-hook`, run through the session directory's `dns-hook`
+// link): that mode only sets up or reverts one session's DNS and exits, before anything of the daemon.
+if DNSHook.isInvocation(CommandLine.arguments) {
+    umask(0o077)
+    exit(DNSHook.main(environment: ProcessInfo.processInfo.environment))
+}
+
 // Before any other thread exists, so that every thread inherits it: the stop signals are taken
 // only by `sigwait` at the end. The tools get an empty mask and default actions (`Sys.spawn`).
 var stopSignals = sigset_t()
@@ -20,7 +27,8 @@ func fail(_ message: String, code: Int32 = 1) -> Never {
 }
 
 if CommandLine.arguments.count > 1 {
-    fail("passtunneld takes no arguments; systemd starts it through passtunnel.socket.", code: 2)
+    fail("passtunneld takes no arguments (but dns-hook, which OpenVPN runs); systemd starts it through passtunnel.socket.",
+         code: 2)
 }
 if geteuid() != 0 { fail("passtunneld must run as root.") }
 

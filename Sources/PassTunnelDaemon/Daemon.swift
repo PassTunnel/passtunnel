@@ -12,6 +12,11 @@ public final class Daemon {
         /// The daemon's own executable, which must be a `TrustedPath` (part of trusting the DNS hook it
         /// will serve as). Nil only in tests.
         public var ownExecutable: String? = "/proc/self/exe"
+        /// What OpenVPN runs as its DNS hook: the real path of `ownExecutable` unless set (tests); none
+        /// without either.
+        public var dnsHook: String?
+        /// Where DNS is changed and reverted (`DNSApplier`); a fake root in tests.
+        public var dns = DNSSystem()
         /// `hello`'s `build`: hex SHA-256 of the executable (`HelperBuild.digest`).
         public var build = "unknown"
         /// `hello`'s `build_number` and every reply's `helper_build`; none in development builds.
@@ -61,13 +66,15 @@ public final class Daemon {
     public var socketPath: String { PT.daemonSocketPath(runRoot: options.runRoot) }
 
     /// Checks the executable, takes the run root (root-owned, 0711) and its lock, and stops whatever
-    /// an earlier instance left running.
+    /// an earlier instance left running, reverting the DNS it set up.
     public init(options: Options) throws {
+        var hook = options.dnsHook
         if let own = options.ownExecutable {
             guard let real = HelperCore.realPath(own) else {
                 throw Failure.untrustedExecutable(own, "its path cannot be resolved.")
             }
             do { try TrustedPath.check(real) } catch { throw Failure.untrustedExecutable(real, String(describing: error)) }
+            hook = hook ?? real
         }
         try HelperCore.ensureRootOwnedDir(options.runRoot)
         let lockPath = options.runRoot + "/" + Self.lockName
@@ -79,11 +86,13 @@ public final class Daemon {
         }
         lockFD = fd
         self.options = options
+        let dns = DNSApplier(system: options.dns, runRoot: options.runRoot)
         PreviousInstance.cleanUp(runRoot: options.runRoot, keep: [PT.daemonSocketName, Self.lockName],
-                                 grace: options.stopGrace)
-        let core = HelperCore(runRoot: options.runRoot, dnsUpdownSource: nil,
+                                 grace: options.stopGrace, dns: dns)
+        var core = HelperCore(runRoot: options.runRoot, dnsUpdownSource: nil,
                               homeDirectory: options.users.home, userName: options.users.name)
-        supervisor = Supervisor(core: core, tools: options.tools, stopGrace: options.stopGrace)
+        core.dnsHook = hook
+        supervisor = Supervisor(core: core, tools: options.tools, dns: dns, stopGrace: options.stopGrace)
     }
 
     deinit {

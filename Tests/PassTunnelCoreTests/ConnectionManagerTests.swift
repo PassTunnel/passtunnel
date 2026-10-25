@@ -993,6 +993,52 @@ final class ConnectionManagerTests: XCTestCase {
         XCTAssertNotNil(m.lastError[p.id])
     }
 
+    /// Linux: passtunneld's DNS hook fails the same way on OpenVPN 2.6, which runs it as --route-up
+    /// (unlike --up, a failure there does not make OpenVPN exit, so nothing fatal comes first), and
+    /// on 2.7 (--dns-updown).
+    func testFailedLinuxDNSHookIsSetupFailed() async throws {
+        let hook = "passtunneld dns-hook: setting DNS failed: invalid DNS server “192.0.2.1;x”"
+        let logs = [
+            """
+            2026-01-01 10:00:00 OpenVPN 2.6.9 x86_64-pc-linux-gnu [SSL (OpenSSL)] [LZO] [LZ4] [EPOLL] [PKCS11] [MH/PKTINFO] [AEAD] [DCO]
+            2026-01-01 10:00:01 PUSH: Received control message: 'PUSH_REPLY,redirect-gateway def1,dhcp-option DNS 192.0.2.1;x,route-gateway 10.8.0.1,topology subnet,ifconfig 10.8.0.6 255.255.255.0'
+            2026-01-01 10:00:01 TUN/TAP device tun0 opened
+            2026-01-01 10:00:01 net_addr_v4_add: 10.8.0.6/24 dev tun0
+            2026-01-01 10:00:01 net_route_v4_add: 0.0.0.0/1 via 10.8.0.1 dev [NULL] table 0 metric -1
+            2026-01-01 10:00:01 net_route_v4_add: 128.0.0.0/1 via 10.8.0.1 dev [NULL] table 0 metric -1
+            \(hook)
+            2026-01-01 10:00:01 WARNING: Failed running command (--route-up): external program exited with error status: 1
+            2026-01-01 10:00:01 Initialization Sequence Completed
+
+            """,
+            """
+            2026-01-01 10:00:00 OpenVPN 2.7.1 x86_64-pc-linux-gnu [SSL (OpenSSL)] [LZO] [LZ4] [EPOLL] [PKCS11] [MH/PKTINFO] [AEAD] [DCO]
+            2026-01-01 10:00:01 TUN/TAP device tun0 opened
+            2026-01-01 10:00:01 net_addr_v4_add: 10.8.0.6/24 dev tun0
+            2026-01-01 10:00:01 /run/passtunnel/1000/openvpn/dns-hook
+            \(hook)
+            2026-01-01 10:00:01 WARNING: Failed running command (dns updown): external program exited with error status: 1
+            2026-01-01 10:00:01 dns up command exited with status 1
+            2026-01-01 10:00:01 Initialization Sequence Completed
+
+            """,
+        ]
+        for (name, log) in zip(["OpenVPN 2.6", "OpenVPN 2.7"], logs) {
+            XCTAssertFalse(VPNLog.isFatal(log), name)
+            helper.startLog = log
+            let p = try makeOpenVPN(name)
+            let m = makeManager()
+            do {
+                try await m.connect(p.id)
+                XCTFail("reported connected: \(name)")
+            } catch {
+                XCTAssertEqual(error as? PTError, .setupFailed(reason: hook, log: VPNLog.tail(log)), name)
+            }
+            XCTAssertEqual(helper.stops.filter { $0 == p.id }, [p.id], name)
+            XCTAssertEqual(m.state(p.id), .disconnected, name)
+        }
+    }
+
     func testFailedAllTrafficRouteIsAnError() async throws {
         let p = try makeOpenVPN()
         helper.startLog = """
