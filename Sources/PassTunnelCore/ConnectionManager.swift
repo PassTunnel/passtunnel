@@ -39,6 +39,12 @@ public struct ReconnectInfo: Equatable, Sendable {
     public var attempt: Int                    // 1-based
     public var maxAttempts: Int
     public var at: Date                        // when the attempt starts
+
+    public init(attempt: Int, maxAttempts: Int, at: Date) {
+        self.attempt = attempt
+        self.maxAttempts = maxAttempts
+        self.at = at
+    }
 }
 
 /// Things worth telling the user about. The manager never posts notifications itself; the app maps

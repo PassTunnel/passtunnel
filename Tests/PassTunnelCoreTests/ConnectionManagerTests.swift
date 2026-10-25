@@ -265,6 +265,24 @@ final class FakeClock: ConnectionClock, @unchecked Sendable {
     }
 }
 
+/// A `FakeClock` that, each time something sleeps, takes `look` on the main actor while the sleeper waits.
+final class WatchingClock: ConnectionClock, @unchecked Sendable {
+    let base: FakeClock
+    @MainActor var look: (() -> DisplayStatus)?
+    @MainActor private(set) var seen: [DisplayStatus] = []
+
+    init(_ base: FakeClock) { self.base = base }
+
+    func now() -> Date { base.now() }
+
+    func sleep(_ seconds: TimeInterval) async throws {
+        await MainActor.run {
+            if let look { seen.append(look()) }
+        }
+        try await base.sleep(seconds)
+    }
+}
+
 // MARK: - Tests
 
 @MainActor
@@ -1171,6 +1189,63 @@ final class ConnectionManagerTests: XCTestCase {
         XCTAssertEqual(helper.starts.count, 1)
         try await m.disconnect(p.id)
         XCTAssertNil(m.health[p.id])
+    }
+
+    // MARK: the status the redesigned views show (DisplayStatus)
+
+    private func displayStatus(_ p: Profile, _ m: ConnectionManager) -> DisplayStatus {
+        DisplayStatus(DisplayStatus.Facts(p, in: m))
+    }
+
+    func testDisplayStatusThroughAConnect() async throws {
+        let p = try makeOpenVPN(otp: .totp)
+        let watching = WatchingClock(FakeClock(t0.addingTimeInterval(7)))   // 3 s left: waits for the next code
+        let m = makeManager(clock: watching)
+        watching.look = { [unowned m] in self.displayStatus(p, m) }
+        XCTAssertEqual(displayStatus(p, m), .off)
+
+        try await m.connect(p.id)
+        XCTAssertEqual(watching.seen.first, .waitingForCode(until: t0.addingTimeInterval(10.25)))
+        guard case .connected(let c) = displayStatus(p, m) else { return XCTFail("\(displayStatus(p, m))") }
+        XCTAssertEqual(c.address, "10.8.0.6")
+        XCTAssertNotNil(c.since)
+
+        try await m.disconnect(p.id)
+        XCTAssertEqual(displayStatus(p, m), .off)
+    }
+
+    func testDisplayStatusThroughADropAndAReconnectThatGivesUp() async throws {
+        let p = try makeOpenVPN(otp: .totp, autoReconnect: true)
+        let m = makeManager()
+        try await m.connect(p.id)
+        helper.failStarts = 99
+        helper.simulateExit(p.id)
+        await m.refresh()
+        let pending = try XCTUnwrap(m.reconnecting[p.id])
+        XCTAssertEqual(pending.attempt, 1)
+        XCTAssertEqual(displayStatus(p, m), .reconnecting(pending, freshCode: true))
+
+        await waitUntil { self.events.count == 2 }
+        guard case .failed(.message(let reason)) = displayStatus(p, m) else { return XCTFail("\(displayStatus(p, m))") }
+        XCTAssertTrue(reason.contains("boom"), reason)
+    }
+
+    func testDisplayStatusOfAConnectionWithProblems() async throws {
+        let p = try makeOpenVPN(healthHost: "10.0.0.5:443")
+        helper.startLog = """
+        2026-01-01 10:00:00 /sbin/route add -net 203.0.113.5 192.168.1.1 255.255.255.255
+        add net 203.0.113.5: gateway 192.168.1.1: File exists
+
+        """
+        let m = makeManager()
+        try await m.connect(p.id)
+        guard case .setupIncomplete(_, let warning) = displayStatus(p, m) else { return XCTFail("\(displayStatus(p, m))") }
+        XCTAssertEqual(warning, m.warnings[p.id])
+
+        healthResults = [false, false]
+        await m.runHealthChecks()
+        await m.runHealthChecks()
+        guard case .notResponding = displayStatus(p, m) else { return XCTFail("\(displayStatus(p, m))") }
     }
 
     // MARK: session limit / wake
