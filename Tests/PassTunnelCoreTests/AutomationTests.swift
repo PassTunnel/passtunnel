@@ -762,7 +762,9 @@ final class MCPServerTests: XCTestCase {
         XCTAssertEqual(report["version"] as? String, "9.9.9")
         XCTAssertEqual(report["in_applications"] as? Bool, true)
         XCTAssertEqual((report["helper"] as? [String: Any])?["outdated"] as? Bool, true)
-        XCTAssertEqual(report["network"] as? [String: AnyHashable], ["online": true, "interface": "wifi"])
+        let network = report["network"] as? [String: Any]
+        XCTAssertEqual(network?["online"] as? Bool, true)
+        XCTAssertEqual(network?["interface"] as? String, "wifi")
         let checks = try XCTUnwrap(report["profiles"] as? [[String: Any]])
         let byID = Dictionary(uniqueKeysWithValues: checks.map { ($0["id"] as! String, $0) })
         XCTAssertEqual(byID["acme"]?["ok"] as? Bool, true)
