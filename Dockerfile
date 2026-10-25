@@ -20,7 +20,7 @@ RUN swift build -c release --static-swift-stdlib --product passtunnel \
 
 # ubuntu:24.04, the release the build image is based on (the same glibc and libstdc++), pinned by the
 # digest of its multi-arch index. The Swift runtime is linked into the binary.
-FROM ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac
+FROM ubuntu:26.04@sha256:c098726dd9b9733f3e885f8de0ef375206a311b0a317eadc40d347b1115fb944
 RUN groupadd --gid 10001 mcp \
     && useradd --uid 10001 --gid 10001 --create-home --shell /usr/sbin/nologin mcp
 COPY --from=build /out/passtunnel /usr/local/bin/passtunnel
