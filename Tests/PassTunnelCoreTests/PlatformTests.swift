@@ -187,6 +187,7 @@ final class SecretStoreTests: CoreTestCase {
         let manager = ConnectionManager(store: store, helper: noDaemon, routes: { [] })
         let automation = AutomationService(store: store, manager: manager)
         let report = await automation.diagnose()
+        XCTAssertNotNil(report.network?.online, "the routes and links were read")
         XCTAssertEqual(report.secretStore?.name, "file")
         XCTAssertEqual(report.secretStore?.available, false)
         XCTAssertEqual(report.secretStore?.chosenBy, "environment")

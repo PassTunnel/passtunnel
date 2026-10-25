@@ -211,6 +211,15 @@ final class CLIRunner {
                 if let warning = manager.warnings[p.id] { text += "  " + CLITerminal.colored(warning, palette.color(.connecting)) }
             }
             if let error = manager.lastError[p.id], tone == .disconnected { text += "  " + error }
+            // The app tries a server that did not answer again.
+            if tone == .disconnected, let retry = manager.unreachableRetry(p.id) {
+                if let next = retry.nextTryAt {
+                    let seconds = max(0, Int(next.timeIntervalSinceNow.rounded(.up)))
+                    text += "  " + CLITerminal.dim(String(localized: "no answer, next try in \(seconds) s"))
+                } else if retry.waitingForNetwork {
+                    text += "  " + CLITerminal.dim(String(localized: "no answer, next try when the network is back"))
+                }
+            }
             let mark = p.id == def ? "*" : " "
             let dot = CLITerminal.colored("●", palette.color(tone))
             CLITerminal.out("\(mark) \(dot) " + p.id.padding(toLength: idWidth + 2, withPad: " ", startingAt: 0)
@@ -1122,6 +1131,7 @@ final class CLIRunner {
         }
         #endif
         helperLines(report.helper).forEach { CLITerminal.out($0) }
+        if let network = report.network { CLITerminal.out(String(localized: "Network: \(network.summary)")) }
         if let secrets = report.secretStore {
             CLITerminal.out(String(localized: "Secret store: \(secrets.name)"))
             if !secrets.available, let error = secrets.error { CLITerminal.out("  " + String(localized: "It cannot be used here: \(error)")) }

@@ -137,7 +137,9 @@ FortiGate, stop, and status. It enforces the following rules on every request.
   `--verb` (the configuration's `verb`, at most 4; 3 when it sets none), `--auth-nocache`,
   `--remap-usr1 SIGTERM`, `--connect-retry-max 3`, and explicit `--script-security`/`--dns-updown`
   settings. The cap keeps OpenVPN's debug levels (from 5 every packet, from 7 the data-channel keys,
-  from 9 packet contents) out of the log, which you, the app and `get_logs` can read.
+  from 9 packet contents) out of the log, which you, the app and `get_logs` can read. Only
+  `--server-poll-timeout 10` (how long a server that does not answer is waited for) comes before
+  `--config`, as a default the configuration may change.
 - **Management over a per-user unix socket.** The management interface is a unix socket in the
   session's root-owned run directory, not a TCP port. OpenVPN only serves the user named in
   `--management-client-user` (peer credential check). Once the socket exists, the helper also

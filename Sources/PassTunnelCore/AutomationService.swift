@@ -12,17 +12,20 @@ public final class AutomationService {
     public let manager: ConnectionManager
     public let helperInspector: HelperInspecting
     public let appInfo: AppInfo
+    /// The network path for `diagnose`; read once per call, nothing is contacted.
+    private let network: () async -> NetworkStatus
 
     /// Most lines `logs` returns, and the longest line it keeps.
     public static let maxLogLines = 500
     static let maxLogLineLength = 2000
 
     public init(store: ProfileStore, manager: ConnectionManager, helperInspector: HelperInspecting = SystemHelperInspector(),
-                appInfo: AppInfo = .current) {
+                appInfo: AppInfo = .current, network: @escaping () async -> NetworkStatus = { await NetworkPath.current() }) {
         self.store = store
         self.manager = manager
         self.helperInspector = helperInspector
         self.appInfo = appInfo
+        self.network = network
     }
 
     // MARK: profiles and state
@@ -45,6 +48,10 @@ public final class AutomationService {
                               isDefault: store.defaultID == p.id, protected: ProfileSummary.isProtected(p),
                               autoReconnect: p.autoReconnect, error: m.lastError[p.id],
                               failure: m.failures[p.id].map { Self.redacted($0, id: p.id) })
+        if !m.state(p.id).isConnected, let retry = m.unreachableRetry(p.id) {
+            s.nextTryAt = retry.nextTryAt
+            s.tries = retry.tries
+        }
         switch m.state(p.id) {
         case .disconnected: break
         case .connecting(let phase): s.state = "connecting"; s.phase = phase
@@ -248,7 +255,8 @@ public final class AutomationService {
         let helper = await helperInspector.report()
         var report = DiagnoseReport(version: appInfo.version, build: appInfo.build, appPath: appInfo.appPath,
                                     inApplications: appInfo.inApplications, helper: helper,
-                                    profiles: store.list().map(check), secretStore: await Self.secretStoreReport())
+                                    profiles: store.list().map(check), secretStore: await Self.secretStoreReport(),
+                                    network: await network())
         if checkClock {
             do { report.clock = try await manager.checkClock() } catch { report.clockError = error.localizedDescription }
         }

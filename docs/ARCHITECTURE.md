@@ -39,7 +39,7 @@ A bundle without `dns-updown` pins an empty set for it, so the helper refuses an
 | `PassTunnelVPNConfig` | `OVPNSanitizer`, `FortiConfig`: the configurations the helper runs as root | — |
 | `PassTunnelKit` | the portable logic (Foundation, CryptoKit and Security only; builds for macOS 13, iOS 17 and Linux): model, `PTError`, `JSONCoding`, `TOTP`, `OTPAuthURI`, `OTPComposer`, `OVPNAnalyzer`, `OVPNInliner`, `OVPNSkipRules`, `OVPNImportReport`, `ShareFile`, `Slug`, `ProfileFields`, `ProfileMerge`, `SecretEnvelope`, `HealthCheck` (parsing), `ClockOffset` (clock offset, HTTP dates) | VPNConfig (and swift-crypto on Linux) |
 | `PassTunnelShared` | XPC protocol, request/response types, `HelperCore` (request decoding, path checks, tool environment), `SessionPolicy`, `CodeSignature`, `Spawner` (verified, suspended launch), `PinnedTools`, `ToolStager` (root-owned copy of the tools and their dylibs), `HelperBuild`, identifiers | VPNConfig (and swift-crypto on Linux) |
-| `PassTunnelCore` | `ProfileStore` + `ImportDraft`, `ProfilesWatcher`, `Secrets` + `SecretStore` (Keychain; on Linux `SecretStores`: secret-service, systemd-creds, file), `SecretVault` + `UserAuthenticator` (Secure Enclave protection), `Preferences`, `HealthCheck.check` (the probe), `QRDecoder`, `OpenedFiles` (files the app is asked to open), `ScannedCodeTarget` (where a scanned code goes), `TLSFingerprint`, `ServerClock` + `SNTP` (clock checks), `HelperClient`, `HelperAutoUpdate`, `ConnectionManager` + `ProfileDestination`, `ConnectionFailure`, `ActivityLog` + `ActivityEvent`, `LoginConnector` (connect at login), CLI parsing (`CLICommand`, `CLIInvocation`), automation objects + `AutomationService`, `MCPServer` + `MCPTools` + `JSONValue` | Kit, VPNConfig, Shared (and swift-crypto's Crypto and CryptoExtras on Linux) |
+| `PassTunnelCore` | `ProfileStore` + `ImportDraft`, `ProfilesWatcher`, `Secrets` + `SecretStore` (Keychain; on Linux `SecretStores`: secret-service, systemd-creds, file), `SecretVault` + `UserAuthenticator` (Secure Enclave protection), `Preferences`, `HealthCheck.check` (the probe), `QRDecoder`, `OpenedFiles` (files the app is asked to open), `ScannedCodeTarget` (where a scanned code goes), `TLSFingerprint`, `ServerClock` + `SNTP` (clock checks), `HelperClient`, `HelperAutoUpdate`, `ConnectionManager` + `ProfileDestination`, `ConnectionFailure`, `UnreachableRetry`, `FailureDetails` ("Copy details"), `NetworkPath` + `NetworkStatus`, `ActivityLog` + `ActivityEvent`, `LoginConnector` (connect at login), CLI parsing (`CLICommand`, `CLIInvocation`), automation objects + `AutomationService`, `MCPServer` + `MCPTools` + `JSONValue` | Kit, VPNConfig, Shared (and swift-crypto's Crypto and CryptoExtras on Linux) |
 | `PassTunnelCLI` | the `passtunnel` command: `PassTunnelCLI.run` (entry, `CLIHelp`), `CLIRunner`, `CLICompletions`, `CLITerminal`, `CLIClipboard`; `Pasteboard` (macOS: the app's too) | Core, Kit, Shared |
 | `PassTunnelHelper` | `main.swift` XPC listener, process supervision | Shared (and through it VPNConfig) |
 | `PassTunnel` | SwiftUI app, menu bar, onboarding, updates (`AppUpdater`), Scan QR on screen (`ScreenQRScanner`, ScreenCaptureKit, macOS 14 and later); CLI mode runs `PassTunnelCLI` | CLI, Core, Kit, VPNConfig, Shared, Sparkle |
@@ -114,6 +114,10 @@ The platform seams (Linux code stays in the same files behind `#if`; the Mac's b
   rtnetlink dumps of the links, routes and rules (`Netlink`: the messages are parsed, and the rules
   followed, by code that builds and is tested everywhere; only `Netlink.dump`, the socket, is Linux's).
   `Route.tunnelDevice` carries the kernel's kind of device there (LINUX.md, Client side).
+- **Network path.** `NetworkPath` (online or not, and the kind of interface; nothing is contacted) is
+  `NWPathMonitor` where the Network framework exists (`#if canImport(Network)`) and, on Linux, the
+  routes `RoutingTable.trafficRoutes` reads plus the links' state in `/sys/class/net`
+  (`NetworkPath.linuxStatus`, tested everywhere), read again every 5 s while watched (LINUX.md, Client side).
 - **MCP input.** `MCPServer` decodes each line into a `JSONValue` with `JSONDecoder` on every
   platform, so JSON booleans are never numbers (no CoreFoundation `CFBoolean` check).
 - **Version.** `AppInfo.current` on Linux is `BuildVersion`: a release build
@@ -160,6 +164,8 @@ public enum PT {
   - `profiles/<id>/profile.json`, `profiles/<id>/config.ovpn`, `profiles/<id>/vpn.log`,
     `profiles/<id>/.last-otp` (TOTP window of the last code sent, so app and CLI never reuse a code),
     `profiles/<id>/.mgmt-state` (OpenVPN state shared by the app, which holds the management interface),
+    `profiles/<id>/.retry` (`UnreachableRetry`: the app's retries of a server that did not answer, with
+    its pid, for `status --json` and `get_status`),
     `profiles/<id>/activity.jsonl` (`ActivityLog`: the last 500 typed events of the profile's connections,
     one JSON object per line, 0600; appended under `profiles/<id>/.activity.lock` and replaced atomically, so
     the app and CLI processes can write at once; no password, a code as at most its first three digits),
@@ -672,7 +678,16 @@ Security rules (helper):
   `--management-client-user <caller's user name>` so only the calling user can talk to it, no
   `--management-hold`; `--verb N` with the config's last `verb` capped at 4, 3 when it sets none
   (`HelperCore.openVPNVerbosity`, from `OVPNSanitizer.verbosity(of:)`); `--auth-nocache`,
-  `--remap-usr1 SIGTERM`, `--connect-retry-max 3`, stdout/stderr to logPath). Once OpenVPN creates the socket the helper chowns it to the user with mode 0600; it goes away
+  `--remap-usr1 SIGTERM`, `--connect-retry-max 3`, stdout/stderr to logPath). Only
+  `--server-poll-timeout 10` (`HelperCore.serverPollTimeout`) comes before `--config`: OpenVPN 2.6 and 2.7
+  then give up on a server that does not answer after 10 s instead of 120 (it bounds the TCP connect and,
+  over UDP and TCP, the wait for the server's first packet: "Server poll timeout"); before the config, so
+  the `<connection>` blocks inherit it (OpenVPN copies the options in force where a block is read) and a
+  config's own value wins. With `--remap-usr1 SIGTERM`, the restart OpenVPN schedules after a failed try
+  (`connection-failed`, `server_poll`, `tls-error`) is remapped to an exit, so each run makes one try and
+  `--connect-retry-max` never comes into play; `ConnectionManager` tries again. A change of these flags
+  changes the helper's build (its digest), not `PT.helperProtocolVersion`: the requests and replies stay
+  the same, and an app update replaces the older helper (`HelperAutoUpdate`). Once OpenVPN creates the socket the helper chowns it to the user with mode 0600; it goes away
   with the run directory when the process exits. The socket path must fit in `sun_path` (103 bytes):
   `/var/run/passtunnel/<uid>/<id>/mgmt.sock` fits 64-byte IDs for uids up to 8 digits.
 - Forti: the helper writes the openfortivpn config itself from the typed fields (no user-supplied raw config;
@@ -741,6 +756,21 @@ remain, and publishes `ConnectionState` changes:
 ```swift
 public enum ConnectionState: Equatable { case disconnected, connecting(String), connected(ip: String, since: Date?) }
 ```
+
+A server that did not answer (`ConnectionFailure.Kind.unreachable`: nothing reached it, so its code was
+given back) is tried again when `retriesUnreachable` is on (the app): every `Timing.unreachableRetryDelay`
+(30 s), at most `unreachableMaxTries` (10) tries in all, after a connect of the manager (manual or at login)
+and after a drop's automatic reconnects (5, 15, 45 s; decision D-7). `host_not_found`, a rejected sign-in
+and every other failure end it. Each try is `performConnect(interactive: false)` with a fresh code: a
+protected profile uses the session's or the reuse window's secrets, else it stops with
+`confirmationRequired`. `unreachableRetries` (published) and `unreachableRetry(_:)` (also another live
+process's, from `profiles/<id>/.retry`) hold the tries, when the first and the last failed, and
+`nextTryAt`; `retryNow` is "Try now"; `disconnect` (any process: the user-stopped marker, read on every
+poll) and any manual connect end it. The manager watches the network path while it runs
+(`networkStatus`): offline, the retries wait (`waitingForNetwork`); online again or on another network,
+they start over (count from zero, next try after `networkSettleDelay`, 2 s). After a drop, a success is
+`reconnected` and the last try `reconnectFailed`; a manual connect's retries send no events.
+`failureDetails(_:)` is the "Copy details" text (`FailureDetails`).
 
 A second `connect` while one of the same manager is in flight awaits it. When the helper already runs the
 profile (another process — app or CLI — is connecting it, or won the start race and the helper refused ours),

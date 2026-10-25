@@ -763,6 +763,16 @@
         }
       }
     },
+    "Cellular" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hücresel"
+          }
+        }
+      }
+    },
     "Certificate only" : {
       "localizations" : {
         "tr" : {
@@ -1293,6 +1303,26 @@
         }
       }
     },
+    "Ethernet" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ethernet"
+          }
+        }
+      }
+    },
+    "Failed at %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Başarısız oldu: %@"
+          }
+        }
+      }
+    },
     "Format: %@ · sent at %@" : {
       "localizations" : {
         "tr" : {
@@ -1453,6 +1483,16 @@
         }
       }
     },
+    "Network: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ağ: %@"
+          }
+        }
+      }
+    },
     "New passphrase for the PassTunnel secrets file (%@): " : {
       "localizations" : {
         "tr" : {
@@ -1463,12 +1503,32 @@
         }
       }
     },
+    "Next try at %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sonraki deneme: %@"
+          }
+        }
+      }
+    },
     "Next try in %lld s" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld sn sonra yeniden denenecek"
+          }
+        }
+      }
+    },
+    "Next try when the network is back" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sonraki deneme ağ geri geldiğinde"
           }
         }
       }
@@ -1509,6 +1569,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld saniye içinde yanıt gelmedi"
+          }
+        }
+      }
+    },
+    "no answer, next try in %lld s" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "yanıt yok, %lld sn sonra yeniden denenecek"
+          }
+        }
+      }
+    },
+    "no answer, next try when the network is back" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "yanıt yok, ağ geri gelince yeniden denenecek"
           }
         }
       }
@@ -1673,12 +1753,32 @@
         }
       }
     },
+    "Offline" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Çevrimdışı"
+          }
+        }
+      }
+    },
     "On Linux, passtunneld is installed and removed by hand from the release tarball, not by this command. Follow the README in the tarball; docs/LINUX.md has the details: https://github.com/PassTunnel/passtunnel/blob/main/docs/LINUX.md" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Linux’ta passtunneld bu komutla değil, sürüm arşivinden (tarball) elle yüklenir ve kaldırılır. Arşivdeki README’yi izleyin; ayrıntılar docs/LINUX.md içinde: https://github.com/PassTunnel/passtunnel/blob/main/docs/LINUX.md"
+          }
+        }
+      }
+    },
+    "Online" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Çevrimiçi"
           }
         }
       }
@@ -1739,6 +1839,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Diğer"
+          }
+        }
+      }
+    },
+    "Other network" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diğer ağ"
           }
         }
       }
@@ -1933,6 +2043,16 @@
         }
       }
     },
+    "Profile: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profil: %@"
+          }
+        }
+      }
+    },
     "Profiles" : {
       "localizations" : {
         "tr" : {
@@ -2009,6 +2129,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bağlanmadan önce Mac parolanızı iste"
+          }
+        }
+      }
+    },
+    "Result: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sonuç: %@"
           }
         }
       }
@@ -2219,6 +2349,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sunucu, kullanıcı adı, parola ve kodun gizli anahtarı."
+          }
+        }
+      }
+    },
+    "Server: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu: %@"
           }
         }
       }
@@ -2443,6 +2583,16 @@
         }
       }
     },
+    "The server did not answer" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu yanıt vermedi"
+          }
+        }
+      }
+    },
     "The server did not answer in time." : {
       "localizations" : {
         "tr" : {
@@ -2459,6 +2609,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sunucu adı bulunamadı: %@. Sunucu adresini ve ağ bağlantısını denetleyin."
+          }
+        }
+      }
+    },
+    "The server name was not found" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu adı bulunamadı"
+          }
+        }
+      }
+    },
+    "The server rejected the sign-in" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu oturum açmayı reddetti"
           }
         }
       }
@@ -2533,6 +2703,26 @@
         }
       }
     },
+    "Tries: %lld" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deneme: %lld"
+          }
+        }
+      }
+    },
+    "Tries: %lld, the first at %@, the last at %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deneme: %lld, ilki %@, sonuncusu %@"
+          }
+        }
+      }
+    },
     "Try again" : {
       "localizations" : {
         "tr" : {
@@ -2549,6 +2739,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ kodunu yaz"
+          }
+        }
+      }
+    },
+    "Unknown" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilinmiyor"
           }
         }
       }
@@ -3679,6 +3879,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bu kod ne tür bir VPN için?"
+          }
+        }
+      }
+    },
+    "Wi-Fi" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wi-Fi"
           }
         }
       }
@@ -8791,6 +9001,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Saatiniz %1$@ zaman sunucusuyla uyuşuyor, aradaki fark %2$lld sn."
+          }
+        }
+      }
+    },
+    "Your sign-in reached the server." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oturum açma bilgileriniz sunucuya ulaştı."
           }
         }
       }

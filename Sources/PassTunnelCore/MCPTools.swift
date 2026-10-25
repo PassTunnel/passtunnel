@@ -9,6 +9,7 @@ enum MCPWording {
     #if os(Linux)
     static let thisMachines = "this computer's"
     static let theMachines = "this computer's"
+    static let theMachine = "this computer"
     static let listProtected = "protected=true means connecting is refused on Linux for now (auth_unavailable): there is no confirmation to ask for yet."
     static let connectProtected = "A protected profile cannot be connected on Linux yet: it is refused with auth_unavailable."
     static let instructionsProtected = "A protected profile cannot be connected on Linux yet: connect refuses it with auth_unavailable."
@@ -17,6 +18,7 @@ enum MCPWording {
     #else
     static let thisMachines = "this Mac's"
     static let theMachines = "the Mac's"
+    static let theMachine = "the Mac"
     static let listProtected = "protected=true means connecting asks the user for Touch ID on the Mac."
     static let connectProtected = "If the profile is protected, the user must confirm with Touch ID on the Mac: tell them a prompt is waiting."
     static let instructionsProtected = "A protected profile shows a Touch ID prompt on the Mac that the user must confirm; tell the user to look for it."
@@ -97,7 +99,7 @@ final class MCPTools {
              input: Schema.object([:]), output: Schema.object(["profiles": Schema.array(Schema.profileSummary)], required: ["profiles"]),
              readOnly: true),
         Tool(name: "get_status", title: "Get connection status",
-             description: "Returns the connection state of every profile (or only profile_id): disconnected, connecting or connected, the tunnel IP, since when, the last error and why it happened (failure: auth_rejected, host_not_found, unreachable, configuration, setup, timeout, cancelled or failed; the server's reply; whether the sign-in and a one-time code were sent; for a rejected sign-in, clock: how far \(MCPWording.thisMachines) clock was off, when known), and whether the privileged helper that starts VPNs is installed and current.",
+             description: "Returns the connection state of every profile (or only profile_id): disconnected, connecting or connected, the tunnel IP, since when, the last error and why it happened (failure: auth_rejected, host_not_found, unreachable, configuration, setup, timeout, cancelled or failed; the server's reply; whether the sign-in and a one-time code were sent; for a rejected sign-in, clock: how far \(MCPWording.thisMachines) clock was off, when known), when the app tries a server that did not answer again (next_try_at, tries), and whether the privileged helper that starts VPNs is installed and current.",
              input: Schema.object(["profile_id": Schema.profileID(optional: true)]), output: Schema.statusReport, readOnly: true),
         Tool(name: "get_logs", title: "Read VPN log",
              description: "Returns the last lines of a profile's VPN log, for explaining why a connection failed. source \"raw\" (the default): the OpenVPN or openfortivpn output of the current or last session. source \"activity\": what PassTunnel did and saw, also for sessions the app or a terminal started (connecting, waiting for a fresh code, credentials sent, sign-in accepted or rejected, connected, drops, reconnects, stopped by the user), as sentences in lines and as typed events. Anything that looks like a credential is replaced by <redacted>; passwords and one-time codes are never included.",
@@ -109,7 +111,7 @@ final class MCPTools {
                                   required: ["profile_id"]),
              output: Schema.logReport, readOnly: true),
         Tool(name: "diagnose", title: "Diagnose PassTunnel",
-             description: "Checks the PassTunnel installation and every profile without connecting: app version and location, helper installed/enabled/outdated, and per profile whether the configuration, server and saved credentials are in place (never their values) and the last clock measurement (a FortiGate gateway's time, taken after it rejected a sign-in). Start here when something does not work. A clock off by \(ClockOffset.warnSeconds) s or more makes one-time codes fail.",
+             description: "Checks the PassTunnel installation and every profile without connecting: app version and location, helper installed/enabled/outdated, whether \(MCPWording.theMachine) is online and over what kind of network (from the system's own view, nothing is contacted), and per profile whether the configuration, server and saved credentials are in place (never their values) and the last clock measurement (a FortiGate gateway's time, taken after it rejected a sign-in). Start here when something does not work. A clock off by \(ClockOffset.warnSeconds) s or more makes one-time codes fail.",
              input: Schema.object(["check_clock": Schema.boolean(default: false, "Also ask \(MCPWording.timeServer) how far \(MCPWording.thisMachines) clock is off. This contacts that server, so set it only when the user asked to check the clock.")]),
              output: Schema.diagnose, readOnly: true),
     ]
@@ -380,7 +382,7 @@ enum Schema {
         "id": string, "name": string, "type": vpnType, "state": state, "phase": string, "ip": string,
         "since": ["type": "string", "format": "date-time"], "duration_seconds": int, "is_default": bool, "protected": bool,
         "auto_reconnect": bool, "health": oneOf(["reachable", "unreachable"]), "error": string, "failure": failure,
-        "warning": string, "status_unavailable": bool, "warnings": array(warning),
+        "warning": string, "status_unavailable": bool, "warnings": array(warning), "next_try_at": dateTime, "tries": int,
     ], required: ["id", "name", "type", "state", "is_default", "protected", "auto_reconnect"])
 
     static let helper = result([
@@ -420,10 +422,14 @@ enum Schema {
         "chosen_by": oneOf(["environment", "setting", "recorded", "auto"]), "error": string,
     ], required: ["name", "available", "setting", "chosen_by"])
 
+    /// `NetworkStatus`: online or not, and over what kind of interface (both absent when unknown).
+    static let network = result(["online": bool, "interface": oneOf(NetworkStatus.Interface.allCases.map(\.rawValue))],
+                                required: [])
+
     static let diagnose: [String: Any] = {
         var properties: [String: Any] = [
             "version": string, "build": string, "app_path": string, "in_applications": bool, "helper": helper,
-            "profiles": array(profileCheck), "clock": clock, "clock_error": string,
+            "profiles": array(profileCheck), "clock": clock, "clock_error": string, "network": network,
         ]
         #if os(Linux)
         properties["secret_store"] = secretStore
