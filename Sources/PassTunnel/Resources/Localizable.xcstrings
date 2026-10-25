@@ -209,12 +209,70 @@
         }
       }
     },
+    "%@, from files next to it" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, yanındaki dosyalarda"
+          }
+        }
+      }
+    },
+    "%@, inside the file" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, dosyanın içinde"
+          }
+        }
+      }
+    },
+    "%@, inside the file and from files next to it" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, dosyanın içinde ve yanındaki dosyalarda"
+          }
+        }
+      }
+    },
     "%lld connected" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld bağlı"
+          }
+        }
+      }
+    },
+    "%lld lines will be skipped" : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld line will be skipped"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld lines will be skipped"
+                }
+              }
+            }
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld satır atlanacak"
           }
         }
       }
@@ -235,6 +293,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld dakika"
+          }
+        }
+      }
+    },
+    "%lld of %lld missing" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld / %2$lld eksik"
           }
         }
       }
@@ -485,6 +553,16 @@
         }
       }
     },
+    "Add a name to finish." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bitirmek için bir ad girin."
+          }
+        }
+      }
+    },
     "Add a VPN" : {
       "localizations" : {
         "tr" : {
@@ -501,6 +579,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Başlamak için bir profil ekleyin."
+          }
+        }
+      }
+    },
+    "Add the code secret to finish." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bitirmek için kod gizli anahtarını ekleyin."
+          }
+        }
+      }
+    },
+    "Add the password to finish." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bitirmek için parolayı girin."
+          }
+        }
+      }
+    },
+    "Add the user name to finish." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bitirmek için kullanıcı adını girin."
           }
         }
       }
@@ -561,6 +669,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "İptal edildi."
+          }
+        }
+      }
+    },
+    "Certificate only" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yalnızca sertifika"
+          }
+        }
+      }
+    },
+    "Certificates" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sertifikalar"
           }
         }
       }
@@ -675,12 +803,32 @@
         }
       }
     },
+    "client certificate" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "istemci sertifikası"
+          }
+        }
+      }
+    },
     "Code format" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kod biçimi"
+          }
+        }
+      }
+    },
+    "Code secret" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kod gizli anahtarı"
           }
         }
       }
@@ -915,6 +1063,26 @@
         }
       }
     },
+    "Found in the file" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dosyada bulunanlar"
+          }
+        }
+      }
+    },
+    "From %@ · OpenVPN · name it below" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Konum: %@ · OpenVPN · aşağıda adlandırın"
+          }
+        }
+      }
+    },
     "Hide codes until clicked" : {
       "localizations" : {
         "tr" : {
@@ -935,6 +1103,26 @@
         }
       }
     },
+    "It should match the code in your authenticator app. The secret is saved in the Keychain when you add the profile." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kod, doğrulayıcı uygulamanızdaki kodla aynı olmalı. Gizli anahtar, profili eklediğinizde Anahtar Zinciri’ne kaydedilir."
+          }
+        }
+      }
+    },
+    "key" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "anahtar"
+          }
+        }
+      }
+    },
     "Licenses" : {
       "localizations" : {
         "tr" : {
@@ -951,6 +1139,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "satır %1$lld: %2$@"
+          }
+        }
+      }
+    },
+    "Missing. Paste the secret or choose an image of the QR code." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eksik. Gizli anahtarı yapıştırın ya da QR kodunun görüntüsünü seçin."
+          }
+        }
+      }
+    },
+    "Needs you" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sizden gerekenler"
           }
         }
       }
@@ -995,12 +1203,52 @@
         }
       }
     },
+    "No server in the file" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dosyada sunucu yok"
+          }
+        }
+      }
+    },
+    "None in the file" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dosyada yok"
+          }
+        }
+      }
+    },
+    "Not added" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eklenmedi"
+          }
+        }
+      }
+    },
     "Not Now" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Şimdi Değil"
+          }
+        }
+      }
+    },
+    "Nothing missing" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eksik yok"
           }
         }
       }
@@ -1065,6 +1313,16 @@
         }
       }
     },
+    "Optional. Add it when your VPN asks for a one-time code with the password." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "İsteğe bağlı. VPN’iniz parolayla birlikte tek kullanımlık kod istiyorsa ekleyin."
+          }
+        }
+      }
+    },
     "Other" : {
       "localizations" : {
         "tr" : {
@@ -1081,6 +1339,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "PassTunnel’ın kendisi oturum açıldığında açılmıyor. Ayarlar → Genel bölümünde “Oturum açıldığında menü çubuğunda aç” ayarını açın."
+          }
+        }
+      }
+    },
+    "PassTunnel never runs scripts from a profile. DNS comes from what the server sends instead." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel bir profildeki betikleri hiçbir zaman çalıştırmaz. DNS bunun yerine sunucunun gönderdiklerinden gelir."
+          }
+        }
+      }
+    },
+    "PassTunnel runs the connection, its log and its management interface itself." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlantıyı, günlüğünü ve yönetim arayüzünü PassTunnel kendisi yürütür."
           }
         }
       }
@@ -1165,12 +1443,42 @@
         }
       }
     },
+    "Paste" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yapıştır"
+          }
+        }
+      }
+    },
     "Paste secret" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Gizli anahtarı yapıştır"
+          }
+        }
+      }
+    },
+    "Paste the secret, an otpauth:// link or a screenshot of the QR code" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gizli anahtarı, bir otpauth:// bağlantısını ya da QR kodunun ekran görüntüsünü yapıştırın"
+          }
+        }
+      }
+    },
+    "PKCS #12 bundle" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PKCS #12 paketi"
           }
         }
       }
@@ -1225,6 +1533,16 @@
         }
       }
     },
+    "Remove the code secret" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kod gizli anahtarını kaldır"
+          }
+        }
+      }
+    },
     "Repeat the passphrase: " : {
       "localizations" : {
         "tr" : {
@@ -1251,6 +1569,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bağlanmadan önce Mac parolanızı iste"
+          }
+        }
+      }
+    },
+    "Review %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ dosyasını inceleyin"
           }
         }
       }
@@ -1285,6 +1613,16 @@
         }
       }
     },
+    "Saved in Keychain." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anahtar Zinciri’ne kaydedilir."
+          }
+        }
+      }
+    },
     "Secret added · %lld digits · %lld s" : {
       "localizations" : {
         "tr" : {
@@ -1301,6 +1639,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ayrı gönderilir"
+          }
+        }
+      }
+    },
+    "Server" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu"
+          }
+        }
+      }
+    },
+    "server fingerprint" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "sunucu parmak izi"
           }
         }
       }
@@ -1385,6 +1743,16 @@
         }
       }
     },
+    "static key" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "statik anahtar"
+          }
+        }
+      }
+    },
     "The PassTunnel helper is not ready." : {
       "localizations" : {
         "tr" : {
@@ -1401,6 +1769,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bu Mac çevrimdışı."
+          }
+        }
+      }
+    },
+    "TLS key" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TLS anahtarı"
           }
         }
       }
@@ -2481,6 +2859,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Güncelleniyor…"
+          }
+        }
+      }
+    },
+    "User name and password" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kullanıcı adı ve parola"
+          }
+        }
+      }
+    },
+    "User name and password, plus a one-time code" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kullanıcı adı ve parola, ayrıca tek kullanımlık kod"
           }
         }
       }

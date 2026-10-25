@@ -175,6 +175,7 @@ enum RenderSnapshots {
                      name: "onboarding-2-approval")
 
             renderSplitWindow(model, sample: sample, store: store, now: now, to: out)
+            try renderImportReview(model, home: home, store: store, now: now, to: out)
 
             // The menu bar panel of the new interface (NewInterface): all six profiles, so the list scrolls; then
             // three (connected, Touch ID to connect with the code locked, dropped) with auto-type on. Last, as it
@@ -301,6 +302,54 @@ enum RenderSnapshots {
             }
         }
         model.previewHelperStatus = nil
+    }
+
+    /// The import review of the redesigned window (`ImportReviewView`), light and dark: `import-review` as designed
+    /// (two lines skipped, the code secret missing), `-ready` with the secret added, `-certificate` for a
+    /// certificate-only file whose keys come from files next to it, and `-narrow` at the window's smallest size, where
+    /// the columns stack. Nothing is added; the model is left as it was found.
+    private static func renderImportReview(_ model: AppModel, home: URL, store: ProfileStore, now: Date,
+                                           to out: URL) throws {
+        let downloads = home.appendingPathComponent("Downloads", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloads, withIntermediateDirectories: true)
+        let pem = "-----BEGIN CERTIFICATE-----\nMIIBCA==\n-----END CERTIFICATE-----\n"
+        let work = "client\ndev tun\nremote vpn.example.com 1194 udp\nscript-security 2\nup /etc/openvpn/update-dns\n"
+            + "<ca>\n\(pem)</ca>\n<cert>\n\(pem)</cert>\n<key>\n-----BEGIN PRIVATE KEY-----\nMIIBCC==\n"
+            + "-----END PRIVATE KEY-----\n</key>\n<auth-user-pass>\nalice\nsample-password\n</auth-user-pass>\n"
+            + "static-challenge \"Enter code\" 1\n"
+        let files: [String: Data] = [
+            "work.ovpn": Data(work.utf8),
+            "home-lab.ovpn": Data("client\nremote 203.0.113.10 443 tcp\nca ca.crt\npkcs12 home.p12\ntls-crypt ta.key\n".utf8),
+            "ca.crt": Data(pem.utf8),
+            "home.p12": Data([0, 1, 2, 3]),
+            "ta.key": Data("-----BEGIN OpenVPN Static key V1-----\n0123abcd\n-----END OpenVPN Static key V1-----\n".utf8),
+        ]
+        for (name, data) in files { try data.write(to: downloads.appendingPathComponent(name)) }
+
+        let selection = model.selection
+        defer {
+            model.importReview = nil
+            model.selection = selection
+        }
+        func render(_ file: String, _ name: String, size: CGSize = CGSize(width: 1080, height: 700),
+                    edit: (ImportReviewModel) -> Void = { _ in }) throws {
+            let review = ImportReviewModel(draft: try store.analyzeOVPN(downloads.appendingPathComponent(file)))
+            review.previewNow = now
+            edit(review)
+            model.selection = nil
+            model.importReview = review
+            for dark in [false, true] {
+                snapshot(SplitWindowRender().environmentObject(model), size: size, dark: dark, to: out, name: name,
+                         window: true)
+            }
+        }
+        try render("work.ovpn", "import-review") { $0.name = "Work" }
+        try render("work.ovpn", "import-review-ready") {
+            $0.name = "Work"
+            $0.apply(.secret(Data("12345678901234567890".utf8)))
+        }
+        try render("home-lab.ovpn", "import-review-certificate")
+        try render("work.ovpn", "import-review-narrow", size: CGSize(width: 820, height: 560)) { $0.name = "Work" }
     }
 
     @ViewBuilder

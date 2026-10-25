@@ -58,13 +58,18 @@ struct MainSplitView: View {
             if profiles.isEmpty { model.addingProfile = false }
             selectWhenNone()
         }
-        // Selecting a profile (the sidebar, an import) closes the add view; Escape there selects one again.
+        // Selecting a profile (the sidebar, an import) closes the add view and leaves an import review (nothing was
+        // written); Escape there selects one again, and so does the end of a review.
         .onChange(of: model.selection) { selection in
-            if selection != nil { model.addingProfile = false }
+            if selection != nil {
+                model.addingProfile = false
+                model.importReview = nil
+            }
         }
         .onChange(of: model.addingProfile) { adding in
             if !adding { selectWhenNone() }
         }
+        .onChange(of: model.importReview == nil) { ended in if ended { selectWhenNone() } }
         // No toast here: VoiceOver still hears what one would have said ("Code copied").
         .onChange(of: model.toast) { toast in
             guard let toast else { return }
@@ -75,15 +80,17 @@ struct MainSplitView: View {
         }
     }
 
-    /// The detail always shows a profile while there is one and the add view is closed: the default profile, else the
-    /// first.
+    /// The detail always shows a profile while there is one, the add view is closed and no import is under review:
+    /// the default profile, else the first.
     private func selectWhenNone() {
-        guard !model.addingProfile, model.selection.flatMap(model.profile) == nil, let p = model.defaultProfile else { return }
+        guard !model.addingProfile, model.importReview == nil, model.selection.flatMap(model.profile) == nil,
+              let p = model.defaultProfile else { return }
         model.selection = p.id
     }
 }
 
-/// The first-run view while there are no profiles, the add view (`AppModel.addingProfile`), else the selected profile;
+/// The import under review (`AppModel.importReview`), the first-run view while there are no profiles, the add view
+/// (`AppModel.addingProfile`), else the selected profile;
 /// under it the question about opening at login, until it is answered.
 struct SplitDetail: View {
     @EnvironmentObject private var model: AppModel
@@ -91,7 +98,10 @@ struct SplitDetail: View {
 
     var body: some View {
         Group {
-            if model.profiles.isEmpty {
+            if let review = model.importReview {
+                ImportReviewView(review: review)
+                    .id(ObjectIdentifier(review))
+            } else if model.profiles.isEmpty {
                 FirstRunView(isFirstRun: true)
             } else if model.addingProfile {
                 FirstRunView(isFirstRun: false)
@@ -312,7 +322,7 @@ struct SplitWindowCommands: View {
 
     var body: some View {
         let selected = model.selection.flatMap(model.profile)
-        let blocked = model.editor != nil || model.credentialRequest != nil
+        let blocked = model.editor != nil || model.credentialRequest != nil || model.importReview != nil
         Button(String(localized: "Connect or Disconnect")) { selected.map(model.runAction) }
             .keyboardShortcut(.return, modifiers: [.command])
             .disabled(selected == nil || blocked)

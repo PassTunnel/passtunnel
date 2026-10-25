@@ -12,9 +12,19 @@ final class OpenedFilesTests: CoreTestCase {
         XCTAssertEqual(OpenedFiles.route([upper]), .importShare(upper))
     }
 
+    /// OpenVPN configurations go to the import review of the redesigned window (the current one says how to import).
+    func testOpenVPNConfigurationsAreRoutedToTheirImport() {
+        for name in ["acme.ovpn", "Acme.OVPN", "acme.conf"] {
+            let url = URL(fileURLWithPath: "/tmp/\(name)")
+            XCTAssertEqual(OpenedFiles.route([url]), .importOVPN(url), name)
+        }
+        XCTAssertEqual(OpenedFiles.route([URL(string: "https://vpn.example.com/acme.ovpn")!]),
+                       .unsupported("https://vpn.example.com/acme.ovpn"))
+    }
+
     func testOtherFilesAreRejected() {
         XCTAssertNil(OpenedFiles.route([]))
-        XCTAssertEqual(OpenedFiles.route([URL(fileURLWithPath: "/tmp/acme.ovpn")]), .unsupported("acme.ovpn"))
+        XCTAssertEqual(OpenedFiles.route([URL(fileURLWithPath: "/tmp/acme.ovpn.txt")]), .unsupported("acme.ovpn.txt"))
         XCTAssertEqual(OpenedFiles.route([URL(fileURLWithPath: "/tmp/acme.passtunnel.json")]),
                        .unsupported("acme.passtunnel.json"))
         XCTAssertEqual(OpenedFiles.route([URL(fileURLWithPath: "/tmp/passtunnel")]), .unsupported("passtunnel"))
@@ -50,6 +60,9 @@ final class OpenedFilesTests: CoreTestCase {
         XCTAssertTrue(delegate.contains("func application(_ application: NSApplication, open urls: [URL])"))
         let actions = try String(contentsOf: root.appendingPathComponent("Editor/ImportActions.swift"), encoding: .utf8)
         XCTAssertTrue(actions.contains("case .importShare(let url):\n            AppDelegate.shared?.showMainWindow()\n            importShared(at: url)"))
+        // In the redesigned window an opened configuration goes through the review, like File → Import .ovpn….
+        XCTAssertTrue(actions.contains("case .importOVPN(let url) where NewInterface.isEnabled && AppModel.shared != nil:\n            importOVPN(at: url)"))
+        XCTAssertTrue(actions.contains("if NewInterface.isEnabled, let model = AppModel.shared {\n            review(url, in: model)"))
     }
 
     // MARK: Info.plist

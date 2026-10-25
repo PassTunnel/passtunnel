@@ -52,6 +52,9 @@ final class AppModel: ObservableObject {
     @Published var alert: AppAlert?
     @Published var pendingDelete: Profile?
     @Published var showOnboarding = false
+    /// The .ovpn under review in the redesigned window's detail (`ImportReviewView`); nil when none. Selecting a
+    /// profile leaves it, as Cancel does: nothing was written.
+    @Published var importReview: ImportReviewModel?
     @Published var settingsTab: SettingsTab = .general
     @Published private(set) var droppedUnseen: Set<String> = []
     @Published private(set) var helperStatus: HelperStatus = .notRegistered
@@ -778,6 +781,14 @@ final class AppModel: ObservableObject {
     private var onboardingClosedAt: Date?
     /// Onboarding step 3 "Start PassTunnel at login": nil until the user has seen the checkbox.
     @Published var onboardingStartAtLogin: Bool?
+
+    /// Shows the review of `draft` in the redesigned window's detail instead of a profile or the add view (a new one
+    /// replaces a review still open).
+    func startImportReview(_ draft: ImportDraft) {
+        importReview = ImportReviewModel(draft: draft)
+        addingProfile = false
+        selection = nil
+    }
 
     func finishOnboarding() {
         UserDefaults.standard.set(true, forKey: Self.onboardingKey)
