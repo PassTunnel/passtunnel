@@ -462,39 +462,16 @@ final class EditorModel: ObservableObject {
     }
 
     func scanImage(at url: URL) {
-        scan { try QRDecoder.otpAuth(inFile: url) }
+        take { try CodeSecretInput.fromImage(at: url) }
     }
 
     func scanImage(_ image: NSImage) {
-        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-            fail(QRDecoder.Failure.unreadableImage)
-            return
-        }
-        scan { try QRDecoder.otpAuth(in: cg) }
+        take { try CodeSecretInput.fromImage(image) }
     }
 
     /// "Paste secret": a secret or an otpauth link as text, an image (screenshot of a QR code) or an image file.
     func pasteSecret() {
-        let pb = NSPasteboard.general
-        if let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
-           let url = urls.first {
-            scanImage(at: url)
-        } else if let image = NSImage(pasteboard: pb) {
-            scanImage(image)
-        } else if let text = pb.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
-            do {
-                if text.lowercased().hasPrefix("otpauth") {
-                    apply(try OTPAuthURI(text))
-                } else {
-                    let secret = try TOTP.decodeSecret(text)
-                    apply(secret)
-                }
-            } catch {
-                fail(error)
-            }
-        } else {
-            fail(nil)
-        }
+        take { try CodeSecretInput.fromPasteboard() }
     }
 
     /// A bare secret (no digits, period or algorithm: the current ones stay).
@@ -512,16 +489,24 @@ final class EditorModel: ObservableObject {
         scanMessage = String(localized: "Code added. Compare it with your authenticator app, then Save.")
     }
 
-    private func scan(_ body: () throws -> OTPAuthURI) {
-        do { apply(try body()) } catch { fail(error) }
+    /// A link or a secret from `read`; nil from it means the clipboard holds nothing usable.
+    private func take(_ read: () throws -> CodeSecretInput?) {
+        do {
+            switch try read() {
+            case .link(let uri)?: apply(uri)
+            case .secret(let secret)?: apply(secret)
+            case nil: fail(nil)
+            }
+        } catch {
+            fail(error)
+        }
     }
 
     /// nil: the clipboard holds nothing usable.
     private func fail(_ error: Error?) {
         scanMessage = nil
         saveErrors[.totpSecret] = nil
-        scanError = error?.localizedDescription
-            ?? String(localized: "Copy the secret, an otpauth:// link or a screenshot of the QR code first.")
+        scanError = error?.localizedDescription ?? CodeSecretInput.nothingToPaste
     }
 
     // MARK: Forti fingerprint

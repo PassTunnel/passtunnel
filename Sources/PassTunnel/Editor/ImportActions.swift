@@ -11,7 +11,7 @@ enum ImportActions {
     /// The shell opens the editor for userInfo ["id"] (same value under "profileID").
     static let openEditor = Notification.Name("PassTunnelOpenEditor")
 
-    static let ovpnExtensions: Set<String> = ["ovpn", "conf"]
+    static let ovpnExtensions = OpenedFiles.ovpnExtensions
     static let shareExtension = ShareFile.fileExtension
 
     static var ovpnTypes: [UTType] {
@@ -37,7 +37,12 @@ enum ImportActions {
         importOVPN(at: url)
     }
 
+    /// The redesigned window reviews the file first (`review(_:)`); the current one imports it and opens its editor.
     @MainActor static func importOVPN(at url: URL) {
+        if NewInterface.isEnabled, let model = AppModel.shared {
+            review(url, in: model)
+            return
+        }
         do {
             let store = ProfileStore()
             let draft = try store.analyzeOVPN(url)
@@ -47,6 +52,24 @@ enum ImportActions {
         } catch {
             showError(String(localized: "The configuration could not be imported."), error)
         }
+    }
+
+    /// Reads the file and shows its review in the main window (`ImportReviewView`); nothing is created before Add
+    /// Profile there. A file with a line that blocks it is refused here, listing every such line.
+    @MainActor static func review(_ url: URL, in model: AppModel) {
+        do {
+            let draft = try ProfileStore().analyzeOVPN(url)
+            guard draft.blocking.isEmpty else { throw PTError.ovpnNotAllowed(draft.blocking.map(\.description)) }
+            AppDelegate.shared?.showMainWindow()
+            model.startImportReview(draft)
+        } catch {
+            showError(String(localized: "The configuration could not be imported."), error)
+        }
+    }
+
+    /// The review added the profile: show it.
+    @MainActor static func imported(_ id: String) {
+        post(didImport, id)
     }
 
     /// Lists the lines an import left out, with why each kind is safe to leave out.
@@ -102,13 +125,20 @@ enum ImportActions {
     // MARK: opened files
 
     /// Files opened from Finder, AirDrop, the Dock icon or `open` (`AppDelegate`): the same import as
-    /// File → Import Shared Profile, one file at a time like its panel.
+    /// File → Import Shared Profile, one file at a time like its panel. The redesigned window also takes an
+    /// OpenVPN configuration, into its review like File → Import .ovpn….
     @MainActor static func open(_ urls: [URL]) {
         guard let route = OpenedFiles.route(urls) else { return }
         switch route {
         case .importShare(let url):
             AppDelegate.shared?.showMainWindow()
             importShared(at: url)
+        case .importOVPN(let url) where NewInterface.isEnabled && AppModel.shared != nil:
+            importOVPN(at: url)
+        case .importOVPN(let url):
+            NSApp.activate(ignoringOtherApps: true)
+            showMessage(String(localized: "“\(url.lastPathComponent)” is not a shared profile"),
+                        String(localized: "PassTunnel opens .passtunnel files. To add an OpenVPN configuration, use File → Import .ovpn…"))
         case .tooMany:
             NSApp.activate(ignoringOtherApps: true)
             showMessage(String(localized: "Open one shared profile at a time"),
@@ -270,6 +300,7 @@ enum ImportActions {
     }
 
     /// Main window drop: .ovpn / .conf / .passtunnel files, or an image containing a QR code.
+    /// While an import is under review, a QR code dropped anywhere on the window is its code secret.
     static func handleDrop(_ providers: [NSItemProvider]) -> Bool {
         loadItems(from: providers) { item in
             switch item {
@@ -279,11 +310,17 @@ enum ImportActions {
                     importOVPN(at: url)
                 } else if ext == shareExtension {
                     importShared(at: url)
+                } else if let review = AppModel.shared?.importReview {
+                    review.scanImage(at: url)
                 } else {
                     addCode(from: item, profileID: nil)
                 }
-            case .image:
-                addCode(from: item, profileID: nil)
+            case .image(let image):
+                if let review = AppModel.shared?.importReview {
+                    review.scanImage(image)
+                } else {
+                    addCode(from: item, profileID: nil)
+                }
             }
         }
     }

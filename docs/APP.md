@@ -120,7 +120,7 @@ Sidebar-less single list, one row per profile (drag to reorder → `order`):
   skips ([SECURITY.md](../SECURITY.md#importing-an-openvpn-configuration)) are listed in an alert ("Some
   lines of “work.ovpn” were skipped": each line, then why those kinds are safe to leave out) before the
   new profile's editor opens; a blocking line refuses the file with every such line listed, and nothing
-  is created.
+  is created. The redesigned window reviews the file first instead (below).
 - Opening a `.passtunnel` file (double-click in Finder, AirDrop, the Dock icon, `open`) imports it
   exactly like Import shared profile… (`ImportActions.importShared(at:)`: `ProfileStore.importShare`
   with all its checks, then the new profile's editor), with the main window brought forward. The
@@ -129,7 +129,9 @@ Sidebar-less single list, one row per profile (drag to reorder → `order`):
   `CFBundleDocumentTypes` as Viewer with `LSHandlerRank` Owner: PassTunnel imports the file and never
   edits it in place. `AppDelegate.application(_:open:)` hands the files to `ImportActions.open`
   (`OpenedFiles.route`, Core): one file at a time like the import panel, so several files import
-  nothing and say so, and anything that is not a `.passtunnel` file is refused with a message.
+  nothing and say so, and anything that is not a `.passtunnel` file is refused with a message (in the
+  redesigned window an `.ovpn` or `.conf` goes to the import review instead; the app does not claim those
+  types, so they arrive through Open With or `open -a`).
   Files that start the app wait until launch has finished. The save panel of Share… and the import
   panel use the exported type (the extension's dynamic type in an unbundled `swift run`).
 
@@ -206,8 +208,28 @@ and at least 820×560:
   does not run as an app.
 - **Profile menu**: ⌘↩ runs the main button, ⌘C copies the code (in a text field ⌘C stays the field's), ⇧⌘C the
   password and code, ⌘E edits; off while a sheet is open.
+- **Import review** (`ImportReviewView` + `ImportReviewModel`, Editor): every way an `.ovpn` comes in (a drop,
+  Import .ovpn… in the File menu, the `+` menu, the first-run and add view, a file opened from Finder with Open
+  With or `open -a`) reads it with `ProfileStore.analyzeOVPN` and shows the review in the detail instead of a profile
+  (`AppModel.importReview`; the sidebar has no selection, and choosing a profile leaves the review like Cancel:
+  nothing was written). A file with a blocking line never gets there: the alert lists every such line, as before.
+  Title "Review work.ovpn" (22 bold), "From Downloads · OpenVPN · name it below". Left, "Found in the file": Server
+  (the first `remote` in SF Mono, "+N more", transport), Certificates ("CA, client certificate, and key, inside the
+  file" / "from files next to it"), Sign-in ("Certificate only", "User name and password", "…, plus a one-time
+  code" with a `static-challenge` or a code secret added); a green check, or an amber warning when there is no
+  server. Then, when lines are skipped, an amber "2 lines will be skipped" card with the lines in SF Mono (the
+  reason as a tooltip and VoiceOver hint) and why that is safe. Right, "Needs you" with "1 of 4 missing" /
+  "Nothing missing": Name (the file name), and when the file signs in with a password, User name and Password
+  (filled from an inline `<auth-user-pass>`; "Saved in Keychain.") and Code secret: Paste (a secret, an otpauth
+  link or a QR image, `CodeSecretInput`, shared with the editor) and Choose image…; a QR image dropped on the
+  row or anywhere on the window fills it too. Its live code shows once added. The code secret is required (dashed
+  amber field) with a `static-challenge`, optional otherwise. Footer: the first thing missing ("Add the code
+  secret to finish."), Cancel (Escape) and Add Profile (Return; off at 38 % until nothing is missing), which runs
+  `ProfileStore.commit` and selects the new profile. The two columns stack when the detail is narrow. Accessibility
+  identifiers `import.name|username|password|pasteSecret|chooseImage|cancel|add`.
 - No toast (the copy buttons say "Copied ✓", VoiceOver still announces "Code copied"), no window subtitle and no
-  onboarding sheet. Sheets, alerts, the delete confirmation and drag & drop import are the same as above.
+  onboarding sheet. Sheets, alerts, the delete confirmation and drag & drop import are the same as above,
+  except that an `.ovpn` goes to the import review.
 
 ## Profile editor (sheet)
 
@@ -642,6 +664,9 @@ others not yet.
   the selected profile (`main-split`, `-waiting`, `-dropped`, `-off`, `-failed`), then the code cards with the code
   locked, hidden, just copied, in the smallest window and with a custom format (`-locked`, `-hidden`, `-copied`,
   `-narrow`, `-template`); they are not on the website.
+  The `import-review` renders show the import review in that window: as designed (two lines skipped, the code
+  secret missing), `-ready` with the secret added, `-certificate` (a certificate-only file whose keys come from
+  files next to it) and `-narrow` at the window's smallest size.
   Offscreen, the glass sidebar of macOS 26 draws without its rows, so there the render lays the window's sidebar
   and detail out side by side, the sidebar on its flat list background. `first-run` (with the helper card, light and
   dark), `first-run-approval`, `add-vpn` and `main-split-login` show the first run, the add view and the question
