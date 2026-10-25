@@ -108,6 +108,20 @@ enum Sys {
         var description: String { "Could not launch the VPN tool: \(String(cString: strerror(code)))" }
     }
 
+    /// glibc's `posix_spawn_file_actions_addchdir_np` (2.29) and `…_addclosefrom_np` (2.34), looked up by
+    /// name: older glibc headers declare them only for `_GNU_SOURCE`, so Swift does not see them on
+    /// Ubuntu 22.04 (where the release binaries are built), though its glibc has them. Nil where the C
+    /// library lacks them; `spawn` then fails rather than start a tool with descriptors left open.
+    private typealias AddChdir = @convention(c) (UnsafeMutablePointer<posix_spawn_file_actions_t>, UnsafePointer<CChar>) -> Int32
+    private typealias AddClosefrom = @convention(c) (UnsafeMutablePointer<posix_spawn_file_actions_t>, Int32) -> Int32
+    private static let addChdir: AddChdir? = libcFunction("posix_spawn_file_actions_addchdir_np")
+    private static let addClosefrom: AddClosefrom? = libcFunction("posix_spawn_file_actions_addclosefrom_np")
+
+    private static func libcFunction<Function>(_ name: String) -> Function? {
+        // A null handle is glibc's RTLD_DEFAULT: the libraries the process loaded, the C library among them.
+        dlsym(nil, name).map { unsafeBitCast($0, to: Function.self) }
+    }
+
     /// `posix_spawn` in a new process group: stdin from `inputFD` (else /dev/null), stdout and stderr to
     /// `outputFD`, every other descriptor closed, all signals at their default action, an empty signal mask.
     static func spawn(executable: String, arguments: [String], environment: [String],
@@ -123,8 +137,14 @@ enum Sys {
         }
         if rc == 0 { rc = posix_spawn_file_actions_adddup2(&actions, outputFD, 1) }
         if rc == 0 { rc = posix_spawn_file_actions_adddup2(&actions, outputFD, 2) }
-        if rc == 0, let workingDirectory { rc = posix_spawn_file_actions_addchdir_np(&actions, workingDirectory) }
-        if rc == 0 { rc = posix_spawn_file_actions_addclosefrom_np(&actions, 3) }
+        if rc == 0, let workingDirectory {
+            guard let addChdir = Self.addChdir else { throw SpawnFailure(code: ENOSYS) }
+            rc = workingDirectory.withCString { addChdir(&actions, $0) }
+        }
+        if rc == 0 {
+            guard let addClosefrom = Self.addClosefrom else { throw SpawnFailure(code: ENOSYS) }
+            rc = addClosefrom(&actions, 3)
+        }
         guard rc == 0 else { throw SpawnFailure(code: rc) }
 
         var attr = posix_spawnattr_t()
