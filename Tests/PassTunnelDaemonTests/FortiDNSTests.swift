@@ -136,8 +136,8 @@ final class OutputCopierTests: DaemonTestCase {
         let chunks = stride(from: 0, to: all.count, by: 7).map { Array(all[$0..<min($0 + 7, all.count)]) }
         let (log, lines, _) = try copy(chunks)
         XCTAssertEqual(log, all)
-        XCTAssertEqual(lines, text.components(separatedBy: "\n").map { $0.hasSuffix("\r") ? String($0.dropLast()) : $0 }
-            .filter { !$0.isEmpty })
+        XCTAssertEqual(lines, fortiOutput.split(separator: "\n").map(String.init)
+                       + ["ERROR:  Could not authenticate to gateway.", "last line without a break"])
         XCTAssertEqual(lines.last, "last line without a break", "the end of the output ends the last line")
     }
 
