@@ -187,8 +187,11 @@ the sheet closes and `AppModel.delete` runs), Cancel, Save (Add Profile for a ne
    without a Secure Enclave. On is `requireAuth` `always`, off is `off` (decision D-4). A profile at `connect`
    (still set with `passtunnel set ID require_auth=connect`) shows as on with a footnote: showing codes does not
    ask, or, without a saved password, that the TOTP secret is encrypted and showing the code asks too; switching it
-   off and on makes it `always`. "Reconnect automatically if the link drops" (`autoReconnect`), disabled with the
-   reason when the profile is not `unattended`.
+   off and on makes it `always`. "Connect at login" (`connectAtLogin`, `editor.connectAtLogin`; see Launch at
+   login), with a footnote while it is on and PassTunnel itself does not open at login ("Turn on “Launch at login”
+   in Settings → General.", from `LoginItem.status`), else when connecting asks first (not `unattended`, or a
+   protected secret): a notification at login offers the connection then. "Reconnect automatically if the link
+   drops" (`autoReconnect`), disabled with the reason when the profile is not `unattended`.
 
 **Advanced** (closed when the sheet opens; Save opens it when the first problem is there), in three cards:
 Sign-in — type (read-only after creation), Password: Save in Keychain / Ask each time / None — certificate only
@@ -268,12 +271,14 @@ window unless noted.
   `sessionEnding` ("Acme VPN session is ending" / "The session limit is reached in 10 minutes.") follows
   **Session limit** (`sessionNotifyMin` > 0). `droppedWhileAsleep` and `destinationChanged` (wording under
   ConnectionManager) are always shown, as they replace the automatic reconnect the user turned on.
+- Connect at login (`ConnectionNotice.offeredAtLogin` and `notConnectedAtLogin`, wording under Launch at login)
+  are always shown: the user turned the switch on.
 
 "Connected to Acme VPN" / "10.8.0.6 · vpn.example.com" (`ConnectionNotice.connected`: the tunnel address,
 then the server as the confirmation prompt names it, `ProfileDestination.host`, e.g. "vpn.example.com +1
-more"; unknown parts are left out). Shown for connects PassTunnel makes on its own (the reconnects above)
-and, for a connect the user starts in the app (main window, menu bar, shortcut, notification), only when the
-main window is not visible: closed, minimized, hidden, on another Space or covered by other windows
+more"; unknown parts are left out). Shown for connects PassTunnel makes on its own (the reconnects above and
+connect at login) and, for a connect the user starts in the app (main window, menu bar, shortcut, notification),
+only when the main window is not visible: closed, minimized, hidden, on another Space or covered by other windows
 (`NSWindow.occlusionState`), since the window shows the result otherwise (`ConnectionNotice.announcesConnect`).
 Connects started by the CLI or an MCP client get none. The same visibility rule gives "Could not connect
 Acme VPN" / the error for a failed connect the user started (`AppModel.handleConnectError`).
@@ -333,6 +338,25 @@ updating, `HelperAutoUpdate`) and "Allow PassTunnel to type codes" (auto-type wi
 Never registered without the user's choice: onboarding step 3 offers "Start PassTunnel at login" (default on)
 and Settings → General has the toggle. A login launch (`keyAELaunchedAsLogInItem` or `--background`) starts in the
 menu bar only; manual launches open the main window.
+
+**Connect at login** (per profile, `Profile.connectAtLogin`, default off; the editor's switch or `passtunnel set ID
+connect_at_login=true`; left out of share files): only a login launch runs it (`AppModel.connectAtLogin` →
+`LoginConnector`, Core), never a manual launch. It first waits, at most 90 s (`LoginConnector.readinessTimeout`),
+until the helper is ready (enabled, answering with this copy's build, not being updated: an automatic helper
+update after an app update runs first) and the Mac is online (`NWPathMonitor` path satisfied; nothing is
+contacted). Then it goes through the profiles with the switch in the sidebar order (`order`, then name), each read
+again from disk (one switched off or deleted meanwhile is skipped):
+- connected or connecting already (a session the helper kept running, or another process's): left alone;
+- `unattended` and no protected secret it uses (`vault.requiresConfirmation` false): connected with
+  `ConnectionManager.connect(interactive: false)`, one after the other, then "Connected to Acme VPN" (an automatic
+  connect, see Notifications). That connect never asks: a secret that turns out to need a confirmation gives
+  `confirmationRequired`, and the profile is offered as below;
+- anything that would ask (Touch ID or the Mac password, or a user name, password or code): never a prompt at
+  login, the notification "“Acme VPN” is set to connect at login" / "Click to connect." instead (Connect action,
+  and a click connects too, like `droppedWhileAsleep`; a profile that asks for something then opens the credential
+  sheet in the main window);
+- a failed connect, or nothing ready in time: "Could not connect “Acme VPN” at login" / the error, "The PassTunnel
+  helper is not ready." or "This Mac is offline." (Connect action; a click shows the profile).
 
 ## Onboarding (first launch, 3 steps)
 
@@ -547,7 +571,7 @@ For UI automation, key controls carry stable, unlocalized `.accessibilityIdentif
 `profile.<id>`, `profile.<id>.primary`, `profile.<id>.more`, `profile.<id>.code`, `main.add` (in the redesigned
 window also `profile.<id>.edit` and `main.settings`; its sidebar rows read as name, status and code),
 `helper.install|update|loginItems|remove|licenses`, `onboarding.back|continue|done|installHelper|loginItems`,
-`editor.cancel|save|delete|advanced|requireAuth|revealCode`, `settings.authReuse`, and in the menu bar panel
+`editor.cancel|save|delete|advanced|requireAuth|connectAtLogin|revealCode`, `settings.authReuse`, and in the menu bar panel
 `menu.<id>.toggle`, `menu.add|copyCode|copyPasswordCode|typeCode|open|settings|quit`. The editor's switches are
 drawn by the app (monochrome) and read by VoiceOver as standard switches (`accessibilityRepresentation`). While the screen is locked, accessibility clients see no windows at all (the
 window server still lists them).
@@ -566,7 +590,8 @@ client errors) must have Turkish translations.
   literal in the sources is missing from the catalog, lacks a Turkish value, or changes placeholders.
 - `PASSTUNNEL_RENDER_LANG=tr` renders the `PASSTUNNEL_RENDER` screenshots in Turkish (from a bundle
   with the compiled `tr.lproj`, e.g. the app `build-app.sh` makes). Renders include `main-code-locked`
-  (`AppModel.previewLockedCodes`; no Secure Enclave key is made), `editor/editor-require-auth` and the menu bar
+  (`AppModel.previewLockedCodes`; no Secure Enclave key is made), `editor/editor-require-auth`,
+  `editor/editor-connect-at-login` (with the footnote of an app that does not open at login) and the menu bar
   panel of the new interface: `menubar-panel` (three profiles in mixed states, auto-type on), `menubar-panel-scroll`
   (six) and `menubar-panel-empty`.
 - `PASSTUNNEL_RENDER_SCALE=4` renders at that backing scale (1–8; default 2). `scripts/site-assets.sh`

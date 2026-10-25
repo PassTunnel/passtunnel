@@ -68,7 +68,8 @@ secret in the Keychain and fills in the current code (and your password) every t
 - **Menu bar badges.** One colored badge per pinned or active profile (letter, icon or both), five
   color palettes, and an alert when a connection drops unexpectedly.
 - **Stays connected.** Optional auto-reconnect with backoff, a health check host inside the VPN,
-  reconnect after wake, and a reminder before a server-side session limit runs out.
+  reconnect after wake, chosen profiles connected at login, and a reminder before a server-side
+  session limit runs out.
 - **Several VPNs at once**, each with its own status, log and settings.
 - **Shareable profiles.** Export a `.passtunnel` file for your team. It never contains passwords,
   TOTP secrets or user names.
@@ -309,7 +310,7 @@ connection and tell you what is wrong.
 
 | Tool | What it does |
 |---|---|
-| `list_profiles` | Profiles with type, state, whether connecting asks for Touch ID, auto-reconnect |
+| `list_profiles` | Profiles with type, state, whether connecting asks for Touch ID, auto-reconnect, connect at login |
 | `get_status` | State, tunnel IP, since when, last error; whether the helper is installed and current |
 | `get_logs` | The last lines (up to 500) of a profile's VPN log, with anything that looks like a credential redacted |
 | `diagnose` | App version and location, helper state, and per profile whether config, server and saved credentials are in place |

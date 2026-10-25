@@ -75,6 +75,20 @@ public struct ConnectionNotice: Equatable, Sendable {
                          profileID: profileID)
     }
 
+    /// Connect at login, for a profile that needs a confirmation or asks for something: offered instead of a
+    /// prompt nobody expects at login. A click connects (and asks).
+    public static func offeredAtLogin(_ s: Subject, profileID: String) -> ConnectionNotice {
+        ConnectionNotice(title: String(localized: "“\(s.name)” is set to connect at login"),
+                         body: String(localized: "Click to connect."),
+                         profileID: profileID, actions: .connect, connectOnClick: true)
+    }
+
+    /// Connect at login did not connect the profile: `reason` is the error, or what was not ready in time.
+    public static func notConnectedAtLogin(_ s: Subject, reason: String, profileID: String) -> ConnectionNotice {
+        ConnectionNotice(title: String(localized: "Could not connect “\(s.name)” at login"), body: reason,
+                         profileID: profileID, actions: .connect)
+    }
+
     /// The notification for `event`, or nil when `prefs` turn that kind off. Drops, reconnects and
     /// failed reconnects follow `notifyOnDrop`, health `notifyHealth`, the session limit
     /// `sessionNotifyMin`. A drop while asleep and a changed destination are always shown: they replace

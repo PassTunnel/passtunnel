@@ -2,7 +2,8 @@ import Foundation
 
 /// Portable profile file:
 /// `{"passtunnel_profile": 1, "profile": {…}, "files": {"config.ovpn": "<base64>"}}`.
-/// The profile omits username, last_username, order, mgmt_port and pinned. Secrets are never included.
+/// The profile omits the per-user fields (username, last_username, order, mgmt_port, pinned, require_auth,
+/// connect_at_login, config_imported_at). Secrets are never included.
 public struct ShareFile: Codable {
     public static let currentVersion = 1
     /// File name extension of share files.

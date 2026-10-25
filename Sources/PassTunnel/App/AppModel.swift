@@ -282,6 +282,28 @@ final class AppModel: ObservableObject {
         checkHelperVersion()
     }
 
+    /// The helper can start a connection: approved, answering with this copy's build, not being updated.
+    private var helperReady: Bool {
+        guard helperStatus == .enabled else { return false }
+        // The first question may have gone unanswered while launchd was still starting the helper.
+        if helperRelation == nil { checkHelperVersion() }
+        return helperRelation == .current && !helperUpdating
+    }
+
+    /// Opened at login: connects the profiles set to connect at login (`LoginConnector`) once the helper (after an
+    /// automatic update, if one is due) and the network are ready.
+    func connectAtLogin() {
+        let network = NetworkPath()
+        network.start()
+        let connector = LoginConnector(manager: connections, readiness: { [weak self] in
+            LoginConnector.Readiness(helper: self?.helperReady ?? false, network: network.isSatisfied)
+        }, notify: { Notifier.shared.post($0) })
+        Task {
+            await connector.run()
+            network.stop()
+        }
+    }
+
     /// After the app was updated, the helper still runs the previous build. Update it right away when
     /// no PassTunnel session is active (no approval needed), else as soon as the last one ends. Only
     /// an older helper, and only from /Applications (`HelperAutoUpdate`); anything else is left to

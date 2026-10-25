@@ -69,6 +69,8 @@ final class EditorModel: ObservableObject {
 
     /// True when a new profile was started without a type, so the type can still be picked.
     let allowsTypeChange: Bool
+    /// PassTunnel itself opens at login (its login item is on): without it, "Connect at login" has nothing to run it.
+    let opensAtLogin: Bool
 
     init(profileID: String?, newType: VPNType?, store: ProfileStore = ProfileStore(), vault: SecretVault) {
         self.store = store
@@ -76,6 +78,7 @@ final class EditorModel: ObservableObject {
         self.allowsTypeChange = profileID == nil && newType == nil
         self.isPreview = false
         self.palette = Preferences.load(paths: store.paths).badgePalette
+        self.opensAtLogin = LoginItem.status == .enabled
         let initial: Profile
         if let id = profileID, let existing = try? store.get(id) {
             isNew = false
@@ -102,13 +105,14 @@ final class EditorModel: ObservableObject {
 
     /// For `EditorPreviewRenderer`: a fixed state with no store or Keychain access.
     init(preview profile: Profile, isNew: Bool, passwordStored: Bool = false, storedTOTP: Data? = nil,
-         storedTOTPProtected: Bool = false, configServer: String = "", now: Date? = nil) {
+         storedTOTPProtected: Bool = false, configServer: String = "", opensAtLogin: Bool = true, now: Date? = nil) {
         self.store = ProfileStore(paths: AppPaths(root: FileManager.default.temporaryDirectory
             .appendingPathComponent("PassTunnelPreview-\(UUID().uuidString)")))
         self.vault = SecretVault()
         self.storedTOTPProtected = storedTOTPProtected
         self.isPreview = true
         self.allowsTypeChange = false
+        self.opensAtLogin = opensAtLogin
         self.palette = .pastel
         self.isNew = isNew
         self.draft = profile

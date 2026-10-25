@@ -484,6 +484,7 @@ final class MCPServerTests: XCTestCase {
         var forti = try store.create(name: "Lab", type: .forti)
         forti.host = "vpn.example.com"
         forti.autoReconnect = true
+        forti.connectAtLogin = true
         try store.save(forti)
         try store.setDefault(p.id)
         helper.simulateExternalStart(p.id, profileDir: store.dir(p.id).path, since: t0)
@@ -497,6 +498,8 @@ final class MCPServerTests: XCTestCase {
         XCTAssertEqual(profiles[0]["protected"] as? Bool, false)
         XCTAssertEqual(profiles[1]["type"] as? String, "forti")
         XCTAssertEqual(profiles[1]["auto_reconnect"] as? Bool, true)
+        XCTAssertEqual(profiles[0]["connect_at_login"] as? Bool, false)
+        XCTAssertEqual(profiles[1]["connect_at_login"] as? Bool, true)
         XCTAssertEqual(profiles[1]["state"] as? String, "disconnected")
         // The text content is the same object.
         let text = try XCTUnwrap(((list["content"] as? [[String: Any]])?.first)?["text"] as? String)

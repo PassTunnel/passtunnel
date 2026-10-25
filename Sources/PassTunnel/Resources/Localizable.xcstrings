@@ -535,6 +535,16 @@
         }
       }
     },
+    "Click to connect." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlanmak için tıklayın."
+          }
+        }
+      }
+    },
     "Click to reconnect." : {
       "localizations" : {
         "tr" : {
@@ -615,6 +625,26 @@
         }
       }
     },
+    "Connect at login" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oturum açıldığında bağlan"
+          }
+        }
+      }
+    },
+    "Connecting asks you first, so at login PassTunnel shows a notification you click to connect." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlanmadan önce size soruluyor; bu yüzden oturum açıldığında PassTunnel, tıklayarak bağlanacağınız bir bildirim gösterir."
+          }
+        }
+      }
+    },
     "Copy %@ code" : {
       "localizations" : {
         "tr" : {
@@ -651,6 +681,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kopyalamak için wl-copy (Wayland) ya da xclip (X11) gerekli, ikisi de bulunamadı. Komutu --copy olmadan çalıştırın."
+          }
+        }
+      }
+    },
+    "Could not connect “%@” at login" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” oturum açılırken bağlanamadı"
           }
         }
       }
@@ -791,6 +831,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Linux’ta arka plan hizmetini (passtunneld) PassTunnel paketi yükler ve kaldırır: bunun yerine paketi yükleyin ya da kaldırın."
+          }
+        }
+      }
+    },
+    "PassTunnel itself does not open at login. Turn on “Launch at login” in Settings → General." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel’ın kendisi oturum açıldığında açılmıyor. Ayarlar → Genel bölümünde “Oturum açıldığında başlat”ı açın."
           }
         }
       }
@@ -1011,6 +1061,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ayarlar"
+          }
+        }
+      }
+    },
+    "The PassTunnel helper is not ready." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel yardımcısı hazır değil."
+          }
+        }
+      }
+    },
+    "This Mac is offline." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu Mac çevrimdışı."
           }
         }
       }
@@ -7253,6 +7323,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kurulum eksik"
+          }
+        }
+      }
+    },
+    "“%@” is set to connect at login" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” oturum açıldığında bağlanacak şekilde ayarlı"
           }
         }
       }

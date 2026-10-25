@@ -39,7 +39,7 @@ A bundle without `dns-updown` pins an empty set for it, so the helper refuses an
 | `PassTunnelVPNConfig` | `OVPNSanitizer`, `FortiConfig`: the configurations the helper runs as root | — |
 | `PassTunnelKit` | the portable logic (Foundation, CryptoKit and Security only; builds for macOS 13, iOS 17 and Linux): model, `PTError`, `JSONCoding`, `TOTP`, `OTPAuthURI`, `OTPComposer`, `OVPNAnalyzer`, `OVPNInliner`, `ShareFile`, `Slug`, `ProfileFields`, `ProfileMerge`, `SecretEnvelope`, `HealthCheck` (parsing) | VPNConfig (and swift-crypto on Linux) |
 | `PassTunnelShared` | XPC protocol, request/response types, `HelperCore` (request decoding, path checks, tool environment), `SessionPolicy`, `CodeSignature`, `Spawner` (verified, suspended launch), `PinnedTools`, `ToolStager` (root-owned copy of the tools and their dylibs), `HelperBuild`, identifiers | VPNConfig (and swift-crypto on Linux) |
-| `PassTunnelCore` | `ProfileStore`, `ProfilesWatcher`, `Secrets` + `SecretStore` (Keychain; on Linux `SecretStores`: secret-service, systemd-creds, file), `SecretVault` + `UserAuthenticator` (Secure Enclave protection), `Preferences`, `HealthCheck.check` (the probe), `QRDecoder`, `OpenedFiles` (files the app is asked to open), `TLSFingerprint`, `HelperClient`, `HelperAutoUpdate`, `ConnectionManager` + `ProfileDestination`, CLI parsing (`CLICommand`, `CLIInvocation`), automation objects + `AutomationService`, `MCPServer` + `MCPTools` + `JSONValue` | Kit, VPNConfig, Shared (and swift-crypto's Crypto and CryptoExtras on Linux) |
+| `PassTunnelCore` | `ProfileStore`, `ProfilesWatcher`, `Secrets` + `SecretStore` (Keychain; on Linux `SecretStores`: secret-service, systemd-creds, file), `SecretVault` + `UserAuthenticator` (Secure Enclave protection), `Preferences`, `HealthCheck.check` (the probe), `QRDecoder`, `OpenedFiles` (files the app is asked to open), `TLSFingerprint`, `HelperClient`, `HelperAutoUpdate`, `ConnectionManager` + `ProfileDestination`, `LoginConnector` (connect at login), CLI parsing (`CLICommand`, `CLIInvocation`), automation objects + `AutomationService`, `MCPServer` + `MCPTools` + `JSONValue` | Kit, VPNConfig, Shared (and swift-crypto's Crypto and CryptoExtras on Linux) |
 | `PassTunnelCLI` | the `passtunnel` command: `PassTunnelCLI.run` (entry, `CLIHelp`), `CLIRunner`, `CLICompletions`, `CLITerminal`, `CLIClipboard`; `Pasteboard` (macOS: the app's too) | Core, Kit, Shared |
 | `PassTunnelHelper` | `main.swift` XPC listener, process supervision | Shared (and through it VPNConfig) |
 | `PassTunnel` | SwiftUI app, menu bar, onboarding, updates (`AppUpdater`); CLI mode runs `PassTunnelCLI` | CLI, Core, Kit, VPNConfig, Shared, Sparkle |
@@ -217,6 +217,7 @@ public struct Profile: Codable, Identifiable, Equatable {
     // behaviour
     public var sessionLimitMin = 0
     public var autoReconnect = false
+    public var connectAtLogin = false     // the app connects it when it opens at login (LoginConnector)
     public var healthHost = ""            // "10.0.0.5" (ICMP) or "host:port" (TCP) or "[v6]:port"
     public var otpDelivery = OTPDelivery.combined   // default: .combined for OpenVPN, .separate for Forti (set in create)
     public var otpTemplate = "{password}{otp}"      // used when .combined; validated: must contain "{otp}"
@@ -240,7 +241,8 @@ public enum AuthRequirement: String, Codable, CaseIterable, Comparable { case of
 public enum CredentialField: String, Codable { case username, password, otp }
 ```
 Decoding must tolerate missing keys (defaults) so older/newer files load (no `require_auth` → `off`;
-unknown values → `off`). Share files leave `require_auth` out (a per-user choice, like `pinned`).
+unknown values → `off`; no `connect_at_login` → false). Share files leave `require_auth` and `connect_at_login` out
+(per-user choices, like `pinned`).
 
 ## Core APIs
 
@@ -309,7 +311,7 @@ public enum OTPComposer {
     public static func parts(delivery: OTPDelivery, template: String) -> (secret: [Part], separateCode: Bool)
         // what compose sends, as .password / .code / .text in order: the editor's masked "Server receives"
 }
-public struct ShareFile: Codable              // {"passtunnel_profile":1, "profile":{…minus username,last_username,order,mgmt_port,pinned}, "files":{"config.ovpn": base64}} (config without credential blocks)
+public struct ShareFile: Codable              // {"passtunnel_profile":1, "profile":{…minus username,last_username,order,mgmt_port,pinned,require_auth,connect_at_login,config_imported_at}, "files":{"config.ovpn": base64}} (config without credential blocks)
     // fileExtension "passtunnel", typeIdentifier "com.furkanprlk.passtunnel.profile" (exported by the app, conforms to public.json)
 public struct Preferences: Codable { defaultProfile, theme, showLock, notifyOnDrop, sessionWarnMin=30,
     sessionNotifyMin=10, hotkeys=false, autoType=false, launchAtLogin=true,

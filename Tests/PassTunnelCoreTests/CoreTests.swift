@@ -48,6 +48,18 @@ final class ModelTests: CoreTestCase {
         XCTAssertTrue(p.setRoutes)
         XCTAssertEqual(p.otpTemplate, "{password}{otp}")
         XCTAssertEqual(try decode("{}").type, .openvpn)
+        XCTAssertFalse(p.connectAtLogin, "files written before connect_at_login existed")
+    }
+
+    func testConnectAtLoginIsStoredAndToleratesBadValues() throws {
+        XCTAssertTrue(try decode(#"{"type":"openvpn","connect_at_login":true}"#).connectAtLogin)
+        XCTAssertFalse(try decode(#"{"type":"openvpn","connect_at_login":"yes"}"#).connectAtLogin)
+        var p = Profile(id: "acme", name: "Acme", type: .openvpn)
+        p.connectAtLogin = true
+        let data = try JSONCoding.encode(p)
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(object["connect_at_login"] as? Bool, true)
+        XCTAssertEqual(try JSONCoding.decode(Profile.self, from: data), p)
     }
 
     func testUnknownValuesAndKeysAreTolerated() throws {

@@ -88,6 +88,8 @@ public struct Profile: Codable, Identifiable, Equatable {
     // behaviour
     public var sessionLimitMin = 0
     public var autoReconnect = false
+    /// Connected when PassTunnel opens at login (the app's login item); a per-user choice, like `pinned`.
+    public var connectAtLogin = false
     public var healthHost = ""            // "10.0.0.5" (ICMP) or "host:port" (TCP) or "[v6]:port"
     public var otpDelivery = OTPDelivery.combined
     public var otpTemplate = OTPTemplatePreset.append.rawValue
@@ -161,7 +163,7 @@ public struct Profile: Codable, Identifiable, Equatable {
     enum CodingKeys: String, CodingKey {
         case id, name, type, order, badge, icon, badgeStyle, pinned
         case username, lastUsername, passwordMode, otpMode, totp, requireAuth
-        case sessionLimitMin, autoReconnect, healthHost, otpDelivery, otpTemplate
+        case sessionLimitMin, autoReconnect, connectAtLogin, healthHost, otpDelivery, otpTemplate
         case mgmtPort, host, port, trustedCert, setRoutes
         case configSourceName, configImportedAt
         case setDNS = "setDns"   // matches "set_dns" under the snake_case strategies
@@ -170,7 +172,7 @@ public struct Profile: Codable, Identifiable, Equatable {
 
     /// Keys left out of share files.
     static let shareExcludedKeys: Set<CodingKeys> = [.username, .lastUsername, .order, .mgmtPort, .pinned, .configImportedAt,
-                                                     .requireAuth]
+                                                     .requireAuth, .connectAtLogin]
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -190,6 +192,7 @@ public struct Profile: Codable, Identifiable, Equatable {
         requireAuth = c.lenientEnum(AuthRequirement.self, .requireAuth) ?? .off
         sessionLimitMin = c.lenient(Int.self, .sessionLimitMin) ?? 0
         autoReconnect = c.lenient(Bool.self, .autoReconnect) ?? false
+        connectAtLogin = c.lenient(Bool.self, .connectAtLogin) ?? false
         healthHost = c.lenient(String.self, .healthHost) ?? ""
         mgmtPort = c.lenient(Int.self, .mgmtPort) ?? 0
         host = c.lenient(String.self, .host) ?? ""
@@ -225,6 +228,7 @@ public struct Profile: Codable, Identifiable, Equatable {
         try put(passwordMode, .passwordMode); try put(otpMode, .otpMode); try put(totp, .totp)
         try put(requireAuth, .requireAuth)
         try put(sessionLimitMin, .sessionLimitMin); try put(autoReconnect, .autoReconnect)
+        try put(connectAtLogin, .connectAtLogin)
         try put(healthHost, .healthHost); try put(otpDelivery, .otpDelivery); try put(otpTemplate, .otpTemplate)
         try put(mgmtPort, .mgmtPort); try put(host, .host); try put(port, .port)
         try put(trustedCert, .trustedCert); try put(setDNS, .setDNS); try put(setRoutes, .setRoutes)
