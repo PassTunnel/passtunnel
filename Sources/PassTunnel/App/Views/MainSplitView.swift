@@ -221,7 +221,7 @@ struct SidebarRow: View {
     private func accessibilityValue(_ status: DisplayStatus) -> String {
         var parts = [status.summary(at: model.now)]
         if model.hasCode(profile) {
-            if model.isCodeLocked(profile) || model.prefs.hideCodes {
+            if model.codesMasked(profile, at: model.now) {
                 parts.append(String(localized: "Code hidden"))
             } else if let c = model.code(for: profile, at: model.now) {
                 parts.append(GroupedCodeText.spoken(c.code))
@@ -231,8 +231,8 @@ struct SidebarRow: View {
     }
 }
 
-/// The current code in 13 pt SF Mono, "••• •••" while it is locked or hidden. Copying is in the detail and the
-/// menus.
+/// The current code in 13 pt SF Mono, "••• •••" while the code card masks it (`AppModel.codesMasked`: locked, hidden or
+/// protected, unless a click in the card shows it). Copying is in the detail and the menus.
 private struct SidebarCode: View {
     @EnvironmentObject private var model: AppModel
     let profile: Profile
@@ -241,10 +241,10 @@ private struct SidebarCode: View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let date = model.previewNow ?? context.date
             let digits = max(6, profile.totp.digits)
-            if model.isCodeLocked(profile) {
+            if model.codesMasked(profile, at: date) {
                 code(String(repeating: "0", count: digits), hidden: true)
             } else if let c = model.code(for: profile, at: date) {
-                code(c.code, hidden: model.prefs.hideCodes)
+                code(c.code, hidden: false)
             }
         }
     }

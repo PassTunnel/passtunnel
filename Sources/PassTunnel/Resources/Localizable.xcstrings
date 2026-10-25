@@ -3306,6 +3306,146 @@
         }
       }
     },
+    "Next" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sonraki"
+          }
+        }
+      }
+    },
+    "next code %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "sonraki kod %@"
+          }
+        }
+      }
+    },
+    "Copy code" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kodu kopyala"
+          }
+        }
+      }
+    },
+    "Copy password + code" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parola + kodu kopyala"
+          }
+        }
+      }
+    },
+    "Copied ✓" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopyalandı ✓"
+          }
+        }
+      }
+    },
+    "What the server receives" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucuya gönderilen"
+          }
+        }
+      }
+    },
+    "code" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "kod"
+          }
+        }
+      }
+    },
+    "asked when connecting" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "bağlanırken sorulur"
+          }
+        }
+      }
+    },
+    "example code" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "örnek kod"
+          }
+        }
+      }
+    },
+    "Password only, no one-time code" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yalnızca parola, tek kullanımlık kod yok"
+          }
+        }
+      }
+    },
+    "Format: %@ · preview with the current code" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Biçim: %@ · geçerli kodla önizleme"
+          }
+        }
+      }
+    },
+    "Format: %@ · will send the next code" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Biçim: %@ · bir sonraki kod gönderilecek"
+          }
+        }
+      }
+    },
+    "Format: %@ · asks for the code when connecting" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Biçim: %@ · kod bağlanırken sorulur"
+          }
+        }
+      }
+    },
+    "Format: %@ · no secret added yet" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Biçim: %@ · henüz gizli anahtar eklenmedi"
+          }
+        }
+      }
+    },
     "Current code: %@ (compare it with your authenticator app)" : {
       "localizations" : {
         "tr" : {
