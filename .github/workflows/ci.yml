@@ -365,11 +365,12 @@ jobs:
       # The DNS hook as OpenVPN runs it, against the container's own /etc/resolv.conf: the file backend
       # (no systemd-resolved or resolvconf here; the container's file is a bind mount, rewritten in
       # place). The hook acts only in a session directory whose recorded tool is its parent, so this
-      # shell records itself as the session's tool. Set and reverted in OpenVPN 2.7's form (passtunneld
-      # dns-hook, dns_* variables) and 2.6's (the session's dns-hook link, foreign options, the
-      # arguments --down appends); refused for hostile values, for a missing interface, for another
-      # parent, for another user and outside a session directory; and what a killed session left is
-      # reverted by the next daemon. The file is put back however the step ends.
+      # shell records itself as the session's tool (with its boot ID and start time). Set and reverted
+      # in OpenVPN 2.7's form (passtunneld dns-hook, dns_* variables) and 2.6's (the session's dns-hook
+      # link, foreign options, the arguments --down appends); refused for hostile values, for a missing
+      # interface, for another parent, for another user and outside a session directory; two sessions
+      # at once, the older one ending first, never bring the file's own servers back; and what a killed
+      # session left is reverted by the next daemon. The file is put back however the step ends.
       - name: DNS hook (file backend)
         run: |
           set -euo pipefail
@@ -382,10 +383,15 @@ jobs:
           stat -c 'resolv.conf: inode %i, %U %a' /etc/resolv.conf
           run=/run/passtunnel/0/ci-dns
           install -d -m 0711 /run/passtunnel /run/passtunnel/0 "$run"
-          printf '%s\n' "$$" 0 "$(readlink "/proc/$$/exe")" /root/ci-dns "" >"$run/state"
+          # Field 22 of /proc/<pid>/stat, counted after the command name (which ends at the last ")").
+          started="$(sed 's/.*) //' "/proc/$$/stat" | cut -d ' ' -f 20)"
+          printf '%s\n' "$$" 0 "$(readlink "/proc/$$/exe")" /root/ci-dns "" "$(cat /proc/sys/kernel/random/boot_id)" \
+            "$started" >"$run/state"
           ln -sfn "$hook" "$run/dns-hook"
           ours="$(printf 'nameserver 192.0.2.53\nnameserver 2001:db8::53')"
-          unchanged() { cmp "$out/resolv.before" /etc/resolv.conf && test ! -e "$run/dns"; }
+          unchanged() {
+            cmp "$out/resolv.before" /etc/resolv.conf && test ! -e "$run/dns" && test ! -e /run/passtunnel/resolv.conf.base
+          }
           cd "$run"
 
           env -i dev=lo script_type=dns-up dns_server_1_address_1=192.0.2.53 dns_server_1_address_2=2001:db8::53 \
@@ -425,6 +431,30 @@ jobs:
           (cd / && refused 'does not run in a session directory' env -i "${up[@]}" "$hook" dns-hook)
           if "$hook" bogus 2>"$out/refused.txt"; then exit 1; fi
           grep -q 'takes no arguments' "$out/refused.txt"
+          # A state without boot ID and start time (an earlier build's) proves nothing: refused.
+          cp "$run/state" "$out/state"
+          head -n 5 "$out/state" >"$run/state"
+          refused 'not started by the session' env -i "${up[@]}" "$hook" dns-hook
+          cp "$out/state" "$run/state"
+
+          # Two sessions at once, each hook a process of its own: the newer one's DNS is in effect, and
+          # stays when the older one ends.
+          run2=/run/passtunnel/0/ci-dns-2
+          install -d -m 0711 "$run2"
+          cp "$run/state" "$run2/state"
+          env -i "${up[@]}" "$hook" dns-hook
+          cd "$run2"
+          env -i dev=lo script_type=dns-up dns_server_1_address_1=198.51.100.53 "$hook" dns-hook
+          cd "$run"
+          cat /etc/resolv.conf
+          test "$(grep '^nameserver ' /etc/resolv.conf)" = "nameserver 198.51.100.53"
+          env -i dev=lo script_type=dns-down "$hook" dns-hook
+          test "$(grep '^nameserver ' /etc/resolv.conf)" = "nameserver 198.51.100.53"
+          cd "$run2"
+          env -i dev=lo script_type=dns-down "$hook" dns-hook
+          cd "$run"
+          unchanged
+          rm -r "$run2"
 
           # Set up, then the session's state goes (as if its openvpn had been killed with the daemon):
           # the next daemon reverts what the session recorded.
