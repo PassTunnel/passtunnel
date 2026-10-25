@@ -216,6 +216,24 @@ final class ActivityLogTests: CoreTestCase {
         XCTAssertEqual(ActivityEvent.clockTime(t0, timeZone: TimeZone(secondsFromGMT: 3 * 3600)!), "01:13:20")
     }
 
+    func testDaysAreNamedForEventsOfEarlierDays() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let locale = Locale(identifier: "en_US")
+        let now = Date(timeIntervalSince1970: 1_700_000_000)   // Tue 2023-11-14 22:13:20 UTC
+        func event(_ ago: TimeInterval) -> ActivityEvent { ActivityEvent(at: now.addingTimeInterval(-ago), .authAccepted) }
+        func label(_ ago: TimeInterval) -> String { event(ago).timeLabel(now: now, calendar: calendar, locale: locale) }
+        XCTAssertEqual(label(0), "22:13:20")
+        XCTAssertEqual(label(22 * 3600), "00:13:20", "after midnight is still today")
+        XCTAssertEqual(label(22 * 3600 + 14 * 60 + 20), "Yesterday 23:59:00")
+        XCTAssertEqual(label(24 * 3600), "Yesterday 22:13:20")
+        XCTAssertEqual(label(2 * 24 * 3600), "Sun, Nov 12 22:13:20")
+        XCTAssertEqual(ActivityEvent.dayTitle(now, now: now, calendar: calendar, locale: locale), "Today")
+        XCTAssertEqual(ActivityEvent.dayTitle(now.addingTimeInterval(-86400), now: now, calendar: calendar, locale: locale), "Yesterday")
+        XCTAssertEqual(ActivityEvent.dayTitle(now.addingTimeInterval(-5 * 86400), now: now, calendar: calendar, locale: locale),
+                       "Thu, Nov 9")
+    }
+
     func testSpokenSentenceReadsHiddenValuesAsHidden() {
         func spoken(_ kind: ActivityEvent.Kind) -> String { ActivityEvent(at: t0, kind).spokenSentence(showingCodeDigits: true) }
         XCTAssertEqual(spoken(.sending(Self.sending)), "Sending alice / hidden+482 hidden · 22 s left")

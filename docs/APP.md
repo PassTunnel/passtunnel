@@ -223,7 +223,8 @@ and at least 820×560:
     connect that waits keeps "will send the next code". VoiceOver reads the card as one element.
   - **Activity** (`ActivityCard` in `Views/ActivityViews.swift`, under the code cards, full width): the last six events
     of the profile's activity log (`ActivityLog`, written by the app and the CLI), oldest first, each as the time
-    (`HH:mm:ss`, `fg3`) and the sentence in 11.5 pt SF Mono (`ActivityEvent.sentence(showingCodeDigits: true)`:
+    (`HH:mm:ss`, `fg3`; an event of an earlier day says which, "Yesterday 17:09:07" or "Fri, Oct 23 17:09:07",
+    `ActivityEvent.timeLabel`, with the sentences kept in line) and the sentence in 11.5 pt SF Mono (`ActivityEvent.sentence(showingCodeDigits: true)`:
     the password as eight bullets, a code as its first three digits and bullets, "Sending sam / ••••••••+604 •••").
     Errors are red (`ActivityEvent.tone`: link dropped, no answer, sign-in rejected, failed), waits for a code amber,
     the rest in the text color; the card is live while a session runs (`ActivityFeed`: the app's own events at once,

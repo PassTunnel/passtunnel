@@ -97,13 +97,20 @@ extension ActivityEvent.Tone {
 /// truncating. VoiceOver reads it as one element, a hidden password or code as "hidden".
 struct ActivityLine: View {
     let event: ActivityEvent
+    /// The time column's text (the time, with its day for an earlier one) and the widest text of the list, which
+    /// keeps the sentences in line; the time alone by default.
+    var time: String?
+    var timeSample: String?
     var selectable = false
 
     var body: some View {
-        let spokenTime = event.at.formatted(date: .omitted, time: .standard)
+        let shownTime = time ?? ActivityEvent.clockTime(event.at)
+        let spokenTime = event.at.formatted(date: .abbreviated, time: .standard)
         let spoken = "\(spokenTime), \(event.spokenSentence(showingCodeDigits: true))"
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(verbatim: ActivityEvent.clockTime(event.at))
+            Text(verbatim: timeSample ?? shownTime)
+                .hidden()
+                .overlay(alignment: .leading) { Text(verbatim: shownTime) }
                 .foregroundStyle(Palette.fg3)
             Text(verbatim: event.sentence(showingCodeDigits: true))
                 .foregroundStyle(event.tone.color)
@@ -159,9 +166,12 @@ struct ActivityCard: View {
                     .typography(.log)
                     .foregroundStyle(Palette.fg3)
             } else {
+                // An event of an earlier day says which day, so the list never reads out of order.
+                let times = events.map { $0.timeLabel(now: model.now) }
+                let widest = times.max { $0.count < $1.count }
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(events.enumerated()), id: \.offset) { _, event in
-                        ActivityLine(event: event)
+                    ForEach(Array(events.enumerated()), id: \.offset) { index, event in
+                        ActivityLine(event: event, time: times[index], timeSample: widest)
                     }
                 }
             }
@@ -288,21 +298,11 @@ struct ActivityLogContent: View {
         for event in events {
             if let last = day, calendar.isDate(event.at, inSameDayAs: last) {} else {
                 day = event.at
-                items.append(.day(Self.dayTitle(event.at, now: model.now)))
+                items.append(.day(ActivityEvent.dayTitle(event.at, now: model.now)))
             }
             items.append(.line(event))
         }
         return items
-    }
-
-    /// "Today", "Yesterday", else "Fri, Oct 23".
-    private static func dayTitle(_ date: Date, now: Date) -> String {
-        let calendar = Calendar.current
-        if calendar.isDate(date, inSameDayAs: now) { return String(localized: "Today") }
-        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) {
-            return String(localized: "Yesterday")
-        }
-        return date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
     }
 
     private func scrollToEnd(_ proxy: ScrollViewProxy) {

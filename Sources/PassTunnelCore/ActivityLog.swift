@@ -138,6 +138,28 @@ public struct ActivityEvent: Equatable, Sendable {
         return String(format: "%02d:%02d:%02d", c.hour ?? 0, c.minute ?? 0, c.second ?? 0)
     }
 
+    /// The day of `date` as the activity names it: "Today", "Yesterday", else a short date ("Fri, Oct 23").
+    public static func dayTitle(_ date: Date, now: Date, calendar: Calendar = .current, locale: Locale = .current) -> String {
+        if calendar.isDate(date, inSameDayAs: now) { return String(localized: "Today") }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) {
+            return String(localized: "Yesterday")
+        }
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.setLocalizedDateFormatFromTemplate("EEEMMMd")
+        return formatter.string(from: date)
+    }
+
+    /// The time of an event in a list that has no day headings: "17:09:07" for today, "Yesterday 17:09:07" or
+    /// "Fri, Oct 23 17:09:07" for an earlier day, so a list never reads out of order.
+    public func timeLabel(now: Date, calendar: Calendar = .current, locale: Locale = .current) -> String {
+        let time = Self.clockTime(at, timeZone: calendar.timeZone)
+        if calendar.isDate(at, inSameDayAs: now) { return time }
+        return Self.dayTitle(at, now: now, calendar: calendar, locale: locale) + " " + time
+    }
+
     /// The last `sending` in `events` (oldest first): when the credentials went to the VPN tool, and the
     /// code's seconds left then.
     public static func lastSending(in events: [ActivityEvent]) -> (at: Date, sending: Sending)? {
