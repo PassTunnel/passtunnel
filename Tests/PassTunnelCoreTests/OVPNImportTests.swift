@@ -34,6 +34,12 @@ final class OVPNImportTests: CoreTestCase {
             "plugin", "engine", "providers", "pkcs11-providers", "show-pkcs11-ids",
             "config", "capath", "dev-node", "replay-persist", "client-config-dir", "ifconfig-pool-persist",
             "learn-address", "client-connect", "client-disconnect", "port-share", "genkey",
+            "client-crresponse", "memstats", "setcon",
+            "server", "server-ipv6", "server-bridge", "tls-server", "inetd",
+            "mktun", "rmtun", "help", "version", "test-crypto",
+            "show-ciphers", "show-digests", "show-engines", "show-tls", "show-curves", "show-groups",
+            "show-gateway", "show-net", "show-net-up", "show-adapters", "show-valid-subnets", "allow-nonadmin",
+            "win-sys", "service", "msg-channel",
         ]
         XCTAssertEqual(skipped.union(blocking), OVPNSanitizer.forbiddenDirectives)
         XCTAssertTrue(skipped.isDisjoint(with: blocking))
@@ -43,6 +49,40 @@ final class OVPNImportTests: CoreTestCase {
             XCTAssertEqual(r?.blocking.map(\.directive) ?? [], skipped.contains(name) ? [] : [name], name)
         }
         XCTAssertEqual(Set(OVPNSkipRules.skippable.keys), skipped)
+    }
+
+    /// Server and standalone modes, server hooks and device paths always block: an import never turns a
+    /// file that is not a client configuration into one by leaving lines out.
+    func testServerStandaloneAndDeviceLinesBlock() throws {
+        let lines = [
+            "client-crresponse /tmp/x", "--CLIENT-CRRESPONSE \"/tmp/x y\"", "setenv opt client-crresponse /tmp/x",
+            "mode server", "mode", "setenv opt mode server", "server 10.8.0.0 255.255.255.0", "tls-server",
+            "server-bridge", "server-ipv6 2001:db8::/64", "mktun", "rmtun", "version", "test-crypto",
+            "show-ciphers", "dev ../tmp/x1", "dev disk2", "memstats /tmp/x",
+        ]
+        for line in lines {
+            let r = try report("client\n\(line)\nremote vpn.example.com\n")
+            XCTAssertEqual(r.skipped, [], line)
+            XCTAssertEqual(r.blocking.map(\.line), [2], line)
+            XCTAssertNil(r.config, line)
+            for v in r.blocking {
+                XCTAssertNil(OVPNSkipRules.skipReason(OVPNSanitizer.Violation(line: v.line, directive: v.directive,
+                                                                              reason: v.reason)), line)
+            }
+        }
+        // Inside a <connection> block, and next to lines that would be skipped: the file still blocks.
+        let r = try report("client\n<connection>\nremote vpn.example.com\ntls-server\n</connection>\nup /tmp/x\n")
+        XCTAssertEqual(r.blocking.map(\.description), ["line 4: tls-server (not allowed)"])
+        XCTAssertNil(r.config)
+        XCTAssertEqual(try report("client\nmode server\n").blocking.first?.description,
+                       "line 2: mode (only mode p2p is allowed)")
+        XCTAssertEqual(try report("client\ndev tap/../../x1\n").blocking.first?.reason,
+                       "must be tun, tap, utun or null, optionally followed by letters, digits, - or _")
+        // What client profiles use stays.
+        for keep in ["mode p2p", "dev tun", "dev tap0", "dev utun", "dev tun-work", "dev-type tap\ndev tap_lab"] {
+            let text = "client\n\(keep)\nremote vpn.example.com\n"
+            XCTAssertEqual(try report(text).config, text, keep)
+        }
     }
 
     func testLogAndManagementFamilies() throws {

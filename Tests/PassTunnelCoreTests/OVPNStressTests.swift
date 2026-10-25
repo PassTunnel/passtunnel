@@ -58,6 +58,45 @@ final class OVPNSanitizerFuzzTests: XCTestCase {
         XCTAssertEqual(violations("<show-pkcs11-ids>\n/tmp/evil.dylib\n</show-pkcs11-ids>\n").count, 1)
     }
 
+    /// A config that makes OpenVPN a server (which runs server-side hooks such as `client-crresponse` for
+    /// any client that connects), or a standalone command, is refused however it is written.
+    func testServerAndStandaloneModes() {
+        let server = "mode server\ntls-server\ndev tun\nport 1194\nclient-crresponse \"/tmp/x y\"\n"
+        XCTAssertEqual(violations(server).map(\.directive), ["mode", "tls-server", "client-crresponse"])
+        XCTAssertEqual(violations("server 10.8.0.0 255.255.255.0\nserver-ipv6 2001:db8::/64\n").count, 2)
+        for line in ["mode server", "--MODE server", "mode SERVER", "mode \"server\"", "mode", "mode p2p server",
+                     "mode p2p x", "setenv opt mode server", "--setenv opt --mode server", "mode p2p\\ "] {
+            XCTAssertEqual(violations("client\n\(line)\n").map(\.line), [2], line)
+            XCTAssertEqual(violations("<connection>\nremote vpn.example.com\n\(line)\n</connection>\n").map(\.line), [3], line)
+        }
+        XCTAssertEqual(violations("<mode>\np2p\n</mode>\n").count, 1, "as a block")
+        for ok in ["mode p2p", "--mode p2p", "MODE P2P", "mode 'p2p'", "setenv opt mode p2p"] {
+            XCTAssertTrue(violations("client\n\(ok)\n").isEmpty, ok)
+        }
+        for line in ["mktun", "rmtun", "--mktun", "MKTUN", "setenv opt rmtun", "version", "help", "test-crypto",
+                     "show-ciphers", "show-tls", "show-curves", "show-gateway 192.0.2.1", "inetd nowait",
+                     "client-crresponse /tmp/x", "memstats /tmp/x"] {
+            XCTAssertEqual(violations("client\n\(line)\n").map(\.line), [2], line)
+        }
+    }
+
+    /// `dev` must be a device type: on macOS a `tap` device (or a `tun` device without utun) is opened as
+    /// `/dev/<dev>`, so a name with a path or naming another device would be opened as root.
+    func testDeviceNames() {
+        for name in ["../private/tmp/x1", "tap/../../x1", "tun/x", "tun.1", "disk2", "rdisk0", "bpf0", "ttys000",
+                     "TUN", "Tap0", "", "tun 0", "tun\\ 0", "tunç", "nul", "tu", "-tun", "\"tun0\" x", "tun\u{0301}"] {
+            let line = name.hasPrefix("\"") || name.contains("\\") ? "dev \(name)" : "dev \"\(name)\""
+            XCTAssertEqual(violations("client\n\(line)\n").map(\.directive), ["dev"], line)
+            XCTAssertEqual(violations("client\nsetenv opt --DEV \"\(name)\"\n").map(\.directive), ["dev"], name)
+            XCTAssertEqual(violations("<connection>\n\(line)\n</connection>\n").count, 1, line)
+        }
+        XCTAssertEqual(violations("dev\n").count, 1, "no name")
+        XCTAssertEqual(violations("<dev>\ntun0\n</dev>\n").count, 1, "as a block")
+        for name in ["tun", "tap", "utun", "null", "tun0", "tap12", "utun7", "tun-work", "tap_lab", "tunVPN"] {
+            XCTAssertTrue(violations("client\ndev \(name)\ndev-type tap\n").isEmpty, name)
+        }
+    }
+
     func testScriptSecurityValues() {
         for ok in ["0", "1", "-1", "01"] { XCTAssertTrue(violations("script-security \(ok)\n").isEmpty, ok) }
         for bad in ["2", "3", "+2", "\"2\"", "'3'", "2 system", "99999999999999999999", "0x2", "two", ""] {

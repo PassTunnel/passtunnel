@@ -972,6 +972,449 @@
       ]
     },
     {
+      "name": "refused: client-crresponse /tmp/x",
+      "config": "client\nclient-crresponse /tmp/x\n",
+      "violations": [
+        {
+          "directive": "client-crresponse",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: server 10.8.0.0 255.255.255.0",
+      "config": "client\nserver 10.8.0.0 255.255.255.0\n",
+      "violations": [
+        {
+          "directive": "server",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: server-ipv6 2001:db8::/64",
+      "config": "client\nserver-ipv6 2001:db8::/64\n",
+      "violations": [
+        {
+          "directive": "server-ipv6",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: server-bridge",
+      "config": "client\nserver-bridge\n",
+      "violations": [
+        {
+          "directive": "server-bridge",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: tls-server",
+      "config": "client\ntls-server\n",
+      "violations": [
+        {
+          "directive": "tls-server",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: inetd nowait",
+      "config": "client\ninetd nowait\n",
+      "violations": [
+        {
+          "directive": "inetd",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: mktun",
+      "config": "client\nmktun\n",
+      "violations": [
+        {
+          "directive": "mktun",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: rmtun",
+      "config": "client\nrmtun\n",
+      "violations": [
+        {
+          "directive": "rmtun",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: help",
+      "config": "client\nhelp\n",
+      "violations": [
+        {
+          "directive": "help",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: version",
+      "config": "client\nversion\n",
+      "violations": [
+        {
+          "directive": "version",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: test-crypto",
+      "config": "client\ntest-crypto\n",
+      "violations": [
+        {
+          "directive": "test-crypto",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: show-ciphers",
+      "config": "client\nshow-ciphers\n",
+      "violations": [
+        {
+          "directive": "show-ciphers",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: show-digests",
+      "config": "client\nshow-digests\n",
+      "violations": [
+        {
+          "directive": "show-digests",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: show-engines",
+      "config": "client\nshow-engines\n",
+      "violations": [
+        {
+          "directive": "show-engines",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: show-tls",
+      "config": "client\nshow-tls\n",
+      "violations": [
+        {
+          "directive": "show-tls",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: show-curves",
+      "config": "client\nshow-curves\n",
+      "violations": [
+        {
+          "directive": "show-curves",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: show-groups",
+      "config": "client\nshow-groups\n",
+      "violations": [
+        {
+          "directive": "show-groups",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: show-gateway 192.0.2.1",
+      "config": "client\nshow-gateway 192.0.2.1\n",
+      "violations": [
+        {
+          "directive": "show-gateway",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: show-net",
+      "config": "client\nshow-net\n",
+      "violations": [
+        {
+          "directive": "show-net",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: show-net-up",
+      "config": "client\nshow-net-up\n",
+      "violations": [
+        {
+          "directive": "show-net-up",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: show-adapters",
+      "config": "client\nshow-adapters\n",
+      "violations": [
+        {
+          "directive": "show-adapters",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: show-valid-subnets",
+      "config": "client\nshow-valid-subnets\n",
+      "violations": [
+        {
+          "directive": "show-valid-subnets",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: allow-nonadmin",
+      "config": "client\nallow-nonadmin\n",
+      "violations": [
+        {
+          "directive": "allow-nonadmin",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: memstats /tmp/x",
+      "config": "client\nmemstats /tmp/x\n",
+      "violations": [
+        {
+          "directive": "memstats",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: setcon system_u:system_r:openvpn_t:s0",
+      "config": "client\nsetcon system_u:system_r:openvpn_t:s0\n",
+      "violations": [
+        {
+          "directive": "setcon",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: win-sys C:\\\\x",
+      "config": "client\nwin-sys C:\\\\x\n",
+      "violations": [
+        {
+          "directive": "win-sys",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: service x 0",
+      "config": "client\nservice x 0\n",
+      "violations": [
+        {
+          "directive": "service",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: msg-channel 1",
+      "config": "client\nmsg-channel 1\n",
+      "violations": [
+        {
+          "directive": "msg-channel",
+          "line": 2,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: mode server",
+      "config": "client\nmode server\n",
+      "violations": [
+        {
+          "directive": "mode",
+          "line": 2,
+          "reason": "only mode p2p is allowed"
+        }
+      ]
+    },
+    {
+      "name": "refused: mode without a value, or with more than p2p",
+      "config": "mode\nmode p2p server\n<mode>\np2p\n</mode>\n",
+      "violations": [
+        {
+          "directive": "mode",
+          "line": 1,
+          "reason": "only mode p2p is allowed"
+        },
+        {
+          "directive": "mode",
+          "line": 2,
+          "reason": "only mode p2p is allowed"
+        },
+        {
+          "directive": "<mode>",
+          "line": 3,
+          "reason": "only mode p2p is allowed"
+        }
+      ]
+    },
+    {
+      "name": "a server config: the mode, the server's TLS role and its hooks are refused",
+      "config": "mode server\ntls-server\ndev tun\nport 1194\n--Client-CRResponse \"/tmp/x y\"\n",
+      "violations": [
+        {
+          "directive": "mode",
+          "line": 1,
+          "reason": "only mode p2p is allowed"
+        },
+        {
+          "directive": "tls-server",
+          "line": 2,
+          "reason": "not allowed"
+        },
+        {
+          "directive": "client-crresponse",
+          "line": 5,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "server modes inside a connection block and behind setenv opt",
+      "config": "<connection>\nremote vpn.example.com\nsetenv opt --mode server\nTLS-SERVER\n</connection>\nsetenv opt client-crresponse /tmp/x\n<server>\nx\n</server>\n",
+      "violations": [
+        {
+          "directive": "mode",
+          "line": 3,
+          "reason": "only mode p2p is allowed"
+        },
+        {
+          "directive": "tls-server",
+          "line": 4,
+          "reason": "not allowed"
+        },
+        {
+          "directive": "client-crresponse",
+          "line": 6,
+          "reason": "not allowed"
+        },
+        {
+          "directive": "<server>",
+          "line": 7,
+          "reason": "not allowed"
+        }
+      ]
+    },
+    {
+      "name": "mode p2p and device names stay",
+      "config": "mode p2p\nMODE 'p2p'\ndev tun\ndev tap0\ndev utun\ndev null\ndev tun-work\ndev tap_lab\ndev-type tap\n",
+      "output": "mode p2p\nMODE 'p2p'\ndev tun\ndev tap0\ndev utun\ndev null\ndev tun-work\ndev tap_lab\ndev-type tap\n"
+    },
+    {
+      "name": "refused: a device name that is a path or another device",
+      "config": "dev ../private/tmp/x1\ndev tap/../../x1\ndev disk2\ndev TUN0\ndev \"tun 0\"\ndev tun.1\ndev\n<dev>\ntun0\n</dev>\nsetenv opt dev bpf0\n",
+      "violations": [
+        {
+          "directive": "dev",
+          "line": 1,
+          "reason": "must be tun, tap, utun or null, optionally followed by letters, digits, - or _"
+        },
+        {
+          "directive": "dev",
+          "line": 2,
+          "reason": "must be tun, tap, utun or null, optionally followed by letters, digits, - or _"
+        },
+        {
+          "directive": "dev",
+          "line": 3,
+          "reason": "must be tun, tap, utun or null, optionally followed by letters, digits, - or _"
+        },
+        {
+          "directive": "dev",
+          "line": 4,
+          "reason": "must be tun, tap, utun or null, optionally followed by letters, digits, - or _"
+        },
+        {
+          "directive": "dev",
+          "line": 5,
+          "reason": "must be tun, tap, utun or null, optionally followed by letters, digits, - or _"
+        },
+        {
+          "directive": "dev",
+          "line": 6,
+          "reason": "must be tun, tap, utun or null, optionally followed by letters, digits, - or _"
+        },
+        {
+          "directive": "dev",
+          "line": 7,
+          "reason": "must be tun, tap, utun or null, optionally followed by letters, digits, - or _"
+        },
+        {
+          "directive": "<dev>",
+          "line": 8,
+          "reason": "must be tun, tap, utun or null, optionally followed by letters, digits, - or _"
+        },
+        {
+          "directive": "dev",
+          "line": 11,
+          "reason": "must be tun, tap, utun or null, optionally followed by letters, digits, - or _"
+        }
+      ]
+    },
+    {
       "name": "refused: socks-proxy proxy.example.com 1080 /var/root/creds",
       "config": "client\nsocks-proxy proxy.example.com 1080 /var/root/creds\n",
       "violations": [

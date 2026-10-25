@@ -1,0 +1,11 @@
+client
+mode p2p
+dev-type tap
+dev ../private/tmp/x1
+dev tap0
+dev tun-work
+<dev>
+tun0
+</dev>
+setenv opt dev bpf0
+dev "tun 0"

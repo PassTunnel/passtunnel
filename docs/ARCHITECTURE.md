@@ -656,6 +656,8 @@ Security rules (helper):
   `route-up`, `route-pre-down`, `ipchange`, `learn-address`, `client-connect`, `client-disconnect`,
   `tls-verify`, `auth-user-pass-verify`, `plugin`, `script-security` > 1, `management*`, `log*`, `daemon`,
   `writepid`, `cd`, `chroot`, `user`/`group`, `config`, `show-pkcs11-ids`, `genkey`, `port-share`,
+  `client-crresponse`, server and standalone modes (`server*`, `tls-server`, `mode` other than `p2p`,
+  `mktun`/`rmtun`, `show-*`, …), a `dev` name that is not a device type,
   external files incl. a `socks-proxy` credentials file, and, like OpenVPN's own parser, a backslash
   outside single quotes that does not escape `\`, `"` or whitespace, or ends the line, and a line that
   starts with a byte order mark anywhere but at the start of the file; strips `static-challenge`; the same
