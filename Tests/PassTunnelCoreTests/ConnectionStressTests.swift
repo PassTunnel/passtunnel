@@ -180,6 +180,17 @@ final class ConnectionStressTests: XCTestCase {
         XCTAssertEqual(secrets().last, "pw" + (try code(at: t0.addingTimeInterval(10.25))))
     }
 
+    /// When a profile last sent a code, for the menu bar panel's copy items: the start of that code's window, as
+    /// another process reads it.
+    func testLastCodeSentIsTheStartOfTheWindowSent() async throws {
+        let p = try makeOpenVPN(period: 60)
+        let m = makeManager()
+        XCTAssertNil(m.lastCodeSent(p.id))
+        try await m.connect(p.id)
+        let window = TOTP.counter(params: TOTPParams(period: 60), at: t0)
+        XCTAssertEqual(makeManager().lastCodeSent(p.id), Date(timeIntervalSince1970: TimeInterval(window * 60)))
+    }
+
     func testNextWindowNeedsNoWait() async throws {
         let p = try makeOpenVPN()
         try await makeManager().connect(p.id)
