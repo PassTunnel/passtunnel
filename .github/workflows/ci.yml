@@ -8,7 +8,7 @@
 #                     (the golden cases in fixtures/ included), in the official Swift container; then
 #                     a smoke test of `passtunnel` (with the file secret store), one real Secret
 #                     Service round trip against a throwaway keyring, and, as root in the container,
-#                     a smoke test of `passtunneld`
+#                     a smoke test of `passtunneld` and of its DNS hook
 #   Release scripts   shellcheck of next-version.sh and its test, and the self-test of
 #                     scripts/next-version.sh (in a temporary repository)
 #   Site              shellcheck of the site scripts and scripts/check-site.sh, the static checks
@@ -156,10 +156,10 @@ jobs:
       # passtunneld as root in the container, on the container's own /run/passtunnel: refused from a
       # directory others can write to, then installed where its checks accept it. hello and an empty
       # status (raw, and through passtunnel); a start refused for a user outside the group passtunnel,
-      # whose status stays allowed; a member's session with the distribution's openvpn started, its
-      # management socket handed over, invisible to others, and stopped (no tunnel: the server is an
-      # unroutable documentation address). Last, a daemon killed during a session, whose openvpn the
-      # next one stops.
+      # whose status stays allowed; a member's session with the distribution's openvpn started (2.6:
+      # the DNS hook as --route-up and --down), its management socket handed over, invisible to others,
+      # and stopped (no tunnel: the server is an unroutable documentation address). Last, a daemon
+      # killed during a session, whose openvpn the next one stops.
       - name: Smoke-test passtunneld
         env:
           DEBIAN_FRONTEND: noninteractive
@@ -242,7 +242,8 @@ jobs:
           tr '\0' ' ' <"/proc/$pid/cmdline" | tee cmdline.txt
           echo
           grep -q -- "--management $run/mgmt.sock unix --management-client-user alice " cmdline.txt
-          grep -q -- "--auth-user-pass $run/auth --script-security 1 $" cmdline.txt
+          grep -q -- "--auth-user-pass $run/auth --script-security 2 --route-up $run/dns-hook --down $run/dns-hook --down-pre $" cmdline.txt
+          test "$(readlink "$run/dns-hook")" = /usr/local/sbin/passtunneld
           printf '%s\n' "$status" | call_as alice \
             | jq -e --argjson pid "$pid" --arg sock "$run/mgmt.sock" '.running == {"acme": $pid} and .mgmt_sockets == {"acme": $sock}'
           printf '%s\n' "$status" | call_as nobody | jq -e '.running == {}'
@@ -272,6 +273,90 @@ jobs:
           wait "$daemon"
           daemon=""
           test ! -e "$sock"
+
+      # The DNS hook as OpenVPN runs it, against the container's own /etc/resolv.conf: the file backend
+      # (no systemd-resolved or resolvconf here; the container's file is a bind mount, rewritten in
+      # place). The hook acts only in a session directory whose recorded tool is its parent, so this
+      # shell records itself as the session's tool. Set and reverted in OpenVPN 2.7's form (passtunneld
+      # dns-hook, dns_* variables) and 2.6's (the session's dns-hook link, foreign options, the
+      # arguments --down appends); refused for hostile values, for a missing interface, for another
+      # parent, for another user and outside a session directory; and what a killed session left is
+      # reverted by the next daemon. The file is put back however the step ends.
+      - name: DNS hook (file backend)
+        run: |
+          set -euo pipefail
+          out="$PWD"
+          hook=/usr/local/sbin/passtunneld
+          install -m 0755 "$(swift build --show-bin-path)/passtunneld" "$hook"
+          cp /etc/resolv.conf "$out/resolv.before"
+          trap 'cat "$out/resolv.before" >/etc/resolv.conf' EXIT
+          cat "$out/resolv.before"
+          stat -c 'resolv.conf: inode %i, %U %a' /etc/resolv.conf
+          run=/run/passtunnel/0/ci-dns
+          install -d -m 0711 /run/passtunnel /run/passtunnel/0 "$run"
+          printf '%s\n' "$$" 0 "$(readlink "/proc/$$/exe")" /root/ci-dns "" >"$run/state"
+          ln -sfn "$hook" "$run/dns-hook"
+          ours="$(printf 'nameserver 192.0.2.53\nnameserver 2001:db8::53')"
+          unchanged() { cmp "$out/resolv.before" /etc/resolv.conf && test ! -e "$run/dns"; }
+          cd "$run"
+
+          env -i dev=lo script_type=dns-up dns_server_1_address_1=192.0.2.53 dns_server_1_address_2=2001:db8::53 \
+            dns_search_domain_1=corp.example.com "$hook" dns-hook
+          cat /etc/resolv.conf
+          stat -c 'resolv.conf: inode %i, %U %a' /etc/resolv.conf
+          head -n 1 /etc/resolv.conf | grep -qx '# PassTunnel lo begin: DNS of the VPN, removed when it disconnects'
+          test "$(grep '^nameserver ' /etc/resolv.conf)" = "$ours"
+          test "$(grep -E '^(search|domain) ' /etc/resolv.conf)" = "search corp.example.com"
+          test "$(stat -c '%U %a' "$run/dns")" = "root 600"
+          env -i dev=lo script_type=dns-down "$hook" dns-hook
+          unchanged
+
+          env -i dev=lo script_type=route-up 'foreign_option_1=dhcp-option DNS 192.0.2.53' \
+            'foreign_option_2=dhcp-option DNS6 2001:db8::53' 'foreign_option_3=dhcp-option DOMAIN corp.example.com' \
+            "$run/dns-hook"
+          test "$(grep '^nameserver ' /etc/resolv.conf)" = "$ours"
+          env -i dev=lo script_type=down "$run/dns-hook" lo 1500 0 10.8.0.2 255.255.255.0 init
+          unchanged
+
+          refused() {    # the expected message, then the command, which must fail and change nothing
+            local expected="$1"
+            shift
+            if "$@" >"$out/refused.txt" 2>&1; then echo "not refused: $*"; exit 1; fi
+            cat "$out/refused.txt"
+            grep -q "$expected" "$out/refused.txt"
+            unchanged
+          }
+          up=(dev=lo script_type=dns-up dns_server_1_address_1=192.0.2.53)
+          refused 'setting DNS failed: invalid DNS server' env -i dev=lo script_type=dns-up \
+            $'dns_server_1_address_1=192.0.2.53\nnameserver 198.51.100.66' "$hook" dns-hook
+          refused 'setting DNS failed: invalid DNS domain' env -i "${up[@]}" 'dns_search_domain_1=-x' "$hook" dns-hook
+          refused 'setting DNS failed: there is no interface tun9' env -i dev=tun9 script_type=dns-up \
+            dns_server_1_address_1=192.0.2.53 "$hook" dns-hook
+          refused 'not started by the session' bash -c 'env -i "${@:2}" "$1" dns-hook; exit $?' _ "$hook" "${up[@]}"
+          refused 'must run as root' runuser -u nobody -- env -i "${up[@]}" "$hook" dns-hook
+          (cd / && refused 'does not run in a session directory' env -i "${up[@]}" "$hook" dns-hook)
+          if "$hook" bogus 2>"$out/refused.txt"; then exit 1; fi
+          grep -q 'takes no arguments' "$out/refused.txt"
+
+          # Set up, then the session's state goes (as if its openvpn had been killed with the daemon):
+          # the next daemon reverts what the session recorded.
+          env -i "${up[@]}" "$hook" dns-hook
+          test -e "$run/dns"
+          rm "$run/state"
+          cd "$out"
+          "$hook" >>dns-daemon.log 2>&1 &
+          daemon=$!
+          for _ in $(seq 100); do
+            reply="$(printf '%s\n' '{"op":"hello"}' | socat -t 5 - UNIX-CONNECT:/run/passtunnel/daemon.sock 2>/dev/null || true)"
+            case "$reply" in *'"protocol"'*) break ;; esac
+            sleep 0.1
+          done
+          kill -TERM "$daemon"
+          wait "$daemon"
+          cat dns-daemon.log
+          cmp resolv.before /etc/resolv.conf
+          test ! -e /run/passtunnel/0
+          grep -q "ci-dns of uid 0, left by an earlier instance: restored the DNS of lo (/etc/resolv.conf)" dns-daemon.log
 
   scripts:
     name: Release scripts

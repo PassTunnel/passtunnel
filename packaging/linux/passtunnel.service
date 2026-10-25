@@ -23,16 +23,23 @@ RestartSec=2
 # The tools configure interfaces, routes and sockets (NET_ADMIN, NET_RAW) and may change user
 # (SETUID, SETGID); the daemon hands the log and the management socket to the user (CHOWN), works in
 # the user's profile directory (DAC_OVERRIDE) and stops the tools (KILL). It sets the management
-# socket's mode while root still owns it, so CAP_FOWNER is not needed.
+# socket's mode while root still owns it, so CAP_FOWNER is not needed. The DNS hook, which OpenVPN
+# runs inside this unit, is let through by systemd-resolved for NET_ADMIN.
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_SETUID CAP_SETGID CAP_CHOWN CAP_DAC_OVERRIDE CAP_KILL
 # The tun device for OpenVPN, /dev/ppp for openfortivpn's pppd (FortiGate, still to come); besides
 # these only the standard pseudo devices (/dev/null, /dev/urandom, /dev/ptmx, …).
 DevicePolicy=closed
 DeviceAllow=/dev/net/tun rw
 DeviceAllow=/dev/ppp rw
-# The file system read-only but for the run root. DNS (still to come) adds what it writes.
+# The file system read-only but for the run root and what the DNS hook writes. /etc stays read-only:
+# only /etc/resolv.conf itself is writable, a bind mount of its own, which the hook (and openresolv)
+# rewrites in place; openresolv set to rename a new file over it (resolv_conf_mv) fails the set-up
+# with that reason. resolvconf keeps its records in /run/resolvconf. systemd follows a link at
+# /etc/resolv.conf: into /run/resolvconf (Debian's resolvconf) the entry is redundant and dropped;
+# into /run/systemd/resolve the file there becomes writable here, and is never written (the hook
+# tells systemd-resolved over D-Bus). Entries that do not exist when the unit starts are skipped.
 ProtectSystem=strict
-ReadWritePaths=/run/passtunnel
+ReadWritePaths=/run/passtunnel -/etc/resolv.conf -/run/resolvconf
 PrivateTmp=yes
 
 # Not set, on purpose:

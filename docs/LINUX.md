@@ -44,7 +44,7 @@ passtunnel mcp (stdio) ┴─▶ PassTunnelCore (as on the Mac: ProfileStore, Co
 | What | Path |
 |---|---|
 | Profiles, preferences, logs | `~/.local/share/passtunnel/` (same layout as the Mac's support dir: `config.json`, `profiles/<id>/…`); `PASSTUNNEL_HOME` overrides it for tests. `XDG_DATA_HOME` is not followed, because the daemon checks that profile directories are under the caller's home at this fixed subpath |
-| Run root | `/run/passtunnel/` (0711, root): `<uid>/<id>/` per session as on the Mac (`config.ovpn` or `openfortivpn.conf`, `auth`, `state`, `mgmt.sock`), and `daemon.lock` (one daemon per run root) |
+| Run root | `/run/passtunnel/` (0711, root): `<uid>/<id>/` per session as on the Mac (`config.ovpn` or `openfortivpn.conf`, `auth`, `state`, `mgmt.sock`; for DNS the `dns-hook` link and the record `dns`, with `dns.resolv.conf`), and `daemon.lock` (one daemon per run root) |
 | Daemon socket | `/run/passtunnel/daemon.sock` (0666, root; access is decided per request, below) |
 | Binaries | `/usr/bin/passtunnel`, `/usr/sbin/passtunneld` from the packages; `/usr/local/…` from the tarball |
 
@@ -114,9 +114,8 @@ The macOS rules apply where they make sense; these replace the ones built on cod
   system-wide crypto policies) applies.
 - **OpenVPN** runs with the Mac's fixed flags (`--management <run>/mgmt.sock unix`,
   `--management-client-user`, `--auth-nocache`, `--remap-usr1 SIGTERM`, `--connect-retry-max 3`,
-  capped `--verb`), the sanitized config (`OVPNSanitizer`, unchanged) and the DNS hook below. Until
-  the hook exists (2c, part 2) OpenVPN gets `--script-security 1` and, on 2.7, `--dns-updown disable`
-  (2.6 has no such option and changes no DNS without scripts), so it leaves DNS alone. The management
+  capped `--verb`), the sanitized config (`OVPNSanitizer`, unchanged) and `--script-security 2` with
+  the DNS hook below, the only script it can run (the sanitizer removes every other). The management
   socket goes to the caller as on the Mac, its mode set before its owner (no `CAP_FOWNER` needed).
 - **FortiGate** runs openfortivpn with the config `FortiConfig.render` writes (typed fields only,
   `checkRendered` as on the Mac), the Linux CA bundle, and its own DNS handling switched off; the
@@ -124,15 +123,29 @@ The macOS rules apply where they make sense; these replace the ones built on cod
 - **Supervision.** One waiter per child (a thread in `waitid(WNOWAIT)`, so the child is reaped only
   on the supervisor's queue and its pid cannot be reused while it is listed); `stop` sends SIGTERM,
   then SIGKILL after 5 s; at most `SessionPolicy.maxSessionsPerUser` sessions per user; the session
-  log is capped with `HelperCore.capLog`. On exit the run directory is removed and DNS reverted.
+  log is capped with `HelperCore.capLog`. On exit the DNS the session recorded is reverted (when its
+  hook did not) and the run directory removed.
   There is no adoption: a starting daemon stops tools recorded by a previous instance (when the pid
-  still runs the recorded executable, `/proc/<pid>/exe`) and cleans up (under systemd
-  `KillMode=control-group` has already stopped them).
+  still runs the recorded executable, `/proc/<pid>/exe`), reverts the DNS their sessions recorded and
+  cleans up (under systemd `KillMode=control-group` has already stopped them).
 - **Sandbox** (`packaging/linux/passtunnel.service`, a first version that nothing installs yet):
   `CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_SETUID CAP_SETGID
   CAP_CHOWN CAP_DAC_OVERRIDE CAP_KILL` (trimmed to what testing shows openvpn and pppd need),
   `DevicePolicy=closed` with `DeviceAllow=/dev/net/tun` and `/dev/ppp`, `ProtectSystem=strict` with
-  `/run/passtunnel` (and later the paths DNS needs) writable, `PrivateTmp`. Not set, unlike the first
+  `/run/passtunnel` and what the DNS hook writes (it runs inside the unit, a child of OpenVPN)
+  writable: `-/etc/resolv.conf` and `-/run/resolvconf` (`-`: skipped when missing at start), never
+  all of `/etc`, which would let every tool the daemon runs as root change the system's
+  configuration. `/etc/resolv.conf` is then a bind mount of its own in a read-only `/etc`, so the
+  file backend rewrites it in place (as openresolv does by default; set to rename a file over it,
+  `resolv_conf_mv`, it cannot work there, and the set-up fails saying so). The bind mount holds the
+  file there was when the unit started: one renamed over it later (a network manager without
+  systemd-resolved) is out of the daemon's reach until it restarts, which a set-up says ("restart
+  passtunnel.service"). systemd follows a link at `/etc/resolv.conf` and applies the entry to its
+  target: into `/run/resolvconf` (Debian's resolvconf) it is redundant beside `-/run/resolvconf` and
+  dropped (so resolvconf can still rename its `resolv.conf` there); into `/run/systemd/resolve` the
+  file there becomes writable inside the unit and is never written (systemd-resolved is told over
+  D-Bus and lets `CAP_NET_ADMIN` through; the daemon's own view of the stub file may keep old search
+  domains until it restarts). `PrivateTmp`. Not set, unlike the first
   plan: `ProtectHome=read-only`, because the daemon creates the session log in the user's profile
   directory (possible once the client opens the log, or it moves out of the home directory);
   `RuntimeDirectory=passtunnel`, because systemd would remove it, and the socket of
@@ -143,19 +156,77 @@ The macOS rules apply where they make sense; these replace the ones built on cod
 
 ## DNS
 
-Profiles never run scripts (the sanitizer removes them); DNS comes from what the server pushes.
+Profiles never run scripts (the sanitizer removes them); DNS comes from what the server pushes, and
+every value of it is treated as hostile: it ends up in the hands of root.
 
-- OpenVPN 2.7: `--dns-updown` names the daemon's hook; 2.6: `--script-security 2` with `--up` and
-  `--down` naming the same hook. The hook is `passtunneld dns-hook`, the daemon's own root-owned
-  executable (the daemon refuses to start when its executable is writable by anyone but root). It
-  reads the pushed servers and domains from the environment OpenVPN gives it (2.7 `dns_*`, 2.6
-  `foreign_option_*`) and applies them for the tunnel interface.
-- FortiGate: the daemon reads the servers and search domains openfortivpn logs once the tunnel is up
-  and applies them for the `ppp` interface the same way, when the profile has `set_dns`.
-- Applying: when systemd-resolved manages `/etc/resolv.conf`, per link (servers; `~domain` routing
-  domains for split DNS; the default route only for a full tunnel), reverted when the link goes.
-  Otherwise `resolvconf` when present, otherwise a marked block in `/etc/resolv.conf`, written
-  atomically and removed on teardown. A failed DNS set-up is `PTError.setupFailed`, as on the Mac.
+- **The hook.** `passtunneld dns-hook`: the daemon's own executable, which, like the daemon, refuses
+  to run unless it is root's and writable by root only. OpenVPN runs it as root through `dns-hook` in
+  the session directory, a link to the daemon's executable (`HelperCore.dnsHook`), because OpenVPN
+  2.7's `--dns-updown` runs a path without arguments; the executable started under that name is the
+  hook too. 2.7 runs it as `--dns-updown`; 2.6 as `--route-up`, whose failure OpenVPN logs without
+  exiting (as 2.7 does for `--dns-updown`), and as `--down` with `--down-pre`, before the device
+  closes. The hook never starts a daemon, takes its lock or touches its socket, and ignores the
+  arguments `--down` appends.
+- **Its own session only.** The hook works in OpenVPN's working directory, which must be a session
+  directory `<run root>/<uid>/<id>` (root's) whose `state` names the hook's parent process as the
+  session's tool (its pid, running the recorded executable); anything else is refused. It acts on the
+  interface OpenVPN names (`dev`: 1 to 15 letters, digits, `_`, `-` and `.`, and it must exist) and
+  notes its index, so that a revert never reaches another interface of that name.
+- **What it reads.** The `dns_*` variables when there are any (`--dns`: all of OpenVPN 2.7's, which
+  turns pushed `dhcp-option`s into them for `--dns-updown`, and 2.6's for pushed `dns` options), else
+  2.6's `foreign_option_N` with `dhcp-option DNS`, `DNS6`, `DOMAIN`, `DOMAIN-SEARCH` and
+  `ADAPTER-DOMAIN-SUFFIX`. Addresses must parse (`inet_pton`, after a check for hex digits, dots and
+  colons only; never the unspecified address) and are written as `inet_ntop` gives them back; domains
+  must be plain host names (at most 253 bytes, labels of letters, digits, `-` and `_`, nothing that
+  starts like an option or a `~`); at most 8 servers and 16 domains of each kind, indexes up to 64.
+  One bad value fails the set-up. Of several `--dns` servers the first that plain DNS on port 53
+  reaches is used (DNS over TLS or HTTPS is not set up). Every name is resolved through the tunnel
+  unless the server names the domains its server is for (`dns server N resolve-domains`: split DNS),
+  as OpenVPN's own scripts and the Mac do. OpenVPN profiles have no setting for the VPN's DNS (on the
+  Mac it is FortiGate's, `set_dns`): a config that wants none says `pull-filter ignore "dhcp-option"`
+  (and `"dns"`).
+- **Applying** (`DNSApplier`: `apply(settings, interface:, in: session)` and `revert(in: session)`,
+  independent of OpenVPN; `DNSSettings` holds the checked values), one change at a time on the
+  machine (the run root is locked with `flock`), in this order of preference:
+  - systemd-resolved, when `/etc/resolv.conf` is a link into `/run/systemd/resolve/` (or to its
+    static `resolv.conf`): `resolvectl dns`, `domain` (the search domains, `~domain` for routing-only
+    ones, and `~.` when every name goes through the tunnel) and `default-route` (yes only then) for
+    the link. `resolvectl revert` undoes it while the link (with that index) exists; once it is gone,
+    systemd-resolved has dropped its settings.
+  - else `resolvconf` (Debian's or openresolv, not systemd's stand-in, which is resolvectl):
+    `resolvconf -a <dev>.passtunnel` with up to three `nameserver` lines and a `search` line on
+    standard input, `-d` to revert. Debian's writes `/run/resolvconf/resolv.conf` (renamed into
+    place), openresolv `/etc/resolv.conf` in place; openresolv set to rename a file over it instead
+    (`resolv_conf_mv` in `/etc/resolvconf.conf`) is refused where `/etc` is read-only (inside the
+    unit), before it runs.
+  - else `/etc/resolv.conf` itself when it is a regular file of root (a link anywhere else is never
+    followed, and fails the set-up): a block at the top (`# PassTunnel <dev> begin: …` to
+    `# PassTunnel <dev> end`) with up to three servers and the search domains, and the file's own
+    `nameserver` lines (and `search` and `domain`, when the tunnel brings domains) disabled with the
+    mark `#PassTunnel <dev># `. A resolv.conf cannot route names, so every name goes through the
+    tunnel here. Written atomically where it can be: a new file next to it, synced, renamed over it.
+    Inside the unit (`/etc` read-only, the file a bind mount) and where a container runtime
+    bind-mounts it (rename fails with `EBUSY`) it is rewritten in place instead: the whole content
+    in one write from the start, cut to its length, synced; what it replaces is in the session
+    directory first. A file that lost its name (replaced after the unit started) fails the set-up.
+    The revert writes back the previous content when the file is still what was written; one changed
+    meanwhile loses only the block and the marks; one replaced since is left alone.
+  - The tools run only from fixed paths (`/usr/bin/resolvectl`, `/bin/resolvectl`;
+    `/usr/sbin/resolvconf`, `/sbin/resolvconf`), checked as the VPN tools are (`TrustedPath`), with
+    the fixed environment and argument lists of `Sys.spawn` (never a shell), 10 s each.
+- **Recorded and reverted.** Before it changes anything, the hook records in the session directory
+  what it is about to change (`dns`: the backend, the interface and its index, a digest of the
+  resolv.conf it writes; `dns.resolv.conf`: the content that one replaces; root's, 0600). A failed
+  set-up reverts what it did, removes the record and prints "setting DNS failed: …" to the session
+  log, which the client turns into `PTError.setupFailed`, as on the Mac. OpenVPN goes on after it on
+  2.6 (`--route-up`; a failed `--up` would end OpenVPN with a fatal error, which the client reports
+  as `connectFailed` before it looks for a failed set-up) and on 2.7 (`--dns-updown`). The hook
+  reverts when OpenVPN takes the tunnel down; the daemon reverts whatever is still recorded when it
+  reaps the tool (killed, crashed, or the daemon stopping), and a starting daemon what the sessions
+  of a previous instance recorded.
+- **FortiGate**: the daemon reads the servers and search domains openfortivpn logs once the tunnel
+  is up and applies them for the `ppp` interface through the same `DNSApplier`, when the profile has
+  `set_dns`.
 
 ## Client side
 
@@ -182,9 +253,10 @@ Profiles never run scripts (the sanitizer removes them); DNS comes from what the
   rtnetlink ("net_route_v4_add: 0.0.0.0/1 via 10.8.0.1 dev [NULL] table 0 metric -1", or
   `net_route_v6_add`) and its failure, which follows it ("sitnl_send: rtnl: generic error (-17): File
   exists", "NOTE: Linux route add command failed because route exists", "ERROR: Linux route add command
-  failed"; with iproute2 "/sbin/ip route add …" and "RTNETLINK answers: …"), and a DNS hook run as
-  `--up` that failed (2.6: "WARNING: Failed running command (--up/--down): …"). A route followed by
-  any other line was added. So `setupProblem` (a failed all-traffic route or DNS hook stops the
+  failed"; with iproute2 "/sbin/ip route add …" and "RTNETLINK answers: …"), and a DNS hook that
+  failed: its own "setting DNS failed: …", or OpenVPN's line for it (2.6, which runs it as
+  `--route-up` and `--down`: "WARNING: Failed running command (--route-up): …", "(--up/--down)"; 2.7
+  as on the Mac). A route followed by any other line was added. So `setupProblem` (a failed all-traffic route or DNS hook stops the
   session, another failed route is a warning, "File exists" for a route the session added already or
   for the leftover host route to the server is not counted), the address in `status` and the warnings
   behave as on the Mac; the reason shown is the route's line with the error. openfortivpn writes the
@@ -309,8 +381,12 @@ and fakes for the system tools; the Mac's tests a Keychain service of their own)
        touching DNS, the cleanup of a previous instance; `UnixSocketHelperClient` and the Linux
        `SystemHelperInspector`; the unit files in `packaging/linux/`. The Linux CI jobs start the
        daemon as root in the container and run an OpenVPN session against it (no tunnel).
-     - Part 2: the DNS hook (`passtunneld dns-hook`), FortiGate (openfortivpn and pppd), Linux routes
-       and log parsing.
+     - Part 2: the DNS hook, FortiGate (openfortivpn and pppd), Linux routes and log parsing. Done so
+       far (#90): `passtunneld dns-hook` for OpenVPN 2.6 and 2.7, with the systemd-resolved,
+       resolvconf and file backends (`DNSApplier`, which FortiGate reuses), recorded in the session
+       directory and reverted by the hook, the daemon or the next daemon; the unit's writable paths
+       for it. The Linux CI jobs run the hook as root on the container's resolv.conf (set and
+       reverted in both forms, the refusals, the revert by a starting daemon).
    - 2d: the release tarball and the `Dockerfile`.
 3. **Packages:** polkit, systemd units, nfpm packages, the apt/dnf repository, release automation
    (with it, how commits with the scope `linux` count: until then they are left out of the app's

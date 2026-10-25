@@ -2,9 +2,10 @@ import Foundation
 import PassTunnelShared
 
 /// What an earlier daemon left in the run root: sessions it recorded (`<uid>/<id>/state`) whose tool
-/// may still run, and anything else. A starting daemon stops those tools (SIGTERM to their process
-/// groups, SIGKILL after the grace period) and removes every session directory; it does not adopt
-/// them. Under systemd, `KillMode=control-group` has already stopped them.
+/// may still run, the DNS they set up (`<uid>/<id>/dns`), and anything else. A starting daemon stops
+/// those tools (SIGTERM to their process groups, SIGKILL after the grace period), reverts that DNS and
+/// removes every session directory; it does not adopt them. Under systemd, `KillMode=control-group`
+/// has already stopped them.
 enum PreviousInstance {
     struct State: Equatable {
         let pid: pid_t
@@ -12,10 +13,11 @@ enum PreviousInstance {
         let executable: String
     }
 
-    /// Stops the recorded tools that still run and removes everything in `runRoot` but the entries
-    /// in `keep` (the daemon's socket and lock). Returns the pids it signalled.
+    /// Stops the recorded tools that still run, reverts the DNS of every session (with `dns`) and
+    /// removes everything in `runRoot` but the entries in `keep` (the daemon's socket and lock).
+    /// Returns the pids it signalled.
     @discardableResult
-    static func cleanUp(runRoot: String, keep: Set<String>, grace: TimeInterval = 5) -> [pid_t] {
+    static func cleanUp(runRoot: String, keep: Set<String>, grace: TimeInterval = 5, dns: DNSApplier? = nil) -> [pid_t] {
         var running: [State] = []
         for entry in entries(runRoot) where !keep.contains(entry) {
             let path = runRoot + "/" + entry
@@ -36,10 +38,24 @@ enum PreviousInstance {
             DaemonLog.info("pid \(state.pid) ignored SIGTERM, killing it")
             deliver(SIGKILL, to: state)
         }
+        if let dns { revertDNS(runRoot: runRoot, keep: keep, dns: dns) }
         for entry in entries(runRoot) where !keep.contains(entry) {
             HelperCore.removeEntry(runRoot + "/" + entry)
         }
         return running.map(\.pid)
+    }
+
+    /// The DNS each session directory records, reverted (its tool, stopped by now, did not).
+    static func revertDNS(runRoot: String, keep: Set<String>, dns: DNSApplier) {
+        let core = HelperCore(runRoot: runRoot)
+        for entry in entries(runRoot) where !keep.contains(entry) {
+            guard let uid = uid_t(entry), String(uid) == entry, isRealDirectory(runRoot + "/" + entry) else { continue }
+            for id in entries(runRoot + "/" + entry) {
+                guard HelperCore.isValidProfileID(id), let session = try? core.openRunDir(profileID: id, uid: uid),
+                      let message = dns.revert(in: session) else { continue }
+                DaemonLog.info("\(id) of uid \(uid), left by an earlier instance: \(message)")
+            }
+        }
     }
 
     /// Its whole process group when it leads one (as every tool the daemon starts does).

@@ -108,7 +108,10 @@ public enum VPNLog {
             let lower = line.lowercased()
             if lower.contains("setting dns failed") || lower.contains("dns-updown failed")
                 || (lower.contains("dns updown") && (lower.contains("failed") || lower.contains("error status")))
-                || lower.contains("failed running command (--up/--down)") {   // OpenVPN 2.6 on Linux runs the hook as --up
+                // OpenVPN 2.6 on Linux runs the daemon's hook as --route-up (and --down); the hook's own
+                // "setting DNS failed" line comes first, unless it could not say anything.
+                || lower.contains("failed running command (--route-up)")
+                || lower.contains("failed running command (--up/--down)") {
                 return SetupProblem(reason: line, allTraffic: true)
             }
             if let route = LinuxRoute(line) {

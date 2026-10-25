@@ -88,6 +88,7 @@ public struct HelperCore {
         public let sessionDir: SessionDirectory
         public let logFD: Int32
         /// Copy of the bundled DNS script inside `runDir`; its signature must be checked before launch.
+        /// On Linux the link to the daemon's own executable that OpenVPN runs as its DNS hook.
         public let dnsUpdownPath: String?
         /// The validated profile directory.
         public let profileDir: ProfileDirectory
@@ -130,8 +131,17 @@ public struct HelperCore {
     public var runRoot: String
     public var dnsUpdownSource: String?
     /// Whether the OpenVPN that will run knows `--dns-updown` (2.7 and later, as the Mac's bundled
-    /// build). OpenVPN 2.6, which Linux distributions ship, does not; it then gets no DNS option.
+    /// build). OpenVPN 2.6, which Linux distributions ship, does not: its DNS hook runs as
+    /// `--route-up` and `--down` instead (`openVPNArguments`), and without a hook it gets no DNS option.
     public var openVPNHasDNSUpdown = true
+    #if os(Linux)
+    /// The daemon's own executable (resolved and checked), which OpenVPN runs as its DNS hook through
+    /// the link `dnsHookName` in the session directory (docs/LINUX.md, "DNS"). Nil: no DNS hook.
+    public var dnsHook: String?
+    /// The DNS hook's name, in the session directory and as the hook's `argv[0]`: OpenVPN 2.7's
+    /// `--dns-updown` runs a path without arguments, so `passtunneld dns-hook` cannot be spelled there.
+    public static let dnsHookName = "dns-hook"
+    #endif
     public var homeDirectory: (uid_t) -> String?
     public var userName: (uid_t) -> String?
 
@@ -267,7 +277,11 @@ public struct HelperCore {
                 try Self.checkLines(auth, count: 2, file: "auth")
                 try Self.writeNewFile(authPath!, Data(auth.utf8), mode: 0o600)
             }
+            #if os(Linux)
+            let dnsPath = try linkDNSHook(in: runDir)
+            #else
             let dnsPath = try stageDNSScript(in: runDir)
+            #endif
             let args = Self.openVPNArguments(configPath: configPath, mgmtSocket: socketPath, clientUser: clientUser,
                                              authFile: authPath, dnsUpdown: dnsPath,
                                              verbosity: Self.openVPNVerbosity(sanitized),
@@ -307,7 +321,9 @@ public struct HelperCore {
     /// The DNS hook is always explicit: OpenVPN's compiled-in default points into the build machine's
     /// Homebrew prefix, which must never be executed as root. `verbosity` comes from `openVPNVerbosity`.
     /// Without `hasDNSUpdown` (OpenVPN 2.6, which rejects the option) and without a hook, scripts stay
-    /// limited to OpenVPN's built-in commands and nothing changes DNS.
+    /// limited to OpenVPN's built-in commands and nothing changes DNS. A hook on OpenVPN 2.6 (only the
+    /// Linux daemon's) runs as `--route-up`, whose failure OpenVPN logs without exiting, as 2.7 does for
+    /// `--dns-updown`, and as `--down` before the device closes (`--down-pre`).
     public static func openVPNArguments(configPath: String, mgmtSocket: String, clientUser: String,
                                         authFile: String?, dnsUpdown: String?, verbosity: Int = defaultVerbosity,
                                         hasDNSUpdown: Bool = true) -> [String] {
@@ -321,8 +337,10 @@ public struct HelperCore {
             "--connect-retry-max", "3",
         ]
         if let authFile { args += ["--auth-user-pass", authFile] }
-        if let dnsUpdown {
+        if let dnsUpdown, hasDNSUpdown {
             args += ["--script-security", "2", "--dns-updown", dnsUpdown]
+        } else if let dnsUpdown {
+            args += ["--script-security", "2", "--route-up", dnsUpdown, "--down", dnsUpdown, "--down-pre"]
         } else if hasDNSUpdown {
             args += ["--script-security", "1", "--dns-updown", "disable"]
         } else {
@@ -440,8 +458,21 @@ public struct HelperCore {
         }
     }
 
+    #if os(Linux)
+    /// Links the daemon's own executable into the (root-owned) run directory as `dnsHookName`, the path
+    /// OpenVPN runs as its DNS hook. Returns nil without a hook.
+    func linkDNSHook(in runDir: String) throws -> String? {
+        guard let target = dnsHook else { return nil }
+        guard target.hasPrefix("/"), !Self.containsNUL(target) else { throw Failure.notAbsolute(target) }
+        let path = runDir + "/" + Self.dnsHookName
+        guard symlink(target, path) == 0 else { throw Failure.system("link \(path)", errno) }
+        return path
+    }
+    #endif
+
     /// Copies the bundled DNS script (with its extended-attribute signature) into the run directory.
-    /// Returns nil when no script is bundled. macOS only (`fcopyfile`): elsewhere a script fails to stage.
+    /// Returns nil when no script is bundled. macOS only (`fcopyfile`): elsewhere a script fails to stage,
+    /// and the Linux daemon is its own hook (`linkDNSHook`).
     func stageDNSScript(in runDir: String) throws -> String? {
         guard let src = dnsUpdownSource else { return nil }
         let sfd = open(src, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)

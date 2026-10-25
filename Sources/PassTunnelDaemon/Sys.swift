@@ -98,14 +98,19 @@ enum Sys {
         var description: String { "Could not launch the VPN tool: \(String(cString: strerror(code)))" }
     }
 
-    /// `posix_spawn` in a new process group: stdin from /dev/null, stdout and stderr to `outputFD`,
-    /// every other descriptor closed, all signals at their default action, an empty signal mask.
+    /// `posix_spawn` in a new process group: stdin from `inputFD` (else /dev/null), stdout and stderr to
+    /// `outputFD`, every other descriptor closed, all signals at their default action, an empty signal mask.
     static func spawn(executable: String, arguments: [String], environment: [String],
-                      workingDirectory: String?, outputFD: Int32) throws -> pid_t {
+                      workingDirectory: String?, outputFD: Int32, inputFD: Int32? = nil) throws -> pid_t {
         var actions = posix_spawn_file_actions_t()
         guard posix_spawn_file_actions_init(&actions) == 0 else { throw SpawnFailure(code: ENOMEM) }
         defer { posix_spawn_file_actions_destroy(&actions) }
-        var rc = posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
+        var rc: Int32
+        if let inputFD {
+            rc = posix_spawn_file_actions_adddup2(&actions, inputFD, 0)
+        } else {
+            rc = posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
+        }
         if rc == 0 { rc = posix_spawn_file_actions_adddup2(&actions, outputFD, 1) }
         if rc == 0 { rc = posix_spawn_file_actions_adddup2(&actions, outputFD, 2) }
         if rc == 0, let workingDirectory { rc = posix_spawn_file_actions_addchdir_np(&actions, workingDirectory) }
