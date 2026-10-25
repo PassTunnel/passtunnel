@@ -19,7 +19,9 @@ RUN swift build -c release --static-swift-stdlib --product passtunnel \
     && strip --strip-debug /out/passtunnel
 
 # ubuntu:24.04, the release the build image is based on (the same glibc and libstdc++), pinned by the
-# digest of its multi-arch index. The Swift runtime is linked into the binary.
+# digest of its multi-arch index. It follows the build image's release and is changed by hand together
+# with it: Dependabot only updates the digest (.github/dependabot.yml). The Swift runtime is linked
+# into the binary.
 FROM ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac
 RUN groupadd --gid 10001 mcp \
     && useradd --uid 10001 --gid 10001 --create-home --shell /usr/sbin/nologin mcp
