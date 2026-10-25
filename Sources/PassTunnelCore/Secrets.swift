@@ -15,11 +15,11 @@ public enum Secrets {
     /// key and its public key. Not a `SecretKind`: it is never read or written as a secret value.
     static func keyAccount(_ profileID: String) -> String { "\(profileID)/sekey" }
 
-    /// Where the items are, chosen on every call: the Keychain on the Mac and, on Linux until its stores
-    /// exist, one that refuses everything (`UnconfiguredSecretStore`). Debug builds only (tests): the
-    /// in-memory store with `PASSTUNNEL_SECRET_STORE=memory`. A release build has no in-memory store and
-    /// ignores that value, so a stray variable can never make `secret` report a password saved that is
-    /// gone when the process ends.
+    /// Where the items are, chosen on every call: the Keychain on the Mac; on Linux the store
+    /// `SecretStores` chooses (secret-service, systemd-creds or file). Debug builds only (tests): the
+    /// in-memory store with `PASSTUNNEL_SECRET_STORE=memory`. A release build has no in-memory store
+    /// (Linux refuses the value as an unknown store, the Mac ignores it), so a stray variable can never
+    /// make `secret` report a password saved that is gone when the process ends.
     static var store: SecretStore {
         let service = Env.keychainService
         #if DEBUG
@@ -28,7 +28,7 @@ public enum Secrets {
         #if canImport(Security)
         return KeychainSecretStore(service: service)
         #else
-        return UnconfiguredSecretStore()
+        return SecretStores.chosen(system: .current(service: service))
         #endif
     }
 
@@ -178,23 +178,17 @@ struct MemorySecretStore: SecretStore {
 }
 #endif
 
-/// No secret store is set up: on Linux until its stores (docs/LINUX.md) exist. Reading and writing
-/// fail with `SecretStoreUnavailable`; removing finds nothing to remove, so profiles can still be
-/// created and deleted.
-struct UnconfiguredSecretStore: SecretStore {
-    func read(_ account: String) throws -> Data? { throw SecretStoreUnavailable() }
-    func write(_ account: String, _ data: Data) throws { throw SecretStoreUnavailable() }
-    func remove(_ account: String) {}
-    func removeAll() {}
-}
-
-/// Passwords and TOTP secrets cannot be saved or read: no secret store is set up on this system.
+/// The secret store cannot be used (on Linux: a tool missing or failing, no session bus, a locked
+/// keyring that did not answer, no passphrase, a file that does not decrypt); `message` says which.
+/// `keychain_error`, like a failing Keychain.
 public struct SecretStoreUnavailable: Error, Equatable, LocalizedError {
-    public init() {}
+    public var message: String
 
-    public var errorDescription: String? {
-        String(localized: "PassTunnel cannot save or read passwords and TOTP secrets on this system yet: no secret store is set up.")
+    public init(_ message: String) {
+        self.message = message
     }
+
+    public var errorDescription: String? { message }
 }
 
 #if canImport(Security)

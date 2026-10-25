@@ -338,8 +338,19 @@ enum Schema {
         "problems": array(errorReport),
     ], required: ["id", "name", "type", "ok", "server", "protected", "asks_for", "problems"])
 
-    static let diagnose = result([
-        "version": string, "build": string, "app_path": string, "in_applications": bool, "helper": helper,
-        "profiles": array(profileCheck),
-    ], required: ["version", "app_path", "in_applications", "helper", "profiles"])
+    static let secretStore = result([
+        "name": string, "available": bool, "setting": oneOf(SecretStoreChoice.allCases.map(\.rawValue)),
+        "chosen_by": oneOf(["environment", "setting", "recorded", "auto"]), "error": string,
+    ], required: ["name", "available", "setting", "chosen_by"])
+
+    static let diagnose: [String: Any] = {
+        var properties: [String: Any] = [
+            "version": string, "build": string, "app_path": string, "in_applications": bool, "helper": helper,
+            "profiles": array(profileCheck),
+        ]
+        #if os(Linux)
+        properties["secret_store"] = secretStore
+        #endif
+        return result(properties, required: ["version", "app_path", "in_applications", "helper", "profiles"])
+    }()
 }
