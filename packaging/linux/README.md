@@ -16,7 +16,8 @@ THIRD_PARTY_NOTICES.md, licenses/       what is linked into the binaries, and it
 
 ## Requirements
 
-- Linux with systemd on x86_64 or aarch64, glibc 2.35 or later (Ubuntu 22.04, Debian 12 and later).
+- Linux with systemd on x86_64 or aarch64, glibc 2.35 or later (Ubuntu 22.04, Debian 12, RHEL 10
+  and later).
   The Swift runtime is linked into the binaries; from the system they need only glibc, libstdc++
   and libgcc_s.
 - OpenVPN profiles: `openvpn` 2.6 or later, the distribution's (`/usr/sbin/openvpn` or

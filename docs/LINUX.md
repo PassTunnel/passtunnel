@@ -397,9 +397,11 @@ and fakes for the system tools; the Mac's tests a Keychain service of their own)
   - `scripts/build-linux.sh [--version VERSION] [--build-number N]` builds
     `dist/passtunnel-<version>-linux-<arch>.tar.gz` for the architecture it runs on, in the Swift
     image of Ubuntu 22.04 (`swift:6.4.1-jammy`), the oldest supported, so that the binaries run on
-    every later glibc: `passtunnel` and `passtunneld` in release mode with the Swift standard
-    library, Foundation and swift-crypto linked statically (from the system they load only glibc,
-    libstdc++ and libgcc_s), debug information stripped.
+    every later glibc (they need 2.35: Ubuntu 22.04, Debian 12 and later, RHEL 10, not RHEL 9's
+    2.34): `passtunnel` and `passtunneld` in release mode with the Swift standard library,
+    Foundation and swift-crypto linked statically (from the system they load only glibc, libstdc++
+    and libgcc_s), debug information stripped. glibc's `posix_spawn_file_actions_addchdir_np` and
+    `…_addclosefrom_np`, which Ubuntu 22.04's headers hide from Swift, are looked up by name.
   - The tarball holds `bin/passtunnel`, `sbin/passtunneld`, `lib/systemd/system/passtunnel.socket`
     and `passtunnel.service` (its `ExecStart` set to `/usr/local/sbin/passtunneld`), `README.md`
     (`packaging/linux/README.md`: requirements, install, update, uninstall), `LICENSE`,
