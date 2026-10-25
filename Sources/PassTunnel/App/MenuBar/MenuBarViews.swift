@@ -4,13 +4,16 @@ import PassTunnelCore
 import PassTunnelKit
 import SwiftUI
 
+/// The status item: the badges of the pinned and active profiles. The panel of the new interface (`panel`) shows the
+/// shield while there are none, and has the panel's VoiceOver label ("PassTunnel, 2 connected").
 struct MenuBarLabel: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.openWindow) private var openWindow
+    var panel = false
 
     var body: some View {
-        Image(nsImage: MenuBarIcon.image(for: model))
-            .accessibilityLabel(Text(accessibilityText))
+        Image(nsImage: MenuBarIcon.image(for: model, shieldWhenIdle: panel))
+            .accessibilityLabel(Text(panel ? MenuBarPanel.statusItemLabel(model) : accessibilityText))
             .onAppear {
                 AppDelegate.shared?.openMainWindowAction = { openWindow(id: "main") }
             }

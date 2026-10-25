@@ -177,10 +177,12 @@ enum RenderSnapshots {
             renderSplitWindow(model, sample: sample, store: store, now: now, to: out)
             try renderImportReview(model, home: home, store: store, now: now, to: out)
 
-            // The menu bar panel of the new interface (NewInterface): all six profiles, so the list scrolls; then
-            // three (connected, Touch ID to connect with the code locked, dropped) with auto-type on. Last, as it
-            // deletes sample profiles. Without an authenticator, turning on "Confirm with Touch ID" encrypts nothing
-            // and makes no Secure Enclave key.
+            // The menu bar of the new interface (NewInterface). Pinned Work and Travel with the connected, connecting
+            // and dropped ones (four of six listed, badges for them); Home Lab dropped without being pinned; nothing
+            // pinned or active (all listed, the shield); nothing pinned but some connected (all six, so the list
+            // scrolls); then three (connected, Touch ID to connect with the code locked, dropped) with auto-type on.
+            // Last, as it deletes sample profiles. Without an authenticator, turning on "Confirm with Touch ID"
+            // encrypts nothing and makes no Secure Enclave key.
             let panel = AppModel(paths: paths, connections: ConnectionManager(authenticator: UnavailableAuthenticator()),
                                  live: false)
             panel.previewNow = now
@@ -189,11 +191,40 @@ enum RenderSnapshots {
             panel.previewUnreachable = sample.unreachable
             panel.setPreviewDropped(sample.dropped)
             panel.prefs.autoType = false
+            let (work, home, staging, travel) = (sample.ids[0], sample.ids[2], sample.ids[3], sample.ids[5])
+            func pin(_ ids: [String]) throws {
+                for id in sample.ids { try store.update(id) { $0.pinned = ids.contains(id) } }
+                panel.reload()
+            }
+            for dark in [false, true] {
+                snapshot(MenuBarPanelPreview(now: now).environmentObject(panel), size: nil, dark: dark, to: out,
+                         name: "menubar-panel-pinned")
+            }
+            try pin([work])
+            panel.previewStates = sample.states(now).filter { $0.key == work }
+            panel.previewErrors = [:]
+            panel.previewUnreachable = []
+            panel.setPreviewDropped([home])
+            for dark in [false, true] {
+                snapshot(MenuBarPanelPreview(now: now).environmentObject(panel), size: nil, dark: dark, to: out,
+                         name: "menubar-panel-dropped")
+            }
+            try pin([])
+            panel.previewStates = [:]
+            panel.setPreviewDropped([])
+            for dark in [false, true] {
+                snapshot(MenuBarPanelPreview(now: now).environmentObject(panel), size: nil, dark: dark, to: out,
+                         name: "menubar-panel-idle")
+            }
+            panel.previewStates = sample.states(now)
+            panel.previewErrors = sample.errors
+            panel.previewUnreachable = sample.unreachable
+            panel.setPreviewDropped(sample.dropped)
             for dark in [false, true] {
                 snapshot(MenuBarPanelPreview(now: now).environmentObject(panel), size: nil, dark: dark, to: out,
                          name: "menubar-panel-scroll")
             }
-            let (work, staging, travel) = (sample.ids[0], sample.ids[3], sample.ids[5])
+            try pin([work, staging, travel])
             for id in sample.ids where ![work, staging, travel].contains(id) { try store.delete(id) }
             try store.update(staging) { $0.requireAuth = .always }
             panel.reload()

@@ -4,24 +4,9 @@ import PassTunnelCore
 import PassTunnelKit
 import SwiftUI
 
-// The menu bar of the new interface (`NewInterface`, decision D-23): the shield glyph, and a panel with one switch
-// per profile, the copy items and the app items (docs/APP.md, Menu bar). The current menu is `MenuBarMenu`.
-
-/// The status item: the shield glyph, with a dot while a drop has not been seen, and its VoiceOver label
-/// ("PassTunnel, 2 connected").
-struct MenuBarShieldLabel: View {
-    @EnvironmentObject private var model: AppModel
-    @Environment(\.openWindow) private var openWindow
-
-    var body: some View {
-        Image(nsImage: MenuBarIcon.shield(dropped: !model.droppedUnseen.isEmpty))
-            .accessibilityLabel(Text(MenuBarPanel.statusItemLabel(model)))
-            .onAppear {
-                AppDelegate.shared?.openMainWindowAction = { openWindow(id: "main") }
-            }
-            .background { SettingsOpenerRegistration() }
-    }
-}
+// The menu bar of the new interface (`NewInterface`, decision D-23): the badges of the current menu bar (the shield
+// while there are none), and a panel with one switch per pinned or active profile, the copy items and the app items
+// (docs/APP.md, Menu bar). The status item is `MenuBarLabel`; the current menu is `MenuBarMenu`.
 
 extension AppModel {
     /// Profiles whose connection is up (with or without a problem).
@@ -55,10 +40,12 @@ private enum PanelItem: Hashable {
     }
 }
 
-/// The panel under the shield (`.menuBarExtraStyle(.window)`, 330 pt wide; the window and its material are the
-/// system's): a header with the number of connections, one row per profile (more than four scroll), the copy items for
-/// `AppModel.copyTarget` (and "Type … code" while auto-type is on), then Open PassTunnel, Settings… and Quit. The
-/// panel stays open after a switch; the other items close it first, as a menu would.
+/// The panel under the status item (`.menuBarExtraStyle(.window)`, 330 pt wide; the window and its material are the
+/// system's): a header with the number of connections, one row per listed profile (more than four scroll), the copy
+/// items for `AppModel.copyTarget` (and "Type … code" while auto-type is on), then Open PassTunnel, Settings… and
+/// Quit. The profiles listed are those pinned to the menu bar, with any that is connecting, connected or dropped
+/// (`AppModel.panelProfiles`), or all of them while none is pinned. The panel stays open after a switch; the other
+/// items close it first, as a menu would.
 struct MenuBarPanel: View {
     @EnvironmentObject private var model: AppModel
     /// Pins the time and leaves out the keyboard handling (renders).
@@ -67,13 +54,23 @@ struct MenuBarPanel: View {
     @FocusState private var focus: PanelItem?
     @State private var hovered: PanelItem?
     @State private var window = PanelWindow()
+    /// The profiles listed since the panel opened: one switched off here stays in the list until the panel closes.
+    @State private var listed: Set<String> = []
 
     /// Rows shown before the list scrolls, and their minimum height.
     static let visibleRows = 4
     static let rowHeight: CGFloat = 44
 
+    /// The profiles listed now, in the order of the main window.
+    private var profiles: [Profile] {
+        let current = model.panelProfiles
+        guard now == nil, !listed.isEmpty else { return current }
+        let ids = Set(current.map(\.id)).union(listed)
+        return model.profiles.filter { ids.contains($0.id) }
+    }
+
     var body: some View {
-        let profiles = model.profiles
+        let profiles = profiles
         let target = model.copyTarget
         let actions = copyActions(target)
         VStack(alignment: .leading, spacing: 0) {
@@ -109,10 +106,17 @@ struct MenuBarPanel: View {
         .background {
             if now == nil { PanelKeys(window: window, handle: handle) }
         }
+        .onAppear {
+            if now == nil { listed = Set(model.panelProfiles.map(\.id)) }
+        }
+        .onChange(of: model.panelProfiles.map(\.id)) { ids in
+            if now == nil { listed.formUnion(ids) }
+        }
         .onDisappear {
             guard now == nil else { return }
             focus = nil
             hovered = nil
+            listed = []
             // The rows showed the drop; the dot on the shield goes with it.
             model.markDropsSeen()
         }
@@ -262,7 +266,6 @@ struct MenuBarPanel: View {
 
     /// Everything the keyboard can reach, top to bottom.
     private var items: [PanelItem] {
-        let profiles = model.profiles
         return (profiles.isEmpty ? [.add] : profiles.map { .profile($0.id) })
             + copyActions(model.copyTarget) + [.open, .settings, .quit]
     }
@@ -535,18 +538,18 @@ private struct PanelKeys: NSViewRepresentable {
 // MARK: - render
 
 /// The panel as it opens under the menu bar, for the `menubar-panel` renders (RenderSnapshots): a strip of menu bar
-/// with the shield (highlighted, as while the panel is open) over the desktop, and the panel on the material that
+/// with the status item (highlighted, as while the panel is open) over the desktop, and the panel on the material that
 /// stands in for its window. The composition is a sample, not part of the app.
 struct MenuBarPanelPreview: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.colorScheme) private var scheme
     let now: Date
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 6) {
-            Image(nsImage: MenuBarIcon.shield(dropped: !model.droppedUnseen.isEmpty))
-                .renderingMode(.template)
-                .foregroundStyle(Palette.fg)
-                .frame(width: 26, height: 22)
+            statusItem
+                .padding(.horizontal, 6)
+                .frame(minWidth: 26, minHeight: 22)
                 .background(Palette.selection, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                 .padding(.trailing, 60)
                 .frame(maxWidth: .infinity, minHeight: 30, alignment: .trailing)
@@ -559,5 +562,15 @@ struct MenuBarPanelPreview: View {
         .padding(.bottom, Spacing.xl)
         .frame(width: 440)
         .background(Color(nsColor: .underPageBackgroundColor))
+    }
+
+    /// What the menu bar draws for the label: the badges in their colors, or the shield tinted like the menu bar's text.
+    @ViewBuilder private var statusItem: some View {
+        let icon = MenuBarIcon.image(for: model, shieldWhenIdle: true)
+        if icon.isTemplate {
+            Image(nsImage: icon).renderingMode(.template).foregroundStyle(Palette.fg)
+        } else {
+            Image(nsImage: MenuBarIcon.rendered(icon, dark: scheme == .dark))
+        }
     }
 }

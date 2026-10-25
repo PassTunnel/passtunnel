@@ -96,7 +96,7 @@ struct DetailActionButton: View {
     }
 }
 
-/// ⋯ in the toolbar: what the sidebar's context menu has besides Edit, without the menu bar pin.
+/// ⋯ in the toolbar: what the sidebar's context menu has besides Edit.
 private struct DetailMoreMenu: View {
     @EnvironmentObject private var model: AppModel
     let profile: Profile
@@ -112,6 +112,9 @@ private struct DetailMoreMenu: View {
             Button(String(localized: "Share…")) { model.share(p) }
             Button(String(localized: "Show Log")) { model.showLog(p) }
             Divider()
+            Button(p.pinned ? String(localized: "Unpin from Menu Bar") : String(localized: "Pin to Menu Bar")) {
+                model.togglePin(p)
+            }
             Toggle(String(localized: "Default Profile"), isOn: Binding(get: { model.isDefault(p) }, set: { _ in model.makeDefault(p) }))
             Divider()
             Button(String(localized: "Delete…"), role: .destructive) { model.pendingDelete = p }
