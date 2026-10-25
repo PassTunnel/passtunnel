@@ -60,7 +60,8 @@ One request per connection, one JSON object per line, at most 64 KiB:
 - `{"op":"hello"}` → `{"protocol":3,"build":"<hex SHA-256 of passtunneld>","build_number":N}`. The
   client's `ensureCompatible()` uses it as the `version` and `build` XPC calls are used on the Mac.
   The daemon hashes `/proc/self/exe` once at start. `build_number` (and `helper_build` in every
-  reply) is left out until release builds compile one in (2d).
+  reply) is the build number a release build compiles in (`DaemonBuild`, see Distribution);
+  development builds have none and leave both out.
 - `{"op":"perform","request":<HelperRequest>}` → `<HelperResponse>`. Request decoding is
   `HelperCore.decodeRequest`, unchanged, and so are the request types and `PT.helperProtocolVersion`.
   The daemon hands it the bytes of the `request` member exactly as sent (`DaemonCall.parse`).
@@ -142,7 +143,8 @@ The macOS rules apply where they make sense; these replace the ones built on cod
   There is no adoption: a starting daemon stops tools recorded by a previous instance (when the pid
   still runs the recorded executable, `/proc/<pid>/exe`), reverts the DNS their sessions recorded and
   cleans up (under systemd `KillMode=control-group` has already stopped them).
-- **Sandbox** (`packaging/linux/passtunnel.service`, a first version that nothing installs yet):
+- **Sandbox** (`packaging/linux/passtunnel.service`, a first version, installed from the release
+  tarball):
   `CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_SETUID CAP_SETGID
   CAP_CHOWN CAP_DAC_OVERRIDE CAP_KILL` (trimmed to what testing shows openvpn and pppd need),
   `DevicePolicy=closed` with `DeviceAllow=/dev/net/tun` and `/dev/ppp` (the pseudo-terminal between
@@ -314,8 +316,9 @@ every value of it is treated as hostile: it ends up in the hands of root.
   instead of telling booleans from numbers with CoreFoundation (`MCPTools.isBool`); the MCP fuzzer
   covers the new decoder.
 - **Version.** Compiled in from a file the build script generates (`BuildVersion+Generated.swift`
-  with `-DPASSTUNNEL_BUILD_VERSION`, like `PinnedTools+Generated.swift`, never committed); development
-  builds report `0.0.0-dev`. `AppInfo` reads it on Linux instead of `Info.plist`.
+  with `-DPASSTUNNEL_BUILD_VERSION`, like `PinnedTools+Generated.swift`, never committed; see
+  Distribution); development builds report `0.0.0-dev` and no build number. `AppInfo` reads it on
+  Linux instead of `Info.plist`.
 - **Language.** English: the `String(localized:)` stand-in of PassTunnelKit is used by Core and the
   CLI on Linux. Turkish follows by turning `Localizable.xcstrings` into a lookup table at build time.
 - **Commands that differ.** `helper install`/`uninstall` explain that the package installs and
@@ -390,10 +393,44 @@ and fakes for the system tools; the Mac's tests a Keychain service of their own)
 
 ## Distribution
 
-- **Phase 2:** a release tarball (`passtunnel`, `passtunneld`, the unit files, a README) per
-  architecture, and a `Dockerfile` at the repository root that builds the CLI and runs
-  `passtunnel mcp` (what MCP directories build and introspect; inside a container it can only manage
-  a VPN of that container).
+- **Phase 2:** a release tarball per architecture, and a `Dockerfile` at the repository root.
+  - `scripts/build-linux.sh [--version VERSION] [--build-number N]` builds
+    `dist/passtunnel-<version>-linux-<arch>.tar.gz` for the architecture it runs on, in the Swift
+    image of Ubuntu 22.04 (`swift:6.4.1-jammy`), the oldest supported, so that the binaries run on
+    every later glibc: `passtunnel` and `passtunneld` in release mode with the Swift standard
+    library, Foundation and swift-crypto linked statically (from the system they load only glibc,
+    libstdc++ and libgcc_s), debug information stripped.
+  - The tarball holds `bin/passtunnel`, `sbin/passtunneld`, `lib/systemd/system/passtunnel.socket`
+    and `passtunnel.service` (its `ExecStart` set to `/usr/local/sbin/passtunneld`), `README.md`
+    (`packaging/linux/README.md`: requirements, install, update, uninstall), `LICENSE`,
+    `THIRD_PARTY_NOTICES.md` (`packaging/linux/THIRD_PARTY_NOTICES.md` with the versions of the build
+    added) and `licenses/`: the Swift project's license (standard library, Dispatch, Foundation),
+    ICU's, and swift-crypto's and swift-asn1's from the pinned checkouts. Its files are root's and
+    dated by the commit. Installed as the README says: `/usr/local/bin/passtunnel`,
+    `/usr/local/sbin/passtunneld` (where `HelperBuild.installedDaemon` looks for it), the units in
+    `/usr/local/lib/systemd/system/`, the group `passtunnel`, and `passtunnel.socket` enabled.
+  - The version is `--version` (what the release scripts compute, once Linux is released;
+    `0.0.0-dev` without it). The build number is the commit count, as the Mac's `CFBundleVersion`:
+    the same for both binaries and both architectures, growing with every commit on `main`; a
+    shallow clone needs `--build-number`. Both are compiled in through files written for the build
+    and removed afterwards: `BuildVersion+Generated.swift` (`passtunnel --version`) and
+    `DaemonBuild+Generated.swift` (the daemon's `build_number` and `helper_build`). The client
+    compares daemons by digest only (above), so development builds, which have no number, compare as
+    before; the number tells builds apart in logs and reports.
+  - CI (the jobs `Linux release` in `.github/workflows/ci.yml`) builds the tarball once per
+    architecture and keeps it as a workflow artifact, then installs it in a clean Ubuntu 22.04
+    container: the binaries load no Swift library from the system and report the version and build
+    number, `passtunneld` refuses to run as another user than root and, as root, answers `hello` and
+    requests with the build number, and `passtunnel` finds it beside itself and reports a replaced
+    file as outdated. Attaching tarballs to releases waits for phase 3, and so does a Linux section
+    in the README: until then there is nothing to download but the CI artifact.
+  - The `Dockerfile` builds `passtunnel` in release mode on the CI's Swift image (`swift:6.4.1-noble`)
+    and runs `passtunnel mcp` on `ubuntu:24.04` as the user `mcp` (uid 10001), both images pinned by
+    digest: what MCP directories build and introspect. It starts without a profile store or a secret
+    store and answers `initialize` and `tools/list`. Inside a container it can only manage a VPN of
+    that container (none without a `passtunneld` there), never the host's. It is a development
+    build (`0.0.0-dev`). The jobs `Docker image` build it on both architectures and run an MCP
+    session with it, without a network.
 - **Phase 3:** `.deb` and `.rpm` built with nfpm, holding the binaries, `passtunnel.service` and
   `passtunnel.socket`, the polkit policy and the `passtunnel` group; a signed apt and dnf repository
   on GitHub Pages; updates through the package manager (the daemon is restarted only when no session
@@ -434,7 +471,8 @@ and fakes for the system tools; the Mac's tests a Keychain service of their own)
        copied from a pipe, and its DNS set from that output for the session's ppp interface; the
        Linux CI jobs start a FortiGate session against the daemon with the distribution's
        openfortivpn and follow its DNS with a stand-in (no tunnel).
-   - 2d: the release tarball and the `Dockerfile`.
+   - 2d (#119): the release tarball (`scripts/build-linux.sh`) and the `Dockerfile`, built and tried
+     in CI (see Distribution).
 3. **Packages:** polkit, systemd units, nfpm packages, the apt/dnf repository, release automation
    (with it, how commits with the scope `linux` count: until then they are left out of the app's
    releases, see [RELEASING.md](RELEASING.md#how-a-release-happens)), install tests on the target

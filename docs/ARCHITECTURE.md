@@ -44,7 +44,7 @@ A bundle without `dns-updown` pins an empty set for it, so the helper refuses an
 | `PassTunnelHelper` | `main.swift` XPC listener, process supervision | Shared (and through it VPNConfig) |
 | `PassTunnel` | SwiftUI app, menu bar, onboarding, updates (`AppUpdater`); CLI mode runs `PassTunnelCLI` | CLI, Core, Kit, VPNConfig, Shared, Sparkle |
 | `PassTunnelCommand` | Linux only: the `passtunnel` executable (product `passtunnel`), `PassTunnelCLI.run` | CLI |
-| `PassTunnelDaemon` | Linux only: the root daemon's logic ([LINUX.md](LINUX.md)): `Daemon` (socket, systemd activation, one request per connection), `DaemonCall` (the line protocol), `Access` + `UserDatabase` (root and the group `passtunnel`), `TrustedPath` + `SystemTools` (fixed tool paths, ownership and version checks, the CA bundle), `Supervisor` (OpenVPN and openfortivpn: spawn, stop, exit), `PreviousInstance`; DNS: `DNSSettings` (checked servers and domains), `DNSApplier` + `DNSRecord` + `ResolvConf` (systemd-resolved, resolvconf or /etc/resolv.conf, recorded per session and reverted), `OpenVPNDNS` + `DNSHook` (`passtunneld dns-hook`); FortiGate: `OutputCopier` (the tool's output, from a pipe into the log), `FortiOutput` + `FortiDNSWatch` (openfortivpn's lines), `SessionInterface` + `InterfaceSystem` (the kernel's view of the ppp interface) | Shared, VPNConfig |
+| `PassTunnelDaemon` | Linux only: the root daemon's logic ([LINUX.md](LINUX.md)): `Daemon` (socket, systemd activation, one request per connection), `DaemonCall` (the line protocol), `Access` + `UserDatabase` (root and the group `passtunnel`), `TrustedPath` + `SystemTools` (fixed tool paths, ownership and version checks, the CA bundle), `Supervisor` (OpenVPN and openfortivpn: spawn, stop, exit), `PreviousInstance`; DNS: `DNSSettings` (checked servers and domains), `DNSApplier` + `DNSRecord` + `ResolvConf` (systemd-resolved, resolvconf or /etc/resolv.conf, recorded per session and reverted), `OpenVPNDNS` + `DNSHook` (`passtunneld dns-hook`); FortiGate: `OutputCopier` (the tool's output, from a pipe into the log), `FortiOutput` + `FortiDNSWatch` (openfortivpn's lines), `SessionInterface` + `InterfaceSystem` (the kernel's view of the ppp interface); `DaemonBuild` (the build number a release build compiles in) | Shared, VPNConfig |
 | `PassTunnelDaemonCommand` | Linux only: the `passtunneld` executable (product `passtunneld`), also OpenVPN's DNS hook (`dns-hook`) | Daemon, Shared |
 
 The library product `PassTunnelKit` (targets `PassTunnelKit` and `PassTunnelVPNConfig`) is what the
@@ -116,9 +116,10 @@ The platform seams (Linux code stays in the same files behind `#if`; the Mac's b
   `Route.tunnelDevice` carries the kernel's kind of device there (LINUX.md, Client side).
 - **MCP input.** `MCPServer` decodes each line into a `JSONValue` with `JSONDecoder` on every
   platform, so JSON booleans are never numbers (no CoreFoundation `CFBoolean` check).
-- **Version.** `AppInfo.current` on Linux is `BuildVersion`: a release build compiles in
-  `BuildVersion+Generated.swift` (never committed) with `-DPASSTUNNEL_BUILD_VERSION`; otherwise
-  `0.0.0-dev`.
+- **Version.** `AppInfo.current` on Linux is `BuildVersion`: a release build
+  (`scripts/build-linux.sh`) compiles in `BuildVersion+Generated.swift` (never committed) with
+  `-DPASSTUNNEL_BUILD_VERSION`; otherwise `0.0.0-dev` and no build number. The daemon, which links no
+  Core, gets the same build number from `DaemonBuild+Generated.swift` (`DaemonBuild`).
 - **System calls.** `POSIXSocket` (`SOCK_STREAM`, `MSG_NOSIGNAL` for `SO_NOSIGPIPE`, no `sun_len`) for
   the management socket and the health probe; Linux pings with `ping -n -q -c 1 -W <s>` (`-6` for IPv6)
   from `/usr/bin`, `/bin`, `/usr/sbin` or `/sbin`, never `PATH`.

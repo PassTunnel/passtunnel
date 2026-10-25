@@ -28,7 +28,9 @@ backends, localized strings, no third-party dependencies besides Sparkle and swi
 5. The checks must pass: `Build and test` (`swift build` and `swift test` on macOS, and
    PassTunnelKit built for iOS), `Linux (x86_64)` and `Linux (aarch64)` (the Linux targets built and
    tested, and the `passtunnel` command tried, see [Linux](#linux)), `Release scripts`, `Site` (the
-   website's static checks) and `PR title`. Review comments must be resolved.
+   website's static checks) and `PR title`. `Linux release` and `Docker image` (the Linux tarball and
+   the Dockerfile, built and tried on both architectures) run as well. Review comments must be
+   resolved.
 6. The pull request is **squash-merged**: its title becomes the one commit on `dev`.
 
 Releases are made by merging `dev` into `main` (a pull request from `dev`, merged with a merge
@@ -146,10 +148,29 @@ groupadd --system passtunnel               # root and this group may start conne
 ```
 
 Under systemd the daemon is started by `packaging/linux/passtunnel.socket` (socket activation); the
-unit files are not installed by anything yet. The tests never touch `/run/passtunnel`: they run the
+release tarball installs the unit files. The tests never touch `/run/passtunnel`: they run the
 daemon's library with a temporary run root, home and user database, and shell scripts in place of
 openvpn, openfortivpn and pppd. The CI step "Smoke-test passtunneld" shows full sessions with the
 distribution's openvpn and openfortivpn.
+
+The release tarball (`passtunnel` and `passtunneld` with the Swift runtime linked in, the units, a
+README and the licenses; [docs/LINUX.md](docs/LINUX.md#distribution)) is built in the Swift image of
+Ubuntu 22.04, for the architecture Docker runs:
+
+```sh
+docker run --rm -v "$PWD":/src -w /src swift:6.4.1-jammy scripts/build-linux.sh   # → dist/
+```
+
+The `Dockerfile` at the root builds an image that runs `passtunnel mcp` (for MCP directories):
+
+```sh
+docker build -t passtunnel .
+docker run -i --rm passtunnel      # JSON-RPC lines on stdin
+```
+
+The `Linux release` and `Docker image` checks build both on x86_64 and aarch64, try the tarball in a
+clean Ubuntu 22.04 container and run an MCP session with the image; the tarball is kept as an
+artifact of the run.
 
 Code in these targets must keep building on Linux, without changing what the Mac does: Linux code
 goes in the same files behind `#if os(Linux)` / `#if canImport(…)` (the seams are listed in

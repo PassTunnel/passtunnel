@@ -40,6 +40,16 @@ final class DaemonSocketTests: DaemonTestCase {
         XCTAssertEqual(status.helperBuild, 214)
     }
 
+    /// A development build has no number (scripts/build-linux.sh compiles one in): `hello` and the
+    /// replies leave it out, as the Mac's helper does outside a bundle.
+    func testDevelopmentBuildHasNoNumber() throws {
+        XCTAssertNil(DaemonBuild.number, "tests are not release builds")
+        let daemon = try makeDaemon { $0.buildNumber = DaemonBuild.number }
+        let hello = try exchange(daemon.socketPath, #"{"op":"hello"}"#)
+        XCTAssertFalse(hello.contains("build_number"), hello)
+        XCTAssertNil(try response(daemon.socketPath, .status).helperBuild)
+    }
+
     func testBadMessages() throws {
         let daemon = try makeDaemon()
         let cases = [

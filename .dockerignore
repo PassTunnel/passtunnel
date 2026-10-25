@@ -1,0 +1,13 @@
+# The build context of the Dockerfile: the package and its sources. Build output, the history, the
+# website and a release build's generated version files stay out.
+.build/
+.swiftpm/
+.git/
+build/
+dist/
+site/
+fuzz/
+**/.DS_Store
+Sources/PassTunnelCore/BuildVersion+Generated.swift
+Sources/PassTunnelDaemon/DaemonBuild+Generated.swift
+Sources/PassTunnelShared/PinnedTools+Generated.swift

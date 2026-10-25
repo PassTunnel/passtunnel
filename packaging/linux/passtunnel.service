@@ -1,7 +1,8 @@
 # passtunneld, PassTunnel's root daemon on Linux (docs/LINUX.md): it runs the distribution's openvpn
-# and openfortivpn (which runs pppd) for the users allowed to connect. A first version: no package or tarball installs it yet, and the
-# sandbox below is a starting point, to be trimmed to what the tools need once they are tested under
-# it on the target distributions.
+# and openfortivpn (which runs pppd) for the users allowed to connect. The release tarball installs it
+# (scripts/build-linux.sh points ExecStart at /usr/local/sbin there); no package does yet. The sandbox
+# below is a starting point, to be trimmed to what the tools need once they are tested under it on the
+# target distributions.
 
 [Unit]
 Description=PassTunnel daemon
