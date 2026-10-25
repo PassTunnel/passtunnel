@@ -38,6 +38,11 @@ struct MainSplitView: View {
                 CredentialSheet(request: request).environmentObject(model)
             }
         }
+        .background {
+            Color.clear.sheet(item: $model.overlapRequest) { request in
+                OverlapSheet(request: request).environmentObject(model)
+            }
+        }
         .alert(item: $model.alert) { alert in
             if alert.opensHelperSettings {
                 return Alert(title: Text(alert.title), message: Text(alert.message),
@@ -323,6 +328,7 @@ struct SplitWindowCommands: View {
     var body: some View {
         let selected = model.selection.flatMap(model.profile)
         let blocked = model.editor != nil || model.credentialRequest != nil || model.importReview != nil
+            || model.overlapRequest != nil
         Button(String(localized: "Connect or Disconnect")) { selected.map(model.runAction) }
             .keyboardShortcut(.return, modifiers: [.command])
             .disabled(selected == nil || blocked)

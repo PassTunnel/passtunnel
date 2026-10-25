@@ -43,12 +43,28 @@ public enum DisplayStatus: Equatable, Sendable {
         }
     }
 
-    /// Why the last connect failed. Today Core reports a message only (`ConnectionManager.lastError`). Once
-    /// it reports the reason as a type (a sign-in the server rejected, a server that does not answer), each
-    /// reason becomes a case here, and every view that switches over them has to word it.
+    /// Why the last connect failed (`ConnectionFailure.Kind`): the reasons the app words and shows a card for
+    /// each, else the error as `ConnectionManager.lastError` words it.
     public enum Failure: Equatable, Sendable {
         /// The error as `ConnectionManager.lastError` words it.
         case message(String)
+        /// The server refused the sign-in; PassTunnel did not retry it.
+        case signInRejected
+        /// The server's name could not be resolved.
+        case hostNotFound
+        /// The server did not answer. `retry`: the tries that follow, while there are any (`UnreachableRetry`);
+        /// nil once they ended.
+        case unreachable(retry: UnreachableRetry?)
+
+        /// The reason `failure` gives for the last error; the error's own words when the kind has no case.
+        init(_ failure: ConnectionFailure?, error: String) {
+            switch failure?.kind {
+            case .authRejected?: self = .signInRejected
+            case .hostNotFound?: self = .hostNotFound
+            case .unreachable?: self = .unreachable(retry: nil)
+            default: self = .message(error)
+            }
+        }
     }
 
     /// What Core reports about one profile, as the app reads it.
@@ -72,11 +88,15 @@ public enum DisplayStatus: Equatable, Sendable {
         public var asksToConnect: Bool
         /// The profile sends a code from its TOTP secret.
         public var usesCode: Bool
+        /// `ConnectionManager.failures`: why the last connect failed, typed.
+        public var failure: ConnectionFailure?
+        /// `ConnectionManager.unreachableRetries`: a server that did not answer is tried again.
+        public var retry: UnreachableRetry?
 
         public init(state: ConnectionState = .disconnected, reconnect: ReconnectInfo? = nil, codeWaitUntil: Date? = nil,
                     lastError: String? = nil, warning: String? = nil, notResponding: Bool = false,
                     statusUnavailable: Bool = false, droppedUnseen: Bool = false, asksToConnect: Bool = false,
-                    usesCode: Bool = false) {
+                    usesCode: Bool = false, failure: ConnectionFailure? = nil, retry: UnreachableRetry? = nil) {
             self.state = state
             self.reconnect = reconnect
             self.codeWaitUntil = codeWaitUntil
@@ -87,15 +107,19 @@ public enum DisplayStatus: Equatable, Sendable {
             self.droppedUnseen = droppedUnseen
             self.asksToConnect = asksToConnect
             self.usesCode = usesCode
+            self.failure = failure
+            self.retry = retry
         }
 
         /// The facts about `p`; what follows from its settings is filled in.
         public init(_ p: Profile, state: ConnectionState, reconnect: ReconnectInfo? = nil, codeWaitUntil: Date? = nil,
                     lastError: String? = nil, warning: String? = nil, notResponding: Bool = false,
-                    statusUnavailable: Bool = false, droppedUnseen: Bool = false) {
+                    statusUnavailable: Bool = false, droppedUnseen: Bool = false, failure: ConnectionFailure? = nil,
+                    retry: UnreachableRetry? = nil) {
             self.init(state: state, reconnect: reconnect, codeWaitUntil: codeWaitUntil, lastError: lastError,
                       warning: warning, notResponding: notResponding, statusUnavailable: statusUnavailable,
-                      droppedUnseen: droppedUnseen, asksToConnect: Facts.asksToConnect(p), usesCode: p.otpMode == .totp)
+                      droppedUnseen: droppedUnseen, asksToConnect: Facts.asksToConnect(p), usesCode: p.otpMode == .totp,
+                      failure: failure, retry: retry)
         }
 
         /// What `m` reports about `p` now. `droppedUnseen` is the app's to tell.
@@ -104,7 +128,8 @@ public enum DisplayStatus: Equatable, Sendable {
             let id = p.id
             self.init(p, state: m.state(id), reconnect: m.reconnecting[id], codeWaitUntil: m.codeWaitUntil[id],
                       lastError: m.lastError[id], warning: m.warnings[id], notResponding: m.health[id] == .unreachable,
-                      statusUnavailable: m.statusUnavailable.contains(id), droppedUnseen: droppedUnseen)
+                      statusUnavailable: m.statusUnavailable.contains(id), droppedUnseen: droppedUnseen,
+                      failure: m.failures[id], retry: m.unreachableRetries[id])
         }
 
         /// The profile's "Confirm with Touch ID" setting asks before connecting: either level, since the redesign
@@ -117,7 +142,7 @@ public enum DisplayStatus: Equatable, Sendable {
     /// The status the facts give when several apply: a connection that is up wins (it may come with a
     /// problem, the worst one shown); then an automatic reconnect, which covers its own attempts and their
     /// failures until it ends; then a connect under way; then the last failure, an unseen drop, and the
-    /// state at rest.
+    /// state at rest. A server that does not answer is shown as such while its tries go on, also during one.
     public init(_ f: Facts) {
         if case .connected(let ip, let since) = f.state {
             let c = Connection(since: since, address: ip)
@@ -134,10 +159,12 @@ public enum DisplayStatus: Equatable, Sendable {
             self = .reconnecting(reconnect, freshCode: f.usesCode)
         } else if let until = f.codeWaitUntil {
             self = .waitingForCode(until: until)
+        } else if let retry = f.retry {
+            self = .failed(.unreachable(retry: retry))
         } else if case .connecting(let phase) = f.state {
             self = .connecting(phase: phase)
         } else if let error = f.lastError {
-            self = .failed(.message(error))
+            self = .failed(Failure(f.failure, error: error))
         } else if f.droppedUnseen {
             self = .dropped
         } else {
@@ -167,13 +194,13 @@ public enum DisplayStatus: Equatable, Sendable {
     }
 
     /// Connect at rest (also after a drop), Cancel on the way, Disconnect once up (whatever its problem), Stop
-    /// while it reconnects on its own, Try again after a failure.
+    /// while it reconnects on its own or tries an unreachable server again, Try again after a failure.
     public var action: Action {
         switch self {
         case .off, .protected, .dropped: return .connect
         case .connecting, .waitingForCode: return .cancel
         case .connected, .setupIncomplete, .notResponding, .statusUnavailable: return .disconnect
-        case .reconnecting: return .stop
+        case .reconnecting, .failed(.unreachable(retry: .some)): return .stop
         case .failed: return .tryAgain
         }
     }
@@ -195,7 +222,11 @@ public enum DisplayStatus: Equatable, Sendable {
         case .statusUnavailable: return Self.joined(String(localized: "Connected"), String(localized: "status unavailable"))
         case .reconnecting: return String(localized: "Dropped, reconnecting…")
         case .dropped: return String(localized: "Connection dropped")
-        case .failed: return String(localized: "Couldn’t connect")
+        case .failed(.message): return String(localized: "Couldn’t connect")
+        case .failed(.signInRejected): return String(localized: "Sign-in rejected")
+        case .failed(.hostNotFound): return String(localized: "Server not found")
+        case .failed(.unreachable(let retry)):
+            return retry == nil ? String(localized: "Unreachable") : String(localized: "Unreachable, retrying")
         }
     }
 
@@ -223,6 +254,16 @@ public enum DisplayStatus: Equatable, Sendable {
         case .failed(.message(let message)):
             let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
             return text.isEmpty ? summary(at: now) : text
+        case .failed(.signInRejected): return String(localized: "Sign-in rejected by the server")
+        case .failed(.hostNotFound): return String(localized: "Can’t find the server")
+        case .failed(.unreachable(let retry)):
+            let words = String(localized: "Can’t reach the server")
+            guard let retry else { return words }
+            if retry.waitingForNetwork { return Self.joined(words, String(localized: "waiting for the network")) }
+            if let at = retry.nextTryAt, case let wait = Self.seconds(until: at, now: now), wait > 0 {
+                return Self.joined(words, String(localized: "next try in \(wait) s"))
+            }
+            return Self.joined(words, String(localized: "trying again…"))
         }
     }
 

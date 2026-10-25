@@ -11,6 +11,16 @@
         }
       }
     },
+    "%@ are connected and send some of the same traffic as %@ through their tunnels." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ bağlı ve %2$@ ile aynı trafiğin bir kısmını kendi tünelleri üzerinden gönderiyor."
+          }
+        }
+      }
+    },
     "%@ did not connect within %lld seconds." : {
       "localizations" : {
         "tr" : {
@@ -27,6 +37,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$@ bağlantısı %2$lld saniye içinde kesilmedi."
+          }
+        }
+      }
+    },
+    "%@ didn’t answer" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ yanıt vermedi"
           }
         }
       }
@@ -57,6 +77,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ zaten bağlı."
+          }
+        }
+      }
+    },
+    "%@ is connected and sends some of the same traffic as %@ through its tunnel." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ bağlı ve %2$@ ile aynı trafiğin bir kısmını kendi tüneli üzerinden gönderiyor."
           }
         }
       }
@@ -107,6 +137,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ için bir değer gerekli."
+          }
+        }
+      }
+    },
+    "%@ overlaps with %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@, %2$@ ile çakışıyor"
           }
         }
       }
@@ -249,12 +289,32 @@
         }
       }
     },
+    "%@: %@ %@, %@ %@, overlap" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@: %2$@ %3$@, %4$@ %5$@, çakışma"
+          }
+        }
+      }
+    },
     "%lld connected" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld bağlı"
+          }
+        }
+      }
+    },
+    "%lld h" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld sa"
           }
         }
       }
@@ -313,6 +373,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$lld / %2$lld eksik"
+          }
+        }
+      }
+    },
+    "%lld s" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld sn"
           }
         }
       }
@@ -653,6 +723,16 @@
         }
       }
     },
+    "All traffic" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tüm trafik"
+          }
+        }
+      }
+    },
     "Allow PassTunnel to record the screen in System Settings → Privacy & Security, then scan again." : {
       "localizations" : {
         "tr" : {
@@ -669,6 +749,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Betiklere izin verir. PassTunnel bir profildeki betikleri hiçbir zaman çalıştırmaz."
+          }
+        }
+      }
+    },
+    "and %lld more" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ve %lld tane daha"
           }
         }
       }
@@ -709,6 +799,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "PassTunnel’dan %@ bağlantısını, oturumu sunucu sonlandırmış gibi düşürmesi istendi…"
+          }
+        }
+      }
+    },
+    "Asks Apple’s time server for the time. Nothing about you is sent." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple’ın saat sunucusuna saati sorar. Sizinle ilgili hiçbir şey gönderilmez."
           }
         }
       }
@@ -763,6 +863,26 @@
         }
       }
     },
+    "Can’t find the server" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu bulunamıyor"
+          }
+        }
+      }
+    },
+    "Can’t reach the server" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucuya ulaşılamıyor"
+          }
+        }
+      }
+    },
     "Cellular" : {
       "localizations" : {
         "tr" : {
@@ -793,6 +913,16 @@
         }
       }
     },
+    "Changed your password at work?" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parolanızı işte mi değiştirdiniz?"
+          }
+        }
+      }
+    },
     "Changes how OpenVPN runs or writes a file as root. PassTunnel runs the connection itself." : {
       "localizations" : {
         "tr" : {
@@ -803,12 +933,42 @@
         }
       }
     },
+    "Check again" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tekrar denetle"
+          }
+        }
+      }
+    },
     "Check for Updates…" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Güncellemeleri Denetle…"
+          }
+        }
+      }
+    },
+    "Check it in PassTunnel" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel’da kontrol edin"
+          }
+        }
+      }
+    },
+    "Check the clock" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saati denetle"
           }
         }
       }
@@ -839,6 +999,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Saati ağ geçidiyle denetlemek bu sistemde kullanılamıyor."
+          }
+        }
+      }
+    },
+    "Checking…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Denetleniyor…"
           }
         }
       }
@@ -993,6 +1163,16 @@
         }
       }
     },
+    "Codes are worked out from the time, so every code will be wrong until it’s fixed." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kodlar saate göre hesaplanır; saat düzelene kadar her kod yanlış olur."
+          }
+        }
+      }
+    },
     "Configuration or certificate refused" : {
       "localizations" : {
         "tr" : {
@@ -1063,6 +1243,16 @@
         }
       }
     },
+    "Connect both" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "İkisini de bağla"
+          }
+        }
+      }
+    },
     "Connected, %@" : {
       "localizations" : {
         "tr" : {
@@ -1113,6 +1303,16 @@
         }
       }
     },
+    "Copy details" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ayrıntıları kopyala"
+          }
+        }
+      }
+    },
     "Copy the secret, an otpauth:// link or a screenshot of the QR code first." : {
       "localizations" : {
         "tr" : {
@@ -1159,6 +1359,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sunucuya ulaşılamadı: %@"
+          }
+        }
+      }
+    },
+    "Couldn’t reach the time server. Check the network, then try again." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saat sunucusuna ulaşılamadı. Ağı kontrol edip tekrar deneyin."
           }
         }
       }
@@ -1373,6 +1583,16 @@
         }
       }
     },
+    "Is the server’s address right?" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu adresi doğru mu?"
+          }
+        }
+      }
+    },
     "It cannot be used here: %@" : {
       "localizations" : {
         "tr" : {
@@ -1463,6 +1683,16 @@
         }
       }
     },
+    "Most likely cause. Fix the clock, then try again." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En olası neden. Saati düzeltip tekrar deneyin."
+          }
+        }
+      }
+    },
     "Needs you" : {
       "localizations" : {
         "tr" : {
@@ -1523,12 +1753,32 @@
         }
       }
     },
+    "next try in %lld s" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld sn sonra yeni deneme"
+          }
+        }
+      }
+    },
     "Next try when the network is back" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sonraki deneme ağ geri geldiğinde"
+          }
+        }
+      }
+    },
+    "no" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "hayır"
           }
         }
       }
@@ -1589,6 +1839,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "yanıt yok, ağ geri gelince yeniden denenecek"
+          }
+        }
+      }
+    },
+    "No answer." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yanıt yok."
           }
         }
       }
@@ -1763,6 +2023,16 @@
         }
       }
     },
+    "On a guest or hotel network?" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Misafir veya otel ağında mısınız?"
+          }
+        }
+      }
+    },
     "On Linux, passtunneld is installed and removed by hand from the release tarball, not by this command. Follow the README in the tarball; docs/LINUX.md has the details: https://github.com/PassTunnel/passtunnel/blob/main/docs/LINUX.md" : {
       "localizations" : {
         "tr" : {
@@ -1799,6 +2069,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Oturum açıldığında menü çubuğunda aç"
+          }
+        }
+      }
+    },
+    "Open Date & Time" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tarih ve Saat’i aç"
           }
         }
       }
@@ -1853,6 +2133,16 @@
         }
       }
     },
+    "Overlap" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Çakışma"
+          }
+        }
+      }
+    },
     "PassTunnel itself does not open at login. Turn on “Open at login, in the menu bar” in Settings → General." : {
       "localizations" : {
         "tr" : {
@@ -1879,6 +2169,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bağlantıyı, günlüğünü ve yönetim arayüzünü PassTunnel kendisi yürütür."
+          }
+        }
+      }
+    },
+    "PassTunnel stopped instead of retrying, so your account won’t get locked." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel yeniden denemek yerine durdu; böylece hesabınız kilitlenmez."
           }
         }
       }
@@ -2303,6 +2603,36 @@
         }
       }
     },
+    "Sent through the tunnel" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tünelden geçen"
+          }
+        }
+      }
+    },
+    "Sent with %lld s left" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld sn kala gönderildi"
+          }
+        }
+      }
+    },
+    "Sent with %lld s left, so it may have run out on the way." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld sn kala gönderildi; yolda süresi dolmuş olabilir."
+          }
+        }
+      }
+    },
     "Server" : {
       "localizations" : {
         "tr" : {
@@ -2329,6 +2659,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sunucu adı bulunamadı"
+          }
+        }
+      }
+    },
+    "Server not found" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu bulunamadı"
           }
         }
       }
@@ -2413,6 +2753,26 @@
         }
       }
     },
+    "Sign-in rejected" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oturum açma reddedildi"
+          }
+        }
+      }
+    },
+    "Sign-in rejected by the server" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oturum açma sunucu tarafından reddedildi"
+          }
+        }
+      }
+    },
     "Sign-in rejected. Stopped. Not retrying, to avoid a lockout" : {
       "localizations" : {
         "tr" : {
@@ -2453,6 +2813,16 @@
         }
       }
     },
+    "Some networks block VPN traffic. Try another network or ask your IT team." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bazı ağlar VPN trafiğini engeller. Başka bir ağ deneyin veya BT ekibinize sorun."
+          }
+        }
+      }
+    },
     "Source code" : {
       "localizations" : {
         "tr" : {
@@ -2483,6 +2853,16 @@
         }
       }
     },
+    "Switch to %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ profiline geç"
+          }
+        }
+      }
+    },
     "That traffic can only go through one of the two tunnels." : {
       "localizations" : {
         "tr" : {
@@ -2499,6 +2879,46 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Saat denetlenemedi: %@"
+          }
+        }
+      }
+    },
+    "The clock is off by %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saat %@ kayık"
+          }
+        }
+      }
+    },
+    "The clock is right" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saat doğru"
+          }
+        }
+      }
+    },
+    "The code was about to expire" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kodun süresi dolmak üzereydi"
+          }
+        }
+      }
+    },
+    "The code was fresh" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kod tazeydi"
           }
         }
       }
@@ -2543,6 +2963,16 @@
         }
       }
     },
+    "The next try starts when the network is back." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ağ geri geldiğinde bir sonraki deneme başlar."
+          }
+        }
+      }
+    },
     "The PassTunnel helper is not ready." : {
       "localizations" : {
         "tr" : {
@@ -2559,6 +2989,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$@ sunucusuna ulaşılamadı: %2$@. Oturum açma bilgileriniz gönderilmedi."
+          }
+        }
+      }
+    },
+    "The server answered %@." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucunun yanıtı: %@."
           }
         }
       }
@@ -2599,6 +3039,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sunucu zamanında yanıt vermedi."
+          }
+        }
+      }
+    },
+    "The server didn’t accept the sign-in." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu oturum açmayı kabul etmedi."
+          }
+        }
+      }
+    },
+    "The server didn’t answer" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu yanıt vermedi"
           }
         }
       }
@@ -2663,12 +3123,52 @@
         }
       }
     },
+    "This Mac is offline" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu Mac çevrimdışı"
+          }
+        }
+      }
+    },
     "This Mac is offline." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bu Mac çevrimdışı."
+          }
+        }
+      }
+    },
+    "This Mac is online" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu Mac çevrimiçi"
+          }
+        }
+      }
+    },
+    "This Mac’s clock is %@ ahead." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu Mac’in saati %@ ileride."
+          }
+        }
+      }
+    },
+    "This Mac’s clock is %@ behind." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu Mac’in saati %@ geride."
           }
         }
       }
@@ -2733,6 +3233,26 @@
         }
       }
     },
+    "Try now" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Şimdi dene"
+          }
+        }
+      }
+    },
+    "trying again…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "yeniden deneniyor…"
+          }
+        }
+      }
+    },
     "Type %@ code" : {
       "localizations" : {
         "tr" : {
@@ -2749,6 +3269,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bilinmiyor"
+          }
+        }
+      }
+    },
+    "Unreachable" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ulaşılamıyor"
+          }
+        }
+      }
+    },
+    "Unreachable, retrying" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ulaşılamıyor, yeniden deneniyor"
+          }
+        }
+      }
+    },
+    "Update it in PassTunnel" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel’da güncelleyin"
           }
         }
       }
@@ -3843,6 +4393,16 @@
         }
       }
     },
+    "waiting for the network" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ağ bekleniyor"
+          }
+        }
+      }
+    },
     "Waiting for your confirmation in PassTunnel…" : {
       "localizations" : {
         "tr" : {
@@ -3889,6 +4449,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wi-Fi"
+          }
+        }
+      }
+    },
+    "With both on, that traffic can go through only one of the two tunnels." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "İkisi de açıkken bu trafik iki tünelden yalnızca birinden geçebilir."
+          }
+        }
+      }
+    },
+    "Within %lld s" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld sn içinde"
+          }
+        }
+      }
+    },
+    "Within %lld s of %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%2$@ sunucusuna göre %1$lld sn içinde"
           }
         }
       }
@@ -8905,6 +9495,16 @@
         }
       }
     },
+    "Yes" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Evet"
+          }
+        }
+      }
+    },
     "Yesterday" : {
       "localizations" : {
         "tr" : {
@@ -9001,6 +9601,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Saatiniz %1$@ zaman sunucusuyla uyuşuyor, aradaki fark %2$lld sn."
+          }
+        }
+      }
+    },
+    "Your password and code were not sent." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parolanız ve kodunuz gönderilmedi."
           }
         }
       }
@@ -9251,6 +9861,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Gönderilmiş bir kod bir daha gönderilmez: PassTunnel her zaman bir sonrakini bekler."
+          }
+        }
+      }
+    },
+    "“Switch to %@” disconnects %@ first." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%1$@ profiline geç” seçeneği önce %2$@ bağlantısını keser."
           }
         }
       }

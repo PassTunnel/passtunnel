@@ -259,6 +259,38 @@ and at least 820×560:
     A click on the code shows them for 20 s (`AppModel.revealCodes`), after the confirmation when they are locked;
     copying never shows them. The menu bar panel keeps hidden codes hidden; the current window shares the 20 s of a
     click for hidden codes (above) and keeps its own rule for locked ones.
+- **Error states** (`Views/FailureCards.swift`, `ClockBanner.swift`, `OverlapSheet.swift`; the facts are Core's:
+  `ConnectionManager.failures`, `unreachableRetries`, `networkStatus`, `clockOffsets`, `overlaps(for:)`). After a
+  failure the detail shows a card instead of the code cards, above the activity; `DisplayStatus` words the status
+  (`failed` with a reason: `signInRejected`, `hostNotFound`, `unreachable`, else the error's message), which the sidebar
+  shows short ("Sign-in rejected", "Server not found", "Unreachable, retrying", "Couldn’t connect"):
+  - **Sign-in rejected** (`RejectedCard`): the main button is Try again. "The server answered AUTH_FAILED. PassTunnel
+    stopped instead of retrying, so your account won’t get locked." (the server's reply, in SF Mono), then facts, each
+    with a glyph and words: "The code was fresh / Sent with 22 s left" (more than `Preferences.freshCodeSeconds` left;
+    else "about to expire"), the clock when it was measured ("The clock is off by 48 s / Most likely cause. Fix the
+    clock, then try again.", or "The clock is right / Within 2 s of time.apple.com"), and, for a password in the
+    Keychain, "Changed your password at work? / Update it in PassTunnel" (opens the editor). "Check the clock" runs the
+    on-request check with Apple's time server (`ConnectionManager.checkClock`, decision D-16; the card says what it
+    asks and that nothing about the user is sent) and shows the result in the clock row.
+  - **Clock banner** (`ClockBanner`), above the detail of any profile while the newest clock measurement of any
+    profile or the time server is under an hour old and off by 15 s or more (`ClockOffset.recentWarning`): "This Mac’s
+    clock is 48 s behind. Codes are worked out from the time, so every code will be wrong until it’s fixed." with
+    Open Date & Time (`x-apple.systempreferences:com.apple.Date-Time-Settings.extension`) and Check again (the same
+    check; a newer right measurement ends the banner).
+  - **Server unreachable** (`UnreachableCard`): while the tries go on the status is "Can’t reach the server · next try
+    in 18 s" (or "waiting for the network", "trying again…") and the main button Stop; once they ended, Try again.
+    "No answer after 3 tries. Your password and code were not sent." with "This Mac is online · Wi-Fi" (or offline;
+    only the system's own view of the network, never a claim that other sites answer, decision D-13), "203.0.113.10:443
+    didn’t answer" with the tool's reason, "On a guest or hotel network?", Try now (`retryNow`, while tries go on) and
+    Copy details (`ConnectionManager.failureDetails`, ordinary text on the pasteboard, "Copied ✓" for 1.6 s).
+  - **Host not found and other failures** (`MessageCard`): the tool's reason, and that the password and code were not
+    sent; a name that was not found also points to the profile's address.
+  - **Overlapping tunnels** (`OverlapSheet`): connecting a profile whose routes or DNS names overlap with a connected
+    one (`ConnectionManager.overlaps(for:)`, before any prompt for secrets; `AppModel.connect`) asks first: "Lab
+    overlaps with Work", a table per connected profile (networks, DNS names and all traffic: Yes or —, Overlap), then
+    Cancel, Connect both and Switch to Lab (primary; disconnects the others first). It says only that the shared
+    traffic can go through just one of the two tunnels, not which one (decision D-22: not verified on a Mac). The
+    CLI and the MCP server warn and go on.
 - **First run and add view** (`FirstRunView`, decisions D-13 and D-18): without profiles the detail shows the app
   icon, "Add your first VPN" and "PassTunnel works out the one-time code and sends it with your password when you
   connect. No account. Your passwords and secrets stay on this Mac."; the sidebar's `+` shows the same view titled
@@ -777,6 +809,9 @@ others not yet.
   The `import-review` renders show the import review in that window: as designed (two lines skipped, the code
   secret missing), `-ready` with the secret added, `-certificate` (a certificate-only file whose keys come from
   files next to it) and `-narrow` at the window's smallest size.
+  The `error-` renders show the error states (`AppModel.previewFailures`): `error-rejected-clock` (with the banner),
+  `error-rejected`, `error-rejected-clock-ok`, `error-unreachable`, `-offline`, `-ended`, `error-host-not-found`,
+  `error-other`, `error-clock-banner` (and `-narrow`), and `overlap-sheet`.
   Offscreen, the glass sidebar of macOS 26 draws without its rows, so there the render lays the window's sidebar
   and detail out side by side, the sidebar on its flat list background. `first-run` (with the helper card, light and
   dark), `first-run-approval`, `add-vpn` and `main-split-login` show the first run, the add view and the question

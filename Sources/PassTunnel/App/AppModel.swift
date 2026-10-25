@@ -78,6 +78,10 @@ final class AppModel: ObservableObject {
     var previewErrors: [String: String]?
     var previewHelperStatus: HelperStatus?
     var previewNow: Date?
+    /// Render overrides for the failure cards and the clock banner (FailureCards.swift).
+    var previewFailures = FailurePreview()
+    /// A connect that waits for the answer to "Lab overlaps with Work" (`OverlapSheet`).
+    @Published var overlapRequest: OverlapRequest?
 
     private var secretCache: [String: Data] = [:]
     private var missingSecret: Set<String> = []
@@ -531,7 +535,7 @@ final class AppModel: ObservableObject {
 
     /// The main window is open and on screen: not closed, minimized, hidden, on another Space or covered
     /// by other windows.
-    private var mainWindowVisible: Bool {
+    var mainWindowVisible: Bool {
         NSApp.windows.contains(where: {
             $0.isVisible && $0.occlusionState.contains(.visible) && $0.identifier?.rawValue.hasPrefix("main") == true
         })
@@ -546,9 +550,16 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// In the redesigned window a profile whose tunnel overlaps with one that is connected asks first
+    /// (`OverlapSheet`); `startConnect` goes on from the answer.
+    func connect(_ p: Profile) {
+        guard NewInterface.isEnabled else { return startConnect(p) }
+        connectUnlessOverlapping(p)
+    }
+
     /// Protected secrets are decrypted (the user confirms) by `ConnectionManager.connect`; when a
     /// credential sheet is needed, before it, so the sheet and the connect after it share the confirmation.
-    func connect(_ p: Profile) {
+    func startConnect(_ p: Profile) {
         droppedUnseen.remove(p.id)
         guard let p = storedProfile(p) else { return showError(PTError.profileNotFound(p.id)) }
         let needs = p.needs

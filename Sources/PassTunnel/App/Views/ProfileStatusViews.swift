@@ -16,7 +16,7 @@ extension AppModel {
         }
         return DisplayStatus(DisplayStatus.Facts(
             p, state: state(id), reconnect: reconnectInfo(id), codeWaitUntil: previewCodeWaits[id], lastError: error(id),
-            notResponding: isUnreachable(id), droppedUnseen: dropped))
+            notResponding: isUnreachable(id), droppedUnseen: dropped, failure: failure(id), retry: unreachableRetry(id)))
     }
 }
 
@@ -28,7 +28,10 @@ extension DisplayStatus {
         case .connecting: return .connecting
         case .waitingForCode: return .waiting
         case .connected, .statusUnavailable: return .connected
-        case .setupIncomplete, .notResponding, .dropped, .failed: return .warning
+        case .setupIncomplete, .notResponding, .dropped: return .warning
+        case .failed(.signInRejected): return .rejected
+        case .failed(.unreachable): return .unreachable
+        case .failed(.hostNotFound), .failed(.message): return .warning
         case .reconnecting: return .dropped
         }
     }
@@ -64,6 +67,7 @@ extension DisplayStatus {
     var refreshInterval: TimeInterval? {
         switch self {
         case .waitingForCode, .reconnecting: return 0.25
+        case .failed(.unreachable(let retry)): return retry?.nextTryAt == nil ? nil : 0.25
         case .connected(let c), .setupIncomplete(let c, _), .notResponding(let c), .statusUnavailable(let c):
             return c.since == nil ? nil : 1
         case .off, .protected, .connecting, .dropped, .failed: return nil
@@ -203,6 +207,15 @@ struct ProfileStatusGallery: View {
                                                                   at: now.addingTimeInterval(11.5)), freshCode: true)),
             ("dropped", .dropped),
             ("failed", .failed(.message(PTError.authFailed("").localizedDescription))),
+            ("sign-in rejected", .failed(.signInRejected)),
+            ("server not found", .failed(.hostNotFound)),
+            ("unreachable, next try", .failed(.unreachable(retry: UnreachableRetry(
+                tries: 3, maxTries: 5, nextTryAt: now.addingTimeInterval(17.2), firstFailedAt: now, lastFailedAt: now)))),
+            ("unreachable, trying", .failed(.unreachable(retry: UnreachableRetry(
+                tries: 3, maxTries: 5, firstFailedAt: now, lastFailedAt: now)))),
+            ("unreachable, offline", .failed(.unreachable(retry: UnreachableRetry(
+                tries: 3, maxTries: 5, waitingForNetwork: true, firstFailedAt: now, lastFailedAt: now)))),
+            ("unreachable, gave up", .failed(.unreachable(retry: nil))),
         ]
     }
 
