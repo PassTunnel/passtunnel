@@ -834,7 +834,7 @@ final class CLIRunner {
             return await printHelperStatus()
         #if !os(macOS)
         case .install, .uninstall:
-            throw AutomationError(.invalidArgument, String(localized: "On Linux the PassTunnel package installs and removes the daemon (passtunneld): install or remove the package instead."))
+            throw AutomationError(.invalidArgument, String(localized: "On Linux, passtunneld is installed and removed by hand from the release tarball, not by this command. Follow the README in the tarball; docs/LINUX.md has the details: https://github.com/PassTunnel/passtunnel/blob/main/docs/LINUX.md"))
         #else
         case .install:
             switch HelperInstaller.status {

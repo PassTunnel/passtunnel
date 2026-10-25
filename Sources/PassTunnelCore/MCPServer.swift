@@ -278,12 +278,12 @@ public final class MCPServer {
 
     private var instructions: String {
         var text = """
-        PassTunnel manages this Mac's VPN connections (OpenVPN and FortiGate SSL VPN). Profiles are \
+        PassTunnel manages \(MCPWording.thisMachines) VPN connections (OpenVPN and FortiGate SSL VPN). Profiles are \
         identified by their id (from list_profiles). The tools never return passwords, TOTP secrets, \
         one-time codes, keys or configuration files, and they cannot create, change or delete profiles.
         """
         if tools.allowConnect {
-            text += " connect and disconnect are enabled. A protected profile shows a Touch ID prompt on the Mac that the user must confirm; tell the user to look for it."
+            text += " connect and disconnect are enabled. \(MCPWording.instructionsProtected)"
         } else {
             text += " This server is read-only: connecting and disconnecting are disabled (the user can start it with --allow-connect)."
         }

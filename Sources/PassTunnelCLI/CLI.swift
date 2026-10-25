@@ -169,7 +169,11 @@ enum CLIHelp {
         }
         lines.append("")
         lines.append(String(localized: "Without arguments, passtunnel prints the status of all profiles."))
+        #if os(Linux)
+        lines.append(String(localized: "Options for every command: --no-input never asks on the terminal (also PASSTUNNEL_NO_INPUT=1), --no-auth-prompt never asks for a confirmation."))
+        #else
         lines.append(String(localized: "Options for every command: --no-input never asks on the terminal (also PASSTUNNEL_NO_INPUT=1), --no-auth-prompt never shows Touch ID."))
+        #endif
         lines.append(String(localized: "Exit codes: 0 ok, 1 error, 2 usage, 3 not found or not connected, 4 confirmation cancelled or not possible, 5 helper missing or outdated, 6 connection failed, 7 timeout."))
         return lines.joined(separator: "\n")
     }

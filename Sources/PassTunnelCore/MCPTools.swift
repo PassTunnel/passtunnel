@@ -1,6 +1,28 @@
 import Foundation
 import PassTunnelKit
 
+/// The words of the MCP texts that differ between the Mac and Linux (docs/LINUX.md, Commands that
+/// differ): the machine, and what a protected profile needs. Linux cannot ask for a confirmation yet,
+/// so it refuses protected profiles with `auth_unavailable`. The Mac's texts stay exactly as they are
+/// listed in MCP directories.
+enum MCPWording {
+    #if os(Linux)
+    static let thisMachines = "this computer's"
+    static let theMachines = "this computer's"
+    static let listProtected = "protected=true means connecting is refused on Linux for now (auth_unavailable): there is no confirmation to ask for yet."
+    static let connectProtected = "A protected profile cannot be connected on Linux yet: it is refused with auth_unavailable."
+    static let instructionsProtected = "A protected profile cannot be connected on Linux yet: connect refuses it with auth_unavailable."
+    static let timeout = "How long to wait for the connection."
+    #else
+    static let thisMachines = "this Mac's"
+    static let theMachines = "the Mac's"
+    static let listProtected = "protected=true means connecting asks the user for Touch ID on the Mac."
+    static let connectProtected = "If the profile is protected, the user must confirm with Touch ID on the Mac: tell them a prompt is waiting."
+    static let instructionsProtected = "A protected profile shows a Touch ID prompt on the Mac that the user must confirm; tell the user to look for it."
+    static let timeout = "How long to wait for the connection (after the Touch ID confirmation)."
+    #endif
+}
+
 /// The tools of `passtunnel mcp`. Read-only by default (`list_profiles`, `get_status`, `get_logs`,
 /// `diagnose`); `connect` and `disconnect` exist only with `--allow-connect`. There is deliberately
 /// no tool that returns a code or a secret, and none that creates, changes or deletes a profile.
@@ -69,7 +91,7 @@ final class MCPTools {
 
     static let readTools: [Tool] = [
         Tool(name: "list_profiles", title: "List VPN profiles",
-             description: "Lists the VPN profiles configured in PassTunnel with their current state. Use the returned id as profile_id in the other tools. protected=true means connecting asks the user for Touch ID on the Mac.",
+             description: "Lists the VPN profiles configured in PassTunnel with their current state. Use the returned id as profile_id in the other tools. \(MCPWording.listProtected)",
              input: Schema.object([:]), output: Schema.object(["profiles": Schema.array(Schema.profileSummary)], required: ["profiles"]),
              readOnly: true),
         Tool(name: "get_status", title: "Get connection status",
@@ -89,11 +111,11 @@ final class MCPTools {
 
     static let connectTools: [Tool] = [
         Tool(name: "connect", title: "Connect a VPN profile",
-             description: "Connects a VPN profile and, by default, waits until it is connected or has failed. If the profile is protected, the user must confirm with Touch ID on the Mac: tell them a prompt is waiting. Profiles that ask for a user name, password or code on every connect cannot be connected this way. Connecting changes the Mac's network routes; only connect when the user asked for it.",
+             description: "Connects a VPN profile and, by default, waits until it is connected or has failed. \(MCPWording.connectProtected) Profiles that ask for a user name, password or code on every connect cannot be connected this way. Connecting changes \(MCPWording.theMachines) network routes; only connect when the user asked for it.",
              input: Schema.object(["profile_id": Schema.profileID(optional: false),
                                    "wait": Schema.boolean(default: true, "Wait until connected or failed; false returns at once with state connecting."),
                                    "timeout_seconds": Schema.integer(1, maxTimeout, default: defaultTimeout,
-                                                                     "How long to wait for the connection (after the Touch ID confirmation).")],
+                                                                     MCPWording.timeout)],
                                   required: ["profile_id"]),
              output: Schema.profileStatus, readOnly: false),
         Tool(name: "disconnect", title: "Disconnect a VPN profile",

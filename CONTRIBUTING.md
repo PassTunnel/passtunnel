@@ -183,7 +183,10 @@ tests that need it), so the rest of `PassTunnelCoreTests` keeps running on Linux
 ## Dependabot
 
 Dependabot opens pull requests into `dev` for GitHub Actions (`ci: …`, no release) and for Swift
-packages (`fix(deps): …`, a patch release, since those ship in the app). They need no issue link.
+packages (`fix(deps): …`, a patch release, since those ship in the app), and for the base images of the
+`Dockerfile` (`build(deps): …`, no release). They need no issue link. The images pinned in the Linux
+CI jobs (`.github/workflows/ci.yml`) are not covered: Dependabot does not update `container:` images or
+image names in workflow variables, so they are bumped by hand with the Dockerfile's build image.
 
 ## Fuzzing
 

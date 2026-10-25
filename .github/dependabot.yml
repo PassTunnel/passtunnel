@@ -3,6 +3,12 @@
 #
 #   GitHub Actions   "ci(deps): bump …"    no release on its own (actions are not shipped)
 #   Swift packages   "fix(deps): bump …"   a patch release (Sparkle is shipped in the app)
+#   Docker           "build(deps): bump …" no release (the Dockerfile's base images are not shipped)
+#
+# Docker covers the base images pinned by tag and digest in the root Dockerfile. It does not see the
+# images pinned in .github/workflows/ci.yml (`container:` and the BUILD_IMAGE / CLEAN_IMAGE
+# variables): Dependabot updates neither, so those are bumped by hand, together with the Dockerfile's
+# build image, which is meant to stay the one of the Linux CI jobs.
 #
 # Updates of each ecosystem come grouped in one pull request a week. Dependabot's pull requests need
 # no linked issue (pull-request.yml).
@@ -30,4 +36,16 @@ updates:
       include: scope
     groups:
       swift:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      docker:
         patterns: ["*"]
