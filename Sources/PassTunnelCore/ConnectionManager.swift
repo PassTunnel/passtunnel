@@ -672,14 +672,17 @@ public final class ConnectionManager: ObservableObject {
     /// helper runs for another process); throws `NothingToFollow` instead of starting one, and asks
     /// for nothing. `role` learns whether this call started the session or follows another process's
     /// (not called when it waits for this manager's own attempt or there was nothing to do).
+    /// `interactive` false (connect at login): never asks; protected secrets come only from the reuse
+    /// window, else `PTError.confirmationRequired`, as for an automatic reconnect.
     public func connect(_ id: String, given: [CredentialField: String] = [:], force: Bool = false,
-                        followOnly: Bool = false, role: ((ConnectRole) -> Void)? = nil) async throws {
+                        followOnly: Bool = false, interactive: Bool = true,
+                        role: ((ConnectRole) -> Void)? = nil) async throws {
         cancelReconnect(id)
         if let inFlight = connectTasks[id] { return try await inFlight.value }
         let current = state(id).isActive || followOnly ? nil : try? store.get(id)
         // A confirmation given for other server settings does not count: ask now, naming the new server.
         if let p = current { vault.forgetUnlessBound(p) }
-        if let p = current, vault.needsPrompt(p, for: .connect) {
+        if interactive, let p = current, vault.needsPrompt(p, for: .connect) {
             do {
                 try await vault.unlock(p, for: .connect)
             } catch {
@@ -692,7 +695,10 @@ public final class ConnectionManager: ObservableObject {
             }
             if let inFlight = connectTasks[id] { return try await inFlight.value }
         }
-        let task = Task { try await self.performConnect(id, given: given, force: force, followOnly: followOnly, role: role) }
+        let task = Task {
+            try await self.performConnect(id, given: given, force: force, interactive: interactive, followOnly: followOnly,
+                                          role: role)
+        }
         connectTasks[id] = task
         defer { if connectTasks[id] == task { connectTasks[id] = nil } }
         try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }

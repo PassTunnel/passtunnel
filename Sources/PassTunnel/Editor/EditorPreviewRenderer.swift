@@ -99,6 +99,16 @@ enum EditorPreviewRenderer {
         }
         // Set to ask before connecting only (the CLI's middle level): the switch is on, with a footnote.
         out.append(State(name: "editor-require-auth-connect", model: protectedModel(.connect)))
+
+        // "Connect at login" on while PassTunnel itself does not open at login: the switch says so.
+        for dark in [false, true] {
+            out.append(State(name: "editor-connect-at-login\(dark ? "-dark" : "")",
+                             model: workModel(opensAtLogin: false), dark: dark, height: 820))
+        }
+        // On for a profile that asks before connecting: a notification at login offers the connection instead.
+        let asking = protectedModel(.always)
+        asking.draft.connectAtLogin = true
+        out.append(State(name: "editor-connect-at-login-asks", model: asking, height: 820))
         return out
     }
 
@@ -126,14 +136,16 @@ enum EditorPreviewRenderer {
         p.otpMode = .totp
         p.otpDelivery = .combined
         p.autoReconnect = true
+        p.connectAtLogin = true
         p.configSourceName = "Work.ovpn"
         p.configImportedAt = imported
         return p
     }
 
-    @MainActor private static func workModel() -> EditorModel {
+    @MainActor private static func workModel(opensAtLogin: Bool = true) -> EditorModel {
         EditorModel(preview: workProfile(), isNew: false, passwordStored: true,
-                    storedTOTP: try? TOTP.decodeSecret(sampleSecret), configServer: "vpn.example.com:1194 · UDP", now: now)
+                    storedTOTP: try? TOTP.decodeSecret(sampleSecret), configServer: "vpn.example.com:1194 · UDP",
+                    opensAtLogin: opensAtLogin, now: now)
     }
 
     @MainActor private static func fortiModel() -> EditorModel {

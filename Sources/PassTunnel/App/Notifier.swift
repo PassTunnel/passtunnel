@@ -107,6 +107,8 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             } else if action == Self.connectAction || (action == UNNotificationDefaultActionIdentifier && connectOnClick),
                let id, let p = model.profile(id) {
                 model.connect(p)
+                // A profile that asks for something (connect at login offers those too): the sheet is in the main window.
+                if model.credentialRequest != nil { AppDelegate.shared?.showMainWindow() }
             } else if action == UNNotificationDefaultActionIdentifier {
                 model.selection = id
                 AppDelegate.shared?.showMainWindow()

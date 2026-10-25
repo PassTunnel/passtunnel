@@ -509,8 +509,11 @@ struct ProfileEditorView: View {
                 EditorSwitchRow(title: requireAuthTitle, isOn: $model.requireAuthOn, footnote: requireAuthFootnote,
                                 identifier: "editor.requireAuth")
                     .disabled(p.requireAuth == .off && !model.isPreview && !model.vault.isAvailable)
-                Rectangle().fill(Palette.line).frame(height: Elevation.hairline).padding(.horizontal, 14)
+                switchDivider
             }
+            EditorSwitchRow(title: String(localized: "Connect at login"), isOn: $model.draft.connectAtLogin,
+                            footnote: connectAtLoginFootnote, identifier: "editor.connectAtLogin")
+            switchDivider
             EditorSwitchRow(
                 title: String(localized: "Reconnect automatically if the link drops"),
                 isOn: Binding(get: { p.autoReconnect && model.normalized.unattended },
@@ -519,6 +522,23 @@ struct ProfileEditorView: View {
                     : String(localized: "Available only when PassTunnel can connect without asking you: a saved username, the password in the Keychain, and a generated code (or none)."))
                 .disabled(!model.normalized.unattended)
         }
+    }
+
+    private var switchDivider: some View {
+        Rectangle().fill(Palette.line).frame(height: Elevation.hairline).padding(.horizontal, 14)
+    }
+
+    /// Why "Connect at login" may not connect by itself: PassTunnel does not open at login, or connecting asks first
+    /// (then a notification at login offers the connection instead).
+    private var connectAtLoginFootnote: String? {
+        guard p.connectAtLogin else { return nil }
+        if !model.opensAtLogin {
+            return String(localized: "PassTunnel itself does not open at login. Turn on “Launch at login” in Settings → General.")
+        }
+        let saved = model.normalized
+        let asks = !saved.unattended || !SecretVault.protectedKinds(saved).isDisjoint(with: SecretVault.usedKinds(saved))
+        return asks ? String(localized: "Connecting asks you first, so at login PassTunnel shows a notification you click to connect.")
+                    : nil
     }
 
     /// "Require Touch ID before connecting", or the Mac password on a Mac without Touch ID.

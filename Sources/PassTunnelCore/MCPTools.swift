@@ -310,9 +310,9 @@ enum Schema {
         "id": string, "name": string, "type": vpnType, "is_default": bool, "pinned": bool, "username": string,
         "password_mode": oneOf(PasswordMode.allCases.map(\.rawValue)), "otp_mode": oneOf(OTPMode.allCases.map(\.rawValue)),
         "require_auth": oneOf(AuthRequirement.allCases.map(\.rawValue)), "protected": bool, "auto_reconnect": bool,
-        "state": state,
+        "connect_at_login": bool, "state": state,
     ], required: ["id", "name", "type", "is_default", "pinned", "username", "password_mode", "otp_mode", "require_auth",
-                  "protected", "auto_reconnect"])
+                  "protected", "auto_reconnect", "connect_at_login"])
 
     static let profileStatus = result([
         "id": string, "name": string, "type": vpnType, "state": state, "phase": string, "ip": string,

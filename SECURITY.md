@@ -316,7 +316,9 @@ would let a recent Touch ID unlock of the Mac count as the confirmation, which i
 this option is for. A connected session keeps its
 decrypted secrets in memory so an automatic reconnect after a drop needs no prompt; they are
 overwritten (best effort) when you disconnect or the session ends. After the Mac was asleep, a
-dropped protected profile is not reconnected on its own: a notification asks you to reconnect. Each
+dropped protected profile is not reconnected on its own: a notification asks you to reconnect. In the
+same way, "Connect at login" never asks at login: a protected profile set to connect at login gets a
+notification you click to connect (and confirm). Each
 CLI command is a separate process and asks every time it needs a protected secret; `passtunnel mcp`
 is one process for as long as the MCP client runs it, so the window (and its end on sleep and
 screen lock) applies within it.

@@ -142,6 +142,7 @@ final class ShareFileStressTests: CoreTestCase {
         p.lastUsername = "bob-last"
         p.otpMode = .totp
         p.pinned = true
+        p.connectAtLogin = true
         try store.save(p)
         try Data("client\nremote vpn.example.com 1194\n".utf8).write(to: store.ovpnURL(p.id))
         try Secrets.set(p.id, .password, "Pa55-word-XYZ")
@@ -150,7 +151,8 @@ final class ShareFileStressTests: CoreTestCase {
         try store.exportShare(p.id, to: out)
         let text = try String(contentsOf: out, encoding: .utf8)
         for secret in ["Pa55-word-XYZ", "GEZDGNBVGY3TQOJQ", "12345678901234567890", "MTIzNDU2Nzg5MDEyMzQ1Njc4OTA",
-                       "alice-user", "bob-last", "\"pinned\"", "\"order\"", "configImportedAt", "config_imported_at"] {
+                       "alice-user", "bob-last", "\"pinned\"", "\"order\"", "configImportedAt", "config_imported_at",
+                       "connect_at_login"] {
             XCTAssertFalse(text.contains(secret), secret)
         }
         XCTAssertEqual(try mode(out), 0o600)
@@ -203,7 +205,7 @@ final class ShareFileStressTests: CoreTestCase {
         let json = """
         {"passtunnel_profile": 1,
          "profile": {"id": "../../escape", "name": "../../Escape", "type": "openvpn", "config_source_name": "../../x.ovpn",
-                     "session_limit_min": -10, "username": "mallory", "pinned": true},
+                     "session_limit_min": -10, "username": "mallory", "pinned": true, "connect_at_login": true},
          "files": {"config.ovpn": "\(ovpn)", "../../evil.sh": "\(ovpn)", "/tmp/evil": "\(ovpn)", "profile.json": "\(ovpn)"}}
         """
         let p = try store.importShare(try share(json), name: nil)
@@ -211,6 +213,7 @@ final class ShareFileStressTests: CoreTestCase {
         XCTAssertEqual(p.sessionLimitMin, 0)
         XCTAssertEqual(p.username, "", "per-user fields are not taken from a share file")
         XCTAssertFalse(p.pinned)
+        XCTAssertFalse(p.connectAtLogin)
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: store.dir(p.id).path).sorted(),
                        ["config.ovpn", "profile.json"])
         XCTAssertEqual(try store.get(p.id).name, "../../Escape")

@@ -157,6 +157,18 @@ final class ConnectionNoticeTests: CoreTestCase {
         XCTAssertFalse(ConnectionNotice.announcesConnect(.user, mainWindowVisible: true), "the window shows it")
     }
 
+    // MARK: connect at login
+
+    func testConnectAtLoginOffersAClickInsteadOfAPrompt() {
+        XCTAssertEqual(ConnectionNotice.offeredAtLogin(work, profileID: id),
+                       ConnectionNotice(title: "“Work” is set to connect at login", body: "Click to connect.", profileID: id,
+                                        actions: .connect, connectOnClick: true))
+        // A failure gives the reason; a click shows the profile, Connect tries again.
+        XCTAssertEqual(ConnectionNotice.notConnectedAtLogin(work, reason: "This Mac is offline.", profileID: id),
+                       ConnectionNotice(title: "Could not connect “Work” at login", body: "This Mac is offline.", profileID: id,
+                                        actions: .connect))
+    }
+
     // MARK: subject
 
     func testSubjectOfAnOpenVPNProfile() throws {

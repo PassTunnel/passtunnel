@@ -95,6 +95,7 @@ From `list`, `add`, `import`, `pin`, `unpin` and the MCP tool `list_profiles`.
 ```json
 {
   "auto_reconnect" : false,
+  "connect_at_login" : true,
   "id" : "work",
   "is_default" : true,
   "name" : "Work",
@@ -110,7 +111,8 @@ From `list`, `add`, `import`, `pin`, `unpin` and the MCP tool `list_profiles`.
 
 `protected`: connecting asks for Touch ID or the Mac password. `type`: `openvpn` or `forti`.
 `password_mode`: `keychain`, `ask` or `none`; `otp_mode`: `none`, `totp` or `ask`; `require_auth`:
-`off`, `connect` or `always`. The MCP tool adds `state` (as in ProfileStatus); `list` does not ask
+`off`, `connect` or `always`. `connect_at_login`: the app connects the profile when it opens at login
+(one that asks first gets a notification instead). The MCP tool adds `state` (as in ProfileStatus); `list` does not ask
 the helper and leaves it out.
 
 ### ProfileStatus

@@ -156,6 +156,8 @@ public struct ProfileSummary: Codable, Equatable {
     /// Connecting asks for Touch ID or the Mac password (`require_auth` protects a secret it uses).
     public var protected: Bool
     public var autoReconnect: Bool
+    /// Connected when the app opens at login (if it can connect without asking).
+    public var connectAtLogin: Bool
     /// disconnected / connecting / connected; only when the caller asked the helper (MCP).
     public var state: String?
 
@@ -171,6 +173,7 @@ public struct ProfileSummary: Codable, Equatable {
         requireAuth = p.requireAuth.rawValue
         self.protected = Self.isProtected(p)
         autoReconnect = p.autoReconnect
+        connectAtLogin = p.connectAtLogin
         self.state = state.map(ProfileStatus.stateName)
     }
 
