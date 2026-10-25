@@ -56,9 +56,10 @@ secret in the Keychain and fills in the current code (and your password) every t
 - **Auto-type (optional, off by default).** With global shortcuts on, ⌃⌥C types the current code into
   the focused field (also in the menu bar menu), for web portals and other places that still ask for it. Needs Accessibility
   permission, which is only requested when you turn the feature on.
-- **Confirm with Touch ID (optional, per profile).** Touch ID or your Mac password before connecting,
-  or also before showing codes; the saved secrets are then encrypted with a key in the Mac's Secure
-  Enclave, so a one-click connect needs you, not just your unlocked Mac.
+- **Confirm with Touch ID (optional, per profile).** Touch ID or your Mac password before connecting
+  and before showing codes (the command line can also set it to ask before connecting only); the saved
+  secrets are then encrypted with a key in the Mac's Secure Enclave, so a one-click connect needs you,
+  not just your unlocked Mac.
 
 **VPN client**
 
@@ -186,13 +187,15 @@ Use the **+** button in the toolbar, or drop a file onto the window:
 
 Then open the profile editor (**⋯ → Edit…**):
 
-- **Sign-in:** user name (leave empty to be asked each time) and password: saved in the Keychain,
-  asked each time, or none (certificate-only OpenVPN).
-- **One-time code:** *Generate* (TOTP), *Ask each time*, or *None*. With *Generate*, scan the QR code
-  or paste the secret, and compare the live code with your phone before saving.
+- **Sign-in:** user name (leave empty to be asked each time) and password, saved in the Keychain.
+  Under **Advanced** the password can be asked each time instead, or not used (certificate-only OpenVPN).
+- **One-time code:** choose the QR code image or paste the secret (or drop the screenshot on the card),
+  and compare the live code with your phone before saving. **Code format** sets how the code is sent;
+  *Server receives* shows the result, with the password masked. Under **Advanced** the code can be asked
+  each time or not used.
 
 <p align="center">
-  <img src="docs/images/editor-one-time-code.png" width="580" alt="Profile editor, One-time code section: QR drop zone, live code, advanced TOTP settings, delivery and format">
+  <img src="docs/images/editor-one-time-code.png" width="660" alt="Profile editor: name, configuration, user name and password; the one-time code with its live code; the Append format and what the server receives, with the password masked; switches for Touch ID and reconnecting">
 </p>
 
 Secrets are written to the Keychain only when you press **Save**.
@@ -220,11 +223,11 @@ disconnects the default profile, **⌃⌥C** copies the current code, or types i
 
 ## Configuring the code format
 
-Servers disagree on how the one-time code should arrive. Choose it per profile under **One-time
-code → Send the code**.
+Servers disagree on how the one-time code should arrive. Choose it per profile in the editor's
+**Code format** popup.
 
-**With the password** (combined): the code and password are joined into one password using a
-template. `{password}` and `{otp}` are replaced; any other text is sent as typed. The template must
+**With the password** (Append, Prepend, password:code, password,code, Custom template): the code and
+password are joined into one password using a template. `{password}` and `{otp}` are replaced; any other text is sent as typed. The template must
 contain `{otp}`; `{password}` is optional.
 
 With the password `secret` and the code `123456`:
@@ -238,14 +241,15 @@ With the password `secret` and the code `123456`:
 | Custom | `{password}#{otp}` | `secret#123456` |
 | Custom (code only) | `{otp}` | `123456` |
 
-**Separately**: the password and the code are sent on their own:
+**Sent separately**: the password and the code are sent on their own:
 
 - **OpenVPN:** as a static-challenge response (`SCRV1:…`). PassTunnel selects this automatically
   when the imported `.ovpn` contains `static-challenge`.
 - **FortiGate:** in openfortivpn's separate OTP field. This is the default for new FortiGate
   profiles.
 
-The editor shows a live example of the result as you change the format.
+As you change the format, the editor's *Server receives* shows the result with the profile's user
+name and the live code; the password is always masked.
 
 ## Command line
 
@@ -551,8 +555,8 @@ vardır. QR kodu ekran görüntüsünden okunur. Profilleri kimlik bilgisi içer
 dosyalarıyla ekibinizle paylaşabilir, aynı işlemleri `passtunnel` komut satırı aracıyla da
 yapabilirsiniz. `passtunnel mcp` ile Claude gibi yapay zekâ asistanları VPN durumunu okuyabilir ve
 sorunları teşhis edebilir (varsayılan olarak yalnızca okur; parola, anahtar ya da kod vermez).
-İsterseniz profil başına “Touch ID ile onayla” seçeneğini açın: PassTunnel bağlanmadan
-(ya da kodları göstermeden) önce Touch ID ya da Mac parolanızla onay ister ve kayıtlı parola ile TOTP anahtarını
+İsterseniz profil başına “Bağlanmadan önce Touch ID iste” seçeneğini açın: PassTunnel bağlanmadan
+ve kodları göstermeden önce Touch ID ya da Mac parolanızla onay ister ve kayıtlı parola ile TOTP anahtarını
 Mac'in Secure Enclave'indeki bir anahtarla şifreler. Arayüz Türkçe ve İngilizcedir ve macOS dilinizi izler.
 
 **Kurulum:** İmzalı ve notarize edilmiş

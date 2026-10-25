@@ -125,34 +125,58 @@ Sidebar-less single list, one row per profile (drag to reorder → `order`):
 
 ## Profile editor (sheet)
 
-Sections (only relevant rows visible — hide, don't disable):
-1. **General**: name, type (read-only after creation), icon picker (SF Symbols grid ~24 curated),
-   badge letter, menu-bar style (letter / icon / both) with live preview, pin.
-2. **Connection**: OpenVPN → config file (choose / replace, shows the remote host, "+N more" when there are several
-   (`OVPNAnalyzer.serverDescription`); an inline
-   `<auth-user-pass>` block is removed from it, `OVPNInliner.strippingCredentials`, and its user name and
-   password fill empty Sign-in fields, saved to the profile and the Keychain on Save); Forti → host, port,
-   trusted cert (with "Fetch fingerprint" that reads the server cert SHA-256 via a TLS handshake and
-   asks to confirm), DNS / routes toggles. Session limit, health host with "Test", auto-reconnect
-   (disabled with explanation when not unattended).
-3. **Sign-in**: username (empty = ask; FortiGate: at most 64 bytes, openfortivpn's limit, checked inline),
-   password: Keychain / ask / none (cert only; OpenVPN only).
-   **Confirm with Touch ID** (`requireAuth`, picker `editor.requireAuth`: Off / Before connecting /
-   Before connecting and showing codes; named "Confirm with your password" on a Mac without Touch ID,
-   `ConfirmationWording`, where `LAContext.biometryType == .none`), shown only when the profile uses a stored secret
-   (`usesStoredSecrets`), disabled with a hint on a Mac without a Secure Enclave. The hint says what is
-   encrypted. Save of an existing profile first runs `vault.applyProtection(from: original, to: edited)`:
-   turning it on encrypts without a prompt; lowering it asks (a cancel keeps the sheet open, nothing
-   saved). New and changed secrets are written with `vault.store` (encrypted when protected). An
-   encrypted saved TOTP secret shows "••• •••" with **Show** (`editor.revealCode`) instead of the live code.
-4. **One-time code** (the hero section): mode none / TOTP / ask.
-   - TOTP: "Scan QR…" (image file, clipboard image, or drag & drop; Vision `VNDetectBarcodesRequest`;
-     `otpauth://` → secret + digits + period + algorithm), or paste secret / otpauth URI; live preview of
-     the generated code so the user can compare with their phone; advanced: digits, period, algorithm.
-   - Delivery: Combined / Separate. Combined → template picker: "Append (password + code)", "Prepend",
-     "Password:code", "Password,code", "Custom…" (text field, validated with `OTPComposer.validate`,
-     shows an example with fake values `secret` / `123456` → e.g. `secret123456`).
-   Secrets are written to the Keychain only on Save; fields show "Saved in Keychain ✓".
+About 660 × 700 pt, shared by every window that edits profiles (`ProfileEditorView`, built from the design
+system below). Title "Edit “Work”" / "New OpenVPN Profile" / "New FortiGate Profile". Four hairline cards with the
+labels right-aligned in a 150 pt column (they wrap, never truncate), then an **Advanced** disclosure; the cards
+scroll above the footer, with a hairline between them when they do not fit. Footer: **Delete Profile…** (red, on
+the left, saved profiles only, `editor.delete`: the row menu's confirmation, `profileDeleteConfirmation`, then
+the sheet closes and `AppModel.delete` runs), Cancel, Save (Add Profile for a new profile).
+1. **Sign-in**: name. OpenVPN → Configuration: the file name, under it the first server with its port and
+   transport (`OVPNAnalyzer.endpointDescription`: "vpn.example.com:1194 · UDP", "vpn.example.com:1194 +1 more ·
+   UDP"; from the `remote` line, else `port` / `rport` / `proto`, else 1194 and UDP), and Choose… / Replace… (an
+   inline `<auth-user-pass>` block is removed from the file, `OVPNInliner.strippingCredentials`, and its user name
+   and password fill empty fields, saved to the profile and the Keychain on Save). FortiGate (interim, decision
+   D-19) → Gateway, Port, Trusted certificate (with "Fetch Fingerprint" that reads the server cert SHA-256 via a
+   TLS handshake and asks to confirm), DNS and Routes checkboxes. User name (empty = ask; FortiGate: at most 64
+   bytes, openfortivpn's limit, checked inline). Password: one secure field when it is kept in the Keychain (no
+   confirm field; placeholder "Saved in Keychain" when one is saved, and empty keeps it), else the words for "Ask
+   each time" or "None — certificate only".
+2. **One-time code** (the hero card): with a secret, "Secret added · 6 digits · 30 s" (the issuer · account of a
+   scanned link under it) and the live code with a small countdown ring, so the user can compare it with their
+   phone; an encrypted saved secret shows "••• •••" with **Show** (`editor.revealCode`) instead. Without one, what
+   the profile does instead (Generate without a secret yet, Ask each time, None). **Choose image…** and **Paste
+   secret** (from the clipboard: a secret in Base32 or hex or an `otpauth://` link as text, an image, or an image
+   file), or an image dropped on the card; QR codes are read with Vision `VNDetectBarcodesRequest`, and an
+   `otpauth://` link also sets digits, period and algorithm. Adding a secret selects Generate. Certificate-only
+   profiles say they use no code.
+3. **Code format** (when a code is used): one popup, Append, Prepend, password:code, password,code, Custom
+   template (a monospaced field validated with `OTPComposer.validate`) and Sent separately (`otpDelivery`
+   `.separate`: the OpenVPN static challenge or the FortiGate OTP field; the template is kept for switching back).
+   **Server receives**: what the sign-in sends, from `OTPComposer.parts` and the profile's real user name: the
+   password always as eight bullets (the editor never has it to show), the live code, or example digits dimmed when
+   the code is asked or locked; a code sent separately goes on a second line. Hidden while a custom template is
+   invalid.
+4. **Switches**: "Require Touch ID before connecting" ("Require your Mac password before connecting" on a Mac
+   without Touch ID, `ConfirmationWording.hasTouchID`, where `LAContext.biometryType == .none`; `editor.requireAuth`),
+   shown only when the profile uses a stored secret (`usesStoredSecrets`), disabled with a footnote on a Mac
+   without a Secure Enclave. On is `requireAuth` `always`, off is `off` (decision D-4). A profile at `connect`
+   (still set with `passtunnel set ID require_auth=connect`) shows as on with a footnote: showing codes does not
+   ask, or, without a saved password, that the TOTP secret is encrypted and showing the code asks too; switching it
+   off and on makes it `always`. "Reconnect automatically if the link drops" (`autoReconnect`), disabled with the
+   reason when the profile is not `unattended`.
+
+**Advanced** (closed when the sheet opens; Save opens it when the first problem is there), in three cards:
+Sign-in — type (read-only after creation), Password: Save in Keychain / Ask each time / None — certificate only
+(OpenVPN only), One-time code: None / Generate / Ask each time, and for Generate the Secret field (a secret or an
+`otpauth://` link, typed or pasted; its errors show under it), digits, period, algorithm. Connection — the
+configuration file and its import date with Reveal in Finder (saved OpenVPN profiles), session limit, health
+check host with "Test". Menu bar — icon picker (SF Symbols grid ~24 curated), badge letter, menu-bar style (letter
+/ icon / both) with live preview, "Always show in the menu bar" (pin).
+
+Errors show in red under their field; Save scrolls to the first one and focuses it. Save of an existing profile
+first runs `vault.applyProtection(from: original, to: edited)`: turning the protection on encrypts without a
+prompt; lowering it asks (a cancel keeps the sheet open, nothing saved). New and changed secrets are written with
+`vault.store` (encrypted when protected), only on Save.
 
 Save of an existing profile writes only the fields changed in the sheet (`ProfileMerge`: diff against the
 profile as it was when the sheet opened, applied with `ProfileStore.update`), so changes made meanwhile by
@@ -421,7 +445,8 @@ CLI after commands that change profiles or secrets), when it becomes active, and
 ## Design system
 
 The redesigned interface is built from tokens and base components in `Sources/PassTunnel/App/Design/`;
-the screens above do not use them yet.
+of the screens above, the profile editor uses them (its rows, fields, switch and "Server receives" preview are in
+`Editor/EditorComponents.swift`), the others not yet.
 - `Tokens.swift`: `Palette` colors with light, dark and Increase Contrast values (dynamic `NSColor`s that follow
   the window's appearance). Mostly monochrome; green (connected), amber (waiting, the last 5 s) and red (errors)
   only ever come with an icon and words. Window and sidebar backgrounds are the system's, so fills, hairlines,
@@ -462,7 +487,8 @@ exposes it as `AXDescription` (read by VoiceOver and `AXUIElementCopyAttributeVa
 For UI automation, key controls carry stable, unlocalized `.accessibilityIdentifier`s (`AXIdentifier`):
 `profile.<id>`, `profile.<id>.primary`, `profile.<id>.more`, `profile.<id>.code`, `main.add`,
 `helper.install|update|loginItems|remove|licenses`, `onboarding.back|continue|done|installHelper|loginItems`,
-`editor.cancel|save|requireAuth|revealCode`, `settings.authReuse`. While the screen is locked, accessibility clients see no windows at all (the
+`editor.cancel|save|delete|advanced|requireAuth|revealCode`, `settings.authReuse`. The editor's switches are
+drawn by the app (monochrome) and read by VoiceOver as standard switches (`accessibilityRepresentation`). While the screen is locked, accessibility clients see no windows at all (the
 window server still lists them).
 
 ## Localization
@@ -481,8 +507,9 @@ client errors) must have Turkish translations.
   with the compiled `tr.lproj`, e.g. the app `build-app.sh` makes). Renders include `main-code-locked`
   (`AppModel.previewLockedCodes`; no Secure Enclave key is made) and `editor/editor-require-auth`.
 - `PASSTUNNEL_RENDER_SCALE=4` renders at that backing scale (1–8; default 2). `scripts/site-assets.sh`
-  uses 4 for the website, together with `editor/editor-one-time-code` (only the One-time code section)
-  and `menubar-badges-<palette>` (the menu bar badges alone, on a transparent background).
+  uses 4 for the website, together with `editor/editor-one-time-code` (the editor sheet of a saved profile with
+  its secret, at a fixed time so the code is stable) and `menubar-badges-<palette>` (the menu bar badges alone,
+  on a transparent background).
 
 ## Content rules
 

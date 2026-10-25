@@ -276,7 +276,10 @@ script-security N            (when N > 1)
 ## Confirm with Touch ID (Secure Enclave)
 
 Off by default, per profile (`require_auth`: `off`, `connect`, `always`; on a Mac without Touch ID the
-setting is called "Confirm with your password", and the login password is the confirmation). Without it, anyone using your
+setting is called "Confirm with your password", and the login password is the confirmation). The profile
+editor has one switch, "Require Touch ID before connecting" ("Require your Mac password before connecting"
+without Touch ID): on is `always`; `connect` is set with
+`passtunnel set ID require_auth=connect` and shows in the editor as on, with a footnote. Without it, anyone using your
 Mac while you are logged in can connect with one click, because the app may read its own Keychain items
 without asking.
 

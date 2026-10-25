@@ -461,6 +461,43 @@ final class OVPNAnalyzerTests: CoreTestCase {
         XCTAssertEqual(a.remotes, ["vpn.example.com", "vpn2.example.com"])
     }
 
+    func testEndpoint() {
+        func endpoint(_ text: String) -> String { OVPNAnalyzer.endpointDescription(text) }
+        XCTAssertEqual(endpoint("client\nremote vpn.example.com\n"), "vpn.example.com:1194 · UDP", "OpenVPN's defaults")
+        XCTAssertEqual(endpoint("remote vpn.example.com 443 tcp-client\n"), "vpn.example.com:443 · TCP")
+        XCTAssertEqual(endpoint("proto tcp\nport 8443\nremote vpn.example.com\n"), "vpn.example.com:8443 · TCP")
+        XCTAssertEqual(endpoint("rport 1195\nproto udp6\nremote vpn.example.com\n"), "vpn.example.com:1195 · UDP")
+        XCTAssertEqual(endpoint("remote vpn.example.com\nport 1\nport 2\n"), "vpn.example.com:2 · UDP", "the last line wins")
+        XCTAssertEqual(endpoint("proto tcp\nremote vpn.example.com 1194 udp\n"), "vpn.example.com:1194 · UDP",
+                       "the remote line's own protocol")
+        XCTAssertEqual(endpoint("remote 2001:db8::1 1194\n"), "[2001:db8::1]:1194 · UDP")
+        XCTAssertEqual(endpoint("remote vpn.example.com 1194\nremote vpn2.example.com 443 tcp\nremote 203.0.113.5\n"),
+                       "vpn.example.com:1194 +2 more · UDP")
+        XCTAssertEqual(endpoint("<ca>\nremote evil.example.com 1\n</ca>\nremote \"vpn.example.com\" 1194 # udp\n"),
+                       "vpn.example.com:1194 · UDP", "lines read as OpenVPN reads them")
+        XCTAssertEqual(endpoint(""), "")
+        XCTAssertNil(OVPNAnalyzer.endpoint("client\nproto tcp\n"))
+
+        // A <connection> block's own port and protocol, then the ones outside any block.
+        let blocks = """
+        proto tcp
+        port 443
+        <connection>
+        remote vpn.example.com
+        proto udp
+        </connection>
+        <connection>
+        remote vpn2.example.com 1195
+        port 9
+        </connection>
+        port 8443
+        """
+        XCTAssertEqual(OVPNAnalyzer.endpoint(blocks),
+                       OVPNAnalyzer.Endpoint(host: "vpn.example.com", port: "8443", tcp: false, others: 1))
+        XCTAssertEqual(OVPNAnalyzer.endpoint("<connection>\nremote vpn.example.com\nport 1195\n</connection>\nport 443\n")?.port,
+                       "1195")
+    }
+
     func testSetenvOpt() {
         // OpenVPN applies `setenv opt <directive>` when it knows the (exact) name and ignores it otherwise.
         XCTAssertEqual(OVPNAnalyzer.analyze("setenv opt remote vpn.example.com\n").remotes, ["vpn.example.com"])

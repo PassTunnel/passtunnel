@@ -64,26 +64,13 @@ struct MainView: View {
             }
             return Alert(title: Text(alert.title), message: Text(alert.message))
         }
-        .confirmationDialog(deleteTitle, isPresented: deleteBinding, titleVisibility: .visible, presenting: model.pendingDelete) { p in
-            Button(String(localized: "Delete"), role: .destructive) { model.delete(p) }
-            Button(String(localized: "Cancel"), role: .cancel) {}
-        } message: { _ in
-            Text(String(localized: "The profile, its configuration and its Keychain items are removed. This cannot be undone."))
-        }
+        .profileDeleteConfirmation($model.pendingDelete) { model.delete($0) }
         .onAppear { model.markDropsSeen() }
     }
 
     private var subtitle: String {
         let active = model.profiles.filter { model.statusKind($0) == .connected || model.statusKind($0) == .degraded }.count
         return active == 0 ? "" : String(localized: "\(active) connected")
-    }
-
-    private var deleteTitle: String {
-        String(localized: "Delete “\(model.pendingDelete?.name ?? "")”?")
-    }
-
-    private var deleteBinding: Binding<Bool> {
-        Binding(get: { model.pendingDelete != nil }, set: { if !$0 { model.pendingDelete = nil } })
     }
 }
 
