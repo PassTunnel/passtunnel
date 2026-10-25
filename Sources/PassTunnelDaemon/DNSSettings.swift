@@ -4,7 +4,7 @@ import PassTunnelShared
 /// The DNS a tunnel brings: servers and domains, every value checked, since they come from the VPN
 /// server (pushed by it, or logged by the tool from what it sent) and end up in root's hands
 /// (docs/LINUX.md, "DNS"). Independent of the tool that reported them: `OpenVPNDNS` builds one from
-/// OpenVPN's environment, FortiGate sessions from openfortivpn's log.
+/// OpenVPN's environment, FortiGate sessions from what openfortivpn prints (`FortiOutput`).
 public struct DNSSettings: Equatable, Sendable {
     public static let maxServers = 8
     public static let maxDomains = 16
@@ -119,6 +119,10 @@ public enum DNSFailure: Error, Equatable, CustomStringConvertible {
     case busy
     case detached(String)
     case resolvconfReplaces(String, String)
+    /// FortiGate: the interface openfortivpn named is not this session's (`SessionInterface`).
+    case notSessionInterface(String, String)
+    /// FortiGate: openfortivpn's tunnel came up without it saying what DNS needs.
+    case notReported(String)
 
     public var description: String {
         switch self {
@@ -149,6 +153,8 @@ public enum DNSFailure: Error, Equatable, CustomStringConvertible {
         case .resolvconfReplaces(let config, let directory):
             return "openresolv is set to replace /etc/resolv.conf (resolv_conf_mv in \(config)), which it cannot do "
                 + "here, where \(directory) is read-only: remove resolv_conf_mv, so that it writes the file in place"
+        case .notSessionInterface(let name, let reason): return "\(name) is not this session's interface: \(reason)"
+        case .notReported(let what): return "openfortivpn's tunnel is up, but it did not report \(what)"
         }
     }
 }

@@ -203,6 +203,23 @@ final class FortiConfigTests: XCTestCase {
                       "always the system CA bundle, never OpenSSL's default store")
     }
 
+    /// Linux (passtunneld): the distribution's CA bundle, and DNS left to the daemon whatever the profile
+    /// says. The defaults are the Mac's.
+    func testRenderForTheLinuxDaemon() throws {
+        let text = try config().render(caFile: "/etc/ssl/certs/ca-certificates.crt", handlesDNS: false)
+        XCTAssertEqual(text, try config().render()
+            .replacingOccurrences(of: "ca-file = /etc/ssl/cert.pem", with: "ca-file = /etc/ssl/certs/ca-certificates.crt")
+            .replacingOccurrences(of: "set-dns = 1\npppd-use-peerdns = 1", with: "set-dns = 0\npppd-use-peerdns = 0"))
+        XCTAssertTrue(try config { $0.setDNS = false }.render(handlesDNS: true).hasSuffix("set-dns = 0\npppd-use-peerdns = 0\n"))
+        for bad in ["", "relative/ca.pem", "/etc/ssl/my ca.pem", "/etc/ssl/ca.pem\npppd-plugin = /tmp/x", "/etc/ssl/ca\u{0}.pem",
+                    "/etc/ssl/ca.pem ", "/" + String(repeating: "a", count: 4096)] {
+            XCTAssertThrowsError(try config().render(caFile: bad), bad.debugDescription) { error in
+                guard case .invalidValue(let field, _)? = error as? FortiConfig.ValidationError else { return XCTFail("\(error)") }
+                XCTAssertEqual(field, "CA file")
+            }
+        }
+    }
+
     func testInjectionRejectedInEveryField() {
         let payloads = ["x\npppd-plugin = /tmp/evil", "x\rpppd-plugin = /tmp/evil", "x\u{0}y", "x\u{2028}y",
                         "x\u{85}y", "x\u{1b}[2J"]
@@ -446,6 +463,18 @@ final class HelperCoreTests: XCTestCase {
         XCTAssertEqual(plan.arguments, ["-c", plan.runDir + "/openfortivpn.conf"])
         let text = try String(contentsOfFile: plan.runDir + "/openfortivpn.conf", encoding: .utf8)
         XCTAssertTrue(text.contains("otp = 123456\n"))
+        XCTAssertTrue(text.contains("ca-file = /etc/ssl/cert.pem\n"))
+        // What passtunneld sets on Linux.
+        var linux = core()
+        linux.caFile = "/etc/pki/tls/certs/ca-bundle.crt"
+        linux.fortiHandlesDNS = false
+        var withDNS = s
+        withDNS.setDNS = true
+        let linuxPlan = try linux.prepareForti(withDNS, uid: me)
+        defer { close(linuxPlan.logFD) }
+        let linuxText = try String(contentsOfFile: linuxPlan.runDir + "/openfortivpn.conf", encoding: .utf8)
+        XCTAssertTrue(linuxText.contains("ca-file = /etc/pki/tls/certs/ca-bundle.crt\n"))
+        XCTAssertTrue(linuxText.hasSuffix("set-dns = 0\npppd-use-peerdns = 0\n"))
         var bad = s
         bad.username = "alice\npppd-plugin = /tmp/evil.so"
         XCTAssertThrowsError(try core().prepareForti(bad, uid: me)) { error in

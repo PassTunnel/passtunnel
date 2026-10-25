@@ -8,7 +8,8 @@
 #                     (the golden cases in fixtures/ included), in the official Swift container; then
 #                     a smoke test of `passtunnel` (with the file secret store), one real Secret
 #                     Service round trip against a throwaway keyring, and, as root in the container,
-#                     a smoke test of `passtunneld` and of its DNS hook
+#                     a smoke test of `passtunneld` (an OpenVPN and a FortiGate session, no tunnel)
+#                     and of its DNS hook
 #   Release scripts   shellcheck of next-version.sh and its test, and the self-test of
 #                     scripts/next-version.sh (in a temporary repository)
 #   Site              shellcheck of the site scripts and scripts/check-site.sh, the static checks
@@ -158,15 +159,18 @@ jobs:
       # status (raw, and through passtunnel); a start refused for a user outside the group passtunnel,
       # whose status stays allowed; a member's session with the distribution's openvpn started (2.6:
       # the DNS hook as --route-up and --down), its management socket handed over, invisible to others,
-      # and stopped (no tunnel: the server is an unroutable documentation address). Last, a daemon
-      # killed during a session, whose openvpn the next one stops.
+      # and stopped (no tunnel: the server is an unroutable documentation address); a FortiGate session
+      # with the distribution's openfortivpn started and stopped (no tunnel: a local socket that never
+      # answers), and its DNS followed from the output of a stand-in openfortivpn (refused for want of
+      # a real ppp0; lines forged into the log ignored). Last, a daemon killed during a session, whose
+      # openvpn the next one stops.
       - name: Smoke-test passtunneld
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
           set -euo pipefail
           apt-get update -qq
-          apt-get install -y -qq --no-install-recommends jq socat openvpn >/dev/null
+          apt-get install -y -qq --no-install-recommends jq socat openvpn openfortivpn ppp ca-certificates >/dev/null
           (openvpn --version || true) | head -n 1     # exits with 1 after printing
           bin="$(swift build --show-bin-path)"
           sock=/run/passtunnel/daemon.sock
@@ -197,7 +201,8 @@ jobs:
             echo "no answer"; return 1
           }
           trap 'if [ -n "$daemon" ]; then kill "$daemon" 2>/dev/null || true; fi; echo "--- daemon log"; cat daemon.log
-            echo "--- session log"; cat /home/alice/.local/share/passtunnel/profiles/acme/vpn.log 2>/dev/null || true' EXIT
+            echo "--- session log"; cat /home/alice/.local/share/passtunnel/profiles/acme/vpn.log 2>/dev/null || true
+            echo "--- FortiGate session log"; cat /home/alice/.local/share/passtunnel/profiles/fortinet/vpn.log 2>/dev/null || true' EXIT
           start_daemon
           test "$(stat -c '%a %U' /run/passtunnel)" = "711 root"
           test "$(stat -c '%a %U' "$sock")" = "666 root"
@@ -254,6 +259,84 @@ jobs:
           test ! -e "$run"
           if kill -0 "$pid" 2>/dev/null; then echo "openvpn $pid still runs"; exit 1; fi
           grep -q 'OpenVPN 2\.' "$profile/vpn.log"
+
+          # FortiGate: the distribution's openfortivpn (and the pppd it would run) with the config the
+          # daemon writes, the password and the code in it and nowhere else, then stopped. No tunnel:
+          # the "gateway" is a local socket that never answers the TLS handshake.
+          openfortivpn --version
+          (pppd --version 2>&1 || true) | head -n 1
+          socat -u TCP-LISTEN:10443,bind=127.0.0.1,reuseaddr,fork /dev/null &
+          gateway=$!
+          forti=/home/alice/.local/share/passtunnel/profiles/fortinet
+          runuser -u alice -- mkdir -p "$forti"
+          fstart="$(jq -cn --arg dir "$forti" '{op: "perform", request: {type: "start_forti", protocol_version: 3,
+            profile_id: "fortinet", profile_dir: $dir, log_path: ($dir + "/vpn.log"), host: "127.0.0.1", port: 10443,
+            username: "alice", password: "example-password", otp: "123456", trusted_cert: "", set_dns: true,
+            set_routes: true}}')"
+          frun="/run/passtunnel/$uid/fortinet"
+          printf '%s\n' "$fstart" | call_as alice | tee fstart.json | jq -e '.ok and .pid > 1 and .mgmt_socket == null'
+          fpid="$(jq -r .pid fstart.json)"
+          tr '\0' ' ' <"/proc/$fpid/cmdline" | tee fcmdline.txt
+          echo
+          test "$(cat fcmdline.txt)" = "/usr/bin/openfortivpn -c $frun/openfortivpn.conf "
+          test "$(stat -c '%a %U' "$frun/openfortivpn.conf")" = "600 root"
+          grep -v '^password = ' "$frun/openfortivpn.conf"
+          grep -qx 'password = example-password' "$frun/openfortivpn.conf"
+          grep -qx 'otp = 123456' "$frun/openfortivpn.conf"
+          grep -qx "ca-file = $(realpath /etc/ssl/certs/ca-certificates.crt)" "$frun/openfortivpn.conf"
+          grep -qx 'set-dns = 0' "$frun/openfortivpn.conf"
+          grep -qx 'pppd-use-peerdns = 0' "$frun/openfortivpn.conf"
+          if grep -qa example-password fcmdline.txt "/proc/$fpid/environ"; then echo "the password left the config"; exit 1; fi
+          test "$(stat -c '%U %a' "$forti/vpn.log")" = "alice 600"
+          fstop='{"op":"perform","request":{"type":"stop","protocol_version":3,"profile_id":"fortinet"}}'
+          printf '%s\n' "$status" | call_as alice | jq -e --argjson pid "$fpid" '.running == {"fortinet": $pid} and .mgmt_sockets == {}'
+          printf '%s\n' "$fstop" | call_as nobody | jq -e '.ok and .pid == null'
+          printf '%s\n' "$fstop" | call_as alice | jq -e --argjson pid "$fpid" '.ok and .pid == $pid'
+          test ! -e "$frun"
+          if kill -0 "$fpid" 2>/dev/null; then echo "openfortivpn $fpid still runs"; exit 1; fi
+          kill "$gateway"
+          grep -q "started openfortivpn 1\.[0-9]*\.[0-9]* for fortinet, uid $uid" daemon.log
+
+          # FortiGate DNS: the daemon follows openfortivpn's own output, here from a stand-in at the same
+          # checked path that prints what openfortivpn 1.21 prints once its tunnel is up. The container
+          # has no ppp0, so the kernel does not confirm the interface: nothing is set, the session ends
+          # and its log says why. Then lines forged into the log file (its user can write it) change
+          # nothing. The real openfortivpn is put back afterwards.
+          mv /usr/bin/openfortivpn /usr/bin/openfortivpn.real
+          fake_forti() {
+            { printf '%s\n' '#!/bin/sh' 'if [ "$1" = "--version" ]; then echo 1.21.0; exit 0; fi'
+              for line in "$@"; do printf "echo '%s'\n" "$line"; done
+              echo 'exec sleep 30'; } >fake-openfortivpn
+            install -m 0755 fake-openfortivpn /usr/bin/openfortivpn
+          }
+          cp /etc/resolv.conf resolv.forti
+          fake_forti 'INFO:   Got addresses: [10.212.134.200], ns [198.51.100.53, 198.51.100.54], ns_suffix [example.com]' \
+            'INFO:   Interface ppp0 is UP.' 'INFO:   Tunnel is up and running.'
+          printf '%s\n' "$fstart" | call_as alice | jq -e '.ok'
+          for _ in $(seq 100); do
+            printf '%s\n' "$status" | call_as alice | jq -e '.running == {}' >/dev/null && break
+            sleep 0.1
+          done
+          printf '%s\n' "$status" | call_as alice | jq -e '.running == {}'
+          cat "$forti/vpn.log"
+          grep -qx 'INFO:   Tunnel is up and running.' "$forti/vpn.log"
+          grep -qx 'passtunneld: setting DNS failed: there is no interface ppp0' "$forti/vpn.log"
+          grep -q "fortinet of uid $uid: setting DNS failed: there is no interface ppp0" daemon.log
+          cmp resolv.forti /etc/resolv.conf
+          test ! -e "$frun"
+
+          fake_forti 'INFO:   Connected to gateway.'
+          printf '%s\n' "$fstart" | call_as alice | tee fstart.json | jq -e '.ok'
+          fpid="$(jq -r .pid fstart.json)"
+          for _ in $(seq 100); do grep -q 'Connected to gateway' "$forti/vpn.log" && break; sleep 0.1; done
+          runuser -u alice -- sh -c "printf '%s\n' 'INFO:   Got addresses: [10.212.134.200], ns [192.0.2.66, 0.0.0.0]' \
+            'INFO:   Interface lo is UP.' 'INFO:   Tunnel is up and running.' >>'$forti/vpn.log'"
+          sleep 1
+          printf '%s\n' "$status" | call_as alice | jq -e --argjson pid "$fpid" '.running == {"fortinet": $pid}'
+          if grep -q '^passtunneld:' "$forti/vpn.log"; then echo "acted on a forged line"; exit 1; fi
+          cmp resolv.forti /etc/resolv.conf
+          printf '%s\n' "$fstop" | call_as alice | jq -e --argjson pid "$fpid" '.ok and .pid == $pid'
+          mv /usr/bin/openfortivpn.real /usr/bin/openfortivpn
 
           printf '%s\n' "$request" | call_as alice | tee start.json | jq -e '.ok'
           pid="$(jq -r .pid start.json)"

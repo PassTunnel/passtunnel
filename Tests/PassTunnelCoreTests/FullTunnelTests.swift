@@ -720,5 +720,17 @@ final class FullTunnelTests: XCTestCase {
         XCTAssertTrue(VPNLog.fortiIsUp(log))
         XCTAssertEqual(VPNLog.fortiAddress(log), "10.212.134.200")
         XCTAssertFalse(VPNLog.isFatal(log))
+        // What passtunneld adds once it set (or could not set) the session's DNS.
+        XCTAssertFalse(VPNLog.fortiDNSSettled(log))
+        for line in ["passtunneld: DNS of ppp0 set through systemd-resolved: 198.51.100.53, 198.51.100.54",
+                     "passtunneld: the gateway named no DNS servers; DNS is left as it is",
+                     "passtunneld: setting DNS failed: there is no interface ppp0"] {
+            XCTAssertTrue(VPNLog.fortiDNSSettled(log + line + "\n"), line)
+        }
+        XCTAssertFalse(VPNLog.fortiDNSSettled(log + "INFO:   passtunneld: DNS of ppp0 set through x\n"))
+        let failed = log + "passtunneld: setting DNS failed: there is no interface ppp0\n"
+        XCTAssertEqual(VPNLog.setupProblem(failed),
+                       VPNLog.SetupProblem(reason: "passtunneld: setting DNS failed: there is no interface ppp0", allTraffic: true))
+        XCTAssertNil(VPNLog.setupProblem(log))
     }
 }

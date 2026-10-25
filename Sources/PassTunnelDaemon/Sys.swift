@@ -93,6 +93,16 @@ enum Sys {
         Glibc.send(fd, bytes, count, Int32(MSG_NOSIGNAL))
     }
 
+    /// A pipe, both ends close-on-exec (a tool gets its end through `spawn`'s `outputFD`; `spawn` closes
+    /// every other descriptor in the child anyway).
+    static func makePipe() throws -> (read: Int32, write: Int32) {
+        var fds: [Int32] = [-1, -1]
+        guard pipe(&fds) == 0 else { throw SpawnFailure(code: errno) }
+        _ = fcntl(fds[0], F_SETFD, FD_CLOEXEC)
+        _ = fcntl(fds[1], F_SETFD, FD_CLOEXEC)
+        return (fds[0], fds[1])
+    }
+
     struct SpawnFailure: Error, Equatable, CustomStringConvertible {
         let code: Int32
         var description: String { "Could not launch the VPN tool: \(String(cString: strerror(code)))" }

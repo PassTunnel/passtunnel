@@ -1,5 +1,5 @@
 # passtunneld, PassTunnel's root daemon on Linux (docs/LINUX.md): it runs the distribution's openvpn
-# for the users allowed to connect. A first version: no package or tarball installs it yet, and the
+# and openfortivpn (which runs pppd) for the users allowed to connect. A first version: no package or tarball installs it yet, and the
 # sandbox below is a starting point, to be trimmed to what the tools need once they are tested under
 # it on the target distributions.
 
@@ -20,14 +20,17 @@ TimeoutStopSec=15
 Restart=on-failure
 RestartSec=2
 
-# The tools configure interfaces, routes and sockets (NET_ADMIN, NET_RAW) and may change user
-# (SETUID, SETGID); the daemon hands the log and the management socket to the user (CHOWN), works in
-# the user's profile directory (DAC_OVERRIDE) and stops the tools (KILL). It sets the management
-# socket's mode while root still owns it, so CAP_FOWNER is not needed. The DNS hook, which OpenVPN
-# runs inside this unit, is let through by systemd-resolved for NET_ADMIN.
+# The tools configure interfaces, routes and sockets (NET_ADMIN, NET_RAW; pppd needs NET_ADMIN to open
+# /dev/ppp and set up its interface, openfortivpn to set routes) and may change user (SETUID,
+# SETGID); the daemon hands the log and the management socket to the user (CHOWN), works in the
+# user's profile directory (DAC_OVERRIDE) and stops the tools (KILL). It sets the management socket's
+# mode while root still owns it, so CAP_FOWNER is not needed. The DNS hook, which OpenVPN runs inside
+# this unit, and the daemon itself for FortiGate's ppp interface, are let through by systemd-resolved
+# for NET_ADMIN.
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_SETUID CAP_SETGID CAP_CHOWN CAP_DAC_OVERRIDE CAP_KILL
-# The tun device for OpenVPN, /dev/ppp for openfortivpn's pppd (FortiGate, still to come); besides
-# these only the standard pseudo devices (/dev/null, /dev/urandom, /dev/ptmx, …).
+# The tun device for OpenVPN, /dev/ppp for openfortivpn's pppd; besides these only the standard
+# pseudo devices (/dev/null, /dev/urandom, /dev/ptmx and the /dev/pts terminals: openfortivpn talks
+# to pppd over a pseudo-terminal).
 DevicePolicy=closed
 DeviceAllow=/dev/net/tun rw
 DeviceAllow=/dev/ppp rw
@@ -38,6 +41,9 @@ DeviceAllow=/dev/ppp rw
 # /etc/resolv.conf: into /run/resolvconf (Debian's resolvconf) the entry is redundant and dropped;
 # into /run/systemd/resolve the file there becomes writable here, and is never written (the hook
 # tells systemd-resolved over D-Bus). Entries that do not exist when the unit starts are skipped.
+# FortiGate adds nothing: the daemon applies its DNS the same way, openfortivpn and pppd never touch
+# resolv.conf (set-dns and pppd-use-peerdns are off), and pppd's pid file and database under /run
+# stay unwritable, which pppd only warns about and nothing here uses.
 ProtectSystem=strict
 ReadWritePaths=/run/passtunnel -/etc/resolv.conf -/run/resolvconf
 PrivateTmp=yes

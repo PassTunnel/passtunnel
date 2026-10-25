@@ -388,6 +388,17 @@ public enum VPNLog {
         text.contains("Tunnel is up and running")
     }
 
+    /// FortiGate on Linux: passtunneld, which sets the DNS of a session whose profile has `set_dns`
+    /// itself once openfortivpn's tunnel is up, has said in the log how that went: "passtunneld: DNS of
+    /// ppp0 set through …", "passtunneld: the gateway named no DNS servers; …" or "passtunneld: setting
+    /// DNS failed: …" (which `setupProblem` reports).
+    public static func fortiDNSSettled(_ text: String) -> Bool {
+        text.split(whereSeparator: \.isNewline).contains { line in
+            line.hasPrefix("passtunneld: DNS of ") || line.hasPrefix("passtunneld: the gateway named no DNS servers")
+                || line.hasPrefix("passtunneld: setting DNS failed")
+        }
+    }
+
     /// openfortivpn: first address of the last "Got addresses: [10.1.2.3], ns [...]" line.
     public static func fortiAddress(_ text: String) -> String? {
         guard let line = text.split(whereSeparator: \.isNewline).last(where: { $0.contains("Got addresses: [") }),
