@@ -873,6 +873,16 @@
         }
       }
     },
+    "Configuration or certificate refused" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yapılandırma ya da sertifika reddedildi"
+          }
+        }
+      }
+    },
     "Confirm with Touch ID" : {
       "localizations" : {
         "tr" : {
@@ -1003,6 +1013,16 @@
         }
       }
     },
+    "Could not connect" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlanılamadı"
+          }
+        }
+      }
+    },
     "Could not connect “%@” at login" : {
       "localizations" : {
         "tr" : {
@@ -1019,6 +1039,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Özel şablon"
+          }
+        }
+      }
+    },
+    "Did not connect in time" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zamanında bağlanamadı"
           }
         }
       }
@@ -1253,6 +1283,16 @@
         }
       }
     },
+    "Network setup failed" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ağ ayarları yapılamadı"
+          }
+        }
+      }
+    },
     "New passphrase for the PassTunnel secrets file (%@): " : {
       "localizations" : {
         "tr" : {
@@ -1289,6 +1329,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld denemeden sonra yanıt yok"
+          }
+        }
+      }
+    },
+    "No answer after %lld tries." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld denemeden sonra yanıt yok."
+          }
+        }
+      }
+    },
+    "no answer within %lld seconds" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld saniye içinde yanıt gelmedi"
           }
         }
       }
@@ -1359,6 +1419,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Şimdi Değil"
+          }
+        }
+      }
+    },
+    "Not retried, to avoid a lockout." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hesap kilitlenmesin diye yeniden denenmedi."
           }
         }
       }
@@ -1833,6 +1903,16 @@
         }
       }
     },
+    "Server name not found" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu adı bulunamadı"
+          }
+        }
+      }
+    },
     "Server receives" : {
       "localizations" : {
         "tr" : {
@@ -1953,12 +2033,72 @@
         }
       }
     },
+    "The code was sent with %lld s left." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kod, süresinin dolmasına %lld sn kala gönderildi."
+          }
+        }
+      }
+    },
     "The PassTunnel helper is not ready." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "PassTunnel yardımcısı hazır değil."
+          }
+        }
+      }
+    },
+    "The server %@ could not be reached: %@. Your sign-in was not sent." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ sunucusuna ulaşılamadı: %2$@. Oturum açma bilgileriniz gönderilmedi."
+          }
+        }
+      }
+    },
+    "The server answered: %@." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucunun yanıtı: %@."
+          }
+        }
+      }
+    },
+    "The server could not be reached: %@. Your sign-in was not sent." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucuya ulaşılamadı: %@. Oturum açma bilgileriniz gönderilmedi."
+          }
+        }
+      }
+    },
+    "The server name %@ could not be found. Check the server address and the network connection." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu adı bulunamadı: %@. Sunucu adresini ve ağ bağlantısını denetleyin."
+          }
+        }
+      }
+    },
+    "The server’s name could not be found. Check the server address and the network connection." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucunun adı bulunamadı. Sunucu adresini ve ağ bağlantısını denetleyin."
           }
         }
       }
@@ -8171,6 +8311,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sonra sunucuyu, kullanıcı adını, parolayı ve kodun gizli anahtarını girersiniz."
+          }
+        }
+      }
+    },
+    "Your sign-in was not sent." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oturum açma bilgileriniz gönderilmedi."
           }
         }
       }

@@ -39,7 +39,7 @@ A bundle without `dns-updown` pins an empty set for it, so the helper refuses an
 | `PassTunnelVPNConfig` | `OVPNSanitizer`, `FortiConfig`: the configurations the helper runs as root | — |
 | `PassTunnelKit` | the portable logic (Foundation, CryptoKit and Security only; builds for macOS 13, iOS 17 and Linux): model, `PTError`, `JSONCoding`, `TOTP`, `OTPAuthURI`, `OTPComposer`, `OVPNAnalyzer`, `OVPNInliner`, `OVPNSkipRules`, `OVPNImportReport`, `ShareFile`, `Slug`, `ProfileFields`, `ProfileMerge`, `SecretEnvelope`, `HealthCheck` (parsing) | VPNConfig (and swift-crypto on Linux) |
 | `PassTunnelShared` | XPC protocol, request/response types, `HelperCore` (request decoding, path checks, tool environment), `SessionPolicy`, `CodeSignature`, `Spawner` (verified, suspended launch), `PinnedTools`, `ToolStager` (root-owned copy of the tools and their dylibs), `HelperBuild`, identifiers | VPNConfig (and swift-crypto on Linux) |
-| `PassTunnelCore` | `ProfileStore` + `ImportDraft`, `ProfilesWatcher`, `Secrets` + `SecretStore` (Keychain; on Linux `SecretStores`: secret-service, systemd-creds, file), `SecretVault` + `UserAuthenticator` (Secure Enclave protection), `Preferences`, `HealthCheck.check` (the probe), `QRDecoder`, `OpenedFiles` (files the app is asked to open), `ScannedCodeTarget` (where a scanned code goes), `TLSFingerprint`, `HelperClient`, `HelperAutoUpdate`, `ConnectionManager` + `ProfileDestination`, `ActivityLog` + `ActivityEvent`, `LoginConnector` (connect at login), CLI parsing (`CLICommand`, `CLIInvocation`), automation objects + `AutomationService`, `MCPServer` + `MCPTools` + `JSONValue` | Kit, VPNConfig, Shared (and swift-crypto's Crypto and CryptoExtras on Linux) |
+| `PassTunnelCore` | `ProfileStore` + `ImportDraft`, `ProfilesWatcher`, `Secrets` + `SecretStore` (Keychain; on Linux `SecretStores`: secret-service, systemd-creds, file), `SecretVault` + `UserAuthenticator` (Secure Enclave protection), `Preferences`, `HealthCheck.check` (the probe), `QRDecoder`, `OpenedFiles` (files the app is asked to open), `ScannedCodeTarget` (where a scanned code goes), `TLSFingerprint`, `HelperClient`, `HelperAutoUpdate`, `ConnectionManager` + `ProfileDestination`, `ConnectionFailure`, `ActivityLog` + `ActivityEvent`, `LoginConnector` (connect at login), CLI parsing (`CLICommand`, `CLIInvocation`), automation objects + `AutomationService`, `MCPServer` + `MCPTools` + `JSONValue` | Kit, VPNConfig, Shared (and swift-crypto's Crypto and CryptoExtras on Linux) |
 | `PassTunnelCLI` | the `passtunnel` command: `PassTunnelCLI.run` (entry, `CLIHelp`), `CLIRunner`, `CLICompletions`, `CLITerminal`, `CLIClipboard`; `Pasteboard` (macOS: the app's too) | Core, Kit, Shared |
 | `PassTunnelHelper` | `main.swift` XPC listener, process supervision | Shared (and through it VPNConfig) |
 | `PassTunnel` | SwiftUI app, menu bar, onboarding, updates (`AppUpdater`); CLI mode runs `PassTunnelCLI` | CLI, Core, Kit, VPNConfig, Shared, Sparkle |
@@ -439,7 +439,8 @@ public enum ConfirmationWording { static let hasTouchID: Bool; static var settin
 
 One model, two front ends. `Automation.swift` defines the result objects (`ProfileSummary`,
 `ProfileStatus`, `StatusReport`, `HelperReport`, `LogReport`, `DiagnoseReport`/`ProfileCheck`,
-`VersionReport`), the error object (`ErrorReport`, `ErrorEnvelope`), the stable error codes
+`VersionReport`), the error object (`ErrorReport`, `ErrorEnvelope`; a failed connect's carries the
+`ConnectionFailure` of a `ConnectFailedError`), the stable error codes
 (`AutomationErrorCode`, mapped from `PTError`, `HelperClientError`, `DestinationChangedError`,
 `CLIUsageError` by `AutomationErrorCode.of`) and the exit codes (`AutomationExit`).
 `AutomationService` (`@MainActor`, one per CLI command or MCP server, over a `ProfileStore`, a
@@ -724,7 +725,8 @@ credentials (Keychain / TOTP / caller-supplied for `.ask`), builds what is sent 
   → OpenVPN auth-file password, or Forti `password` (Forti `otp` then omitted)
 - `.separate`: OpenVPN → `SCRV1:b64(password):b64(code)` (static-challenge), Forti → `password` + `otp` fields
 waits for the next TOTP window if the current window's code was already sent (always: servers reject a
-reused code; recorded in `.last-otp` once the helper started the tool) or, with
+reused code; recorded in `.last-otp` once the helper started the tool, and put back when the tool's log
+shows the sign-in never reached the server, `ConnectionFailure.credentialsSent`) or, with
 `Preferences.waitForFreshCode` (default on, read from `config.json` at every connect), if 5 s or less
 remain, and publishes `ConnectionState` changes:
 

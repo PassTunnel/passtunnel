@@ -15,7 +15,7 @@ the MCP server has no such tool.
 - [Options for scripts](#options-for-scripts)
 - [Exit codes](#exit-codes)
 - [Errors](#errors)
-- [Objects](#objects): [ProfileSummary](#profilesummary), [ProfileStatus](#profilestatus), [HelperReport](#helperreport), [SecretStoreReport](#secretstorereport), [LogReport](#logreport), [ActivityEvent](#activityevent)
+- [Objects](#objects): [ProfileSummary](#profilesummary), [ProfileStatus](#profilestatus), [ConnectionFailure](#connectionfailure), [HelperReport](#helperreport), [SecretStoreReport](#secretstorereport), [LogReport](#logreport), [ActivityEvent](#activityevent)
 - [Commands](#commands)
 
 ## Options for scripts
@@ -42,7 +42,7 @@ human confirmation, and a script cannot answer it.
 | 3 | Not found; `status ID`: the profile is not connected | `profile_not_found`, `not_connected` |
 | 4 | A confirmation or input was needed but was cancelled or is not possible | `auth_cancelled`, `auth_unavailable`, `input_required`, `cancelled` |
 | 5 | The helper is not installed, not approved, outdated or not answering | `helper_not_installed`, `helper_outdated`, `helper_unavailable` |
-| 6 | Connecting failed | `connect_failed`, `credentials_rejected`, `credentials_missing`, `other_vpn_active`, `destination_changed` |
+| 6 | Connecting failed | `connect_failed`, `server_unreachable`, `host_not_found`, `credentials_rejected`, `credentials_missing`, `other_vpn_active`, `destination_changed` |
 | 7 | Timeout | `timeout` |
 | 130 | Interrupted (Ctrl-C) | |
 
@@ -61,7 +61,8 @@ human confirmation, and a script cannot answer it.
 ```
 
 `code` is stable and meant for programs; `message` is for people and follows the macOS language
-(English or Turkish).
+(English or Turkish). A failed `connect` adds `failure`, a [ConnectionFailure](#connectionfailure)
+(not when `--timeout` ran out first).
 
 | Code | When |
 |---|---|
@@ -76,7 +77,9 @@ human confirmation, and a script cannot answer it.
 | `helper_outdated` | The helper belongs to another PassTunnel version: `passtunnel helper install` |
 | `helper_unavailable` | The helper did not answer |
 | `connect_failed` | The VPN did not come up (see `passtunnel log ID`) |
-| `credentials_rejected` | The server refused the sign-in |
+| `server_unreachable` | The server did not answer (refused, timed out, no route); the sign-in was not sent |
+| `host_not_found` | The server's name could not be resolved |
+| `credentials_rejected` | The server refused the sign-in (not retried) |
 | `credentials_missing` | No saved password or TOTP secret |
 | `other_vpn_active` | Another VPN already routes all traffic (`connect --force` overrides) |
 | `destination_changed` | The server settings changed after you confirmed: connect again and confirm |
@@ -138,9 +141,46 @@ From `status`, `connect`, `disconnect`, `toggle` and the MCP tools `get_status`,
 `state` is `disconnected`, `connecting` or `connected`. Present only when they apply: `phase`
 (while connecting, in the user's language), `ip`, `since`, `duration_seconds`, `health`
 (`reachable` / `unreachable`, only from a process that runs health checks), `error` (why the last
-attempt in this process failed), `warning` (connected, but part of the network setup failed) and
-`status_unavailable` (connected, but the management interface did not answer: `ip` and `since` may
-be stale).
+attempt in this process failed) and `failure` (the same as a [ConnectionFailure](#connectionfailure);
+also after a cancelled attempt, which has no `error`), `warning` (connected, but part of the network
+setup failed) and `status_unavailable` (connected, but the management interface did not answer: `ip`
+and `since` may be stale).
+
+### ConnectionFailure
+
+Why a connect failed: `failure` in ProfileStatus and in the error object of a failed `connect` (CLI
+and MCP).
+
+```json
+{
+  "at" : "2026-10-25T09:41:02Z",
+  "code_seconds_left" : 22,
+  "code_sent" : true,
+  "credentials_sent" : true,
+  "kind" : "auth_rejected",
+  "reply" : "AUTH_FAILED"
+}
+```
+
+| `kind` | Error code | When |
+|---|---|---|
+| `auth_rejected` | `credentials_rejected` | The server refused the sign-in (OpenVPN `AUTH_FAILED`, openfortivpn "Could not authenticate"). It is never retried, also not by the automatic reconnect: retrying could lock the account |
+| `host_not_found` | `host_not_found` | The server's name could not be resolved |
+| `unreachable` | `server_unreachable` | The server did not answer: connection refused or timed out, no route, no TLS answer in time. The sign-in was not sent |
+| `configuration` | `config_invalid`, `connect_failed`, `credentials_missing`, … | The configuration, a key or the server's certificate was refused (OpenVPN `Options error`, `VERIFY ERROR`; openfortivpn's gateway certificate), or something the profile needs is missing |
+| `setup` | `connect_failed` | The tunnel came up, but its network setup failed |
+| `timeout` | `timeout` | The sign-in was sent, but the tunnel did not come up in time |
+| `cancelled` | `cancelled`, `auth_cancelled`, `connect_failed` | Stopped before it finished |
+| `failed` | `connect_failed`, `helper_*`, … | Anything else |
+
+`credentials_sent`: the sign-in reached the server (OpenVPN finished the TLS handshake, which sends
+it; openfortivpn connected to the gateway; or the server answered it). `code_sent`: a one-time code
+went with it, so that code's period is used up; when it did not, PassTunnel gives the period back and
+the next connect sends a code at once (not after `cancelled`). Present only when they apply: `reply` (the server's answer,
+`auth_rejected`), `reason` (the VPN tool's words, e.g. `Connection refused`, `Name or service not
+known`, `certificate has expired`), `code_seconds_left` (the code's seconds left when it was sent),
+`tries` (`unreachable`). `reply` and `reason` pass through the same redaction as `log --json`. New
+kinds may be added.
 
 ### HelperReport
 
@@ -231,9 +271,10 @@ One event of the activity log (`profiles/<id>/activity.jsonl`, the last 500 even
 | `connected` | `address` (`""` when unknown) | The tunnel is up |
 | `link_dropped` | `will_reconnect` | The connection ended without anyone stopping it |
 | `reconnecting` | `attempt`, `of` | An automatic reconnect attempt starts |
-| `unreachable` | `tries` | The server did not answer |
+| `unreachable` | `tries`, `reason` (the tool's words, e.g. `Connection refused`) | The server did not answer; the sign-in was not sent |
 | `next_try` | `next_at` | The next automatic attempt starts then |
 | `rejected` | `reply` (what the server answered, e.g. `AUTH_FAILED`; absent when it said nothing) | The server refused the sign-in; not retried |
+| `failed` | `failure` (a [ConnectionFailure](#connectionfailure) `kind`: `host_not_found`, `configuration`, `setup`, `timeout` or `failed`), `reason`, `credentials_sent` | The attempt failed otherwise |
 | `stopped_by_user` | | A connect, a code wait or the automatic reconnects were stopped |
 | `disconnected_by_user` | | A connection that was up was ended |
 

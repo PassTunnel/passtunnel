@@ -791,6 +791,45 @@ final class MCPServerTests: XCTestCase {
         XCTAssertEqual(helper.stops, ["acme"])
     }
 
+    /// A failed connect says why: the error carries a `failure` object, and `get_status` keeps it.
+    func testAFailedConnectSaysWhy() async throws {
+        try makeOpenVPN(otp: .totp)
+        helper.openVPNStateLine = nil
+        helper.startLog = "2026-10-25 09:41:01 Control Channel: TLSv1.3, cipher TLSv1.3 TLS_AES_256_GCM_SHA384\n"
+            + "2026-10-25 09:41:02 AUTH: Received control message: AUTH_FAILED,not \(password)\n"
+        let server = makeServer(allowConnect: true)
+        let result = try await callTool(server, "connect", ["profile_id": "acme"])
+        XCTAssertEqual(errorCode(result), "credentials_rejected")
+        let text = try XCTUnwrap(((result["content"] as? [[String: Any]])?.first)?["text"] as? String)
+        let error = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])?["error"] as? [String: Any])
+        let failure = try XCTUnwrap(error["failure"] as? [String: Any])
+        XCTAssertEqual(failure["kind"] as? String, "auth_rejected")
+        XCTAssertEqual(failure["reply"] as? String, "AUTH_FAILED,not <redacted>", "redacted like the log")
+        XCTAssertFalse(text.contains(password))
+        XCTAssertEqual(failure["credentials_sent"] as? Bool, true)
+        XCTAssertEqual(failure["code_sent"] as? Bool, true)
+        XCTAssertEqual(failure["code_seconds_left"] as? Int, 10)
+        XCTAssertEqual(failure["at"] as? String, "2023-11-14T22:13:20Z")
+
+        let status = try await structured(server, "get_status", ["profile_id": "acme"])
+        let profile = try XCTUnwrap((status["profiles"] as? [[String: Any]])?.first)
+        XCTAssertEqual((profile["failure"] as? [String: Any])?["kind"] as? String, "auth_rejected")
+        XCTAssertEqual((profile["failure"] as? [String: Any])?["reply"] as? String, "AUTH_FAILED,not <redacted>")
+        XCTAssertNotNil(profile["error"] as? String)
+
+        // A server that does not answer: its own code, and nothing was sent.
+        let list = await exchange(server, request(9, "tools/list"))
+        let tools = try XCTUnwrap((list?["result"] as? [String: Any])?["tools"] as? [[String: Any]])
+        let statusSchema = try XCTUnwrap(tools.first { $0["name"] as? String == "get_status" }?["outputSchema"] as? [String: Any])
+        let profileSchema = try XCTUnwrap(((statusSchema["properties"] as? [String: Any])?["profiles"] as? [String: Any])?["items"] as? [String: Any])
+        let failureSchema = try XCTUnwrap((profileSchema["properties"] as? [String: Any])?["failure"] as? [String: Any])
+        XCTAssertEqual(((failureSchema["properties"] as? [String: Any])?["kind"] as? [String: Any])?["enum"] as? [String],
+                       ConnectionFailure.Kind.allCases.map(\.rawValue))
+        helper.startLog = "2026-10-25 09:41:00 RESOLVE: Cannot resolve host address: vpn.example.com:1194 (Name or service not known)\n"
+        let notFound = try await callTool(server, "connect", ["profile_id": "acme"])
+        XCTAssertEqual(errorCode(notFound), "host_not_found")
+    }
+
     func testConnectWithoutWaitingReturnsAtOnce() async throws {
         try makeOpenVPN()
         let server = makeServer(allowConnect: true)

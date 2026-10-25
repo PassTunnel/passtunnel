@@ -43,6 +43,8 @@ public enum AutomationErrorCode: String, Codable, CaseIterable, Sendable {
     case helperOutdated = "helper_outdated"
     case helperUnavailable = "helper_unavailable"
     case connectFailed = "connect_failed"
+    case serverUnreachable = "server_unreachable"
+    case hostNotFound = "host_not_found"
     case credentialsRejected = "credentials_rejected"
     case credentialsMissing = "credentials_missing"
     case otherVPNActive = "other_vpn_active"
@@ -59,7 +61,8 @@ public enum AutomationErrorCode: String, Codable, CaseIterable, Sendable {
         case .profileNotFound, .notConnected: return AutomationExit.notFound
         case .inputRequired, .cancelled, .authCancelled, .authUnavailable: return AutomationExit.confirmation
         case .helperNotInstalled, .helperOutdated, .helperUnavailable: return AutomationExit.helper
-        case .connectFailed, .credentialsRejected, .credentialsMissing, .otherVPNActive, .destinationChanged:
+        case .connectFailed, .serverUnreachable, .hostNotFound, .credentialsRejected, .credentialsMissing, .otherVPNActive,
+             .destinationChanged:
             return AutomationExit.connectFailed
         case .timeout: return AutomationExit.timeout
         case .configInvalid, .fileError, .keychainError, .internal: return AutomationExit.error
@@ -70,6 +73,7 @@ public enum AutomationErrorCode: String, Codable, CaseIterable, Sendable {
     public static func of(_ error: Error) -> AutomationErrorCode {
         switch error {
         case let e as AutomationError: return e.code
+        case let e as ConnectFailedError: return of(e.error)
         case is CLIUsageError: return .invalidArgument
         case is DestinationChangedError: return .destinationChanged
         case is ProtectionKeyMismatch, is ProtectionKeyUnusable, is SecretStoreUnavailable: return .keychainError
@@ -97,6 +101,8 @@ public enum AutomationErrorCode: String, Codable, CaseIterable, Sendable {
         case .keychain, .protectedSecretUnreadable: return .keychainError
         case .missingPassword, .missingTOTPSecret, .missingCredential: return .credentialsMissing
         case .helperFailed, .connectFailed, .setupFailed, .connectCancelled: return .connectFailed
+        case .serverUnreachable: return .serverUnreachable
+        case .hostNotFound: return .hostNotFound
         case .authFailed: return .credentialsRejected
         case .connectTimeout: return .timeout
         case .otherVPNActive: return .otherVPNActive
@@ -119,18 +125,41 @@ public struct AutomationError: Error, Equatable, LocalizedError {
     public var errorDescription: String? { message }
 }
 
-/// `{"code": …, "message": …}`: the object under `"error"` in `--json` output.
+/// A connect that failed, with why (`ConnectionManager.failures`): what `AutomationService.connect` throws,
+/// so the error object carries the `failure`. Its code and message are the underlying error's.
+public struct ConnectFailedError: Error, LocalizedError {
+    public var error: Error
+    public var failure: ConnectionFailure
+
+    public init(_ error: Error, failure: ConnectionFailure) {
+        self.error = error
+        self.failure = failure
+    }
+
+    public var errorDescription: String? { error.localizedDescription }
+
+    /// The error itself, without a `ConnectFailedError` around it.
+    public static func underlying(_ error: Error) -> Error {
+        (error as? ConnectFailedError)?.error ?? error
+    }
+}
+
+/// `{"code": …, "message": …}`: the object under `"error"` in `--json` output; a failed connect adds
+/// `failure`.
 public struct ErrorReport: Codable, Equatable {
     public var code: String
     public var message: String
+    public var failure: ConnectionFailure?
 
-    public init(code: AutomationErrorCode, message: String) {
+    public init(code: AutomationErrorCode, message: String, failure: ConnectionFailure? = nil) {
         self.code = code.rawValue
         self.message = message
+        self.failure = failure
     }
 
     public init(_ error: Error) {
-        self.init(code: AutomationErrorCode.of(error), message: error.localizedDescription)
+        self.init(code: AutomationErrorCode.of(error), message: error.localizedDescription,
+                  failure: (error as? ConnectFailedError)?.failure)
     }
 }
 
@@ -202,14 +231,16 @@ public struct ProfileStatus: Codable, Equatable {
     public var health: String?
     /// Why the last attempt failed (this process only).
     public var error: String?
+    /// The same, typed: kind, the server's reply, whether the sign-in and a code were sent.
+    public var failure: ConnectionFailure?
     public var warning: String?
     /// Connected, but the management interface did not answer: ip and since may be stale.
     public var statusUnavailable: Bool?
 
     public init(id: String, name: String, type: String, state: String, phase: String? = nil, ip: String? = nil,
                 since: Date? = nil, durationSeconds: Int? = nil, isDefault: Bool, protected: Bool = false,
-                autoReconnect: Bool = false, health: String? = nil, error: String? = nil, warning: String? = nil,
-                statusUnavailable: Bool? = nil) {
+                autoReconnect: Bool = false, health: String? = nil, error: String? = nil, failure: ConnectionFailure? = nil,
+                warning: String? = nil, statusUnavailable: Bool? = nil) {
         self.id = id
         self.name = name
         self.type = type
@@ -223,6 +254,7 @@ public struct ProfileStatus: Codable, Equatable {
         self.autoReconnect = autoReconnect
         self.health = health
         self.error = error
+        self.failure = failure
         self.warning = warning
         self.statusUnavailable = statusUnavailable
     }
