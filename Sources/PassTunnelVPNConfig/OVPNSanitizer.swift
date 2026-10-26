@@ -3,8 +3,8 @@ import Foundation
 /// Checks an OpenVPN client config before the helper runs it as root.
 ///
 /// A denylist: it refuses every directive that runs a program, loads code, reads or writes a file the
-/// config names, or makes OpenVPN anything but a client connection (a server, a standalone command),
-/// checked against the option parser of OpenVPN 2.4 to 2.7.
+/// config names, or makes OpenVPN anything but a client connection (a server, a standalone command, a
+/// peer that waits for incoming connections), checked against the option parser of OpenVPN 2.4 to 2.7.
 ///
 /// The parser mirrors OpenVPN's own tokenizer (quotes, backslash escapes, `#`/`;` comments, a leading
 /// `--` on option names, `<tag>…</tag>` inline blocks, `setenv opt` prefixes) and errs on the strict
@@ -22,7 +22,10 @@ public enum OVPNSanitizer {
             self.reason = reason
         }
 
-        public var description: String { "line \(line): \(directive) (\(reason))" }
+        /// Line 0 is the file as a whole (`missingRemote`).
+        public var description: String {
+            line == 0 ? "\(directive) (\(reason))" : "line \(line): \(directive) (\(reason))"
+        }
     }
 
     public struct Failure: Error, Equatable, LocalizedError, CustomStringConvertible {
@@ -67,6 +70,20 @@ public enum OVPNSanitizer {
     /// could open an arbitrary device or file as root.
     static let devicePrefixes = ["tun", "tap", "utun", "null"]
 
+    /// Protocols that make OpenVPN listen for a TCP connection instead of making one (`proto`, the third
+    /// argument of `remote` and `local`, `proto-force`). OpenVPN compares them case-sensitively; any case
+    /// is refused here.
+    static let listeningProtocols: Set<String> = ["tcp-server", "tcp4-server", "tcp6-server"]
+
+    static let listeningReason = "waits for incoming connections; PassTunnel only connects to a server"
+
+    /// The violation of a config without any `remote`: over UDP OpenVPN then waits for a peer to reach it
+    /// instead of connecting out (over TCP that takes a listening protocol, refused on its own line).
+    /// Reported as line 0, the file as a whole.
+    public static let missingRemote = Violation(
+        line: 0, directive: "remote",
+        reason: "missing; without a server to connect to, OpenVPN waits for incoming connections")
+
     /// Prefix families: `management*`, `log*`.
     public static let forbiddenPrefixes = ["management", "log"]
 
@@ -90,10 +107,12 @@ public enum OVPNSanitizer {
     /// OpenVPN reads config lines with a 256-byte buffer and silently splits longer ones.
     public static let maxLineBytes = 254
 
-    /// Returns the sanitized config, or throws `Failure` listing every offending line.
+    /// Returns the sanitized config, or throws `Failure` listing every offending line, and
+    /// `missingRemote` when no line names a server to connect to.
     /// A config without stripped directives is returned byte-for-byte unchanged.
     public static func sanitize(_ text: String) throws -> String {
         var violations: [Violation] = []
+        var hasRemote = false
         var keep: [Bool] = []
         let lines = splitLines(text)
         keep = Array(repeating: true, count: lines.count)
@@ -165,6 +184,7 @@ public enum OVPNSanitizer {
                 continue
             }
 
+            if isRemote(tokens) { hasRemote = true }
             switch check(tokens) {
             case .ok: break
             case .strip: keep[i] = false
@@ -176,6 +196,7 @@ public enum OVPNSanitizer {
         for open in blockStack {
             violations.append(Violation(line: open.line, directive: "<\(open.tag)>", reason: "block is never closed"))
         }
+        if !hasRemote { violations.append(missingRemote) }
 
         if !violations.isEmpty { throw Failure(violations: violations) }
         if !keep.contains(false) { return text }
@@ -191,6 +212,25 @@ public enum OVPNSanitizer {
     /// Reads lines as `sanitize` does: inline blocks are skipped, `setenv opt verb …` counts.
     public static func verbosity(of text: String) -> Int? {
         var level: Int?
+        forEachDirective(in: text) { tokens in
+            if normalize(tokens[0]) == "verb", tokens.count >= 2, let n = Int(tokens[1]) { level = max(0, n) }
+        }
+        return level
+    }
+
+    /// Every `dev` name the config sets, in file order, read as `verbosity(of:)` reads lines. OpenVPN
+    /// uses the last one; all of them are listed, so a check of each errs on the strict side.
+    public static func deviceNames(of text: String) -> [String] {
+        var names: [String] = []
+        forEachDirective(in: text) { tokens in
+            if normalize(tokens[0]) == "dev", tokens.count == 2 { names.append(tokens[1]) }
+        }
+        return names
+    }
+
+    /// Calls `body` with the tokens of every directive line outside verbatim inline blocks (lines in a
+    /// `<connection>` block count), without a `setenv opt` prefix.
+    static func forEachDirective(in text: String, _ body: ([String]) -> Void) {
         var block: (tag: String, verbatim: Bool)?
         for (index, line) in splitLines(text).enumerated() {
             var content = line.content
@@ -207,9 +247,8 @@ public enum OVPNSanitizer {
             if normalize(tokens[0]) == "setenv", tokens.count >= 3, tokens[1].lowercased() == "opt" {
                 tokens.removeFirst(2)
             }
-            if normalize(tokens[0]) == "verb", tokens.count >= 2, let n = Int(tokens[1]) { level = max(0, n) }
+            body(tokens)
         }
-        return level
     }
 
     // MARK: - Directive rules
@@ -254,6 +293,11 @@ public enum OVPNSanitizer {
             }
             return nil
         }
+        // A protocol is the first argument of `proto` and `proto-force`, the third of `remote` and `local`.
+        let protocolIndex = ["proto": 0, "proto-force": 0, "remote": 2, "local": 2][name]
+        if let index = protocolIndex, args.indices.contains(index), listeningProtocols.contains(args[index].lowercased()) {
+            return listeningReason
+        }
         if fileDirectives.contains(name), let file = args.first, !isInlineMarker(file) {
             if name == "dh", file.lowercased() == "none" { return nil }
             return "references an external file; embed it inline as <\(name)>…</\(name)>"
@@ -272,6 +316,17 @@ public enum OVPNSanitizer {
     }
 
     static func isInlineMarker(_ s: String) -> Bool { s.lowercased() == "[inline]" }
+
+    /// A `remote` OpenVPN certainly takes as a server to connect to: a host, then optionally a port and a
+    /// protocol. Unlike the checks for refused directives, this one is exact, as OpenVPN's parser is: one
+    /// leading `--` on the line, case-sensitive names, one `setenv opt` prefix and no `--` after it. OpenVPN
+    /// refuses the other spellings, or after `setenv opt` only warns and goes on without the line.
+    static func isRemote(_ tokens: [String]) -> Bool {
+        var tokens = tokens
+        if let first = tokens.first, first.hasPrefix("--"), first.utf8.count >= 3 { tokens[0] = String(first.dropFirst(2)) }
+        if tokens.count >= 2, tokens[0] == "setenv", tokens[1] == "opt" { tokens.removeFirst(2) }
+        return tokens.first == "remote" && (2...4).contains(tokens.count)
+    }
 
     /// A device type in lowercase, as OpenVPN compares it, then only ASCII letters, digits, `-` and `_`:
     /// no `/` or `.`, so the name can never become a path.

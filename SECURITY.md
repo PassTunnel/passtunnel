@@ -211,11 +211,13 @@ script-security N            (when N > 1)
 mode M                       (unless M is p2p)
 dev NAME                     (unless NAME is tun, tap, utun or null, optionally followed by
                               letters, digits, - or _)
+proto, proto-force P         (when P is tcp-server, tcp4-server or tcp6-server)
+remote, local … P            (the same protocols as the third argument)
 ```
 
 The list was checked against the option parser of OpenVPN 2.4 to 2.7. A configuration cannot make
-OpenVPN a server or run one of its standalone commands, and a device name can never be a path:
-OpenVPN opens `/dev/<name>` for some devices on macOS.
+OpenVPN a server, run one of its standalone commands or wait for incoming connections, and a device
+name can never be a path: OpenVPN opens `/dev/<name>` for some devices on macOS.
 
 **Other rules**
 
@@ -229,6 +231,10 @@ OpenVPN opens `/dev/<name>` for some devices on macOS.
   `GENERIC_CONFIG`, `IV_*`, `UV_*`), so variables such as `PATH` or `BASH_ENV` cannot steer the DNS
   script.
 - `setenv opt <directive>` is checked like the directive itself.
+- **A `remote` is required.** Without one OpenVPN waits for a peer to reach it instead of connecting
+  out. Only a line OpenVPN certainly reads as a server to connect to counts: `remote` with a host and
+  optionally a port and a protocol, with at most one leading `--` or one `setenv opt` prefix, at the
+  top level or in a `<connection>` block. A configuration without one is refused as a whole.
 - Lines longer than 254 bytes (OpenVPN would silently split them), NUL bytes, unterminated quotes
   and unclosed blocks are rejected, and so is a backslash outside single quotes that does not escape
   `\`, `"` or whitespace. OpenVPN refuses those too, except a backslash at the end of a line, which
@@ -242,6 +248,11 @@ OpenVPN opens `/dev/<name>` for some devices on macOS.
   itself.
 
 The helper applies these rules to every configuration at every connect, whatever the app did before.
+It also starts OpenVPN with `--pull-filter ignore` for a pushed `verb` ahead of the configuration, so a
+server cannot raise the capped log level after connecting and a profile's own `pull-filter` lines
+cannot let it through. On Linux, `passtunneld` additionally refuses a `dev` that names a device the
+system has already (`dev tun` and `dev tap` let the system pick a free one), so OpenVPN never attaches
+to a persistent device another user may still hold open ([docs/LINUX.md](docs/LINUX.md)).
 When you import a file, the app leaves out some of the refused lines instead of refusing the file
 ([below](#importing-an-openvpn-configuration)); the rules above do not change.
 
@@ -289,6 +300,9 @@ Everything else the sanitizer refuses blocks the file, in particular:
   `help`, `version`, `test-crypto`, the `show-…` listings, `allow-nonadmin`;
 - `memstats`, `setcon`, `win-sys`, `service`, `msg-channel`, and a `dev` name that is not a device
   type;
+- anything that makes OpenVPN wait for incoming connections: a listening protocol (`tcp-server`,
+  `tcp4-server`, `tcp6-server` in `proto`, `proto-force`, `remote` or `local`) and a file without any
+  `remote`, which is listed without a line number;
 - blocks named after a refused directive (`<plugin>…</plugin>`), unclosed blocks, and lines OpenVPN
   would reject or read differently (too long, NUL bytes, bad escapes, unterminated quotes, a
   byte order mark that does not start the file);

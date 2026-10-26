@@ -9,7 +9,8 @@ import PassTunnelVPNConfig
 /// replaces or does not need are skipped (`skippable`, `skippableManaged`). Everything else the sanitizer
 /// refuses blocks the file: directives with a role in checking the server or the sign-in, ones that load
 /// code or read files outside the configuration, server-only directives and server or standalone modes,
-/// malformed lines and blocks, and any name not listed here. SECURITY.md ("Importing an OpenVPN configuration") has the table.
+/// a protocol that waits for incoming connections and a file without any `remote`, malformed lines and
+/// blocks, and any name not listed here. SECURITY.md ("Importing an OpenVPN configuration") has the table.
 public enum OVPNSkipRules {
     /// Why a line can be left out. The raw values are stable (`passtunnel import --json`).
     public enum Reason: String, CaseIterable, Hashable, Sendable {
@@ -83,8 +84,11 @@ public enum OVPNSkipRules {
             self.reason = reason
         }
 
-        /// "line 3: plugin (not allowed)", as `PTError.ovpnNotAllowed` lists it.
-        public var description: String { "line \(line): \(directive) (\(reason))" }
+        /// "line 3: plugin (not allowed)", as `PTError.ovpnNotAllowed` lists it; line 0 is the file as a
+        /// whole (`OVPNSanitizer.missingRemote`), listed without a line.
+        public var description: String {
+            line == 0 ? "\(directive) (\(reason))" : "line \(line): \(directive) (\(reason))"
+        }
     }
 
     public struct Result: Equatable, Sendable {
@@ -119,6 +123,10 @@ public enum OVPNSkipRules {
     ///   `help`, `version`, `test-crypto`, the `show-…` listings, `allow-nonadmin`;
     /// - a file or a process setting no client needs: `memstats`, `setcon`, `win-sys`, `service`,
     ///   `msg-channel` (and a `dev` name that is not a device type, refused with its own reason).
+    ///
+    /// Refused with reasons of their own, and blocking too, because the file would not connect out: a
+    /// `proto`, `proto-force`, `remote` or `local` with a listening protocol (`tcp-server`, `tcp4-server`,
+    /// `tcp6-server`), and a file without any `remote` (`OVPNSanitizer.missingRemote`, line 0).
     static let skippable: [String: Reason] = [
         // Programs OpenVPN runs as root at points of the connection. The helper never runs a program a
         // profile names: DNS is set by its own pinned hook (`--dns-updown` on its command line) from what

@@ -203,6 +203,7 @@ extension HelperCoreTests {
             "auth-user-pass /var/root/secret", "ca /etc/ssl/ca.pem", "writepid /etc/x", "user nobody",
             "mode server", "tls-server", "server 10.8.0.0 255.255.255.0", "client-crresponse /tmp/x",
             "setenv opt client-crresponse /tmp/x", "mktun", "dev ../tmp/x1",
+            "proto tcp-server", "remote vpn.example.com 443 tcp6-server", "local 192.0.2.1 1194 tcp4-server",
         ]
         for line in dangerous {
             try writeConfig("client\nremote vpn.example.com 1194\n\(line)\n")
@@ -215,6 +216,95 @@ extension HelperCoreTests {
         XCTAssertThrowsError(try core().prepareOpenVPN(openVPNStart(), uid: me)) { error in
             XCTAssertNotNil(error as? OVPNSanitizer.Failure)
         }
+    }
+
+    /// A config that would make OpenVPN wait for incoming connections is refused at start too, with the
+    /// sanitizer's words (the same on the Mac and on Linux), before anything is prepared.
+    func testHelperRefusesListeningModes() throws {
+        for text in ["client\nauth-user-pass\n", "client\nproto tcp\nport 1194\n", ""] {
+            try writeConfig(text)
+            XCTAssertThrowsError(try core().prepareOpenVPN(openVPNStart(), uid: me), text) { error in
+                XCTAssertEqual((error as? OVPNSanitizer.Failure)?.violations, [OVPNSanitizer.missingRemote], text)
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: acmeRunDir), text)
+        }
+        try writeConfig("client\nremote vpn.example.com 1194 tcp-server\n")
+        XCTAssertThrowsError(try core().prepareOpenVPN(openVPNStart(), uid: me)) { error in
+            XCTAssertEqual((error as? OVPNSanitizer.Failure)?.violations.map(\.reason), [OVPNSanitizer.listeningReason])
+        }
+    }
+
+    /// The pull filters come before `--config`: OpenVPN tries them in the order it reads them and the first
+    /// match decides, so a profile's own `pull-filter accept verb` comes too late. Every spelling of a pushed
+    /// `verb` OpenVPN's parser reads as `verb` starts with one of the ignored prefixes.
+    func testPushedVerbIsIgnoredBeforeTheConfig() throws {
+        try writeConfig("client\nremote vpn.example.com 1194\npull-filter accept verb\npull-filter accept \"\\\"verb\"\n")
+        let plan = try core().prepareOpenVPN(openVPNStart(), uid: me)
+        defer { close(plan.logFD); core().removeRunDir(profileID: "acme", uid: me) }
+        let args = plan.arguments
+        let config = try XCTUnwrap(args.firstIndex(of: "--config"))
+        let filters = HelperCore.ignoredPushPrefixes.flatMap { ["--pull-filter", "ignore", $0] }
+        XCTAssertEqual(Array(args.prefix(filters.count)), filters)
+        XCTAssertLessThan(filters.count, config)
+        XCTAssertEqual(args.filter { $0 == "--pull-filter" }.count, HelperCore.ignoredPushPrefixes.count)
+        for pushed in ["verb 9", "\"verb\" 9", "'verb' 9", "\\ verb 9", "\\\tverb 9", "\"verb\"9", "verb"] {
+            let tokens = try XCTUnwrap(OVPNSanitizer.tokens(of: pushed), pushed)
+            XCTAssertEqual(tokens.first, "verb", pushed)
+            XCTAssertTrue(HelperCore.ignoredPushPrefixes.contains { pushed.hasPrefix($0) }, pushed)
+        }
+        for other in ["route 10.0.0.0 255.0.0.0", "dhcp-option DNS 192.0.2.53", "ping 10", "\"route\" 10.0.0.0"] {
+            XCTAssertFalse(HelperCore.ignoredPushPrefixes.contains { other.hasPrefix($0) }, other)
+        }
+    }
+
+    /// Linux: a `dev` with a name of its own is checked against the kernel's devices before anything is
+    /// prepared (a persistent device created earlier stays open to its owner). `dev tun` and `dev tap` are
+    /// never checked: the kernel picks a free name. Without the check (the Mac) nothing changes.
+    func testExistingDeviceIsRefused() throws {
+        var checked: [String] = []
+        var linux = core()
+        linux.interfaceExists = { name in checked.append(name); return name == "tun5" || name == "tap-lab01234567" }
+        for text in ["client\nremote vpn.example.com\ndev tun5\n", "client\nremote vpn.example.com\nsetenv opt dev tun5\n",
+                     "client\nremote vpn.example.com\ndev tun5\ndev tun\n",
+                     "client\nremote vpn.example.com\ndev tap-lab0123456789\ndev-type tap\n"] {
+            try writeConfig(text)
+            assertFails(try linux.prepareOpenVPN(self.openVPNStart(), uid: self.me)) {
+                $0 == .deviceExists("tun5") || $0 == .deviceExists("tap-lab01234567")
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: acmeRunDir), text)
+        }
+        XCTAssertEqual(HelperCore.Failure.deviceExists("tun5").description,
+                       "The network device tun5 already exists, and PassTunnel only connects through a device it creates. "
+                       + "Use “dev tun” or “dev tap” so that the system picks a free name, or a name no device has.")
+        checked = []
+        for dev in ["tun", "tap", "tun6"] {
+            try writeConfig("client\nremote vpn.example.com\ndev \(dev)\n")
+            let plan = try linux.prepareOpenVPN(openVPNStart(), uid: me)
+            close(plan.logFD)
+            linux.removeRunDir(profileID: "acme", uid: me)
+        }
+        XCTAssertEqual(checked, ["tun6"], "tun and tap are never checked")
+        // The Mac does not check.
+        try writeConfig("client\nremote vpn.example.com\ndev tun5\n")
+        let plan = try core().prepareOpenVPN(openVPNStart(), uid: me)
+        close(plan.logFD)
+        core().removeRunDir(profileID: "acme", uid: me)
+        // A device that cannot be checked refuses the start.
+        linux.interfaceExists = { _ in throw HelperCore.Failure.system("if_nametoindex tun5", EMFILE) }
+        assertFails(try linux.prepareOpenVPN(self.openVPNStart(), uid: self.me)) { $0 == .system("if_nametoindex tun5", EMFILE) }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: acmeRunDir))
+    }
+
+    /// The names OpenVPN on Linux gives the kernel: all but `tun` and `tap`, each once, cut to 15 bytes.
+    func testNamedDevices() {
+        XCTAssertEqual(HelperCore.namedDevices("client\ndev tun\n"), [])
+        XCTAssertEqual(HelperCore.namedDevices("dev tap\ndev-type tap\n"), [])
+        XCTAssertEqual(HelperCore.namedDevices("client\n"), [])
+        XCTAssertEqual(HelperCore.namedDevices("dev tun0\n--DEV tap1\nsetenv opt dev tun0\n"), ["tun0", "tap1"])
+        XCTAssertEqual(HelperCore.namedDevices("dev null\ndev utun\ndev tun-work\n"), ["null", "utun", "tun-work"])
+        XCTAssertEqual(HelperCore.namedDevices("dev tun0123456789abcdef\n"), ["tun0123456789ab"])
+        XCTAssertEqual(HelperCore.namedDevices("<connection>\nremote vpn.example.com\ndev tun3\n</connection>\n"), ["tun3"])
+        XCTAssertEqual(HelperCore.namedDevices("<ca>\ndev tun3\n</ca>\n# dev tun4\n"), [], "not directives")
     }
 
     func testHelperConfigIsExactlyTheSanitizedProfileFile() throws {

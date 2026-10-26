@@ -29,6 +29,8 @@ public struct HelperCore {
         case socketPathTooLong(String)
         case notASocket(String)
         case configChanged
+        /// The config names a network device that is there already (`interfaceExists`).
+        case deviceExists(String)
         /// A line-based file for a root process failed the final check (`checkLines`).
         case unsafeFile(String)
         case system(String, Int32)
@@ -54,6 +56,10 @@ public struct HelperCore {
             case .notASocket(let p): return "Refusing to replace \(p): it is not a socket."
             case .configChanged:
                 return "\(HelperCore.configFileName) changed after PassTunnel checked it. Connect again to confirm the new settings."
+            case .deviceExists(let name):
+                return "The network device \(name) already exists, and PassTunnel only connects through a device "
+                    + "it creates. Use “dev tun” or “dev tap” so that the system picks a free name, or a name no "
+                    + "device has."
             case .unsafeFile(let name): return "Refusing to write \(name): its contents failed the final check."
             case .system(let what, let err): return "\(what): \(String(cString: strerror(err)))"
             }
@@ -151,6 +157,10 @@ public struct HelperCore {
     /// (`set-dns`, `pppd-use-peerdns`), as on the Mac. The Linux daemon applies DNS itself and turns
     /// this off.
     public var fortiHandlesDNS = true
+    /// Whether the kernel has a network device of that name; nil: not checked (the Mac). The Linux daemon
+    /// sets it: there a `dev` with a name of its own could attach OpenVPN to a persistent device created
+    /// earlier, which its owner can still open (`namedDevices`). Throws when it cannot tell.
+    public var interfaceExists: ((String) throws -> Bool)?
     public var homeDirectory: (uid_t) -> String?
     public var userName: (uid_t) -> String?
 
@@ -269,6 +279,9 @@ public struct HelperCore {
         if let expected = s.configSHA256, Self.sha256Hex(data) != expected.lowercased() { throw Failure.configChanged }
         guard let text = String(data: data, encoding: .utf8) else { throw Failure.invalidText(Self.configFileName) }
         let sanitized = try OVPNSanitizer.sanitize(text)
+        if let interfaceExists {
+            for name in Self.namedDevices(sanitized) where try interfaceExists(name) { throw Failure.deviceExists(name) }
+        }
         let socketPath = PT.mgmtSocketPath(uid: uid, profileID: s.profileID, runRoot: runRoot)
         guard socketPath.utf8.count <= Self.maxSocketPathBytes else { throw Failure.socketPathTooLong(socketPath) }
 
@@ -328,9 +341,12 @@ public struct HelperCore {
     }
 
     /// Fixed OpenVPN flags. They follow `--config`, so they override anything left in the file; only
-    /// `--server-poll-timeout` comes before it, as a default: OpenVPN copies the options in force where a
-    /// `<connection>` block is read into it, so the blocks get it too, and a config that sets its own
-    /// value (a slow proxy) keeps it. With it, a server that does not answer is given up on after
+    /// `--pull-filter` and `--server-poll-timeout` come before it. Pull filters are tried in the order
+    /// OpenVPN reads them, the command line up to `--config`, then the file, and the first that matches a
+    /// pushed option decides, so the file's own `pull-filter` lines cannot accept what these ignore
+    /// (`ignoredPushPrefixes`). `--server-poll-timeout` is a default: OpenVPN copies the options in force
+    /// where a `<connection>` block is read into it, so the blocks get it too, and a config that sets its
+    /// own value (a slow proxy) keeps it. With it, a server that does not answer is given up on after
     /// `serverPollTimeout` seconds (OpenVPN 2.6 and 2.7: the TCP connect, then the first packet from the
     /// server, over UDP and TCP) instead of 120. `--remap-usr1 SIGTERM` turns OpenVPN's restart after a
     /// failed try into an exit, so each run tries once; `ConnectionManager` tries again.
@@ -344,7 +360,8 @@ public struct HelperCore {
     public static func openVPNArguments(configPath: String, mgmtSocket: String, clientUser: String,
                                         authFile: String?, dnsUpdown: String?, verbosity: Int = defaultVerbosity,
                                         hasDNSUpdown: Bool = true) -> [String] {
-        var args = [
+        var args = ignoredPushPrefixes.flatMap { ["--pull-filter", "ignore", $0] }
+        args += [
             "--server-poll-timeout", String(serverPollTimeout),
             "--config", configPath,
             "--verb", String(min(max(0, verbosity), maxVerbosity)),
@@ -366,6 +383,29 @@ public struct HelperCore {
         }
         return args
     }
+
+    /// Pushed options OpenVPN drops (`--pull-filter ignore`, which compares the start of the option as the
+    /// server sent it, after leading whitespace). `verb`: the server must not raise the capped log level
+    /// (`maxVerbosity`). OpenVPN reads a pushed option as a config line, so `"verb"` and `'verb'` are
+    /// `verb` too, and so is a line that starts with an escaped space (`\ verb`). No option a client needs
+    /// starts with a backslash.
+    public static let ignoredPushPrefixes = ["verb", "\"verb", "'verb", "\\"]
+
+    /// The names OpenVPN on Linux gives the kernel for the config's devices (`OVPNSanitizer.deviceNames`):
+    /// all but exactly `tun` and `tap`, for which the kernel (or, with data channel offload, OpenVPN)
+    /// picks a name no device has; cut to `maxInterfaceNameBytes`, as OpenVPN cuts them. A device of such
+    /// a name that exists already is attached to, and a persistent one stays open to its owner.
+    public static func namedDevices(_ config: String) -> [String] {
+        var names: [String] = []
+        for name in OVPNSanitizer.deviceNames(of: config) where name != "tun" && name != "tap" {
+            let cut = String(decoding: name.utf8.prefix(maxInterfaceNameBytes), as: UTF8.self)
+            if !names.contains(cut) { names.append(cut) }
+        }
+        return names
+    }
+
+    /// `IFNAMSIZ` - 1.
+    public static let maxInterfaceNameBytes = 15
 
     /// Seconds OpenVPN waits for a server to answer (`--server-poll-timeout`) unless the config says.
     public static let serverPollTimeout = 10
