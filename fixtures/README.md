@@ -29,7 +29,7 @@ A failure is the output `error`: `{"kind": "…", "detail": "…"}`, `detail` on
 | `invalid_template` | the reason, in English |
 | `unsupported_share_file` | — |
 | `ovpn_referenced_file` | the path as written in the config |
-| `ovpn_not_allowed` | none; `violations` lists the sanitizer's lines instead (`"line 8: up (not allowed)"`) |
+| `ovpn_not_allowed` | none; `violations` lists the sanitizer's lines instead (`"line 8: up (not allowed)"`; the file as a whole without a line: `"remote (missing; …)"`) |
 | `invalid_field` | the field (canonical key) |
 | `empty_name` | — |
 | `wrong_profile_type` | the profile id (always `acme` here) |
@@ -54,7 +54,7 @@ and other control characters, line separator) are written as `\uXXXX` escapes. E
 | | `validate_template` | `template` | `valid: true` or `error` | `OTPComposer.validate` |
 | | `compose` | `password`, `otp` (or `null`), `delivery`, `template`, `type` | `secret` (what is sent as the password), `separate_otp` (FortiGate's code field, or `null`) | `OTPComposer.compose` |
 | `ovpn-sanitizer.json` | `tokens` | `line` | `tokens` (`[]` for blank and comment lines, `null` for lines OpenVPN rejects) | `OVPNSanitizer.tokens(of:)` |
-| | `sanitize` | `config` | `output` (the config to run; unchanged unless something is stripped), or `violations` (`line`, `directive`, `reason`) | `OVPNSanitizer.sanitize` |
+| | `sanitize` | `config` | `output` (the config to run; unchanged unless something is stripped), or `violations` (`line`, `directive`, `reason`; line 0 is the file as a whole, a config without any `remote`) | `OVPNSanitizer.sanitize` |
 | | `verbosity` | `config` | `verb` (or `null`) | `OVPNSanitizer.verbosity(of:)` |
 | `ovpn-analyzer.json` | `analyze` | `config` | `password_mode`, `otp_mode`, `otp_delivery`, `remote`, `remotes`, `server_description`, `redirects_gateway` (`true`, `false` or `null`) | `OVPNAnalyzer` |
 | `ovpn-inliner.json` | `inline` | `config`, `files` (path → text), `binary_files` (path → Base64) | `output` or `error` | `OVPNInliner.inline` |

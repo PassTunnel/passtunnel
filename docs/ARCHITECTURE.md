@@ -669,7 +669,12 @@ Security rules (helper):
   `tls-verify`, `auth-user-pass-verify`, `plugin`, `script-security` > 1, `management*`, `log*`, `daemon`,
   `writepid`, `cd`, `chroot`, `user`/`group`, `config`, `show-pkcs11-ids`, `genkey`, `port-share`,
   `client-crresponse`, server and standalone modes (`server*`, `tls-server`, `mode` other than `p2p`,
-  `mktun`/`rmtun`, `show-*`, …), a `dev` name that is not a device type,
+  `mktun`/`rmtun`, `show-*`, …), a `dev` name that is not a device type, a listening protocol
+  (`tcp-server`, `tcp4-server`, `tcp6-server` in `proto`, `proto-force`, or as the third argument of
+  `remote` or `local`: `OVPNSanitizer.listeningReason`), a config without any `remote` OpenVPN takes as
+  one (exactly `remote`, with one leading `--` or one `setenv opt` prefix, 1–3 arguments, also in a
+  `<connection>` block; without one OpenVPN waits for a peer to reach it: `OVPNSanitizer.missingRemote`,
+  reported as line 0, which `Violation` and `OVPNSkipRules.Blocking` list without a line number),
   external files incl. a `socks-proxy` credentials file, and, like OpenVPN's own parser, a backslash
   outside single quotes that does not escape `\`, `"` or whitespace, or ends the line, and a line that
   starts with a byte order mark anywhere but at the start of the file; strips `static-challenge`; the same
@@ -678,8 +683,14 @@ Security rules (helper):
   `--management-client-user <caller's user name>` so only the calling user can talk to it, no
   `--management-hold`; `--verb N` with the config's last `verb` capped at 4, 3 when it sets none
   (`HelperCore.openVPNVerbosity`, from `OVPNSanitizer.verbosity(of:)`); `--auth-nocache`,
-  `--remap-usr1 SIGTERM`, `--connect-retry-max 3`, stdout/stderr to logPath). Only
-  `--server-poll-timeout 10` (`HelperCore.serverPollTimeout`) comes before `--config`: OpenVPN 2.6 and 2.7
+  `--remap-usr1 SIGTERM`, `--connect-retry-max 3`, stdout/stderr to logPath). Only the pull filters
+  and `--server-poll-timeout 10` come before `--config`. `--pull-filter ignore` for each of
+  `HelperCore.ignoredPushPrefixes` (`verb`, `"verb`, `'verb`, `\`) drops a pushed `verb`, which would
+  otherwise raise the capped level after connecting: OpenVPN compares the start of each pushed option
+  (after leading whitespace) with the filters in the order it read them, the command line up to
+  `--config` and then the file, and the first match decides, so a profile's own `pull-filter accept verb`
+  never comes into play; the quoted spellings and a line starting with an escaped space are what
+  OpenVPN's parser also reads as `verb`. `--server-poll-timeout 10` (`HelperCore.serverPollTimeout`): OpenVPN 2.6 and 2.7
   then give up on a server that does not answer after 10 s instead of 120 (it bounds the TCP connect and,
   over UDP and TCP, the wait for the server's first packet: "Server poll timeout"); before the config, so
   the `<connection>` blocks inherit it (OpenVPN copies the options in force where a block is read) and a
