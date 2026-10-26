@@ -159,7 +159,7 @@ struct GeneralSettings: View {
         }
     }
 
-    /// The badges of the menu bar, in the current interface and in the new one.
+    /// The badges of the menu bar, in the current interface and in the new one (which has no lock symbol).
     private var menuBar: some View {
         SettingsGroup(String(localized: "Menu bar")) {
             SettingsPickerRow(String(localized: "Badge colors"), selection: $model.prefs.badgePalette) {
@@ -171,12 +171,14 @@ struct GeneralSettings: View {
             SettingsRow {
                 HStack(spacing: Spacing.s) {
                     SettingsRowTitle(String(localized: "Preview"))
-                    MenuBarPreview(palette: model.prefs.badgePalette, showLock: model.prefs.showLock)
+                    MenuBarPreview(palette: model.prefs.badgePalette, showLock: model.prefs.showLock && !NewInterface.isEnabled)
                 }
             }
-            SettingsDivider()
-            SettingsRow {
-                SettingsSwitch(String(localized: "Show lock symbol"), isOn: $model.prefs.showLock)
+            if !NewInterface.isEnabled {
+                SettingsDivider()
+                SettingsRow {
+                    SettingsSwitch(String(localized: "Show lock symbol"), isOn: $model.prefs.showLock)
+                }
             }
         }
     }

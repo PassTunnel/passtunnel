@@ -4,9 +4,9 @@ import PassTunnelCore
 import PassTunnelKit
 import SwiftUI
 
-// The menu bar of the new interface (`NewInterface`, decision D-23): the badges of the current menu bar (the shield
-// while there are none), and a panel with one switch per pinned or active profile, the copy items and the app items
-// (docs/APP.md, Menu bar). The status item is `MenuBarLabel`; the current menu is `MenuBarMenu`.
+// The menu bar of the new interface (`NewInterface`, decision D-23): the badges of the profiles that are connecting,
+// connected or dropped (the shield while there are none), and a panel with one switch per pinned or active profile,
+// the copy items and the app items (docs/APP.md, Menu bar). The status item is `MenuBarLabel`; the current menu is `MenuBarMenu`.
 
 extension AppModel {
     /// Profiles whose connection is up (with or without a problem).
@@ -117,7 +117,7 @@ struct MenuBarPanel: View {
             focus = nil
             hovered = nil
             listed = []
-            // The rows showed the drop; the dot on the shield goes with it.
+            // The rows showed the drop; the dot on the badge goes with it.
             model.markDropsSeen()
         }
     }
