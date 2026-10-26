@@ -741,7 +741,7 @@ final class ProfileStoreTests: CoreTestCase {
         let json = """
         {"passtunnel_profile":1,
          "profile":{"id":"../../evil","name":"Evil","type":"openvpn","mgmt_port":7505,"username":"bob"},
-         "files":{"../../escape.txt":"\(payload)","profile.json":"\(payload)","config.ovpn":"\(Data("client\n".utf8).base64EncodedString())"}}
+         "files":{"../../escape.txt":"\(payload)","profile.json":"\(payload)","config.ovpn":"\(Data("client\nremote vpn.example.com\n".utf8).base64EncodedString())"}}
         """
         let url = try write(json, name: "evil.passtunnel")
         let p = try store.importShare(url, name: nil)

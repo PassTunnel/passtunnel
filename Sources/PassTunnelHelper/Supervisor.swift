@@ -26,6 +26,7 @@ final class Supervisor {
     }
 
     static let stopGrace: TimeInterval = 5
+    static let dnsRestoreTimeout: TimeInterval = 10
     static let logCheckInterval: TimeInterval = 60
 
     let queue = DispatchQueue(label: "com.furkanprlk.passtunnel.helper.supervisor")
@@ -101,8 +102,7 @@ final class Supervisor {
             let executable = try stager.stage(inUse: inUse).executable(plan.tool)
             if let dns = plan.dnsUpdownPath {
                 // The root-owned copy openvpn runs; the release's own build only (`PinnedTools`).
-                let cdhash = try CodeSignature.verify(path: dns, requirement: PT.toolRequirement(identifier: PT.dnsUpdownIdentifier))
-                try PinnedTools.check("dns-updown", cdhash: cdhash, allowed: PinnedTools.allowed("dns-updown"))
+                try Self.checkDNSScript(dns)
             }
             // Requirement, then the cdhashes this helper was built with, both on the started process
             // (the staged file is root-owned; this also covers whatever posix_spawn actually opened).
@@ -176,6 +176,7 @@ final class Supervisor {
         queue.sync {
             for job in jobs.values {
                 kill(-job.pid, SIGKILL)
+                restoreDNS(runDir: job.runDir, profileID: job.profileID, uid: job.ownerUID, outputFD: job.logFD)
                 core.removeRunDir(profileID: job.profileID, uid: job.ownerUID)
             }
         }
@@ -214,12 +215,71 @@ final class Supervisor {
 
     private func finish(_ job: Job, status: Int32) {
         job.source?.cancel()
-        if let fd = job.logFD { close(fd) }
         jobs[job.key] = nil
         kill(-job.pid, SIGTERM)          // leftovers in the group (pppd)
+        restoreDNS(runDir: job.runDir, profileID: job.profileID, uid: job.ownerUID, outputFD: job.logFD)
+        if let fd = job.logFD { close(fd) }
         core.removeRunDir(profileID: job.profileID, uid: job.ownerUID)   // config, auth file and socket
         log.info("\(job.profileID, privacy: .public) of uid \(job.ownerUID) exited (pid \(job.pid), status \(status))")
         job.waiters.forEach { $0() }
+    }
+
+    // MARK: - DNS
+
+    /// The session's copy of OpenVPN's DNS script: our signing requirement and, in a pinned build, the
+    /// release's own cdhash (`PinnedTools`).
+    private static func checkDNSScript(_ path: String) throws {
+        let cdhash = try CodeSignature.verify(path: path, requirement: PT.toolRequirement(identifier: PT.dnsUpdownIdentifier))
+        try PinnedTools.check("dns-updown", cdhash: cdhash, allowed: PinnedTools.allowed("dns-updown"))
+    }
+
+    /// Runs the dns-down OpenVPN still owes the session in `runDir` (`HelperCore.pendingDNSDown`). OpenVPN
+    /// runs it when it closes the tunnel, but not when it is killed, and not after a PUSH_UPDATE that
+    /// replaced or removed the `dns` options (2.7 then forgets its `--dns-updown`; docs/ARCHITECTURE.md,
+    /// "DNS script (macOS)"). The same script, checked again, with the recorded variables; output to the
+    /// session's log; at most `dnsRestoreTimeout`, before the run directory is removed.
+    private func restoreDNS(runDir: String, profileID: String, uid: uid_t, outputFD: Int32?) {
+        let environment: [String]
+        do {
+            guard let pending = try HelperCore.pendingDNSDown(runDir: runDir) else { return }
+            environment = pending
+        } catch {
+            log.error("not restoring DNS for \(profileID, privacy: .public) of uid \(uid): \(String(describing: error), privacy: .public)")
+            return
+        }
+        let script = runDir + "/dns-updown"
+        let devNull = outputFD == nil ? open("/dev/null", O_WRONLY | O_CLOEXEC) : -1
+        defer { if devNull >= 0 { close(devNull) } }
+        let output = outputFD ?? devNull
+        do {
+            try Self.checkDNSScript(script)
+            // Not "PassTunnel: ", which `VPNLog.isFatal` reads as a failed start.
+            let line = "PassTunnel helper: OpenVPN did not undo its DNS settings; running dns-down\n"
+            _ = line.withCString { write(output, $0, strlen($0)) }
+            let pid = try Spawner.spawn(executable: "/bin/bash", arguments: [script], environment: environment,
+                                        workingDirectory: runDir, outputFD: output)
+            let status = Self.wait(pid, timeout: Self.dnsRestoreTimeout)
+            log.notice("ran dns-down for \(profileID, privacy: .public) of uid \(uid): \(status.map { "status \($0)" } ?? "timed out", privacy: .public)")
+        } catch {
+            log.error("restoring DNS for \(profileID, privacy: .public) of uid \(uid) failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// Waits for child `pid` at most `timeout`, then kills its process group. The exit status (128 + the
+    /// signal that ended it, -1 if it cannot be waited for), nil after a timeout.
+    private static func wait(_ pid: pid_t, timeout: TimeInterval) -> Int32? {
+        let deadline = Date().addingTimeInterval(timeout)
+        var status: Int32 = 0
+        repeat {
+            let r = waitpid(pid, &status, WNOHANG)
+            if r == pid { return status & 0x7f == 0 ? (status >> 8) & 0xff : 128 + (status & 0x7f) }
+            if r < 0, errno != EINTR { return -1 }
+            usleep(20_000)
+        } while Date() < deadline
+        kill(-pid, SIGKILL)
+        kill(pid, SIGKILL)
+        _ = waitpid(pid, &status, 0)
+        return nil
     }
 
     // MARK: - Crash recovery
@@ -264,9 +324,13 @@ final class Supervisor {
                     HelperCore.removeEntry(path); continue
                 }
                 for id in Self.entries(path) {
-                    guard HelperCore.isValidProfileID(id), let state = Self.readState(path + "/" + id + "/state"),
-                          state.uid == uid, Self.isAlive(state),
+                    let state = HelperCore.isValidProfileID(id) ? Self.readState(path + "/" + id + "/state") : nil
+                    guard let state, state.uid == uid, Self.isAlive(state),
                           let dir = try? core.openRunDir(profileID: id, uid: uid) else {
+                        // A tool that ended while no helper ran: undo what its DNS hook left first.
+                        if let state, !Self.isAlive(state), let dir = try? core.openRunDir(profileID: id, uid: uid) {
+                            restoreDNS(runDir: dir.path, profileID: id, uid: uid, outputFD: nil)
+                        }
                         HelperCore.removeEntry(path + "/" + id); continue
                     }
                     log.notice("adopting \(id, privacy: .public) of uid \(uid) (pid \(state.pid))")

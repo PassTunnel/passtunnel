@@ -65,7 +65,7 @@ final class OVPNInlinerTests: CoreTestCase {
 
     func testPKCS12IsBase64() throws {
         let p12 = Data((0..<300).map { UInt8($0 % 256) })
-        let url = try makeFolder("client\npkcs12 bundle.p12\n", extra: ["bundle.p12": p12])
+        let url = try makeFolder("client\npkcs12 bundle.p12\nremote vpn.example.com\n", extra: ["bundle.p12": p12])
         let text = try OVPNInliner.prepare(try String(contentsOf: url), baseDir: url.deletingLastPathComponent())
         let start = text.range(of: "<pkcs12>\n")!.upperBound
         let end = text.range(of: "\n</pkcs12>")!.lowerBound
@@ -80,7 +80,7 @@ final class OVPNInlinerTests: CoreTestCase {
         try Data(caPEM.utf8).write(to: shared.appendingPathComponent("root.crt"))
         let absKey = home.appendingPathComponent("abs.key")
         try Data(keyPEM.utf8).write(to: absKey)
-        let url = try makeFolder("client\nca ../shared/root.crt\nkey \(absKey.path)\n")
+        let url = try makeFolder("client\nca ../shared/root.crt\nkey \(absKey.path)\nremote vpn.example.com\n")
         let p = try store.importOVPN(url, name: nil)
         let text = try String(contentsOf: store.ovpnURL(p.id))
         XCTAssertTrue(text.contains("<ca>\n\(caPEM)</ca>"))
@@ -115,7 +115,8 @@ final class OVPNInlinerTests: CoreTestCase {
     }
 
     func testForbiddenDirectiveIsRejectedWithClearError() throws {
-        let url = try makeFolder("client\nca ca.crt\nscript-security 2\nup /tmp/x.sh\nplugin /tmp/x.so\ntls-verify /tmp/v.sh\n")
+        let url = try makeFolder("client\nca ca.crt\nscript-security 2\nup /tmp/x.sh\nplugin /tmp/x.so\ntls-verify /tmp/v.sh\n"
+                                 + "remote vpn.example.com\n")
         XCTAssertThrowsError(try store.importOVPN(url, name: "Acme")) { error in
             guard case .ovpnNotAllowed(let violations) = error as? PTError else { return XCTFail("\(error)") }
             // Line numbers of the file as written (ca.crt is embedded above them); skipped lines are not listed.
@@ -134,7 +135,7 @@ final class OVPNInlinerTests: CoreTestCase {
 
     func testSetOVPNInlinesAndChecks() throws {
         let p = try store.create(name: "Acme", type: .openvpn)
-        let good = try makeFolder("client\nca ca.crt\n")
+        let good = try makeFolder("client\nca ca.crt\nremote vpn.example.com\n")
         try store.setOVPN(p.id, from: good)
         XCTAssertTrue(try String(contentsOf: store.ovpnURL(p.id)).contains("<ca>"))
         let bad = try makeFolder("client\ndown /tmp/x.sh\n")

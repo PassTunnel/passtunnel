@@ -17,7 +17,8 @@ public final class Daemon {
         public var dnsHook: String?
         /// Where DNS is changed and reverted (`DNSApplier`); a fake root in tests.
         public var dns = DNSSystem()
-        /// The network interfaces, as the checks of a FortiGate session's ppp interface see them.
+        /// The network interfaces, as the checks of a FortiGate session's ppp interface and of an OpenVPN
+        /// profile's device name see them.
         public var interfaces = InterfaceSystem()
         /// How long a FortiGate DNS set-up waits, once the tunnel is up, for what openfortivpn did not
         /// report yet.
@@ -102,6 +103,7 @@ public final class Daemon {
         var core = HelperCore(runRoot: options.runRoot, dnsUpdownSource: nil,
                               homeDirectory: options.users.home, userName: options.users.name)
         core.dnsHook = hook
+        core.interfaceExists = options.interfaces.exists
         supervisor = Supervisor(core: core, tools: options.tools, dns: dns, interfaces: options.interfaces,
                                 reportWait: options.reportWait, stopGrace: options.stopGrace,
                                 pendingDNS: previous.pendingDNS, retryInterval: options.dnsRetryInterval)

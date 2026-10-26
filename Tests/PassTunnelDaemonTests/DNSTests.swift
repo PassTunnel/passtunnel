@@ -1265,7 +1265,7 @@ final class DaemonDNSTests: DNSTestCase {
     }
 
     func testArguments() {
-        let common = ["--server-poll-timeout", "10", "--config", "/c", "--verb", "3", "--management", "/m", "unix", "--management-client-user", "alice",
+        let common = HelperCore.ignoredPushPrefixes.flatMap { ["--pull-filter", "ignore", $0] } + ["--server-poll-timeout", "10", "--config", "/c", "--verb", "3", "--management", "/m", "unix", "--management-client-user", "alice",
                       "--auth-nocache", "--remap-usr1", "SIGTERM", "--connect-retry-max", "3"]
         XCTAssertEqual(HelperCore.openVPNArguments(configPath: "/c", mgmtSocket: "/m", clientUser: "alice", authFile: nil,
                                                    dnsUpdown: "/r/dns-hook", hasDNSUpdown: false),

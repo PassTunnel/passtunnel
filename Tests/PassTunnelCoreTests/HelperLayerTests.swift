@@ -36,12 +36,14 @@ final class OVPNSanitizerTests: XCTestCase {
 
     """
 
+    /// The lines `sanitize` refuses. Most configs here have no `remote`: that the file as a whole is
+    /// refused then (`OVPNSanitizer.missingRemote`) is checked on its own (`testListeningModes`).
     func violations(_ text: String) -> [OVPNSanitizer.Violation] {
         do {
             _ = try OVPNSanitizer.sanitize(text)
             return []
         } catch let f as OVPNSanitizer.Failure {
-            return f.violations
+            return f.violations.filter { $0 != OVPNSanitizer.missingRemote }
         } catch {
             XCTFail("unexpected error \(error)")
             return []
@@ -91,21 +93,22 @@ final class OVPNSanitizerTests: XCTestCase {
         }
         let args = HelperCore.openVPNArguments(configPath: "/c", mgmtSocket: "/s", clientUser: "alice", authFile: nil,
                                                dnsUpdown: nil, verbosity: 11)
-        XCTAssertEqual(Array(args.prefix(6)), ["--server-poll-timeout", "10", "--config", "/c", "--verb", "4"])
+        XCTAssertEqual(Array(args.drop { $0 != "--config" }.prefix(4)), ["--config", "/c", "--verb", "4"])
     }
 
     /// A server that does not answer is given up on after 10 s (each OpenVPN run tries once: `--remap-usr1
     /// SIGTERM`), not OpenVPN's 120. Before `--config`, so `<connection>` blocks inherit it and a config's own
-    /// value wins; every other fixed flag follows the config.
+    /// value wins; every other fixed flag but the pull filters follows the config.
     func testServerPollTimeoutComesBeforeTheConfig() {
         let args = HelperCore.openVPNArguments(configPath: "/c", mgmtSocket: "/s", clientUser: "alice", authFile: "/a",
                                                dnsUpdown: "/d")
+        let start = 3 * HelperCore.ignoredPushPrefixes.count
         XCTAssertEqual(HelperCore.serverPollTimeout, 10)
-        XCTAssertEqual(args.firstIndex(of: "--server-poll-timeout"), 0)
-        XCTAssertEqual(args[1], "10")
-        XCTAssertEqual(args.firstIndex(of: "--config"), 2)
+        XCTAssertEqual(args.firstIndex(of: "--server-poll-timeout"), start)
+        XCTAssertEqual(args[start + 1], "10")
+        XCTAssertEqual(args.firstIndex(of: "--config"), start + 2)
         XCTAssertEqual(args.filter { $0 == "--server-poll-timeout" }.count, 1)
-        XCTAssertEqual(Array(args.suffix(from: 2)),
+        XCTAssertEqual(Array(args.suffix(from: start + 2)),
                        ["--config", "/c", "--verb", "3", "--management", "/s", "unix", "--management-client-user", "alice",
                         "--auth-nocache", "--remap-usr1", "SIGTERM", "--connect-retry-max", "3", "--auth-user-pass", "/a",
                         "--script-security", "2", "--dns-updown", "/d"])
@@ -143,7 +146,7 @@ final class OVPNSanitizerTests: XCTestCase {
     }
 
     func testInlineBlocksKeptVerbatimAndChecked() throws {
-        let text = "<ca>\nup /tmp/x\nplugin y\n</ca>\n"
+        let text = "<ca>\nup /tmp/x\nplugin y\n</ca>\nremote vpn.example.com\n"
         XCTAssertEqual(try OVPNSanitizer.sanitize(text), text)
         // Forbidden directive used as a block, block opened with dashes, unterminated block.
         XCTAssertEqual(violations("<up>\n#!/bin/sh\n</up>\n").count, 1)
@@ -432,7 +435,8 @@ final class HelperCoreTests: XCTestCase {
         XCTAssertEqual(plan.runDir, plan.sessionDir.path)
         XCTAssertEqual(plan.mgmtSocket, plan.runDir + "/mgmt.sock")
         XCTAssertEqual(plan.arguments, [
-            "--server-poll-timeout", "10",
+            "--pull-filter", "ignore", "verb", "--pull-filter", "ignore", "\"verb", "--pull-filter", "ignore", "'verb",
+            "--pull-filter", "ignore", "\\", "--server-poll-timeout", "10",
             "--config", plan.runDir + "/config.ovpn", "--verb", "3", "--management", plan.runDir + "/mgmt.sock", "unix",
             "--management-client-user", "alice", "--auth-nocache",
             "--remap-usr1", "SIGTERM", "--connect-retry-max", "3", "--auth-user-pass", plan.runDir + "/auth",
@@ -457,7 +461,7 @@ final class HelperCoreTests: XCTestCase {
             .write(to: URL(fileURLWithPath: acmeDir + "/config.ovpn"))
         let plan = try core().prepareOpenVPN(openVPNStart(), uid: me)
         defer { close(plan.logFD); core().removeRunDir(profileID: "acme", uid: me) }
-        XCTAssertEqual(Array(plan.arguments.dropFirst(2).prefix(4)), ["--config", plan.runDir + "/config.ovpn", "--verb", "4"],
+        XCTAssertEqual(Array(plan.arguments.drop { $0 != "--config" }.prefix(4)), ["--config", plan.runDir + "/config.ovpn", "--verb", "4"],
                        "after --config, so it overrides the file")
         XCTAssertEqual(plan.arguments.filter { $0 == "--verb" }.count, 1)
     }
@@ -467,9 +471,21 @@ final class HelperCoreTests: XCTestCase {
         try "#!/bin/sh\nexit 0\n".write(to: script, atomically: true, encoding: .utf8)
         let plan = try core(dns: script.path).prepareOpenVPN(openVPNStart(), uid: me)
         defer { close(plan.logFD) }
-        XCTAssertEqual(plan.dnsUpdownPath, plan.runDir + "/dns-updown")
-        XCTAssertEqual(Array(plan.arguments.suffix(4)), ["--script-security", "2", "--dns-updown", plan.runDir + "/dns-updown"])
+        XCTAssertEqual(plan.dnsUpdownPath, plan.runDir + "/dns-updown", "the copy the helper checks")
+        XCTAssertEqual(Array(plan.arguments.suffix(4)), ["--script-security", "2", "--dns-updown", plan.runDir + "/dns-hook"],
+                       "OpenVPN runs the wrapper")
         XCTAssertEqual(try String(contentsOfFile: plan.runDir + "/dns-updown", encoding: .utf8), "#!/bin/sh\nexit 0\n")
+        XCTAssertEqual(try String(contentsOfFile: plan.runDir + "/dns-hook", encoding: .utf8), HelperCore.dnsHookText)
+        let attrs = try FileManager.default.attributesOfItem(atPath: plan.runDir + "/dns-hook")
+        XCTAssertEqual((attrs[.posixPermissions] as? NSNumber)?.intValue, 0o700)
+    }
+
+    func testPrepareOpenVPNWithoutDNSScriptWritesNoWrapper() throws {
+        let plan = try core(dns: base.appendingPathComponent("missing").path).prepareOpenVPN(openVPNStart(), uid: me)
+        defer { close(plan.logFD) }
+        XCTAssertNil(plan.dnsUpdownPath)
+        XCTAssertEqual(Array(plan.arguments.suffix(4)), ["--script-security", "1", "--dns-updown", "disable"])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: plan.runDir + "/dns-hook"))
     }
 
     func testPrepareForti() throws {
@@ -599,8 +615,8 @@ final class HelperCoreTests: XCTestCase {
     }
 
     func testForbiddenConfigIsRejected() throws {
-        try "client\nup /tmp/evil.sh\n".write(to: profiles.appendingPathComponent("acme/config.ovpn"),
-                                             atomically: true, encoding: .utf8)
+        try "client\nup /tmp/evil.sh\nremote vpn.example.com\n".write(to: profiles.appendingPathComponent("acme/config.ovpn"),
+                                                                    atomically: true, encoding: .utf8)
         XCTAssertThrowsError(try core().prepareOpenVPN(openVPNStart(), uid: me)) { error in
             XCTAssertEqual((error as? OVPNSanitizer.Failure)?.violations.map(\.line), [2])
         }

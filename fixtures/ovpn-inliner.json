@@ -228,11 +228,11 @@
     },
     {
       "name": "a referenced file's BOM is not embedded",
-      "config": "\ufeffclient\r\nca ca.crt\r\n",
+      "config": "\ufeffclient\r\nca ca.crt\r\nremote vpn.example.com\n",
       "files": {
         "ca.crt": "\ufeffCERT\r\n"
       },
-      "output": "client\n<ca>\nCERT\n</ca>\n"
+      "output": "client\n<ca>\nCERT\n</ca>\nremote vpn.example.com\n"
     },
     {
       "name": "a BOM starting a later line",
@@ -243,7 +243,8 @@
       "error": {
         "kind": "ovpn_not_allowed",
         "violations": [
-          "line 2: (line) (starts with a byte order mark (only the first line of the file may))"
+          "line 2: (line) (starts with a byte order mark (only the first line of the file may))",
+          "remote (missing; without a server to connect to, OpenVPN waits for incoming connections)"
         ]
       }
     },
@@ -257,7 +258,8 @@
         "kind": "ovpn_not_allowed",
         "violations": [
           "line 7: script-security (level above 1 allows scripts)",
-          "line 8: up (not allowed)"
+          "line 8: up (not allowed)",
+          "remote (missing; without a server to connect to, OpenVPN waits for incoming connections)"
         ]
       }
     },
@@ -270,7 +272,8 @@
       "error": {
         "kind": "ovpn_not_allowed",
         "violations": [
-          "line 2: (line) (a backslash may only escape \\, \" or whitespace)"
+          "line 2: (line) (a backslash may only escape \\, \" or whitespace)",
+          "remote (missing; without a server to connect to, OpenVPN waits for incoming connections)"
         ]
       }
     },
@@ -284,8 +287,8 @@
     },
     {
       "name": "a referenced credentials file is dropped, askpass removed",
-      "config": "client\nauth-user-pass creds.txt\naskpass pass.txt\n",
-      "output": "client\nauth-user-pass\n"
+      "config": "client\nauth-user-pass creds.txt\naskpass pass.txt\nremote vpn.example.com\n",
+      "output": "client\nauth-user-pass\nremote vpn.example.com\n"
     }
   ],
   "strip_credentials": [
