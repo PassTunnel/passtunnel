@@ -197,6 +197,23 @@ enum RenderSnapshots {
                 snapshot(MenuBarPanelPreview(now: now).environmentObject(panel), size: nil, dark: dark, to: out,
                          name: "menubar-panel")
             }
+
+            // The website's hero (`main-split-hero`): a narrower window with two tunnels, Work (connected) selected,
+            // so the text stays readable at the size the page shows it. Needs the profiles deleted above.
+            try store.delete(staging)
+            model.reload()
+            model.previewStates = sample.states(now).filter { $0.key == work }
+            model.previewErrors = [:]
+            model.previewUnreachable = []
+            model.setPreviewDropped([travel])
+            model.previewReconnecting = [travel: ReconnectInfo(attempt: 1, maxAttempts: 3, at: now)]
+            model.previewActivity = sampleActivity(sample.ids, now: now, waitingNow: now)
+            model.selection = work
+            model.previewNow = now
+            for dark in [false, true] {
+                snapshot(SplitWindowRender().environmentObject(model), size: CGSize(width: 800, height: 580), dark: dark,
+                         to: out, name: "main-split-hero", window: true)
+            }
         } catch {
             FileHandle.standardError.write(Data("render failed: \(error.localizedDescription)\n".utf8))
             return 1

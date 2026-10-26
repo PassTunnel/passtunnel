@@ -817,7 +817,8 @@ client errors) must have Turkish translations.
 - SwiftPM does not sync the catalog: add new keys by hand. `LocalizationTests` fails when a localized
   literal in the sources is missing from the catalog, lacks a Turkish value, or changes placeholders.
 - `PASSTUNNEL_RENDER_LANG=tr` renders the `PASSTUNNEL_RENDER` screenshots in Turkish (from a bundle
-  with the compiled `tr.lproj`, e.g. the app `build-app.sh` makes). Renders include `main-split-locked`
+  with the compiled `tr.lproj`, e.g. the app `build-app.sh` makes; an unbundled `swift build` binary has none,
+  so the render stops with the `xcstringstool compile … --output-directory <bin dir>` command that adds them). Renders include `main-split-locked`
   (`AppModel.previewLockedCodes`; no Secure Enclave key is made), `main-split-hidden` ("Hide codes until clicked"),
   `settings-general` (the whole page), `editor/editor-require-auth`, `editor/editor-connect-at-login` (with the footnote of an app that does not
   open at login), `editor/editor-scan-screen` and `editor-scan-screen-none` (macOS 14 and later) and the menu bar

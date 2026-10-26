@@ -83,7 +83,8 @@ themed() {
 }
 
 echo "==> Converting screenshots"
-themed "$RENDER/main-split" main 640                            # hero: the split window, two tunnels
+themed "$RENDER/main-split-hero" hero 640                       # hero: a narrow split window (800 pt), two tunnels
+themed "$RENDER/main-split" main 640                            # README: the split window, six tunnels (not on the page)
 themed "$RENDER/editor/editor-one-time-code" editor-code 480    # profile editor sheet
 themed "$RENDER/menubar-panel" menubar-panel 360                # menu bar panel
 themed "$RENDER/first-run" first-run 520                        # first run: import options, helper card
@@ -100,6 +101,9 @@ mkdir -p "$README_OUT"
 for name in main-light main-dark first-run-light editor-code-light menubar-panel-light menubar-panel-dark settings-general-light; do
     dwebp -quiet "$OUT/$name@2x.webp" -o "$README_OUT/$name.png"
 done
+
+# The page shows the narrow hero instead, so the six-tunnel window is not published with the site.
+rm -f "$OUT"/main-*.webp
 
 echo "==> Icons"
 # The macOS icon is drawn on Apple's grid: an 824 px rounded square centered in a 1024 px image.
