@@ -7,9 +7,11 @@
 # profiles, a temporary support folder and a throwaway Keychain service: nothing is shown on screen,
 # and no real profile, secret, VPN or helper is touched. The screenshots are written as near-lossless
 # WebP at the size they are displayed (1x), one and a half times (@1.5x) and twice that (@2x); the
-# small images (icons, menu bar badges) as lossless WebP at 1x and 2x. The favicon and the Apple
+# small images (icons) as lossless WebP at 1x and 2x. The favicon and the Apple
 # touch icon come from Resources/AppIcon.icns, and the 1200x630 social image is scripts/site/og.html
 # rendered with headless Google Chrome.
+#
+# It also writes the images the README shows to docs/images/ (the 2x screenshots as PNG).
 #
 # Needs macOS with Xcode, cwebp (brew install webp) and Google Chrome (or CHROME=/path/to/chrome).
 # After a run, check that the width and height attributes and the srcset width descriptors in
@@ -59,40 +61,44 @@ webp() {
     cwebp -quiet -lossless -z 9 -exact -metadata none -resize "$((w * 2))" 0 "$src" -o "$OUT/$name@2x.webp"
 }
 
-# shot SOURCE NAME WIDTH: a screenshot as NAME.webp at WIDTH px (1x), NAME@1.5x.webp and NAME@2x.webp,
+# shot SOURCE NAME WIDTH [CUT]: a screenshot as NAME.webp at WIDTH px (1x), NAME@1.5x.webp and NAME@2x.webp,
 # near-lossless (no pixel off by more than 2 of 255, about 30% smaller than lossless). WIDTH must be
-# even, so that 1.5x is a whole number of pixels (site/index.html lists the widths in srcset).
+# even, so that 1.5x is a whole number of pixels (site/index.html lists the widths in srcset). CUT
+# removes that many pixels (of the render) from the bottom first.
 shot() {
-    local src="$1" name="$2" w="$3"
+    local src="$1" name="$2" w="$3" cut="${4:-0}" crop=()
+    (( cut == 0 )) || crop=(-crop 0 0 "$(width "$src")" "$(($(height "$src") - cut))")
     [[ -f "$src" ]] || die "the renderer did not write $(basename "$src")"
     (( w % 2 == 0 )) || die "the 1x width of $name must be even"
-    cwebp -quiet -lossless -near_lossless 60 -z 9 -exact -metadata none -resize "$w" 0 "$src" -o "$OUT/$name.webp"
-    cwebp -quiet -lossless -near_lossless 60 -z 9 -exact -metadata none -resize "$((w * 3 / 2))" 0 "$src" -o "$OUT/$name@1.5x.webp"
-    cwebp -quiet -lossless -near_lossless 60 -z 9 -exact -metadata none -resize "$((w * 2))" 0 "$src" -o "$OUT/$name@2x.webp"
+    cwebp -quiet -lossless -near_lossless 60 -z 9 -exact -metadata none ${crop[@]+"${crop[@]}"} -resize "$w" 0 "$src" -o "$OUT/$name.webp"
+    cwebp -quiet -lossless -near_lossless 60 -z 9 -exact -metadata none ${crop[@]+"${crop[@]}"} -resize "$((w * 3 / 2))" 0 "$src" -o "$OUT/$name@1.5x.webp"
+    cwebp -quiet -lossless -near_lossless 60 -z 9 -exact -metadata none ${crop[@]+"${crop[@]}"} -resize "$((w * 2))" 0 "$src" -o "$OUT/$name@2x.webp"
 }
 
-# themed SOURCE_BASE NAME WIDTH: the light and the dark render (SOURCE_BASE.png, SOURCE_BASE-dark.png).
+# themed SOURCE_BASE NAME WIDTH [CUT]: the light and the dark render (SOURCE_BASE.png, SOURCE_BASE-dark.png).
 themed() {
     same_size "$1.png" "$1-dark.png"
-    shot "$1.png" "$2-light" "$3"
-    shot "$1-dark.png" "$2-dark" "$3"
+    shot "$1.png" "$2-light" "$3" "${4:-0}"
+    shot "$1-dark.png" "$2-dark" "$3" "${4:-0}"
 }
 
 echo "==> Converting screenshots"
-themed "$RENDER/main" main 640                                  # hero: main window
+themed "$RENDER/main-split" main 640                            # hero: the split window, two tunnels
 themed "$RENDER/editor/editor-one-time-code" editor-code 480    # profile editor sheet
-themed "$RENDER/settings-general" settings-general 400          # Settings, General
-themed "$RENDER/onboarding-2" onboarding-helper 440             # onboarding: install the helper
+themed "$RENDER/menubar-panel" menubar-panel 360                # menu bar panel
+themed "$RENDER/first-run" first-run 520                        # first run: import options, helper card
 
-# Menu bar badges, transparent, rendered at scale 4 and shown at twice their size in the menu bar, so
-# the 2x file is the render itself.
-for palette in pastel vivid soft candy earth; do
-    for theme in light dark; do
-        suffix=""
-        [[ "$theme" == dark ]] && suffix="-dark"
-        src="$RENDER/menubar-badges-$palette$suffix.png"
-        webp "$src" "menubar-$palette-$theme" "$(($(width "$src") / 2))"
-    done
+# Settings, General: the window ends with a line showing the version, which is not a real one in a
+# render (0.0.0) and which the site does not print, so the last 190 px (48 pt) are cropped off.
+themed "$RENDER/settings-general" settings-general 400 190
+
+echo "==> README images (docs/images/, the 2x screenshots as PNG)"
+command -v dwebp >/dev/null || die "dwebp is missing (brew install webp)"
+README_OUT="$ROOT/docs/images"
+rm -rf "$README_OUT"
+mkdir -p "$README_OUT"
+for name in main-light main-dark first-run-light editor-code-light menubar-panel-light menubar-panel-dark settings-general-light; do
+    dwebp -quiet "$OUT/$name@2x.webp" -o "$README_OUT/$name.png"
 done
 
 echo "==> Icons"

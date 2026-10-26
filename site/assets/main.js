@@ -1,4 +1,4 @@
-/* PassTunnel website: theme button, mobile menu, copy buttons, format and palette pickers, and the
+/* PassTunnel website: theme button, mobile menu, copy buttons, format picker, and the
    live code demo. No dependencies. Everything the scripts show is in STRINGS (for translations). */
 (function () {
   'use strict';
@@ -227,16 +227,6 @@
   picker(formatButtons, function (button) {
     var id = button.getAttribute('data-format');
     formatPanels.forEach(function (panel) { panel.hidden = panel.getAttribute('data-format-panel') !== id; });
-  });
-
-  var paletteImages = Array.prototype.slice.call(document.querySelectorAll('[data-palette-img]'));
-  picker(Array.prototype.slice.call(document.querySelectorAll('[data-palette]')), function (button) {
-    var palette = button.getAttribute('data-palette');
-    paletteImages.forEach(function (img) {
-      var base = 'assets/img/menubar-' + palette + '-' + img.getAttribute('data-palette-img');
-      img.setAttribute('srcset', base + '.webp 1x, ' + base + '@2x.webp 2x');
-      img.setAttribute('src', base + '.webp');
-    });
   });
 
   /* ---------- Live code demo ---------- */
