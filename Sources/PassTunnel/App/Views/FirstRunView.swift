@@ -3,10 +3,10 @@ import PassTunnelCore
 import PassTunnelKit
 import SwiftUI
 
-// Adding a VPN in the redesigned window (behind `NewInterface`): the first run, while there are no profiles, and what
-// the sidebar's + opens ("Add a VPN"). A drop zone with Choose File…, a tile for each other way in, and the helper card
-// while the helper is not installed. It replaces the current window's empty state and onboarding sheet (decision
-// D-18): once the first profile is there, the detail asks whether PassTunnel should open at login.
+// Adding a VPN in the main window: the first run, while there are no profiles, and what the sidebar's + opens ("Add a
+// VPN"). A drop zone with Choose File…, a tile for each other way in, and the helper card while the helper is not
+// installed. There is no onboarding sheet (decision D-18): once the first profile is there, the detail asks whether
+// PassTunnel should open at login.
 
 struct FirstRunView: View {
     @EnvironmentObject private var model: AppModel
@@ -215,7 +215,7 @@ private struct TileButtonStyle: ButtonStyle {
 
 // MARK: - Helper
 
-/// What the helper is for and its Install button (the onboarding sheet's step before, decision D-18). After Install,
+/// What the helper is for and its Install button (decision D-18). After Install,
 /// macOS may ask for an approval in Login Items: the card opens them and follows the status. Once the helper runs, the
 /// card says so until the view goes.
 private struct HelperCard: View {
@@ -313,9 +313,9 @@ private struct HelperCard: View {
 
 // MARK: - Open at login
 
-/// "Open PassTunnel at login?" under the detail once the first profile is there, until it is answered (the onboarding
-/// sheet's checkbox before, decision D-18): the login item is registered only when the user says so. Not asked when
-/// PassTunnel already opens at login or cannot (not run as an app).
+/// "Open PassTunnel at login?" under the detail once the first profile is there, until it is answered (decision D-18):
+/// the login item is registered only when the user says so. Not asked when PassTunnel already opens at login or cannot
+/// (not run as an app).
 struct OpenAtLoginQuestion: View {
     @EnvironmentObject private var model: AppModel
     @AppStorage(AppModel.onboardingKey) private var answered = false

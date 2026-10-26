@@ -299,16 +299,6 @@
         }
       }
     },
-    "%lld connected" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld bağlı"
-          }
-        }
-      }
-    },
     "%lld h" : {
       "localizations" : {
         "tr" : {
@@ -2803,16 +2793,6 @@
         }
       }
     },
-    "Some lines of “%@” were skipped" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "“%@” dosyasındaki bazı satırlar atlandı"
-          }
-        }
-      }
-    },
     "Some networks block VPN traffic. Try another network or ask your IT team." : {
       "localizations" : {
         "tr" : {
@@ -3683,32 +3663,22 @@
         }
       }
     },
-    "Nothing was imported. Open the .passtunnel files one by one." : {
+    "Nothing was imported. Open the files one by one." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hiçbir şey içe aktarılmadı. .passtunnel dosyalarını tek tek açın."
+            "value" : "Hiçbir şey içe aktarılmadı. Dosyaları tek tek açın."
           }
         }
       }
     },
-    "One-time code, hidden. Click to show it." : {
+    "Open one file at a time" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tek kullanımlık kod gizli. Göstermek için tıklayın."
-          }
-        }
-      }
-    },
-    "Open one shared profile at a time" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Paylaşılan profilleri tek tek açın"
+            "value" : "Dosyaları tek tek açın"
           }
         }
       }
@@ -3783,12 +3753,12 @@
         }
       }
     },
-    "PassTunnel opens .passtunnel files. To add an OpenVPN configuration, use File → Import .ovpn…" : {
+    "PassTunnel opens OpenVPN configurations (.ovpn or .conf) and shared profiles (.passtunnel)." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "PassTunnel .passtunnel dosyalarını açar. Bir OpenVPN yapılandırması eklemek için Dosya → .ovpn İçe Aktar… komutunu kullanın."
+            "value" : "PassTunnel, OpenVPN yapılandırmalarını (.ovpn veya .conf) ve paylaşılan profilleri (.passtunnel) açar."
           }
         }
       }
@@ -3889,16 +3859,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Göster"
-          }
-        }
-      }
-    },
-    "Show log of %@" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ günlüğünü göster"
           }
         }
       }
@@ -4504,16 +4464,6 @@
         }
       }
     },
-    "A .passtunnel file exported by a colleague" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bir iş arkadaşınızın dışa aktardığı .passtunnel dosyası"
-          }
-        }
-      }
-    },
     "A file operation failed: %@" : {
       "localizations" : {
         "tr" : {
@@ -4594,26 +4544,6 @@
         }
       }
     },
-    "Add" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ekle"
-          }
-        }
-      }
-    },
-    "Add a VPN first" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Önce bir VPN ekleyin"
-          }
-        }
-      }
-    },
     "Add a VPN…" : {
       "localizations" : {
         "tr" : {
@@ -4634,32 +4564,12 @@
         }
       }
     },
-    "Add code from QR…" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "QR’dan kod ekle…"
-          }
-        }
-      }
-    },
     "Add Code from QR…" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "QR’dan Kod Ekle…"
-          }
-        }
-      }
-    },
-    "Add or import a VPN profile" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "VPN profili ekleyin ya da içe aktarın"
           }
         }
       }
@@ -4774,16 +4684,6 @@
         }
       }
     },
-    "An OpenVPN configuration file from your IT team" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "BT ekibinizin verdiği OpenVPN yapılandırması"
-          }
-        }
-      }
-    },
     "Appearance" : {
       "localizations" : {
         "tr" : {
@@ -4814,16 +4714,6 @@
         }
       }
     },
-    "attempt %lld of %lld" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "deneme %1$lld/%2$lld"
-          }
-        }
-      }
-    },
     "Authenticating…" : {
       "localizations" : {
         "tr" : {
@@ -4850,16 +4740,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "PassTunnel, Uygulamalar klasöründen uygulama olarak çalıştığında kullanılabilir."
-          }
-        }
-      }
-    },
-    "Back" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Geri"
           }
         }
       }
@@ -4920,16 +4800,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vazgeç"
-          }
-        }
-      }
-    },
-    "Cancel Connecting" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bağlanmayı İptal Et"
           }
         }
       }
@@ -5264,26 +5134,6 @@
         }
       }
     },
-    "Connected %@" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ süredir bağlı"
-          }
-        }
-      }
-    },
-    "Connected, but the health check host %@ is not responding." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bağlı, ancak sağlık kontrolü sunucusu %@ yanıt vermiyor."
-          }
-        }
-      }
-    },
     "Connected: %@" : {
       "localizations" : {
         "tr" : {
@@ -5400,16 +5250,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kodu Kopyala"
-          }
-        }
-      }
-    },
-    "Copy Code  %@" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Kodu Kopyala  %@"
           }
         }
       }
@@ -5944,16 +5784,6 @@
         }
       }
     },
-    "Dropped" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Koptu"
-          }
-        }
-      }
-    },
     "Dropped · next try in %lld s" : {
       "localizations" : {
         "tr" : {
@@ -6080,16 +5910,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dışa aktarıldı: %@"
-          }
-        }
-      }
-    },
-    "Failed" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Başarısız"
           }
         }
       }
@@ -6274,16 +6094,6 @@
         }
       }
     },
-    "Import a configuration and PassTunnel fills in your password and one-time code every time you connect." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bir yapılandırmayı içe aktarın; PassTunnel her bağlandığınızda parolanızı ve tek kullanımlık kodunuzu sizin yerinize girsin."
-          }
-        }
-      }
-    },
     "Import an .ovpn/.conf file or a shared .passtunnel profile." : {
       "localizations" : {
         "tr" : {
@@ -6320,16 +6130,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Paylaşılan Profili İçe Aktar…"
-          }
-        }
-      }
-    },
-    "Import shared profile…" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Paylaşılan profili içe aktar…"
           }
         }
       }
@@ -6510,16 +6310,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Anahtarlar:"
-          }
-        }
-      }
-    },
-    "Later" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sonra"
           }
         }
       }
@@ -6744,16 +6534,6 @@
         }
       }
     },
-    "Never type a one-time code again" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tek kullanımlık kodu bir daha asla yazmayın"
-          }
-        }
-      }
-    },
     "New FortiGate Profile" : {
       "localizations" : {
         "tr" : {
@@ -6774,16 +6554,6 @@
         }
       }
     },
-    "New FortiGate…" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Yeni FortiGate…"
-          }
-        }
-      }
-    },
     "New OpenVPN Profile" : {
       "localizations" : {
         "tr" : {
@@ -6800,16 +6570,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Yeni OpenVPN Profili…"
-          }
-        }
-      }
-    },
-    "New OpenVPN…" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Yeni OpenVPN…"
           }
         }
       }
@@ -6984,16 +6744,6 @@
         }
       }
     },
-    "Not connected" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bağlı değil"
-          }
-        }
-      }
-    },
     "Not installed" : {
       "localizations" : {
         "tr" : {
@@ -7010,16 +6760,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Erişilemiyor"
-          }
-        }
-      }
-    },
-    "Not responding" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Yanıt vermiyor"
           }
         }
       }
@@ -7122,16 +6862,6 @@
         }
       }
     },
-    "One click, or a shortcut, to connect with a fresh code." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tek tıklamayla ya da bir kestirmeyle, yeni bir kodla bağlanın."
-          }
-        }
-      }
-    },
     "One or two characters shown in the menu bar. Empty uses the first letter of the name." : {
       "localizations" : {
         "tr" : {
@@ -7158,34 +6888,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "tek kullanımlık kod"
-          }
-        }
-      }
-    },
-    "One-time code %@, %lld seconds left. Click to copy." : {
-      "localizations" : {
-        "en" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "One-time code %1$@, %2$lld second left. Click to copy."
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "One-time code %1$@, %2$lld seconds left. Click to copy."
-                }
-              }
-            }
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tek kullanımlık kod %@, %lld saniye kaldı. Kopyalamak için tıklayın."
           }
         }
       }
@@ -7310,16 +7012,6 @@
         }
       }
     },
-    "Or start from scratch:" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ya da sıfırdan başlayın:"
-          }
-        }
-      }
-    },
     "PassTunnel asks for permission the first time it needs to show a notification." : {
       "localizations" : {
         "tr" : {
@@ -7360,32 +7052,12 @@
         }
       }
     },
-    "PassTunnel connects your VPN and fills in your password and the current one-time code for you." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "PassTunnel VPN’inize bağlanır; parolanızı ve geçerli tek kullanımlık kodu sizin yerinize girer."
-          }
-        }
-      }
-    },
     "PassTunnel needs Accessibility permission to type for you." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "PassTunnel’ın sizin yerinize yazabilmesi için Erişilebilirlik izni gerekli."
-          }
-        }
-      }
-    },
-    "PassTunnel, connected: %@" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "PassTunnel, bağlı: %@"
           }
         }
       }
@@ -7416,16 +7088,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "parola"
-          }
-        }
-      }
-    },
-    "Password and authenticator secret stay in your Keychain." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Parola ve doğrulama anahtarı Anahtar Zinciri’nizde kalır."
           }
         }
       }
@@ -7540,16 +7202,6 @@
         }
       }
     },
-    "Pinned to the menu bar" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Menü çubuğuna sabitlendi"
-          }
-        }
-      }
-    },
     "Pinned “%@” to the menu bar." : {
       "localizations" : {
         "tr" : {
@@ -7660,16 +7312,6 @@
         }
       }
     },
-    "Quit PassTunnel" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "PassTunnel’dan Çık"
-          }
-        }
-      }
-    },
     "Reachable · %lld ms" : {
       "localizations" : {
         "tr" : {
@@ -7680,32 +7322,12 @@
         }
       }
     },
-    "Reconnecting in %lld s (%@)" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$lld sn sonra yeniden bağlanılacak (%2$@)"
-          }
-        }
-      }
-    },
     "Reconnecting…" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Yeniden bağlanıyor…"
-          }
-        }
-      }
-    },
-    "Reconnecting… (%@)" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Yeniden bağlanıyor… (%@)"
           }
         }
       }
@@ -7860,16 +7482,6 @@
         }
       }
     },
-    "Scan the authenticator QR code of your VPN" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "VPN’inizin doğrulama QR kodunu tarayın"
-          }
-        }
-      }
-    },
     "Scan the QR code or paste the secret to generate codes." : {
       "localizations" : {
         "tr" : {
@@ -8010,32 +7622,12 @@
         }
       }
     },
-    "Show lock symbol" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Kilit simgesini göster"
-          }
-        }
-      }
-    },
     "Show Log" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Günlüğü Göster"
-          }
-        }
-      }
-    },
-    "Show log" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Günlüğü göster"
           }
         }
       }
@@ -8140,26 +7732,6 @@
         }
       }
     },
-    "Start from what your IT team gave you. You can add more profiles at any time with the + button." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "BT ekibinizin size verdiği dosyayla başlayın. + düğmesiyle istediğiniz zaman başka profiller ekleyebilirsiniz."
-          }
-        }
-      }
-    },
-    "Start PassTunnel at login" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Oturum açıldığında PassTunnel’ı başlat"
-          }
-        }
-      }
-    },
     "Starting…" : {
       "localizations" : {
         "tr" : {
@@ -8180,32 +7752,12 @@
         }
       }
     },
-    "Status at a glance in the menu bar, with alerts when a VPN drops." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Durum bir bakışta menü çubuğunda; VPN koptuğunda uyarı alırsınız."
-          }
-        }
-      }
-    },
     "status unavailable" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "durum alınamıyor"
-          }
-        }
-      }
-    },
-    "Step %lld of %lld" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Adım %1$lld/%2$lld"
           }
         }
       }
@@ -8246,16 +7798,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Test ediliyor…"
-          }
-        }
-      }
-    },
-    "The code belongs to a VPN profile. Add or import the VPN, then add its code." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Kod bir VPN profiline aittir. Önce VPN’i ekleyin ya da içe aktarın, sonra kodunu ekleyin."
           }
         }
       }
@@ -9074,16 +8616,6 @@
         }
       }
     },
-    "Type Code for %@" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ Kodunu Yaz"
-          }
-        }
-      }
-    },
     "Type the code for me" : {
       "localizations" : {
         "tr" : {
@@ -9474,16 +9006,6 @@
         }
       }
     },
-    "Work VPN" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "İş VPN’i"
-          }
-        }
-      }
-    },
     "Wrong passphrase. Passphrase for the PassTunnel secrets file: " : {
       "localizations" : {
         "tr" : {
@@ -9521,16 +9043,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dün"
-          }
-        }
-      }
-    },
-    "You can also drop .ovpn, .passtunnel or QR code images here." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : ".ovpn, .passtunnel dosyalarını ya da QR kodu görüntülerini buraya da bırakabilirsiniz."
           }
         }
       }
@@ -9655,12 +9167,12 @@
         }
       }
     },
-    "“%@” is not a shared profile" : {
+    "PassTunnel cannot open “%@”" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "“%@” paylaşılan bir profil değil"
+            "value" : "PassTunnel “%@” dosyasını açamıyor"
           }
         }
       }
@@ -9751,16 +9263,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Yine de bağlanmak için --force kullanın."
-          }
-        }
-      }
-    },
-    "Setup incomplete" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Kurulum eksik"
           }
         }
       }

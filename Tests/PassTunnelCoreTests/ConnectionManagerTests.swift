@@ -1344,7 +1344,7 @@ final class ConnectionManagerTests: XCTestCase {
         XCTAssertNil(m.health[p.id])
     }
 
-    // MARK: the status the redesigned views show (DisplayStatus)
+    // MARK: the status the app's views show (DisplayStatus)
 
     private func displayStatus(_ p: Profile, _ m: ConnectionManager) -> DisplayStatus {
         DisplayStatus(DisplayStatus.Facts(p, in: m))

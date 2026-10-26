@@ -37,13 +37,6 @@ extension VPNType {
         case .forti: return "FortiGate"
         }
     }
-
-    var defaultSymbol: String {
-        switch self {
-        case .openvpn: return "network.badge.shield.half.filled"
-        case .forti: return "building.2"
-        }
-    }
 }
 
 enum CodeFormat {
@@ -58,17 +51,6 @@ enum CodeFormat {
     static func hidden(_ digits: Int) -> String {
         let half = digits / 2
         return String(repeating: "•", count: half) + " " + String(repeating: "•", count: digits - half)
-    }
-}
-
-enum DurationFormat {
-    static func since(_ date: Date, now: Date = Date()) -> String {
-        let f = DateComponentsFormatter()
-        f.unitsStyle = .abbreviated
-        let secs = max(0, now.timeIntervalSince(date))
-        f.allowedUnits = secs < 60 ? [.second] : secs < 3600 ? [.minute] : secs < 86_400 ? [.hour, .minute] : [.day, .hour]
-        f.maximumUnitCount = 2
-        return f.string(from: secs) ?? ""
     }
 }
 
@@ -141,115 +123,7 @@ struct CountdownRing: View {
     }
 }
 
-/// Large live code with countdown; click copies. A locked code (stored encrypted, "Confirm with Touch ID")
-/// is masked with a lock; click asks for Touch ID or the Mac password and shows it. A code hidden by "Hide codes
-/// until clicked" shows for 20 s after a click, and the next click copies it.
-struct LiveCodeView: View {
-    @EnvironmentObject private var model: AppModel
-    let profile: Profile
-    var fontSize: CGFloat = 22
-
-    var body: some View {
-        TimelineView(.periodic(from: .now, by: 0.25)) { context in
-            let date = model.previewNow ?? context.date
-            if model.isCodeLocked(profile) {
-                Button {
-                    model.revealCode(profile)
-                } label: {
-                    HStack(spacing: 8) {
-                        CodeText(code: String(repeating: "0", count: max(6, profile.totp.digits)), hidden: true, fontSize: fontSize)
-                            .foregroundStyle(Color.secondary)
-                        Image(systemName: "lock.fill")
-                            .font(.system(size: fontSize * 0.6, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .frame(width: fontSize * 0.95, height: fontSize * 0.95)
-                    }
-                    .fixedSize()
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(CodeButtonStyle())
-                .help(String(localized: "Click to show the code"))
-                .accessibilityLabel(String(localized: "One-time code, hidden. Click to show it."))
-                .accessibilityIdentifier("profile.\(profile.id).code")
-            } else if let c = model.code(for: profile, at: date) {
-                let period = Double(max(1, profile.totp.period))
-                let remaining = period - date.timeIntervalSince1970.truncatingRemainder(dividingBy: period)
-                let hidden = model.isCodeHidden(profile, at: date)
-                Button {
-                    if hidden { model.revealCodes(profile) } else { model.copyCode(profile) }
-                } label: {
-                    HStack(spacing: 8) {
-                        CodeText(code: c.code, hidden: hidden, fontSize: fontSize)
-                            .foregroundStyle(hidden ? Color.secondary : remaining <= 5 ? Color.red : Color.primary)
-                        CountdownRing(remaining: remaining, period: period, size: fontSize * 0.95)
-                    }
-                    .fixedSize()
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(CodeButtonStyle())
-                .help(hidden ? String(localized: "Click to show the code") : String(localized: "Click to copy the code"))
-                .accessibilityLabel(hidden
-                    ? String(localized: "One-time code, hidden. Click to show it.")
-                    : String(localized: "One-time code \(c.code.map(String.init).joined(separator: " ")), \(Int(remaining)) seconds left. Click to copy."))
-                .accessibilityIdentifier("profile.\(profile.id).code")
-            }
-        }
-    }
-}
-
-/// Code digits in two groups with a narrow gap (a monospaced space is too wide).
-struct CodeText: View {
-    let code: String
-    var hidden = false
-    var fontSize: CGFloat = 22
-
-    var body: some View {
-        let half = code.count / 2
-        let first = hidden ? String(repeating: "•", count: half) : String(code.prefix(half))
-        let second = hidden ? String(repeating: "•", count: code.count - half) : String(code.suffix(code.count - half))
-        HStack(spacing: fontSize * 0.28) {
-            Text(verbatim: first)
-            Text(verbatim: second)
-        }
-        .font(.system(size: fontSize, weight: .medium, design: .monospaced))
-        .contentTransition(.numericText())
-        .lineLimit(1)
-    }
-}
-
-struct CodeButtonStyle: ButtonStyle {
-    @State private var hover = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .background(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(Color.primary.opacity(configuration.isPressed ? 0.12 : hover ? 0.06 : 0))
-            )
-            .onHover { hover = $0 }
-    }
-}
-
-struct ToastView: View {
-    let toast: ToastMessage
-
-    var body: some View {
-        Label(toast.text, systemImage: toast.symbol)
-            .font(.callout.weight(.medium))
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(.regularMaterial, in: Capsule())
-            .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
-            .shadow(color: .black.opacity(0.15), radius: 8, y: 3)
-            .accessibilityAddTraits(.isStaticText)
-    }
-}
-
-// MARK: - redesign (App/Design)
+// MARK: - design system (App/Design)
 
 /// Countdown ring of the redesign: `fg` on the `track`, turning amber over 200 ms when 5 s are left (or at once
 /// while waiting for a fresh code). It empties with the time and refills from empty in 240 ms when a new code

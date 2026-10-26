@@ -3,7 +3,7 @@ import PassTunnelCore
 import PassTunnelKit
 import SwiftUI
 
-/// The review of an .ovpn before its profile is added, in the detail of the redesigned window: what the file holds
+/// The review of an .ovpn before its profile is added, in the detail of the main window: what the file holds
 /// and the lines PassTunnel skips on the left, what the profile still needs on the right, and Add Profile, off with
 /// the reason next to it until nothing is missing. A file with a blocking line never gets here: `ImportActions`
 /// refuses it with every such line.

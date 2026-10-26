@@ -3,7 +3,7 @@ import XCTest
 @testable import PassTunnelCore
 @testable import PassTunnelKit
 
-/// The one status a profile shows in the redesigned views: which state the facts Core reports give (also when
+/// The one status a profile shows in the app's views: which state the facts Core reports give (also when
 /// several apply), and its words.
 final class DisplayStatusTests: XCTestCase {
     private typealias Facts = DisplayStatus.Facts

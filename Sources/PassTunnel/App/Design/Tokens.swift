@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-// Design tokens of the redesigned interface (docs/APP.md, Design system). Mostly monochrome: color appears only
+// Design tokens of the app (docs/APP.md, Design system). Mostly monochrome: color appears only
 // when it means something, and always together with an icon and words.
 
 /// Colors. Each token has a light, a dark and an Increase Contrast value and resolves per `NSAppearance`, so

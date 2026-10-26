@@ -1,7 +1,7 @@
 import Foundation
 import PassTunnelKit
 
-/// The one status a profile shows in the redesigned views (sidebar row, detail header, menu bar panel):
+/// The one status a profile shows in the app's views (sidebar row, detail header, menu bar panel):
 /// worked out from what `ConnectionManager` reports, and worded as the design words it. Kept apart from
 /// SwiftUI so it is tested; the app adds the icon and the color. (`ProfileStatus` is what the CLI and the MCP
 /// server report.)

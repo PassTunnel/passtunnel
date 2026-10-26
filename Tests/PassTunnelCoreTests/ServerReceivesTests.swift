@@ -3,7 +3,7 @@ import XCTest
 @testable import PassTunnelCore
 @testable import PassTunnelKit
 
-/// "What the server receives" in the redesigned window: the rows follow the profile's real format with eight bullets
+/// "What the server receives" in the main window: the rows follow the profile's real format with eight bullets
 /// for the password, the code is the one the code card shows (the next one while a connect waits for it), and the
 /// card adapts to codes that are hidden, asked or missing, to no code, FortiGate and certificate-only profiles.
 final class ServerReceivesTests: XCTestCase {

@@ -18,10 +18,10 @@ struct CredentialRequest: Identifiable {
     let needs: [CredentialField]
 }
 
+/// Feedback such as "Code copied", which the main window has VoiceOver announce (the window shows no toast).
 struct ToastMessage: Identifiable, Equatable {
     let id = UUID()
     let text: String
-    var symbol = "checkmark.circle.fill"
 }
 
 struct AppAlert: Identifiable {
@@ -51,8 +51,7 @@ final class AppModel: ObservableObject {
     @Published var toast: ToastMessage?
     @Published var alert: AppAlert?
     @Published var pendingDelete: Profile?
-    @Published var showOnboarding = false
-    /// The .ovpn under review in the redesigned window's detail (`ImportReviewView`); nil when none. Selecting a
+    /// The .ovpn under review in the window's detail (`ImportReviewView`); nil when none. Selecting a
     /// profile leaves it, as Cancel does: nothing was written.
     @Published var importReview: ImportReviewModel?
     @Published var settingsTab: SettingsTab = .general
@@ -91,11 +90,12 @@ final class AppModel: ObservableObject {
     /// Render override: profiles whose code is shown locked.
     var previewLockedCodes: Set<String> = []
     private var bag = Set<AnyCancellable>()
-    private var toastTask: Task<Void, Never>?
     private var reloadTimer: Timer?
     private var watcher: ProfilesWatcher?
     var onPrefsChanged: ((Preferences, Preferences) -> Void)?
 
+    /// Set once "Open PassTunnel at login?" is answered (`OpenAtLoginQuestion`); the onboarding sheet of earlier
+    /// versions set it too, so it is not asked again after an update.
     static let onboardingKey = "PTOnboardingDone"
 
     init(paths: AppPaths = .default, connections: ConnectionManager, live: Bool = true) {
@@ -115,8 +115,6 @@ final class AppModel: ObservableObject {
         // A server that does not answer is tried again (Core: `UnreachableRetry`).
         connections.retriesUnreachable = true
         connections.start()
-        // The redesigned window has no onboarding sheet: its first-run view and a question after the first profile.
-        showOnboarding = !NewInterface.isEnabled && !UserDefaults.standard.bool(forKey: Self.onboardingKey)
         refreshHelperStatus()
         connections.events
             .receive(on: DispatchQueue.main)
@@ -127,20 +125,13 @@ final class AppModel: ObservableObject {
                 guard let self else { return }
                 self.reload()
                 if let id = note.userInfo?["profileID"] as? String { self.selection = id }
-                if self.showOnboarding && !self.profiles.isEmpty { self.finishOnboarding() }
             }
             .store(in: &bag)
         NotificationCenter.default.publisher(for: ImportActions.openEditor)
             .sink { [weak self] note in
                 guard let self else { return }
                 self.reload()
-                let request = EditorRequest(profileID: note.userInfo?["profileID"] as? String, newType: nil)
-                // A sheet that is still closing (onboarding) would swallow the new one.
-                if let closed = self.onboardingClosedAt, Date().timeIntervalSince(closed) < 1 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.editor = request }
-                } else {
-                    self.editor = request
-                }
+                self.editor = EditorRequest(profileID: note.userInfo?["profileID"] as? String, newType: nil)
             }
             .store(in: &bag)
         // The CLI can change profiles, secrets and preferences while the app runs: reload when the
@@ -359,12 +350,6 @@ final class AppModel: ObservableObject {
         return connections.warnings[id]
     }
 
-    /// Connected according to the last known state or the log: the management interface is held by
-    /// another client (`ConnectionManager.statusUnavailable`).
-    func isStatusUnavailable(_ id: String) -> Bool {
-        previewStates == nil && connections.statusUnavailable.contains(id)
-    }
-
     func isUnreachable(_ id: String) -> Bool {
         if previewStates != nil { return previewUnreachable.contains(id) }
         return connections.health[id] == .unreachable
@@ -383,15 +368,9 @@ final class AppModel: ObservableObject {
         return connections.reconnecting[id]
     }
 
-    /// Log excerpt for the last error: from the connection manager, else the log file.
-    func errorLog(_ id: String) -> String? {
-        if previewStates == nil, let log = connections.lastErrorLog[id], !log.isEmpty { return log }
-        return logTail(id)
-    }
-
     var now: Date { previewNow ?? Date() }
 
-    /// Profiles shown as badges in the menu bar.
+    /// The pinned profiles and those that are active or dropped unseen (`MenuBarProfiles.badged`).
     var menuBarProfiles: [Profile] {
         MenuBarProfiles.badged(in: profiles, isIdle: { p in
             if case .disconnected = state(p.id) { return true }
@@ -399,7 +378,7 @@ final class AppModel: ObservableObject {
         }, droppedUnseen: droppedUnseen)
     }
 
-    /// Profiles listed in the menu bar panel of the new interface: `menuBarProfiles`, or all while none is pinned.
+    /// Profiles listed in the menu bar panel: `menuBarProfiles`, or all while none is pinned.
     var panelProfiles: [Profile] {
         MenuBarProfiles.panel(in: profiles, badged: menuBarProfiles)
     }
@@ -453,31 +432,18 @@ final class AppModel: ObservableObject {
         missingSecret.remove(id)
     }
 
-    /// The current window hides the code of `p` at `date`: "Hide codes until clicked" is on and no click showed it in
-    /// the last 20 s (`revealedCodes`, the same as the code card's; decision D-5). Locked codes have their own rule.
-    func isCodeHidden(_ p: Profile, at date: Date) -> Bool {
-        CodeCard.isMasked(locked: false, hidden: prefs.hideCodes, protected: false, revealedUntil: revealedCodes[p.id],
-                          at: date)
-    }
-
     // MARK: confirmation (Touch ID / password)
 
     var vault: SecretVault { connections.vault }
 
     /// The TOTP secret of `p` is stored encrypted and not unlocked: its code is hidden; clicking it asks
-    /// (`revealCode`), and it stays visible for the reuse window.
+    /// (`revealCodes`).
     func isCodeLocked(_ p: Profile) -> Bool {
         if previewStates != nil { return previewLockedCodes.contains(p.id) }
         return protectedTOTP.contains(p.id) && !vault.isUnlocked(p.id, .totp)
     }
 
-    /// Asks for the confirmation that shows the code of `p` (nothing else happens).
-    func revealCode(_ p: Profile) {
-        guard let p = storedProfile(p) else { return }
-        whenUnlocked(p, [.totp], .code) { _ in }
-    }
-
-    // MARK: code card (redesigned window)
+    // MARK: code card
 
     /// Until when a click in the detail's code card shows the codes of a profile that hides them (decision D-5).
     @Published private(set) var revealedCodes: [String: Date] = [:]
@@ -490,7 +456,7 @@ final class AppModel: ObservableObject {
         return protectedTOTP.contains(p.id)
     }
 
-    /// The redesigned window shows bullets instead of the codes of `p` at `date` (`CodeCard.isMasked`).
+    /// The window shows bullets instead of the codes of `p` at `date` (`CodeCard.isMasked`).
     func codesMasked(_ p: Profile, at date: Date) -> Bool {
         CodeCard.isMasked(locked: isCodeLocked(p), hidden: prefs.hideCodes, protected: isCodeProtected(p),
                           revealedUntil: revealedCodes[p.id], at: date)
@@ -554,10 +520,9 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// In the redesigned window a profile whose tunnel overlaps with one that is connected asks first
-    /// (`OverlapSheet`); `startConnect` goes on from the answer.
+    /// A profile whose tunnel overlaps with one that is connected asks first (`OverlapSheet`); `startConnect` goes on
+    /// from the answer.
     func connect(_ p: Profile) {
-        guard NewInterface.isEnabled else { return startConnect(p) }
         connectUnlessOverlapping(p)
     }
 
@@ -655,7 +620,7 @@ final class AppModel: ObservableObject {
         guard let stored = storedProfile(p) else { return showError(PTError.profileNotFound(p.id)) }
         whenUnlocked(stored, [.totp], .code) { [self] _ in
             guard let c = currentCode(for: stored) else {
-                showToast(String(localized: "No code available"), symbol: "exclamationmark.circle.fill")
+                showToast(String(localized: "No code available"))
                 return
             }
             copySecret(c)
@@ -675,7 +640,7 @@ final class AppModel: ObservableObject {
         guard let p = storedProfile(p) else { return showError(PTError.profileNotFound(p.id)) }
         whenUnlocked(p, [.password, .totp], .code) { [self] _ in
             guard let password = vault.available(p.id, .password) else {
-                showToast(String(localized: "No password saved in Keychain"), symbol: "exclamationmark.circle.fill")
+                showToast(String(localized: "No password saved in Keychain"))
                 return
             }
             let otp = currentCode(for: p)
@@ -723,7 +688,7 @@ final class AppModel: ObservableObject {
     func showLog(_ p: Profile) {
         let url = store.logURL(p.id)
         guard FileManager.default.fileExists(atPath: url.path) else {
-            showToast(String(localized: "No log yet"), symbol: "doc.text.magnifyingglass")
+            showToast(String(localized: "No log yet"))
             return
         }
         let console = URL(fileURLWithPath: "/System/Applications/Utilities/Console.app")
@@ -782,25 +747,15 @@ final class AppModel: ObservableObject {
 
     // MARK: feedback
 
-    func showToast(_ text: String, symbol: String = "checkmark.circle.fill") {
-        toastTask?.cancel()
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { toast = ToastMessage(text: text, symbol: symbol) }
-        toastTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 1_600_000_000)
-            guard !Task.isCancelled else { return }
-            withAnimation(.easeOut(duration: 0.25)) { self?.toast = nil }
-        }
+    func showToast(_ text: String) {
+        toast = ToastMessage(text: text)
     }
 
     func showError(_ error: Error) {
         alert = AppAlert(title: String(localized: "Something went wrong"), message: error.localizedDescription)
     }
 
-    private var onboardingClosedAt: Date?
-    /// Onboarding step 3 "Start PassTunnel at login": nil until the user has seen the checkbox.
-    @Published var onboardingStartAtLogin: Bool?
-
-    /// Shows the review of `draft` in the redesigned window's detail instead of a profile or the add view (a new one
+    /// Shows the review of `draft` in the window's detail instead of a profile or the add view (a new one
     /// replaces a review still open).
     func startImportReview(_ draft: ImportDraft) {
         importReview = ImportReviewModel(draft: draft)
@@ -808,32 +763,14 @@ final class AppModel: ObservableObject {
         selection = nil
     }
 
-    func finishOnboarding() {
-        UserDefaults.standard.set(true, forKey: Self.onboardingKey)
-        if showOnboarding {
-            onboardingClosedAt = Date()
-            applyOnboardingLoginChoice()
-        }
-        showOnboarding = false
-    }
-
-    /// The redesigned window's detail shows the add view ("Add a VPN", `FirstRunView`): the sidebar's +.
+    /// The window's detail shows the add view ("Add a VPN", `FirstRunView`): the sidebar's +.
     @Published var addingProfile = false
 
-    /// The redesigned window asks "Open PassTunnel at login?" once the first profile is there, instead of the
-    /// onboarding sheet (decision D-18). The answer is applied like the sheet's checkbox and ends onboarding.
+    /// The window asks "Open PassTunnel at login?" once the first profile is there (decision D-18), until it is
+    /// answered (`onboardingKey`): Yes registers the login item, No turns launch at login off.
     func answerOpenAtLogin(_ open: Bool) {
-        onboardingStartAtLogin = open
-        applyOnboardingLoginChoice()
         UserDefaults.standard.set(true, forKey: Self.onboardingKey)
-    }
-
-    /// Registers the login item when the user left "Start PassTunnel at login" checked. Nothing is
-    /// registered when the step was never shown (onboarding closed by an import from elsewhere).
-    private func applyOnboardingLoginChoice() {
-        guard let startAtLogin = onboardingStartAtLogin else { return }
-        onboardingStartAtLogin = nil
-        guard startAtLogin else {
+        guard open else {
             prefs.launchAtLogin = false
             return
         }

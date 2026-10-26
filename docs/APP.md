@@ -1,7 +1,7 @@
 # PassTunnel app & CLI specification
 
 Companion to ARCHITECTURE.md (core, helper, storage). This document is the spec for the
-`PassTunnel` executable target: SwiftUI app, menu bar, onboarding, CLI, and `ConnectionManager`.
+`PassTunnel` executable target: SwiftUI app, menu bar, CLI, and `ConnectionManager`.
 
 Product promise: **you never type a one-time code again.** Every screen should make the live
 code and "connect with it filled in" the obvious thing.
@@ -142,69 +142,14 @@ One binary, two modes:
   The file keeps the last 500 events (mode 0600); writers take `.activity.lock` (flock) and replace the
   file atomically, readers skip lines they cannot decode. The file watcher ignores both.
 
-## Main window (authenticator-style)
+## Main window
 
-Sidebar-less single list, one row per profile (drag to reorder → `order`):
-```
-[icon/badge]  Acme VPN                    482 913  ◔ 23 s   [ Connect ]
-              OpenVPN · alice · connected 1 h 12 m · 10.8.0.6        ⋯
-```
-- The live code (if the profile has TOTP) is large, monospaced, grouped 3+3; a circular countdown
-  ring; click copies it (toast "Copied"). With "Hide codes until clicked" (`Preferences.hideCodes`, decision D-5)
-  it is "••• •••" until clicked: a click shows that profile's code for 20 s without copying it
-  (`AppModel.isCodeHidden`, on the `revealedCodes` of the redesigned window's code card), and a click while it shows
-  copies it. Copying elsewhere (the ⋯ menu, ⌘C, the menu bar, shortcuts) and auto-type never show a code, and the
-  menu bar keeps codes hidden.
-  Every copied code and password + code goes through `Pasteboard.copySecret`: `.currentHostOnly` (no
-  Universal Clipboard), marked `org.nspasteboard.ConcealedType` and `…TransientType`, and cleared after
-  `Preferences.clearClipboardAfter` (Settings → "Clear copied code": 30 s, 1 minute (default) or
-  2 minutes) unless the pasteboard's change count moved meanwhile.
-  When the TOTP secret is stored encrypted ("Confirm with Touch ID": `always`, or `connect` without a saved
-  password) and not unlocked, the code is "••• •••" with a lock instead of the ring; click asks
-  (`AppModel.revealCode`) and the code shows for the reuse window. Copy code, Copy password + code,
-  ⌘C, the menu bar's Copy Code and auto-type ask first in the same way (`whenUnlocked`); a cancel does
-  nothing, a failure shows an alert.
-- Primary button: Connect / Disconnect / Cancel (while connecting). If the profile needs input
-  (`needs`), Connect opens a compact sheet asking only those fields, with the TOTP pre-filled when
-  available.
-- Status line colors: green connected, amber connecting/degraded, secondary disconnected; red error
-  with the reason (tooltip shows log tail, "Show log" link).
-- Row menu (⋯): Edit…, Copy code, Copy password + code (uses the composition template), Share…
-  (export `.passtunnel`), Show log, Pin to menu bar, Make default, Delete…
-- Toolbar: "+" menu → New OpenVPN…, New FortiGate…, Import .ovpn…, Import shared profile…, Add
-  code from QR…; search field when > 6 profiles.
-- Empty state: big call to action "Add your first VPN" with the three import options.
-- Drag & drop onto the window: `.ovpn`, `.conf`, `.passtunnel`, or an image containing a QR code.
-- Importing an `.ovpn` (Import .ovpn…, a drop; `ImportActions.importOVPN(at:)`): `ProfileStore.analyzeOVPN`
-  reads it without writing anything (`ImportDraft`), then `commit` creates the profile. Lines PassTunnel
-  skips ([SECURITY.md](../SECURITY.md#importing-an-openvpn-configuration)) are listed in an alert ("Some
-  lines of “work.ovpn” were skipped": each line, then why those kinds are safe to leave out) before the
-  new profile's editor opens; a blocking line refuses the file with every such line listed, and nothing
-  is created. The redesigned window reviews the file first instead (below).
-- Opening a `.passtunnel` file (double-click in Finder, AirDrop, the Dock icon, `open`) imports it
-  exactly like Import shared profile… (`ImportActions.importShared(at:)`: `ProfileStore.importShare`
-  with all its checks, then the new profile's editor), with the main window brought forward. The
-  app exports the type `com.furkanprlk.passtunnel.profile` (`ShareFile.typeIdentifier`, conforms
-  to `public.json`, extension `passtunnel`) in `UTExportedTypeDeclarations` and claims it in
-  `CFBundleDocumentTypes` as Viewer with `LSHandlerRank` Owner: PassTunnel imports the file and never
-  edits it in place. `AppDelegate.application(_:open:)` hands the files to `ImportActions.open`
-  (`OpenedFiles.route`, Core): one file at a time like the import panel, so several files import
-  nothing and say so, and anything that is not a `.passtunnel` file is refused with a message (in the
-  redesigned window an `.ovpn` or `.conf` goes to the import review instead; the app does not claim those
-  types, so they arrive through Open With or `open -a`).
-  Files that start the app wait until launch has finished. The save panel of Share… and the import
-  panel use the exported type (the extension's dynamic type in an unbundled `swift run`).
-
-### Redesigned window (behind a switch)
-
-The redesign replaces this window screen by screen behind a hidden switch (`NewInterface`, read once at launch):
-`defaults write com.furkanprlk.passtunnel PTNewInterface -bool YES`, then relaunch. Without it everything above
-stays as it is. With it, the main window (`MainSplitView`) is a `NavigationSplitView`, about 1080×700 by default
-and at least 820×560:
+The main window (`MainSplitView`, decision D-23) is a `NavigationSplitView`, about 1080×700 by default and at least
+820×560:
 - **Sidebar** (236–320 pt, 272 ideal): the search field, always there; the section "Profiles" with one row per
   profile (`SidebarRow`): the name, the short status in the state's color with its dot (`ProfileStatusRow`) and the
   live code in 13 pt SF Mono on the right ("••• •••" while the detail masks it, below). No icons, no buttons in the
-  rows. Drag to reorder (`order`), the context menu above, Return and double-click run the detail's main button. A
+  rows. Drag to reorder (`order`), the context menu below, Return and double-click run the detail's main button. A
   bottom bar holds `+`, which opens the add view below (the File menu keeps the five add and import items), and a
   gear that opens Settings. Without profiles the section says "No profiles yet." / "Add one to get started."
 - **Detail** (`ProfileDetailView`): the name (28 bold), where it connects (`vpn.example.com:1194 · OpenVPN · UDP`
@@ -222,7 +167,7 @@ and at least 820×560:
     countdown ring with the seconds beside it (in the text color; amber in the last 5 s and while a connect waits for
     a fresh code; red is kept for errors), "Next 771 204" under it (the next window's code,
     `CodeCard.nextWindow`), then the secondary capsules Copy code and, with the password in the Keychain, Copy
-    password + code (`copyCode`, `copyPasswordAndCode`, with every safeguard above). A copy from them, the Profile
+    password + code (`copyCode`, `copyPasswordAndCode`, with every safeguard below). A copy from them, the Profile
     menu or ⋯ turns the button's label into "Copied ✓" for 1.6 s, cleared early when the code changes
     (`AppModel.lastCopy`, `CodeCard.Copy`); the buttons keep the width of the wider label. A click on the code
     copies it. VoiceOver reads the code as one element ("Current code, 4 8 2, 9 1 3, 12 seconds left, next code 7 7
@@ -257,8 +202,7 @@ and at least 820×560:
     (`hideCodes`) and codes whose TOTP secret is stored encrypted ("Confirm with Touch ID"), unlocked or not, show as
     "••• •••" for the current and the next code, as bullets in "What the server receives" and in the sidebar row.
     A click on the code shows them for 20 s (`AppModel.revealCodes`), after the confirmation when they are locked;
-    copying never shows them. The menu bar panel keeps hidden codes hidden; the current window shares the 20 s of a
-    click for hidden codes (above) and keeps its own rule for locked ones.
+    copying never shows them. The menu bar panel keeps hidden codes hidden.
 - **Error states** (`Views/FailureCards.swift`, `ClockBanner.swift`, `OverlapSheet.swift`; the facts are Core's:
   `ConnectionManager.failures`, `unreachableRetries`, `networkStatus`, `clockOffsets`, `overlaps(for:)`). After a
   failure the detail shows a card instead of the code cards, above the activity; `DisplayStatus` words the status
@@ -309,21 +253,19 @@ and at least 820×560:
     (`HelperInstaller.registerRetrying`, as Settings → Helper; Login Items open when macOS asks for the approval),
     "Open Login Items…" while the approval is pending, and "The helper is installed and running." once it is, until
     the view goes. The card follows the status every 2 s.
-
-  In this window a QR code that no profile can take (dropped, or File → Add Code from QR…) starts a new profile the
-  same way instead of saying "Add a VPN first".
 - **Open at login**: once there is a profile, the detail ends with "Open PassTunnel at login?" / "Starts quietly in
   the menu bar, without opening the window." and Not Now / Open at Login (the buttons go under the words when the
-  window is narrow), until it is answered (`AppModel.answerOpenAtLogin`: the onboarding checkbox's choice, applied
-  the same way, and onboarding is done, `PTOnboardingDone`). Not asked when PassTunnel already opens at login or
+  window is narrow), until it is answered (`AppModel.answerOpenAtLogin`: Open at Login registers the login item, Not Now
+  turns launch at login off; either sets `PTOnboardingDone`, which the onboarding sheet of earlier versions set too,
+  so a Mac that went through it is not asked again). Not asked when PassTunnel already opens at login or
   does not run as an app.
 - **Profile menu**: ⌘↩ runs the main button, ⌘C copies the code (in a text field ⌘C stays the field's), ⇧⌘C the
   password and code, ⌘E edits; off while a sheet is open.
 - **Import review** (`ImportReviewView` + `ImportReviewModel`, Editor): every way an `.ovpn` comes in (a drop,
-  Import .ovpn… in the File menu, the `+` menu, the first-run and add view, a file opened from Finder with Open
-  With or `open -a`) reads it with `ProfileStore.analyzeOVPN` and shows the review in the detail instead of a profile
+  Import .ovpn… in the File menu, the first-run and add view, a file opened from Finder, AirDrop or `open`) reads it
+  with `ProfileStore.analyzeOVPN` and shows the review in the detail instead of a profile
   (`AppModel.importReview`; the sidebar has no selection, and choosing a profile leaves the review like Cancel:
-  nothing was written). A file with a blocking line never gets there: the alert lists every such line, as before.
+  nothing was written). A file with a blocking line never gets there: an alert lists every such line.
   Title "Review work.ovpn" (22 bold), "From Downloads · OpenVPN · name it below". Left, "Found in the file": Server
   (the first `remote` in SF Mono, "+N more", transport), Certificates ("CA, client certificate, and key, inside the
   file" / "from files next to it"), Sign-in ("Certificate only", "User name and password", "…, plus a one-time
@@ -338,9 +280,41 @@ and at least 820×560:
   secret to finish."), Cancel (Escape) and Add Profile (Return; off at 38 % until nothing is missing), which runs
   `ProfileStore.commit` and selects the new profile. The two columns stack when the detail is narrow. Accessibility
   identifiers `import.name|username|password|pasteSecret|chooseImage|cancel|add`.
+- **Copying and protected codes**: every copied code and password + code goes through `Pasteboard.copySecret`:
+  `.currentHostOnly` (no Universal Clipboard), marked `org.nspasteboard.ConcealedType` and `…TransientType`, and
+  cleared after `Preferences.clearClipboardAfter` (Settings → "Clear copied code": 30 s, 1 minute (default) or
+  2 minutes) unless the pasteboard's change count moved meanwhile. When the TOTP secret is stored encrypted
+  ("Confirm with Touch ID": `always`, or `connect` without a saved password), Copy code, Copy password + code, ⌘C,
+  the menu bar's copy items and auto-type ask first (`whenUnlocked`); a cancel does nothing, a failure shows an
+  alert. A profile that needs input (`needs`) opens a compact sheet on Connect (`CredentialSheet`) asking only those
+  fields, with the TOTP pre-filled when available.
+- **Context menu** of a sidebar row (`ProfileMenuItems`): Edit…, Copy Code, Copy Password + Code, Share… (export
+  `.passtunnel`), Show Log, Pin to Menu Bar, Default Profile, Delete….
+- **Drag & drop** onto the window: `.ovpn`, `.conf`, `.passtunnel`, or an image containing a QR code (while an import
+  is under review, its code secret). A QR code that no profile can take (dropped, or File → Add Code from QR…)
+  starts a new profile like "Use a QR image" in the add view (`ScannedCodeTarget`).
+- **Opening files** (double-click in Finder, AirDrop, the Dock icon, `open`): `AppDelegate.application(_:open:)`
+  hands them to `ImportActions.open` (`OpenedFiles.route`, Core), one file at a time like the import panels, so
+  several files import nothing and say so. A `.passtunnel` file is imported exactly like Import Shared Profile…
+  (`ImportActions.importShared(at:)`: `ProfileStore.importShare` with all its checks, then the new profile's editor),
+  with the main window brought forward; an `.ovpn` or `.conf` goes to the import review (below); anything else is
+  refused with a message. Files that start the app wait until launch has finished. Info.plist:
+  - the app exports `com.furkanprlk.passtunnel.profile` (`ShareFile.typeIdentifier`, conforms to `public.json`,
+    extension `passtunnel`) in `UTExportedTypeDeclarations` and claims it in `CFBundleDocumentTypes` as Viewer with
+    `LSHandlerRank` Owner: PassTunnel imports the file and never edits it in place;
+  - `.ovpn` is not PassTunnel's format and has no system type (other VPN clients claim the extension): the app
+    imports `com.furkanprlk.passtunnel.ovpn` (extension `ovpn`, MIME `application/x-openvpn-profile`, conforms to
+    `public.data`, so no text editor becomes its default) in `UTImportedTypeDeclarations`, where an exported
+    declaration of another app would win, and claims it as Viewer with `LSHandlerRank` Alternate: PassTunnel is in
+    Open With and can be made the default, but does not take over from a VPN client that is installed;
+  - `.conf` is claimed by neither a type nor a document: many programs use the extension, and a type would relabel
+    every `.conf` file as an OpenVPN configuration and make PassTunnel their handler where nothing else claims them.
+    An OpenVPN `.conf` comes in through Open With → Other…, `open -a`, a drop or File → Import .ovpn….
+
+  The save panel of Share… and the import panels use these types (the extensions' dynamic types in an unbundled
+  `swift run`).
 - No toast (the copy buttons say "Copied ✓", VoiceOver still announces "Code copied"), no window subtitle and no
-  onboarding sheet. Sheets, alerts, the delete confirmation and drag & drop import are the same as above,
-  except that an `.ovpn` goes to the import review.
+  onboarding sheet.
 
 ## Profile editor (sheet)
 
@@ -427,25 +401,17 @@ secret asks first; typing starts 0.4 s after the prompt closes so the focus is b
 Accessibility permission — request it only when the user enables the feature, with an explanation and a
 button to open the right System Settings pane. Also a menu-bar action "Type code".
 
-## Menu bar (`MenuBarExtra`, `.menu` style)
+## Menu bar (`MenuBarExtra`, `.window` style)
 
-Title: lock symbol (optional) + one badge per *visible* profile (pinned, or connecting/connected, or
-dropped-until-seen), colored by state with the selected palette. Menu: per profile — name + status,
-Connect/Disconnect, Copy code; then Open PassTunnel (⌘O), Settings… (⌘,), Quit.
-
-### Menu bar panel (new interface)
-
-Behind the hidden switch of the redesign (`NewInterface`, `PTNewInterface`, decision D-23) the menu bar item is a
-panel instead (`MenuBar/MenuBarPanel.swift`, `.menuBarExtraStyle(.window)`): two `MenuBarExtra` scenes, and
-`isInserted` puts one of them in the menu bar. Without the switch the menu above is unchanged.
-- Status item: a colored badge only for a profile that needs attention (`MenuBarLabel(panel: true)`, `MenuBarIcon`,
+The menu bar item (decision D-23) is a status item and a panel under it (`MenuBar/MenuBarPanel.swift`,
+`.menuBarExtraStyle(.window)`):
+- Status item: a colored badge only for a profile that needs attention (`MenuBarLabel`, `MenuBarIcon`,
   `MenuBarProfiles.attention` in Core): connecting or connected with a problem (the connecting color), connected, or
   dropped and not seen yet (the disconnected color with the red dot), in the chosen palette (Settings → Menu bar). A
-  profile that is merely disconnected has none, pinned or not; it stays in the panel. There is no lock symbol (the
-  setting only applies to the current menu bar). While no profile needs attention the shield stands in
-  (`MenuBarIcon.shield`, a monochrome 16 pt template image). VoiceOver: "PassTunnel, 2 connected" ("PassTunnel, not
-  connected"), with ", a connection dropped" while a drop has not been seen (`droppedUnseen`); the dot goes when the
-  panel closes or the main window opens.
+  profile that is merely disconnected has none, pinned or not; it stays in the panel. There is no lock symbol. While
+  no profile needs attention the shield stands in (`MenuBarIcon.shield`, a monochrome 16 pt template image).
+  VoiceOver: "PassTunnel, 2 connected" ("PassTunnel, not connected"), with ", a connection dropped" while a drop has
+  not been seen (`droppedUnseen`); the dot goes when the panel closes or the main window opens.
 - Profiles listed (`AppModel.panelProfiles`, `MenuBarProfiles` in Core): those pinned to the menu bar ("Pin to Menu
   Bar" in the context menu and the ⋯ menu, "Always show in the menu bar" in the editor), plus any that is connecting,
   connected, reconnecting or dropped and not seen yet; while none is pinned, all of them. A profile switched off in
@@ -506,8 +472,7 @@ updating, `HelperAutoUpdate`) and "Allow PassTunnel to type codes" (auto-type wi
 
 ## Settings (`Settings` scene, tabs)
 
-Four tabs (decision D-12): General, Shortcuts, Helper and Updates. Settings are the same in both interfaces
-(`NewInterface`).
+Four tabs (decision D-12): General, Shortcuts, Helper and Updates.
 
 - **General** (`Settings/GeneralSettings.swift`): one scrolling page of cards in the design system's style (an
   uppercase label over a hairline card of 44 pt rows, the monochrome switch at the trailing edge, a note under the
@@ -524,9 +489,8 @@ Four tabs (decision D-12): General, Shortcuts, Helper and Updates. Settings are 
     minutes before), Open Notification Settings….
   - **Security**: "Ask again after" 1 / 5 / 15 minutes (`authReuseMinutes`, `settings.authReuse`): how long one
     confirmation unlocks a profile.
-  - **Menu bar**, in both interfaces (the panel's status item shows the badges too): badge palette (pastel / vivid /
-    soft / candy / earth — the menu bar colors for connected / connecting / disconnected) with a preview, show lock
-    symbol (current interface only: the new one has no lock).
+  - **Menu bar**: badge palette (pastel / vivid / soft / candy / earth — the status item's colors for connected /
+    connecting / dropped) with a preview.
   - **Other**: appearance (system / light / dark), the command-line tool (Install… / Reinstall, see CLI).
   - Footer (what the About tab had): Licenses (the bundled tools' licenses, the sheet of Helper → Show
     Licenses…), Privacy policy (the website's privacy page, `https://passtunnel.github.io/privacy/`, `AppInfo.privacyURL`),
@@ -561,17 +525,17 @@ Four tabs (decision D-12): General, Shortcuts, Helper and Updates. Settings are 
   switches to a regular app (Dock icon) without taking focus. Releases: docs/RELEASING.md.
 
 `Preferences` (Core) gets: `badgePalette` (string enum above), `appearance` (system/light/dark),
-`showLock`, `hideCodes`, `clearClipboardAfter` (seconds: 30, 60 or 120; others → 60),
+`hideCodes`, `clearClipboardAfter` (seconds: 30, 60 or 120; others → 60),
 `waitForFreshCode`, `showInDock`, `notifyOnDrop`, `notifyHealth`, `sessionNotifyMin`, `hotkeys`,
-`autoType`, `defaultProfile`, `authReuseMinutes`.
+`autoType`, `defaultProfile`, `authReuseMinutes`. `showLock` (a lock symbol in the menu bar of earlier versions) is
+no longer read; a stored value is ignored and dropped on the next save.
 
 ## Launch at login
 
 `LoginItem` (Core) wraps `SMAppService.mainApp` (status: enabled / needs approval / disabled / unavailable).
-Never registered without the user's choice: onboarding step 3 offers "Start PassTunnel at login" (default on; the
-redesigned window asks "Open PassTunnel at login?" after the first profile instead) and Settings → General has the
-toggle. A login launch (`keyAELaunchedAsLogInItem` or `--background`) starts in the menu bar only; manual launches
-open the main window.
+Never registered without the user's choice: the main window asks "Open PassTunnel at login?" after the first
+profile (see Main window) and Settings → General has the toggle. A login launch (`keyAELaunchedAsLogInItem` or
+`--background`) starts in the menu bar only; manual launches open the main window.
 
 **Connect at login** (per profile, `Profile.connectAtLogin`, default off; the editor's switch or `passtunnel set ID
 connect_at_login=true`; left out of share files): only a login launch runs it (`AppModel.connectAtLogin` →
@@ -591,16 +555,6 @@ again from disk (one switched off or deleted meanwhile is skipped):
   sheet in the main window);
 - a failed connect, or nothing ready in time: "Could not connect “Acme VPN” at login" / the error, "The PassTunnel
   helper is not ready." or "This Mac is offline." (Connect action; a click shows the profile).
-
-## Onboarding (first launch, 3 steps)
-
-The redesigned window has none: its first-run view and the question about opening at login replace it.
-
-1. Welcome — what PassTunnel does (one sentence + illustration with a live fake code).
-2. Install the helper — explain why (VPN tools need root; PassTunnel only runs its own signed copies),
-   button → `HelperInstaller.register()`; if "requires approval", show the Login Items button and poll
-   status until enabled.
-3. Add your first VPN — the same three import options as the empty state.
 
 ## CLI (`passtunnel`)
 
@@ -776,10 +730,9 @@ CLI after commands that change profiles or secrets), when it becomes active, and
 
 ## Design system
 
-The redesigned interface is built from tokens and base components in `Sources/PassTunnel/App/Design/`;
-of the screens above, the profile editor uses them (its rows, fields, switch and "Server receives" preview are in
-`Editor/EditorComponents.swift`), and so do the main window and the menu bar panel of the new interface; the
-others not yet.
+The interface is built from tokens and base components in `Sources/PassTunnel/App/Design/`: the main window, the
+menu bar panel, Settings → General and the profile editor (its rows, fields, switch and "Server receives" preview
+are in `Editor/EditorComponents.swift`) use them; the credential sheet and the other Settings tabs not yet.
 - `Tokens.swift`: `Palette` colors with light, dark and Increase Contrast values (dynamic `NSColor`s that follow
   the window's appearance). Mostly monochrome; green (connected), amber (waiting, the last 5 s) and red (errors)
   only ever come with an icon and words. Window and sidebar backgrounds are the system's, so fills, hairlines,
@@ -796,21 +749,21 @@ others not yet.
   VoiceOver reads "4 8 2, 9 1 3") and `CountdownTimeline`.
 - The `components` render (`PASSTUNNEL_RENDER`, light and dark; `components-contrast` with the Increase Contrast
   values) shows every token and component.
-- One status per profile for the new views: `DisplayStatus` (Core, `DisplayStatus.swift`; not the `ProfileStatus` of
+- One status per profile: `DisplayStatus` (Core, `DisplayStatus.swift`; not the `ProfileStatus` of
   the CLI and MCP) is worked out from what `ConnectionManager` publishes. A connection that is up wins, with its
   worst problem (not responding, then setup incomplete, then status unavailable); then a running automatic
   reconnect, which covers its attempts, their code waits and their failures; then a connect under way (waiting for a
   fresh code, connecting); then the last error, a drop not seen yet, and at rest "Touch ID to connect" (either level
-  of "Confirm with Touch ID": the new editor shows one switch) or "Disconnected". Each state has a short form for
+  of "Confirm with Touch ID": the editor shows one switch) or "Disconnected". Each state has a short form for
   rows and the menu bar panel ("Connected · 1h 12m") and a long one for the detail ("Connected · 1h 12m · 10.8.0.6",
   "Waiting for a fresh code · sends in 4 s", "Dropped · next try in 12 s" after a failed attempt). A failure is only
   its message for now; once Core reports why (a rejected sign-in, a server that does not answer), each reason
   becomes a `DisplayStatus.Failure` case. `Views/ProfileStatusViews.swift` adds the icon and color and the views
   `ProfileStatusLine` (detail), `ProfileStatusRow` (dot and short words) and `ProfileStatusDot`, fed by
-  `AppModel.displayStatus(_:)`; the new window and the menu bar panel show them, the current window and menu still
-  use `StatusKind`. On a selected row's accent color the words turn white (macOS 14 and later; macOS 13 keeps the
+  `AppModel.displayStatus(_:)`; the main window and the menu bar panel show them (the status item's badges use
+  `StatusKind`). On a selected row's accent color the words turn white (macOS 14 and later; macOS 13 keeps the
   state's color). The `profile-status` render shows every state.
-- The `main-split` renders show the redesigned window with the sample profiles, light and dark, once per state of
+- The `main-split` renders show the main window with the sample profiles, light and dark, once per state of
   the selected profile (`main-split`, `-waiting`, `-dropped`, `-off`, `-failed`), then the code cards with the code
   locked, hidden, just copied, in the smallest window and with a custom format (`-locked`, `-hidden`, `-copied`,
   `-narrow`, `-template`); they are not on the website. Every profile there has sample activity
@@ -834,12 +787,11 @@ a label set inside a button's label with `children: .ignore` can leave the butto
 exposes it as `AXDescription` (read by VoiceOver and `AXUIElementCopyAttributeValue`), never as
 `AXTitle`, and does not list it in `AXAttributeNames`, so System Events shows `name` as missing value.
 For UI automation, key controls carry stable, unlocalized `.accessibilityIdentifier`s (`AXIdentifier`):
-`profile.<id>`, `profile.<id>.primary`, `profile.<id>.more`, `profile.<id>.code`, `main.add` (in the redesigned
-window also `profile.<id>.edit`, `profile.<id>.copyCode`, `profile.<id>.copyPasswordCode`,
-`profile.<id>.serverReceives`, `main.settings` and
-`firstRun.chooseFile|scanScreen|qrImage|byHand|installHelper|loginItems|notNow|openAtLogin`; its sidebar rows read as name,
-status and code, its tiles as buttons with the line under the title as their hint),
-`helper.install|update|loginItems|remove|licenses`, `onboarding.back|continue|done|installHelper|loginItems`,
+`profile.<id>`, `profile.<id>.primary`, `profile.<id>.more`, `profile.<id>.code`, `main.add`, `profile.<id>.edit`,
+`profile.<id>.copyCode`, `profile.<id>.copyPasswordCode`, `profile.<id>.serverReceives`, `main.settings`,
+`firstRun.chooseFile|scanScreen|qrImage|byHand|installHelper|loginItems|notNow|openAtLogin` (the sidebar rows read
+as name, status and code, the add view's tiles as buttons with the line under the title as their hint),
+`helper.install|update|loginItems|remove|licenses`,
 `editor.cancel|save|delete|advanced|requireAuth|connectAtLogin|revealCode|scanScreen`, `settings.authReuse`, and in the
 menu bar panel `menu.<id>.toggle`, `menu.add|copyCode|copyPasswordCode|typeCode|open|settings|quit`. The editor's switches are
 drawn by the app (monochrome) and read by VoiceOver as standard switches (`accessibilityRepresentation`). While the screen is locked, accessibility clients see no windows at all (the
@@ -858,18 +810,18 @@ client errors) must have Turkish translations.
 - SwiftPM does not sync the catalog: add new keys by hand. `LocalizationTests` fails when a localized
   literal in the sources is missing from the catalog, lacks a Turkish value, or changes placeholders.
 - `PASSTUNNEL_RENDER_LANG=tr` renders the `PASSTUNNEL_RENDER` screenshots in Turkish (from a bundle
-  with the compiled `tr.lproj`, e.g. the app `build-app.sh` makes). Renders include `main-code-locked`
-  (`AppModel.previewLockedCodes`; no Secure Enclave key is made), `main-hidden-codes` ("Hide codes until clicked",
-  the first code clicked), `settings-general` (the whole page), `editor/editor-require-auth`, `editor/editor-connect-at-login` (with the footnote of an app that does not
+  with the compiled `tr.lproj`, e.g. the app `build-app.sh` makes). Renders include `main-split-locked`
+  (`AppModel.previewLockedCodes`; no Secure Enclave key is made), `main-split-hidden` ("Hide codes until clicked"),
+  `settings-general` (the whole page), `editor/editor-require-auth`, `editor/editor-connect-at-login` (with the footnote of an app that does not
   open at login), `editor/editor-scan-screen` and `editor-scan-screen-none` (macOS 14 and later) and the menu bar
-  panel of the new interface, with its status item above it: `menubar-panel` (three profiles in mixed states,
+  panel, with its status item above it: `menubar-panel` (three profiles in mixed states,
   auto-type on), `menubar-panel-pinned` (two pinned and the active ones of six; the
   status item badges the active ones only), `menubar-panel-dropped` (an unpinned profile that dropped), `menubar-panel-idle` (nothing pinned or active: all listed, the shield),
   `menubar-panel-scroll` (nothing pinned, six listed) and `menubar-panel-empty`.
 - `PASSTUNNEL_RENDER_SCALE=4` renders at that backing scale (1–8; default 2). `scripts/site-assets.sh`
   uses 4 for the website, together with `editor/editor-one-time-code` (the editor sheet of a saved profile with
-  its secret, at a fixed time so the code is stable) and `menubar-badges-<palette>` (the menu bar badges alone,
-  on a transparent background).
+  its secret, at a fixed time so the code is stable) and `menubar-badges-<palette>` (the status item's badges
+  alone, on a transparent background: the profiles that are connecting, connected or dropped).
 
 ## Content rules
 

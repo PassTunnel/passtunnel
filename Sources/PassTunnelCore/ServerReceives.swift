@@ -1,7 +1,7 @@
 import Foundation
 import PassTunnelKit
 
-/// "What the server receives", the second card of the detail in the redesigned window: what the sign-in sends, built
+/// "What the server receives", the second card of the detail in the main window: what the sign-in sends, built
 /// from the profile's real code format (`OTPComposer.parts`) with a placeholder password, never the real one, and
 /// the code the code card shows. Kept apart from SwiftUI so it is tested; the app draws the rows.
 public struct ServerReceives: Equatable, Sendable {

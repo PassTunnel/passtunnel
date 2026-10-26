@@ -11,7 +11,7 @@ error codes and the MCP tools. Background and the decisions behind this spec: is
 | | |
 |---|---|
 | First release | `passtunnel` (the CLI and the stdio MCP server) and `passtunneld` (the root daemon). No GUI |
-| Later | A desktop app with tray, notifications and live codes, built from the new interface design for macOS, Windows and Linux; a password prompt for protected profiles |
+| Later | A desktop app with tray, notifications and live codes, built from the macOS app's design for macOS, Windows and Linux; a password prompt for protected profiles |
 | VPN types | OpenVPN and FortiGate SSL VPN, with the distribution's `openvpn` (2.6 or later) and `openfortivpn` (1.21 or later) |
 | Targets | systemd distributions on x86_64 and aarch64. Tested: Ubuntu 24.04 and 26.04, Debian 13, the current two Fedora releases. Best effort: Ubuntu 22.04, Debian 12, RHEL 9 and 10 |
 | Language | Swift (6.4 toolchain, language mode 5), the same packages as the Mac; English only at first |

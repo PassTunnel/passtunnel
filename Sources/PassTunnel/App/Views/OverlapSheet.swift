@@ -3,7 +3,7 @@ import PassTunnelKit
 import SwiftUI
 
 // "Lab overlaps with Work": the sheet connecting a profile asks for when its routes or DNS names overlap with a tunnel that is
-// connected (`ConnectionManager.overlaps(for:)`, docs/APP.md, Redesigned window). Only the redesigned window asks; the CLI
+// connected (`ConnectionManager.overlaps(for:)`, docs/APP.md, Main window). Only the main window asks; the CLI
 // and the MCP server warn and go on. The wording says that the traffic can go through just one of the two tunnels, not
 // which one: that depends on the system and has not been verified on a Mac (decision D-22).
 

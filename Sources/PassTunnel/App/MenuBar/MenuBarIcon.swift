@@ -1,7 +1,7 @@
 import AppKit
 import PassTunnelCore
 
-/// Draws the status item title: optional lock symbol followed by one colored badge per visible profile.
+/// Draws the status item: one colored badge per profile that needs attention, or the shield while none does.
 enum MenuBarIcon {
     struct Badge: Equatable {
         var text: String
@@ -14,32 +14,22 @@ enum MenuBarIcon {
     static let badgeHeight: CGFloat = 15
     static let spacing: CGFloat = 3
 
-    /// The badges of the current menu bar: the pinned profiles and the ones that need attention. With `attentionOnly`
-    /// (the new interface) only those that need it: connecting, connected, or dropped and not seen yet.
-    @MainActor static func badges(for model: AppModel, attentionOnly: Bool = false) -> [Badge] {
-        (attentionOnly ? model.profiles : model.menuBarProfiles).compactMap { p in
+    /// The badges of the profiles that need attention: connecting, connected, or dropped and not seen yet.
+    @MainActor static func badges(for model: AppModel) -> [Badge] {
+        model.profiles.compactMap { p in
+            guard let attention = MenuBarProfiles.attention(activity(model.statusKind(p)),
+                                                            droppedUnseen: model.droppedUnseen.contains(p.id)) else {
+                return nil
+            }
             let tone: BadgeTone
-            var dropped = model.droppedUnseen.contains(p.id)
-            if attentionOnly {
-                guard let attention = MenuBarProfiles.attention(activity(model.statusKind(p)), droppedUnseen: dropped) else {
-                    return nil
-                }
-                switch attention {
-                case .connected: tone = .connected
-                case .connecting: tone = .connecting
-                case .dropped: tone = .disconnected
-                }
-                dropped = attention == .dropped
-            } else {
-                switch model.statusKind(p) {
-                case .connected: tone = .connected
-                case .connecting, .degraded: tone = .connecting
-                case .disconnected, .error, .dropped: tone = .disconnected
-                }
+            switch attention {
+            case .connected: tone = .connected
+            case .connecting: tone = .connecting
+            case .dropped: tone = .disconnected
             }
             let symbol = p.badgeStyle == .letter || p.icon.isEmpty ? nil : p.icon
             let text = p.badgeStyle == .icon && symbol != nil ? "" : String(p.displayBadge.prefix(3))
-            return Badge(text: text, symbol: symbol, tone: tone, dropped: dropped)
+            return Badge(text: text, symbol: symbol, tone: tone, dropped: attention == .dropped)
         }
     }
 
@@ -53,33 +43,18 @@ enum MenuBarIcon {
         }
     }
 
-    /// The status item's image. With `shieldWhenIdle` (the panel of the new interface) it shows only the profiles that
-    /// need attention, never the lock, and the shield while there are none; the current menu bar shows its lock then.
-    @MainActor static func image(for model: AppModel, shieldWhenIdle: Bool = false) -> NSImage {
-        let badges = badges(for: model, attentionOnly: shieldWhenIdle)
-        if badges.isEmpty && shieldWhenIdle { return shield }
-        let anyConnected = badges.contains { $0.tone == .connected }
-        return image(badges: badges, palette: model.prefs.badgePalette,
-                     showLock: !shieldWhenIdle && (model.prefs.showLock || badges.isEmpty), locked: anyConnected)
+    /// The status item's image: the badges of the profiles that need attention, or the shield while there are none.
+    @MainActor static func image(for model: AppModel) -> NSImage {
+        let badges = badges(for: model)
+        return badges.isEmpty ? shield : image(badges: badges, palette: model.prefs.badgePalette)
     }
 
-    static func image(badges: [Badge], palette: BadgePalette, showLock: Bool, locked: Bool) -> NSImage {
-        let lock = showLock ? lockImage(locked: locked) : nil
-        var width: CGFloat = 0
-        if let lock { width += lock.size.width }
+    static func image(badges: [Badge], palette: BadgePalette) -> NSImage {
         let widths = badges.map(badgeWidth)
-        if !badges.isEmpty {
-            if lock != nil { width += 4 }
-            width += widths.reduce(0, +) + spacing * CGFloat(badges.count - 1)
-        }
+        let width = badges.isEmpty ? 0 : widths.reduce(0, +) + spacing * CGFloat(badges.count - 1)
         let size = NSSize(width: max(ceil(width), 1), height: height)
         let image = NSImage(size: size, flipped: false) { _ in
             var x: CGFloat = 0
-            if let lock {
-                let tinted = tint(lock, NSColor.labelColor)
-                tinted.draw(in: NSRect(x: 0, y: (height - lock.size.height) / 2, width: lock.size.width, height: lock.size.height))
-                x += lock.size.width + 4
-            }
             for (badge, w) in zip(badges, widths) {
                 draw(badge, in: NSRect(x: x, y: (height - badgeHeight) / 2, width: w, height: badgeHeight), palette: palette)
                 x += w + spacing
@@ -138,10 +113,10 @@ enum MenuBarIcon {
         }
     }
 
-    // MARK: new interface
+    // MARK: shield
 
-    /// The status item of the new interface (`NewInterface`) while no profile is connecting, connected or dropped: a
-    /// monochrome shield with the lock body cut out, 16 pt, as a template image that the menu bar tints.
+    /// The status item while no profile is connecting, connected or dropped: a monochrome shield with the lock body
+    /// cut out, 16 pt, as a template image that the menu bar tints.
     static let shield: NSImage = {
         let side: CGFloat = 16
         let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { _ in
@@ -176,10 +151,6 @@ enum MenuBarIcon {
         path.append(NSBezierPath(roundedRect: NSRect(x: 9.3, y: 9.8, width: 5.4, height: 4.2), xRadius: 1, yRadius: 1))
         path.windingRule = .evenOdd
         return path
-    }
-
-    private static func lockImage(locked: Bool) -> NSImage? {
-        symbolImage(locked ? "lock.fill" : "lock.open.fill", pointSize: 13)
     }
 
     private static func symbolImage(_ name: String, pointSize: CGFloat) -> NSImage? {

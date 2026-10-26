@@ -464,7 +464,7 @@ each time* if you use a hardware token or SMS.
 
    ```sh
    rm -rf ~/Library/Application\ Support/PassTunnel     # profiles, configs, logs, preferences
-   defaults delete com.furkanprlk.passtunnel 2>/dev/null # onboarding flag
+   defaults delete com.furkanprlk.passtunnel 2>/dev/null # open-at-login question
    rm -f /usr/local/bin/passtunnel ~/.local/bin/passtunnel   # CLI symlink, if installed
    ```
 
@@ -508,9 +508,9 @@ swift build
 PASSTUNNEL_RENDER=/tmp/passtunnel-shots "$(swift build --show-bin-path)/PassTunnel"
 ```
 
-This writes the main window (light/dark, empty state, hidden codes), the credential sheet, menu bar
-badges for every palette, every Settings tab, the onboarding steps, the profile editor states and the
-design system's tokens and components.
+This writes the main window (light/dark, first run, every profile state, hidden and locked codes, the
+import review, the error states), the credential sheet, the menu bar panel and its badges for every
+palette, every Settings tab, the profile editor states and the design system's tokens and components.
 The images in [`docs/images`](docs/images) come from it.
 
 ## Contributing

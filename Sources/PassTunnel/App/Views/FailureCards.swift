@@ -3,7 +3,7 @@ import PassTunnelCore
 import PassTunnelKit
 import SwiftUI
 
-// The error states of the redesigned window's detail (docs/APP.md, Redesigned window): under the status line, a card
+// The error states of the main window's detail (docs/APP.md, Main window): under the status line, a card
 // that says what happened and what is worth checking, instead of the code cards. Core reports why the connect failed
 // (`ConnectionFailure`), the tries of an unreachable server (`UnreachableRetry`) and the network path
 // (`NetworkStatus`); the cards word them. A clock that is off has its own banner (ClockBanner.swift).

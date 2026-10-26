@@ -61,7 +61,6 @@ struct SettingsPane: View {
 /// Live preview of the menu bar title with sample badges in every state.
 struct MenuBarPreview: View {
     let palette: BadgePalette
-    let showLock: Bool
 
     var body: some View {
         HStack(spacing: 8) {
@@ -72,7 +71,7 @@ struct MenuBarPreview: View {
                         .init(text: "H", symbol: nil, tone: .connecting),
                         .init(text: "L", symbol: nil, tone: .disconnected),
                     ],
-                    palette: palette, showLock: showLock, locked: true, dark: dark))
+                    palette: palette, dark: dark))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
                     .background(dark ? Color(white: 0.16) : Color(white: 0.93), in: RoundedRectangle(cornerRadius: 5))
@@ -84,8 +83,8 @@ struct MenuBarPreview: View {
 
 extension MenuBarIcon {
     /// Rasterized for a fixed appearance (settings preview, screenshots).
-    static func rendered(badges: [Badge], palette: BadgePalette, showLock: Bool, locked: Bool, dark: Bool, scale: CGFloat = 2) -> NSImage {
-        rendered(image(badges: badges, palette: palette, showLock: showLock, locked: locked), dark: dark, scale: scale)
+    static func rendered(badges: [Badge], palette: BadgePalette, dark: Bool, scale: CGFloat = 2) -> NSImage {
+        rendered(image(badges: badges, palette: palette), dark: dark, scale: scale)
     }
 
     static func rendered(_ source: NSImage, dark: Bool, scale: CGFloat = 2) -> NSImage {

@@ -53,8 +53,6 @@ enum RenderSnapshots {
             emptyModel.previewStates = [:]
             emptyModel.previewErrors = [:]
             for dark in [false, true] {
-                snapshot(MainView().environmentObject(emptyModel), size: CGSize(width: 600, height: 560),
-                         dark: dark, to: out, name: "main-empty", window: true)
                 snapshot(MenuBarPanelPreview(now: Date()).environmentObject(emptyModel), size: nil, dark: dark, to: out,
                          name: "menubar-panel-empty")
             }
@@ -70,7 +68,7 @@ enum RenderSnapshots {
             }
             Palette.previewIncreasedContrast = false
 
-            // Every status a profile can show in the redesigned views (DisplayStatus), in the render's language.
+            // Every status a profile can show in the app's views (DisplayStatus), in the render's language.
             let statusNow = Date(timeIntervalSince1970: 1_800_000_000)
             for dark in [false, true] {
                 snapshot(ProfileStatusGallery(now: statusNow), size: nil, dark: dark, to: out, name: "profile-status")
@@ -93,28 +91,6 @@ enum RenderSnapshots {
             model.refreshHelperStatus()
             model.selection = sample.ids.first
 
-            for dark in [false, true] {
-                snapshot(MainView().environmentObject(model), size: CGSize(width: 680, height: 470),
-                         dark: dark, to: out, name: "main", window: true)
-            }
-            // "Hide codes until clicked", with the first code clicked: it shows for 20 s, the others stay hidden.
-            model.prefs.hideCodes = true
-            if let first = model.profiles.first { model.revealCodes(first) }
-            snapshot(MainView().environmentObject(model), size: CGSize(width: 680, height: 470),
-                     dark: false, to: out, name: "main-hidden-codes", window: true)
-            model.prefs.hideCodes = false
-
-            // "Confirm with Touch ID" protecting the TOTP secret: the first row's code is locked until confirmed
-            // (no Secure Enclave key is made for screenshots).
-            if let first = sample.ids.first {
-                model.previewLockedCodes = [first]
-                for dark in [false, true] {
-                    snapshot(MainView().environmentObject(model), size: CGSize(width: 680, height: 470),
-                             dark: dark, to: out, name: "main-code-locked", window: true)
-                }
-                model.previewLockedCodes = []
-            }
-
             if let needy = model.profiles.first(where: { !$0.needs.isEmpty }) {
                 let req = CredentialRequest(profile: needy, needs: needy.needs)
                 for dark in [false, true] {
@@ -123,22 +99,21 @@ enum RenderSnapshots {
                 }
             }
 
-            // Menu bar titles for every palette, on light and dark menu bars (the main window marked drops seen).
+            // The status item's badges for every palette (the profiles that are connecting, connected or dropped), on
+            // light and dark menu bars.
             model.setPreviewDropped(sample.dropped)
             for palette in BadgePalette.allCases {
                 model.prefs.badgePalette = palette
                 let badges = MenuBarIcon.badges(for: model)
                 for dark in [false, true] {
-                    let img = MenuBarIcon.rendered(badges: badges, palette: palette, showLock: true,
-                                                   locked: true, dark: dark, scale: max(4, scale))
+                    let img = MenuBarIcon.rendered(badges: badges, palette: palette, dark: dark, scale: max(4, scale))
                     let view = Image(nsImage: img)
                         .padding(.horizontal, 10)
                         .frame(height: 30)
                         .background(dark ? Color(white: 0.12) : Color(white: 0.95))
                     snapshot(view, size: nil, dark: dark, to: out, name: "menubar-\(palette.rawValue)")
                     // The badges alone on a transparent background, at the render scale.
-                    let bare = MenuBarIcon.rendered(badges: badges, palette: palette, showLock: true,
-                                                    locked: true, dark: dark, scale: scale)
+                    let bare = MenuBarIcon.rendered(badges: badges, palette: palette, dark: dark, scale: scale)
                     if let rep = bare.representations.first as? NSBitmapImageRep,
                        let png = rep.representation(using: .png, properties: [:]) {
                         try? png.write(to: out.appendingPathComponent("menubar-badges-\(palette.rawValue)\(dark ? "-dark" : "").png"))
@@ -160,24 +135,10 @@ enum RenderSnapshots {
             snapshot(approval.frame(width: 540).environmentObject(model),
                      size: nil, dark: false, to: out, name: "settings-general-login-approval", window: true)
 
-            // Onboarding.
-            for (i, status) in [HelperStatus.enabled, .notRegistered, .enabled].enumerated() {
-                model.previewHelperStatus = status
-                model.refreshHelperStatus()
-                for dark in [false, true] {
-                    snapshot(OnboardingView(step: i).environmentObject(model), size: nil, dark: dark, to: out,
-                             name: "onboarding-\(i + 1)")
-                }
-            }
-            model.previewHelperStatus = .requiresApproval
-            model.refreshHelperStatus()
-            snapshot(OnboardingView(step: 1).environmentObject(model), size: nil, dark: false, to: out,
-                     name: "onboarding-2-approval")
-
             renderSplitWindow(model, sample: sample, store: store, now: now, to: out)
             try renderImportReview(model, home: home, store: store, now: now, to: out)
 
-            // The menu bar of the new interface (NewInterface). Pinned Work and Travel with the connected, connecting
+            // The menu bar panel. Pinned Work and Travel with the connected, connecting
             // and dropped ones (four of six listed, badges for them); Home Lab dropped without being pinned; nothing
             // pinned or active (all listed, the shield); nothing pinned but some connected (all six, so the list
             // scrolls); then three (connected, Touch ID to connect with the code locked, dropped) with auto-type on.
@@ -246,7 +207,7 @@ enum RenderSnapshots {
         return 0
     }
 
-    /// The redesigned window (behind `NewInterface`, not on the website yet), once per state of the selected profile:
+    /// The main window, once per state of the selected profile:
     /// `main-split` connected, `-waiting` for a fresh code, `-dropped` and reconnecting, `-off`, `-failed`; then the
     /// code card's other states on the first profile: `-locked`, `-hidden`, `-copied`, `-narrow` (the smallest window,
     /// cards stacked) and `-template` (a custom code format). Sets its own overrides and leaves the model and the
@@ -340,7 +301,7 @@ enum RenderSnapshots {
         model.setPreviewDropped(sample.dropped)
     }
 
-    /// The error states of the redesigned window (ClockBanner.swift, FailureCards.swift, OverlapSheet.swift), light and
+    /// The error states of the main window (ClockBanner.swift, FailureCards.swift, OverlapSheet.swift), light and
     /// dark: `error-rejected-clock` (Work, a sign-in the server rejected, the gateway's clock 48 s behind, with the banner),
     /// `error-rejected` (the clock not checked yet), `error-rejected-clock-ok` (the time server says the clock is right),
     /// `error-unreachable` (Home Lab, the next try in 18 s), `-offline`, `-ended`, `error-host-not-found`, `error-other`
@@ -503,8 +464,8 @@ enum RenderSnapshots {
         return [ids[0]: work, ids[3]: staging, ids[4]: partner, ids[5]: travel]
     }
 
-    /// The redesigned window without profiles (behind `NewInterface`, not on the website yet): `first-run` with the
-    /// helper card before the helper is installed, `first-run-approval` while macOS waits for its approval.
+    /// The main window without profiles: `first-run` with the helper card before the helper is installed,
+    /// `first-run-approval` while macOS waits for its approval.
     private static func renderFirstRun(_ model: AppModel, to out: URL) {
         for (status, name) in [(HelperStatus.notRegistered, "first-run"), (.requiresApproval, "first-run-approval")] {
             model.previewHelperStatus = status
@@ -517,7 +478,7 @@ enum RenderSnapshots {
         model.previewHelperStatus = nil
     }
 
-    /// The import review of the redesigned window (`ImportReviewView`), light and dark: `import-review` as designed
+    /// The import review of the main window (`ImportReviewView`), light and dark: `import-review` as designed
     /// (two lines skipped, the code secret missing), `-ready` with the secret added, `-certificate` for a
     /// certificate-only file whose keys come from files next to it, and `-narrow` at the window's smallest size, where
     /// the columns stack. Nothing is added; the model is left as it was found.
@@ -766,7 +727,7 @@ enum RenderSnapshots {
     }
 }
 
-/// The redesigned window for the renders. On macOS 26 the window server draws the glass sidebar, and offscreen its
+/// The main window for the renders. On macOS 26 the window server draws the glass sidebar, and offscreen its
 /// rows stay blank: there the render lays the window's own sidebar and detail out as the window does (the sidebar
 /// 272 pt wide, 8 pt in, on the list's flat background instead of glass, its search field drawn in place).
 private struct SplitWindowRender: View {

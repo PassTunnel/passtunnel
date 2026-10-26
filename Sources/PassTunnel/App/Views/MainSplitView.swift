@@ -3,9 +3,9 @@ import PassTunnelCore
 import PassTunnelKit
 import SwiftUI
 
-// The redesigned main window (behind `NewInterface`): profiles in a sidebar, the selected one in a detail view
-// (ProfileDetailView.swift), the first-run and add view without one (FirstRunView.swift). Sheets, alerts and drag & drop
-// import work as in `MainView`; there is no toast, no window subtitle and no onboarding sheet.
+// The main window: profiles in a sidebar, the selected one in a detail view (ProfileDetailView.swift), the first-run
+// and add view without one (FirstRunView.swift), and the sheets, alerts and drag & drop import of the window. There is
+// no toast, no window subtitle and no onboarding sheet.
 
 struct MainSplitView: View {
     @EnvironmentObject private var model: AppModel
@@ -133,6 +133,24 @@ private struct HiddenWindowTitle: ViewModifier {
     }
 }
 
+/// Shown over the window while files or images are dragged over it.
+struct DropHighlight: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 3, dash: [8, 5]))
+            .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay {
+                Label(String(localized: "Drop to import"), systemImage: "square.and.arrow.down")
+                    .font(.title3.weight(.semibold))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(.regularMaterial, in: Capsule())
+            }
+            .padding(8)
+            .allowsHitTesting(false)
+    }
+}
+
 // MARK: - Sidebar
 
 /// Search, the profiles (drag to reorder), and a bottom bar with Add and Settings.
@@ -209,6 +227,30 @@ private struct SidebarSearch: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+/// The sidebar's context menu.
+struct ProfileMenuItems: View {
+    @EnvironmentObject private var model: AppModel
+    let profile: Profile
+
+    var body: some View {
+        let p = profile
+        Button(String(localized: "Edit…")) { model.edit(p) }
+        Divider()
+        Button(String(localized: "Copy Code")) { model.copyCode(p) }
+            .disabled(model.code(for: p) == nil && !model.isCodeLocked(p))
+        Button(String(localized: "Copy Password + Code")) { model.copyPasswordAndCode(p) }
+            .disabled(p.passwordMode != .keychain)
+        Divider()
+        Button(String(localized: "Share…")) { model.share(p) }
+        Button(String(localized: "Show Log")) { model.showLog(p) }
+        Divider()
+        Toggle(String(localized: "Pin to Menu Bar"), isOn: Binding(get: { p.pinned }, set: { _ in model.togglePin(p) }))
+        Toggle(String(localized: "Default Profile"), isOn: Binding(get: { model.isDefault(p) }, set: { _ in model.makeDefault(p) }))
+        Divider()
+        Button(String(localized: "Delete…"), role: .destructive) { model.pendingDelete = p }
     }
 }
 
@@ -320,7 +362,7 @@ private struct SidebarCode: View {
 
 // MARK: - Commands
 
-/// The Profile menu of the redesigned window: ⌘↩ runs the detail's main button, ⌘C copies the code, ⇧⌘C the
+/// The Profile menu of the main window: ⌘↩ runs the detail's main button, ⌘C copies the code, ⇧⌘C the
 /// password and code, ⌘E edits. Off while a sheet is open; ⌘C in a text field never copies a code.
 struct SplitWindowCommands: View {
     @ObservedObject var model: AppModel

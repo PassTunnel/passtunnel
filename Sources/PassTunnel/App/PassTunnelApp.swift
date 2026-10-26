@@ -14,25 +14,18 @@ struct PassTunnelApp: App {
 
     var body: some Scene {
         Window(Text(verbatim: "PassTunnel"), id: "main") {
-            Group {
-                if NewInterface.isEnabled {
-                    MainSplitView()
-                        .frame(minWidth: 820, idealWidth: 1080, minHeight: 560, idealHeight: 700)
-                } else {
-                    MainView()
-                        .frame(minWidth: 520, idealWidth: 600, minHeight: 360, idealHeight: 480)
-                }
-            }
-            .environmentObject(model)
+            MainSplitView()
+                .frame(minWidth: 820, idealWidth: 1080, minHeight: 560, idealHeight: 700)
+                .environmentObject(model)
             .background { MainWindowObserver() }
         }
-        .defaultSize(NewInterface.isEnabled ? CGSize(width: 1080, height: 700) : CGSize(width: 600, height: 500))
+        .defaultSize(width: 1080, height: 700)
         .commands {
             CheckForUpdatesCommand()
             AppCommands(model: model)
         }
 
-        // The activity of one profile, opened by "Show all" in the redesigned detail; not in the Window menu.
+        // The activity of one profile, opened by "Show all" in the detail; not in the Window menu.
         Window(String(localized: "Activity"), id: ActivityLogWindow.id) {
             ActivityLogWindow()
                 .environmentObject(model)
@@ -40,22 +33,12 @@ struct PassTunnelApp: App {
         .defaultSize(width: 620, height: 460)
         .commandsRemoved()
 
-        // One of two menu bar items is in the menu bar: the current menu, or the panel of the new interface
-        // (`NewInterface`). A scene cannot be left out at run time, so each says with `isInserted` whether it is there.
-        MenuBarExtra(isInserted: .constant(!NewInterface.isEnabled)) {
-            MenuBarMenu()
-                .environmentObject(model)
-        } label: {
-            MenuBarLabel()
-                .environmentObject(model)
-        }
-        .menuBarExtraStyle(.menu)
-
-        MenuBarExtra(isInserted: .constant(NewInterface.isEnabled)) {
+        // The menu bar item: its status item (`MenuBarLabel`) and the panel under it.
+        MenuBarExtra {
             MenuBarPanel()
                 .environmentObject(model)
         } label: {
-            MenuBarLabel(panel: true)
+            MenuBarLabel()
                 .environmentObject(model)
         }
         .menuBarExtraStyle(.window)
@@ -83,20 +66,7 @@ struct AppCommands: Commands {
             Button(String(localized: "Add Code from QR…")) { ImportActions.addCodeFromQR(profileID: model.selection) }
         }
         CommandMenu(String(localized: "Profile")) {
-            if NewInterface.isEnabled {
-                SplitWindowCommands(model: model)
-            } else {
-                let selected = model.selection.flatMap(model.profile)
-                Button(String(localized: "Connect or Disconnect")) { selected.map(model.primaryAction) }
-                    .keyboardShortcut(.return, modifiers: [.command])
-                    .disabled(selected == nil)
-                Button(String(localized: "Copy Code")) { selected.map(model.copyCode) }
-                    .keyboardShortcut("c", modifiers: [.command, .shift])
-                    .disabled(selected.map(model.hasCode) != true)
-                Button(String(localized: "Edit…")) { selected.map(model.edit) }
-                    .keyboardShortcut("e")
-                    .disabled(selected == nil)
-            }
+            SplitWindowCommands(model: model)
             Divider()
             Button(String(localized: "Toggle Default Profile")) { model.toggleDefault() }
                 .disabled(model.profiles.isEmpty)
