@@ -78,7 +78,7 @@
     },
     {
       "name": "script-security 0 and 1 stay; 2, 3 and an unreadable level are skipped (OpenVPN's default, 1, applies)",
-      "config": "client\nscript-security 0\nscript-security 1\nscript-security 2\nscript-security 3 system\nscript-security\nscript-security x\n",
+      "config": "client\nscript-security 0\nscript-security 1\nscript-security 2\nscript-security 3 system\nscript-security\nscript-security x\nremote vpn.example.com\n",
       "blocking": [],
       "certificates": [],
       "needs": [],
@@ -86,7 +86,13 @@
       "otp_mode": "none",
       "password": null,
       "password_mode": "none",
-      "servers": [],
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "1194",
+          "tcp": false
+        }
+      ],
       "skipped": [
         {
           "directive": "script-security",
@@ -113,12 +119,12 @@
           "text": "script-security x"
         }
       ],
-      "stored": "client\nscript-security 0\nscript-security 1\n# PassTunnel skipped: script-security 2\n# PassTunnel skipped: script-security 3 system\n# PassTunnel skipped: script-security\n# PassTunnel skipped: script-security x\n",
+      "stored": "client\nscript-security 0\nscript-security 1\n# PassTunnel skipped: script-security 2\n# PassTunnel skipped: script-security 3 system\n# PassTunnel skipped: script-security\n# PassTunnel skipped: script-security x\nremote vpn.example.com\n",
       "username": null
     },
     {
       "name": "client metadata setenv stays; any other variable is skipped",
-      "config": "client\nsetenv CLIENT_CERT 0\nsetenv IV_GUI_VER \"Acme 1.0\"\nsetenv UV_TEAM blue\nsetenv FRIENDLY_NAME Work\nsetenv PATH /tmp\nsetenv BASH_ENV /tmp/x\n",
+      "config": "client\nsetenv CLIENT_CERT 0\nsetenv IV_GUI_VER \"Acme 1.0\"\nsetenv UV_TEAM blue\nsetenv FRIENDLY_NAME Work\nsetenv PATH /tmp\nsetenv BASH_ENV /tmp/x\nremote vpn.example.com\n",
       "blocking": [],
       "certificates": [],
       "needs": [],
@@ -126,7 +132,13 @@
       "otp_mode": "none",
       "password": null,
       "password_mode": "none",
-      "servers": [],
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "1194",
+          "tcp": false
+        }
+      ],
       "skipped": [
         {
           "directive": "setenv PATH",
@@ -141,12 +153,12 @@
           "text": "setenv BASH_ENV /tmp/x"
         }
       ],
-      "stored": "client\nsetenv CLIENT_CERT 0\nsetenv IV_GUI_VER \"Acme 1.0\"\nsetenv UV_TEAM blue\nsetenv FRIENDLY_NAME Work\n# PassTunnel skipped: setenv PATH /tmp\n# PassTunnel skipped: setenv BASH_ENV /tmp/x\n",
+      "stored": "client\nsetenv CLIENT_CERT 0\nsetenv IV_GUI_VER \"Acme 1.0\"\nsetenv UV_TEAM blue\nsetenv FRIENDLY_NAME Work\n# PassTunnel skipped: setenv PATH /tmp\n# PassTunnel skipped: setenv BASH_ENV /tmp/x\nremote vpn.example.com\n",
       "username": null
     },
     {
       "name": "setenv opt is read like the directive it names",
-      "config": "client\nsetenv opt up /tmp/x.sh\nsetenv opt script-security 2\nsetenv opt block-outside-dns\nsetenv opt plugin /tmp/p.so\n",
+      "config": "client\nsetenv opt up /tmp/x.sh\nsetenv opt script-security 2\nsetenv opt block-outside-dns\nsetenv opt plugin /tmp/p.so\nremote vpn.example.com\n",
       "blocking": [
         {
           "directive": "plugin",
@@ -161,7 +173,13 @@
       "otp_mode": "none",
       "password": null,
       "password_mode": "none",
-      "servers": [],
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "1194",
+          "tcp": false
+        }
+      ],
       "skipped": [
         {
           "directive": "up",
@@ -181,7 +199,7 @@
     },
     {
       "name": "every directive that is skipped",
-      "config": "client\nup /tmp/a\ndown /tmp/a\nroute-up /tmp/a\nroute-pre-down /tmp/a\nipchange /tmp/a\niproute /tmp/ip\ndns-updown force\ndaemon\ncd /etc/openvpn\nchroot /var/empty\nuser nobody\ngroup nobody\nwritepid /tmp/pid\nstatus /tmp/status 10\ntmp-dir /tmp\ntls-export-cert /tmp\nlog /tmp/log\nlog-append /tmp/log\nmanagement 127.0.0.1 7505\nmanagement-client\nmanagement-client-user alice\nmanagement-client-group staff\nmanagement-hold\nmanagement-query-passwords\nmanagement-query-proxy\nmanagement-query-remote\nmanagement-forget-disconnect\nmanagement-signal\nmanagement-up-down\nmanagement-log-cache 100\n",
+      "config": "client\nup /tmp/a\ndown /tmp/a\nroute-up /tmp/a\nroute-pre-down /tmp/a\nipchange /tmp/a\niproute /tmp/ip\ndns-updown force\ndaemon\ncd /etc/openvpn\nchroot /var/empty\nuser nobody\ngroup nobody\nwritepid /tmp/pid\nstatus /tmp/status 10\ntmp-dir /tmp\ntls-export-cert /tmp\nlog /tmp/log\nlog-append /tmp/log\nmanagement 127.0.0.1 7505\nmanagement-client\nmanagement-client-user alice\nmanagement-client-group staff\nmanagement-hold\nmanagement-query-passwords\nmanagement-query-proxy\nmanagement-query-remote\nmanagement-forget-disconnect\nmanagement-signal\nmanagement-up-down\nmanagement-log-cache 100\nremote vpn.example.com\n",
       "blocking": [],
       "certificates": [],
       "needs": [],
@@ -189,7 +207,13 @@
       "otp_mode": "none",
       "password": null,
       "password_mode": "none",
-      "servers": [],
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "1194",
+          "tcp": false
+        }
+      ],
       "skipped": [
         {
           "directive": "up",
@@ -372,12 +396,12 @@
           "text": "management-log-cache 100"
         }
       ],
-      "stored": "client\n# PassTunnel skipped: up /tmp/a\n# PassTunnel skipped: down /tmp/a\n# PassTunnel skipped: route-up /tmp/a\n# PassTunnel skipped: route-pre-down /tmp/a\n# PassTunnel skipped: ipchange /tmp/a\n# PassTunnel skipped: iproute /tmp/ip\n# PassTunnel skipped: dns-updown force\n# PassTunnel skipped: daemon\n# PassTunnel skipped: cd /etc/openvpn\n# PassTunnel skipped: chroot /var/empty\n# PassTunnel skipped: user nobody\n# PassTunnel skipped: group nobody\n# PassTunnel skipped: writepid /tmp/pid\n# PassTunnel skipped: status /tmp/status 10\n# PassTunnel skipped: tmp-dir /tmp\n# PassTunnel skipped: tls-export-cert /tmp\n# PassTunnel skipped: log /tmp/log\n# PassTunnel skipped: log-append /tmp/log\n# PassTunnel skipped: management 127.0.0.1 7505\n# PassTunnel skipped: management-client\n# PassTunnel skipped: management-client-user alice\n# PassTunnel skipped: management-client-group staff\n# PassTunnel skipped: management-hold\n# PassTunnel skipped: management-query-passwords\n# PassTunnel skipped: management-query-proxy\n# PassTunnel skipped: management-query-remote\n# PassTunnel skipped: management-forget-disconnect\n# PassTunnel skipped: management-signal\n# PassTunnel skipped: management-up-down\n# PassTunnel skipped: management-log-cache 100\n",
+      "stored": "client\n# PassTunnel skipped: up /tmp/a\n# PassTunnel skipped: down /tmp/a\n# PassTunnel skipped: route-up /tmp/a\n# PassTunnel skipped: route-pre-down /tmp/a\n# PassTunnel skipped: ipchange /tmp/a\n# PassTunnel skipped: iproute /tmp/ip\n# PassTunnel skipped: dns-updown force\n# PassTunnel skipped: daemon\n# PassTunnel skipped: cd /etc/openvpn\n# PassTunnel skipped: chroot /var/empty\n# PassTunnel skipped: user nobody\n# PassTunnel skipped: group nobody\n# PassTunnel skipped: writepid /tmp/pid\n# PassTunnel skipped: status /tmp/status 10\n# PassTunnel skipped: tmp-dir /tmp\n# PassTunnel skipped: tls-export-cert /tmp\n# PassTunnel skipped: log /tmp/log\n# PassTunnel skipped: log-append /tmp/log\n# PassTunnel skipped: management 127.0.0.1 7505\n# PassTunnel skipped: management-client\n# PassTunnel skipped: management-client-user alice\n# PassTunnel skipped: management-client-group staff\n# PassTunnel skipped: management-hold\n# PassTunnel skipped: management-query-passwords\n# PassTunnel skipped: management-query-proxy\n# PassTunnel skipped: management-query-remote\n# PassTunnel skipped: management-forget-disconnect\n# PassTunnel skipped: management-signal\n# PassTunnel skipped: management-up-down\n# PassTunnel skipped: management-log-cache 100\nremote vpn.example.com\n",
       "username": null
     },
     {
       "name": "checking the server or the sign-in blocks",
-      "config": "client\nup /tmp/a\ntls-verify /tmp/check.sh\nauth-user-pass-verify /tmp/x via-env\ntls-crypt-v2-verify /tmp/x\n",
+      "config": "client\nup /tmp/a\ntls-verify /tmp/check.sh\nauth-user-pass-verify /tmp/x via-env\ntls-crypt-v2-verify /tmp/x\nremote vpn.example.com\n",
       "blocking": [
         {
           "directive": "tls-verify",
@@ -404,7 +428,13 @@
       "otp_mode": "none",
       "password": null,
       "password_mode": "none",
-      "servers": [],
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "1194",
+          "tcp": false
+        }
+      ],
       "skipped": [
         {
           "directive": "up",
@@ -418,7 +448,7 @@
     },
     {
       "name": "loading code blocks",
-      "config": "client\nplugin /tmp/p.so\nengine dynamic\nproviders legacy\npkcs11-providers /tmp/p11.dylib\nshow-pkcs11-ids /tmp/p11.dylib\n",
+      "config": "client\nplugin /tmp/p.so\nengine dynamic\nproviders legacy\npkcs11-providers /tmp/p11.dylib\nshow-pkcs11-ids /tmp/p11.dylib\nremote vpn.example.com\n",
       "blocking": [
         {
           "directive": "plugin",
@@ -457,14 +487,20 @@
       "otp_mode": "none",
       "password": null,
       "password_mode": "none",
-      "servers": [],
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "1194",
+          "tcp": false
+        }
+      ],
       "skipped": [],
       "stored": null,
       "username": null
     },
     {
       "name": "reading files outside the configuration blocks",
-      "config": "client\nconfig other.ovpn\ncapath /etc/ssl/certs\ndev-node /dev/tun0\nreplay-persist /tmp/replay\nclient-config-dir /etc/ccd\nifconfig-pool-persist /tmp/pool\n",
+      "config": "client\nconfig other.ovpn\ncapath /etc/ssl/certs\ndev-node /dev/tun0\nreplay-persist /tmp/replay\nclient-config-dir /etc/ccd\nifconfig-pool-persist /tmp/pool\nremote vpn.example.com\n",
       "blocking": [
         {
           "directive": "config",
@@ -509,14 +545,20 @@
       "otp_mode": "none",
       "password": null,
       "password_mode": "none",
-      "servers": [],
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "1194",
+          "tcp": false
+        }
+      ],
       "skipped": [],
       "stored": null,
       "username": null
     },
     {
       "name": "server-only directives block: this is not a client configuration",
-      "config": "client\nlearn-address /tmp/x\nclient-connect /tmp/x\nclient-disconnect /tmp/x\nport-share 127.0.0.1 443\nmanagement-client-auth\n",
+      "config": "client\nlearn-address /tmp/x\nclient-connect /tmp/x\nclient-disconnect /tmp/x\nport-share 127.0.0.1 443\nmanagement-client-auth\nremote vpn.example.com\n",
       "blocking": [
         {
           "directive": "learn-address",
@@ -555,14 +597,20 @@
       "otp_mode": "none",
       "password": null,
       "password_mode": "none",
-      "servers": [],
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "1194",
+          "tcp": false
+        }
+      ],
       "skipped": [],
       "stored": null,
       "username": null
     },
     {
       "name": "server and standalone modes block, also next to a line that would be skipped",
-      "config": "client\nmode server\ntls-server\nclient-crresponse /tmp/x\nmktun\ndev ../tmp/x1\nup /tmp/x\n",
+      "config": "client\nmode server\ntls-server\nclient-crresponse /tmp/x\nmktun\ndev ../tmp/x1\nup /tmp/x\nremote vpn.example.com\n",
       "blocking": [
         {
           "directive": "mode",
@@ -601,7 +649,13 @@
       "otp_mode": "none",
       "password": null,
       "password_mode": "none",
-      "servers": [],
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "1194",
+          "tcp": false
+        }
+      ],
       "skipped": [
         {
           "directive": "up",
@@ -615,7 +669,7 @@
     },
     {
       "name": "a key or certificate from another program, other log and management names, and genkey block",
-      "config": "client\nmanagement-external-key\nmanagement-external-cert macosx-keychain\nlogfile /tmp/x\nmanagement-new\ngenkey secret /tmp/key\n",
+      "config": "client\nmanagement-external-key\nmanagement-external-cert macosx-keychain\nlogfile /tmp/x\nmanagement-new\ngenkey secret /tmp/key\nremote vpn.example.com\n",
       "blocking": [
         {
           "directive": "management-external-key",
@@ -654,14 +708,20 @@
       "otp_mode": "none",
       "password": null,
       "password_mode": "none",
-      "servers": [],
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "1194",
+          "tcp": false
+        }
+      ],
       "skipped": [],
       "stored": null,
       "username": null
     },
     {
       "name": "blocks of refused directives block, directive names inside a block are its content",
-      "config": "client\n<ca>\nup /tmp/x.sh\nplugin /tmp/p.so\n</ca>\n<up>\n/tmp/x.sh\n</up>\n<plugin>\n/tmp/p.so\n</plugin>\n",
+      "config": "client\n<ca>\nup /tmp/x.sh\nplugin /tmp/p.so\n</ca>\n<up>\n/tmp/x.sh\n</up>\n<plugin>\n/tmp/p.so\n</plugin>\nremote vpn.example.com\n",
       "blocking": [
         {
           "directive": "<up>",
@@ -687,7 +747,13 @@
       "otp_mode": "none",
       "password": null,
       "password_mode": "none",
-      "servers": [],
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "1194",
+          "tcp": false
+        }
+      ],
       "skipped": [],
       "stored": null,
       "username": null
@@ -837,7 +903,7 @@
     },
     {
       "name": "leading dashes and capitals are read as the sanitizer reads them",
-      "config": "client\n--up /tmp/x.sh\nUP /tmp/y.sh\n---Daemon\n",
+      "config": "client\n--up /tmp/x.sh\nUP /tmp/y.sh\n---Daemon\nremote vpn.example.com\n",
       "blocking": [],
       "certificates": [],
       "needs": [],
@@ -845,7 +911,13 @@
       "otp_mode": "none",
       "password": null,
       "password_mode": "none",
-      "servers": [],
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "1194",
+          "tcp": false
+        }
+      ],
       "skipped": [
         {
           "directive": "up",
@@ -866,12 +938,12 @@
           "text": "---Daemon"
         }
       ],
-      "stored": "client\n# PassTunnel skipped: --up /tmp/x.sh\n# PassTunnel skipped: UP /tmp/y.sh\n# PassTunnel skipped: ---Daemon\n",
+      "stored": "client\n# PassTunnel skipped: --up /tmp/x.sh\n# PassTunnel skipped: UP /tmp/y.sh\n# PassTunnel skipped: ---Daemon\nremote vpn.example.com\n",
       "username": null
     },
     {
       "name": "a long skipped line is cut so that its comment stays one line for OpenVPN",
-      "config": "client\nup /tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+      "config": "client\nup /tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nremote vpn.example.com\n",
       "blocking": [],
       "certificates": [],
       "needs": [],
@@ -879,7 +951,13 @@
       "otp_mode": "none",
       "password": null,
       "password_mode": "none",
-      "servers": [],
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "1194",
+          "tcp": false
+        }
+      ],
       "skipped": [
         {
           "directive": "up",
@@ -888,12 +966,12 @@
           "text": "up /tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…"
         }
       ],
-      "stored": "client\n# PassTunnel skipped: up /tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…\n",
+      "stored": "client\n# PassTunnel skipped: up /tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…\nremote vpn.example.com\n",
       "username": null
     },
     {
       "name": "a line longer than OpenVPN reads blocks",
-      "config": "client\nup /tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+      "config": "client\nup /tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nremote vpn.example.com\n",
       "blocking": [
         {
           "directive": "(line)",
@@ -908,14 +986,20 @@
       "otp_mode": "none",
       "password": null,
       "password_mode": "none",
-      "servers": [],
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "1194",
+          "tcp": false
+        }
+      ],
       "skipped": [],
       "stored": null,
       "username": null
     },
     {
       "name": "control and bidirectional characters are shown as replacement characters, tabs as spaces",
-      "config": "client\nup /tmp/\u001b[2Jx\u202ey\tz\n",
+      "config": "client\nup /tmp/\u001b[2Jx\u202ey\tz\nremote vpn.example.com\n",
       "blocking": [],
       "certificates": [],
       "needs": [],
@@ -923,7 +1007,13 @@
       "otp_mode": "none",
       "password": null,
       "password_mode": "none",
-      "servers": [],
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "1194",
+          "tcp": false
+        }
+      ],
       "skipped": [
         {
           "directive": "up",
@@ -932,12 +1022,12 @@
           "text": "up /tmp/�[2Jx�y z"
         }
       ],
-      "stored": "client\n# PassTunnel skipped: up /tmp/�[2Jx�y z\n",
+      "stored": "client\n# PassTunnel skipped: up /tmp/�[2Jx�y z\nremote vpn.example.com\n",
       "username": null
     },
     {
       "name": "a line OpenVPN rejects blocks, even with a skippable name",
-      "config": "client\nup /tmp/a\\qb\ndown 'open\n",
+      "config": "client\nup /tmp/a\\qb\ndown 'open\nremote vpn.example.com\n",
       "blocking": [
         {
           "directive": "(line)",
@@ -958,7 +1048,13 @@
       "otp_mode": "none",
       "password": null,
       "password_mode": "none",
-      "servers": [],
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "1194",
+          "tcp": false
+        }
+      ],
       "skipped": [],
       "stored": null,
       "username": null
@@ -1213,7 +1309,7 @@
     },
     {
       "name": "proxy credentials from a file block, the auto methods do not",
-      "config": "client\nhttp-proxy proxy.example.com 8080 auto\nhttp-proxy proxy.example.com 8080 creds.txt\nsocks-proxy proxy.example.com 1080 /etc/creds\n",
+      "config": "client\nhttp-proxy proxy.example.com 8080 auto\nhttp-proxy proxy.example.com 8080 creds.txt\nsocks-proxy proxy.example.com 1080 /etc/creds\nremote vpn.example.com\n",
       "blocking": [
         {
           "directive": "http-proxy",
@@ -1234,7 +1330,70 @@
       "otp_mode": "none",
       "password": null,
       "password_mode": "none",
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "1194",
+          "tcp": false
+        }
+      ],
+      "skipped": [],
+      "stored": null,
+      "username": null
+    },
+    {
+      "name": "a file without any remote blocks: OpenVPN would wait for a peer to reach it",
+      "config": "client\nproto udp\ndev tun\nup /tmp/x\n",
+      "blocking": [
+        {
+          "directive": "remote",
+          "line": 0,
+          "reason": "missing; without a server to connect to, OpenVPN waits for incoming connections",
+          "text": ""
+        }
+      ],
+      "certificates": [],
+      "needs": [],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": null,
+      "password_mode": "none",
       "servers": [],
+      "skipped": [
+        {
+          "directive": "up",
+          "line": 4,
+          "reason": "program",
+          "text": "up /tmp/x"
+        }
+      ],
+      "stored": null,
+      "username": null
+    },
+    {
+      "name": "a protocol that listens for a TCP connection blocks",
+      "config": "client\nproto tcp-server\nremote vpn.example.com 443\n",
+      "blocking": [
+        {
+          "directive": "proto",
+          "line": 2,
+          "reason": "waits for incoming connections; PassTunnel only connects to a server",
+          "text": "proto tcp-server"
+        }
+      ],
+      "certificates": [],
+      "needs": [],
+      "otp_delivery": "combined",
+      "otp_mode": "none",
+      "password": null,
+      "password_mode": "none",
+      "servers": [
+        {
+          "host": "vpn.example.com",
+          "port": "443",
+          "tcp": true
+        }
+      ],
       "skipped": [],
       "stored": null,
       "username": null

@@ -1,0 +1,12 @@
+client
+proto tcp-server
+remote vpn.example.com 1194 tcp6-server
+local 192.0.2.1 1194 tcp4-server
+proto-force tcp-server
+<connection>
+remote vpn.example.com 443
+setenv opt proto tcp-server
+</connection>
+setenv opt --remote vpn.example.com
+REMOTE vpn.example.com
+remote

@@ -1,0 +1,6 @@
+client
+proto udp
+dev tun
+nobind
+up /tmp/x
+proto tcp-server

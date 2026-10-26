@@ -399,6 +399,33 @@ final class DaemonSessionTests: DaemonTestCase {
     }
 
     /// Shutting down stops every tool and cleans up.
+    /// A profile whose device name the kernel has already is refused before anything is prepared: OpenVPN
+    /// would attach to that device, and a persistent one stays open to its owner. `dev tun` and `dev tap`
+    /// get a name the kernel picks, and a free name starts.
+    func testExistingDeviceIsRefused() throws {
+        let daemon = try makeDaemon { $0.interfaces.exists = { $0 != "tun6" } }
+        func start(dev: String) throws -> HelperResponse {
+            let text = "client\nremote vpn.example.com 1194\nauth-user-pass\ndev \(dev)\n"
+            try text.write(toFile: profileDir("acme") + "/config.ovpn", atomically: true, encoding: .utf8)
+            return try response(daemon.socketPath, .startOpenVPN(self.start(sha: HelperCore.sha256Hex(Data(text.utf8)))))
+        }
+        let refused = try start(dev: "tun5")
+        XCTAssertFalse(refused.ok)
+        XCTAssertEqual(refused.error, HelperCore.Failure.deviceExists("tun5").description)
+        XCTAssertFalse(exists(runRoot + "/\(me)/acme"), "nothing prepared for a refused start")
+        for dev in ["tun", "tap", "tun6"] {
+            let started = try start(dev: dev)
+            XCTAssertTrue(started.ok, "\(dev): \(started.error ?? "")")
+            XCTAssertEqual(try response(daemon.socketPath, .stop(profileID: "acme")).pid, started.pid, dev)
+        }
+    }
+
+    /// The kernel's answer, as the daemon asks for it.
+    func testKernelInterfaces() throws {
+        XCTAssertTrue(try InterfaceSystem.kernelHas("lo"))
+        XCTAssertFalse(try InterfaceSystem.kernelHas("ptnone\(getpid() % 10000)"))
+    }
+
     func testShutdownStopsEverything() throws {
         let daemon = try makeDaemon()
         let pid = try XCTUnwrap(try response(daemon.socketPath, .startOpenVPN(start())).pid)
@@ -485,8 +512,9 @@ final class LinuxProfileCheckTests: DaemonTestCase {
         defer { close(plan.logFD); core.removeRunDir(profileID: "acme", uid: me) }
         XCTAssertEqual(Array(plan.arguments.suffix(2)), ["--script-security", "1"])
         XCTAssertFalse(plan.arguments.contains("--dns-updown"))
-        // The Mac's flags: a server that does not answer is given up on after 10 s.
-        XCTAssertEqual(Array(plan.arguments.prefix(3)), ["--server-poll-timeout", "10", "--config"])
+        // The Mac's flags: a pushed `verb` is ignored, a server that does not answer is given up on after 10 s.
+        let filters = HelperCore.ignoredPushPrefixes.flatMap { ["--pull-filter", "ignore", $0] }
+        XCTAssertEqual(Array(plan.arguments.prefix(filters.count + 3)), filters + ["--server-poll-timeout", "10", "--config"])
         core.openVPNHasDNSUpdown = true
         XCTAssertEqual(HelperCore.openVPNArguments(configPath: "/c", mgmtSocket: "/m", clientUser: "alice", authFile: nil,
                                                    dnsUpdown: nil).suffix(4),

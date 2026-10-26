@@ -239,13 +239,15 @@ struct FortiDNSWatch {
 
 // MARK: - The session's interface
 
-/// The kernel's network interfaces, as the checks of a FortiGate session's interface see them;
-/// replaced in tests.
+/// The kernel's network interfaces, as the checks of a FortiGate session's interface and of an OpenVPN
+/// device name (`HelperCore.interfaceExists`) see them; replaced in tests.
 public struct InterfaceSystem {
     public var index: (String) -> UInt32? = { name in
         let index = if_nametoindex(name)
         return index == 0 ? nil : index
     }
+    /// Whether there is an interface of that name; throws when the kernel cannot say (anything but ENODEV).
+    public var exists: (String) throws -> Bool = InterfaceSystem.kernelHas
     /// The kind of device (`ARPHRD_*`, `/sys/class/net/<name>/type`).
     public var hardwareType: (String) -> Int? = InterfaceSystem.sysfsType
     /// Its IPv4 addresses (`getifaddrs`).
@@ -254,6 +256,13 @@ public struct InterfaceSystem {
     public var highestIndex: () -> UInt32 = InterfaceSystem.highest
 
     public init() {}
+
+    static func kernelHas(_ name: String) throws -> Bool {
+        guard if_nametoindex(name) == 0 else { return true }
+        let error = errno
+        guard error == ENODEV else { throw HelperCore.Failure.system("if_nametoindex \(name)", error) }
+        return false
+    }
 
     static func sysfsType(_ name: String) -> Int? {
         guard (try? DNSSettings.interface(name)) != nil,

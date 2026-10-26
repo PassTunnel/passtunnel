@@ -115,11 +115,26 @@ The macOS rules apply where they make sense; these replace the ones built on cod
   environment (`PATH=/usr/sbin:/usr/bin:/sbin:/bin`, `LC_ALL=C`). Unlike the Mac, `OPENSSL_CONF` and
   the CA variables are **not** overridden: the distribution's OpenSSL configuration (for example
   system-wide crypto policies) applies.
-- **OpenVPN** runs with the Mac's fixed flags (`--server-poll-timeout 10` before the config,
-  `--management <run>/mgmt.sock unix`, `--management-client-user`, `--auth-nocache`,
-  `--remap-usr1 SIGTERM`, `--connect-retry-max 3`, capped `--verb`; the same `HelperCore.openVPNArguments`), the sanitized config (`OVPNSanitizer`, unchanged) and `--script-security 2` with
+- **OpenVPN** runs with the Mac's fixed flags (`--pull-filter ignore` for a pushed `verb` and
+  `--server-poll-timeout 10` before the config, `--management <run>/mgmt.sock unix`,
+  `--management-client-user`, `--auth-nocache`, `--remap-usr1 SIGTERM`, `--connect-retry-max 3`,
+  capped `--verb`; the same `HelperCore.openVPNArguments`), the sanitized config (`OVPNSanitizer`,
+  unchanged: it also refuses a config that would wait for incoming connections, `proto tcp-server` or
+  no `remote` at all, with the Mac's words) and `--script-security 2` with
   the DNS hook below, the only script it can run (the sanitizer removes every other). The management
   socket goes to the caller as on the Mac, its mode set before its owner (no `CAP_FOWNER` needed).
+- **Device names.** OpenVPN on Linux attaches to an existing device of the name `dev` gives
+  (`TUNSETIFF`; with data channel offload it takes over an existing one too), and a persistent tun or
+  tap device created earlier for another user (`ip tuntap add … user bob`) stays open to that user,
+  who could then read and write the tunnel's packets. So before every start the daemon refuses a
+  config whose `dev` names a device the kernel has already (`HelperCore.interfaceExists`,
+  `if_nametoindex`; any answer but "no such device" refuses too): "The network device tun5 already
+  exists, …". `dev tun` and `dev tap` are never checked, since the kernel (or OpenVPN, with data
+  channel offload) then picks a name no device has, and a numbered or named device that is free
+  starts as before. Every `dev` line counts, not only the last, each cut to 15 bytes as OpenVPN cuts
+  it (`HelperCore.namedDevices`). Between the check and OpenVPN's open nobody else can create the
+  device: that takes `CAP_NET_ADMIN` in the host's network namespace. The Mac has no persistent
+  devices and does not check.
 - **FortiGate** runs openfortivpn as the Mac's helper does: `openfortivpn -c <run>/openfortivpn.conf`
   and nothing else on its command line, the config written by `FortiConfig.render` (typed fields
   only, `checkRendered` as on the Mac) into the session's run directory (0600, root), with the
