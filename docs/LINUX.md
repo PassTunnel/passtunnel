@@ -115,9 +115,9 @@ The macOS rules apply where they make sense; these replace the ones built on cod
   environment (`PATH=/usr/sbin:/usr/bin:/sbin:/bin`, `LC_ALL=C`). Unlike the Mac, `OPENSSL_CONF` and
   the CA variables are **not** overridden: the distribution's OpenSSL configuration (for example
   system-wide crypto policies) applies.
-- **OpenVPN** runs with the Mac's fixed flags (`--management <run>/mgmt.sock unix`,
-  `--management-client-user`, `--auth-nocache`, `--remap-usr1 SIGTERM`, `--connect-retry-max 3`,
-  capped `--verb`), the sanitized config (`OVPNSanitizer`, unchanged) and `--script-security 2` with
+- **OpenVPN** runs with the Mac's fixed flags (`--server-poll-timeout 10` before the config,
+  `--management <run>/mgmt.sock unix`, `--management-client-user`, `--auth-nocache`,
+  `--remap-usr1 SIGTERM`, `--connect-retry-max 3`, capped `--verb`; the same `HelperCore.openVPNArguments`), the sanitized config (`OVPNSanitizer`, unchanged) and `--script-security 2` with
   the DNS hook below, the only script it can run (the sanitizer removes every other). The management
   socket goes to the caller as on the Mac, its mode set before its owner (no `CAP_FOWNER` needed).
 - **FortiGate** runs openfortivpn as the Mac's helper does: `openfortivpn -c <run>/openfortivpn.conf`
@@ -344,6 +344,17 @@ what the server pushes, and every value of it is treated as hostile: it ends up 
   the devices their logs name. So another OpenVPN client (`0/1` and `128/1` in the main table),
   wg-quick (a default route in table 51820 behind a `not fwmark` rule) and Tailscale with an exit node
   (table 52) are found, and a VPN for some destinations only is not.
+- **Overlap warnings.** The routes of a FortiGate tunnel for the check "two tunnels claim the same routes or
+  DNS names" (ARCHITECTURE.md) come from the same rtnetlink dumps (`RoutingTable.routes(onInterface:)`: the
+  main table's unicast routes, IPv4 and IPv6, through the link named like the tunnel interface); OpenVPN's
+  come from the push in its log, which 2.6 and 2.7 write at `--verb 3` as on the Mac. The comparison itself
+  (`NetworkClaims`, Kit) is the same code.
+- **Network path.** Whether the computer is online (`NetworkPath`, `diagnose`'s `network`) comes from
+  the same rtnetlink dumps: online when a route that carries all traffic goes through a link whose
+  `/sys/class/net/<link>/operstate` is `up` (or `unknown`, as tun devices report it); the interface is
+  that of the first such link that is not a tunnel, `wifi` when it has `wireless` or `phy80211` there,
+  `ethernet` for link type 1, else `other`. Nothing is contacted. Watching (the app's retries of an
+  unreachable server) reads it again every 5 s.
 - **Log parsing.** `VPNLog` reads OpenVPN 2.6 and 2.7 on Linux: the device ("TUN/TAP device tun0
   opened", with data channel offload "DCO device tun0 opened"), the address (`net_addr_v4_add`,
   `net_addr_ptp_v4_add`; `ip addr add` in builds that run iproute2), each route it adds through
@@ -383,9 +394,19 @@ what the server pushes, and every value of it is treated as hostile: it ends up 
   cleared after `clear_clipboard_after` in `config.json` (30, 60 or 120 s, default 60) if PassTunnel
   still owns the clipboard: a process left behind runs the tool in the foreground, where it serves
   the clipboard until another program takes it, and stops it only if it still does.
+- **Clock check.** After a FortiGate rejects a sign-in, the Mac asks the gateway for its time
+  (`ServerClock.gateway`, APP.md). Linux does not: Foundation's networking there cannot accept a
+  certificate by its SHA-256 the way openfortivpn's `trusted-cert` does, so the check would not trust
+  the gateway exactly as the VPN does; `ServerClock.gateway` fails with `unavailable` and the failure
+  has no `clock`. `diagnose --check-clock` (MCP `check_clock`) works: the same SNTP client asks the NTP
+  server the system is set up with, read from systemd-timesyncd's `NTP=` (`/etc/systemd/timesyncd.conf`
+  and its `.conf.d` drop-ins; else `FallbackNTP=`), else the first `server` or `pool` of chrony
+  (`/etc/chrony/chrony.conf`, `/etc/chrony.conf`) or ntpd (`/etc/ntpsec/ntp.conf`, `/etc/ntp.conf`).
+  Servers a service has built in or learned from DHCP are not known; with none in the files the check
+  reports `clock_error` ("No time server is set up on this system."). Never `time.apple.com` here.
 - **Not used on Linux:** the Mac's file watcher, login item, helper installer and auto-update, QR
-  decoding, reading TLS certificates (the fingerprint formats are shared) and distributed
-  notifications (all app-side or macOS-only).
+  decoding, reading TLS certificates (the fingerprint formats are shared), the gateway clock check
+  (above) and distributed notifications (all app-side or macOS-only).
 
 ## Secrets
 

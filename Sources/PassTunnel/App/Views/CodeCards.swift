@@ -7,10 +7,12 @@ import SwiftUI
 // `CodeCard` in Core.
 
 /// The current code card and the card about what the server receives; a profile without a TOTP secret gets only the
-/// second. Both follow one clock, so their codes change together.
+/// second. Both follow one clock, so their codes change together. `sentAt`: when the sign-in of the connection that is
+/// up was sent (the activity log), which the second card says.
 struct DetailCodeCards: View {
     @EnvironmentObject private var model: AppModel
     let profile: Profile
+    var sentAt: Date?
 
     var body: some View {
         CountdownTimeline(now: model.previewNow) { date in
@@ -20,7 +22,8 @@ struct DetailCodeCards: View {
                     CurrentCodeCard(profile: profile, codes: codes, date: date)
                 }
                 ServerReceivesCard(profile: profile,
-                                   receives: ServerReceives(profile, codes: codes.receives, waitingForCode: codes.waiting))
+                                   receives: ServerReceives(profile, codes: codes.receives, waitingForCode: codes.waiting,
+                                                            sentAt: sentAt))
             }
         }
     }

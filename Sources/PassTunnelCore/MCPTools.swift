@@ -9,17 +9,21 @@ enum MCPWording {
     #if os(Linux)
     static let thisMachines = "this computer's"
     static let theMachines = "this computer's"
+    static let theMachine = "this computer"
     static let listProtected = "protected=true means connecting is refused on Linux for now (auth_unavailable): there is no confirmation to ask for yet."
     static let connectProtected = "A protected profile cannot be connected on Linux yet: it is refused with auth_unavailable."
     static let instructionsProtected = "A protected profile cannot be connected on Linux yet: connect refuses it with auth_unavailable."
     static let timeout = "How long to wait for the connection."
+    static let timeServer = "the NTP server this computer is set up with"
     #else
     static let thisMachines = "this Mac's"
     static let theMachines = "the Mac's"
+    static let theMachine = "the Mac"
     static let listProtected = "protected=true means connecting asks the user for Touch ID on the Mac."
     static let connectProtected = "If the profile is protected, the user must confirm with Touch ID on the Mac: tell them a prompt is waiting."
     static let instructionsProtected = "A protected profile shows a Touch ID prompt on the Mac that the user must confirm; tell the user to look for it."
     static let timeout = "How long to wait for the connection (after the Touch ID confirmation)."
+    static let timeServer = "Apple's time server (time.apple.com)"
     #endif
 }
 
@@ -95,7 +99,7 @@ final class MCPTools {
              input: Schema.object([:]), output: Schema.object(["profiles": Schema.array(Schema.profileSummary)], required: ["profiles"]),
              readOnly: true),
         Tool(name: "get_status", title: "Get connection status",
-             description: "Returns the connection state of every profile (or only profile_id): disconnected, connecting or connected, the tunnel IP, since when, the last error and why it happened (failure: auth_rejected, host_not_found, unreachable, configuration, setup, timeout, cancelled or failed; the server's reply; whether the sign-in and a one-time code were sent), and whether the privileged helper that starts VPNs is installed and current.",
+             description: "Returns the connection state of every profile (or only profile_id): disconnected, connecting or connected, the tunnel IP, since when, the last error and why it happened (failure: auth_rejected, host_not_found, unreachable, configuration, setup, timeout, cancelled or failed; the server's reply; whether the sign-in and a one-time code were sent; for a rejected sign-in, clock: how far \(MCPWording.thisMachines) clock was off, when known), when the app tries a server that did not answer again (next_try_at, tries), and whether the privileged helper that starts VPNs is installed and current.",
              input: Schema.object(["profile_id": Schema.profileID(optional: true)]), output: Schema.statusReport, readOnly: true),
         Tool(name: "get_logs", title: "Read VPN log",
              description: "Returns the last lines of a profile's VPN log, for explaining why a connection failed. source \"raw\" (the default): the OpenVPN or openfortivpn output of the current or last session. source \"activity\": what PassTunnel did and saw, also for sessions the app or a terminal started (connecting, waiting for a fresh code, credentials sent, sign-in accepted or rejected, connected, drops, reconnects, stopped by the user), as sentences in lines and as typed events. Anything that looks like a credential is replaced by <redacted>; passwords and one-time codes are never included.",
@@ -107,13 +111,14 @@ final class MCPTools {
                                   required: ["profile_id"]),
              output: Schema.logReport, readOnly: true),
         Tool(name: "diagnose", title: "Diagnose PassTunnel",
-             description: "Checks the PassTunnel installation and every profile without connecting: app version and location, helper installed/enabled/outdated, and per profile whether the configuration, server and saved credentials are in place (never their values). Start here when something does not work.",
-             input: Schema.object([:]), output: Schema.diagnose, readOnly: true),
+             description: "Checks the PassTunnel installation and every profile without connecting: app version and location, helper installed/enabled/outdated, whether \(MCPWording.theMachine) is online and over what kind of network (from the system's own view, nothing is contacted), and per profile whether the configuration, server and saved credentials are in place (never their values) and the last clock measurement (a FortiGate gateway's time, taken after it rejected a sign-in). Start here when something does not work. A clock off by \(ClockOffset.warnSeconds) s or more makes one-time codes fail.",
+             input: Schema.object(["check_clock": Schema.boolean(default: false, "Also ask \(MCPWording.timeServer) how far \(MCPWording.thisMachines) clock is off. This contacts that server, so set it only when the user asked to check the clock.")]),
+             output: Schema.diagnose, readOnly: true),
     ]
 
     static let connectTools: [Tool] = [
         Tool(name: "connect", title: "Connect a VPN profile",
-             description: "Connects a VPN profile and, by default, waits until it is connected or has failed. \(MCPWording.connectProtected) Profiles that ask for a user name, password or code on every connect cannot be connected this way. A failure carries a failure object (why, the server's reply, whether the sign-in was sent); a rejected sign-in is never retried, so do not retry it either. Connecting changes \(MCPWording.theMachines) network routes; only connect when the user asked for it.",
+             description: "Connects a VPN profile and, by default, waits until it is connected or has failed. \(MCPWording.connectProtected) Profiles that ask for a user name, password or code on every connect cannot be connected this way. A failure carries a failure object (why, the server's reply, whether the sign-in was sent); a rejected sign-in is never retried, so do not retry it either. The result's warnings list connected profiles whose tunnels claim some of the same networks or DNS names (kind overlap): that traffic goes through only one of the two tunnels. The connection goes ahead; tell the user. Connecting changes \(MCPWording.theMachines) network routes; only connect when the user asked for it.",
              input: Schema.object(["profile_id": Schema.profileID(optional: false),
                                    "wait": Schema.boolean(default: true, "Wait until connected or failed; false returns at once with state connecting."),
                                    "timeout_seconds": Schema.integer(1, maxTimeout, default: defaultTimeout,
@@ -175,8 +180,9 @@ final class MCPTools {
             try args.finish()
             return source == "activity" ? try service.activity(id, lines: lines) : try service.logs(id, lines: lines)
         case "diagnose":
+            let checkClock = try args.boolean("check_clock") ?? false
             try args.finish()
-            return await service.diagnose()
+            return await service.diagnose(checkClock: checkClock)
         case "connect" where allowConnect:
             let id = try args.profileID(required: true)!
             let wait = try args.boolean("wait") ?? true
@@ -218,8 +224,9 @@ final class MCPTools {
             let list = p.needs.map(\.displayName).joined(separator: ", ")
             throw AutomationError(.inputRequired, String(localized: "This profile asks for: \(list). Connect it in PassTunnel or in a terminal."))
         }
-        try await manager.checkCanStart(id)
+        let overlaps = try await manager.checkCanStart(id)
         log("connect \(id)")
+        if !overlaps.isEmpty { log("connect \(id): overlaps with \(overlaps.map(\.profileID).joined(separator: ", "))") }
         try await manager.vault.unlock(p, for: .connect)
         if wait {
             try await service.connect(id, timeout: timeout, joining: false)
@@ -236,7 +243,7 @@ final class MCPTools {
                 try? await Task.sleep(nanoseconds: 10_000_000)
             }
         }
-        return service.status(p)
+        return service.status(p, overlaps: overlaps)
     }
 
     func drain() async {
@@ -352,18 +359,30 @@ enum Schema {
     ], required: ["id", "name", "type", "is_default", "pinned", "username", "password_mode", "otp_mode", "require_auth",
                   "protected", "auto_reconnect", "connect_at_login"])
 
+    /// `ClockOffset`: how far the clock is off; positive when it is behind.
+    static let clock = result([
+        "offset_seconds": int, "source": oneOf(ClockOffset.Source.allCases.map(\.rawValue)), "server": string,
+        "checked_at": ["type": "string", "format": "date-time"],
+    ], required: ["offset_seconds", "source", "checked_at"])
+
     /// `ConnectionFailure`: why the last connect failed.
     static let failure = result([
         "kind": oneOf(ConnectionFailure.Kind.allCases.map(\.rawValue)), "at": ["type": "string", "format": "date-time"],
         "reply": string, "reason": string, "credentials_sent": bool, "code_sent": bool, "code_seconds_left": int,
-        "tries": int,
+        "tries": int, "clock": clock,
     ], required: ["kind", "at", "credentials_sent", "code_sent"])
+
+    /// `ConnectWarning`: another connected tunnel takes over some of the same networks or DNS names.
+    static let warning = result([
+        "kind": oneOf(["overlap"]), "with": string, "name": string, "routes": array(string), "domains": array(string),
+        "all_traffic": array(string),
+    ], required: ["kind", "with", "name", "routes", "domains"])
 
     static let profileStatus = result([
         "id": string, "name": string, "type": vpnType, "state": state, "phase": string, "ip": string,
         "since": ["type": "string", "format": "date-time"], "duration_seconds": int, "is_default": bool, "protected": bool,
         "auto_reconnect": bool, "health": oneOf(["reachable", "unreachable"]), "error": string, "failure": failure,
-        "warning": string, "status_unavailable": bool,
+        "warning": string, "status_unavailable": bool, "warnings": array(warning), "next_try_at": dateTime, "tries": int,
     ], required: ["id", "name", "type", "state", "is_default", "protected", "auto_reconnect"])
 
     static let helper = result([
@@ -395,7 +414,7 @@ enum Schema {
     static let profileCheck = result([
         "id": string, "name": string, "type": vpnType, "ok": bool, "server": string, "protected": bool,
         "password_saved": bool, "totp_saved": bool, "asks_for": array(oneOf(["username", "password", "otp"])),
-        "problems": array(errorReport),
+        "problems": array(errorReport), "clock": clock,
     ], required: ["id", "name", "type", "ok", "server", "protected", "asks_for", "problems"])
 
     static let secretStore = result([
@@ -403,10 +422,14 @@ enum Schema {
         "chosen_by": oneOf(["environment", "setting", "recorded", "auto"]), "error": string,
     ], required: ["name", "available", "setting", "chosen_by"])
 
+    /// `NetworkStatus`: online or not, and over what kind of interface (both absent when unknown).
+    static let network = result(["online": bool, "interface": oneOf(NetworkStatus.Interface.allCases.map(\.rawValue))],
+                                required: [])
+
     static let diagnose: [String: Any] = {
         var properties: [String: Any] = [
             "version": string, "build": string, "app_path": string, "in_applications": bool, "helper": helper,
-            "profiles": array(profileCheck),
+            "profiles": array(profileCheck), "clock": clock, "clock_error": string, "network": network,
         ]
         #if os(Linux)
         properties["secret_store"] = secretStore

@@ -281,6 +281,7 @@ passtunnel set lab host=203.0.113.10 port=443 username=sam
 passtunnel log work -f
 passtunnel log work --activity                # what PassTunnel did: connecting, codes, sign-in, drops
 passtunnel helper status
+passtunnel diagnose --check-clock             # what would stop a connect; is the clock off?
 passtunnel completion zsh > ~/.zfunc/_passtunnel
 ```
 
@@ -316,7 +317,7 @@ connection and tell you what is wrong.
 | `list_profiles` | Profiles with type, state, whether connecting asks for Touch ID, auto-reconnect, connect at login |
 | `get_status` | State, tunnel IP, since when, last error and why (sign-in rejected, server unreachable or not found, …; whether the sign-in was sent); whether the helper is installed and current |
 | `get_logs` | The last lines (up to 500) of a profile's VPN log, with anything that looks like a credential redacted; with `source: "activity"`, what PassTunnel did instead (connecting, code waits, sign-in accepted or rejected, drops), without passwords or code digits |
-| `diagnose` | App version and location, helper state, and per profile whether config, server and saved credentials are in place |
+| `diagnose` | App version and location, helper state, whether the Mac is online and over what network (the system's own view, nothing is contacted), and per profile whether config, server and saved credentials are in place and the last clock measurement; with `check_clock`, also asks Apple's time server how far the clock is off |
 | `connect`, `disconnect` | Only with `--allow-connect` |
 
 **Read-only by default.** Without `--allow-connect` the assistant can look, not act. With it, it

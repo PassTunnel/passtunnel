@@ -198,6 +198,68 @@ final class ActivityLogTests: CoreTestCase {
                        "2023-11-14 22:13:20  Authentication accepted")
     }
 
+    // MARK: the app's views
+
+    func testToneByKind() {
+        let tones = Dictionary(grouping: everyKind.map { ActivityEvent(at: t0, $0) }, by: \.tone).mapValues { Set($0.map(\.name)) }
+        XCTAssertEqual(tones[.error], ["link_dropped", "unreachable", "rejected", "failed"])
+        XCTAssertEqual(tones[.wait], ["waiting_for_code"])
+        XCTAssertEqual(tones[.neutral], ["connecting", "sending", "auth_accepted", "connected", "reconnecting", "next_try",
+                                         "stopped_by_user", "disconnected_by_user"])
+    }
+
+    func testClockTimeIs24HourInTheGivenZone() {
+        let utc = TimeZone(identifier: "UTC")!
+        XCTAssertEqual(ActivityEvent.clockTime(t0, timeZone: utc), "22:13:20")
+        XCTAssertEqual(ActivityEvent.clockTime(Date(timeIntervalSince1970: 1_700_040_062), timeZone: utc), "09:21:02",
+                       "zero-padded")
+        XCTAssertEqual(ActivityEvent.clockTime(t0, timeZone: TimeZone(secondsFromGMT: 3 * 3600)!), "01:13:20")
+    }
+
+    func testDaysAreNamedForEventsOfEarlierDays() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let locale = Locale(identifier: "en_US")
+        let now = Date(timeIntervalSince1970: 1_700_000_000)   // Tue 2023-11-14 22:13:20 UTC
+        func event(_ ago: TimeInterval) -> ActivityEvent { ActivityEvent(at: now.addingTimeInterval(-ago), .authAccepted) }
+        func label(_ ago: TimeInterval) -> String { event(ago).timeLabel(now: now, calendar: calendar, locale: locale) }
+        XCTAssertEqual(label(0), "22:13:20")
+        XCTAssertEqual(label(22 * 3600), "00:13:20", "after midnight is still today")
+        XCTAssertEqual(label(22 * 3600 + 14 * 60 + 20), "Yesterday 23:59:00")
+        XCTAssertEqual(label(24 * 3600), "Yesterday 22:13:20")
+        XCTAssertEqual(label(2 * 24 * 3600), "Sun, Nov 12 22:13:20")
+        XCTAssertEqual(ActivityEvent.dayTitle(now, now: now, calendar: calendar, locale: locale), "Today")
+        XCTAssertEqual(ActivityEvent.dayTitle(now.addingTimeInterval(-86400), now: now, calendar: calendar, locale: locale), "Yesterday")
+        XCTAssertEqual(ActivityEvent.dayTitle(now.addingTimeInterval(-5 * 86400), now: now, calendar: calendar, locale: locale),
+                       "Thu, Nov 9")
+    }
+
+    func testSpokenSentenceReadsHiddenValuesAsHidden() {
+        func spoken(_ kind: ActivityEvent.Kind) -> String { ActivityEvent(at: t0, kind).spokenSentence(showingCodeDigits: true) }
+        XCTAssertEqual(spoken(.sending(Self.sending)), "Sending alice / hidden+482 hidden · 22 s left")
+        XCTAssertEqual(spoken(.sending(.init(username: "alice", password: true, code: false))), "Sending alice / hidden")
+        XCTAssertEqual(spoken(.waitingForCode(reason: .used, seconds: 12, codePrefix: "482")),
+                       "Code 482 hidden was already used, waiting for the next one")
+        XCTAssertEqual(spoken(.connected(address: "10.8.0.6")), "Connected, 10.8.0.6")
+        XCTAssertFalse(ActivityEvent(at: t0, .sending(Self.sending)).spokenSentence().contains("•"))
+    }
+
+    func testTheLastSendingAndWhenTheConnectionSignedIn() {
+        let events = [ActivityEvent(at: t0, .sending(Self.sending)),
+                      ActivityEvent(at: t0.addingTimeInterval(2), .connected(address: "10.8.0.6")),
+                      ActivityEvent(at: t0.addingTimeInterval(60), .disconnectedByUser),
+                      ActivityEvent(at: t0.addingTimeInterval(100), .sending(.init(username: "alice", password: true, code: true)))]
+        XCTAssertEqual(ActivityEvent.lastSending(in: events)?.at, t0.addingTimeInterval(100))
+        XCTAssertNil(ActivityEvent.lastSending(in: []))
+        XCTAssertNil(ActivityEvent.lastSending(in: Array(events[1...2])))
+        // Up since shortly after the second sending: that one; up since long after it, or before it: none.
+        XCTAssertEqual(ActivityEvent.sentAt(connectedSince: t0.addingTimeInterval(103), in: events), t0.addingTimeInterval(100))
+        XCTAssertEqual(ActivityEvent.sentAt(connectedSince: t0.addingTimeInterval(100), in: events), t0.addingTimeInterval(100))
+        XCTAssertNil(ActivityEvent.sentAt(connectedSince: t0.addingTimeInterval(1000), in: events), "an earlier session's")
+        XCTAssertNil(ActivityEvent.sentAt(connectedSince: t0.addingTimeInterval(50), in: events), "a later sign-in")
+        XCTAssertNil(ActivityEvent.sentAt(connectedSince: t0, in: []))
+    }
+
     // MARK: tool log
 
     func testSignInFactsFromTheToolLogs() {

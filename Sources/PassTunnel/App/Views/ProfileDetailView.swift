@@ -3,16 +3,47 @@ import PassTunnelKit
 import SwiftUI
 
 /// The selected profile in the redesigned window: its name, where it connects, the main button and the status
-/// line, then the current code and what the server receives (CodeCards.swift). Edit and ⋯ are in the toolbar.
+/// line, then the current code and what the server receives (CodeCards.swift) and the activity (ActivityViews.swift).
+/// After a failure a card says what happened instead of the code cards (FailureCards.swift), and a clock that is off has
+/// a banner above it all (ClockBanner.swift). Edit and ⋯ are in the toolbar.
 struct ProfileDetailView: View {
     @EnvironmentObject private var model: AppModel
     let profile: Profile
 
     var body: some View {
+        // Keyed by the profile: another one reads its own activity from the start.
+        DetailPage(model: model, profile: profile)
+            .id(profile.id)
+            .toolbar {
+                // Trailing (`primaryAction` is the leading edge on macOS).
+                ToolbarItemGroup(placement: .automatic) {
+                    Button(String(localized: "Edit")) { model.edit(profile) }
+                        .accessibilityIdentifier("profile.\(profile.id).edit")
+                    DetailMoreMenu(profile: profile)
+                }
+            }
+    }
+}
+
+private struct DetailPage: View {
+    @EnvironmentObject private var model: AppModel
+    let profile: Profile
+    @StateObject private var activity: ActivityFeed
+
+    init(model: AppModel, profile: Profile) {
+        self.profile = profile
+        _activity = StateObject(wrappedValue: ActivityFeed(model, profile.id))
+    }
+
+    var body: some View {
         let status = model.displayStatus(profile)
         let server = model.serverSummary(profile)
+        // When the sign-in of the connection that is up was sent.
+        let sentAt = status.connectedSince.flatMap { ActivityEvent.sentAt(connectedSince: $0, in: activity.events) }
         ScrollView {
             VStack(alignment: .leading, spacing: Spacing.m) {
+                // Above the detail of any profile.
+                if let clock = model.clockWarning { ClockBanner(clock: clock) }
                 HStack(alignment: .bottom, spacing: Spacing.m) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(verbatim: profile.name)
@@ -30,21 +61,22 @@ struct ProfileDetailView: View {
                     DetailActionButton(profile: profile, action: status.action)
                 }
                 ProfileStatusLine(status: status, server: server.address, now: model.previewNow)
-                DetailCodeCards(profile: profile)
+                if model.showsFailureCard(profile, status) {
+                    FailureCard(profile: profile, status: status, server: server.address)
+                } else {
+                    DetailCodeCards(profile: profile, sentAt: sentAt)
+                }
+                ActivityCard(profile: profile, feed: activity)
             }
             .padding(.horizontal, Spacing.xl)
             .padding(.top, Spacing.s)
             .padding(.bottom, Spacing.l)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .toolbar {
-            // Trailing (`primaryAction` is the leading edge on macOS).
-            ToolbarItemGroup(placement: .automatic) {
-                Button(String(localized: "Edit")) { model.edit(profile) }
-                    .accessibilityIdentifier("profile.\(profile.id).edit")
-                DetailMoreMenu(profile: profile)
-            }
+        .onReceive(model.connections.activity) { record in
+            if record.profileID == profile.id { activity.refresh(force: true) }
         }
+        .task { await activity.follow() }
     }
 }
 
@@ -71,7 +103,7 @@ struct DetailActionButton: View {
     }
 }
 
-/// ⋯ in the toolbar: what the sidebar's context menu has besides Edit, without the menu bar pin.
+/// ⋯ in the toolbar: what the sidebar's context menu has besides Edit.
 private struct DetailMoreMenu: View {
     @EnvironmentObject private var model: AppModel
     let profile: Profile
@@ -87,6 +119,9 @@ private struct DetailMoreMenu: View {
             Button(String(localized: "Share…")) { model.share(p) }
             Button(String(localized: "Show Log")) { model.showLog(p) }
             Divider()
+            Button(p.pinned ? String(localized: "Unpin from Menu Bar") : String(localized: "Pin to Menu Bar")) {
+                model.togglePin(p)
+            }
             Toggle(String(localized: "Default Profile"), isOn: Binding(get: { model.isDefault(p) }, set: { _ in model.makeDefault(p) }))
             Divider()
             Button(String(localized: "Delete…"), role: .destructive) { model.pendingDelete = p }

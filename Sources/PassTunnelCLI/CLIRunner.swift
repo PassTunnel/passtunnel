@@ -77,7 +77,7 @@ final class CLIRunner {
         case let .status(_, json), let .code(_, _, json), let .list(json, _), let .show(_, json), let .toggle(_, json),
              let .set(_, _, json), let .add(_, _, json), let .importFile(_, _, json), let .export(_, _, json),
              let .remove(_, _, json), let .secret(_, _, json), let .setDefault(_, json), let .pin(_, json),
-             let .unpin(_, json), let .helper(_, json), let .version(json):
+             let .unpin(_, json), let .diagnose(_, json), let .helper(_, json), let .version(json):
             return json
         case let .connect(_, _, json, _, _), let .disconnect(_, _, json, _, _), let .log(_, _, json, _, _):
             return json
@@ -132,6 +132,7 @@ final class CLIRunner {
         case let .unpin(id, _): return try pin(id, false)
         case let .log(id, follow, _, lines, activity):
             return activity ? try activityLog(id, lines: lines) : try await log(id, follow: follow, lines: lines)
+        case let .diagnose(checkClock, _): return try await diagnose(checkClock: checkClock)
         case let .helper(action, _): return try await helper(action)
         case let .mcp(allowConnect):
             return await MCPServer.runStdio(service: automation, allowConnect: allowConnect)
@@ -210,6 +211,15 @@ final class CLIRunner {
                 if let warning = manager.warnings[p.id] { text += "  " + CLITerminal.colored(warning, palette.color(.connecting)) }
             }
             if let error = manager.lastError[p.id], tone == .disconnected { text += "  " + error }
+            // The app tries a server that did not answer again.
+            if tone == .disconnected, let retry = manager.unreachableRetry(p.id) {
+                if let next = retry.nextTryAt {
+                    let seconds = max(0, Int(next.timeIntervalSinceNow.rounded(.up)))
+                    text += "  " + CLITerminal.dim(String(localized: "no answer, next try in \(seconds) s"))
+                } else if retry.waitingForNetwork {
+                    text += "  " + CLITerminal.dim(String(localized: "no answer, next try when the network is back"))
+                }
+            }
             let mark = p.id == def ? "*" : " "
             let dot = CLITerminal.colored("●", palette.color(tone))
             CLITerminal.out("\(mark) \(dot) " + p.id.padding(toLength: idWidth + 2, withPad: " ", startingAt: 0)
@@ -237,9 +247,11 @@ final class CLIRunner {
                 // It ended before it could be followed: connect as usual, with the checks below.
             }
         }
+        var overlaps: [ProfileOverlap] = []
         do {
             // Before "Connecting …" and before asking for credentials.
-            if !force { try await manager.checkCanStart(p.id) }
+            overlaps = force ? await manager.overlaps(for: p.id) : try await manager.checkCanStart(p.id)
+            warn(of: overlaps, connecting: p)
             try await manager.vault.unlock(p, for: .connect)
             let given = try askForNeeds(p)
             try await connectShowingProgress(p, given: given, force: force, timeout: timeout)
@@ -249,8 +261,20 @@ final class CLIRunner {
             CLITerminal.err(CLITerminal.dim(String(localized: "Use --force to connect anyway.")))
             return AutomationErrorCode.otherVPNActive.exitCode
         }
-        if json { try printJSON(automation.status(p)) }
+        if json { try printJSON(automation.status(p, overlaps: overlaps)) }
         return Exit.ok
+    }
+
+    /// Tells the user, on stderr, that tunnels already connected claim some of what `p` does. The connect
+    /// goes ahead either way.
+    private func warn(of overlaps: [ProfileOverlap], connecting p: Profile) {
+        guard !overlaps.isEmpty else { return }
+        let palette = Preferences.load().badgePalette
+        for overlap in overlaps {
+            let lines = overlap.messageLines(connecting: p.name)
+            CLITerminal.err(CLITerminal.colored(lines[0], palette.color(.connecting)))
+            for line in lines.dropFirst() { CLITerminal.err("  " + line) }
+        }
     }
 
     private func connectShowingProgress(_ p: Profile, given: [CredentialField: String], joining: Bool = false,
@@ -358,8 +382,11 @@ final class CLIRunner {
             try await manager.disconnect(p.id)
             if !json { CLITerminal.out(String(localized: "Disconnected: \(p.name)")) }
         } else {
+            let overlaps = await manager.overlaps(for: p.id)
+            warn(of: overlaps, connecting: p)
             try await manager.vault.unlock(p, for: .connect)
             try await connectShowingProgress(p, given: try askForNeeds(p))
+            if json { try printJSON(automation.status(p, overlaps: overlaps)); return Exit.ok }
         }
         if json { try printJSON(automation.status(p)) }
         return Exit.ok
@@ -1046,37 +1073,92 @@ final class CLIRunner {
             try? printJSON(r)
             return code
         }
+        helperLines(r).forEach { CLITerminal.out($0) }
+        return code
+    }
+
+    /// The helper's state in words (`helper status`, `diagnose`).
+    private func helperLines(_ r: HelperReport) -> [String] {
+        var lines: [String] = []
         switch r.state {
         #if os(Linux)
         case "enabled":
             if let v = r.protocolVersion {
                 let note = r.outdated == true ? "  " + String(localized: "(not the installed build; restart it: systemctl restart passtunnel)") : ""
-                CLITerminal.out(String(localized: "Daemon (passtunneld): running (protocol \(v))") + note)
+                lines.append(String(localized: "Daemon (passtunneld): running (protocol \(v))") + note)
             } else {
-                CLITerminal.out(String(localized: "Daemon (passtunneld): installed, but not answering"))
-                if let error = r.error { CLITerminal.out("  " + error) }
+                lines.append(String(localized: "Daemon (passtunneld): installed, but not answering"))
+                if let error = r.error { lines.append("  " + error) }
             }
         #else
         case "enabled":
             if let v = r.protocolVersion {
                 let note = r.outdated == true ? "  " + String(localized: "(out of date; “passtunnel helper install” updates it)") : ""
-                CLITerminal.out(String(localized: "Helper: enabled (protocol \(v))") + note)
+                lines.append(String(localized: "Helper: enabled (protocol \(v))") + note)
             } else {
-                CLITerminal.out(String(localized: "Helper: enabled, but not responding"))
+                lines.append(String(localized: "Helper: enabled, but not responding"))
             }
         #endif
         case "requires_approval":
-            CLITerminal.out(String(localized: "Helper: needs approval in System Settings → General → Login Items"))
+            lines.append(String(localized: "Helper: needs approval in System Settings → General → Login Items"))
         case "not_installed":
             #if os(macOS)
-            CLITerminal.out(String(localized: "Helper: not installed (run “passtunnel helper install”)"))
+            lines.append(String(localized: "Helper: not installed (run “passtunnel helper install”)"))
             #else
-            CLITerminal.out(String(localized: "Daemon (passtunneld): not installed"))
+            lines.append(String(localized: "Daemon (passtunneld): not installed"))
             #endif
         default:
-            CLITerminal.out(String(localized: "Helper: missing from the app bundle"))
+            lines.append(String(localized: "Helper: missing from the app bundle"))
         }
-        return code
+        return lines
+    }
+
+    // MARK: diagnose
+
+    /// The MCP tool's report: the app, the helper and what would stop each profile from connecting,
+    /// with its last clock measurement. `--check-clock` also asks the time server.
+    private func diagnose(checkClock: Bool) async throws -> Int32 {
+        let report = await automation.diagnose(checkClock: checkClock)
+        if json {
+            try printJSON(report)
+            return Exit.ok
+        }
+        CLITerminal.out("PassTunnel \(report.version)" + (report.build.map { " (\($0))" } ?? "") + "  "
+            + CLITerminal.dim(report.appPath))
+        #if os(macOS)
+        if !report.inApplications {
+            CLITerminal.out(String(localized: "Not in /Applications: the helper can be installed and updated only from there."))
+        }
+        #endif
+        helperLines(report.helper).forEach { CLITerminal.out($0) }
+        if let network = report.network { CLITerminal.out(String(localized: "Network: \(network.summary)")) }
+        if let secrets = report.secretStore {
+            CLITerminal.out(String(localized: "Secret store: \(secrets.name)"))
+            if !secrets.available, let error = secrets.error { CLITerminal.out("  " + String(localized: "It cannot be used here: \(error)")) }
+        }
+        let palette = Preferences.load().badgePalette
+        for check in report.profiles {
+            let mark = check.ok ? CLITerminal.colored("✓", palette.color(.connected)) : CLITerminal.bold("✗")
+            let server = check.server.isEmpty ? "" : ", " + check.server
+            CLITerminal.out("\(mark) \(check.name)  " + CLITerminal.dim(check.id + ", " + check.type + server))
+            for problem in check.problems { CLITerminal.out("    " + problem.message) }
+            if !check.asksFor.isEmpty {
+                let list = check.asksFor.compactMap { CredentialField(rawValue: $0)?.displayName }.joined(separator: ", ")
+                CLITerminal.out("    " + String(localized: "This profile asks for: \(list)."))
+            }
+            if let clock = check.clock { CLITerminal.out("    " + clockLine(clock)) }
+        }
+        if let clock = report.clock {
+            CLITerminal.out(clockLine(clock))
+        } else if let error = report.clockError {
+            CLITerminal.out(String(localized: "The clock could not be checked: \(error)"))
+        }
+        return Exit.ok
+    }
+
+    /// "Your clock is 48 s behind the gateway’s, … (checked 5m ago)".
+    private func clockLine(_ clock: ClockOffset) -> String {
+        clock.sentence + " " + CLITerminal.dim(String(localized: "(checked \(CLIDurations.since(clock.checkedAt)) ago)"))
     }
 
     // MARK: output

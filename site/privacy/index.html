@@ -9,7 +9,7 @@
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
 <title>Privacy policy · PassTunnel</title>
-<meta name="description" content="PassTunnel collects nothing. Profiles, passwords and TOTP secrets stay on your device, and the apps connect only to your VPN servers and, on the Mac, to GitHub for updates.">
+<meta name="description" content="PassTunnel collects nothing. Profiles, passwords and TOTP secrets stay on your device, and the apps connect only to your VPN servers and, on the Mac, to GitHub for updates and, when you ask, to Apple’s time server.">
 <link rel="canonical" href="https://passtunnel.github.io/privacy/">
 <link rel="icon" type="image/png" sizes="64x64" href="/assets/img/favicon.png">
 <link rel="apple-touch-icon" href="/assets/img/apple-touch-icon.png">
@@ -74,7 +74,7 @@
     <header class="doc-head">
       <p class="eyebrow">Privacy</p>
       <h1 id="doc-title">Privacy policy</h1>
-      <p class="doc-lead">PassTunnel does not collect any information about you. Your profiles, passwords and TOTP secrets stay on your device, and the apps connect only to the VPN servers you set up and, on the Mac, to GitHub to check for updates.</p>
+      <p class="doc-lead">PassTunnel does not collect any information about you. Your profiles, passwords and TOTP secrets stay on your device, and the apps connect only to the VPN servers you set up and, on the Mac, to GitHub to check for updates and, when you ask, to Apple’s time server.</p>
       <p class="doc-date">Last updated: <time datetime="2026-10-25">October 25, 2026</time></p>
     </header>
 
@@ -140,6 +140,7 @@
       <ul>
         <li><strong>Your VPN servers.</strong> The bundled <code>openvpn</code> and <code>openfortivpn</code> connect to the servers in your profiles. Your user name, password and one-time code are sent only there.</li>
         <li><strong>Checks you set up.</strong> If you give a profile a health check host, the app pings it or opens a connection to it every 30 seconds while that profile is connected. <em>Fetch fingerprint</em> in the FortiGate editor reads the certificate of the gateway you entered.</li>
+        <li><strong>Clock checks.</strong> One-time codes are worked out from your Mac’s clock, so a clock that is off makes the codes wrong. When a FortiGate gateway rejects a sign-in, PassTunnel asks that same gateway once what time it is: one request over an encrypted connection that trusts the gateway exactly as the VPN does, with no user name, password, code or cookie in it. It does this only after a rejected sign-in, never at other times, and never with an OpenVPN server. Apple’s time server (<code>time.apple.com</code>, which macOS also uses to set its clock) is asked only when you ask for it, with the “Check the clock” button in the app, <code>passtunnel diagnose --check-clock</code> or through the MCP server’s <code>diagnose</code> tool with <code>check_clock</code>. That request carries nothing about you, not even your Mac’s time. The last result is kept in the profile’s folder on your Mac.</li>
         <li><strong>Updates.</strong> The app checks for a new version once a day by downloading a signed update feed from the project’s releases on <code>github.com</code>, and downloads an update only when you click Install. GitHub receives these requests like any other web request, under GitHub’s own privacy statement. You can turn the daily check off in Settings → Updates.</li>
         <li><strong>The MCP server</strong> (<code>passtunnel mcp</code>) runs on your Mac, started by the MCP client you set up, and talks only to that client over standard input and output; it opens no network port. What its tools return (profile names, server names, user names, IP addresses and log lines, never passwords, TOTP secrets or codes) goes to that client and the AI assistant behind it, and so to that assistant’s provider.</li>
       </ul>

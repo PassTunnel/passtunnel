@@ -323,7 +323,13 @@ public struct HelperCore {
         }
     }
 
-    /// Fixed OpenVPN flags. They follow `--config`, so they override anything left in the file.
+    /// Fixed OpenVPN flags. They follow `--config`, so they override anything left in the file; only
+    /// `--server-poll-timeout` comes before it, as a default: OpenVPN copies the options in force where a
+    /// `<connection>` block is read into it, so the blocks get it too, and a config that sets its own
+    /// value (a slow proxy) keeps it. With it, a server that does not answer is given up on after
+    /// `serverPollTimeout` seconds (OpenVPN 2.6 and 2.7: the TCP connect, then the first packet from the
+    /// server, over UDP and TCP) instead of 120. `--remap-usr1 SIGTERM` turns OpenVPN's restart after a
+    /// failed try into an exit, so each run tries once; `ConnectionManager` tries again.
     /// Management is a unix socket that OpenVPN only serves to `clientUser` (peer credentials check).
     /// The DNS hook is always explicit: OpenVPN's compiled-in default points into the build machine's
     /// Homebrew prefix, which must never be executed as root. `verbosity` comes from `openVPNVerbosity`.
@@ -335,6 +341,7 @@ public struct HelperCore {
                                         authFile: String?, dnsUpdown: String?, verbosity: Int = defaultVerbosity,
                                         hasDNSUpdown: Bool = true) -> [String] {
         var args = [
+            "--server-poll-timeout", String(serverPollTimeout),
             "--config", configPath,
             "--verb", String(min(max(0, verbosity), maxVerbosity)),
             "--management", mgmtSocket, "unix",
@@ -355,6 +362,9 @@ public struct HelperCore {
         }
         return args
     }
+
+    /// Seconds OpenVPN waits for a server to answer (`--server-poll-timeout`) unless the config says.
+    public static let serverPollTimeout = 10
 
     /// OpenVPN's `verb` when a config sets none. From `verb 5` on it logs every packet (R/W marks),
     /// from 7 data-channel keys and from 9 packet contents; the log is readable by the user and by

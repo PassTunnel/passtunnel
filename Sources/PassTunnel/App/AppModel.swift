@@ -78,6 +78,10 @@ final class AppModel: ObservableObject {
     var previewErrors: [String: String]?
     var previewHelperStatus: HelperStatus?
     var previewNow: Date?
+    /// Render overrides for the failure cards and the clock banner (FailureCards.swift).
+    var previewFailures = FailurePreview()
+    /// A connect that waits for the answer to "Lab overlaps with Work" (`OverlapSheet`).
+    @Published var overlapRequest: OverlapRequest?
 
     private var secretCache: [String: Data] = [:]
     private var missingSecret: Set<String> = []
@@ -108,6 +112,8 @@ final class AppModel: ObservableObject {
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &bag)
         guard live else { return }
+        // A server that does not answer is tried again (Core: `UnreachableRetry`).
+        connections.retriesUnreachable = true
         connections.start()
         // The redesigned window has no onboarding sheet: its first-run view and a question after the first profile.
         showOnboarding = !NewInterface.isEnabled && !UserDefaults.standard.bool(forKey: Self.onboardingKey)
@@ -299,15 +305,12 @@ final class AppModel: ObservableObject {
     /// Opened at login: connects the profiles set to connect at login (`LoginConnector`) once the helper (after an
     /// automatic update, if one is due) and the network are ready.
     func connectAtLogin() {
-        let network = NetworkPath()
-        network.start()
+        // The manager watches the network path (`NWPathMonitor`) while it runs.
         let connector = LoginConnector(manager: connections, readiness: { [weak self] in
-            LoginConnector.Readiness(helper: self?.helperReady ?? false, network: network.isSatisfied)
+            LoginConnector.Readiness(helper: self?.helperReady ?? false,
+                                     network: self?.connections.networkStatus.online == true)
         }, notify: { Notifier.shared.post($0) })
-        Task {
-            await connector.run()
-            network.stop()
-        }
+        Task { await connector.run() }
     }
 
     /// After the app was updated, the helper still runs the previous build. Update it right away when
@@ -370,6 +373,10 @@ final class AppModel: ObservableObject {
     var previewReconnecting: [String: ReconnectInfo] = [:]
     /// Render override: connects waiting for a fresh code until then (`ConnectionManager.codeWaitUntil`).
     var previewCodeWaits: [String: Date] = [:]
+    /// Render override: the activity of each profile (`activityEvents`).
+    var previewActivity: [String: [ActivityEvent]] = [:]
+    /// The profile whose activity the log window shows (`ActivityLogWindow`); nil when none was asked for.
+    @Published var activityLogProfile: String?
 
     func reconnectInfo(_ id: String) -> ReconnectInfo? {
         if previewStates != nil { return previewReconnecting[id] }
@@ -386,11 +393,15 @@ final class AppModel: ObservableObject {
 
     /// Profiles shown as badges in the menu bar.
     var menuBarProfiles: [Profile] {
-        profiles.filter { p in
-            if p.pinned || droppedUnseen.contains(p.id) { return true }
-            if case .disconnected = state(p.id) { return false }
-            return true
-        }
+        MenuBarProfiles.badged(in: profiles, isIdle: { p in
+            if case .disconnected = state(p.id) { return true }
+            return false
+        }, droppedUnseen: droppedUnseen)
+    }
+
+    /// Profiles listed in the menu bar panel of the new interface: `menuBarProfiles`, or all while none is pinned.
+    var panelProfiles: [Profile] {
+        MenuBarProfiles.panel(in: profiles, badged: menuBarProfiles)
     }
 
     func markDropsSeen() {
@@ -528,7 +539,7 @@ final class AppModel: ObservableObject {
 
     /// The main window is open and on screen: not closed, minimized, hidden, on another Space or covered
     /// by other windows.
-    private var mainWindowVisible: Bool {
+    var mainWindowVisible: Bool {
         NSApp.windows.contains(where: {
             $0.isVisible && $0.occlusionState.contains(.visible) && $0.identifier?.rawValue.hasPrefix("main") == true
         })
@@ -543,9 +554,16 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// In the redesigned window a profile whose tunnel overlaps with one that is connected asks first
+    /// (`OverlapSheet`); `startConnect` goes on from the answer.
+    func connect(_ p: Profile) {
+        guard NewInterface.isEnabled else { return startConnect(p) }
+        connectUnlessOverlapping(p)
+    }
+
     /// Protected secrets are decrypted (the user confirms) by `ConnectionManager.connect`; when a
     /// credential sheet is needed, before it, so the sheet and the connect after it share the confirmation.
-    func connect(_ p: Profile) {
+    func startConnect(_ p: Profile) {
         droppedUnseen.remove(p.id)
         guard let p = storedProfile(p) else { return showError(PTError.profileNotFound(p.id)) }
         let needs = p.needs

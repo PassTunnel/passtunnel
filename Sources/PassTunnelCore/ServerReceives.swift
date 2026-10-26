@@ -80,7 +80,9 @@ public struct ServerReceives: Equatable, Sendable {
     ///   - codes: what the code card shows of the TOTP code (read only when the profile generates its code).
     ///   - waitingForCode: a connect waits for a fresh code (`ConnectionManager.codeWaitUntil`): the next code is
     ///     the one it sends.
-    public init(_ p: Profile, codes: Codes, waitingForCode: Bool) {
+    ///   - sentAt: when the sign-in was sent, for a profile that is connected (`ConnectionManager.lastSending`):
+    ///     the footer then says so instead of "preview with the current code".
+    public init(_ p: Profile, codes: Codes, waitingForCode: Bool, sentAt: Date? = nil, timeZone: TimeZone = .current) {
         // Without a password, OpenVPN signs in with the certificate alone: no user name, password or code.
         if p.type == .openvpn && p.passwordMode == .none {
             rows = []
@@ -109,9 +111,14 @@ public struct ServerReceives: Equatable, Sendable {
             } else {
                 code = .hiddenCode(digits: digits)
             }
-            footer = waitingForCode
-                ? String(localized: "Format: \(format) · will send the next code")
-                : String(localized: "Format: \(format) · preview with the current code")
+            if waitingForCode {
+                footer = String(localized: "Format: \(format) · will send the next code")
+            } else if let sentAt {
+                let time = ActivityEvent.clockTime(sentAt, timeZone: timeZone)
+                footer = String(localized: "Format: \(format) · sent at \(time)")
+            } else {
+                footer = String(localized: "Format: \(format) · preview with the current code")
+            }
         }
 
         // An empty password (no password on a FortiGate profile) adds nothing.

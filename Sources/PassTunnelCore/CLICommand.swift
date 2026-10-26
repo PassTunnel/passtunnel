@@ -46,6 +46,8 @@ public enum CLICommand: Equatable {
     case unpin(id: String, json: Bool = false)
     // lines: only the last N; activity: the activity log (`ActivityLog`) instead of the VPN tool's
     case log(id: String, follow: Bool, json: Bool = false, lines: Int? = nil, activity: Bool = false)
+    // checkClock: also ask the time server how far the clock is off (it contacts that server)
+    case diagnose(checkClock: Bool = false, json: Bool = false)
     case helper(HelperAction, json: Bool = false)              // json: `status` only
     case mcp(allowConnect: Bool)                               // MCP server on stdio (`MCPServer`)
     #if DEBUG
@@ -72,7 +74,8 @@ public enum CLICommand: Equatable {
     public static let commandNames: [String] = {
         var names = [
             "status", "connect", "disconnect", "toggle", "code", "list", "show", "set", "add", "import", "export",
-            "rm", "secret", "default", "pin", "unpin", "log", "helper", "mcp", "completion", "version", "help",
+            "rm", "secret", "default", "pin", "unpin", "log", "diagnose", "helper", "mcp", "completion", "version",
+            "help",
         ]
         #if os(Linux)
         names.insert("secret-store", at: names.firstIndex(of: "secret")! + 1)   // the Mac has the Keychain only
@@ -277,6 +280,11 @@ public enum CLICommand: Equatable {
             if follow && json { throw CLIUsageError(String(localized: "--follow cannot be combined with --json."), command: name) }
             if follow && activity { throw CLIUsageError(String(localized: "--follow cannot be combined with --activity."), command: name) }
             return .log(id: id, follow: follow, json: json, lines: lines, activity: activity)
+        case "diagnose":
+            let json = a.flag("--json")
+            let checkClock = a.flag("--check-clock")
+            try a.finish()
+            return .diagnose(checkClock: checkClock, json: json)
         case "helper":
             let json = a.flag("--json")
             let actionText = try a.optionalPositional() ?? "status"

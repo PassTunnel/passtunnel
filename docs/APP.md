@@ -62,6 +62,37 @@ One binary, two modes:
      put back as it was (unless another process wrote one since; never after a cancel, whose tool may still
      be on its way), so the next connect does not wait for a fresh code. A rejected sign-in is never retried (decision D-7): neither by an automatic reconnect nor
      by a health-forced one.
+  6. clock check (decision D-16): after a FortiGate rejected a sign-in this manager sent, it asks the
+     gateway for its time in the background (`ServerClock.gateway`: one `HEAD /` over TLS to host:port,
+     accepted when the certificate's SHA-256 is the profile's trusted certificate or the system trusts it
+     (no network fetch for that), as openfortivpn decides; no credentials or cookies; the `Date` header
+     against the middle of the exchange; 5 s at most). The result (`ClockOffset`) goes to
+     `clockOffsets[id]`, to `profiles/<id>/clock.json` (0600; `lastClock` reads it for other processes)
+     and to `failures[id].clock` if that failure is still the last one. `clockCheckFinished(id)` waits for
+     it (`AutomationService.connect` does before reporting a failure). Never at launch, never for another
+     failure, never for OpenVPN (no reliable server time); Linux does not ask the gateway. `checkClock()`
+     (the app's Check button, `diagnose --check-clock`, on request only) asks the time server
+     (`ServerClock.timeServer`: SNTP to `time.apple.com`; on Linux the configured NTP server), keeps it in
+     `timeServerClock` and adds it to each rejected sign-in's failure that has no newer measurement.
+     Off by 15 s or more (`ClockOffset.isWrong`) makes codes fail.
+- A server that did not answer (`unreachable`: refused, timed out, no route, no TLS answer; nothing was
+  sent, so the code's period was given back) is tried again, by the app only (`retriesUnreachable`; the CLI
+  and the MCP server report the failure): after a connect (manual or at login) and after a drop's automatic
+  reconnects (decision D-7), every 30 s, at most 10 tries in all (`UnreachableRetry`:
+  `unreachableRetries[id]` with the tries, when the first and the last failed and `nextTryAt`; shared in
+  `profiles/<id>/.retry` for `status --json` / `get_status`). Never after `host_not_found`, a rejected
+  sign-in or any other failure. Each try connects with `interactive: false` and a fresh code: a protected
+  profile uses the session's or the reuse window's secrets, else the tries stop with
+  `confirmationRequired`. OpenVPN gives each try 10 s (`--server-poll-timeout 10`) and makes one try per
+  run (`--remap-usr1 SIGTERM`). "Try now" is `retryNow(id)`; Stop is `disconnect(id)` (from the CLI too,
+  seen on the next poll); a manual connect replaces them. The manager watches the network path while it
+  runs (`networkStatus`, `NetworkPath`: online or not and Wi-Fi / Ethernet / cellular / other, for "This
+  Mac is online · Wi-Fi"; never a probe): offline the tries wait, online again or on another network they
+  start over after 2 s with the count at zero. After a drop the end is the reconnect's (`reconnected`,
+  `reconnectFailed`); a manual connect's tries send no events. `failureDetails(id)` is "Copy details":
+  plain text (profile name, server with port and UDP/TCP, what went wrong and the tool's reason, whether the
+  sign-in was sent, the tries and their times, the next try, the network, the app version; no password,
+  code or user name) that the app puts on the pasteboard as ordinary text.
 - `disconnect(_ id:)` → helper `stop`; marks the profile *user-stopped* so it is not treated as a drop.
 - Drop detection: only `connected → disconnected` with no action in flight and not user-stopped.
   Then: notification (if enabled, see Notifications) and, if `profile.autoReconnect && profile.unattended`
@@ -183,7 +214,7 @@ and at least 820×560:
   (also after a drop), Cancel while connecting or waiting for a fresh code, Disconnect once connected, Stop during
   an automatic reconnect, Try again after a failure; Connect, Disconnect and Try again are primary capsules, Cancel
   and Stop secondary, all as wide as the widest label. The toolbar has Edit and ⋯ (Copy Code, Copy Password +
-  Code, Share…, Show Log, Default Profile, Delete…). The window shows the default profile (else the first) when
+  Code, Share…, Show Log, Pin to Menu Bar / Unpin from Menu Bar, Default Profile, Delete…). The window shows the default profile (else the first) when
   nothing is selected and the add view is closed.
 - **Code cards** (`Views/CodeCards.swift`; their rules are `CodeCard` and `ServerReceives` in Core): two hairline cards
   in equal columns of the same height, stacked at full width when a column is too narrow for them (`CardColumns`).
@@ -204,14 +235,62 @@ and at least 820×560:
     the next code" with the next code in the rows while a connect waits for a fresh one; for a code asked each time
     "· asks for the code when connecting" and dimmed example digits, as without a secret ("· no secret added yet");
     "Password only, no one-time code"; a certificate-only OpenVPN profile shows only "Certificate only: …". The
-    line that says when the code was sent ("· sent at 09:41:02") needs the activity log; until then a connected
-    profile shows the preview line. VoiceOver reads the card as one element.
+    footer of a profile that is connected says when the sign-in was sent instead of "preview with the current code":
+    "Format: Append · sent at 09:41:02" (the last `sending` of the activity log, taken only when it came shortly
+    before the tunnel did, `ActivityEvent.sentAt(connectedSince:in:)`; the rows still show the current code). A
+    connect that waits keeps "will send the next code". VoiceOver reads the card as one element.
+  - **Activity** (`ActivityCard` in `Views/ActivityViews.swift`, under the code cards, full width): the last six events
+    of the profile's activity log (`ActivityLog`, written by the app and the CLI), oldest first, each as the time
+    (`HH:mm:ss`, `fg3`; an event of an earlier day says which, "Yesterday 17:09:07" or "Fri, Oct 23 17:09:07",
+    `ActivityEvent.timeLabel`, with the sentences kept in line) and the sentence in 11.5 pt SF Mono (`ActivityEvent.sentence(showingCodeDigits: true)`:
+    the password as eight bullets, a code as its first three digits and bullets, "Sending sam / ••••••••+604 •••").
+    Errors are red (`ActivityEvent.tone`: link dropped, no answer, sign-in rejected, failed), waits for a code amber,
+    the rest in the text color; the card is live while a session runs (`ActivityFeed`: the app's own events at once,
+    the file's changes, such as a session the CLI runs, within a second). Without events it says "Not connected yet".
+    VoiceOver reads each entry as one element, hidden values as "hidden". "Show all" opens the log window.
+  - **Activity window** (`ActivityLogWindow`, the `Window` scene `activity-log`, not in the Window menu): the window
+    of the profile in `AppModel.activityLogProfile`, titled with its name; its whole activity under day headings
+    (Today, Yesterday, then the date), scrolled to the latest, with the text selectable. "Errors only" shows the red
+    entries; "Show raw log" opens the VPN tool's `vpn.log` as ⋯ → Show Log does (disabled without one). The footnote
+    says passwords are never shown and codes only by their first three digits.
   - **Masked codes** (decision D-5, `CodeCard.isMasked`, `AppModel.codesMasked`): codes hidden in Settings
     (`hideCodes`) and codes whose TOTP secret is stored encrypted ("Confirm with Touch ID"), unlocked or not, show as
     "••• •••" for the current and the next code, as bullets in "What the server receives" and in the sidebar row.
     A click on the code shows them for 20 s (`AppModel.revealCodes`), after the confirmation when they are locked;
     copying never shows them. The menu bar panel keeps hidden codes hidden; the current window shares the 20 s of a
     click for hidden codes (above) and keeps its own rule for locked ones.
+- **Error states** (`Views/FailureCards.swift`, `ClockBanner.swift`, `OverlapSheet.swift`; the facts are Core's:
+  `ConnectionManager.failures`, `unreachableRetries`, `networkStatus`, `clockOffsets`, `overlaps(for:)`). After a
+  failure the detail shows a card instead of the code cards, above the activity; `DisplayStatus` words the status
+  (`failed` with a reason: `signInRejected`, `hostNotFound`, `unreachable`, else the error's message), which the sidebar
+  shows short ("Sign-in rejected", "Server not found", "Unreachable, retrying", "Couldn’t connect"):
+  - **Sign-in rejected** (`RejectedCard`): the main button is Try again. "The server answered AUTH_FAILED. PassTunnel
+    stopped instead of retrying, so your account won’t get locked." (the server's reply, in SF Mono), then facts, each
+    with a glyph and words: "The code was fresh / Sent with 22 s left" (more than `Preferences.freshCodeSeconds` left;
+    else "about to expire"), the clock when it was measured ("The clock is off by 48 s / Most likely cause. Fix the
+    clock, then try again.", or "The clock is right / Within 2 s of time.apple.com"), and, for a password in the
+    Keychain, "Changed your password at work? / Update it in PassTunnel" (opens the editor). "Check the clock" runs the
+    on-request check with Apple's time server (`ConnectionManager.checkClock`, decision D-16; the card says what it
+    asks and that nothing about the user is sent) and shows the result in the clock row.
+  - **Clock banner** (`ClockBanner`), above the detail of any profile while the newest clock measurement of any
+    profile or the time server is under an hour old and off by 15 s or more (`ClockOffset.recentWarning`): "This Mac’s
+    clock is 48 s behind. Codes are worked out from the time, so every code will be wrong until it’s fixed." with
+    Open Date & Time (`x-apple.systempreferences:com.apple.Date-Time-Settings.extension`) and Check again (the same
+    check; a newer right measurement ends the banner).
+  - **Server unreachable** (`UnreachableCard`): while the tries go on the status is "Can’t reach the server · next try
+    in 18 s" (or "waiting for the network", "trying again…") and the main button Stop; once they ended, Try again.
+    "No answer after 3 tries. Your password and code were not sent." with "This Mac is online · Wi-Fi" (or offline;
+    only the system's own view of the network, never a claim that other sites answer, decision D-13), "203.0.113.10:443
+    didn’t answer" with the tool's reason, "On a guest or hotel network?", Try now (`retryNow`, while tries go on) and
+    Copy details (`ConnectionManager.failureDetails`, ordinary text on the pasteboard, "Copied ✓" for 1.6 s).
+  - **Host not found and other failures** (`MessageCard`): the tool's reason, and that the password and code were not
+    sent; a name that was not found also points to the profile's address.
+  - **Overlapping tunnels** (`OverlapSheet`): connecting a profile whose routes or DNS names overlap with a connected
+    one (`ConnectionManager.overlaps(for:)`, before any prompt for secrets; `AppModel.connect`) asks first: "Lab
+    overlaps with Work", a table per connected profile (networks, DNS names and all traffic: Yes or —, Overlap), then
+    Cancel, Connect both and Switch to Lab (primary; disconnects the others first). It says only that the shared
+    traffic can go through just one of the two tunnels, not which one (decision D-22: not verified on a Mac). The
+    CLI and the MCP server warn and go on.
 - **First run and add view** (`FirstRunView`, decisions D-13 and D-18): without profiles the detail shows the app
   icon, "Add your first VPN" and "PassTunnel works out the one-time code and sends it with your password when you
   connect. No account. Your passwords and secrets stay on this Mac."; the sidebar's `+` shows the same view titled
@@ -359,12 +438,21 @@ Connect/Disconnect, Copy code; then Open PassTunnel (⌘O), Settings… (⌘,), 
 Behind the hidden switch of the redesign (`NewInterface`, `PTNewInterface`, decision D-23) the menu bar item is a
 panel instead (`MenuBar/MenuBarPanel.swift`, `.menuBarExtraStyle(.window)`): two `MenuBarExtra` scenes, and
 `isInserted` puts one of them in the menu bar. Without the switch the menu above is unchanged.
-- Status item: the shield glyph (`MenuBarIcon.shield`, a monochrome 16 pt template image), without badges, palettes
-  or lock symbol (their preferences stay). While a drop has not been seen (`droppedUnseen`) a small dot sits at its
-  top right; it goes when the panel closes or the main window opens. VoiceOver: "PassTunnel, 2 connected" ("PassTunnel,
-  not connected"), with ", a connection dropped" for the dot.
+- Status item: a colored badge only for a profile that needs attention (`MenuBarLabel(panel: true)`, `MenuBarIcon`,
+  `MenuBarProfiles.attention` in Core): connecting or connected with a problem (the connecting color), connected, or
+  dropped and not seen yet (the disconnected color with the red dot), in the chosen palette (Settings → Menu bar). A
+  profile that is merely disconnected has none, pinned or not; it stays in the panel. There is no lock symbol (the
+  setting only applies to the current menu bar). While no profile needs attention the shield stands in
+  (`MenuBarIcon.shield`, a monochrome 16 pt template image). VoiceOver: "PassTunnel, 2 connected" ("PassTunnel, not
+  connected"), with ", a connection dropped" while a drop has not been seen (`droppedUnseen`); the dot goes when the
+  panel closes or the main window opens.
+- Profiles listed (`AppModel.panelProfiles`, `MenuBarProfiles` in Core): those pinned to the menu bar ("Pin to Menu
+  Bar" in the context menu and the ⋯ menu, "Always show in the menu bar" in the editor), plus any that is connecting,
+  connected, reconnecting or dropped and not seen yet; while none is pinned, all of them. A profile switched off in
+  the panel stays listed until the panel closes. The copy items and ⌘C keep `CopyTarget`, which looks at all profiles
+  and may name one that is not listed.
 - Panel, 330 pt wide, on the system's window material: header "PassTunnel · 2 connected" (just "PassTunnel" while
-  nothing is connected); one row per profile (at least 44 pt): 8 pt dot, name and the short `DisplayStatus` in its
+  nothing is connected); one row per listed profile (at least 44 pt): 8 pt dot, name and the short `DisplayStatus` in its
   color, the code in SF Mono 13 ("••• •••" while locked or hidden; `hideCodes` is never revealed here) and a switch,
   on while the profile is connected, connecting or reconnecting (turning it off disconnects or cancels). More than
   four rows scroll. Then, for `AppModel.copyTarget` (`CopyTarget`, Core: the default profile when it has a code, else
@@ -436,9 +524,9 @@ Four tabs (decision D-12): General, Shortcuts, Helper and Updates. Settings are 
     minutes before), Open Notification Settings….
   - **Security**: "Ask again after" 1 / 5 / 15 minutes (`authReuseMinutes`, `settings.authReuse`): how long one
     confirmation unlocks a profile.
-  - **Menu bar**, only while the current menu bar is in use (`!NewInterface.isEnabled`; the panel of the new
-    interface has no badges, decision D-6): badge palette (pastel / vivid / soft / candy / earth — the menu bar
-    colors for connected / connecting / disconnected) with a preview, show lock symbol.
+  - **Menu bar**, in both interfaces (the panel's status item shows the badges too): badge palette (pastel / vivid /
+    soft / candy / earth — the menu bar colors for connected / connecting / disconnected) with a preview, show lock
+    symbol (current interface only: the new one has no lock).
   - **Other**: appearance (system / light / dark), the command-line tool (Install… / Reinstall, see CLI).
   - Footer (what the About tab had): Licenses (the bundled tools' licenses, the sheet of Helper → Show
     Licenses…), Privacy policy (the website's privacy page, `https://passtunnel.github.io/privacy/`, `AppInfo.privacyURL`),
@@ -489,8 +577,8 @@ open the main window.
 connect_at_login=true`; left out of share files): only a login launch runs it (`AppModel.connectAtLogin` →
 `LoginConnector`, Core), never a manual launch. It first waits, at most 90 s (`LoginConnector.readinessTimeout`),
 until the helper is ready (enabled, answering with this copy's build, not being updated: an automatic helper
-update after an app update runs first) and the Mac is online (`NWPathMonitor` path satisfied; nothing is
-contacted). Then it goes through the profiles with the switch in the sidebar order (`order`, then name), each read
+update after an app update runs first) and the Mac is online (`ConnectionManager.networkStatus`, from
+`NWPathMonitor`; nothing is contacted). Then it goes through the profiles with the switch in the sidebar order (`order`, then name), each read
 again from disk (one switched off or deleted meanwhile is skipped):
 - connected or connecting already (a session the helper kept running, or another process's): left alone;
 - `unattended` and no protected secret it uses (`vault.requiresConfirmation` false): connected with
@@ -524,6 +612,8 @@ passtunnel status [ID]
 passtunnel connect|disconnect|toggle [ID]    ID default: default profile; asks on TTY for `needs`
 passtunnel disconnect --all
 passtunnel connect [ID] --force              even if another VPN already takes all traffic
+                                             (a warning, on stderr, when a connected profile's tunnel claims
+                                             the same routes or DNS names; the connect goes ahead)
 passtunnel connect|disconnect … --wait [--timeout S]   bound the wait (default 60 s; --timeout implies --wait)
 passtunnel code [ID] [-c|--copy]             live code + seconds left
 passtunnel list / show ID / set ID key=value…   (keys as in the editor)
@@ -532,6 +622,8 @@ passtunnel secret ID password|totp           reads from TTY (no echo) or stdin; 
 passtunnel secret-store [STORE]              Linux only: the secret store in use; STORE sets it (below)
 passtunnel default ID / pin ID / unpin ID
 passtunnel log ID [-f] [-n N] [--activity]   --activity: the activity log, worded (no code digits)
+passtunnel diagnose [--check-clock]          installation, helper, each profile's problems and last clock
+                                             measurement; --check-clock also asks the time server
 passtunnel helper status|install|uninstall
 passtunnel mcp [--allow-connect]             MCP server on stdio (below)
 passtunnel completion zsh|bash|fish
@@ -659,7 +751,8 @@ requests it has, then exits 0.
 
 Tools (`MCPTools`): `list_profiles`, `get_status` (`profile_id`?), `get_logs` (`profile_id`,
 `lines` 1–500, default 50, `source` `raw` (default) or `activity`: `AutomationService.activity`, the
-worded lines plus `events`, without code digits), `diagnose`; with `--allow-connect` also `connect` (`profile_id`, `wait`
+worded lines plus `events`, without code digits), `diagnose` (`check_clock`, default false: also ask the
+time server, `AutomationService.diagnose(checkClock:)`); with `--allow-connect` also `connect` (`profile_id`, `wait`
 default true, `timeout_seconds` 1–600, default 60) and `disconnect` (`profile_id`, `wait`,
 `timeout_seconds`). Each has an `inputSchema` (closed objects) and, from 2025-06-18, an
 `outputSchema` and `structuredContent`; the text content is the same JSON. Results are the
@@ -667,14 +760,18 @@ automation objects of `--json`. `connect` mirrors the CLI: refresh, already conn
 already connecting → wait for it, `needs` → `input_required`, `checkCanStart`, `vault.unlock` (Touch
 ID on the Mac), then `AutomationService.connect`; `wait: false` returns once the attempt shows as
 connecting and lets it finish in the server. A failed `connect` is an error result whose error object
-carries `failure`; `get_status` shows it too (`ProfileStatus.failure`, in the outputSchema). The server never calls `ConnectionManager.start()`
+carries `failure`; `get_status` shows it too (`ProfileStatus.failure`, in the outputSchema), with
+`clock` once the gateway check after a rejected sign-in has answered. `checkCanStart`
+also returns the connected profiles whose routes or DNS names overlap with the profile's
+(`ProfileOverlap`, ARCHITECTURE.md): the connect goes ahead and its result carries them as `warnings`
+(`ConnectWarning`, CLI-JSON.md; the CLI prints them on stderr). The server never calls `ConnectionManager.start()`
 (no polling, no auto-reconnect of its own).
 
 The app and the CLI share the files and the Keychain. The app never acts on a cached profile:
 connect, copy code, copy password + code and auto-type re-read the stored profile and Keychain item
 first, and single-field changes (pin, order, remembered user name) go through `ProfileStore.update`
 (read-modify-write). It reloads on `ProfilesWatcher` (FSEvents on the support directory, debounced;
-`vpn.log`, the management socket, markers and temp files are ignored), on `ProfileChangeSignal` (posted by the
+`vpn.log`, `activity.jsonl`, `clock.json`, `network.json`, the management socket, markers and temp files are ignored), on `ProfileChangeSignal` (posted by the
 CLI after commands that change profiles or secrets), when it becomes active, and every 5 s.
 
 ## Design system
@@ -716,10 +813,14 @@ others not yet.
 - The `main-split` renders show the redesigned window with the sample profiles, light and dark, once per state of
   the selected profile (`main-split`, `-waiting`, `-dropped`, `-off`, `-failed`), then the code cards with the code
   locked, hidden, just copied, in the smallest window and with a custom format (`-locked`, `-hidden`, `-copied`,
-  `-narrow`, `-template`); they are not on the website.
+  `-narrow`, `-template`); they are not on the website. Every profile there has sample activity
+  (`AppModel.previewActivity`); `activity-log`, `-errors` and `-empty` show the log window.
   The `import-review` renders show the import review in that window: as designed (two lines skipped, the code
   secret missing), `-ready` with the secret added, `-certificate` (a certificate-only file whose keys come from
   files next to it) and `-narrow` at the window's smallest size.
+  The `error-` renders show the error states (`AppModel.previewFailures`): `error-rejected-clock` (with the banner),
+  `error-rejected`, `error-rejected-clock-ok`, `error-unreachable`, `-offline`, `-ended`, `error-host-not-found`,
+  `error-other`, `error-clock-banner` (and `-narrow`), and `overlap-sheet`.
   Offscreen, the glass sidebar of macOS 26 draws without its rows, so there the render lays the window's sidebar
   and detail out side by side, the sidebar on its flat list background. `first-run` (with the helper card, light and
   dark), `first-run-approval`, `add-vpn` and `main-split-login` show the first run, the add view and the question
@@ -759,11 +860,12 @@ client errors) must have Turkish translations.
 - `PASSTUNNEL_RENDER_LANG=tr` renders the `PASSTUNNEL_RENDER` screenshots in Turkish (from a bundle
   with the compiled `tr.lproj`, e.g. the app `build-app.sh` makes). Renders include `main-code-locked`
   (`AppModel.previewLockedCodes`; no Secure Enclave key is made), `main-hidden-codes` ("Hide codes until clicked",
-  the first code clicked), `settings-general` (the whole page; `-PTNewInterface YES` leaves out the menu bar
-  card), `editor/editor-require-auth`, `editor/editor-connect-at-login` (with the footnote of an app that does not
+  the first code clicked), `settings-general` (the whole page), `editor/editor-require-auth`, `editor/editor-connect-at-login` (with the footnote of an app that does not
   open at login), `editor/editor-scan-screen` and `editor-scan-screen-none` (macOS 14 and later) and the menu bar
-  panel of the new interface: `menubar-panel` (three profiles in mixed states, auto-type on), `menubar-panel-scroll`
-  (six) and `menubar-panel-empty`.
+  panel of the new interface, with its status item above it: `menubar-panel` (three profiles in mixed states,
+  auto-type on), `menubar-panel-pinned` (two pinned and the active ones of six; the
+  status item badges the active ones only), `menubar-panel-dropped` (an unpinned profile that dropped), `menubar-panel-idle` (nothing pinned or active: all listed, the shield),
+  `menubar-panel-scroll` (nothing pinned, six listed) and `menubar-panel-empty`.
 - `PASSTUNNEL_RENDER_SCALE=4` renders at that backing scale (1–8; default 2). `scripts/site-assets.sh`
   uses 4 for the website, together with `editor/editor-one-time-code` (the editor sheet of a saved profile with
   its secret, at a fixed time so the code is stable) and `menubar-badges-<palette>` (the menu bar badges alone,

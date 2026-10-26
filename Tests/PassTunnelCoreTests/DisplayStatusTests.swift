@@ -63,6 +63,35 @@ final class DisplayStatusTests: XCTestCase {
         XCTAssertEqual(status(Facts(lastError: rejected)), .failed(.message(rejected)))
     }
 
+    private func failure(_ kind: ConnectionFailure.Kind) -> ConnectionFailure { ConnectionFailure(kind: kind, at: now) }
+
+    private func retry(next: TimeInterval? = 18, waiting: Bool = false) -> UnreachableRetry {
+        UnreachableRetry(tries: 3, maxTries: 5, nextTryAt: next.map { now.addingTimeInterval($0) }, waitingForNetwork: waiting,
+                         firstFailedAt: now.addingTimeInterval(-60), lastFailedAt: now.addingTimeInterval(-12))
+    }
+
+    /// The typed reason of the failure decides what is shown; a kind with no case of its own keeps the error's words.
+    func testTheFailureKindDecidesTheReason() {
+        XCTAssertEqual(status(Facts(lastError: rejected, failure: failure(.authRejected))), .failed(.signInRejected))
+        XCTAssertEqual(status(Facts(lastError: "x", failure: failure(.hostNotFound))), .failed(.hostNotFound))
+        XCTAssertEqual(status(Facts(lastError: "x", failure: failure(.unreachable))), .failed(.unreachable(retry: nil)))
+        for kind in [ConnectionFailure.Kind.configuration, .setup, .timeout, .failed] {
+            XCTAssertEqual(status(Facts(lastError: "boom", failure: failure(kind))), .failed(.message("boom")), "\(kind)")
+        }
+        XCTAssertEqual(status(Facts(lastError: "boom")), .failed(.message("boom")), "no typed failure")
+    }
+
+    /// An unreachable server is shown while its tries go on, also during one (the failure is cleared then), but
+    /// not over a connection that is up, a reconnect or a wait for a fresh code.
+    func testTheTriesOfAnUnreachableServerAreShownThroughout() {
+        let shown = DisplayStatus.failed(.unreachable(retry: retry()))
+        XCTAssertEqual(status(Facts(lastError: "x", failure: failure(.unreachable), retry: retry())), shown)
+        XCTAssertEqual(status(Facts(state: .connecting(ConnectionManager.Phase.starting), retry: retry())), shown)
+        XCTAssertEqual(status(Facts(state: up, retry: retry())), .connected(connection))
+        XCTAssertEqual(status(Facts(reconnect: reconnect, retry: retry())), .reconnecting(reconnect, freshCode: false))
+        XCTAssertEqual(status(Facts(codeWaitUntil: now, retry: retry())), .waitingForCode(until: now))
+    }
+
     // MARK: precedence
 
     /// Not responding is the worst (the tunnel carries nothing), then a failed setup step, then a state that
@@ -152,6 +181,10 @@ final class DisplayStatusTests: XCTestCase {
             (.statusUnavailable(connection), .disconnect),
             (.reconnecting(reconnect, freshCode: true), .stop),
             (.failed(.message(rejected)), .tryAgain),
+            (.failed(.signInRejected), .tryAgain),
+            (.failed(.hostNotFound), .tryAgain),
+            (.failed(.unreachable(retry: nil)), .tryAgain),
+            (.failed(.unreachable(retry: retry())), .stop),
         ]
         for (status, action) in cases {
             XCTAssertEqual(status.action, action, "\(status)")
@@ -183,11 +216,28 @@ final class DisplayStatusTests: XCTestCase {
             (.reconnecting(reconnect, freshCode: false), "Dropped, reconnecting…", "Dropped, reconnecting…"),
             (.dropped, "Connection dropped", "Connection dropped"),
             (.failed(.message(rejected)), "Couldn’t connect", rejected),
+            (.failed(.signInRejected), "Sign-in rejected", "Sign-in rejected by the server"),
+            (.failed(.hostNotFound), "Server not found", "Can’t find the server"),
+            (.failed(.unreachable(retry: nil)), "Unreachable", "Can’t reach the server"),
+            (.failed(.unreachable(retry: retry(next: 17.2))), "Unreachable, retrying",
+             "Can’t reach the server · next try in 18 s"),
+            (.failed(.unreachable(retry: retry(next: nil, waiting: true))), "Unreachable, retrying",
+             "Can’t reach the server · waiting for the network"),
+            (.failed(.unreachable(retry: retry(next: nil))), "Unreachable, retrying",
+             "Can’t reach the server · trying again…"),
         ]
         for (status, summary, line) in cases {
             XCTAssertEqual(status.summary(at: now), summary, "\(status)")
             XCTAssertEqual(status.line(at: now, server: server), line, "\(status)")
         }
+    }
+
+    /// The wait for the next try counts down, then the try itself is "trying again".
+    func testTheWaitForTheNextTryCountsDown() {
+        let waiting = DisplayStatus.failed(.unreachable(retry: retry(next: 3.5)))
+        XCTAssertEqual(waiting.line(at: now), "Can’t reach the server · next try in 4 s")
+        XCTAssertEqual(waiting.line(at: now.addingTimeInterval(2)), "Can’t reach the server · next try in 2 s")
+        XCTAssertEqual(waiting.line(at: now.addingTimeInterval(3.5)), "Can’t reach the server · trying again…")
     }
 
     func testConnectingWithoutAServerShowsThePhase() {

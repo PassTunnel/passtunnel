@@ -91,7 +91,24 @@ final class OVPNSanitizerTests: XCTestCase {
         }
         let args = HelperCore.openVPNArguments(configPath: "/c", mgmtSocket: "/s", clientUser: "alice", authFile: nil,
                                                dnsUpdown: nil, verbosity: 11)
-        XCTAssertEqual(Array(args.prefix(4)), ["--config", "/c", "--verb", "4"])
+        XCTAssertEqual(Array(args.prefix(6)), ["--server-poll-timeout", "10", "--config", "/c", "--verb", "4"])
+    }
+
+    /// A server that does not answer is given up on after 10 s (each OpenVPN run tries once: `--remap-usr1
+    /// SIGTERM`), not OpenVPN's 120. Before `--config`, so `<connection>` blocks inherit it and a config's own
+    /// value wins; every other fixed flag follows the config.
+    func testServerPollTimeoutComesBeforeTheConfig() {
+        let args = HelperCore.openVPNArguments(configPath: "/c", mgmtSocket: "/s", clientUser: "alice", authFile: "/a",
+                                               dnsUpdown: "/d")
+        XCTAssertEqual(HelperCore.serverPollTimeout, 10)
+        XCTAssertEqual(args.firstIndex(of: "--server-poll-timeout"), 0)
+        XCTAssertEqual(args[1], "10")
+        XCTAssertEqual(args.firstIndex(of: "--config"), 2)
+        XCTAssertEqual(args.filter { $0 == "--server-poll-timeout" }.count, 1)
+        XCTAssertEqual(Array(args.suffix(from: 2)),
+                       ["--config", "/c", "--verb", "3", "--management", "/s", "unix", "--management-client-user", "alice",
+                        "--auth-nocache", "--remap-usr1", "SIGTERM", "--connect-retry-max", "3", "--auth-user-pass", "/a",
+                        "--script-security", "2", "--dns-updown", "/d"])
     }
 
     func testReportsAllViolationsWithLineNumbers() {
@@ -415,6 +432,7 @@ final class HelperCoreTests: XCTestCase {
         XCTAssertEqual(plan.runDir, plan.sessionDir.path)
         XCTAssertEqual(plan.mgmtSocket, plan.runDir + "/mgmt.sock")
         XCTAssertEqual(plan.arguments, [
+            "--server-poll-timeout", "10",
             "--config", plan.runDir + "/config.ovpn", "--verb", "3", "--management", plan.runDir + "/mgmt.sock", "unix",
             "--management-client-user", "alice", "--auth-nocache",
             "--remap-usr1", "SIGTERM", "--connect-retry-max", "3", "--auth-user-pass", plan.runDir + "/auth",
@@ -439,7 +457,7 @@ final class HelperCoreTests: XCTestCase {
             .write(to: URL(fileURLWithPath: acmeDir + "/config.ovpn"))
         let plan = try core().prepareOpenVPN(openVPNStart(), uid: me)
         defer { close(plan.logFD); core().removeRunDir(profileID: "acme", uid: me) }
-        XCTAssertEqual(Array(plan.arguments.prefix(4)), ["--config", plan.runDir + "/config.ovpn", "--verb", "4"],
+        XCTAssertEqual(Array(plan.arguments.dropFirst(2).prefix(4)), ["--config", plan.runDir + "/config.ovpn", "--verb", "4"],
                        "after --config, so it overrides the file")
         XCTAssertEqual(plan.arguments.filter { $0 == "--verb" }.count, 1)
     }
