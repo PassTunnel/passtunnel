@@ -21,13 +21,13 @@
 <meta property="og:image" content="https://passtunnel.github.io/assets/img/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="PassTunnel: Connect your VPN without ever typing a one-time code again. The main window shows each VPN profile with its live code.">
+<meta property="og:image:alt" content="PassTunnel: Connect your VPN without ever typing a one-time code again. The main window lists the VPN profiles and shows the selected one with its live code and what the server receives.">
 <meta property="og:locale" content="en_US">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="PassTunnel: connect your VPN without typing one-time codes">
 <meta name="twitter:description" content="Free, open-source macOS app for OpenVPN and FortiGate SSL VPN. Your TOTP secret stays in the Keychain; PassTunnel sends the current code with your password.">
 <meta name="twitter:image" content="https://passtunnel.github.io/assets/img/og.png">
-<meta name="twitter:image:alt" content="PassTunnel: Connect your VPN without ever typing a one-time code again. The main window shows each VPN profile with its live code.">
+<meta name="twitter:image:alt" content="PassTunnel: Connect your VPN without ever typing a one-time code again. The main window lists the VPN profiles and shows the selected one with its live code and what the server receives.">
 <link rel="alternate" type="text/plain" href="llms.txt" title="llms.txt">
 <script src="assets/theme.js"></script>
 <link rel="stylesheet" href="assets/style.css">
@@ -162,8 +162,8 @@
       </figure>
 
       <figure class="hero-shot">
-        <img class="shot shot-window only-light" src="assets/img/main-light.webp" srcset="assets/img/main-light.webp 640w, assets/img/main-light@1.5x.webp 960w, assets/img/main-light@2x.webp 1280w" sizes="(max-width: 479.98px) calc(92vw - 26px), (max-width: 764px) calc(84vw - 2px), (max-width: 979.98px) 640px, (max-width: 1320px) calc(88vw - 520px), 640px" width="640" height="522" loading="lazy" decoding="async" alt="The PassTunnel main window: one row per VPN profile with its state, its live one-time code, a countdown ring and a Connect or Disconnect button.">
-        <img class="shot shot-window only-dark" src="assets/img/main-dark.webp" srcset="assets/img/main-dark.webp 640w, assets/img/main-dark@1.5x.webp 960w, assets/img/main-dark@2x.webp 1280w" sizes="(max-width: 479.98px) calc(92vw - 26px), (max-width: 764px) calc(84vw - 2px), (max-width: 979.98px) 640px, (max-width: 1320px) calc(88vw - 520px), 640px" width="640" height="522" loading="lazy" decoding="async" alt="The PassTunnel main window: one row per VPN profile with its state, its live one-time code, a countdown ring and a Connect or Disconnect button.">
+        <img class="shot shot-window only-light" src="assets/img/main-light.webp" srcset="assets/img/main-light.webp 640w, assets/img/main-light@1.5x.webp 960w, assets/img/main-light@2x.webp 1280w" sizes="(max-width: 479.98px) calc(92vw - 26px), (max-width: 764px) calc(84vw - 2px), (max-width: 979.98px) 640px, (max-width: 1320px) calc(88vw - 520px), 640px" width="640" height="465" loading="lazy" decoding="async" alt="The PassTunnel main window: a sidebar with six VPN profiles, each with its state and live one-time code, and the selected profile, Work, connected, with its large current code, a countdown ring, Copy buttons, what the server receives and its activity log.">
+        <img class="shot shot-window only-dark" src="assets/img/main-dark.webp" srcset="assets/img/main-dark.webp 640w, assets/img/main-dark@1.5x.webp 960w, assets/img/main-dark@2x.webp 1280w" sizes="(max-width: 479.98px) calc(92vw - 26px), (max-width: 764px) calc(84vw - 2px), (max-width: 979.98px) 640px, (max-width: 1320px) calc(88vw - 520px), 640px" width="640" height="465" loading="lazy" decoding="async" alt="The PassTunnel main window: a sidebar with six VPN profiles, each with its state and live one-time code, and the selected profile, Work, connected, with its large current code, a countdown ring, Copy buttons, what the server receives and its activity log.">
       </figure>
     </div>
   </div>
@@ -276,28 +276,13 @@
     <article class="card card-soft mb-card">
       <div class="mb-text">
         <div class="card-icon" aria-hidden="true"><svg class="icon" width="20" height="20"><use href="#i-menubar"/></svg></div>
-        <h3>A badge for every profile</h3>
-        <p>Each pinned or active profile gets its own menu bar badge, colored by its connection state. A red dot marks a connection that dropped unexpectedly. Pick from five palettes.</p>
+        <h3>Your VPNs, one click away</h3>
+        <p>PassTunnel lives in the menu bar. Its panel shows every profile with its state and live code and a switch to connect or disconnect. Copy the current code, or type it when auto-type is on, without opening the window.</p>
       </div>
-      <div class="mb-demo">
-        <figure class="mb-stage">
-          <div class="mb-bar">
-            <img class="only-light" data-palette-img="light" src="assets/img/menubar-pastel-light.webp" srcset="assets/img/menubar-pastel-light.webp 1x, assets/img/menubar-pastel-light@2x.webp 2x" width="200" height="36" loading="lazy" decoding="async" alt="PassTunnel in the menu bar: a lock, then badges for Work (connected), Data Center (connected but not responding), Staging (connecting) and Travel (disconnected, with a red dot after an unexpected drop).">
-            <img class="only-dark" data-palette-img="dark" src="assets/img/menubar-pastel-dark.webp" srcset="assets/img/menubar-pastel-dark.webp 1x, assets/img/menubar-pastel-dark@2x.webp 2x" width="200" height="36" loading="lazy" decoding="async" alt="PassTunnel in the menu bar: a lock, then badges for Work (connected), Data Center (connected but not responding), Staging (connecting) and Travel (disconnected, with a red dot after an unexpected drop).">
-            <span class="mb-clock" aria-hidden="true">9:41</span>
-          </div>
-        </figure>
-        <div class="mb-picker">
-          <span class="mb-picker-label" id="palette-label">Badge colors</span>
-          <div class="chips" role="group" aria-labelledby="palette-label">
-            <button type="button" class="chip" aria-pressed="true" data-palette="pastel">Pastel</button>
-            <button type="button" class="chip" aria-pressed="false" data-palette="vivid">Vivid</button>
-            <button type="button" class="chip" aria-pressed="false" data-palette="soft">Soft</button>
-            <button type="button" class="chip" aria-pressed="false" data-palette="candy">Candy</button>
-            <button type="button" class="chip" aria-pressed="false" data-palette="earth">Earth</button>
-          </div>
-        </div>
-      </div>
+      <figure class="mb-shot">
+        <img class="shot only-light" src="assets/img/menubar-panel-light.webp" srcset="assets/img/menubar-panel-light.webp 360w, assets/img/menubar-panel-light@1.5x.webp 540w, assets/img/menubar-panel-light@2x.webp 720w" sizes="(max-width: 479.98px) calc(92vw - 50px), 360px" width="360" height="364" loading="lazy" decoding="async" alt="The PassTunnel menu bar panel, opened from the menu bar: Work connected with its live code and a switch, Staging asking for Touch ID, Travel with a dropped connection, then Copy Work code, Copy Work password + code, Type Work code, Open PassTunnel, Settings and Quit.">
+        <img class="shot only-dark" src="assets/img/menubar-panel-dark.webp" srcset="assets/img/menubar-panel-dark.webp 360w, assets/img/menubar-panel-dark@1.5x.webp 540w, assets/img/menubar-panel-dark@2x.webp 720w" sizes="(max-width: 479.98px) calc(92vw - 50px), 360px" width="360" height="364" loading="lazy" decoding="async" alt="The PassTunnel menu bar panel, opened from the menu bar: Work connected with its live code and a switch, Staging asking for Touch ID, Travel with a dropped connection, then Copy Work code, Copy Work password + code, Type Work code, Open PassTunnel, Settings and Quit.">
+      </figure>
     </article>
 
     <div class="split client-more">
@@ -324,8 +309,8 @@
         </article>
       </div>
       <figure class="figure-card">
-        <img class="shot shot-window only-light" src="assets/img/settings-general-light.webp" srcset="assets/img/settings-general-light.webp 400w, assets/img/settings-general-light@1.5x.webp 600w, assets/img/settings-general-light@2x.webp 800w" sizes="(max-width: 471px) calc(92vw - 34px), 400px" width="400" height="555" loading="lazy" decoding="async" alt="PassTunnel settings, General tab: launch at login, show in Dock, appearance, badge colors with a menu bar preview, hide codes until copied, Touch ID timeout and the command-line tool.">
-        <img class="shot shot-window only-dark" src="assets/img/settings-general-dark.webp" srcset="assets/img/settings-general-dark.webp 400w, assets/img/settings-general-dark@1.5x.webp 600w, assets/img/settings-general-dark@2x.webp 800w" sizes="(max-width: 471px) calc(92vw - 34px), 400px" width="400" height="555" loading="lazy" decoding="async" alt="PassTunnel settings, General tab: launch at login, show in Dock, appearance, badge colors with a menu bar preview, hide codes until copied, Touch ID timeout and the command-line tool.">
+        <img class="shot shot-window only-light" src="assets/img/settings-general-light.webp" srcset="assets/img/settings-general-light.webp 400w, assets/img/settings-general-light@1.5x.webp 600w, assets/img/settings-general-light@2x.webp 800w" sizes="(max-width: 471px) calc(92vw - 34px), 400px" width="400" height="866" loading="lazy" decoding="async" alt="PassTunnel settings, General: open at login, show the Dock icon, hide codes until clicked, clear the copied code, wait for a fresh code, notifications, how long a Touch ID confirmation stays valid, appearance and the command-line tool.">
+        <img class="shot shot-window only-dark" src="assets/img/settings-general-dark.webp" srcset="assets/img/settings-general-dark.webp 400w, assets/img/settings-general-dark@1.5x.webp 600w, assets/img/settings-general-dark@2x.webp 800w" sizes="(max-width: 471px) calc(92vw - 34px), 400px" width="400" height="866" loading="lazy" decoding="async" alt="PassTunnel settings, General: open at login, show the Dock icon, hide codes until clicked, clear the copied code, wait for a fresh code, notifications, how long a Touch ID confirmation stays valid, appearance and the command-line tool.">
         <figcaption>General settings.</figcaption>
       </figure>
     </div>
@@ -442,9 +427,9 @@
         </a>
       </div>
       <figure class="figure-card">
-        <img class="shot shot-window only-light" src="assets/img/onboarding-helper-light.webp" srcset="assets/img/onboarding-helper-light.webp 440w, assets/img/onboarding-helper-light@1.5x.webp 660w, assets/img/onboarding-helper-light@2x.webp 880w" sizes="(max-width: 515px) calc(92vw - 34px), (max-width: 995.98px) 440px, (max-width: 1239px) calc(45.2vw - 120px), 440px" width="440" height="409" loading="lazy" decoding="async" alt="Onboarding step Install the helper: creating a VPN tunnel needs administrator rights; a small helper does that part and only runs the signed VPN tools that ship inside PassTunnel. An Install Helper button.">
-        <img class="shot shot-window only-dark" src="assets/img/onboarding-helper-dark.webp" srcset="assets/img/onboarding-helper-dark.webp 440w, assets/img/onboarding-helper-dark@1.5x.webp 660w, assets/img/onboarding-helper-dark@2x.webp 880w" sizes="(max-width: 515px) calc(92vw - 34px), (max-width: 995.98px) 440px, (max-width: 1239px) calc(45.2vw - 120px), 440px" width="440" height="409" loading="lazy" decoding="async" alt="Onboarding step Install the helper: creating a VPN tunnel needs administrator rights; a small helper does that part and only runs the signed VPN tools that ship inside PassTunnel. An Install Helper button.">
-        <figcaption>Approving the helper during onboarding.</figcaption>
+        <img class="shot shot-window only-light" src="assets/img/first-run-light.webp" srcset="assets/img/first-run-light.webp 520w, assets/img/first-run-light@1.5x.webp 780w, assets/img/first-run-light@2x.webp 1040w" sizes="(max-width: 515px) calc(92vw - 34px), (max-width: 995.98px) 520px, (max-width: 1239px) calc(45.2vw - 120px), 520px" width="520" height="353" loading="lazy" decoding="async" alt="The first-run view: Add your first VPN, with a drop area for a .passtunnel or .ovpn file, three ways to add a profile (scan a QR code on screen, use a QR image, enter details by hand) and an Install the helper card: creating a VPN tunnel needs administrator rights; a small helper does that part and only runs the signed VPN tools that ship inside PassTunnel.">
+        <img class="shot shot-window only-dark" src="assets/img/first-run-dark.webp" srcset="assets/img/first-run-dark.webp 520w, assets/img/first-run-dark@1.5x.webp 780w, assets/img/first-run-dark@2x.webp 1040w" sizes="(max-width: 515px) calc(92vw - 34px), (max-width: 995.98px) 520px, (max-width: 1239px) calc(45.2vw - 120px), 520px" width="520" height="353" loading="lazy" decoding="async" alt="The first-run view: Add your first VPN, with a drop area for a .passtunnel or .ovpn file, three ways to add a profile (scan a QR code on screen, use a QR image, enter details by hand) and an Install the helper card: creating a VPN tunnel needs administrator rights; a small helper does that part and only runs the signed VPN tools that ship inside PassTunnel.">
+        <figcaption>The first run: add a VPN, then approve the helper once.</figcaption>
       </figure>
     </div>
 

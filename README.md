@@ -17,7 +17,7 @@ secret in the Keychain and fills in the current code (and your password) every t
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/main-dark.png">
-  <img src="docs/images/main-light.png" width="680" alt="PassTunnel main window: one row per VPN profile with its live one-time code, a countdown ring and a Connect button">
+  <img src="docs/images/main-light.png" width="640" alt="PassTunnel main window: a sidebar of VPN profiles with their state and live code, and the selected profile with its current code, what the server receives and its activity">
 </picture>
 
 [Website](https://passtunnel.github.io/) ·
@@ -46,8 +46,9 @@ secret in the Keychain and fills in the current code (and your password) every t
 - **Any format your server expects.** Append, prepend, `password:code`, `password,code`, or a custom
   template with any literal text, or send the code separately (OpenVPN static challenge, FortiGate
   OTP field). See [Configuring the code format](#configuring-the-code-format).
-- **Authenticator-style main window.** Every profile shows its live code in large digits with a
-  countdown ring. Click to copy; the clipboard is cleared again after 1 minute (or 30 seconds, or
+- **Authenticator-style main window.** The sidebar lists every profile with its state and live code;
+  the selected one shows its code in large digits with a countdown ring, and what the server
+  receives. Click the code to copy; the clipboard is cleared again after 1 minute (or 30 seconds, or
   2 minutes, in Settings), unless you copied something else meanwhile. Codes can be hidden until
   you click them.
 - **QR import.** Drop a screenshot of your provider's QR code, choose an image or paste from the
@@ -55,7 +56,7 @@ secret in the Keychain and fills in the current code (and your password) every t
   browser, without saving a screenshot. Digits, period and algorithm (SHA-1/256/512) are read from the
   `otpauth://` link. Pasting a Base32 secret or an `otpauth://` link works too.
 - **Auto-type (optional, off by default).** With global shortcuts on, ⌃⌥C types the current code into
-  the focused field (also in the menu bar menu), for web portals and other places that still ask for it. Needs Accessibility
+  the focused field (also in the menu bar panel), for web portals and other places that still ask for it. Needs Accessibility
   permission, which is only requested when you turn the feature on.
 - **Confirm with Touch ID (optional, per profile).** Touch ID or your Mac password before connecting
   and before showing codes (the command line can also set it to ask before connecting only); the saved
@@ -66,8 +67,9 @@ secret in the Keychain and fills in the current code (and your password) every t
 
 - **OpenVPN and FortiGate SSL VPN**, using bundled, signed copies of `openvpn` and `openfortivpn`.
   Nothing else to install.
-- **Menu bar badges.** One colored badge per pinned or active profile (letter, icon or both), five
-  color palettes, and an alert when a connection drops unexpectedly.
+- **Menu bar panel.** Every pinned or active profile with its state, live code and a switch to
+  connect or disconnect, plus copy and type for the current code. A colored badge (five palettes)
+  marks a profile that needs attention, with a red dot when a connection dropped unexpectedly.
 - **Stays connected.** Optional auto-reconnect with backoff, a health check host inside the VPN,
   reconnect after wake, chosen profiles connected at login, and a reminder before a server-side
   session limit runs out.
@@ -165,29 +167,30 @@ has no Team ID, so macOS would otherwise refuse to load `Sparkle.framework` into
 
 ## Quick start
 
-On first launch PassTunnel walks you through three steps:
+Without any profile, the window opens on **Add your first VPN**:
 
-1. **Welcome.**
-2. **Install the helper.** Click *Install Helper*, then turn PassTunnel on in **System Settings →
-   General → Login Items** (macOS asks once). You can also do this later from **Settings → Helper**.
-3. **Add your first VPN.**
+1. **Install the helper.** The card at the bottom explains what it is for. Click *Install Helper*,
+   then turn PassTunnel on in **System Settings → General → Login Items** (macOS asks once). You
+   can also do this later from **Settings → Helper**.
+2. **Add a VPN.** Drop a file on the dashed area, or pick one of the other ways in.
 
 <p align="center">
-  <img src="docs/images/onboarding-helper.png" width="460" alt="Onboarding step: Install the helper">
+  <img src="docs/images/first-run-light.png" width="520" alt="First run: Add your first VPN, with a drop area for .passtunnel and .ovpn files, three ways to add a profile and an Install the helper card">
 </p>
 
 ### Add a profile
 
-Use the **+** button in the toolbar, or drop a file onto the window:
+Click **+** at the bottom of the sidebar (the same view, titled **Add a VPN**), or drop a file onto
+the window. The File menu has the same items:
 
 | You have… | Do this |
 |---|---|
-| An OpenVPN file (`.ovpn` / `.conf`) | **+ → Import .ovpn…** Files it references (`ca ca.crt`, `tls-auth ta.key 1`, …) are embedded automatically. |
-| A FortiGate gateway | **+ → New FortiGate…** Enter host and port, then **Fetch fingerprint** to pin the gateway certificate (SHA-256). |
-| A `.passtunnel` file from a colleague | Double-click it (or open it from AirDrop), or **+ → Import shared profile…** Then add your own user name, password and TOTP secret. |
-| A QR code for your authenticator | **+ → Add code from QR…**, or drop the screenshot onto the window or the editor. |
+| An OpenVPN file (`.ovpn` / `.conf`) | Drop it on the dashed area or **Choose File…** (File → **Import .ovpn…**). You see a review of what is in the file before anything is saved; files it references (`ca ca.crt`, `tls-auth ta.key 1`, …) are embedded automatically. |
+| A FortiGate gateway | **Enter details by hand**, choose FortiGate (File → **New FortiGate Profile…**), then enter host and port and **Fetch fingerprint** to pin the gateway certificate (SHA-256). |
+| A `.passtunnel` file from a colleague | Double-click it (or open it from AirDrop), or drop it on the window. Then add your own user name, password and TOTP secret. |
+| A QR code for your authenticator | **Scan a QR code on screen** (macOS 14 and later) or **Use a QR image**, or drop the screenshot onto the window or the editor. |
 
-Then open the profile editor (**⋯ → Edit…**):
+Then open the profile editor (**Edit** in the toolbar):
 
 - **Sign-in:** user name (leave empty to be asked each time) and password, saved in the Keychain.
   Under **Advanced** the password can be asked each time instead, or not used (certificate-only OpenVPN).
@@ -198,7 +201,7 @@ Then open the profile editor (**⋯ → Edit…**):
   each time or not used.
 
 <p align="center">
-  <img src="docs/images/editor-one-time-code.png" width="660" alt="Profile editor: name, configuration, user name and password; the one-time code with its live code; the Append format and what the server receives, with the password masked; switches for Touch ID and reconnecting">
+  <img src="docs/images/editor-code-light.png" width="660" alt="Profile editor: name, configuration, user name and password; the one-time code with its live code; the Append format and what the server receives, with the password masked; switches for Touch ID and reconnecting">
 </p>
 
 Secrets are written to the Keychain only when you press **Save**.
@@ -208,20 +211,21 @@ Secrets are written to the Keychain only when you press **Save**.
 Click **Connect**. If the profile needs something that is not stored (for example, a password set to
 *Ask each time*), a small sheet asks for just that, with the code already filled in.
 
-The menu bar shows a badge for each pinned or active profile, colored by state, and offers
-Connect/Disconnect and Copy Code per profile:
+Select a profile in the sidebar and click **Connect**; a failure explains what went wrong and
+offers **Try again**. The menu bar panel does the same from anywhere: a switch per pinned or active
+profile, with its live code, and copy items for the current code (Type code too while auto-type is on):
 
 <p align="center">
-  <img src="docs/images/menubar-light.png" height="30" alt="Menu bar badges, light">
+  <img src="docs/images/menubar-panel-light.png" width="300" alt="Menu bar panel, light: three profiles with state, code and a switch, then copy, open, settings and quit items">
   &nbsp;
-  <img src="docs/images/menubar-dark.png" height="30" alt="Menu bar badges, dark">
+  <img src="docs/images/menubar-panel-dark.png" width="300" alt="Menu bar panel, dark">
 </p>
 
 Optional global shortcuts (**Settings → Shortcuts**, off by default): **⌃⌥V** connects or
 disconnects the default profile, **⌃⌥C** copies the current code, or types it when auto-type is on.
 
 <p align="center">
-  <img src="docs/images/settings-general.png" width="460" alt="Settings, General tab: launch at login, appearance, menu bar badge colors, hide codes, command-line tool">
+  <img src="docs/images/settings-general-light.png" width="400" alt="Settings, General: open at login, Dock icon, hide codes, clear copied code, connection and notification options, Touch ID timeout, appearance, command-line tool">
 </p>
 
 ## Configuring the code format
@@ -509,7 +513,7 @@ PASSTUNNEL_RENDER=/tmp/passtunnel-shots "$(swift build --show-bin-path)/PassTunn
 ```
 
 This writes the main window (light/dark, first run, every profile state, hidden and locked codes, the
-import review, the error states), the credential sheet, the menu bar panel and its badges for every
+import review, the error states), the credential sheet, the menu bar panel, the status item's badges for every
 palette, every Settings tab, the profile editor states and the design system's tokens and components.
 The images in [`docs/images`](docs/images) come from it.
 
@@ -558,8 +562,7 @@ yazmanız gerekmez.
 
 Kodun nasıl gönderileceğini profil başına seçebilirsiniz: parolanın sonuna veya başına eklenmiş,
 `parola:kod` gibi ayraçlı, kendi şablonunuzla ya da ayrı bir alan olarak. Ana pencere bir
-authenticator uygulaması gibi canlı kodları gösterir. Menü çubuğunda her profil için renkli bir rozet
-vardır. QR kodu ekran görüntüsünden okunur. Profilleri kimlik bilgisi içermeyen `.passtunnel`
+authenticator uygulaması gibi canlı kodları gösterir. Menü çubuğundaki panelde her profilin durumu ve kodu görünür, bağlantı koparsa renkli bir rozet uyarır. QR kodu ekran görüntüsünden okunur. Profilleri kimlik bilgisi içermeyen `.passtunnel`
 dosyalarıyla ekibinizle paylaşabilir, aynı işlemleri `passtunnel` komut satırı aracıyla da
 yapabilirsiniz. `passtunnel mcp` ile Claude gibi yapay zekâ asistanları VPN durumunu okuyabilir ve
 sorunları teşhis edebilir (varsayılan olarak yalnızca okur; parola, anahtar ya da kod vermez).
