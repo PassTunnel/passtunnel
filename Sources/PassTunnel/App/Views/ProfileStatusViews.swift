@@ -2,12 +2,11 @@ import PassTunnelCore
 import PassTunnelKit
 import SwiftUI
 
-// The profile's status in the redesigned views: `DisplayStatus` (Core) gives the state and its words, this file
-// the icon, the color and the views that show them. The redesigned window (`NewInterface`) uses them; the current
-// window and menu still use `StatusKind`.
+// The profile's status in the app's views: `DisplayStatus` (Core) gives the state and its words, this file
+// the icon, the color and the views that show them. The status item's badges still use `StatusKind`.
 
 extension AppModel {
-    /// The one status `p` shows in the redesigned views; from the render overrides while they are set.
+    /// The one status `p` shows in the app's views; from the render overrides while they are set.
     func displayStatus(_ p: Profile) -> DisplayStatus {
         let id = p.id
         let dropped = droppedUnseen.contains(id)

@@ -200,7 +200,6 @@ final class JSONAndPreferencesTests: CoreTestCase {
         let d = Preferences()
         XCTAssertEqual(d.badgePalette, .pastel)
         XCTAssertEqual(d.appearance, .system)
-        XCTAssertTrue(d.showLock)
         XCTAssertFalse(d.hideCodes)
         XCTAssertFalse(d.showInDock)
         XCTAssertTrue(d.notifyOnDrop)
@@ -216,8 +215,9 @@ final class JSONAndPreferencesTests: CoreTestCase {
         XCTAssertFalse(p.notifyHealth)
         XCTAssertEqual(p.sessionNotifyMin, 0)
 
-        // "appearance" wins over the legacy key; unknown palettes fall back.
-        try Data(#"{"theme":"dark","appearance":"light","badge_palette":"neon","show_in_dock":true}"#.utf8)
+        // "appearance" wins over the legacy key; unknown palettes fall back; the old menu bar's "show_lock" is read
+        // without complaint and dropped on save.
+        try Data(#"{"theme":"dark","appearance":"light","badge_palette":"neon","show_in_dock":true,"show_lock":false}"#.utf8)
             .write(to: AppPaths.default.configURL)
         p = Preferences.load()
         XCTAssertEqual(p.appearance, .light)
@@ -227,6 +227,7 @@ final class JSONAndPreferencesTests: CoreTestCase {
         let text = try String(contentsOf: AppPaths.default.configURL)
         XCTAssertTrue(text.contains(#""appearance" : "light""#))
         XCTAssertFalse(text.contains("theme"))
+        XCTAssertFalse(text.contains("show_lock"))
         XCTAssertEqual(Preferences.load(), p)
     }
 

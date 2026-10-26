@@ -3,8 +3,9 @@ import PassTunnelCore
 import PassTunnelKit
 import UniformTypeIdentifiers
 
-/// Import entry points used by the main window, the "+" menu, onboarding and drag & drop.
-/// After a successful import the new profile's editor is opened via `openEditor`.
+/// Import entry points used by the main window, the File menu, files opened from Finder and drag & drop. An OpenVPN
+/// configuration is reviewed in the window first; after a shared profile is imported its editor is opened via
+/// `openEditor`.
 enum ImportActions {
     /// Posted after a profile was imported or saved; userInfo ["id": String, "profileID": String].
     static let didImport = Notification.Name("PassTunnelDidImport")
@@ -37,21 +38,10 @@ enum ImportActions {
         importOVPN(at: url)
     }
 
-    /// The redesigned window reviews the file first (`review(_:)`); the current one imports it and opens its editor.
+    /// The window reviews the file first (`review(_:in:)`).
     @MainActor static func importOVPN(at url: URL) {
-        if NewInterface.isEnabled, let model = AppModel.shared {
-            review(url, in: model)
-            return
-        }
-        do {
-            let store = ProfileStore()
-            let draft = try store.analyzeOVPN(url)
-            let p = try store.commit(draft)
-            if !draft.skipped.isEmpty { showSkipped(draft) }
-            finish(p.id)
-        } catch {
-            showError(String(localized: "The configuration could not be imported."), error)
-        }
+        guard let model = AppModel.shared else { return }
+        review(url, in: model)
     }
 
     /// Reads the file and shows its review in the main window (`ImportReviewView`); nothing is created before Add
@@ -70,15 +60,6 @@ enum ImportActions {
     /// The review added the profile: show it.
     @MainActor static func imported(_ id: String) {
         post(didImport, id)
-    }
-
-    /// Lists the lines an import left out, with why each kind is safe to leave out.
-    @MainActor static func showSkipped(_ draft: ImportDraft) {
-        let lines = draft.skipped.map { String(localized: "line \($0.line): \($0.text)") }
-        var reasons: [String] = []
-        for s in draft.skipped where !reasons.contains(s.reason.message) { reasons.append(s.reason.message) }
-        showMessage(String(localized: "Some lines of “\(draft.fileName)” were skipped"),
-                    (lines + [""] + reasons).joined(separator: "\n"))
     }
 
     // MARK: share files
@@ -105,7 +86,7 @@ enum ImportActions {
 
     // MARK: either file
 
-    /// Choose File… in the redesigned window's add view: an OpenVPN configuration or a shared profile, imported
+    /// Choose File… in the window's add view: an OpenVPN configuration or a shared profile, imported
     /// as the matching File menu item does.
     @MainActor static func importFile() {
         let panel = NSOpenPanel()
@@ -124,29 +105,25 @@ enum ImportActions {
 
     // MARK: opened files
 
-    /// Files opened from Finder, AirDrop, the Dock icon or `open` (`AppDelegate`): the same import as
-    /// File → Import Shared Profile, one file at a time like its panel. The redesigned window also takes an
-    /// OpenVPN configuration, into its review like File → Import .ovpn….
+    /// Files opened from Finder, AirDrop, the Dock icon or `open` (`AppDelegate`), one at a time like the import
+    /// panels: a shared profile is imported as File → Import Shared Profile does, an OpenVPN configuration goes into
+    /// the review like File → Import .ovpn….
     @MainActor static func open(_ urls: [URL]) {
         guard let route = OpenedFiles.route(urls) else { return }
         switch route {
         case .importShare(let url):
             AppDelegate.shared?.showMainWindow()
             importShared(at: url)
-        case .importOVPN(let url) where NewInterface.isEnabled && AppModel.shared != nil:
-            importOVPN(at: url)
         case .importOVPN(let url):
-            NSApp.activate(ignoringOtherApps: true)
-            showMessage(String(localized: "“\(url.lastPathComponent)” is not a shared profile"),
-                        String(localized: "PassTunnel opens .passtunnel files. To add an OpenVPN configuration, use File → Import .ovpn…"))
+            importOVPN(at: url)
         case .tooMany:
             NSApp.activate(ignoringOtherApps: true)
-            showMessage(String(localized: "Open one shared profile at a time"),
-                        String(localized: "Nothing was imported. Open the .passtunnel files one by one."))
+            showMessage(String(localized: "Open one file at a time"),
+                        String(localized: "Nothing was imported. Open the files one by one."))
         case .unsupported(let name):
             NSApp.activate(ignoringOtherApps: true)
-            showMessage(String(localized: "“\(name)” is not a shared profile"),
-                        String(localized: "PassTunnel opens .passtunnel files. To add an OpenVPN configuration, use File → Import .ovpn…"))
+            showMessage(String(localized: "PassTunnel cannot open “\(name)”"),
+                        String(localized: "PassTunnel opens OpenVPN configurations (.ovpn or .conf) and shared profiles (.passtunnel)."))
         }
     }
 
@@ -159,7 +136,7 @@ enum ImportActions {
         addCode(from: .file(url), profileID: profileID)
     }
 
-    /// "Use a QR image" in the redesigned window's add view: a new profile with the code filled in (`startProfile`).
+    /// "Use a QR image" in the window's add view: a new profile with the code filled in (`startProfile`).
     @MainActor static func newProfileFromQR() {
         guard let url = chooseQRImage(), let uri = decode(.file(url)) else { return }
         startProfile(with: uri)
@@ -192,8 +169,7 @@ enum ImportActions {
     @MainActor static func addCode(from item: DroppedItem, profileID: String?) {
         guard let uri = decode(item) else { return }
         let id: String
-        switch ScannedCodeTarget.route(requested: profileID, profiles: ProfileStore().list(),
-                                       startsProfiles: NewInterface.isEnabled) {
+        switch ScannedCodeTarget.route(requested: profileID, profiles: ProfileStore().list()) {
         case .profile(let requested):
             id = requested
         case .choose(let profiles):
@@ -201,12 +177,6 @@ enum ImportActions {
             id = chosen
         case .newProfile:
             return startProfile(with: uri)
-        case .addVPNFirst:
-            let alert = NSAlert()
-            alert.messageText = String(localized: "Add a VPN first")
-            alert.informativeText = String(localized: "The code belongs to a VPN profile. Add or import the VPN, then add its code.")
-            alert.runModal()
-            return
         }
         pendingTOTP[id] = uri
         post(openEditor, id)
@@ -275,7 +245,7 @@ enum ImportActions {
 
     // MARK: new profiles
 
-    /// "Enter details by hand" in the redesigned window's add view: asks the VPN type, then opens a new profile's editor.
+    /// "Enter details by hand" in the window's add view: asks the VPN type, then opens a new profile's editor.
     @MainActor static func newProfileByHand() {
         guard let type = chooseType(for: nil) else { return }
         AppModel.shared?.newProfile(type)

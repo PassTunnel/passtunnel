@@ -3,9 +3,8 @@ import PassTunnelCore
 import PassTunnelKit
 import SwiftUI
 
-/// Settings → General (decision D-12), in the cards of the redesign and shared by both interfaces: General and
-/// Connection as designed, then Notifications, Security, the menu bar badges (only while the current menu bar is in
-/// use: the panel of the new interface has none, decision D-6) and Other. The footer holds what the About tab had.
+/// Settings → General (decision D-12), in the cards of the redesign: General and Connection as designed, then
+/// Notifications, Security, the colors of the menu bar badges and Other. The footer holds what the About tab had.
 struct GeneralSettings: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.openURL) private var openURL
@@ -159,7 +158,7 @@ struct GeneralSettings: View {
         }
     }
 
-    /// The badges of the menu bar, in the current interface and in the new one (which has no lock symbol).
+    /// The colors of the menu bar badges.
     private var menuBar: some View {
         SettingsGroup(String(localized: "Menu bar")) {
             SettingsPickerRow(String(localized: "Badge colors"), selection: $model.prefs.badgePalette) {
@@ -171,13 +170,7 @@ struct GeneralSettings: View {
             SettingsRow {
                 HStack(spacing: Spacing.s) {
                     SettingsRowTitle(String(localized: "Preview"))
-                    MenuBarPreview(palette: model.prefs.badgePalette, showLock: model.prefs.showLock && !NewInterface.isEnabled)
-                }
-            }
-            if !NewInterface.isEnabled {
-                SettingsDivider()
-                SettingsRow {
-                    SettingsSwitch(String(localized: "Show lock symbol"), isOn: $model.prefs.showLock)
+                    MenuBarPreview(palette: model.prefs.badgePalette)
                 }
             }
         }

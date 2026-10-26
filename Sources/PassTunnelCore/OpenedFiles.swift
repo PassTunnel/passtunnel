@@ -1,13 +1,12 @@
 import Foundation
 import PassTunnelKit
 
-/// What the app does with files it is asked to open (Finder, AirDrop, the Dock icon, `open`). The app
-/// declares only `.passtunnel`, but "Open With" and `open -a` can hand it anything. Like the import panels,
-/// one file at a time, through the same import.
+/// What the app does with files it is asked to open (Finder, AirDrop, the Dock icon, `open`). The app claims
+/// `.passtunnel` and `.ovpn` (Info.plist), but "Open With" and `open -a` can hand it anything, a `.conf` among them.
+/// Like the import panels, one file at a time, through the same import.
 public enum OpenedFiles: Equatable {
     case importShare(URL)
-    /// An OpenVPN configuration (`.ovpn`, `.conf`): the redesigned window reviews it, as File → Import .ovpn…
-    /// does there.
+    /// An OpenVPN configuration (`.ovpn`, `.conf`): the main window reviews it, as File → Import .ovpn… does.
     case importOVPN(URL)
     /// More than one file: nothing is imported.
     case tooMany(Int)

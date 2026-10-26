@@ -2,7 +2,7 @@ import PassTunnelCore
 import PassTunnelKit
 import SwiftUI
 
-/// The selected profile in the redesigned window: its name, where it connects, the main button and the status
+/// The selected profile in the main window: its name, where it connects, the main button and the status
 /// line, then the current code and what the server receives (CodeCards.swift) and the activity (ActivityViews.swift).
 /// After a failure a card says what happened instead of the code cards (FailureCards.swift), and a clock that is off has
 /// a banner above it all (ClockBanner.swift). Edit and ⋯ are in the toolbar.
