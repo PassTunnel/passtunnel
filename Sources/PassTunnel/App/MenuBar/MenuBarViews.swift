@@ -4,8 +4,9 @@ import PassTunnelCore
 import PassTunnelKit
 import SwiftUI
 
-/// The status item: the badges of the pinned and active profiles. The panel of the new interface (`panel`) shows the
-/// shield while there are none, and has the panel's VoiceOver label ("PassTunnel, 2 connected").
+/// The status item: the badges of the pinned and active profiles. The panel of the new interface (`panel`) badges only
+/// the profiles that are connecting, connected or dropped, shows the shield while there are none (never the lock), and
+/// has the panel's VoiceOver label ("PassTunnel, 2 connected").
 struct MenuBarLabel: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.openWindow) private var openWindow

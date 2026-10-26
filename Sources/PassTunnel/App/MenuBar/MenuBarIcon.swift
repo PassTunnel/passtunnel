@@ -14,28 +14,53 @@ enum MenuBarIcon {
     static let badgeHeight: CGFloat = 15
     static let spacing: CGFloat = 3
 
-    @MainActor static func badges(for model: AppModel) -> [Badge] {
-        model.menuBarProfiles.map { p in
+    /// The badges of the current menu bar: the pinned profiles and the ones that need attention. With `attentionOnly`
+    /// (the new interface) only those that need it: connecting, connected, or dropped and not seen yet.
+    @MainActor static func badges(for model: AppModel, attentionOnly: Bool = false) -> [Badge] {
+        (attentionOnly ? model.profiles : model.menuBarProfiles).compactMap { p in
             let tone: BadgeTone
-            switch model.statusKind(p) {
-            case .connected: tone = .connected
-            case .connecting, .degraded: tone = .connecting
-            case .disconnected, .error, .dropped: tone = .disconnected
+            var dropped = model.droppedUnseen.contains(p.id)
+            if attentionOnly {
+                guard let attention = MenuBarProfiles.attention(activity(model.statusKind(p)), droppedUnseen: dropped) else {
+                    return nil
+                }
+                switch attention {
+                case .connected: tone = .connected
+                case .connecting: tone = .connecting
+                case .dropped: tone = .disconnected
+                }
+                dropped = attention == .dropped
+            } else {
+                switch model.statusKind(p) {
+                case .connected: tone = .connected
+                case .connecting, .degraded: tone = .connecting
+                case .disconnected, .error, .dropped: tone = .disconnected
+                }
             }
             let symbol = p.badgeStyle == .letter || p.icon.isEmpty ? nil : p.icon
             let text = p.badgeStyle == .icon && symbol != nil ? "" : String(p.displayBadge.prefix(3))
-            return Badge(text: text, symbol: symbol, tone: tone, dropped: model.droppedUnseen.contains(p.id))
+            return Badge(text: text, symbol: symbol, tone: tone, dropped: dropped)
         }
     }
 
-    /// The status item's image. With `shieldWhenIdle` (the panel of the new interface) the shield stands in while no
-    /// profile has a badge, with the dot for a drop not seen yet; the current menu bar shows its lock then.
+    private static func activity(_ kind: StatusKind) -> MenuBarProfiles.Activity {
+        switch kind {
+        case .connected: return .connected
+        case .connecting: return .connecting
+        case .degraded: return .degraded
+        case .disconnected, .dropped: return .disconnected
+        case .error: return .error
+        }
+    }
+
+    /// The status item's image. With `shieldWhenIdle` (the panel of the new interface) it shows only the profiles that
+    /// need attention, never the lock, and the shield while there are none; the current menu bar shows its lock then.
     @MainActor static func image(for model: AppModel, shieldWhenIdle: Bool = false) -> NSImage {
-        let badges = badges(for: model)
-        if badges.isEmpty && shieldWhenIdle { return shield(dropped: !model.droppedUnseen.isEmpty) }
+        let badges = badges(for: model, attentionOnly: shieldWhenIdle)
+        if badges.isEmpty && shieldWhenIdle { return shield }
         let anyConnected = badges.contains { $0.tone == .connected }
         return image(badges: badges, palette: model.prefs.badgePalette,
-                     showLock: model.prefs.showLock || badges.isEmpty, locked: anyConnected)
+                     showLock: !shieldWhenIdle && (model.prefs.showLock || badges.isEmpty), locked: anyConnected)
     }
 
     static func image(badges: [Badge], palette: BadgePalette, showLock: Bool, locked: Bool) -> NSImage {
@@ -115,42 +140,25 @@ enum MenuBarIcon {
 
     // MARK: new interface
 
-    /// The status item of the new interface (`NewInterface`) while no profile is pinned, connecting or connected: a
-    /// monochrome shield with the lock body cut out, 16 pt, as a template image that the menu bar tints. While a drop
-    /// has not been seen, a small dot sits at its top right, cut free of the shield (no color: the menu bar draws
-    /// template images in one).
-    static func shield(dropped: Bool) -> NSImage {
-        dropped ? droppedShield : plainShield
-    }
-
-    private static let plainShield = makeShield(dropped: false)
-    private static let droppedShield = makeShield(dropped: true)
-
-    private static func makeShield(dropped: Bool) -> NSImage {
+    /// The status item of the new interface (`NewInterface`) while no profile is connecting, connected or dropped: a
+    /// monochrome shield with the lock body cut out, 16 pt, as a template image that the menu bar tints.
+    static let shield: NSImage = {
         let side: CGFloat = 16
         let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { _ in
             // 20 grid units across the image, centered on the glyph: as tall as the system's status symbols.
             let unit = side / 20
             let transform = AffineTransform(m11: unit, m12: 0, m21: 0, m22: -unit,
                                             tX: side / 2 - 12 * unit, tY: side / 2 + 11.3 * unit)
-            func fill(_ path: NSBezierPath) {
-                path.transform(using: transform)
-                path.fill()
-            }
+            let path = shieldOutline()
+            path.transform(using: transform)
             NSColor.black.setFill()
-            fill(shieldOutline())
-            if dropped {
-                NSGraphicsContext.current?.compositingOperation = .clear
-                fill(NSBezierPath(ovalIn: NSRect(x: 14.7, y: 0.5, width: 7.4, height: 7.4)))
-                NSGraphicsContext.current?.compositingOperation = .sourceOver
-                fill(NSBezierPath(ovalIn: NSRect(x: 15.9, y: 1.7, width: 5, height: 5)))
-            }
+            path.fill()
             return true
         }
         image.isTemplate = true
         image.accessibilityDescription = "PassTunnel"
         return image
-    }
+    }()
 
     /// The shield and its cut-out lock body on the glyph's 24-unit grid, y down.
     private static func shieldOutline() -> NSBezierPath {

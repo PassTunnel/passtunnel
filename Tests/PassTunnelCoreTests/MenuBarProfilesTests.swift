@@ -52,4 +52,21 @@ final class MenuBarProfilesTests: XCTestCase {
         XCTAssertEqual(panel(all, active: ["home"]), ["home", "work"])
         XCTAssertEqual(panel(all), ["work"])
     }
+
+    func testTheStatusItemOfTheNewInterfaceBadgesOnlyProfilesThatNeedAttention() {
+        typealias A = MenuBarProfiles.Activity
+        XCTAssertEqual(MenuBarProfiles.attention(.connected, droppedUnseen: false), .connected)
+        XCTAssertEqual(MenuBarProfiles.attention(.connecting, droppedUnseen: false), .connecting)
+        XCTAssertEqual(MenuBarProfiles.attention(.degraded, droppedUnseen: false), .connecting)
+        XCTAssertEqual(MenuBarProfiles.attention(.disconnected, droppedUnseen: true), .dropped)
+        XCTAssertEqual(MenuBarProfiles.attention(.error, droppedUnseen: true), .dropped)
+        for activity in [A.disconnected, .error] {
+            XCTAssertNil(MenuBarProfiles.attention(activity, droppedUnseen: false))
+        }
+    }
+
+    func testAnActiveProfileKeepsItsBadgeWhateverItsDropFlag() {
+        XCTAssertEqual(MenuBarProfiles.attention(.connected, droppedUnseen: true), .connected)
+        XCTAssertEqual(MenuBarProfiles.attention(.connecting, droppedUnseen: true), .connecting)
+    }
 }
