@@ -591,6 +591,13 @@ when stdin is not a terminal); `--no-auth-prompt` makes the
 CLI's `ConnectionManager` use `PromptlessAuthenticator`, so anything that would show Touch ID fails
 with `auth_unavailable`.
 
+A first word that is no command is a usage error (exit 2, stderr): `passtunnel: unknown command
+'conect'`, `Did you mean 'connect'?` when one is within two edits, and a hint to run `passtunnel help`.
+It is recognized as CLI mode (`PassTunnelCLI.isInvocation`, `CLICommand.looksLikeSubcommand`) when
+argv[0] is `passtunnel` or the first argument is a lowercase word that is not an existing file; the
+app's own launches (no arguments, `--background`, `-psn_…`, `-NS…`/`-Apple…` pairs, paths and file
+names) still open the GUI.
+
 Exit codes (`AutomationExit`, `AutomationErrorCode.exitCode`): 0 ok, 1 other error, 2 usage /
 invalid argument, 3 not found or (`status ID`) not connected, 4 confirmation or input cancelled or
 not possible, 5 helper missing, unapproved, outdated or not answering (also `helper status`), 6
