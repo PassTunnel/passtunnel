@@ -1,7 +1,7 @@
 import Foundation
 import PassTunnelKit
 
-/// The rules of the code card in the detail of the redesigned window (docs/APP.md, Redesigned window): when its codes
+/// The rules of the code card in the detail of the main window (docs/APP.md, Main window): when its codes
 /// show, when a copy button says "Copied ✓", and when the next code starts. Kept apart from SwiftUI so it is tested.
 public enum CodeCard {
     /// How long a click shows codes that are hidden or protected (decision D-5).

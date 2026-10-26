@@ -12,11 +12,21 @@ public enum PassTunnelCLI {
         static let notConnected = AutomationExit.notFound
     }
 
-    /// CLI mode when invoked through the `passtunnel` symlink or with a known command as the first argument.
+    /// CLI mode when invoked through the `passtunnel` symlink, with a known command as the first
+    /// argument, or with a first argument that looks like a (mistyped) command.
     public static func isInvocation(_ args: [String]) -> Bool {
         if let first = args.first, (first as NSString).lastPathComponent == "passtunnel" { return true }
         let args = CLICommand.strippingSystemArguments(args)
-        return args.count > 1 && CLICommand.isCommand(args[1])
+        return args.count > 1 && (CLICommand.isCommand(args[1]) || CLICommand.looksLikeSubcommand(args[1]))
+    }
+
+    /// Reports a first word that is no command: the message, a suggestion when one is close, and a hint.
+    static func reportUnknownCommand(_ error: CLIUsageError, name: String) {
+        CLITerminal.fail(error.message)
+        if let close = CLICommand.suggestion(for: name) {
+            CLITerminal.err(String(localized: "Did you mean '\(close)'?"))
+        }
+        CLITerminal.err(String(localized: "Run 'passtunnel help' for the list of commands."))
     }
 
     /// Internal first argument of the process `CLIClipboard` leaves behind to clear a copied code.
@@ -33,6 +43,8 @@ public enum PassTunnelCLI {
             if CLICommand.requestsJSON(arguments) {
                 let data = (try? AutomationJSON.encoder().encode(ErrorEnvelope(error))) ?? Data()
                 FileHandle.standardOutput.write(data + Data("\n".utf8))
+            } else if let e = error as? CLIUsageError, let name = e.unknownCommand {
+                reportUnknownCommand(e, name: name)
             } else if let e = error as? CLIUsageError {
                 CLITerminal.fail(e.message)
                 CLITerminal.err(CLIHelp.usage(for: e.command))

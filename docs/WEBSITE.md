@@ -32,7 +32,7 @@ maintained. The code in `site/` is the source of truth for the exact look.
 - **Light on the wire**: screenshots are near-lossless WebP (indistinguishable from lossless,
   about 30% smaller) in three widths, 1x, 1.5x and 2x of the displayed size, listed with width
   descriptors and a `sizes` that matches the layout, so every screen downloads only the width it
-  needs. Small images (icons, menu bar badges) stay lossless with 1x/2x `srcset`. All images have
+  needs. Small images (icons) stay lossless with 1x/2x `srcset`. All images have
   real `width`/`height` and `loading="lazy"`, which keeps the theme not shown from downloading
   (a lazy image that is not displayed is never fetched). The hero screenshot gets no fetch
   priority: on phones it is below the fold and would compete with `style.css`. Scripts never force
@@ -53,7 +53,7 @@ maintained. The code in `site/` is the source of truth for the exact look.
 | `site/privacy/index.html` | The privacy policy (see [Privacy policy](#privacy-policy)) |
 | `site/assets/style.css` | All styles; design tokens as custom properties on `:root` |
 | `site/assets/theme.js` | Loaded in `<head>` before the stylesheet paints: applies the saved theme (no flash) |
-| `site/assets/main.js` | Theme button, mobile menu, copy buttons, format picker, palette picker, live code demo |
+| `site/assets/main.js` | Theme button, mobile menu, copy buttons, format picker, live code demo |
 | `site/assets/img/` | Generated images (do not edit by hand) |
 | `site/llms.txt` | Plain-text summary for language-model tools: what it is, install, CLI, MCP setup, links |
 | `site/404.html`, `site/robots.txt`, `site/sitemap.xml` | The usual (the sitemap lists both pages) |
@@ -98,8 +98,8 @@ closes on Escape, on outside click and when a link is chosen).
    choose or paste), Touch ID per profile (secrets then encrypted with a Secure Enclave key), auto-type
    shortcut ⌃⌥C.
 3. **VPN client.** OpenVPN and FortiGate SSL VPN with signed `openvpn` / `openfortivpn` bundled.
-   Menu bar card: a neutral menu bar strip on a soft backdrop holding the real rendered badges,
-   with a picker for the five palettes (Pastel, Vivid, Soft, Candy, Earth) that swaps the image.
+   Menu bar card: text next to the rendered menu bar panel (profiles with state, code and switch,
+   the copy items), light and dark.
    Cards: stays connected (auto-reconnect with backoff, health check, reconnect after wake,
    session limit reminder), several VPNs at once, shareable `.passtunnel` profiles (never contain
    passwords, TOTP secrets or user names), English and Turkish. General settings screenshot.
@@ -115,7 +115,7 @@ closes on Escape, on outside click and when a link is chosen).
    app) → bundled `openvpn` / `openfortivpn` (signed, sanitized OpenVPN configurations); a text
    equivalent for screen readers. Two cards: login Keychain without iCloud sync; nothing sent
    anywhere except your VPN server (no sudoers rule, no admin password at every connect).
-   Onboarding screenshot of the helper step. Link: "Read the full security model" → SECURITY.md.
+   First-run screenshot (Add your first VPN, with the Install the helper card). Link: "Read the full security model" → SECURITY.md.
    Touch ID/Secure Enclave is covered in section 2 and the FAQ, not repeated here.
 6. **Install.** Download ("Download the disk image, open it and drag PassTunnel to
    Applications", a "Release notes" link to the latest release, "Download for Mac"), Homebrew (the
@@ -164,9 +164,10 @@ scripts/site-assets.sh          # builds the app, renders, converts to WebP, wri
 ```
 
 The script runs `PASSTUNNEL_RENDER=<tmp> .build/…/PassTunnel`, picks the screens the site uses
-(main window light/dark at identical sizes, the profile editor sheet, menu bar badges
-for every palette light/dark, General settings, helper onboarding step), writes the screenshots as
-1x, 1.5x and 2x near-lossless WebP and the menu bar badges and icons as 1x and 2x lossless WebP,
+(the hero, the narrow split main window `main-split-hero` (800 pt, two tunnels) light/dark at identical sizes, also used for `og.png`; the wide `main-split` only for the README, the profile editor sheet, the
+menu bar panel `menubar-panel`, General settings without its version line, the `first-run` view),
+writes the screenshots as 1x, 1.5x and 2x near-lossless WebP and the icons as 1x and 2x lossless WebP,
+the 2x screenshots the README shows as PNG in `docs/images/`,
 the favicon and Apple touch icon from `Resources/AppIcon.icns`, and the 1200×630 social image from
 `scripts/site/og.html` (headless Chrome). It needs `cwebp` (`brew install webp`) and
 Google Chrome. Rerun it after UI changes that show up in these screens.

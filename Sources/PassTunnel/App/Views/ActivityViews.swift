@@ -3,7 +3,7 @@ import PassTunnelCore
 import PassTunnelKit
 import SwiftUI
 
-// A profile's activity in the redesigned window (docs/APP.md, Redesigned window): the card under the code cards with
+// A profile's activity in the main window (docs/APP.md, Main window): the card under the code cards with
 // the last six events, and the window "Show all" opens with all of them. The events and their words are
 // `ActivityEvent` in Core (it records what the app and the CLI did); the app shows the first three digits of a code
 // and never the password.

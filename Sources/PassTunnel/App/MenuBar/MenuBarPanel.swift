@@ -4,9 +4,9 @@ import PassTunnelCore
 import PassTunnelKit
 import SwiftUI
 
-// The menu bar of the new interface (`NewInterface`, decision D-23): the badges of the profiles that are connecting,
-// connected or dropped (the shield while there are none), and a panel with one switch per pinned or active profile,
-// the copy items and the app items (docs/APP.md, Menu bar). The status item is `MenuBarLabel`; the current menu is `MenuBarMenu`.
+// The menu bar (decision D-23): the badges of the profiles that are connecting, connected or dropped (the shield while
+// there are none), and a panel with one switch per pinned or active profile, the copy items and the app items
+// (docs/APP.md, Menu bar). The status item is `MenuBarLabel`.
 
 extension AppModel {
     /// Profiles whose connection is up (with or without a problem).
@@ -473,7 +473,7 @@ private final class PanelWindow {
         }
     }
 
-    /// The window-style menu bar extra's button (SwiftUI's `toggleWindow:`); the current menu's has another action.
+    /// The window-style menu bar extra's button (SwiftUI's `toggleWindow:`).
     private static func toggleButton() -> NSStatusBarButton? {
         let toggle = NSSelectorFromString("toggleWindow:")
         func find(in view: NSView?) -> NSStatusBarButton? {
@@ -566,7 +566,7 @@ struct MenuBarPanelPreview: View {
 
     /// What the menu bar draws for the label: the badges in their colors, or the shield tinted like the menu bar's text.
     @ViewBuilder private var statusItem: some View {
-        let icon = MenuBarIcon.image(for: model, shieldWhenIdle: true)
+        let icon = MenuBarIcon.image(for: model)
         if icon.isTemplate {
             Image(nsImage: icon).renderingMode(.template).foregroundStyle(Palette.fg)
         } else {

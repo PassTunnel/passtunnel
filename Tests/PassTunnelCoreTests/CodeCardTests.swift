@@ -3,7 +3,7 @@ import XCTest
 @testable import PassTunnelCore
 @testable import PassTunnelKit
 
-/// The code card of the redesigned window: when its codes are masked (decision D-5: a click shows them for 20 s,
+/// The code card of the main window: when its codes are masked (decision D-5: a click shows them for 20 s,
 /// copying never does), when a copy button says "Copied ✓", and when the next code starts.
 final class CodeCardTests: XCTestCase {
     /// The start of a 30 s window.

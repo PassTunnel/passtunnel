@@ -2,7 +2,7 @@ import PassTunnelCore
 import PassTunnelKit
 import SwiftUI
 
-// The cards under the status line of the redesigned window's detail (docs/APP.md, Redesigned window): the current
+// The cards under the status line of the main window's detail (docs/APP.md, Main window): the current
 // code, and what the server receives (ServerReceivesCard.swift). When codes show, "Copied ✓" and the next window are
 // `CodeCard` in Core.
 

@@ -3,7 +3,7 @@ import PassTunnelCore
 import PassTunnelKit
 import SwiftUI
 
-// A clock that is off, in the redesigned window: the banner above the detail of any profile while the last measurement
+// A clock that is off, in the main window: the banner above the detail of any profile while the last measurement
 // (under an hour old) says so, and the "Check the clock" button of a rejected sign-in. One-time codes are worked out from
 // the time, so every code is wrong until the clock is fixed. The measurements are Core's (`ConnectionManager.clockOffsets`,
 // `timeServerClock`); the button asks Apple's time server, which only a click does (decision D-16).

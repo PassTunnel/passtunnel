@@ -45,7 +45,7 @@ public enum LoginItem {
         SMAppService.openSystemSettingsLoginItems()
     }
 
-    /// The redesigned window asks "Open PassTunnel at login?" once there is a profile, until the user answers, and only
+    /// The main window asks "Open PassTunnel at login?" once there is a profile, until the user answers, and only
     /// while the login item is off: not when it is on or waits for approval, nor when it cannot be registered. `status`
     /// is read only when the rest holds.
     public static func asksAfterFirstProfile(answered: Bool, hasProfiles: Bool,

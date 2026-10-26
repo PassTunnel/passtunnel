@@ -6,13 +6,13 @@ public enum AppAppearance: String, Codable, CaseIterable, Sendable { case system
 
 /// App preferences stored in `config.json`. Missing or unknown keys fall back to defaults; the
 /// legacy `theme` key is read into `appearance`. Unknown keys are ignored and dropped on the next save
-/// (e.g. `auto_update` from before Sparkle, which keeps its own setting).
+/// (e.g. `auto_update` from before Sparkle, which keeps its own setting, or `showLock` from the menu bar before
+/// the redesign).
 public struct Preferences: Codable, Equatable {
     public var defaultProfile: String? = nil
     // General
     public var appearance = AppAppearance.system
     public var badgePalette = BadgePalette.pastel
-    public var showLock = true
     public var hideCodes = false
     /// Seconds a copied code (or password + code) stays on the clipboard: one of `clearClipboardChoices`.
     /// Cleared only if the clipboard still holds what PassTunnel copied.
@@ -56,7 +56,7 @@ public struct Preferences: Codable, Equatable {
     public init() {}
 
     enum CodingKeys: String, CodingKey {
-        case defaultProfile, appearance, badgePalette, showLock, hideCodes, clearClipboardAfter, showInDock
+        case defaultProfile, appearance, badgePalette, hideCodes, clearClipboardAfter, showInDock
         case launchAtLogin, waitForFreshCode, notifyOnDrop, notifyHealth, sessionNotifyMin, sessionWarnMin
         case hotkeys, autoType, authReuseMinutes
         case secretStore, secretStoreUsed
@@ -70,7 +70,6 @@ public struct Preferences: Codable, Equatable {
         appearance = c.lenientEnum(AppAppearance.self, .appearance)
             ?? c.lenientEnum(AppAppearance.self, .theme) ?? d.appearance
         badgePalette = c.lenientEnum(BadgePalette.self, .badgePalette) ?? d.badgePalette
-        showLock = c.lenient(Bool.self, .showLock) ?? d.showLock
         hideCodes = c.lenient(Bool.self, .hideCodes) ?? d.hideCodes
         let clear = c.lenient(Int.self, .clearClipboardAfter) ?? d.clearClipboardAfter
         clearClipboardAfter = Self.clearClipboardChoices.contains(clear) ? clear : d.clearClipboardAfter
@@ -94,7 +93,6 @@ public struct Preferences: Codable, Equatable {
         try c.encodeIfPresent(defaultProfile, forKey: .defaultProfile)
         try c.encode(appearance, forKey: .appearance)
         try c.encode(badgePalette, forKey: .badgePalette)
-        try c.encode(showLock, forKey: .showLock)
         try c.encode(hideCodes, forKey: .hideCodes)
         try c.encode(clearClipboardAfter, forKey: .clearClipboardAfter)
         try c.encode(showInDock, forKey: .showInDock)

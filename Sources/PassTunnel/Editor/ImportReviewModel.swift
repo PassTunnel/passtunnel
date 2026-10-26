@@ -2,7 +2,7 @@ import AppKit
 import PassTunnelCore
 import PassTunnelKit
 
-/// The import review of an .ovpn (`ImportReviewView`, in the redesigned window): the draft read from the file and
+/// The import review of an .ovpn (`ImportReviewView`, in the main window): the draft read from the file and
 /// what the user adds to it. Nothing is written until `add()` (`ProfileStore.commit`).
 @MainActor
 final class ImportReviewModel: ObservableObject {

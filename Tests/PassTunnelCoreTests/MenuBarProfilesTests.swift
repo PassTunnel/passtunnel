@@ -3,7 +3,7 @@ import XCTest
 @testable import PassTunnelCore
 @testable import PassTunnelKit
 
-/// Which profiles the menu bar badges and the panel's rows are for.
+/// Which profiles the status item badges and the panel lists.
 final class MenuBarProfilesTests: XCTestCase {
     private func profile(_ id: String, pinned: Bool = false) -> Profile {
         var p = Profile(id: id, name: id.capitalized, type: .openvpn)
@@ -21,7 +21,7 @@ final class MenuBarProfilesTests: XCTestCase {
         ids(MenuBarProfiles.panel(in: profiles, badged: badged(profiles, active: active, dropped: dropped)))
     }
 
-    func testBadgesAreForPinnedActiveAndDroppedProfiles() {
+    func testPinnedActiveAndDroppedProfilesAreKept() {
         let all = [profile("home"), profile("work", pinned: true), profile("lab"), profile("travel")]
         XCTAssertEqual(ids(badged(all)), ["work"])
         XCTAssertEqual(ids(badged(all, active: ["lab"], dropped: ["travel"])), ["work", "lab", "travel"])
@@ -53,7 +53,7 @@ final class MenuBarProfilesTests: XCTestCase {
         XCTAssertEqual(panel(all), ["work"])
     }
 
-    func testTheStatusItemOfTheNewInterfaceBadgesOnlyProfilesThatNeedAttention() {
+    func testTheStatusItemBadgesOnlyProfilesThatNeedAttention() {
         typealias A = MenuBarProfiles.Activity
         XCTAssertEqual(MenuBarProfiles.attention(.connected, droppedUnseen: false), .connected)
         XCTAssertEqual(MenuBarProfiles.attention(.connecting, droppedUnseen: false), .connecting)
