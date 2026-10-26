@@ -164,7 +164,7 @@ scripts/site-assets.sh          # builds the app, renders, converts to WebP, wri
 ```
 
 The script runs `PASSTUNNEL_RENDER=<tmp> .build/…/PassTunnel`, picks the screens the site uses
-(the split main window `main-split` light/dark at identical sizes, the profile editor sheet, the
+(the hero, the narrow split main window `main-split-hero` (800 pt, two tunnels) light/dark at identical sizes, also used for `og.png`; the wide `main-split` only for the README, the profile editor sheet, the
 menu bar panel `menubar-panel`, General settings without its version line, the `first-run` view),
 writes the screenshots as 1x, 1.5x and 2x near-lossless WebP and the icons as 1x and 2x lossless WebP,
 the 2x screenshots the README shows as PNG in `docs/images/`,
