@@ -38,7 +38,7 @@ A bundle without `dns-updown` pins an empty set for it, so the helper refuses an
 |---|---|---|
 | `PassTunnelVPNConfig` | `OVPNSanitizer`, `FortiConfig`: the configurations the helper runs as root | — |
 | `PassTunnelKit` | the portable logic (Foundation, CryptoKit and Security only; builds for macOS 13, iOS 17 and Linux): model, `PTError`, `JSONCoding`, `TOTP`, `OTPAuthURI`, `OTPComposer`, `OVPNAnalyzer`, `OVPNInliner`, `OVPNSkipRules`, `OVPNImportReport`, `ShareFile`, `Slug`, `ProfileFields`, `ProfileMerge`, `SecretEnvelope`, `HealthCheck` (parsing), `ClockOffset` (clock offset, HTTP dates) | VPNConfig (and swift-crypto on Linux) |
-| `PassTunnelShared` | XPC protocol, request/response types, `HelperCore` (request decoding, path checks, tool environment), `SessionPolicy`, `CodeSignature`, `Spawner` (verified, suspended launch), `PinnedTools`, `ToolStager` (root-owned copy of the tools and their dylibs), `HelperBuild`, identifiers | VPNConfig (and swift-crypto on Linux) |
+| `PassTunnelShared` | XPC protocol, request/response types, `HelperCore` (request decoding, path checks, tool environment; `HelperCore+DNSHook`: the Mac's DNS script wrapper and its record), `SessionPolicy`, `CodeSignature`, `Spawner` (verified, suspended launch), `PinnedTools`, `ToolStager` (root-owned copy of the tools and their dylibs), `HelperBuild`, identifiers | VPNConfig (and swift-crypto on Linux) |
 | `PassTunnelCore` | `ProfileStore` + `ImportDraft`, `ProfilesWatcher`, `Secrets` + `SecretStore` (Keychain; on Linux `SecretStores`: secret-service, systemd-creds, file), `SecretVault` + `UserAuthenticator` (Secure Enclave protection), `Preferences`, `HealthCheck.check` (the probe), `QRDecoder`, `OpenedFiles` (files the app is asked to open), `ScannedCodeTarget` (where a scanned code goes), `TLSFingerprint`, `ServerClock` + `SNTP` (clock checks), `HelperClient`, `HelperAutoUpdate`, `ConnectionManager` + `ProfileDestination`, `ConnectionFailure`, `UnreachableRetry`, `FailureDetails` ("Copy details"), `NetworkPath` + `NetworkStatus`, `ActivityLog` + `ActivityEvent`, `LoginConnector` (connect at login), CLI parsing (`CLICommand`, `CLIInvocation`), automation objects + `AutomationService`, `MCPServer` + `MCPTools` + `JSONValue` | Kit, VPNConfig, Shared (and swift-crypto's Crypto and CryptoExtras on Linux) |
 | `PassTunnelCLI` | the `passtunnel` command: `PassTunnelCLI.run` (entry, `CLIHelp`), `CLIRunner`, `CLICompletions`, `CLITerminal`, `CLIClipboard`; `Pasteboard` (macOS: the app's too) | Core, Kit, Shared |
 | `PassTunnelHelper` | `main.swift` XPC listener, process supervision | Shared (and through it VPNConfig) |
@@ -595,7 +595,7 @@ Run directory layout (all root-owned; `HelperCore.makeRunDir`):
 /var/run/passtunnel/            0711   run root
   <uid>/                        0711   one per user
     <profileID>/                0711   one per session, recreated on start, removed when the tool exits
-      config.ovpn | openfortivpn.conf, auth, dns-updown, state   0600/0700 root
+      config.ovpn | openfortivpn.conf, auth, dns-updown, dns-hook, dns-up.env, state   0600/0700 root
       mgmt.sock                 0600   owned by <uid> (OpenVPN only)
   tools/                        0755   staged tools (`ToolStager`), root:wheel
     <helper build>/             0755   hex SHA-256 of the helper executable (`HelperBuild.digest`)
@@ -637,7 +637,8 @@ Security rules (helper):
   opens the path again. Security finds the process's code through its path (`proc_pidpath`): if the file
   was unlinked meanwhile, `SecCodeCopyGuestWithAttributes` fails with ESRCH (`100003`) instead, also a
   refusal; the staged files are root-owned, so this only happens when they are tampered with. The
-  `dns-updown` copy is still checked by path (OpenVPN runs it, not the helper).
+  `dns-updown` copy is still checked by path (OpenVPN runs it, through `dns-hook`; the helper only for a
+  dns-down OpenVPN skipped, checked again then: "DNS script (macOS)" below).
 - cdhash pins (`PinnedTools`, Shared): `PT.toolRequirement` accepts any build the team ever signed, so a
   pinned helper also requires the exact tool and dylib builds of its release. `PinnedTools.libraryCDHashes`
   (file name in `Contents/Frameworks` → cdhashes) is checked by `ToolStager` on the staged dylibs (only
@@ -657,6 +658,67 @@ Security rules (helper):
   never created), `SSL_CERT_FILE=/etc/ssl/cert.pem` (`HelperCore.systemCAFile`), `SSL_CERT_DIR=/var/empty`,
   so the bundled libcrypto loads no config, providers or engines from its compiled-in Homebrew prefix and
   trusts the system CA bundle by default.
+- **DNS script (macOS).** OpenVPN's `--dns-updown` is OpenVPN's own macOS script (Homebrew's
+  `libexec/openvpn/dns-updown`, the release's `distro/dns-scripts/macos-dns-updown.sh`), bundled unchanged,
+  signed and pinned; its copy `dns-updown` runs as root through `dns-hook`, a wrapper the helper writes
+  into the run directory (`HelperCore.dnsHookText`, `HelperCore+DNSHook.swift`). How it handles what a
+  server pushes (issue #151; checked against the OpenVPN 2.7.8 sources and that script, line numbers from
+  them):
+  - *What reaches it.* Only `dev`, `script_type` and the `dns_*` variables of `setenv_dns_options`
+    (`dns.c` 504–569), in an environment built fresh for each run (`do_run_up_down_command`, `dns.c`
+    572–588; `make_env_array` adds nothing, `env_set.c` 440–474): no pushed `setenv`, no `PATH`. Pushed
+    `dhcp-option DNS`/`DNS6`/`DOMAIN`/`DOMAIN-SEARCH` become `dns_*` only when no `dns` server is set
+    (`dhcp_options_postprocess_dns`, `options.c` 3625 ff.). OpenVPN checks every value first: addresses are
+    parsed as numbers (`AI_NUMERICHOST`, `socket_util.c` 575; `dns.c` 62–145; `options.c` 1321–1359) and
+    printed back by OpenVPN, ports are 1–65535 (`dns.c` 48–59), `dnssec` and `transport` fixed words
+    (`options.c` 5364–5402), and every name (`search-domains`, `resolve-domains`, `sni`, `DOMAIN`,
+    `DOMAIN-SEARCH`) passes `validate_domain`: ASCII letters, digits, `.`, `-`, `_`, and bytes from 0x80
+    (`domain_helper.h` 24–45). `setenv_str` also drops control characters from every value (`CC_PRINT`,
+    `env_set.c` 307–310, `buffer.c` 917, 1045–1075). A server cannot name another script: `dns-updown`
+    needs `OPT_P_SCRIPT` (`options.c` 7927), which pulled options never have (`init.c` 2520–2533).
+  - *Can a value change what runs or is written?* No issue found for the values: none can hold
+    whitespace, quotes, `$`, a backquote, `;`, `\`, `/`, `*` or a line break. So the `echo -e` that feeds
+    `scutil` its commands (script lines 154, 178, 238, 255, 285) cannot get an escape or another command
+    line, `sed -e "s/$1//"` (162, 172) neither a delimiter nor a flag, and the unquoted `=~` patterns (203,
+    218) only match. Values reach `scutil` on its input after `d.add <key> *`, where each word becomes an
+    element of the array (a leading `-` too), never as an argument; `networksetup` is not used; the keys
+    are `State:/Network/Service/openvpn-<dev>/…` (`dev` is the tunnel OpenVPN opened) and the primary
+    service's, read from `scutil`, never a value; the only files the script creates are `/var/lock` and its
+    lock in it. Bytes from 0x80 that are not UTF-8 make `scutil` abort in the middle of its input (an
+    uncaught `NSInvalidArgumentException`), so DNS is not set for that session — no more than a server
+    that pushes no DNS. **Found:** the script runs `sleep`, `grep`, `cut`, `xargs` and `sed` by name (42, 51, 56, 162,
+    172) and sets no `PATH`, so `/bin/bash` falls back to `/usr/gnu/bin:/usr/local/bin:/bin:/usr/bin:.`;
+    on a Mac where `/usr/local/bin` belongs to a user (Homebrew on Intel), a program that user put there
+    would run as root at every connect, past the pin. `dns-hook` sets
+    `PATH=/usr/bin:/bin:/usr/sbin:/sbin` (`HelperCore.dnsScriptSearchPath`) before it runs the script with
+    `/bin/bash` (the `.` at the end of bash's path was the run directory, which only root can write).
+  - *Can a value leave DNS behind or move another service?* With `resolve-domains` the script adds
+    `State:/Network/Service/openvpn-<dev>/DNS` and puts the search domains on the primary service;
+    without, it backs up the primary service's `Setup:` DNS and replaces it (the VPN's DNS for everything,
+    as intended), and its dns-down restores it only while that service's servers are still the ones it
+    set (274–285: otherwise "not restoring global DNS configuration, server addresses have changed", and
+    the backup is dropped — e.g. after a network change during the session). No value chooses the
+    service. **Found:** OpenVPN 2.7 forgets its `--dns-updown` when a `PUSH_UPDATE` carries `dns` or
+    `-dns`: `update_option` and `remove_option` clear all of `dns_options`, `updown` included (`options.c`
+    5492–5504, 5180–5185), so neither `do_update` (`init.c` 2467–2514) nor the final close runs a dns-down
+    (`run_up_down_command` returns without `updown`, `dns.c` 702), and what the connect set stays after
+    disconnect. A client takes `PUSH_UPDATE` from any server unless DCO is on (`ssl.c` 1978–1983, `push.c`
+    1127–1135), and DCO is not used on the Mac. `dns-hook` therefore records the variables of each dns-up
+    in `dns-up.env` (0600) and removes the record after a dns-down. A record left when the tool has
+    exited (`Supervisor.finish`, `stopAll`, and `adoptOrphans` for a tool that ended while no helper ran)
+    is a dns-down OpenVPN skipped: the helper checks the `dns-updown` copy again and runs it with
+    `script_type=dns-down` and the recorded variables (`HelperCore.pendingDNSDown`: a regular, single-link
+    file it owns, at most 64 KB, only `dev` and the `dns_*` names OpenVPN sets, values of the characters
+    above, else nothing runs), output into the session's log, for at most `dnsRestoreTimeout` (10 s),
+    before the run directory goes. This also covers a tool killed after `stopGrace`. The Linux daemon
+    reverts what its own hook recorded in the same way (LINUX.md, "DNS").
+  - *For OpenVPN upstream:* a fixed `PATH` in the script; keeping `updown` across a `PUSH_UPDATE` and
+    running the dns-down of the old values before replacing them; the lock in `/var/lock`, which the script
+    creates mode 1777 (29–33), so any local user can hold `openvpn-dns-updown.lock` with the pid of a live
+    process and make every dns-up and dns-down give up after ten tries; `.` matching any character in the
+    `sed` and `=~` patterns (exact matching would never touch another domain); a pushed `DOMAIN-SEARCH`
+    without `DOMAIN` gives no `dns_search_domain_1` (the first entry's name is NULL, `options.c` 3684, and
+    `setenv_str` then unsets the variable), so the script, which stops at the first gap, uses none of them.
 - `profileDir` must be a real directory under the *calling user's* home `Library/Application Support/PassTunnel/profiles/`
   (resolve symlinks; check owner uid == caller's euid from the audit token), not group- or world-writable.
   `config.ovpn` must be a regular, single-link file owned by the user and not group- or world-writable.

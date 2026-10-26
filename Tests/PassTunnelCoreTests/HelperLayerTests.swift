@@ -471,9 +471,21 @@ final class HelperCoreTests: XCTestCase {
         try "#!/bin/sh\nexit 0\n".write(to: script, atomically: true, encoding: .utf8)
         let plan = try core(dns: script.path).prepareOpenVPN(openVPNStart(), uid: me)
         defer { close(plan.logFD) }
-        XCTAssertEqual(plan.dnsUpdownPath, plan.runDir + "/dns-updown")
-        XCTAssertEqual(Array(plan.arguments.suffix(4)), ["--script-security", "2", "--dns-updown", plan.runDir + "/dns-updown"])
+        XCTAssertEqual(plan.dnsUpdownPath, plan.runDir + "/dns-updown", "the copy the helper checks")
+        XCTAssertEqual(Array(plan.arguments.suffix(4)), ["--script-security", "2", "--dns-updown", plan.runDir + "/dns-hook"],
+                       "OpenVPN runs the wrapper")
         XCTAssertEqual(try String(contentsOfFile: plan.runDir + "/dns-updown", encoding: .utf8), "#!/bin/sh\nexit 0\n")
+        XCTAssertEqual(try String(contentsOfFile: plan.runDir + "/dns-hook", encoding: .utf8), HelperCore.dnsHookText)
+        let attrs = try FileManager.default.attributesOfItem(atPath: plan.runDir + "/dns-hook")
+        XCTAssertEqual((attrs[.posixPermissions] as? NSNumber)?.intValue, 0o700)
+    }
+
+    func testPrepareOpenVPNWithoutDNSScriptWritesNoWrapper() throws {
+        let plan = try core(dns: base.appendingPathComponent("missing").path).prepareOpenVPN(openVPNStart(), uid: me)
+        defer { close(plan.logFD) }
+        XCTAssertNil(plan.dnsUpdownPath)
+        XCTAssertEqual(Array(plan.arguments.suffix(4)), ["--script-security", "1", "--dns-updown", "disable"])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: plan.runDir + "/dns-hook"))
     }
 
     func testPrepareForti() throws {

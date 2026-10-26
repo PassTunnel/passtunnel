@@ -94,7 +94,8 @@ public struct HelperCore {
         public let sessionDir: SessionDirectory
         public let logFD: Int32
         /// Copy of the bundled DNS script inside `runDir`; its signature must be checked before launch.
-        /// On Linux the link to the daemon's own executable that OpenVPN runs as its DNS hook.
+        /// OpenVPN runs it through the wrapper `dnsHookName` next to it. On Linux the link to the daemon's
+        /// own executable that OpenVPN runs as its DNS hook.
         public let dnsUpdownPath: String?
         /// The validated profile directory.
         public let profileDir: ProfileDirectory
@@ -144,10 +145,11 @@ public struct HelperCore {
     /// The daemon's own executable (resolved and checked), which OpenVPN runs as its DNS hook through
     /// the link `dnsHookName` in the session directory (docs/LINUX.md, "DNS"). Nil: no DNS hook.
     public var dnsHook: String?
-    /// The DNS hook's name, in the session directory and as the hook's `argv[0]`: OpenVPN 2.7's
-    /// `--dns-updown` runs a path without arguments, so `passtunneld dns-hook` cannot be spelled there.
-    public static let dnsHookName = "dns-hook"
     #endif
+    /// The DNS hook's name in the session directory: on Linux the link to the daemon, also the hook's
+    /// `argv[0]` (OpenVPN 2.7's `--dns-updown` runs a path without arguments, so `passtunneld dns-hook`
+    /// cannot be spelled there); on the Mac the wrapper around the script (`dnsHookText`).
+    public static let dnsHookName = "dns-hook"
     /// The CA bundle openfortivpn's config names (`ca-file`): the Mac's system bundle; the Linux daemon
     /// sets the distribution's, checked, before every start.
     public var caFile = HelperCore.systemCAFile
@@ -299,11 +301,13 @@ public struct HelperCore {
             }
             #if os(Linux)
             let dnsPath = try linkDNSHook(in: runDir)
+            let hookPath = dnsPath
             #else
             let dnsPath = try stageDNSScript(in: runDir)
+            let hookPath = try dnsPath.map { _ in try writeDNSHook(in: runDir) }
             #endif
             let args = Self.openVPNArguments(configPath: configPath, mgmtSocket: socketPath, clientUser: clientUser,
-                                             authFile: authPath, dnsUpdown: dnsPath,
+                                             authFile: authPath, dnsUpdown: hookPath,
                                              verbosity: Self.openVPNVerbosity(sanitized),
                                              hasDNSUpdown: openVPNHasDNSUpdown)
             let logFD = try dir.createLogFile(logName)
