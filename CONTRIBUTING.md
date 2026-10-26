@@ -23,8 +23,8 @@ backends, localized strings, no third-party dependencies besides Sparkle and swi
 3. Open a pull request into `dev`. Link the issue in the description with `Closes #123` (or
    `Fixes`, `Resolves`; `Refs #123` when the issue stays open).
 4. New functionality and bug fixes come with tests (XCTest, in `Tests/`) that fail without the
-   change; `swift test` must pass. Tests never touch real data: see the README section
-   "Building and testing".
+   change; `swift test` must pass ([Tests](#tests)). Tests never touch real data: see the README
+   section "Building and testing".
 5. The checks must pass: `Build and test` (`swift build` and `swift test` on macOS, and
    PassTunnelKit built for iOS), `Linux (x86_64)` and `Linux (aarch64)` (the Linux targets built and
    tested, and the `passtunnel` command tried, see [Linux](#linux)), `Release scripts`, `Site` (the
@@ -69,6 +69,77 @@ Write the description for users, in the imperative, without a final period:
 
 The `PR title` check runs again when you edit the title, so a wrong title is fixed by renaming
 the pull request.
+
+## Coding standards
+
+- **Swift.** Follow the [Swift API Design Guidelines](https://www.swift.org/documentation/api-design-guidelines/)
+  for names and signatures, and match the style of the file you change (indentation, line length,
+  naming, comment density). The package builds in Swift language mode 5 with tools 5.10, uses macOS 13
+  APIs, and has no dependencies beyond Sparkle and swift-crypto, each pinned to an exact version in
+  `Package.swift`.
+- **Warnings.** A change adds no compiler warnings. Treat the output of `swift build` as part of the
+  review; do not silence a warning without a reason in the code.
+- **Language.** English identifiers and sparse English comments. Every user-facing string goes
+  through `String(localized:)` and has a Turkish translation in `Localizable.xcstrings`;
+  `LocalizationTests` fails otherwise ([docs/APP.md](docs/APP.md#localization)).
+- **Accessibility.** Controls have a localized accessibility label
+  ([docs/APP.md](docs/APP.md#accessibility)).
+- **Security rules.** Code that runs as root, parses untrusted text or handles secrets follows
+  [Rules for all code](docs/ARCHITECTURE.md#rules-for-all-code) and the rules in
+  [SECURITY.md](SECURITY.md); it never runs a client-supplied path or raw configuration.
+- **Content.** No company or customer names and no real host names in code, tests, docs or
+  screenshots (use `Acme`, `vpn.example.com`).
+- **Shell and workflows.** Scripts are Bash and pass `shellcheck` where CI runs it (the site
+  scripts); GitHub Actions are pinned to full commit SHAs.
+
+There is no automatic formatter or linter for Swift in the repository yet, so these standards are
+checked in review, against the pull request checklist
+([`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md)).
+
+## Tests
+
+**Policy: new functionality and bug fixes come with automated tests, and a pull request without them
+is not merged.** This is checked in review by the maintainer and by the checklist item
+"New functionality or the fixed bug is covered by a test" in every pull request.
+
+- **New functionality** gets tests for its behavior and its failure cases, in the same pull request.
+  A change to something the phone apps share (codes, `otpauth://` links, OpenVPN configurations,
+  share files, profile merging) also updates the golden cases in [`fixtures/`](fixtures/README.md).
+- **A bug fix** gets a regression test that fails without the fix. A fix for a crash found by the
+  fuzzers also adds the input to the seed corpus ([Fuzzing](#fuzzing)).
+- **A change to the helper or the sanitizer** adds tests for what it now allows and refuses, and keeps
+  [SECURITY.md](SECURITY.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) true.
+- **Documentation, website and CI-only changes** need no unit test, but must pass their checks
+  (`Site`, `Release scripts`).
+- **How.** XCTest in `Tests/` (`PassTunnelCoreTests`, `PassTunnelKitTests`, `PassTunnelDaemonTests`);
+  run `swift test` (see [Building and testing](README.md#building-and-testing)). Tests never touch
+  your real Keychain, support folder, a live VPN, a gateway or a time server; they use the isolation
+  described in [Rules for all code](docs/ARCHITECTURE.md#rules-for-all-code).
+- **When.** The `Build and test` and `Linux` checks run the whole suite on every pull request and on
+  every push to `dev`, and a pull request cannot be merged while they fail. Unit tests that build on
+  Linux run there too ([Linux](#linux)).
+
+## Reporting bugs and asking for features
+
+Use the [issue tracker](https://github.com/PassTunnel/passtunnel/issues). Search first, then pick
+the **Bug report** or **Feature request** form, which asks for the PassTunnel version, how it was
+installed, the macOS version, the VPN type and a log. Remove host names, user names, IP addresses and
+anything you would not post publicly from logs, and never paste passwords, TOTP secrets,
+`otpauth://` links or private keys.
+
+**Security problems are not reported in the tracker.** Use the private channel in
+[SECURITY.md](SECURITY.md#reporting-a-vulnerability). Questions about conduct go to the channel in
+the [Code of Conduct](CODE_OF_CONDUCT.md#enforcement). How the project decides what to do with an
+issue: [GOVERNANCE.md](GOVERNANCE.md#decision-making); what is planned: [ROADMAP.md](ROADMAP.md).
+
+## Contributions and license
+
+PassTunnel is under the [MIT License](LICENSE). By opening a pull request you state that you wrote the
+change (or have the right to submit it) and that it may be distributed under that license; you keep
+your copyright. Do not submit code you took from a project under an incompatible license (the mobile
+spec lists the engines that must not be copied from: [docs/MOBILE.md](docs/MOBILE.md#android-the-vpn-client)).
+There is no contributor license agreement and no `Signed-off-by` requirement.
+<!-- TODO(maintainer): decide whether to adopt the Developer Certificate of Origin (https://developercertificate.org/): require `Signed-off-by:` on commits, add a check to pull-request.yml, and replace the last sentence above. For silver (dco, a SHOULD) it is Unmet until then. -->
 
 ## Releases
 

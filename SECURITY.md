@@ -5,6 +5,9 @@ language, what runs with which privileges, what checks are in place, and where t
 Implementation details are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 - [Reporting a vulnerability](#reporting-a-vulnerability)
+- [Supported versions](#supported-versions)
+- [How reports are handled](#how-reports-are-handled)
+- [Credit](#credit)
 - [Components and privileges](#components-and-privileges)
 - [The privileged helper](#the-privileged-helper)
 - [OpenVPN configuration sanitizer](#openvpn-configuration-sanitizer)
@@ -13,6 +16,7 @@ Implementation details are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - [Confirm with Touch ID (Secure Enclave)](#confirm-with-touch-id-secure-enclave)
 - [Network connections](#network-connections)
 - [Updates](#updates)
+- [Cryptography](#cryptography)
 - [MCP server and automation](#mcp-server-and-automation)
 - [What is not protected](#what-is-not-protected)
 
@@ -26,8 +30,71 @@ tab and choose **Report a vulnerability** (private vulnerability reporting / sec
 Include the version (at the bottom of Settings → General), your macOS version, the steps to reproduce and what an
 attacker gains.
 
-You can expect an acknowledgement within a few days. Fixes are released as a new version and
-credited in the advisory unless you prefer otherwise. Only the latest release is supported.
+You can expect an acknowledgement within a few days (at the latest 14). What happens next, and how
+reporters are credited, is below.
+
+## Supported versions
+
+Only the **latest release** gets fixes. Older versions are not patched; a vulnerability fixed in
+1.5.1 is not fixed in 1.4.x, and the advisory names the first fixed version. There are no long-term
+support branches.
+
+Users get a fix in the same way as any release:
+
+- **In the app:** PassTunnel checks for updates itself (Settings → Updates) and installs the signed
+  update when you click Install ([Updates](#updates)). The helper is replaced after the update as
+  soon as no VPN connection is active.
+- **Homebrew:** `brew upgrade --cask passtunnel/tap/passtunnel`; the release workflow updates the
+  cask with every release.
+- **Download:** the latest disk image is always at
+  [releases/latest/download/PassTunnel.dmg](https://github.com/PassTunnel/passtunnel/releases/latest/download/PassTunnel.dmg).
+
+Release notes and the [published advisories](https://github.com/PassTunnel/passtunnel/security/advisories)
+say which versions are affected. The upgrade path is always to the latest release: profiles and
+settings are kept, and changes that break existing setups are marked as breaking in the release
+notes ([CONTRIBUTING.md](CONTRIBUTING.md#pull-request-titles)).
+
+## How reports are handled
+
+1. **Report** privately as above. Nothing is discussed in public issues or pull requests at this
+   point.
+2. **Acknowledgement** by the maintainer within a few days, at the latest 14. Reports that need more
+   information get questions in the private thread.
+3. **Assessment.** The maintainer reproduces the problem, decides whether it is a vulnerability
+   (what an attacker gains, from which starting point: see [What is not protected](#what-is-not-protected)),
+   rates its severity and tells the reporter the result and the expected fix date. A report that is
+   not a vulnerability is answered with the reasons and, where useful, moved to a public issue.
+4. **Private fix.** The fix is prepared where only the maintainer and, if they want, the reporter can
+   see it (a temporary private fork of the advisory), with a regression test. If it changes a rule of
+   the helper or the sanitizer, [SECURITY.md](SECURITY.md) and
+   [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) are updated in the same change. The reporter is
+   asked to check the fix.
+5. **Release.** The fix is merged and released through the normal flow
+   ([docs/RELEASING.md](docs/RELEASING.md)); a security fix is a `fix:` and so a patch release at
+   least. Fixes are not held back for a fixed schedule.
+6. **Advisory.** When the release is out, the GitHub security advisory is published with the affected
+   and fixed versions and a CVE is requested through GitHub. Users are told to update.
+7. **Credit** (below) and, if the reporter agrees, public discussion.
+
+The goal is a fix within 90 days of the report, sooner for anything that gives root. The project has
+one maintainer ([GOVERNANCE.md](GOVERNANCE.md)), so this is a target, not a guarantee. If a report
+is not answered in 14 days, the reporter may contact the maintainer
+[`@Furkanprlk`](https://github.com/Furkanprlk) on GitHub (without details) to ask for it to be
+looked at.
+
+## Credit
+
+Reporters are credited in the published advisory (GitHub's credit field), under the name or handle
+they give, unless they ask to stay anonymous. A reporter who does
+not want to be named says so in the report. Credit is given for every vulnerability report that
+leads to a fix, whatever its severity.
+
+Advisories published so far:
+[GHSA-5v7f-79p2-3x2j](https://github.com/PassTunnel/passtunnel/security/advisories/GHSA-5v7f-79p2-3x2j)
+and
+[GHSA-5cpw-c3jh-3427](https://github.com/PassTunnel/passtunnel/security/advisories/GHSA-5cpw-c3jh-3427).
+They list no outside reporter, so there is nobody to credit in them.
+<!-- TODO(maintainer): confirm that nobody outside the project reported GHSA-5v7f-79p2-3x2j or GHSA-5cpw-c3jh-3427; if someone did, add them as credit on the advisory and mention them here (silver: vulnerability_report_credit). -->
 
 ## Components and privileges
 
@@ -504,6 +571,42 @@ seconds, the host asked and when.
   - Replacing a newer helper with an older one (Settings → Helper → Update Helper, or the above) shows
     a separate warning first.
   - Removing the helper on request from outside the app always asks.
+
+## Cryptography
+
+PassTunnel does not implement cryptographic primitives. It uses the system's (CryptoKit, Security,
+Network.framework), swift-crypto on Linux, the bundled tools' OpenSSL and Sparkle's.
+
+| Use | What | Where |
+|---|---|---|
+| VPN tunnels | TLS and the data channel are done by the bundled `openvpn` and `openfortivpn` with their OpenSSL. PassTunnel adds no protocol or cipher setting of its own and does not enable older protocol versions; the configuration and the tools' defaults decide, and the tools verify the gateway certificate against the system CA bundle (`/etc/ssl/cert.pem`, fixed by the helper) or a trusted SHA-256 certificate digest in the profile | [How FortiGate is started](#how-fortigate-is-started) |
+| Gateway clock probe, *Fetch fingerprint* | TLS through Network.framework. The clock probe accepts the certificate only when its SHA-256 digest is the profile's trusted one or the system trusts it for that name, and sends no credentials, user name or cookie. *Fetch fingerprint* trusts nothing: it aborts the handshake right after reading the digest, which you confirm before saving | [Network connections](#network-connections) |
+| App updates | HTTPS download of the feed and archives from GitHub (App Transport Security is on, no exceptions); the feed and each archive are also signed with an EdDSA (Ed25519) key and refused without a valid signature | [Updates](#updates) |
+| Releases | Developer ID code signatures with the hardened runtime, notarization, build provenance attestations (Sigstore) | [docs/RELEASING.md](docs/RELEASING.md) |
+| Helper trust | Code-signing requirements (Team ID) and SHA-256 cdhashes of the bundled tools and libraries; SHA-256 of `config.ovpn` | [Which programs it runs](#which-programs-it-runs) |
+| Confirm with Touch ID | P-256 key agreement key in the Secure Enclave, ephemeral P-256 ECDH, HKDF-SHA256, AES-256-GCM with the account name as authenticated data | [Confirm with Touch ID](#confirm-with-touch-id-secure-enclave) |
+| Secrets on Linux | Desktop keyring, `systemd-creds`, or a file sealed with scrypt (N = 2^17, r = 8, p = 1) and AES-256-GCM | [docs/LINUX.md](docs/LINUX.md#secrets) |
+| One-time codes | HMAC-SHA-1 (the default), HMAC-SHA-256 or HMAC-SHA-512 as set in the profile or the `otpauth://` link, RFC 6238 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#model-passtunnelkitmodelswift) |
+
+**No algorithm with known serious weaknesses protects PassTunnel's own data or channels.** HMAC-SHA-1
+appears only as the TOTP default because most servers and authenticator apps expect it (RFC 6238); it
+is not affected by the collision attacks against SHA-1, and the profile can use SHA-256 or SHA-512
+where the server supports them. There is no CBC mode, MD5 or SSL in PassTunnel's code.
+
+**Algorithm agility.** Choices that can be broken are not hard-wired in a way that needs a rewrite:
+the TOTP algorithm, digits and period are per profile; the VPN ciphers and TLS settings belong to the
+tools and the configuration, and bundled tools are updated like any release; secret envelopes carry
+a version prefix (`ptse1:`), and the Linux file store a version and a KDF identifier, so a stronger
+format can be introduced and old data read; a new hash for pins would be a new release of the
+helper.
+
+**Where keys and credentials are kept.** Passwords, TOTP secrets and Secure Enclave key records are
+in the Keychain (or the Linux secret store), separate from `profile.json`, `config.json` and logs,
+and can be replaced at any time in the app or with `passtunnel secret` without rebuilding anything.
+Credentials passed to the tools go through root-owned files that are deleted when the tunnel stops.
+The release keys (Developer ID, notarization, Sparkle) are kept out of the repository: in the
+protected GitHub environment `release` and on the maintainer's Mac
+([docs/RELEASING.md](docs/RELEASING.md#setup)).
 
 ## MCP server and automation
 
