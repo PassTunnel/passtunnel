@@ -1,8 +1,51 @@
 import XCTest
+@testable import PassTunnelCLI
 @testable import PassTunnelCore
 @testable import PassTunnelKit
 
 final class CLICommandTests: XCTestCase {
+    func testUnknownCommandIsAUsageErrorWithTheName() {
+        XCTAssertThrowsError(try parse("conect work")) { error in
+            let e = error as? CLIUsageError
+            XCTAssertEqual(e?.message, "unknown command 'conect'")
+            XCTAssertEqual(e?.unknownCommand, "conect")
+        }
+    }
+
+    func testSuggestsTheClosestCommand() {
+        XCTAssertEqual(CLICommand.suggestion(for: "conect"), "connect")
+        XCTAssertEqual(CLICommand.suggestion(for: "statsu"), "status")
+        XCTAssertEqual(CLICommand.suggestion(for: "disconect"), "disconnect")
+        XCTAssertNil(CLICommand.suggestion(for: "frobnicate"))
+    }
+
+    func testLaunchClassification() {
+        // argv[0] is the command, or the first argument is a command / looks like one: CLI.
+        XCTAssertTrue(PassTunnelCLI.isInvocation(["/usr/local/bin/passtunnel"]))
+        XCTAssertTrue(PassTunnelCLI.isInvocation(["/usr/local/bin/passtunnel", "conect", "work"]))
+        XCTAssertTrue(PassTunnelCLI.isInvocation(["/Applications/PassTunnel.app/Contents/MacOS/PassTunnel", "status"]))
+        XCTAssertTrue(PassTunnelCLI.isInvocation(["/Applications/PassTunnel.app/Contents/MacOS/PassTunnel", "conect"]))
+        // Launches of the app stay launches of the app.
+        let app = "/Applications/PassTunnel.app/Contents/MacOS/PassTunnel"
+        XCTAssertFalse(PassTunnelCLI.isInvocation([app]))
+        XCTAssertFalse(PassTunnelCLI.isInvocation([app, "--background"]))
+        XCTAssertFalse(PassTunnelCLI.isInvocation([app, "-psn_0_12345"]))
+        XCTAssertFalse(PassTunnelCLI.isInvocation([app, "-NSDocumentRevisionsDebugMode", "YES"]))
+        XCTAssertFalse(PassTunnelCLI.isInvocation([app, "-AppleLanguages", "(tr)"]))
+        XCTAssertFalse(PassTunnelCLI.isInvocation([app, "/Users/alice/work.ovpn"]))
+        XCTAssertFalse(PassTunnelCLI.isInvocation([app, "work.passtunnel"]))
+        XCTAssertFalse(PassTunnelCLI.isInvocation([app, "Work"]))
+    }
+
+    func testLooksLikeSubcommand() {
+        XCTAssertTrue(CLICommand.looksLikeSubcommand("conect", fileExists: { _ in false }))
+        XCTAssertTrue(CLICommand.looksLikeSubcommand("secret-store", fileExists: { _ in false }))
+        XCTAssertFalse(CLICommand.looksLikeSubcommand("conect", fileExists: { _ in true }))
+        for arg in ["", "-psn_0_1", "--background", "./x", "a/b", "work.ovpn", "Work", "1abc", "~", "é"] {
+            XCTAssertFalse(CLICommand.looksLikeSubcommand(arg, fileExists: { _ in false }), arg)
+        }
+    }
+
     func parse(_ line: String) throws -> CLICommand {
         try CLICommand.parse(line.split(separator: " ").map(String.init))
     }

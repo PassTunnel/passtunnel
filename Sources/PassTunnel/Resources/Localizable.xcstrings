@@ -1383,6 +1383,16 @@
         }
       }
     },
+    "Did you mean '%@'?" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bunu mu demek istediniz: '%@'?"
+          }
+        }
+      }
+    },
     "Disconnected by you" : {
       "localizations" : {
         "tr" : {
@@ -2449,6 +2459,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Yönlendirmeler"
+          }
+        }
+      }
+    },
+    "Run 'passtunnel help' for the list of commands." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Komut listesi için 'passtunnel help' çalıştırın."
           }
         }
       }
@@ -8676,12 +8696,12 @@
         }
       }
     },
-    "Unknown command “%@”." : {
+    "unknown command '%@'" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bilinmeyen komut “%@”."
+            "value" : "bilinmeyen komut '%@'"
           }
         }
       }

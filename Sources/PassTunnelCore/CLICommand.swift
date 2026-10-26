@@ -5,10 +5,13 @@ import PassTunnelKit
 public struct CLIUsageError: Error, Equatable, LocalizedError {
     public var message: String
     public var command: String?
+    /// The first word when it names no command (the CLI then adds a hint instead of the full usage).
+    public var unknownCommand: String?
 
-    public init(_ message: String, command: String? = nil) {
+    public init(_ message: String, command: String? = nil, unknownCommand: String? = nil) {
         self.message = message
         self.command = command
+        self.unknownCommand = unknownCommand
     }
 
     public var errorDescription: String? { message }
@@ -103,6 +106,36 @@ public enum CLICommand: Equatable {
             || globalFlags.contains(first) || CLIOptions.flags.contains(first)
     }
 
+    /// True when `arg` (argv[1] after `strippingSystemArguments`) is shaped like a subcommand typed in a
+    /// terminal: a lowercase word such as `conect`, not an option, a path, a file name or a document that
+    /// exists. Launch Services and Finder never pass such a word, so the app still opens normally.
+    public static func looksLikeSubcommand(_ arg: String, fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> Bool {
+        guard let first = arg.unicodeScalars.first, ("a"..."z").contains(first) else { return false }
+        let allowed = arg.unicodeScalars.allSatisfy { ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "-" || $0 == "_" }
+        return allowed && !fileExists(arg)
+    }
+
+    /// The command closest to a mistyped `name` (at most two edits away), for "did you mean".
+    public static func suggestion(for name: String) -> String? {
+        let candidates = commandNames + Array(aliases.keys)
+        let scored = candidates.map { ($0, editDistance(name, $0)) }.filter { $0.1 <= min(2, max(1, name.count / 3)) }
+        guard let best = scored.min(by: { $0.1 < $1.1 }) else { return nil }
+        return aliases[best.0] ?? best.0
+    }
+
+    private static func editDistance(_ a: String, _ b: String) -> Int {
+        let a = Array(a), b = Array(b)
+        var previous = Array(0...b.count)
+        for i in 1...max(a.count, 1) where !a.isEmpty {
+            var row = [i]
+            for j in 1...max(b.count, 1) where !b.isEmpty {
+                row.append(min(previous[j] + 1, row[j - 1] + 1, previous[j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1)))
+            }
+            previous = row
+        }
+        return a.isEmpty ? b.count : (b.isEmpty ? a.count : previous[b.count])
+    }
+
     /// Whether the command line asks for JSON output (`--json` before any `--`), also when it does
     /// not parse: a usage error is then reported as JSON too.
     public static func requestsJSON(_ args: [String]) -> Bool {
@@ -145,7 +178,7 @@ public enum CLICommand: Equatable {
         if first == "--json" { return try parse(["status"] + args) }
         let name = aliases[first] ?? first
         guard commandNames.contains(name) || hiddenCommandNames.contains(name) else {
-            throw CLIUsageError(String(localized: "Unknown command “\(first)”."))
+            throw CLIUsageError(String(localized: "unknown command '\(first)'"), unknownCommand: first)
         }
         var a = Args(Array(args.dropFirst()), command: name)
         if a.flag("--help", "-h") { return .help(command: name) }
@@ -326,7 +359,7 @@ public enum CLICommand: Equatable {
             try a.finish()
             return .help(command: topic.map { aliases[$0] ?? $0 })
         default:
-            throw CLIUsageError(String(localized: "Unknown command “\(first)”."))
+            throw CLIUsageError(String(localized: "unknown command '\(first)'"), unknownCommand: first)
         }
     }
 
