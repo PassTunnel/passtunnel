@@ -591,17 +591,20 @@ Linux side is #187): see [Cisco AnyConnect (planned)](#cisco-anyconnect-planned)
 Linux. It lands in #187 (scope `linux`, so it stays out of app releases), tested with ocserv in #188.
 
 - **The tool.** The distribution's `openconnect`, never bundled: `ToolSpec.openconnect` with the
-  candidates `/usr/sbin/openconnect`, `/usr/bin/openconnect`, checked with `TrustedPath` before every
-  start like the other tools (root-owned path, not pinned by hash). The version comes from
+  candidates `/usr/sbin/openconnect`, `/usr/bin/openconnect`, checked with `TrustedPath` before
+  every start like the other tools (root-owned path, not pinned by hash). The version comes from
   `openconnect --version` ("OpenConnect version v9.21", killed after 5 s). The minimum is **9.01**;
   older versions are refused with a clear message. Ubuntu 22.04 ships 8.20, so AnyConnect profiles
-  are unsupported there (everything else keeps working). Versions packaged on 2026-10-27: Ubuntu
-  24.04 and 26.04 9.12, Debian 12 9.01, Debian 13 9.12, Fedora 9.12; RHEL has it only in EPEL (9:
-  9.01, 10: 9.12).
+  are unsupported there (everything else keeps working). `no-external-auth` exists only from 9.10:
+  the client renders it when `openconnect --help` lists it, so with 9.01 (the release before)
+  openconnect offers the server single sign-on, which Phase 1 does not support (ARCHITECTURE.md,
+  "Single sign-on"); making it a requirement would raise the minimum to 9.10 and drop Debian 12 and
+  EPEL 9 (9.01). Versions packaged on 2026-10-27: Ubuntu 24.04 and 26.04 9.12, Debian 12 9.01,
+  Debian 13 9.12, Fedora 9.12; RHEL has it only in EPEL (9: 9.01, 10: 9.12).
 - **Sign-in.** `passtunnel` runs `openconnect --authenticate` itself, as the user, from the same
   candidate paths (never `PATH`), as on the Mac; the daemon gets only the cookie, the fingerprint and
   the address. Without a pin the sign-in run gets `no-system-trust` and the checked distribution CA
-  bundle as `cafile`. There is no "Fetch fingerprint" on Linux; the pin comes from the log hint.
+  bundle as `cafile`. A server-sent browser sign-in form would make it run `xdg-open` as the user. There is no "Fetch fingerprint" on Linux; the pin comes from the log hint.
 - **The tunnel.** `openconnect --config=<run>/<uid>/<id>/openconnect.conf` and nothing else, the file
   rendered by `OpenConnectConfig` as on the Mac (0600, root), stdin `/dev/null`, output straight to
   the session log as for OpenVPN (no `OutputCopier`: the hook takes its values from openconnect's
@@ -612,7 +615,11 @@ Linux. It lands in #187 (scope `linux`, so it stays out of app releases), tested
   so the kernel picks a free `tunN` and a persistent device of another user is never attached to.
 - **Supervision** as for openfortivpn: `posix_spawn` of the checked path, pidfd signalling, `state`
   with boot ID and start time, SIGTERM then SIGKILL after 5 s, no adoption; the previous-instance
-  cleanup reverts what a session's hook recorded.
+  cleanup reverts what a session's hook recorded. `policy` is written before the start; `state`, for
+  lack of a suspended start, right after `posix_spawn`, so the hook waits up to 5 s for it. The
+  setup and reconnect deadlines, the `stopping` mark and the wait for a running hook before a revert
+  are the Mac's (ARCHITECTURE.md, the hook's steps 5–7); a revert that fails keeps the record and is
+  retried every 15 s, as for DNS.
 - **`vpn-hook` mode of `passtunneld`.** openconnect's `script` is `<run>/<uid>/<id>/vpn-hook`, a
   link to the daemon's executable (as `dns-hook`; the path is safe for openconnect's `/bin/sh -c`).
   The executable started under that name is the hook. Its session check is `dns-hook`'s, except that
@@ -623,15 +630,18 @@ Linux. It lands in #187 (scope `linux`, so it stays out of app releases), tested
   - interface and routes with `ip`, run from the first of `/usr/sbin/ip`, `/sbin/ip`, `/usr/bin/ip`,
     `/bin/ip` that passes `TrustedPath`, with an argument list and at most 10 s each: `ip link set dev
     tunN up mtu M`, `ip addr add A/32 peer A dev tunN`, `ip -6 addr add …`, the gateway host route,
-    the split routes or `0.0.0.0/1` and `128.0.0.0/1` (`::/1`, `8000::/1` with an IPv6 address; a
-    full tunnel without one gets `unreachable` routes for those two, so IPv6 does not leak).
+    the split routes or `0.0.0.0/1` and `128.0.0.0/1` (`::/1`, `8000::/1` with an IPv6 address; an
+    IPv4 full tunnel without one gets `unreachable` routes for those two, which refuse IPv6 that has
+    no more specific route, not all IPv6). A route that already existed is recorded as not owned and
+    never deleted.
     rtnetlink writes may replace `ip` later (the parsing is there already, `Netlink`);
   - DNS through `DNSApplier`, unchanged: the same backends, the link given by its index, the record
     per session, the run root's lock;
   - everything recorded in the session directory before it is changed, reverted by the hook on
     `disconnect`, by the daemon when the tool exits without it, or by the next daemon. A failure is
-    reported in the log (`passtunnel vpn-hook: setting up the network failed: …`), which the client
-    turns into `setup_failed` and a stop, since openconnect ignores the hook's exit status.
+    reported in the log (`passtunnel vpn-hook: setting up the network failed: …`) and the record;
+    since openconnect ignores the hook's exit status, the hook signals its openconnect and the
+    daemon stops the session, whether or not a client is reading the log (`setup_failed` for it).
 - **The unit** needs nothing new: `/dev/net/tun` and `CAP_NET_ADMIN` are allowed already, and the hook
   writes the same DNS paths as `dns-hook`. `/dev/vhost-net` (openconnect's vhost-net acceleration)
   is not in `DeviceAllow`; #187 confirms that openconnect then uses the plain tun device.

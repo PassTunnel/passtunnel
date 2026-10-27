@@ -941,7 +941,9 @@ passtunnel / app (the user)                          PassTunnelHelper / passtunn
   (Homebrew installs it in `bin`) and its closure in `Contents/Frameworks`: `libopenconnect.5`,
   `libgnutls.30`, `libnettle.9`, `libhogweed.7`, `libgmp.10`, `libp11-kit.0`, `libtasn1.6`,
   `libidn2.0`, `libunistring.5`, `libintl.8`, `libstoken.1`, `libtomcrypt.1`, `libtommath.1`
-  (`.dylib`; about 9 MB, `arm64`, `minos 26.0` like the bundled `openvpn`). `libstoken`,
+  (`.dylib`; about 9 MB, `arm64`). Like the `openvpn` and `openfortivpn` bundled today (Homebrew's
+  bottles for the release runner's macOS 26), they carry `minos 26.0`, above the app's documented
+  macOS 13; this backend does not change that existing gap, which is decided separately. `libstoken`,
   `libtomcrypt`, `libtommath` (RSA SecurID soft tokens, never used) and `libintl` (message catalogs,
   unused with `LC_ALL=C`) are accepted dead weight rather than building openconnect ourselves. The
   rest stays system (`libz`, `libxml2`, `libiconv`, `libffi`, Kerberos, PCSC, Security,
@@ -982,30 +984,57 @@ code, nor parses the server's login forms (the most complex server-controlled pa
    read (`ps`). The file is a descriptor (`/dev/fd/N`) or a 0600 file in a directory only the user
    can read, removed after the run, rendered and checked like the root file (below): `protocol
    anyconnect`, `server https://<host>[:<port>][/<usergroup>]`, `user <name>` (the user name never
-   goes in argv), `authgroup <group>` when set, the trust lines, `non-inter`, `passwd-on-stdin`,
-   `no-external-auth`. Standard input holds the answers, one per line: `.combined` → line 1 the
-   composed secret; `.separate` (this type's default) → line 1 the password, line 2 the code.
-   openconnect gives line 1 to the first password field (read at option parsing, `main.c` 2023) and
-   the next line to every later prompt (`secondary_password` in the same form, a `challenge` form,
-   ocserv's second "OTP" form; `prompt_for_input`, `main.c` 2706–2722); with no line left it fails
-   with "User input required in non-interactive mode". Each line is at most 4,095 bytes
+   goes in argv), `authgroup <group>` when set, the trust lines, `non-inter`, `passwd-on-stdin`, and
+   `no-external-auth` where the tool has it (below). Standard input holds the answers, one per line:
+   `.combined` → line 1 the composed secret; `.separate` (this type's default) → line 1 the password,
+   line 2 the code. openconnect gives line 1 to the first password field (read at option parsing,
+   `main.c` 2023) and the next line to every later prompt (`secondary_password` in the same form, a
+   `challenge` form, ocserv's second "OTP" form; `prompt_for_input`, `main.c` 2706–2722); with no line
+   left it fails with "User input required in non-interactive mode". Each line is at most 4,095 bytes
    (`MAX_READ_STDIN_SIZE` with its newline) and holds no LF or NUL. Answers are positional: a server
    that answers a wrong password with a retry form gets the code as the second password (the code is
    spent), and a text field before the password other than the user name would get the code; both
    end as a failed sign-in. openconnect's own TOTP (`--token-mode=totp`) is not used: it computes the
    code itself, past the fresh-code wait and `.last-otp`, and needs the TOTP secret.
+   - *Single sign-on.* Phase 1 has none. `no-external-auth` (openconnect 9.10 and later; 9.01, the
+     release before it, does not know it and always offers SSO) only stops openconnect from
+     *offering* the SSO methods (`auth.c` 860–869); it does not stop a server that sends an
+     external-browser SSO form anyway (`library.c` 1860–1868): openconnect then opens the server's
+     URL with the default browser (`/usr/bin/open`, `xdg-open`) as the user, and the run ends at its
+     timeout. `--non-inter` does not change that. The Mac's bundled 9.21 always gets the option; on
+     Linux the client renders it when `openconnect --help` lists it (a capability check, #184/#187).
 2. **Its output** is parsed strictly (`OpenConnectAuthResult`, VPNConfig, #180): exactly
    `COOKIE='…'`, `HOST='…'`, `CONNECT_URL='…'`, `FINGERPRINT='pin-sha256:…'` and
    `RESOLVE='<host>:<address>'` or `RESOLVE=` (`main.c` 2403–2425), each once, values printable ASCII
-   without `'`, the cookie 1–4,096 bytes; anything else fails. `HOST` and the host of `CONNECT_URL`
-   must be the profile's host (lowercased) and the port its port: a redirect to another host (ASA
-   load balancing) is refused in Phase 1, since `ProfileDestination` binds the profile's host (a
-   per-profile switch may come later). `RESOLVE` must be that host and an IP literal (`inet_pton`);
-   it is passed on, so DNS cannot move the tunnel run to another address. `FINGERPRINT` must equal the
-   profile's pin when it has one.
-3. **The cookie** is a bearer secret: kept in memory only, never logged (`LogRedactor` masks it
-   literally), never written by the user's process, overwritten once the start request is sent or the
-   connect fails.
+   without `'`, the cookie 1–4,096 bytes; anything else fails. Without a proxy (PassTunnel never sets
+   one) openconnect prints the address it connected to: `HOST` is that numeric address (in brackets
+   for IPv6; `openconnect_get_hostname`, `library.c` 985–988, set in `ssl.c` 489–500), not a name.
+   - `CONNECT_URL` (`library.c` 953–980) must be exactly `https://<host>[:<port>]/`: no user info,
+     query, fragment, path or control character, at most 300 bytes, its host the profile's host
+     (lowercased; an IPv6 literal in brackets) and its port the profile's port. Another host (ASA
+     load balancing) is refused in Phase 1, since `ProfileDestination` binds the profile's host (a
+     per-profile switch may come later).
+   - For a host name, `RESOLVE` must be `<that host>:<IP literal>` (`inet_pton`) and `HOST` that same
+     address; the root run gets it as `resolve`, so DNS cannot move the tunnel to another address
+     between the runs. For an IP-literal host both must be that literal and no `resolve` is rendered
+     (openconnect splits `resolve` at the first `:`, `main.c` 1983–2000). An empty `RESOLVE` fails.
+   - `FINGERPRINT` must equal the profile's pin when it has one.
+   - *What this does not cover:* these are checks of where the sign-in **ended**. openconnect
+     follows every `https://` redirect during the sign-in, to any host and port (`handle_redirect`,
+     `http.c` 646–690), and submits the forms there; the openconnect command line has no option or
+     callback to refuse one, so a redirect away and back cannot be stopped from outside. With a pin,
+     only a server holding the pinned key gets the credentials (the pin is checked for every host,
+     `main.c` 2589–2600); without one, any server with a certificate the system CA bundle trusts for
+     its own name does. The client also fails the connect, after the fact, when a `POST https://…`
+     line of the run names another host or port than the profile's. Refusing each redirect before
+     anything is sent would need libopenconnect's API or a patched build, not the bundled command.
+3. **The cookie** is a bearer secret. The user's process keeps it in memory only, in a bounded byte
+   buffer that is overwritten once the start request is sent or the connect fails (best effort: the
+   encoded request and any copy the runtime made are not guaranteed to be erased). Neither run's
+   output that carries it is logged: the sign-in run's standard output is read only by the parser,
+   and neither run gets `-v` or `dump-http-traffic` (#184 adds a log fixture check that the cookie
+   is absent). `HelperRequest`'s descriptions, mirrors and error texts never include it. Literal
+   masking by `LogRedactor` is not relied on: it runs when a log is read, after the value is gone.
 4. **The tunnel, as root:** `HelperRequest.startOpenConnect` (below). Costs of the split: the cookie
    crosses XPC (or the daemon socket) and sits in a root-only file for the session's life; two runs
    per connect.
@@ -1030,9 +1059,11 @@ i.e. no credentials left the machine; a failure after that is `ConnectionFailure
 - With `non-inter` a failed check never prompts (`main.c` 2600–2630); the log's `Server certificate
   verify failed: …` and `--servercert pin-sha256:…` lines become "Trust this server" in the editor
   (#186), as openfortivpn's `--trusted-cert` hint does. "Fetch fingerprint" needs the SPKI digest
-  (`TLSFingerprint` hashes the whole certificate today): #186 cuts SubjectPublicKeyInfo out of the
-  certificate's DER (the seventh element of tbsCertificate), tested with fixtures. Linux has no
-  fetch; the pin comes from the log hint.
+  (`TLSFingerprint` hashes the whole certificate today): #186 parses the certificate's DER with
+  bounds checks (tbsCertificate's optional `[0]` version, then serial number, signature algorithm,
+  issuer, validity and subject) and hashes the complete DER of the SubjectPublicKeyInfo that
+  follows, tested with fixtures with and without the version field. Linux has no fetch; the pin
+  comes from the log hint.
 
 ### The root configuration (#180, #182)
 
@@ -1040,15 +1071,17 @@ i.e. no credentials left the machine; a failure after that is `ConnectionFailure
 `checkRendered`). The helper renders `<run>/openconnect.conf` (0600, root) and runs
 `openconnect --config=<run>/openconnect.conf`, nothing else in argv, stdin `/dev/null`, working
 directory the session directory; the cookie is an option in the file, as openfortivpn's password
-is in its file, so `Spawner` needs no change.
+is in its file, so `Spawner` needs no change apart from writing `state` before `SIGCONT` (step 1
+of the hook). Next to it the helper writes `policy` (the hook's step 2); the hook adds `network`
+(its record), `hook` (while one runs) and the supervisor `stopping`.
 
 ```
 # Generated by PassTunnel. Do not edit.
 protocol anyconnect
-server https://vpn.example.com:8443/engineering
+server https://vpn.example.com:8443/
 cookie <cookie>
 servercert pin-sha256:<44 characters>
-resolve vpn.example.com:192.0.2.10            (when the sign-in returned one)
+resolve vpn.example.com:192.0.2.10            (only for a host name)
 script <staged build directory>/Resources/bin/vpn-hook
 non-inter
 reconnect-timeout 60
@@ -1062,9 +1095,13 @@ no-dtls                                       (only with tls_only)
 - `script` is always rendered: without it openconnect runs its compiled-in `DEFAULT_VPNCSCRIPT`
   (`main.c` 2439). openconnect passes it to `/bin/sh -c` (`script.c` 660–695), so the path must be
   only `A–Z a–z 0–9 / . _ -` (the staged build directory is hex digits).
-- `reconnect-timeout 60` (openconnect's default is 300): after a dead-peer detection openconnect
-  retries with the cookie for at most 60 s, then exits, and `ConnectionManager`'s own reconnect (a
-  new sign-in with a fresh code) takes over.
+- `server` is the checked `CONNECT_URL`, rendered from the profile's own host and port, never the
+  server's text (for AnyConnect openconnect puts no usergroup path in it, `library.c` 973).
+- `reconnect-timeout 60` (openconnect's default is 300) is a retry budget, not a deadline: after a
+  dropped connection openconnect retries with the cookie and subtracts only its sleeps between tries
+  from the 60 (`ssl.c` 1203–1235), not the time each try or the hook takes. The supervisor's own
+  reconnect deadline (below) bounds the elapsed time; after either, `ConnectionManager`'s own
+  reconnect (a new sign-in with a fresh code) takes over.
 - DTLS (UDP) is on by default; the per-profile `tls_only` renders `no-dtls`.
 - Not rendered: `useragent` (openconnect's default string; no field in Phase 1) and `-v` (INFO is
   the default; higher levels and `dump-http-traffic` would log the cookie).
@@ -1100,7 +1137,7 @@ and how each is kept out of the root run:
 | `/opt/homebrew/etc/gnutls/cert.pem` (`--with-default-trust-store-file`) | system trust (`gnutls.c` 2277) unless turned off | `no-system-trust` + `cafile /etc/ssl/cert.pem`, or `servercert` |
 | `/opt/homebrew/etc/pkcs11/pkcs11.conf`, `…/pkcs11/modules/*.module`, p11-kit's Cellar module directory; `~/.config/pkcs11/…` | when p11-kit loads modules: `pkcs11:` certificate or key URLs (`gnutls.c` 1062–1330), GnuTLS PKCS#11 trust or providers | no `certificate`, `sslkey`, `mca-*`, `token-*`; `P11_KIT_NO_USER_CONFIG=1`. p11-kit has no variable for its system configuration; the remaining guard is library validation (the tools are signed with the hardened runtime, which admits only code signed by Apple or with our Team ID); #182 checks on a release build that a module placed in the Homebrew prefix is not loaded |
 | `…/share/locale` of openconnect and GnuTLS | message lookup | `LC_ALL=C` |
-| `/usr/bin/open` (`DEFAULT_EXTERNAL_BROWSER`, spawned by `hpke.c` 63–71) | a server offers "external browser" sign-in | `no-external-auth`; the root run never signs in |
+| `/usr/bin/open` (`DEFAULT_EXTERNAL_BROWSER`, spawned by `hpke.c` 63–71) | a server sends an "external browser" sign-in form | the root run never signs in (it has the cookie); in the sign-in run, as the user, `no-external-auth` stops offering it but does not prevent it (above) |
 | `/bin/sh`, `/var/tmp` (CSD) | a server requests a host scan | refused (above) |
 
 ### The hook: `vpn-hook` (#182 stub, #183 macOS, #187 Linux)
@@ -1129,61 +1166,101 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
 1. **Session check** (as `DNSHook.session`): euid 0, its own executable trusted, the working
    directory a session directory whose `state` names the session's tool. The parent must be that
    openconnect, or a `/bin/sh` (checked by its executable path) whose parent is that openconnect: the
-   hook does not rely on the shell replacing itself with the command.
-2. **Validation.** Every value the hook uses is checked; one bad value fails the set-up. Addresses
-   go through `inet_pton` and are written as `inet_ntop` gives them back (`DNSSettings.address`).
+   hook does not rely on the shell replacing itself with the command. The helper writes `state`
+   before the tool can run a hook: on the Mac while it is still suspended (`Spawner.spawnVerified`
+   writes it after the signature check and before `SIGCONT`; failing to write it kills the tool);
+   the Linux daemon has no suspended start and writes it right after `posix_spawn`, so there the hook
+   waits up to 5 s for a `state` that names its parent before it refuses.
+2. **Policy from root only.** What the hook may do comes from `policy` (0600, root), which the
+   helper writes into the session directory with `openconnect.conf`, before the start, from the
+   checked request: uid, profile ID, `set_routes`, `set_dns` (`HelperCore.checkLines`). The hook
+   never reads the user's profile, and nothing in openconnect's environment can change the policy.
+3. **Validation.** Every value the hook uses is checked; one bad value fails the set-up. The
+   validators are family-specific (`OpenConnectNetwork`): a *host address* goes through `inet_pton`,
+   is written as `inet_ntop` gives it back and is never the unspecified address; a *network* may be
+   `0.0.0.0` or `::`, its host bits are cleared (as openconnect does for IPv4 split routes); a
+   *mask* is a contiguous dotted IPv4 mask or a length (0–32, 0–128).
 
    | Variable | From | Rule |
    |---|---|---|
    | `reason` | openconnect | one of the five above |
    | `TUNDEV` | the kernel | `^utun[0-9]{1,3}$` (macOS), `^tun[0-9]{1,5}$` (Linux); must exist; its index is noted |
-   | `VPNGATEWAY` | the address openconnect connected to | an address |
-   | `INTERNAL_IP4_ADDRESS`, `INTERNAL_IP4_NETMASK`, `INTERNAL_IP4_NETMASKLEN` | server (`X-CSTP-Address`, `-Netmask`; raw header text) | an address; the netmask contiguous and consistent with the length |
-   | `INTERNAL_IP6_ADDRESS`, `INTERNAL_IP6_NETMASK` | server (raw, anything with `:`) | an IPv6 address, prefix 0–128 |
+   | `VPNGATEWAY` | the address openconnect connected to | a host address |
+   | `INTERNAL_IP4_ADDRESS` | server (`X-CSTP-Address`, raw text) | absent, or a host address |
+   | `INTERNAL_IP4_NETMASK`, `INTERNAL_IP4_NETMASKLEN`, `INTERNAL_IP4_NETADDR` | openconnect, only when the server's netmask parsed and is contiguous (`script.c` 313–340) | all three or none; consistent with each other and the address; none: the address alone (`/32`) |
+   | `INTERNAL_IP6_NETMASK` | server (`X-CSTP-Netmask` with `:`, raw) | absent, or `<host address>/<0–128>` |
+   | `INTERNAL_IP6_ADDRESS` | server, or the address part of `INTERNAL_IP6_NETMASK` (`script.c` 343–353) | absent, or a host address equal to the address in `INTERNAL_IP6_NETMASK` when both are set; alone: `/128` |
    | `INTERNAL_IP4_MTU` | negotiated | 576–9000; 1280 or more when IPv6 is assigned |
-   | `INTERNAL_IP4_DNS` | server (`X-CSTP-DNS`, `-DNS-IP6`; IPv4 and IPv6 mixed) | at most 3 words, each an address |
-   | `CISCO_DEF_DOMAIN` (split on spaces), `CISCO_SPLIT_DNS` (split on commas) | server | each `DNSSettings.domain`, at most 16 of each |
-   | `CISCO_SPLIT_INC`, `CISCO_SPLIT_EXC`, `CISCO_IPV6_SPLIT_INC`, `CISCO_IPV6_SPLIT_EXC` and their `_<n>_ADDR`, `_MASK`, `_MASKLEN` | server (IPv4 normalized by openconnect; the IPv6 `_ADDR` is raw text, `script.c` 138–142) | at most 1,024 of each kind, indexes contiguous from 0, each entry an address and a consistent mask or length |
+   | `INTERNAL_IP4_DNS` | server (`X-CSTP-DNS`, `-DNS-IP6`; IPv4 and IPv6 mixed) | at most 3 words, each a host address |
+   | `CISCO_DEF_DOMAIN` (split on spaces), `CISCO_SPLIT_DNS` (split on commas) | server | each a plain host name (the rules of the Linux `DNSSettings.domain`), at most 16 of each |
+   | `CISCO_SPLIT_INC`, `CISCO_SPLIT_EXC` and their `_<n>_ADDR`, `_MASK`, `_MASKLEN` | server (normalized by openconnect) | at most 1,024 of each kind, indexes contiguous from 0, each a network with a mask and length that agree |
+   | `CISCO_IPV6_SPLIT_INC`, `CISCO_IPV6_SPLIT_EXC` and their `_<n>_ADDR`, `_MASKLEN` | server (`_ADDR` raw text, `script.c` 138–142) | as above, IPv6 networks, length 0–128 |
 
-   Ignored, never used: `CISCO_BANNER` (decoded `%XX`, may hold line breaks), `CISCO_PROXY_PAC`,
-   `CISCO_CSTP_OPTIONS` (every `X-CSTP-*` header), `IDLE_TIMEOUT`, `INTERNAL_IP4_NBNS`. A header
-   value cannot hold CR or LF but may hold spaces, quotes, `$`, backquotes, `;` and bytes from 0x80;
-   variable names are openconnect's own (fixed or built from counters), so a server cannot set
-   `BASH_ENV` or the like.
-3. **Record, then apply**, one change at a time under the run root's lock: each change is written to
-   the session's record (`network`, 0600) before it is made. Every program runs from a fixed path
-   with an argument list (no shell) for at most 10 s, since openconnect waits for the hook without a
-   limit. macOS: `/sbin/ifconfig`, `/sbin/route`, DNS through the SystemConfiguration API; Linux:
-   `ip` and `DNSApplier` (LINUX.md).
+   At least one of the IPv4 and IPv6 addresses must be set. Ignored, never used: `CISCO_BANNER`
+   (decoded `%XX`, may hold line breaks), `CISCO_PROXY_PAC`, `CISCO_CSTP_OPTIONS` (every `X-CSTP-*`
+   header), `IDLE_TIMEOUT`, `INTERNAL_IP4_NBNS`. A header value cannot hold CR or LF but may hold
+   spaces, quotes, `$`, backquotes, `;` and bytes from 0x80; variable names are openconnect's own
+   (fixed or built from counters), so a server cannot set `BASH_ENV` or the like.
+4. **Record, then apply**, one change at a time under the run root's lock. Each change is journaled
+   in the session's record (`network`, 0600) before it is made, and its outcome after: a change is
+   the session's own only when it succeeded. A route or address that already existed ("File
+   exists") is recorded as not owned and never removed, except that a full-tunnel route that already
+   exists fails the set-up (another tunnel holds that traffic, as for OpenVPN). Every program runs
+   from a fixed path with an argument list (no shell) for at most 10 s; macOS: `/sbin/ifconfig`,
+   `/sbin/route`, DNS through the SystemConfiguration API; Linux: `ip` and `DNSApplier` (LINUX.md).
    - `pre-init`: nothing.
-   - `connect`: the interface's address, MTU and up (`ifconfig utunN inet A A netmask
-     255.255.255.255 mtu M up`, and `inet6 A prefixlen L`). With `set_routes`: a host route to
-     `VPNGATEWAY` through the current default gateway; with split includes, each include through the
-     interface and each exclude through the original gateway; without, `0/1` and `128/1` through the
+   - `connect`: the interface's addresses, MTU and up (`ifconfig utunN inet A A netmask
+     255.255.255.255 mtu M up`, and `inet6 A prefixlen L`). With `set_routes`, decided per family:
+     first a host route to `VPNGATEWAY` through the original gateway of its family, so the transport
+     stays reachable whatever follows; IPv4 with split includes: each include through the interface
+     and each exclude through the original gateway; without: `0/1` and `128/1` through the
      interface, never replacing `default` (so `RoutingTable.trafficRoutes` and the other-VPN check
-     see it as they see OpenVPN's `def1`), and `::/1` and `8000::/1` through it when an IPv6 address
-     is assigned. A full tunnel without an IPv6 address blocks IPv6 instead (reject routes for
-     `::/1` and `8000::/1`), so IPv6 traffic cannot leave outside the tunnel; more specific on-link
-     routes stay. With `set_dns`: macOS writes the dynamic keys
-     `State:/Network/Service/passtunnel-<uid>-<profile id>/IPv4` and `/DNS` through `SCDynamicStore`
-     (`ServerAddresses`, `SearchDomains`, `SupplementalMatchDomains` for split DNS, `OverridePrimary`
-     only for a full tunnel): never a `Setup:` key, never `networksetup`, never `/etc/resolv.conf`,
-     no `scutil` text. Linux uses `DNSApplier`.
+     see it as they see OpenVPN's `def1`); IPv6 the same with its own split lists, or `::/1` and
+     `8000::/1`, when an IPv6 address is assigned. When IPv4 is a full tunnel and no IPv6 address
+     is assigned, IPv6 is blocked with reject routes for `::/1` and `8000::/1`. What that does and
+     does not do: it takes away IPv6's default path, so destinations without a more specific route
+     are refused; routes that are more specific stay and win (the local network's on-link prefixes,
+     link-local, other interfaces' and other VPNs' routes), so IPv6 to those still leaves outside
+     the tunnel. It is not a packet filter; a complete block would need pf or nftables, which Phase 1
+     does not use. With IPv4 split, IPv6 without an address is left alone. With `set_dns`: macOS writes
+     the dynamic keys `State:/Network/Service/passtunnel-<uid>-<profile id>/IPv4` and `/DNS` through
+     `SCDynamicStore` (`ServerAddresses`, `SearchDomains`, `SupplementalMatchDomains` for split DNS,
+     `OverridePrimary` only for a full tunnel): never a `Setup:` key, never `networksetup`, never
+     `/etc/resolv.conf`, no `scutil` text. Linux uses `DNSApplier`.
    - `attempt-reconnect`: the gateway host route is set again (the network under the tunnel may have
-     changed). `reconnect`: nothing (openconnect refuses a different address, `library.c` 676–712).
-   - `disconnect`: everything in the record is reverted.
-4. **Report.** On success one line in the session log, `passtunnel vpn-hook: utun5 up: 10.0.0.2,
-   3 routes, DNS …`; on failure the hook reverts what it applied and writes `passtunnel vpn-hook:
-   setting up the network failed: …`. openconnect ignores the result of the `connect` call
-   (`library.c` 1593) and keeps running, so the failure is caught from the log: that line is
-   `PTError.setupFailed` and the client stops the session (as for the Linux DNS hook); the success
-   line is the "connected" marker. openconnect's own `Configured as …` (`main.c` 1660) is printed
-   before the hook runs and marks nothing.
-5. **Revert after a kill.** A record left when the tool has exited (`Supervisor.finish`, `stopAll`,
-   `adoptOrphans`; on Linux the daemon's exit handling and the previous-instance cleanup) is reverted
-   by the helper or daemon running the hook's revert in-process, as `pendingDNSDown` does for
-   OpenVPN, before the run directory goes. Routes through a vanished interface go with it; the
-   gateway host route, the reject routes and the `State:` keys do not, hence the record.
+     changed).
+   - `reconnect`: openconnect refuses a different address or netmask (`library.c` 676–712) but
+     installs whatever else the server now sends (DNS, split routes, MTU; `install_vpn_opts`,
+     `library.c` 652). The hook validates the new environment like a `connect` and compares what it
+     would apply with the record; any difference fails the reconnect ("the server changed the
+     network settings"), and the session is stopped (below), for a new connect to set up afresh.
+   - `disconnect`: everything the record owns is reverted, newest first. Reverting is idempotent (a
+     change already gone counts as reverted).
+5. **Bounded.** openconnect waits for the hook without a limit, and the hook runs in its own process
+   group, which `kill(-pid)` does not reach. So the whole hook run, the lock wait included, has a
+   limit of 30 s; the hook writes its pid and start time to `hook` in the session directory under the
+   lock when it starts and removes it when it ends, and it checks for the `stopping` mark (below)
+   before each change: once that is set it applies nothing more.
+6. **Report and enforcement.** The hook records its outcome in the record (`up`, or `failed` and why)
+   and writes one line to the session log: `passtunnel vpn-hook: utun5 up: 10.0.0.2, 3 routes, DNS …`
+   or, after reverting what it applied, `passtunnel vpn-hook: setting up the network failed: …`.
+   openconnect ignores the result of the `connect` call (`library.c` 1593) and keeps running, so the
+   failure must be acted on by PassTunnel, and not only by a client that may be gone: the hook sends
+   SIGTERM to its openconnect (the pid the session check proved), and the supervisor, which checks its
+   openconnect sessions every 5 s, stops a session whose record says `failed`, has no `up` within 60 s
+   of the start (`openConnectSetupDeadline`), or has no successful `reconnect` within 120 s of an
+   `attempt-reconnect` (`openConnectReconnectDeadline`). The client reads the same lines: `failed` is
+   `PTError.setupFailed`, the success line the "connected" marker. openconnect's own `Configured as
+   …` (`main.c` 1660) is printed before the hook runs and marks nothing.
+7. **Stop and revert.** When a session stops or its tool has exited (`Supervisor.finish`, `stopAll`,
+   `adoptOrphans`; on Linux the daemon's exit handling and the previous-instance cleanup), the
+   supervisor sets `stopping` in the session directory under the lock, waits for a running hook (by
+   its recorded pid and start time) to end, at most 30 s, then kills it, and then runs the hook's
+   revert in-process under the lock, as `pendingDNSDown` does for OpenVPN. Routes through a vanished
+   interface go with it; the gateway host route, the reject routes and the `State:` keys do not, hence
+   the record. A revert that fails keeps the record (and only the record) in the session directory:
+   the profile cannot start over it, and the helper or daemon tries again every 15 s, as the Linux
+   daemon does for DNS (LINUX.md, "Supervision").
 
 ### Supervision and log (#182, #184)
 
@@ -1191,10 +1268,12 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
   `PT.toolRequirement(identifier: PT.openconnectIdentifier)` and the cdhash pins; output (INFO on
   stdout, errors on stderr) to the log descriptor. No `interface`: openconnect opens the first free
   `utun` (`tun.c` 299–370).
-- **Stop:** SIGTERM; openconnect cancels (`main.c` 815–835), says BYE to the server (the session
-  is logged out there), runs the hook's `disconnect` and exits 0 ("User cancelled (SIGINT/SIGTERM);
-  exiting."). SIGKILL after 5 s as today. The hook runs in its own process group, which `kill(-pid)`
-  does not reach; its per-step limit and the helper's revert of the record cover a hook that hangs.
+- **Stop:** SIGTERM; openconnect cancels (`main.c` 815–835), tries to send BYE to the server
+  (`cstp_bye`, `cstp.c` 1237), runs the hook's `disconnect` and exits 0 ("User cancelled
+  (SIGINT/SIGTERM); exiting."). A BYE that was sent does not prove the server invalidated the
+  cookie, and none is sent over a broken connection or after SIGKILL: the cookie is treated as
+  valid until the server's own expiry. SIGKILL after 5 s as today; a hook still running is handled
+  as in step 7 above.
 - **Adoption** unchanged (`state`: pid, uid, staged executable; `proc_pidpath`); sessions count
   against `SessionPolicy.maxSessionsPerUser`.
 - **Exit codes** (`main.c` 2479–2521): 0 cancelled or detached; 1 authentication, I/O, "Session
@@ -1227,9 +1306,12 @@ case startOpenConnect(OpenConnectStart)   // profileID, profileDir, logPath, hos
                                           // FINGERPRINT), tlsOnly, setDNS, setRoutes
 ```
 
-The helper checks every field again (`OpenConnectConfig.validate`: the profile rules below, the
-`CONNECT_URL` host and port against `host` and `port`, `resolve` as `<host>:<IP literal>`, the pin's
-form, the cookie's length and characters) before anything is written. The request stays under the
+The helper checks every field again (`OpenConnectConfig.validate`: the profile rules below,
+`connectURL` exactly `https://<host>[:<port>]/` for the request's `host` and `port`, `resolve`
+required as `<host>:<IP literal>` for a host name and absent for an IP literal, the pin's form, the
+cookie's length and characters) before anything is written, and renders `server` from `host` and
+`port`, not from the text it was sent. `setDNS` and `setRoutes` go into the session's `policy`
+file for the hook. The request stays under the
 64 KiB limit (the cookie is at most 4 KiB).
 
 ### Profile (#181)

@@ -429,10 +429,19 @@ section is the threat model the pull requests #179–#189 are reviewed against; 
   connected to. It never sees your password or code, and the root process never reads the server's
   login pages. Your user name goes to that run in a file, never on its command line, which every
   account on the machine can read.
-- **No redirect to another server.** A server may answer the sign-in with another address to use
-  (load balancing). If that names another host or port than the profile's, the connection is
-  refused (Phase 1). The tunnel run is pinned to the address and the public key the sign-in used, so
-  DNS cannot send the cookie elsewhere between the two runs.
+- **Where the sign-in may go.** A server may send the sign-in to another server (load balancing).
+  PassTunnel refuses to build a tunnel when the sign-in **ended** on another host or port than the
+  profile's (Phase 1), or when the sign-in's log shows a form sent to one; the tunnel run is pinned
+  to the address and the public key the sign-in used, so DNS cannot send the cookie elsewhere between
+  the two runs. What this does not prevent: openconnect follows redirects during the sign-in by
+  itself, and its command line offers no way to refuse one, so your password and code can reach a
+  server the profile's server redirects to (even one that redirects back) before PassTunnel can
+  object. With a pinned key only a server holding that key can receive them; without a pin, any
+  server with a certificate the system trusts for its own name.
+- **No single sign-on.** Phase 1 signs in with a password and code only. openconnect is told not to
+  offer browser sign-in (from openconnect 9.10, which the Mac bundles; older Linux versions always
+  offer it), but a server that asks for it anyway can still make the sign-in run open a page in your
+  browser, as you; that run then fails. The root run never signs in.
 - **Server certificate.** Either a pinned public key (`pin-sha256:`, only the full 44-character
   value: openconnect itself would accept a prefix as short as 4 characters, which PassTunnel
   refuses), which is then the only trust, or the system's root-owned CA bundle passed explicitly
@@ -445,14 +454,19 @@ The cookie is a bearer secret: whoever holds it can use your VPN session until t
 - **Where it lives:** in a pipe from the sign-in run, read in memory by PassTunnel; in the start
   request to the helper (the code-signature-checked XPC connection, on Linux the daemon socket); in
   the helper's memory; in `openconnect.conf` (`0600`, root) in the root-only run directory for as
-  long as the session runs; and in `openconnect`'s memory. PassTunnel's own copy is overwritten once
-  the request is sent or the connection fails. It is never written to your profile folder.
-- **Never logged:** neither run gets `-v` or an HTTP dump option, the levels that would print it,
-  and the log filter masks the cookie's value as well.
-- **How long it lives:** it goes with the run directory when the tunnel stops. A disconnect logs the
-  session out at the server (openconnect says goodbye on SIGTERM); after a forced kill or a crash it
-  stays valid at the server until the server's own timeout. After a dropped connection openconnect
-  reuses it for at most 60 seconds; after that PassTunnel signs in again, with a fresh code.
+  long as the session runs; and in `openconnect`'s memory. PassTunnel overwrites its own buffer
+  once the request is sent or the connection fails; that is best effort, since copies made while
+  encoding the request or by the runtime are not guaranteed to be erased. It is never written to
+  your profile folder.
+- **Not logged:** the sign-in run's output, which carries it, is read only by PassTunnel's parser,
+  and neither run gets `-v` or an HTTP dump option, the levels that would print it. The log filter
+  is not relied on for it.
+- **How long it lives:** the file goes with the run directory when the tunnel stops. On a disconnect
+  openconnect tries to tell the server goodbye; whether the server then invalidates the cookie is up
+  to the server, and nothing is sent after a forced kill, a crash or a broken connection. Treat the
+  cookie as valid until the server's own expiry. After a dropped connection openconnect retries with
+  it for a budget of 60 seconds of waiting between tries, and PassTunnel stops the session if it is
+  not back within 2 minutes; then PassTunnel signs in again, with a fresh code.
 
 ### Values from the server that reach root
 
@@ -475,19 +489,31 @@ names are openconnect's own, so a server cannot set `BASH_ENV` or similar.
   the interface must be a tunnel interface that exists, and lists have limits (3 DNS servers, 16
   domains of each kind, 1,024 routes of each kind). One bad value fails the set-up. What it does not
   need (the banner, the proxy URL, the raw headers) is never read.
+- **Its permissions come from root, not from the server.** Whether it may set routes and DNS is
+  written by the helper into the root-only run directory before the tool starts; the hook reads
+  nothing from your profile and nothing the server sends can change it.
 - **No shell, no lasting change.** The hook runs fixed programs with argument lists, each for at most
-  10 seconds. On the Mac DNS goes into dynamic, per-session entries of the system configuration that
-  disappear on restart; it never changes your network service's saved settings and never writes
-  `/etc/resolv.conf`. It records every change in the session's run directory before making it, and
-  undoes them on disconnect; if `openconnect` is killed before it could, the helper (or the Linux
-  daemon) undoes them from that record.
+  10 seconds and the whole run for at most 30. On the Mac DNS goes into dynamic, per-session entries
+  of the system configuration that disappear on restart; it never changes your network service's
+  saved settings and never writes `/etc/resolv.conf`. It records every change in the session's run
+  directory before making it, and whether it succeeded: only what it added itself is removed later,
+  never a route that was already there. It undoes them on disconnect; if `openconnect` is killed
+  before it could, the helper (or the Linux daemon) first lets a running hook finish or stops it,
+  then undoes them from that record, and keeps retrying while that fails.
+- **Reconnects do not change the set-up.** If the server sends different DNS, routes or MTU when
+  the connection is re-established, the session is stopped instead of being re-configured.
 - **The default route stays.** A full tunnel adds two half routes (`0/1`, `128/1`), as OpenVPN
   does, and never replaces or deletes your default route.
-- **No IPv6 leak.** In a full tunnel without an IPv6 address from the server, IPv6 traffic is
-  blocked rather than left to go around the tunnel.
-- **A failed set-up stops the session.** openconnect ignores the hook's result and keeps running,
-  so PassTunnel reads the hook's own line in the log: a failure stops the session, and only the
-  hook's success line marks the profile connected.
+- **IPv6 in a full tunnel.** When all IPv4 traffic goes through the tunnel and the server assigns no
+  IPv6 address, IPv6's default path is taken away (reject routes), so IPv6 to the internet is refused
+  rather than sent around the tunnel. This is a routing rule, not a firewall: IPv6 to destinations
+  with a more specific route (your local network, link-local addresses, other interfaces or VPNs)
+  still leaves outside the tunnel. The route to the VPN server itself is kept.
+- **A failed set-up stops the session,** whether or not the app or the command is still running.
+  openconnect ignores the hook's result and keeps running, so the hook tells its openconnect to stop,
+  and the helper (or the Linux daemon) stops a session whose network set-up failed, did not finish
+  within 60 seconds of the start, or did not come back within 2 minutes after a dropped connection.
+  Only the hook's success marks the profile connected.
 
 ### Paths compiled into the Homebrew build
 
@@ -507,8 +533,8 @@ your Mac may exist and belong to whoever installed Homebrew. Each is kept out of
   runtime, which loads only code signed by Apple or with the project's Team ID. #182 adds a check
   that a module placed in the Homebrew prefix is not loaded.
 - **Message catalogs:** not opened (`LC_ALL=C`).
-- **A web browser for single sign-on** (`/usr/bin/open`): turned off (`--no-external-auth`), and the
-  root run never signs in.
+- **A web browser for single sign-on** (`/usr/bin/open`): never started by the root run, which
+  never signs in; see "No single sign-on" above for the sign-in run.
 - **Environment:** no proxy (`https_proxy`), TLS key log (`SSLKEYLOGFILE`) or debug variables reach
   either run.
 
