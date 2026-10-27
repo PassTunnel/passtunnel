@@ -93,8 +93,7 @@ Advisories published so far:
 [GHSA-5v7f-79p2-3x2j](https://github.com/PassTunnel/passtunnel/security/advisories/GHSA-5v7f-79p2-3x2j)
 and
 [GHSA-5cpw-c3jh-3427](https://github.com/PassTunnel/passtunnel/security/advisories/GHSA-5cpw-c3jh-3427).
-They list no outside reporter, so there is nobody to credit in them.
-<!-- TODO(maintainer): confirm that nobody outside the project reported GHSA-5v7f-79p2-3x2j or GHSA-5cpw-c3jh-3427; if someone did, add them as credit on the advisory and mention them here (silver: vulnerability_report_credit). -->
+Both were found by the maintainer, so there is no outside reporter to credit in them.
 
 ## Components and privileges
 
@@ -579,9 +578,9 @@ Network.framework), swift-crypto on Linux, the bundled tools' OpenSSL and Sparkl
 
 | Use | What | Where |
 |---|---|---|
-| VPN tunnels | TLS and the data channel are done by the bundled `openvpn` and `openfortivpn` with their OpenSSL. PassTunnel adds no protocol or cipher setting of its own and does not enable older protocol versions; the configuration and the tools' defaults decide, and the tools verify the gateway certificate against the system CA bundle (`/etc/ssl/cert.pem`, fixed by the helper) or a trusted SHA-256 certificate digest in the profile | [How FortiGate is started](#how-fortigate-is-started) |
-| Gateway clock probe, *Fetch fingerprint* | TLS through Network.framework. The clock probe accepts the certificate only when its SHA-256 digest is the profile's trusted one or the system trusts it for that name, and sends no credentials, user name or cookie. *Fetch fingerprint* trusts nothing: it aborts the handshake right after reading the digest, which you confirm before saving | [Network connections](#network-connections) |
-| App updates | HTTPS download of the feed and archives from GitHub (App Transport Security is on, no exceptions); the feed and each archive are also signed with an EdDSA (Ed25519) key and refused without a valid signature | [Updates](#updates) |
+| VPN tunnels | TLS and the data channel are done by the bundled `openvpn` and `openfortivpn` with their OpenSSL. PassTunnel passes no TLS version or cipher option (`tls-version-min`, `tls-cipher`, `--min-tls`, `--insecure-ssl`, `--cipher-list`) to either tool; the tools' defaults and, for OpenVPN, the imported configuration decide. The bundled OpenVPN 2.7 with OpenSSL 4 refuses TLS older than 1.2 by default, but the [sanitizer](#openvpn-configuration-sanitizer) does not reject `tls-version-min`, `tls-version-max` or `tls-cipher`, so a configuration that sets `tls-version-min 1.0` and a `tls-cipher` list with `@SECLEVEL=0` can make OpenVPN accept TLS 1.0 or 1.1 (the behavior of upstream OpenVPN; import only configurations you trust). For FortiGate the helper writes none of the TLS options, and openfortivpn disables insecure protocols unless asked with `--insecure-ssl`, which PassTunnel never passes. The tools verify the gateway certificate against the system CA bundle (`/etc/ssl/cert.pem`, fixed by the helper) or a trusted SHA-256 certificate digest in the profile | [How FortiGate is started](#how-fortigate-is-started) |
+| Gateway clock probe, *Fetch fingerprint* | TLS through Network.framework with the system's default protocol versions (the code sets none). The clock probe accepts the certificate only when its SHA-256 digest is the profile's trusted one or the system trusts it for that name, and sends no credentials, user name or cookie. *Fetch fingerprint* trusts nothing: it aborts the handshake right after reading the digest, which you confirm before saving | [Network connections](#network-connections) |
+| App updates | HTTPS download of the feed and archives from GitHub (Sparkle's URLSession under App Transport Security, which is on with no exceptions in `Info.plist`, so TLS 1.2 or later); the feed and each archive are also signed with an EdDSA (Ed25519) key and refused without a valid signature | [Updates](#updates) |
 | Releases | Developer ID code signatures with the hardened runtime, notarization, build provenance attestations (Sigstore) | [docs/RELEASING.md](docs/RELEASING.md) |
 | Helper trust | Code-signing requirements (Team ID) and SHA-256 cdhashes of the bundled tools and libraries; SHA-256 of `config.ovpn` | [Which programs it runs](#which-programs-it-runs) |
 | Confirm with Touch ID | P-256 key agreement key in the Secure Enclave, ephemeral P-256 ECDH, HKDF-SHA256, AES-256-GCM with the account name as authenticated data | [Confirm with Touch ID](#confirm-with-touch-id-secure-enclave) |
