@@ -17,13 +17,15 @@
 #                     its README says, `passtunnel` and, as root, `passtunneld` with their build number
 #   Docker image      the Dockerfile built, and an MCP session with the image
 #   (x86_64, aarch64)
-#   Release scripts   shellcheck of next-version.sh, its test, build-linux.sh and coverage-report.sh, and the self-test of
+#   Release scripts   shellcheck of next-version.sh, its test, build-linux.sh, coverage-report.sh, compare-app.sh
+#                     and verify-build.sh, and the self-test of
 #                     scripts/next-version.sh (in a temporary repository)
 #   Site              shellcheck of the site scripts and scripts/check-site.sh, the static checks
 #                     of the website in site/ (docs/WEBSITE.md)
 #
 # The checks of the pull request itself (title, linked issue, source branch) are in
-# pull-request.yml, which also runs when the title, body or base branch is edited. A newer push to a
+# pull-request.yml, which also runs when the title, body or base branch is edited. Whether the release
+# builds are repeatable is checked by repeatable.yml, which is not a required check. A newer push to a
 # pull request cancels the run of the older one; runs on dev and main always finish.
 name: CI
 
@@ -675,7 +677,7 @@ jobs:
           persist-credentials: false
 
       - name: Shellcheck
-        run: shellcheck --version && shellcheck scripts/next-version.sh scripts/test-next-version.sh scripts/build-linux.sh scripts/coverage-report.sh
+        run: shellcheck --version && shellcheck scripts/next-version.sh scripts/test-next-version.sh scripts/build-linux.sh scripts/coverage-report.sh scripts/compare-app.sh scripts/verify-build.sh
 
       - name: Self-test of next-version.sh
         run: scripts/test-next-version.sh

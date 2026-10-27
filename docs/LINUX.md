@@ -518,6 +518,10 @@ and fakes for the system tools; the Mac's tests a Keychain service of their own)
     requests with the build number, and `passtunnel` finds it beside itself and reports a replaced
     file as outdated. Attaching tarballs to releases waits for phase 3, and so does a Linux section
     in the README: until then there is nothing to download but the CI artifact.
+  - The tarball is repeatable: the same commit, version and build number, built in the same
+    container with the checkout at `/src`, give the same bytes (it is built without debug
+    information, see `build-linux.sh`). The workflow `Repeatable build` checks it on x86_64; see
+    [RELEASING.md](RELEASING.md#verifying-a-release).
   - The `Dockerfile` builds `passtunnel` in release mode on the CI's Swift image (`swift:6.4.1-noble`)
     and runs `passtunnel mcp` on `ubuntu:24.04` as the user `mcp` (uid 10001), both images pinned by
     digest: what MCP directories build and introspect. It starts without a profile store or a secret
