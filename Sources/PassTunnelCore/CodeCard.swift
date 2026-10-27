@@ -12,8 +12,10 @@ public enum CodeCard {
     /// Bullets instead of the codes: always while they are locked (stored encrypted and not unlocked), and while they
     /// are hidden (Settings → hide codes) or protected (stored encrypted, also once unlocked) unless a click revealed
     /// them less than `revealDuration` ago. Copying never reveals: only `revealedUntil` does.
-    public static func isMasked(locked: Bool, hidden: Bool, protected: Bool, revealedUntil: Date?,
-                                at now: Date) -> Bool {
+    public static func isMasked(
+        locked: Bool, hidden: Bool, protected: Bool, revealedUntil: Date?,
+        at now: Date
+    ) -> Bool {
         if locked { return true }
         guard hidden || protected else { return false }
         guard let revealedUntil else { return true }

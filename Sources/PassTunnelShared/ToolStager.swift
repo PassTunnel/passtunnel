@@ -40,19 +40,24 @@ public struct ToolStager {
     public static let libraryMode: mode_t = 0o444
     static let maxFileBytes: off_t = 256 << 20
 
-    public init(bundleContents: String, runRoot: String = PT.helperRunRoot, buildID: String,
-                toolPins: [String: Set<String>] = PinnedTools.cdhashes,
-                libraryPins: [String: Set<String>] = PinnedTools.libraryCDHashes,
-                toolRequirement: @escaping (HelperCore.Tool) -> String = { PT.toolRequirement(identifier: $0.signingIdentifier) },
-                libraryRequirement: String = PT.teamRequirement) {
-        self.init(bundleContents: bundleContents, runRoot: runRoot, buildID: buildID, toolPins: toolPins,
-                  libraryPins: libraryPins, toolRequirement: toolRequirement, libraryRequirement: libraryRequirement,
-                  validate: { try CodeSignature.verify(path: $0, requirement: $1) })
+    public init(
+        bundleContents: String, runRoot: String = PT.helperRunRoot, buildID: String,
+        toolPins: [String: Set<String>] = PinnedTools.cdhashes,
+        libraryPins: [String: Set<String>] = PinnedTools.libraryCDHashes,
+        toolRequirement: @escaping (HelperCore.Tool) -> String = { PT.toolRequirement(identifier: $0.signingIdentifier) },
+        libraryRequirement: String = PT.teamRequirement
+    ) {
+        self.init(
+            bundleContents: bundleContents, runRoot: runRoot, buildID: buildID, toolPins: toolPins,
+            libraryPins: libraryPins, toolRequirement: toolRequirement, libraryRequirement: libraryRequirement,
+            validate: { try CodeSignature.verify(path: $0, requirement: $1) })
     }
 
-    init(bundleContents: String, runRoot: String, buildID: String, toolPins: [String: Set<String>],
-         libraryPins: [String: Set<String>], toolRequirement: @escaping (HelperCore.Tool) -> String,
-         libraryRequirement: String, validate: @escaping (_ path: String, _ requirement: String) throws -> String) {
+    init(
+        bundleContents: String, runRoot: String, buildID: String, toolPins: [String: Set<String>],
+        libraryPins: [String: Set<String>], toolRequirement: @escaping (HelperCore.Tool) -> String,
+        libraryRequirement: String, validate: @escaping (_ path: String, _ requirement: String) throws -> String
+    ) {
         self.bundleContents = bundleContents
         self.runRoot = runRoot
         self.buildID = buildID
@@ -136,8 +141,9 @@ public struct ToolStager {
             guard mkdir(dir + sub, 0o700) == 0 else { throw HelperCore.Failure.system("mkdir \(dir + sub)", errno) }
         }
         for tool in HelperCore.Tool.allCases {
-            try Self.copyFile(bundleContents + "/Resources/bin/" + tool.rawValue,
-                              to: dir + "/Resources/bin/" + tool.rawValue, mode: Self.toolMode)
+            try Self.copyFile(
+                bundleContents + "/Resources/bin/" + tool.rawValue,
+                to: dir + "/Resources/bin/" + tool.rawValue, mode: Self.toolMode)
         }
         for lib in libraries {
             guard ProfileDirectory.isPlainName(lib) else { throw HelperCore.Failure.notARegularFile(lib) }

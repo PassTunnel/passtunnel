@@ -9,7 +9,7 @@ public enum ProfileFields {
         "name", "badge", "icon", "badge_style", "pinned", "order",
         "username", "password_mode", "otp_mode", "digits", "period", "algorithm", "otp_delivery", "otp_template",
         "require_auth", "session_limit_min", "auto_reconnect", "connect_at_login", "health_host",
-        "host", "port", "trusted_cert", "set_dns", "set_routes",
+        "host", "port", "trusted_cert", "set_dns", "set_routes"
     ]
 
     static let fortiOnly: Set<String> = ["host", "port", "trusted_cert", "set_dns", "set_routes"]
@@ -19,7 +19,7 @@ public enum ProfileFields {
         "totp.algorithm": "algorithm", "totp_algorithm": "algorithm", "session_limit": "session_limit_min",
         "badge_letter": "badge", "user": "username", "template": "otp_template", "delivery": "otp_delivery",
         "dns": "set_dns", "routes": "set_routes", "health": "health_host", "cert": "trusted_cert",
-        "auth": "require_auth",
+        "auth": "require_auth"
     ]
 
     /// Lowercased, dashes → underscores, aliases resolved; nil for unknown keys.

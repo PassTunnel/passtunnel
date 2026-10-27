@@ -27,8 +27,9 @@ func fail(_ message: String, code: Int32 = 1) -> Never {
 }
 
 if CommandLine.arguments.count > 1 {
-    fail("passtunneld takes no arguments (but dns-hook, which OpenVPN runs); systemd starts it through passtunnel.socket.",
-         code: 2)
+    fail(
+        "passtunneld takes no arguments (but dns-hook, which OpenVPN runs); systemd starts it through passtunnel.socket.",
+        code: 2)
 }
 if geteuid() != 0 { fail("passtunneld must run as root.") }
 
@@ -47,8 +48,9 @@ let daemon: Daemon = {
     }
 }()
 daemon.serve()
-DaemonLog.info("listening on \(daemon.socketPath), protocol \(PT.helperProtocolVersion), build \(options.build)"
-               + (options.buildNumber.map { " (\($0))" } ?? ""))
+DaemonLog.info(
+    "listening on \(daemon.socketPath), protocol \(PT.helperProtocolVersion), build \(options.build)"
+        + (options.buildNumber.map { " (\($0))" } ?? ""))
 
 // The main thread waits for a stop signal itself. Not dispatchMain(): on Linux it parks the main
 // thread in sigsuspend with an empty mask, where SIGTERM would end the process without the cleanup.

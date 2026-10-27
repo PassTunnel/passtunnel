@@ -47,8 +47,10 @@ public struct ConnectionFailure: Codable, Equatable, Sendable {
     /// (`ConnectionManager.checkClock`).
     public var clock: ClockOffset?
 
-    public init(kind: Kind, at: Date, reply: String? = nil, reason: String? = nil, credentialsSent: Bool = false,
-                codeSent: Bool = false, codeSecondsLeft: Int? = nil, tries: Int? = nil) {
+    public init(
+        kind: Kind, at: Date, reply: String? = nil, reason: String? = nil, credentialsSent: Bool = false,
+        codeSent: Bool = false, codeSecondsLeft: Int? = nil, tries: Int? = nil
+    ) {
         self.kind = kind
         self.at = at
         self.reply = reply
@@ -105,8 +107,8 @@ public struct ConnectionFailure: Codable, Equatable, Sendable {
         case PTError.connectCancelled, PTError.userConfirmationCancelled, is CancellationError:
             f.kind = .cancelled
         case PTError.missingConfig, PTError.missingHost, PTError.missingPassword, PTError.missingTOTPSecret,
-             PTError.missingCredential, PTError.invalidField, PTError.usernameTooLong, PTError.invalidSecret,
-             PTError.invalidFile, PTError.ovpnNotAllowed, PTError.ovpnReferencedFile, PTError.protectedSecretUnreadable:
+            PTError.missingCredential, PTError.invalidField, PTError.usernameTooLong, PTError.invalidSecret,
+            PTError.invalidFile, PTError.ovpnNotAllowed, PTError.ovpnReferencedFile, PTError.protectedSecretUnreadable:
             f.kind = .configuration
         default:
             f.kind = .failed

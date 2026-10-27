@@ -55,10 +55,12 @@ final class ProjectLinksTests: XCTestCase {
         let tapOwner = try XCTUnwrap(tapRepo.split(separator: "/").first)
         let tapName = "\(tapOwner)/\(tapRepo.split(separator: "/")[1].replacingOccurrences(of: "homebrew-", with: ""))"
 
-        let repoPattern = try NSRegularExpression(pattern: #"github\.com/([A-Za-z0-9_.-]+/(?:passtunnel|homebrew-tap))\b"#,
-                                                 options: .caseInsensitive)
-        let tapPattern = try NSRegularExpression(pattern: #"\b([A-Za-z0-9_.-]+/tap)/passtunnel\b|brew trust ([A-Za-z0-9_.-]+/tap)\b"#,
-                                                options: .caseInsensitive)
+        let repoPattern = try NSRegularExpression(
+            pattern: #"github\.com/([A-Za-z0-9_.-]+/(?:passtunnel|homebrew-tap))\b"#,
+            options: .caseInsensitive)
+        let tapPattern = try NSRegularExpression(
+            pattern: #"\b([A-Za-z0-9_.-]+/tap)/passtunnel\b|brew trust ([A-Za-z0-9_.-]+/tap)\b"#,
+            options: .caseInsensitive)
         var problems: [String] = []
         var seen = 0
         for url in try Self.files() {
@@ -83,8 +85,9 @@ final class ProjectLinksTests: XCTestCase {
 
     func testAppFallbackRepositoryMatchesReleaseEnv() throws {
         let repo = try XCTUnwrap(try Self.releaseEnv()["GITHUB_REPO"])
-        let source = try String(contentsOf: Self.root.appendingPathComponent("Sources/PassTunnel/App/Settings/SettingsView.swift"),
-                                encoding: .utf8)
+        let source = try String(
+            contentsOf: Self.root.appendingPathComponent("Sources/PassTunnel/App/Settings/SettingsView.swift"),
+            encoding: .utf8)
         XCTAssertTrue(source.contains(#"?? "\#(repo)""#), "AppInfo.repository fallback is not \(repo)")
     }
 
@@ -95,10 +98,12 @@ final class ProjectLinksTests: XCTestCase {
         let match = try XCTUnwrap(pattern.firstMatch(in: page, range: NSRange(page.startIndex..., in: page)))
         let canonical = String(page[Range(match.range(at: 1), in: page)!])
         XCTAssertTrue(canonical.hasSuffix("/privacy/"), canonical)
-        let source = try String(contentsOf: Self.root.appendingPathComponent("Sources/PassTunnel/App/Settings/SettingsView.swift"),
-                                encoding: .utf8)
-        XCTAssertTrue(source.contains(#"static let privacyURL = URL(string: "\#(canonical)")!"#),
-                      "AppInfo.privacyURL is not \(canonical)")
+        let source = try String(
+            contentsOf: Self.root.appendingPathComponent("Sources/PassTunnel/App/Settings/SettingsView.swift"),
+            encoding: .utf8)
+        XCTAssertTrue(
+            source.contains(#"static let privacyURL = URL(string: "\#(canonical)")!"#),
+            "AppInfo.privacyURL is not \(canonical)")
     }
 
     func testInfoPlistTakesTheRepositoryFromBuildApp() throws {

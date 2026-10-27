@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+
 @testable import PassTunnelDaemon
 @testable import PassTunnelShared
 
@@ -28,14 +29,16 @@ class DaemonTestCase: XCTestCase {
         var template = Array("/tmp/ptd-XXXXXX".utf8CString)
         guard let made = mkdtemp(&template) else { throw XCTSkip("mkdtemp failed") }
         base = HelperCore.realPath(String(cString: made)) ?? String(cString: made)
-        try FileManager.default.createDirectory(atPath: profileDir("acme"), withIntermediateDirectories: true,
-                                                attributes: [.posixPermissions: 0o755])
+        try FileManager.default.createDirectory(
+            atPath: profileDir("acme"), withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o755])
         try Self.config.write(toFile: profileDir("acme") + "/config.ovpn", atomically: true, encoding: .utf8)
         try makeTool(version: "2.6.9")
         try makeForti(version: "1.21.0")
         try makePPPD(version: "2.4.9")
-        try FileManager.default.createDirectory(atPath: base + "/certs", withIntermediateDirectories: true,
-                                                attributes: [.posixPermissions: 0o755])
+        try FileManager.default.createDirectory(
+            atPath: base + "/certs", withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o755])
         try "-----BEGIN CERTIFICATE-----\n".write(toFile: caPath, atomically: true, encoding: .utf8)
         chmod(caPath, 0o644)
         caller.uid = me
@@ -61,19 +64,20 @@ class DaemonTestCase: XCTestCase {
     /// The fake OpenVPN: prints a version for `--version`, else its arguments, then sleeps.
     func makeTool(version: String, at path: String? = nil) throws {
         let path = path ?? toolPath
-        try FileManager.default.createDirectory(atPath: (path as NSString).deletingLastPathComponent,
-                                                withIntermediateDirectories: true, attributes: [.posixPermissions: 0o755])
+        try FileManager.default.createDirectory(
+            atPath: (path as NSString).deletingLastPathComponent,
+            withIntermediateDirectories: true, attributes: [.posixPermissions: 0o755])
         let script = """
-        #!/bin/sh
-        if [ "$1" = "--version" ]; then
-          echo "OpenVPN \(version) x86_64-pc-linux-gnu [SSL (OpenSSL)] [LZO] [LZ4] [EPOLL]"
-          echo "library versions: OpenSSL 3.0.13 30 Jan 2024, LZO 2.10"
-          exit 1
-        fi
-        echo "fake openvpn $*"
-        exec sleep 30
+            #!/bin/sh
+            if [ "$1" = "--version" ]; then
+              echo "OpenVPN \(version) x86_64-pc-linux-gnu [SSL (OpenSSL)] [LZO] [LZ4] [EPOLL]"
+              echo "library versions: OpenSSL 3.0.13 30 Jan 2024, LZO 2.10"
+              exit 1
+            fi
+            echo "fake openvpn $*"
+            exec sleep 30
 
-        """
+            """
         try? FileManager.default.removeItem(atPath: path)
         try script.write(toFile: path, atomically: true, encoding: .utf8)
         chmod(path, 0o755)
@@ -81,23 +85,27 @@ class DaemonTestCase: XCTestCase {
 
     /// The fake openfortivpn: prints a version for `--version`, else its arguments, then sleeps.
     func makeForti(version: String) throws {
-        try makeScript(fortiPath, """
-        #!/bin/sh
-        if [ "$1" = "--version" ]; then echo "\(version)"; exit 0; fi
-        echo "fake openfortivpn $*"
-        exec sleep 30
+        try makeScript(
+            fortiPath,
+            """
+            #!/bin/sh
+            if [ "$1" = "--version" ]; then echo "\(version)"; exit 0; fi
+            echo "fake openfortivpn $*"
+            exec sleep 30
 
-        """)
+            """)
     }
 
     /// The fake pppd: only its version (openfortivpn would run it; the fake one does not).
     func makePPPD(version: String) throws {
-        try makeScript(pppdPath, """
-        #!/bin/sh
-        echo "pppd version \(version)" >&2
-        exit 0
+        try makeScript(
+            pppdPath,
+            """
+            #!/bin/sh
+            echo "pppd version \(version)" >&2
+            exit 0
 
-        """)
+            """)
     }
 
     func makeScript(_ path: String, _ script: String) throws {
@@ -118,9 +126,11 @@ class DaemonTestCase: XCTestCase {
         let paths: [String: String]
 
         func resolve(_ spec: ToolSpec) throws -> ResolvedTool {
-            try system.resolve(ToolSpec(name: spec.name, candidates: paths[spec.name].map { [$0] } ?? [],
-                                        minimum: spec.minimum, package: spec.package,
-                                        versionArguments: spec.versionArguments, parseVersion: spec.parseVersion))
+            try system.resolve(
+                ToolSpec(
+                    name: spec.name, candidates: paths[spec.name].map { [$0] } ?? [],
+                    minimum: spec.minimum, package: spec.package,
+                    versionArguments: spec.versionArguments, parseVersion: spec.parseVersion))
         }
 
         func caBundle() throws -> String { try system.caBundle() }
@@ -132,15 +142,17 @@ class DaemonTestCase: XCTestCase {
 
     func fortiStart(_ id: String = "acme", setDNS: Bool = false) -> FortiStart {
         let dir = profileDir(id)
-        return FortiStart(profileID: id, profileDir: dir, host: "vpn.example.com", username: "alice",
-                          password: "pw-forti", otp: "123456", setDNS: setDNS, logPath: dir + "/vpn.log")
+        return FortiStart(
+            profileID: id, profileDir: dir, host: "vpn.example.com", username: "alice",
+            password: "pw-forti", otp: "123456", setDNS: setDNS, logPath: dir + "/vpn.log")
     }
 
     func start(_ id: String = "acme", sha: String? = nil) -> OpenVPNStart {
         let dir = profileDir(id)
-        return OpenVPNStart(profileID: id, profileDir: dir, username: "alice", secret: "pw123456",
-                            logPath: dir + "/vpn.log",
-                            configSHA256: sha ?? HelperCore.sha256Hex(Data(Self.config.utf8)))
+        return OpenVPNStart(
+            profileID: id, profileDir: dir, username: "alice", secret: "pw123456",
+            logPath: dir + "/vpn.log",
+            configSHA256: sha ?? HelperCore.sha256Hex(Data(Self.config.utf8)))
     }
 
     /// A daemon on the temporary run root, serving until the test ends.

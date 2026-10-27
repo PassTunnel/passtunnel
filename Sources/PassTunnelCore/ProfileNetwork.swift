@@ -12,8 +12,10 @@ public struct ProfileOverlap: Equatable, Sendable {
     public var mine: NetworkClaims
     public var theirs: NetworkClaims
 
-    public init(profileID: String, name: String, overlaps: [NetworkClaims.Overlap], mine: NetworkClaims,
-                theirs: NetworkClaims) {
+    public init(
+        profileID: String, name: String, overlaps: [NetworkClaims.Overlap], mine: NetworkClaims,
+        theirs: NetworkClaims
+    ) {
         self.profileID = profileID
         self.name = name
         self.overlaps = overlaps
@@ -50,9 +52,10 @@ public enum ProfileNetwork {
     /// group or others, not a link), sound, and written for the profile's destination as it is now.
     static func savedOptions(_ p: Profile, store: ProfileStore) -> [String]? {
         guard let data = readOwned(store.dir(p.id).appendingPathComponent(fileName)),
-              let saved = try? JSONCoding.decode(Saved.self, from: data, name: fileName), saved.version == version,
-              saved.options.count <= VPNLog.maxPushedOptions, saved.options.allSatisfy(VPNLog.isNetworkOption),
-              saved.destination == ProfileDestination.of(p, store: store).fingerprint else { return nil }
+            let saved = try? JSONCoding.decode(Saved.self, from: data, name: fileName), saved.version == version,
+            saved.options.count <= VPNLog.maxPushedOptions, saved.options.allSatisfy(VPNLog.isNetworkOption),
+            saved.destination == ProfileDestination.of(p, store: store).fingerprint
+        else { return nil }
         return saved.options
     }
 
@@ -64,7 +67,8 @@ public enum ProfileNetwork {
         defer { close(fd) }
         var info = stat()
         guard fstat(fd, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG, info.st_uid == geteuid(),
-              info.st_mode & 0o077 == 0, info.st_size >= 0, info.st_size <= maxFileSize else { return nil }
+            info.st_mode & 0o077 == 0, info.st_size >= 0, info.st_size <= maxFileSize
+        else { return nil }
         var data = Data()
         var buffer = [UInt8](repeating: 0, count: 16 * 1024)
         while true {
@@ -79,8 +83,9 @@ public enum ProfileNetwork {
     /// Writes `options` for the profile's current destination: atomically, 0600. A failure is ignored: the
     /// cache only makes the next check better.
     static func save(_ options: [String], for p: Profile, store: ProfileStore) {
-        let saved = Saved(version: version, destination: ProfileDestination.of(p, store: store).fingerprint,
-                          options: Array(options.prefix(VPNLog.maxPushedOptions)))
+        let saved = Saved(
+            version: version, destination: ProfileDestination.of(p, store: store).fingerprint,
+            options: Array(options.prefix(VPNLog.maxPushedOptions)))
         try? JSONCoding.write(saved, to: store.dir(p.id).appendingPathComponent(fileName), mode: 0o600)
     }
 
@@ -88,8 +93,10 @@ public enum ProfileNetwork {
 
     /// The network options the tunnel of `p` brought up, from its log (and for FortiGate the routing table;
     /// `tunnelRoutes` is given the interface). nil when the log says nothing about it.
-    static func observedOptions(_ p: Profile, store: ProfileStore,
-                                tunnelRoutes: (String) -> [RoutingTable.Route]) -> [String]? {
+    static func observedOptions(
+        _ p: Profile, store: ProfileStore,
+        tunnelRoutes: (String) -> [RoutingTable.Route]
+    ) -> [String]? {
         let log = VPNLog.readHead(store.logURL(p.id), maxBytes: 256 * 1024)
         switch p.type {
         case .openvpn:
@@ -124,8 +131,10 @@ public enum ProfileNetwork {
     /// What `p` takes over: its config's lines (FortiGate: whether it sets routes and DNS at all) and the
     /// options of the last connect. `live`: the tunnel is up now, so its log comes first, the file second;
     /// otherwise (a profile about to connect, whose log may be a failed attempt's) the file comes first.
-    static func claims(for p: Profile, store: ProfileStore, live: Bool,
-                       tunnelRoutes: (String) -> [RoutingTable.Route]) -> NetworkClaims {
+    static func claims(
+        for p: Profile, store: ProfileStore, live: Bool,
+        tunnelRoutes: (String) -> [RoutingTable.Route]
+    ) -> NetworkClaims {
         switch p.type {
         case .openvpn:
             let config = (try? String(contentsOf: store.ovpnURL(p.id), encoding: .utf8)) ?? ""
@@ -141,15 +150,20 @@ public enum ProfileNetwork {
     }
 
     /// The profiles in `others` whose claims meet those of `p`, in the order given.
-    static func overlaps(of p: Profile, with others: [Profile], store: ProfileStore,
-                         tunnelRoutes: (String) -> [RoutingTable.Route]) -> [ProfileOverlap] {
+    static func overlaps(
+        of p: Profile, with others: [Profile], store: ProfileStore,
+        tunnelRoutes: (String) -> [RoutingTable.Route]
+    ) -> [ProfileOverlap] {
         let mine = claims(for: p, store: store, live: false, tunnelRoutes: tunnelRoutes)
         guard !mine.isEmpty else { return [] }
         return others.compactMap { other in
             let theirs = claims(for: other, store: store, live: true, tunnelRoutes: tunnelRoutes)
             let found = NetworkClaims.overlaps(mine, theirs)
-            return found.isEmpty ? nil : ProfileOverlap(profileID: other.id, name: other.name, overlaps: found,
-                                                       mine: mine, theirs: theirs)
+            return found.isEmpty
+                ? nil
+                : ProfileOverlap(
+                    profileID: other.id, name: other.name, overlaps: found,
+                    mine: mine, theirs: theirs)
         }
     }
 }

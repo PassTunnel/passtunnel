@@ -1,25 +1,28 @@
+import Foundation
+
 #if canImport(Darwin)
 import Darwin
 #elseif canImport(Glibc)
 import Glibc
 #endif
-import Foundation
 
 /// Read-only view of the routes ordinary traffic takes, without external commands or privileges: on
 /// the Mac the IPv4 routing table (`sysctl` `NET_RT_DUMP`), on Linux the IPv4 and IPv6 routes of the
 /// tables the policy rules send ordinary traffic to (rtnetlink dumps of the links, routes and rules).
 public enum RoutingTable {
     public struct Route: Equatable, Sendable {
-        public var destination: String       // dotted quad, or (Linux) an IPv6 address
+        public var destination: String  // dotted quad, or (Linux) an IPv6 address
         public var prefixLength: Int
-        public var interface: String         // e.g. "utun4", "en0", "tun0"
-        public var scoped: Bool              // RTF_IFSCOPE: only used for traffic bound to the interface
+        public var interface: String  // e.g. "utun4", "en0", "tun0"
+        public var scoped: Bool  // RTF_IFSCOPE: only used for traffic bound to the interface
         /// Linux: the kernel's kind of `interface` is a tunnel device (tun/tap, ppp, WireGuard, …),
         /// whatever its name.
         public var tunnelDevice: Bool
 
-        public init(destination: String, prefixLength: Int, interface: String, scoped: Bool = false,
-                    tunnelDevice: Bool = false) {
+        public init(
+            destination: String, prefixLength: Int, interface: String, scoped: Bool = false,
+            tunnelDevice: Bool = false
+        ) {
             self.destination = destination
             self.prefixLength = prefixLength
             self.interface = interface
@@ -58,7 +61,7 @@ public enum RoutingTable {
         var mib: [Int32] = [CTL_NET, PF_ROUTE, 0, AF_INET, NET_RT_DUMP, 0]
         var len = 0
         guard sysctl(&mib, 6, nil, &len, nil, 0) == 0, len > 0 else { return [] }
-        len += len / 8                                   // the table may grow between the two calls
+        len += len / 8  // the table may grow between the two calls
         var buf = [UInt8](repeating: 0, count: len)
         guard sysctl(&mib, 6, &buf, &len, nil, 0) == 0 else { return [] }
         return parse(Array(buf.prefix(len)))
@@ -82,7 +85,7 @@ public enum RoutingTable {
                     guard p < offset + length else { break }
                     let saLen = Int(raw[p])
                     addresses[i] = buf[p..<min(p + saLen, offset + length)]
-                    p += saLen > 0 ? 1 + ((saLen - 1) | 3) : 4   // sockaddrs are padded to 4 bytes
+                    p += saLen > 0 ? 1 + ((saLen - 1) | 3) : 4  // sockaddrs are padded to 4 bytes
                 }
                 guard let dst = addresses[Int(RTAX_DST)], dst.count >= 2, dst[dst.startIndex + 1] == UInt8(AF_INET) else {
                     continue
@@ -95,9 +98,11 @@ public enum RoutingTable {
                 }
                 var name = [CChar](repeating: 0, count: Int(IF_NAMESIZE) + 1)
                 let iface = if_indextoname(UInt32(hdr.rtm_index), &name) != nil ? String(cString: name) : ""
-                out.append(Route(destination: ipv4Bytes(dst).map(String.init).joined(separator: "."),
-                                 prefixLength: prefix, interface: iface,
-                                 scoped: hdr.rtm_flags & RTF_IFSCOPE != 0))
+                out.append(
+                    Route(
+                        destination: ipv4Bytes(dst).map(String.init).joined(separator: "."),
+                        prefixLength: prefix, interface: iface,
+                        scoped: hdr.rtm_flags & RTF_IFSCOPE != 0))
             }
         }
         return out
@@ -124,20 +129,23 @@ public enum RoutingTable {
     /// capture all traffic, less those it suppresses (`suppress_prefixlength`, as wg-quick sets on the
     /// main table); the walk ends at the first table whose routes cover every destination (a default
     /// route, or both halves) and at a rule that drops all traffic. Without any rules, the main table.
-    static func trafficRoutes(routes: [Netlink.Route], rules: [Netlink.Rule], links: [Int32: Netlink.Link],
-                              uid: UInt32) -> [Route] {
+    static func trafficRoutes(
+        routes: [Netlink.Route], rules: [Netlink.Rule], links: [Int32: Netlink.Link],
+        uid: UInt32
+    ) -> [Route] {
         var out: [Route] = []
         for family in [Netlink.inet, Netlink.inet6] {
             // The kernel dumps rules in priority order; sorted again, keeping that order among equals.
             let familyRules = rules.enumerated().filter { $0.element.family == family }
                 .sorted { ($0.element.priority, $0.offset) < ($1.element.priority, $1.offset) }.map(\.element)
-            let walk = familyRules.isEmpty
+            let walk =
+                familyRules.isEmpty
                 ? [Netlink.Rule(family: family, priority: 0, table: Netlink.mainTable, action: Netlink.toTable)]
                 : familyRules
             for rule in walk where rule.applies(uid: uid) {
                 guard rule.action == Netlink.toTable else {
                     if Netlink.dropActions.contains(rule.action) { break }
-                    continue                                // goto, nop: rare, not followed
+                    continue  // goto, nop: rare, not followed
                 }
                 let candidates = routes.filter {
                     $0.family == family && $0.table == rule.table && $0.type == Netlink.unicast
@@ -148,8 +156,9 @@ public enum RoutingTable {
                     guard let destination = Netlink.address(route.destination, family: family) else { continue }
                     for index in route.interfaces {
                         let link = links[index]
-                        let r = Route(destination: destination, prefixLength: route.prefixLength,
-                                      interface: link?.name ?? "", tunnelDevice: link?.isTunnel ?? false)
+                        let r = Route(
+                            destination: destination, prefixLength: route.prefixLength,
+                            interface: link?.name ?? "", tunnelDevice: link?.isTunnel ?? false)
                         if r.capturesAllTraffic { captured.append(r) }
                     }
                 }
@@ -185,19 +194,19 @@ public enum RoutingTable {
 /// is plain byte handling in host order, so it builds and is tested on every platform; only the
 /// socket is Linux's.
 enum Netlink {
-    static let headerSize = 16                          // struct nlmsghdr
-    static let error: UInt16 = 2                        // NLMSG_ERROR
-    static let done: UInt16 = 3                         // NLMSG_DONE
-    static let request: UInt16 = 0x1                    // NLM_F_REQUEST
-    static let dumpFlags: UInt16 = 0x300                // NLM_F_DUMP
+    static let headerSize = 16  // struct nlmsghdr
+    static let error: UInt16 = 2  // NLMSG_ERROR
+    static let done: UInt16 = 3  // NLMSG_DONE
+    static let request: UInt16 = 0x1  // NLM_F_REQUEST
+    static let dumpFlags: UInt16 = 0x300  // NLM_F_DUMP
     static let newLink: UInt16 = 16, getLink: UInt16 = 18
     static let newRoute: UInt16 = 24, getRoute: UInt16 = 26
     static let newRule: UInt16 = 32, getRule: UInt16 = 34
     /// Linux's address families (Darwin's AF_INET6 is 30).
     static let inet: UInt8 = 2, inet6: UInt8 = 10
     static let mainTable: UInt32 = 254
-    static let unicast: UInt8 = 1                       // RTN_UNICAST
-    static let toTable: UInt8 = 1                       // FR_ACT_TO_TBL
+    static let unicast: UInt8 = 1  // RTN_UNICAST
+    static let toTable: UInt8 = 1  // FR_ACT_TO_TBL
     /// FR_ACT_BLACKHOLE, FR_ACT_UNREACHABLE, FR_ACT_PROHIBIT: nothing after such a rule is reached.
     static let dropActions: Set<UInt8> = [6, 7, 8]
     /// Link kinds (`IFLA_INFO_KIND`) of tunnel devices: tun and tap, ppp, WireGuard, OpenVPN's data
@@ -206,7 +215,7 @@ enum Netlink {
 
     struct Route: Equatable {
         var family: UInt8
-        var destination: [UInt8]          // network order; empty for a default route
+        var destination: [UInt8]  // network order; empty for a default route
         var prefixLength: Int
         var table: UInt32
         var type: UInt8
@@ -237,7 +246,7 @@ enum Netlink {
         func applies(uid: UInt32) -> Bool {
             let matches = selectors.allSatisfy { selector in
                 switch selector {
-                case .inputInterface(let name): return name == "lo"     // locally generated traffic
+                case .inputInterface(let name): return name == "lo"  // locally generated traffic
                 case .mark(let mark, let mask): return mark & mask == 0
                 case .uidRange(let start, let end): return (start...max(start, end)).contains(uid)
                 case .source, .destination, .tos, .other: return false
@@ -341,10 +350,10 @@ extension Netlink.Route {
         interfaces = []
         for (attribute, value) in Netlink.attributes(body, from: s + 12) {
             switch attribute {
-            case 1: destination = Array(value)                                   // RTA_DST
-            case 4: if let i = Netlink.u32(value) { interfaces.append(Int32(bitPattern: i)) }   // RTA_OIF
-            case 15: if let t = Netlink.u32(value) { table = t }                 // RTA_TABLE
-            case 9:                                                              // RTA_MULTIPATH
+            case 1: destination = Array(value)  // RTA_DST
+            case 4: if let i = Netlink.u32(value) { interfaces.append(Int32(bitPattern: i)) }  // RTA_OIF
+            case 15: if let t = Netlink.u32(value) { table = t }  // RTA_TABLE
+            case 9:  // RTA_MULTIPATH
                 // struct rtnexthop: length, flags, hops, ifindex, then the hop's own attributes.
                 var offset = value.startIndex
                 while offset + 8 <= value.endIndex {
@@ -370,7 +379,7 @@ extension Netlink.Rule {
         priority = 0
         table = UInt32(body[s + 4])
         action = body[s + 7]
-        invert = Netlink.u32(body, s + 8) & 0x2 != 0                            // FIB_RULE_INVERT
+        invert = Netlink.u32(body, s + 8) & 0x2 != 0  // FIB_RULE_INVERT
         if body[s + 1] > 0 { selectors.append(.destination) }
         if body[s + 2] > 0 { selectors.append(.source) }
         if body[s + 3] != 0 { selectors.append(.tos) }
@@ -378,16 +387,16 @@ extension Netlink.Rule {
         var mask: UInt32?
         for (attribute, value) in Netlink.attributes(body, from: s + 12) {
             switch attribute {
-            case 1, 2, 4, 18, 21: break             // FRA_DST, FRA_SRC (lengths above), FRA_GOTO, FRA_PAD, FRA_PROTOCOL
-            case 3: selectors.append(.inputInterface(Netlink.string(value)))         // FRA_IIFNAME
-            case 6: priority = Netlink.u32(value) ?? 0                              // FRA_PRIORITY
-            case 10: mark = Netlink.u32(value)                                      // FRA_FWMARK
-            case 16: mask = Netlink.u32(value)                                      // FRA_FWMASK
-            case 13: break                                                          // FRA_SUPPRESS_IFGROUP
-            case 14:                                                                // FRA_SUPPRESS_PREFIXLEN, -1: none
+            case 1, 2, 4, 18, 21: break  // FRA_DST, FRA_SRC (lengths above), FRA_GOTO, FRA_PAD, FRA_PROTOCOL
+            case 3: selectors.append(.inputInterface(Netlink.string(value)))  // FRA_IIFNAME
+            case 6: priority = Netlink.u32(value) ?? 0  // FRA_PRIORITY
+            case 10: mark = Netlink.u32(value)  // FRA_FWMARK
+            case 16: mask = Netlink.u32(value)  // FRA_FWMASK
+            case 13: break  // FRA_SUPPRESS_IFGROUP
+            case 14:  // FRA_SUPPRESS_PREFIXLEN, -1: none
                 if let v = Netlink.u32(value), Int32(bitPattern: v) >= 0 { suppressPrefixLength = Int(v) }
-            case 15: if let t = Netlink.u32(value) { table = t }                    // FRA_TABLE
-            case 20:                                                                // FRA_UID_RANGE: start, end
+            case 15: if let t = Netlink.u32(value) { table = t }  // FRA_TABLE
+            case 20:  // FRA_UID_RANGE: start, end
                 if value.count >= 8 {
                     selectors.append(.uidRange(Netlink.u32(value, value.startIndex), Netlink.u32(value, value.startIndex + 4)))
                 } else {
@@ -412,9 +421,9 @@ extension Netlink.Link {
         name = ""
         kind = nil
         for (attribute, value) in Netlink.attributes(body, from: body.startIndex + 16) {
-            if attribute == 3 { name = Netlink.string(value) }                       // IFLA_IFNAME
-            if attribute == 18 {                                                     // IFLA_LINKINFO
-                for (info, data) in Netlink.attributes(value, from: value.startIndex) where info == 1 {   // IFLA_INFO_KIND
+            if attribute == 3 { name = Netlink.string(value) }  // IFLA_IFNAME
+            if attribute == 18 {  // IFLA_LINKINFO
+                for (info, data) in Netlink.attributes(value, from: value.startIndex) where info == 1 {  // IFLA_INFO_KIND
                     kind = Netlink.string(data)
                 }
             }
@@ -425,8 +434,8 @@ extension Netlink.Link {
 
 #if os(Linux)
 extension Netlink {
-    static let afNetlink: Int32 = 16                    // AF_NETLINK
-    static let routeProtocol: Int32 = 0                 // NETLINK_ROUTE
+    static let afNetlink: Int32 = 16  // AF_NETLINK
+    static let routeProtocol: Int32 = 0  // NETLINK_ROUTE
 
     /// Sends one dump request (`type`, every family) to the kernel on a new socket and hands each
     /// message of the reply to `each`, until the dump ends. False when the socket fails, the kernel

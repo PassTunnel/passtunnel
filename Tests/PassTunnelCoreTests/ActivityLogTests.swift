@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+
 @testable import PassTunnelCore
 @testable import PassTunnelKit
 
@@ -16,23 +17,26 @@ final class ActivityLogTests: CoreTestCase {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     }
 
-    static let sending = ActivityEvent.Sending(username: "alice", password: true, code: true, codePrefix: "482",
-                                               secondsLeft: 22, format: "{password}{otp}")
+    static let sending = ActivityEvent.Sending(
+        username: "alice", password: true, code: true, codePrefix: "482",
+        secondsLeft: 22, format: "{password}{otp}")
 
     /// One of every kind.
     var everyKind: [ActivityEvent.Kind] {
-        [.connecting(host: "vpn.example.com", port: 1194, transport: "udp"),
-         .connecting(host: "vpn.example.com", port: nil, transport: "tcp"),
-         .waitingForCode(reason: .used, seconds: 12, codePrefix: "482"),
-         .waitingForCode(reason: .expiring, seconds: 4, codePrefix: nil),
-         .sending(Self.sending),
-         .sending(.init(username: "alice", password: true, code: false)),
-         .authAccepted, .connected(address: "10.8.0.6"), .linkDropped(willReconnect: true),
-         .reconnecting(attempt: 2, of: 3), .unreachable(tries: 3, reason: "Connection refused"),
-         .unreachable(tries: 1, reason: nil), .nextTry(at: t0.addingTimeInterval(30)),
-         .rejected(reply: "AUTH_FAILED,Invalid OTP"), .rejected(reply: nil),
-         .failed(kind: .hostNotFound, reason: "Name or service not known", credentialsSent: false),
-         .failed(kind: .timeout, reason: nil, credentialsSent: true), .stoppedByUser, .disconnectedByUser]
+        [
+            .connecting(host: "vpn.example.com", port: 1194, transport: "udp"),
+            .connecting(host: "vpn.example.com", port: nil, transport: "tcp"),
+            .waitingForCode(reason: .used, seconds: 12, codePrefix: "482"),
+            .waitingForCode(reason: .expiring, seconds: 4, codePrefix: nil),
+            .sending(Self.sending),
+            .sending(.init(username: "alice", password: true, code: false)),
+            .authAccepted, .connected(address: "10.8.0.6"), .linkDropped(willReconnect: true),
+            .reconnecting(attempt: 2, of: 3), .unreachable(tries: 3, reason: "Connection refused"),
+            .unreachable(tries: 1, reason: nil), .nextTry(at: t0.addingTimeInterval(30)),
+            .rejected(reply: "AUTH_FAILED,Invalid OTP"), .rejected(reply: nil),
+            .failed(kind: .hostNotFound, reason: "Name or service not known", credentialsSent: false),
+            .failed(kind: .timeout, reason: nil, credentialsSent: true), .stoppedByUser, .disconnectedByUser
+        ]
     }
 
     // MARK: JSON
@@ -50,11 +54,14 @@ final class ActivityLogTests: CoreTestCase {
 
     func testFlatSnakeCaseObjects() throws {
         let data = try ActivityLog.encoder().encode(ActivityEvent(at: t0, .sending(Self.sending)))
-        XCTAssertEqual(String(decoding: data, as: UTF8.self),
-                       #"{"at":"2023-11-14T22:13:20Z","code":true,"code_prefix":"482","event":"sending","format":"{password}{otp}","password":true,"seconds_left":22,"username":"alice"}"#)
+        XCTAssertEqual(
+            String(decoding: data, as: UTF8.self),
+            #"{"at":"2023-11-14T22:13:20Z","code":true,"code_prefix":"482","event":"sending","format":"{password}{otp}","password":true,"seconds_left":22,"username":"alice"}"#
+        )
         let connecting = try ActivityLog.encoder().encode(ActivityEvent(at: t0, .connecting(host: "vpn.example.com", port: 443, transport: "tcp")))
-        XCTAssertEqual(String(decoding: connecting, as: UTF8.self),
-                       #"{"at":"2023-11-14T22:13:20Z","event":"connecting","host":"vpn.example.com","port":443,"protocol":"tcp"}"#)
+        XCTAssertEqual(
+            String(decoding: connecting, as: UTF8.self),
+            #"{"at":"2023-11-14T22:13:20Z","event":"connecting","host":"vpn.example.com","port":443,"protocol":"tcp"}"#)
     }
 
     // MARK: file
@@ -98,7 +105,7 @@ final class ActivityLogTests: CoreTestCase {
         let url = store.activityURL("acme")
         let writers = 8, each = 40
         DispatchQueue.concurrentPerform(iterations: writers) { w in
-            let own = ActivityLog(url: url)   // its own descriptors, as another process would have
+            let own = ActivityLog(url: url)  // its own descriptors, as another process would have
             for i in 0..<each {
                 try? own.append(ActivityEvent(at: t0, .reconnecting(attempt: i, of: w)))
             }
@@ -119,7 +126,7 @@ final class ActivityLogTests: CoreTestCase {
     func testALongFileIsReadFromItsEnd() throws {
         let url = store.activityURL("acme")
         let line = try ActivityLog.encoder().encode(ActivityEvent(at: t0, .authAccepted))
-        var data = Data(repeating: 0x20, count: ActivityLog.maxReadBytes)   // no line break: dropped whole
+        var data = Data(repeating: 0x20, count: ActivityLog.maxReadBytes)  // no line break: dropped whole
         data.append(0x0A)
         data.append(line)
         data.append(0x0A)
@@ -162,10 +169,12 @@ final class ActivityLogTests: CoreTestCase {
         XCTAssertEqual(say(.connecting(host: "vpn.example.com", port: 1194, transport: "udp")), "Connecting to vpn.example.com:1194 (UDP)")
         XCTAssertEqual(say(.connecting(host: "2001:db8::1", port: 443, transport: "tcp")), "Connecting to [2001:db8::1]:443 (TCP)")
         XCTAssertEqual(say(.connecting(host: "", port: nil, transport: "udp")), "Connecting…")
-        XCTAssertEqual(say(.waitingForCode(reason: .used, seconds: 9, codePrefix: "482")),
-                       "Code ••• ••• was already used, waiting for the next one")
-        XCTAssertEqual(say(.waitingForCode(reason: .expiring, seconds: 4, codePrefix: "482"), digits: true),
-                       "Code 482 ••• has 4 s left, waiting for the next one")
+        XCTAssertEqual(
+            say(.waitingForCode(reason: .used, seconds: 9, codePrefix: "482")),
+            "Code ••• ••• was already used, waiting for the next one")
+        XCTAssertEqual(
+            say(.waitingForCode(reason: .expiring, seconds: 4, codePrefix: "482"), digits: true),
+            "Code 482 ••• has 4 s left, waiting for the next one")
         XCTAssertEqual(say(.sending(Self.sending), digits: true), "Sending alice / ••••••••+482 ••• · 22 s left")
         XCTAssertEqual(say(.sending(Self.sending)), "Sending alice / ••••••••+••• ••• · 22 s left")
         var colon = Self.sending
@@ -183,10 +192,12 @@ final class ActivityLogTests: CoreTestCase {
         XCTAssertEqual(say(.reconnecting(attempt: 2, of: 3)), "Reconnecting, attempt 2 of 3")
         XCTAssertEqual(say(.unreachable(tries: 3, reason: nil)), "No answer after 3 tries")
         XCTAssertEqual(say(.unreachable(tries: 1, reason: "Connection refused")), "No answer (Connection refused)")
-        XCTAssertEqual(say(.failed(kind: .hostNotFound, reason: "Name or service not known", credentialsSent: false)),
-                       "Server name not found (Name or service not known)")
-        XCTAssertEqual(say(.failed(kind: .configuration, reason: "certificate has expired", credentialsSent: false)),
-                       "Configuration or certificate refused (certificate has expired)")
+        XCTAssertEqual(
+            say(.failed(kind: .hostNotFound, reason: "Name or service not known", credentialsSent: false)),
+            "Server name not found (Name or service not known)")
+        XCTAssertEqual(
+            say(.failed(kind: .configuration, reason: "certificate has expired", credentialsSent: false)),
+            "Configuration or certificate refused (certificate has expired)")
         XCTAssertEqual(say(.failed(kind: .setup, reason: nil, credentialsSent: true)), "Network setup failed")
         XCTAssertEqual(say(.failed(kind: .timeout, reason: nil, credentialsSent: true)), "Did not connect in time")
         XCTAssertEqual(say(.failed(kind: .failed, reason: nil, credentialsSent: false)), "Could not connect")
@@ -194,8 +205,9 @@ final class ActivityLogTests: CoreTestCase {
         XCTAssertEqual(say(.rejected(reply: "AUTH_FAILED")), "Sign-in rejected: AUTH_FAILED. Stopped. Not retrying, to avoid a lockout")
         XCTAssertEqual(say(.stoppedByUser), "Stopped by you")
         XCTAssertEqual(say(.disconnectedByUser), "Disconnected by you")
-        XCTAssertEqual(ActivityEvent(at: t0, .authAccepted).line(timeZone: TimeZone(identifier: "UTC")!),
-                       "2023-11-14 22:13:20  Authentication accepted")
+        XCTAssertEqual(
+            ActivityEvent(at: t0, .authAccepted).line(timeZone: TimeZone(identifier: "UTC")!),
+            "2023-11-14 22:13:20  Authentication accepted")
     }
 
     // MARK: the app's views
@@ -204,15 +216,20 @@ final class ActivityLogTests: CoreTestCase {
         let tones = Dictionary(grouping: everyKind.map { ActivityEvent(at: t0, $0) }, by: \.tone).mapValues { Set($0.map(\.name)) }
         XCTAssertEqual(tones[.error], ["link_dropped", "unreachable", "rejected", "failed"])
         XCTAssertEqual(tones[.wait], ["waiting_for_code"])
-        XCTAssertEqual(tones[.neutral], ["connecting", "sending", "auth_accepted", "connected", "reconnecting", "next_try",
-                                         "stopped_by_user", "disconnected_by_user"])
+        XCTAssertEqual(
+            tones[.neutral],
+            [
+                "connecting", "sending", "auth_accepted", "connected", "reconnecting", "next_try",
+                "stopped_by_user", "disconnected_by_user"
+            ])
     }
 
     func testClockTimeIs24HourInTheGivenZone() {
         let utc = TimeZone(identifier: "UTC")!
         XCTAssertEqual(ActivityEvent.clockTime(t0, timeZone: utc), "22:13:20")
-        XCTAssertEqual(ActivityEvent.clockTime(Date(timeIntervalSince1970: 1_700_040_062), timeZone: utc), "09:21:02",
-                       "zero-padded")
+        XCTAssertEqual(
+            ActivityEvent.clockTime(Date(timeIntervalSince1970: 1_700_040_062), timeZone: utc), "09:21:02",
+            "zero-padded")
         XCTAssertEqual(ActivityEvent.clockTime(t0, timeZone: TimeZone(secondsFromGMT: 3 * 3600)!), "01:13:20")
     }
 
@@ -220,7 +237,7 @@ final class ActivityLogTests: CoreTestCase {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!
         let locale = Locale(identifier: "en_US")
-        let now = Date(timeIntervalSince1970: 1_700_000_000)   // Tue 2023-11-14 22:13:20 UTC
+        let now = Date(timeIntervalSince1970: 1_700_000_000)  // Tue 2023-11-14 22:13:20 UTC
         func event(_ ago: TimeInterval) -> ActivityEvent { ActivityEvent(at: now.addingTimeInterval(-ago), .authAccepted) }
         func label(_ ago: TimeInterval) -> String { event(ago).timeLabel(now: now, calendar: calendar, locale: locale) }
         XCTAssertEqual(label(0), "22:13:20")
@@ -230,25 +247,29 @@ final class ActivityLogTests: CoreTestCase {
         XCTAssertEqual(label(2 * 24 * 3600), "Sun, Nov 12 22:13:20")
         XCTAssertEqual(ActivityEvent.dayTitle(now, now: now, calendar: calendar, locale: locale), "Today")
         XCTAssertEqual(ActivityEvent.dayTitle(now.addingTimeInterval(-86400), now: now, calendar: calendar, locale: locale), "Yesterday")
-        XCTAssertEqual(ActivityEvent.dayTitle(now.addingTimeInterval(-5 * 86400), now: now, calendar: calendar, locale: locale),
-                       "Thu, Nov 9")
+        XCTAssertEqual(
+            ActivityEvent.dayTitle(now.addingTimeInterval(-5 * 86400), now: now, calendar: calendar, locale: locale),
+            "Thu, Nov 9")
     }
 
     func testSpokenSentenceReadsHiddenValuesAsHidden() {
         func spoken(_ kind: ActivityEvent.Kind) -> String { ActivityEvent(at: t0, kind).spokenSentence(showingCodeDigits: true) }
         XCTAssertEqual(spoken(.sending(Self.sending)), "Sending alice / hidden+482 hidden · 22 s left")
         XCTAssertEqual(spoken(.sending(.init(username: "alice", password: true, code: false))), "Sending alice / hidden")
-        XCTAssertEqual(spoken(.waitingForCode(reason: .used, seconds: 12, codePrefix: "482")),
-                       "Code 482 hidden was already used, waiting for the next one")
+        XCTAssertEqual(
+            spoken(.waitingForCode(reason: .used, seconds: 12, codePrefix: "482")),
+            "Code 482 hidden was already used, waiting for the next one")
         XCTAssertEqual(spoken(.connected(address: "10.8.0.6")), "Connected, 10.8.0.6")
         XCTAssertFalse(ActivityEvent(at: t0, .sending(Self.sending)).spokenSentence().contains("•"))
     }
 
     func testTheLastSendingAndWhenTheConnectionSignedIn() {
-        let events = [ActivityEvent(at: t0, .sending(Self.sending)),
-                      ActivityEvent(at: t0.addingTimeInterval(2), .connected(address: "10.8.0.6")),
-                      ActivityEvent(at: t0.addingTimeInterval(60), .disconnectedByUser),
-                      ActivityEvent(at: t0.addingTimeInterval(100), .sending(.init(username: "alice", password: true, code: true)))]
+        let events = [
+            ActivityEvent(at: t0, .sending(Self.sending)),
+            ActivityEvent(at: t0.addingTimeInterval(2), .connected(address: "10.8.0.6")),
+            ActivityEvent(at: t0.addingTimeInterval(60), .disconnectedByUser),
+            ActivityEvent(at: t0.addingTimeInterval(100), .sending(.init(username: "alice", password: true, code: true)))
+        ]
         XCTAssertEqual(ActivityEvent.lastSending(in: events)?.at, t0.addingTimeInterval(100))
         XCTAssertNil(ActivityEvent.lastSending(in: []))
         XCTAssertNil(ActivityEvent.lastSending(in: Array(events[1...2])))

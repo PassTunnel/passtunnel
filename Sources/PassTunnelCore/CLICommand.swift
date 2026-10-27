@@ -33,7 +33,7 @@ public enum CLICommand: Equatable {
     case disconnect(id: String?, all: Bool, json: Bool = false, wait: Bool = false, timeout: Int? = nil)
     case toggle(id: String?, json: Bool = false)
     case code(id: String?, copy: Bool, json: Bool)
-    case list(json: Bool, quiet: Bool)          // quiet: ids only (used by shell completion)
+    case list(json: Bool, quiet: Bool)  // quiet: ids only (used by shell completion)
     case show(id: String, json: Bool)
     case set(id: String, assignments: [Assignment], json: Bool = false)
     case add(name: String, type: VPNType, json: Bool = false)
@@ -42,19 +42,19 @@ public enum CLICommand: Equatable {
     case remove(id: String, yes: Bool, json: Bool = false)
     case secret(id: String, kind: SecretKind, json: Bool = false)
     #if os(Linux)
-    case secretStore(choice: SecretStoreChoice?, json: Bool = false)   // nil: show the store in use
+    case secretStore(choice: SecretStoreChoice?, json: Bool = false)  // nil: show the store in use
     #endif
-    case setDefault(id: String?, json: Bool = false)           // nil: print the current default
+    case setDefault(id: String?, json: Bool = false)  // nil: print the current default
     case pin(id: String, json: Bool = false)
     case unpin(id: String, json: Bool = false)
     // lines: only the last N; activity: the activity log (`ActivityLog`) instead of the VPN tool's
     case log(id: String, follow: Bool, json: Bool = false, lines: Int? = nil, activity: Bool = false)
     // checkClock: also ask the time server how far the clock is off (it contacts that server)
     case diagnose(checkClock: Bool = false, json: Bool = false)
-    case helper(HelperAction, json: Bool = false)              // json: `status` only
-    case mcp(allowConnect: Bool)                               // MCP server on stdio (`MCPServer`)
+    case helper(HelperAction, json: Bool = false)  // json: `status` only
+    case mcp(allowConnect: Bool)  // MCP server on stdio (`MCPServer`)
     #if DEBUG
-    case debug(DebugAction, id: String)   // hidden test hooks, e.g. `debug drop ID` (see `DebugDrop`)
+    case debug(DebugAction, id: String)  // hidden test hooks, e.g. `debug drop ID` (see `DebugDrop`)
     #endif
     case completion(Shell)
     case help(command: String?)
@@ -78,10 +78,10 @@ public enum CLICommand: Equatable {
         var names = [
             "status", "connect", "disconnect", "toggle", "code", "list", "show", "set", "add", "import", "export",
             "rm", "secret", "default", "pin", "unpin", "log", "diagnose", "helper", "mcp", "completion", "version",
-            "help",
+            "help"
         ]
         #if os(Linux)
-        names.insert("secret-store", at: names.firstIndex(of: "secret")! + 1)   // the Mac has the Keychain only
+        names.insert("secret-store", at: names.firstIndex(of: "secret")! + 1)  // the Mac has the Keychain only
         #endif
         return names
     }()
@@ -97,8 +97,10 @@ public enum CLICommand: Equatable {
     /// Also accepted as a first argument (`passtunnel --help`, `PassTunnel --version`).
     public static let globalFlags = ["--help", "-h", "--version", "-V"]
 
-    static let aliases = ["ls": "list", "remove": "rm", "delete": "rm", "on": "connect", "off": "disconnect",
-                          "up": "connect", "down": "disconnect", "otp": "code", "logs": "log"]
+    static let aliases = [
+        "ls": "list", "remove": "rm", "delete": "rm", "on": "connect", "off": "disconnect",
+        "up": "connect", "down": "disconnect", "otp": "code", "logs": "log"
+    ]
 
     /// True when `first` (argv[1]) names a command or a global flag.
     public static func isCommand(_ first: String) -> Bool {
@@ -150,7 +152,8 @@ public enum CLICommand: Equatable {
         var i = args.startIndex
         while i < args.endIndex {
             let arg = args[i]
-            let isDefaultsKey = (arg.hasPrefix("-Apple") || arg.hasPrefix("-NS")) && arg.count > 3
+            let isDefaultsKey =
+                (arg.hasPrefix("-Apple") || arg.hasPrefix("-NS")) && arg.count > 3
                 && arg.dropFirst().allSatisfy { $0.isLetter || $0.isNumber || $0 == "_" }
             if isDefaultsKey && args.index(after: i) < args.endIndex {
                 i = args.index(i, offsetBy: 2)
@@ -284,7 +287,8 @@ public enum CLICommand: Equatable {
             try a.finish()
             guard let choiceText else { return .secretStore(choice: nil, json: json) }
             guard let choice = SecretStoreChoice(rawValue: choiceText.lowercased()) else {
-                throw CLIUsageError(String(localized: "Unknown secret store “\(choiceText)” (use auto, secret-service, systemd-creds or file)."), command: name)
+                throw CLIUsageError(
+                    String(localized: "Unknown secret store “\(choiceText)” (use auto, secret-service, systemd-creds or file)."), command: name)
             }
             return .secretStore(choice: choice, json: json)
         #endif

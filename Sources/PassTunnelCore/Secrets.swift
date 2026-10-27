@@ -1,6 +1,7 @@
 import Foundation
 import PassTunnelKit
 import PassTunnelShared
+
 #if canImport(Security)
 import Security
 #endif
@@ -201,7 +202,7 @@ struct KeychainSecretStore: SecretStore {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
+            kSecAttrAccount as String: account
         ]
     }
 
@@ -271,7 +272,7 @@ struct KeychainSecretStore: SecretStore {
 /// profile took its id), so nothing was written to it.
 public struct KeychainItemNotReplaced: Error, Equatable, LocalizedError {
     public var account: String
-    public var status: Int32                // OSStatus
+    public var status: Int32  // OSStatus
 
     public var errorDescription: String? {
         #if canImport(Security)
@@ -279,6 +280,9 @@ public struct KeychainItemNotReplaced: Error, Equatable, LocalizedError {
         #else
         let message = "OSStatus \(status)"
         #endif
-        return String(localized: "The Keychain item “PassTunnel (\(account))” could not be replaced (\(message)), so nothing was saved. Delete it in Keychain Access, then try again.")
+        return String(
+            localized:
+                "The Keychain item “PassTunnel (\(account))” could not be replaced (\(message)), so nothing was saved. Delete it in Keychain Access, then try again."
+        )
     }
 }

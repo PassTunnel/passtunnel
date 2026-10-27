@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "indentation": { "spaces": 4 },
+  "lineLength": 150,
+  "maximumBlankLines": 1,
+  "respectsExistingLineBreaks": true,
+  "lineBreakBeforeControlFlowKeywords": false,
+  "lineBreakBeforeEachArgument": false,
+  "multiElementCollectionTrailingCommas": false,
+  "indentConditionalCompilationBlocks": false,
+  "rules": {
+    "AlwaysUseLowerCamelCase": false,
+    "DoNotUseSemicolons": false,
+    "OneVariableDeclarationPerLine": false,
+    "OneCasePerLine": false,
+    "NoAssignmentInExpressions": false,
+    "ReplaceForEachWithForLoop": false,
+    "UseLetInEveryBoundCaseVariable": false,
+    "GroupNumericLiterals": false,
+    "NoBlockComments": false,
+    "NoAccessLevelOnExtensionDeclaration": false,
+    "FileScopedDeclarationPrivacy": false,
+    "OrderedImports": true
+  }
+}

@@ -1,13 +1,14 @@
+import Foundation
+import PassTunnelKit
+
 #if canImport(CryptoKit)
 import CryptoKit
 #else
-import Crypto   // swift-crypto: the same API, outside Apple platforms
+import Crypto  // swift-crypto: the same API, outside Apple platforms
 #endif
 #if os(Linux)
-import CryptoExtras   // swift-crypto's scrypt
+import CryptoExtras  // swift-crypto's scrypt
 #endif
-import Foundation
-import PassTunnelKit
 #if canImport(Glibc)
 import Glibc
 #endif
@@ -70,7 +71,7 @@ struct SecretsFile: Equatable {
     enum ParseError: Error, Equatable { case notASecretsFile, newerVersion, unsupported }
 
     static func parse(_ data: Data) throws -> SecretsFile {
-        let d = Data(data)   // indices from 0
+        let d = Data(data)  // indices from 0
         guard d.count > magic.count, d.prefix(magic.count) == magic else { throw ParseError.notASecretsFile }
         guard d[4] == version else { throw d[4] > version ? ParseError.newerVersion : ParseError.notASecretsFile }
         guard d.count >= headerSize + tagSize else { throw ParseError.notASecretsFile }
@@ -78,8 +79,9 @@ struct SecretsFile: Equatable {
         let parameters = ScryptParameters(logN: d[6], r: d[7], p: d[8])
         guard parameters.isAcceptable else { throw ParseError.unsupported }
         let saltEnd = 9 + saltSize
-        return SecretsFile(parameters: parameters, salt: Data(d[9..<saltEnd]), nonce: Data(d[saltEnd..<headerSize]),
-                           ciphertext: Data(d[headerSize..<(d.count - tagSize)]), tag: Data(d[(d.count - tagSize)...]))
+        return SecretsFile(
+            parameters: parameters, salt: Data(d[9..<saltEnd]), nonce: Data(d[saltEnd..<headerSize]),
+            ciphertext: Data(d[headerSize..<(d.count - tagSize)]), tag: Data(d[(d.count - tagSize)...]))
     }
 }
 
@@ -106,8 +108,9 @@ struct FileSecretStore: SecretStore {
     #if os(Linux)
     /// scrypt from swift-crypto (BoringSSL's), 32 bytes for AES-256.
     static let scrypt: DeriveKey = { passphrase, salt, parameters in
-        try KDF.Scrypt.deriveKey(from: passphrase, salt: salt, outputByteCount: 32, rounds: 1 << Int(parameters.logN),
-                                 blockSize: Int(parameters.r), parallelism: Int(parameters.p))
+        try KDF.Scrypt.deriveKey(
+            from: passphrase, salt: salt, outputByteCount: 32, rounds: 1 << Int(parameters.logN),
+            blockSize: Int(parameters.r), parallelism: Int(parameters.p))
     }
     #endif
 
@@ -140,14 +143,15 @@ struct FileSecretStore: SecretStore {
     func write(_ account: String, _ data: Data) throws {
         for _ in 0..<2 {
             let before = try load()
-            let (key, base) = try before.map { file -> (SymmetricKey, SecretsFile) in
-                var opened = try unlock(file)
-                Self.wipe(&opened.items)
-                return (opened.key, file)
-            } ?? newKey()
+            let (key, base) =
+                try before.map { file -> (SymmetricKey, SecretsFile) in
+                    var opened = try unlock(file)
+                    Self.wipe(&opened.items)
+                    return (opened.key, file)
+                } ?? newKey()
             let done = try withLock { () -> Bool in
                 let current = try load()
-                guard current?.keyID == before?.keyID else { return false }   // replaced meanwhile: start over
+                guard current?.keyID == before?.keyID else { return false }  // replaced meanwhile: start over
                 var items = try current.map { try decrypt($0, key) } ?? [:]
                 defer { Self.wipe(&items) }
                 items[account]?.wipe()
@@ -220,7 +224,8 @@ struct FileSecretStore: SecretStore {
     /// The items; nil when the key does not open the file (wrong passphrase, or a changed file).
     private func decryptIfPossible(_ file: SecretsFile, _ key: SymmetricKey) throws -> [String: Data]? {
         guard let box = try? AES.GCM.SealedBox(nonce: AES.GCM.Nonce(data: file.nonce), ciphertext: file.ciphertext, tag: file.tag),
-              var plain = try? AES.GCM.open(box, using: key, authenticating: file.header) else { return nil }
+            var plain = try? AES.GCM.open(box, using: key, authenticating: file.header)
+        else { return nil }
         defer { plain.wipe() }
         guard let items = try? JSONDecoder().decode([String: Data].self, from: plain) else {
             throw SecretStoreUnavailable.notASecretsFile(url.path)
@@ -256,8 +261,9 @@ struct FileSecretStore: SecretStore {
     private func newKey() throws -> (SymmetricKey, SecretsFile) {
         var passphrase = try newPassphrase()
         defer { passphrase.wipe() }
-        let base = SecretsFile(parameters: system.scryptParameters, salt: Self.randomBytes(SecretsFile.saltSize),
-                               nonce: Data(count: SecretsFile.nonceSize))
+        let base = SecretsFile(
+            parameters: system.scryptParameters, salt: Self.randomBytes(SecretsFile.saltSize),
+            nonce: Data(count: SecretsFile.nonceSize))
         let key = try derive(passphrase, base.salt, base.parameters)
         Self.keys.remember(key, for: base.keyID)
         return (key, base)
@@ -299,8 +305,10 @@ struct FileSecretStore: SecretStore {
     private func passphrase(retry: Bool) throws -> Data {
         if let path = passphraseFile { return try Self.readPassphrase(path) }
         guard let ask = system.interaction.askPassphrase else { throw SecretStoreUnavailable.noPassphrase }
-        let prompt = retry ? String(localized: "Wrong passphrase. Passphrase for the PassTunnel secrets file: ")
-                           : String(localized: "Passphrase for the PassTunnel secrets file: ")
+        let prompt =
+            retry
+            ? String(localized: "Wrong passphrase. Passphrase for the PassTunnel secrets file: ")
+            : String(localized: "Passphrase for the PassTunnel secrets file: ")
         guard let value = ask(prompt), !value.isEmpty else { throw SecretStoreUnavailable.noPassphraseEntered }
         return value
     }
@@ -311,7 +319,8 @@ struct FileSecretStore: SecretStore {
         guard let ask = system.interaction.askPassphrase else { throw SecretStoreUnavailable.noPassphrase }
         for _ in 0..<Self.attempts {
             guard var first = ask(String(localized: "New passphrase for the PassTunnel secrets file (\(url.path)): ")),
-                  !first.isEmpty else { throw SecretStoreUnavailable.noPassphraseEntered }
+                !first.isEmpty
+            else { throw SecretStoreUnavailable.noPassphraseEntered }
             var second = ask(String(localized: "Repeat the passphrase: ")) ?? Data()
             defer { second.wipe() }
             if first == second { return first }
@@ -328,7 +337,8 @@ struct FileSecretStore: SecretStore {
         defer { close(fd) }
         var st = stat()
         guard fstat(fd, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG, st.st_uid == geteuid(), st.st_mode & 0o077 == 0,
-              st.st_size <= off_t(maxPassphraseFileSize) else {
+            st.st_size <= off_t(maxPassphraseFileSize)
+        else {
             throw SecretStoreUnavailable.passphraseFile(path)
         }
         var buffer = [UInt8](repeating: 0, count: maxPassphraseFileSize + 1)
@@ -375,10 +385,18 @@ struct FileSecretStore: SecretStore {
 
         func key(_ id: Data) -> SymmetricKey? { locked { keys[id] } }
         func failed(_ id: Data) -> Bool { locked { failures.contains(id) } }
-        func remember(_ key: SymmetricKey, for id: Data) { locked { keys[id] = key; failures.remove(id) } }
+        func remember(_ key: SymmetricKey, for id: Data) {
+            locked {
+                keys[id] = key; failures.remove(id)
+            }
+        }
         func rememberFailure(_ id: Data) { locked { _ = failures.insert(id) } }
         /// Tests: as in a new process.
-        func forget() { locked { keys.removeAll(); failures.removeAll() } }
+        func forget() {
+            locked {
+                keys.removeAll(); failures.removeAll()
+            }
+        }
 
         private func locked<T>(_ body: () -> T) -> T {
             lock.lock()

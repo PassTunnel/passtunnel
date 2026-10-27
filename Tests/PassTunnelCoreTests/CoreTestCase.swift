@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+
 @testable import PassTunnelCore
 @testable import PassTunnelKit
 
@@ -38,8 +39,10 @@ class CoreTestCase: XCTestCase {
         return (attrs[.posixPermissions] as! NSNumber).intValue & 0o777
     }
 
-    func assertThrows(_ expected: PTError, file: StaticString = #filePath, line: UInt = #line,
-                      _ body: () throws -> Void) {
+    func assertThrows(
+        _ expected: PTError, file: StaticString = #filePath, line: UInt = #line,
+        _ body: () throws -> Void
+    ) {
         XCTAssertThrowsError(try body(), file: file, line: line) { error in
             XCTAssertEqual(error as? PTError, expected, file: file, line: line)
         }

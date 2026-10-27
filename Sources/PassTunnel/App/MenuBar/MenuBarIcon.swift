@@ -17,8 +17,11 @@ enum MenuBarIcon {
     /// The badges of the profiles that need attention: connecting, connected, or dropped and not seen yet.
     @MainActor static func badges(for model: AppModel) -> [Badge] {
         model.profiles.compactMap { p in
-            guard let attention = MenuBarProfiles.attention(activity(model.statusKind(p)),
-                                                            droppedUnseen: model.droppedUnseen.contains(p.id)) else {
+            guard
+                let attention = MenuBarProfiles.attention(
+                    activity(model.statusKind(p)),
+                    droppedUnseen: model.droppedUnseen.contains(p.id))
+            else {
                 return nil
             }
             let tone: BadgeTone
@@ -93,8 +96,9 @@ enum MenuBarIcon {
         if let symbol = b.symbol, let img = symbolImage(symbol, pointSize: 9) {
             let s = img.size
             let scale = min(11 / s.width, 11 / s.height, 1)
-            let r = NSRect(x: x + (11 - s.width * scale) / 2, y: rect.midY - s.height * scale / 2,
-                           width: s.width * scale, height: s.height * scale)
+            let r = NSRect(
+                x: x + (11 - s.width * scale) / 2, y: rect.midY - s.height * scale / 2,
+                width: s.width * scale, height: s.height * scale)
             tint(img, ink).draw(in: r)
             x += 11 + 2
         }
@@ -122,8 +126,9 @@ enum MenuBarIcon {
         let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { _ in
             // 20 grid units across the image, centered on the glyph: as tall as the system's status symbols.
             let unit = side / 20
-            let transform = AffineTransform(m11: unit, m12: 0, m21: 0, m22: -unit,
-                                            tX: side / 2 - 12 * unit, tY: side / 2 + 11.3 * unit)
+            let transform = AffineTransform(
+                m11: unit, m12: 0, m21: 0, m22: -unit,
+                tX: side / 2 - 12 * unit, tY: side / 2 + 11.3 * unit)
             let path = shieldOutline()
             path.transform(using: transform)
             NSColor.black.setFill()

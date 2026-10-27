@@ -59,9 +59,11 @@ final class QRDecoderTests: XCTestCase {
     }
 
     func testImageWithoutCode() throws {
-        let context = try XCTUnwrap(CGContext(data: nil, width: 64, height: 64, bitsPerComponent: 8, bytesPerRow: 0,
-                                              space: CGColorSpaceCreateDeviceRGB(),
-                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        let context = try XCTUnwrap(
+            CGContext(
+                data: nil, width: 64, height: 64, bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
         let blank = try XCTUnwrap(context.makeImage())
@@ -71,11 +73,15 @@ final class QRDecoderTests: XCTestCase {
     }
 
     /// A white "screen" of `width` × `height` pixels with `qr` drawn at `origin` (like a browser page on a display).
-    func screen(width: Int = 1600, height: Int = 1000, with qr: CGImage? = nil,
-                at origin: CGPoint = CGPoint(x: 900, y: 300)) throws -> CGImage {
-        let context = try XCTUnwrap(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-                                              space: CGColorSpaceCreateDeviceRGB(),
-                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    func screen(
+        width: Int = 1600, height: Int = 1000, with qr: CGImage? = nil,
+        at origin: CGPoint = CGPoint(x: 900, y: 300)
+    ) throws -> CGImage {
+        let context = try XCTUnwrap(
+            CGContext(
+                data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: width, height: height))
         if let qr {
@@ -91,8 +97,9 @@ final class QRDecoderTests: XCTestCase {
         XCTAssertEqual(try QRDecoder.otpAuth(inAny: [screen(), screen(with: code)]).account, "alice")
         // Another QR code (a link) earlier on does not hide the authenticator's.
         let link = try makeQR("https://vpn.example.com", scale: 5)
-        XCTAssertEqual(try QRDecoder.otpAuth(inAny: [screen(with: link, at: CGPoint(x: 100, y: 100)), screen(with: code)]).issuer,
-                       "Acme")
+        XCTAssertEqual(
+            try QRDecoder.otpAuth(inAny: [screen(with: link, at: CGPoint(x: 100, y: 100)), screen(with: code)]).issuer,
+            "Acme")
         XCTAssertThrowsError(try QRDecoder.otpAuth(inAny: [screen(), screen()])) {
             XCTAssertEqual($0 as? QRDecoder.Failure, .noCode)
         }

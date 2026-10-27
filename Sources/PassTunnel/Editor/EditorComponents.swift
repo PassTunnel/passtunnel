@@ -11,7 +11,7 @@ enum EditorIcons {
         "building.2", "house", "briefcase", "desktopcomputer",
         "laptopcomputer", "terminal", "antenna.radiowaves.left.and.right", "wifi",
         "airplane", "graduationcap", "cross.case", "cart",
-        "wrench.and.screwdriver", "leaf", "flame", "star",
+        "wrench.and.screwdriver", "leaf", "flame", "star"
     ]
 
     /// Readable name for VoiceOver: "server.rack" → "server rack".
@@ -175,10 +175,14 @@ private struct EditorSwitch: View {
             configuration.label
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Button { configuration.isOn.toggle() } label: { track }
-                .buttonStyle(.plain)
-                .contentShape(Capsule())
-                .contentShape(.focusEffect, Capsule())
+            Button {
+                configuration.isOn.toggle()
+            } label: {
+                track
+            }
+            .buttonStyle(.plain)
+            .contentShape(Capsule())
+            .contentShape(.focusEffect, Capsule())
         }
         .opacity(isEnabled ? 1 : 0.38)
         .accessibilityRepresentation {
@@ -222,10 +226,13 @@ extension View {
     /// Asks before a profile is deleted, with the same dialog wherever it starts (the main window's row menu, the
     /// editor's "Delete Profile…").
     func profileDeleteConfirmation(_ profile: Binding<Profile?>, delete: @escaping (Profile) -> Void) -> some View {
-        confirmationDialog(String(localized: "Delete “\(profile.wrappedValue?.name ?? "")”?"),
-                           isPresented: Binding(get: { profile.wrappedValue != nil },
-                                                set: { if !$0 { profile.wrappedValue = nil } }),
-                           titleVisibility: .visible, presenting: profile.wrappedValue) { p in
+        confirmationDialog(
+            String(localized: "Delete “\(profile.wrappedValue?.name ?? "")”?"),
+            isPresented: Binding(
+                get: { profile.wrappedValue != nil },
+                set: { if !$0 { profile.wrappedValue = nil } }),
+            titleVisibility: .visible, presenting: profile.wrappedValue
+        ) { p in
             Button(String(localized: "Delete"), role: .destructive) { delete(p) }
             Button(String(localized: "Cancel"), role: .cancel) {}
         } message: { _ in
@@ -386,8 +393,10 @@ struct EditorLiveCode: View {
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text("Current code"))
-            .accessibilityValue(Text(verbatim: "\(GroupedCodeText.spoken(code)), "
-                                     + String(localized: "\(Int(left.rounded(.up))) seconds left")))
+            .accessibilityValue(
+                Text(
+                    verbatim: "\(GroupedCodeText.spoken(code)), "
+                        + String(localized: "\(Int(left.rounded(.up))) seconds left")))
         }
     }
 
@@ -411,13 +420,16 @@ struct EditorLockedCode: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { _ in
             if vault.isUnlocked(profile.id, .totp),
-               let secret = vault.available(profile.id, .totp).flatMap({ try? TOTP.decodeSecret($0) }) {
+                let secret = vault.available(profile.id, .totp).flatMap({ try? TOTP.decodeSecret($0) })
+            {
                 EditorLiveCode(secret: secret, params: params, now: now)
             } else {
                 HStack(spacing: Spacing.xs) {
-                    GroupedCodeText(code: String(repeating: "0", count: max(6, params.digits)), hidden: true,
-                                    style: .editorCode)
-                        .foregroundStyle(Palette.fg3)
+                    GroupedCodeText(
+                        code: String(repeating: "0", count: max(6, params.digits)), hidden: true,
+                        style: .editorCode
+                    )
+                    .foregroundStyle(Palette.fg3)
                     Button("Show") { reveal() }
                         .buttonStyle(.smallCapsule)
                         .accessibilityIdentifier("editor.revealCode")

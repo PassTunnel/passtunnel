@@ -46,8 +46,10 @@ struct DesignGallery: View {
     private var colors: some View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
             SectionLabel("Color")
-            LazyVGrid(columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)],
-                      alignment: .leading, spacing: Spacing.xs) {
+            LazyVGrid(
+                columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)],
+                alignment: .leading, spacing: Spacing.xs
+            ) {
                 swatch("background", NSColor.windowBackgroundColor)
                 ForEach(Palette.Raw.all, id: \.name) { token in swatch(token.name, token.color) }
             }
@@ -59,8 +61,10 @@ struct DesignGallery: View {
         HStack(spacing: 10) {
             RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
                 .fill(Color(nsColor: color))
-                .overlay(RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
-                    .strokeBorder(Palette.line, lineWidth: Elevation.hairline))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
+                        .strokeBorder(Palette.line, lineWidth: Elevation.hairline)
+                )
                 .frame(width: 30, height: 30)
             VStack(alignment: .leading, spacing: 1) {
                 Text(verbatim: name).typography(.bodyEmphasized).foregroundStyle(Palette.fg)
@@ -112,7 +116,7 @@ struct DesignGallery: View {
             ("editorCode · 18 medium mono", .editorCode, "482 913", Palette.fg),
             ("rowCode · 13 mono", .rowCode, "482 913", Palette.fg),
             ("seconds · 13 semibold mono", .seconds, "18", Palette.fg2),
-            ("log · 11.5 mono, line height 1.65", .log, "09:41:02  Sending alice / ••••••••+482 •••\n09:41:03  Connected, 10.8.0.6", Palette.fg),
+            ("log · 11.5 mono, line height 1.65", .log, "09:41:02  Sending alice / ••••••••+482 •••\n09:41:03  Connected, 10.8.0.6", Palette.fg)
         ]
         return VStack(alignment: .leading, spacing: Spacing.s) {
             SectionLabel("Typography")
@@ -139,8 +143,12 @@ struct DesignGallery: View {
                 caption("4 · 8 · 12 · 16 · 24 · 32 · 48").padding(.leading, 6)
             }
             HStack(spacing: Spacing.s) {
-                ForEach([("card 18", Radius.card), ("compact 14", Radius.compactCard), ("panel 16", Radius.panel),
-                         ("row 12", Radius.row), ("field 8", Radius.field)], id: \.0) { item in
+                ForEach(
+                    [
+                        ("card 18", Radius.card), ("compact 14", Radius.compactCard), ("panel 16", Radius.panel),
+                        ("row 12", Radius.row), ("field 8", Radius.field)
+                    ], id: \.0
+                ) { item in
                     VStack(spacing: 4) {
                         RoundedRectangle(cornerRadius: item.1, style: .continuous)
                             .strokeBorder(Palette.fg2, lineWidth: 1)
@@ -179,7 +187,10 @@ struct DesignGallery: View {
     }
 
     private func sample(_ title: String, _ style: CapsuleButtonStyle) -> some View {
-        Button {} label: { Text(verbatim: title) }.buttonStyle(style)
+        Button {
+        } label: {
+            Text(verbatim: title)
+        }.buttonStyle(style)
     }
 
     private var cards: some View {
@@ -210,10 +221,16 @@ struct DesignGallery: View {
             .typography(.hint)
             .foregroundStyle(Palette.fg3)
             HStack(spacing: Spacing.xs) {
-                Button {} label: { Text(verbatim: last ? "Copied ✓" : "Copy code") }
-                    .buttonStyle(.secondaryCapsule(.regular, minWidth: 104))
-                Button {} label: { Text(verbatim: "Copy password + code") }
-                    .buttonStyle(.secondaryCapsule(.regular, minWidth: 176))
+                Button {
+                } label: {
+                    Text(verbatim: last ? "Copied ✓" : "Copy code")
+                }
+                .buttonStyle(.secondaryCapsule(.regular, minWidth: 104))
+                Button {
+                } label: {
+                    Text(verbatim: "Copy password + code")
+                }
+                .buttonStyle(.secondaryCapsule(.regular, minWidth: 176))
             }
             .padding(.top, 4)
         }
@@ -237,7 +254,7 @@ struct DesignGallery: View {
             (.connected, "Connected · 1h 12m · 10.8.0.6", Palette.green),
             (.dropped, "Dropped, reconnecting with a fresh code…", Palette.red),
             (.rejected, "Sign-in rejected by the server", Palette.red),
-            (.unreachable, "Can’t reach the server · next try in 18 s", Palette.red),
+            (.unreachable, "Can’t reach the server · next try in 18 s", Palette.red)
         ]
         return VStack(alignment: .leading, spacing: Spacing.s) {
             SectionLabel("Status")
@@ -250,8 +267,12 @@ struct DesignGallery: View {
                 }
             }
             HStack(spacing: Spacing.m) {
-                ForEach([(StatusSymbol.check, "check"), (.warning, "warning"), (.info, "info"),
-                         (.warning, "warning, red")], id: \.1) { item in
+                ForEach(
+                    [
+                        (StatusSymbol.check, "check"), (.warning, "warning"), (.info, "info"),
+                        (.warning, "warning, red")
+                    ], id: \.1
+                ) { item in
                     HStack(spacing: 6) {
                         StatusIcon(item.0, size: 16, tint: item.1 == "warning, red" ? Palette.red : nil)
                         caption(item.1)
@@ -259,8 +280,12 @@ struct DesignGallery: View {
                 }
             }
             HStack(spacing: Spacing.m) {
-                ForEach([(StatusSymbol.off, "Disconnected", Palette.fg2), (.connected, "Connected · 1h 12m", Palette.green),
-                         (.waiting, "Waiting · 4 s", Palette.amber), (.dropped, "Dropped", Palette.red)], id: \.1) { item in
+                ForEach(
+                    [
+                        (StatusSymbol.off, "Disconnected", Palette.fg2), (.connected, "Connected · 1h 12m", Palette.green),
+                        (.waiting, "Waiting · 4 s", Palette.amber), (.dropped, "Dropped", Palette.red)
+                    ], id: \.1
+                ) { item in
                     HStack(spacing: 5) {
                         StatusDot(item.0)
                         Text(verbatim: item.1).typography(.rowStatus).foregroundStyle(item.2)
@@ -279,11 +304,13 @@ struct DesignGallery: View {
                 ringSample("last 5 s", CodeRing(remaining: 4, period: 30, size: 56, weight: 2.6))
                 ringSample("waiting", CodeRing(remaining: 18, period: 30, waiting: true, size: 56, weight: 2.6))
                 ringSample("refilling", CodeRing(remaining: 29.9, period: 30, size: 56, weight: 2.6))
-                ringSample("26 · 30 · 20", HStack(spacing: Spacing.xs) {
-                    CodeRing(remaining: 18, period: 30)
-                    CodeRing(remaining: 18, period: 30, size: 30)
-                    CodeRing(remaining: 18, period: 30, size: 20, weight: 4)
-                })
+                ringSample(
+                    "26 · 30 · 20",
+                    HStack(spacing: Spacing.xs) {
+                        CodeRing(remaining: 18, period: 30)
+                        CodeRing(remaining: 18, period: 30, size: 30)
+                        CodeRing(remaining: 18, period: 30, size: 20, weight: 4)
+                    })
             }
             caption("Reduce Motion: 1 s steps, no refill; the color still changes")
         }
@@ -321,8 +348,9 @@ struct DesignGallery: View {
                 surface("design bg", Color(nsColor: isDark ? .black : .white))
             }
             ZStack {
-                LinearGradient(colors: [Palette.green.opacity(0.5), Palette.amberRing.opacity(0.5), Palette.redDot.opacity(0.5)],
-                               startPoint: .leading, endPoint: .trailing)
+                LinearGradient(
+                    colors: [Palette.green.opacity(0.5), Palette.amberRing.opacity(0.5), Palette.redDot.opacity(0.5)],
+                    startPoint: .leading, endPoint: .trailing)
                 HStack(spacing: 0) {
                     Text(verbatim: "Edit").typography(.body).foregroundStyle(Palette.fg).padding(.horizontal, 12)
                     Image(systemName: "ellipsis").foregroundStyle(Palette.fg).frame(width: 36)
@@ -333,7 +361,8 @@ struct DesignGallery: View {
             }
             .frame(height: 64)
             .clipShape(RoundedRectangle(cornerRadius: Radius.compactCard, style: .continuous))
-            caption("Glass, for chrome only: the material of macOS 13–15 (D-20). Liquid Glass on macOS 26 is drawn "
+            caption(
+                "Glass, for chrome only: the material of macOS 13–15 (D-20). Liquid Glass on macOS 26 is drawn "
                     + "by the window server and does not show in offscreen renders.")
         }
     }
@@ -354,8 +383,9 @@ struct DesignGallery: View {
         }
         .padding(Spacing.s)
         .background(background, in: RoundedRectangle(cornerRadius: Radius.compactCard, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Radius.compactCard, style: .continuous)
-            .strokeBorder(Palette.line, lineWidth: Elevation.hairline))
+        .overlay(
+            RoundedRectangle(cornerRadius: Radius.compactCard, style: .continuous)
+                .strokeBorder(Palette.line, lineWidth: Elevation.hairline))
     }
 
     private func caption(_ text: String) -> some View {

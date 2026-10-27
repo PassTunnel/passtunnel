@@ -1,10 +1,11 @@
 import Foundation
+import PassTunnelKit
+import PassTunnelVPNConfig
+
 #if canImport(Network)
 import Network
 import Security
 #endif
-import PassTunnelKit
-import PassTunnelVPNConfig
 
 /// Measures how far this computer's clock is off (`ClockOffset`), to tell a wrong clock from a wrong
 /// password when a server rejects a sign-in. Two sources, and no others (docs/APP.md, the privacy page):
@@ -102,19 +103,22 @@ public struct ServerClock: ClockChecking {
         let queue = DispatchQueue(label: "passtunnel.gateway-clock")
         let exchange = GatewayExchange()
         let tls = NWProtocolTLS.Options()
-        sec_protocol_options_set_verify_block(tls.securityProtocolOptions, { _, trust, complete in
-            let ref = sec_trust_copy_ref(trust).takeRetainedValue()
-            if let pin, let leaf = (SecTrustCopyCertificateChain(ref) as? [SecCertificate])?.first,
-               TLSFingerprint.sha256Hex(SecCertificateCopyData(leaf) as Data) == pin {
-                complete(true)
-                return
-            }
-            SecTrustSetNetworkFetchAllowed(ref, false)
-            SecTrustEvaluateAsyncWithError(ref, queue) { _, trusted, _ in
-                if !trusted { exchange.untrusted = true }
-                complete(trusted)
-            }
-        }, queue)
+        sec_protocol_options_set_verify_block(
+            tls.securityProtocolOptions,
+            { _, trust, complete in
+                let ref = sec_trust_copy_ref(trust).takeRetainedValue()
+                if let pin, let leaf = (SecTrustCopyCertificateChain(ref) as? [SecCertificate])?.first,
+                    TLSFingerprint.sha256Hex(SecCertificateCopyData(leaf) as Data) == pin
+                {
+                    complete(true)
+                    return
+                }
+                SecTrustSetNetworkFetchAllowed(ref, false)
+                SecTrustEvaluateAsyncWithError(ref, queue) { _, trusted, _ in
+                    if !trusted { exchange.untrusted = true }
+                    complete(trusted)
+                }
+            }, queue)
         let tcp = NWProtocolTCP.Options()
         tcp.connectionTimeout = max(1, Int(timeout.rounded(.up)))
         let connection = NWConnection(host: NWEndpoint.Host(h), port: nwPort, using: NWParameters(tls: tls, tcp: tcp))
@@ -131,8 +135,10 @@ public struct ServerClock: ClockChecking {
                 if head.isEmpty, let error {
                     return exchange.finish(connection, .failure(Failure.connectionFailed(error.localizedDescription)))
                 }
-                exchange.finish(connection, Self.gatewayResult(head: head, sent: sent, received: Date(), host: h)
-                    .mapError { $0 as Error })
+                exchange.finish(
+                    connection,
+                    Self.gatewayResult(head: head, sent: sent, received: Date(), host: h)
+                        .mapError { $0 as Error })
             }
         }
 
@@ -143,15 +149,21 @@ public struct ServerClock: ClockChecking {
                     switch state {
                     case .ready:
                         let sent = Date()
-                        connection.send(content: request, completion: .contentProcessed { error in
-                            if let error {
-                                exchange.finish(connection, .failure(Failure.connectionFailed(error.localizedDescription)))
-                            }
-                        })
+                        connection.send(
+                            content: request,
+                            completion: .contentProcessed { error in
+                                if let error {
+                                    exchange.finish(connection, .failure(Failure.connectionFailed(error.localizedDescription)))
+                                }
+                            })
                         receive(sent: sent)
                     case .failed(let error), .waiting(let error):
-                        exchange.finish(connection, .failure(exchange.untrusted ? Failure.untrusted
-                                                                                : Failure.connectionFailed(error.localizedDescription)))
+                        exchange.finish(
+                            connection,
+                            .failure(
+                                exchange.untrusted
+                                    ? Failure.untrusted
+                                    : Failure.connectionFailed(error.localizedDescription)))
                     case .cancelled:
                         exchange.finish(connection, .failure(Failure.timedOut))
                     default:
@@ -199,9 +211,12 @@ public struct ServerClock: ClockChecking {
 
     /// Apple platforms: Apple's time server, the one macOS uses. Linux: the first server the system's
     /// time service is configured with (systemd-timesyncd, chrony or ntpd); nil when none is.
-    public static func timeServerHost(read: (String) -> String? = { try? String(contentsOfFile: $0, encoding: .utf8) },
-                                      list: (String) -> [String] = { (try? FileManager.default.contentsOfDirectory(atPath: $0)) ?? [] })
-        -> String? {
+    public static func timeServerHost(
+        read: (String) -> String? = { try? String(contentsOfFile: $0, encoding: .utf8) },
+        list: (String) -> [String] = { (try? FileManager.default.contentsOfDirectory(atPath: $0)) ?? [] }
+    )
+        -> String?
+    {
         #if os(Linux)
         return configuredTimeServer(read: read, list: list)
         #else
@@ -267,15 +282,27 @@ extension ClockOffset {
         let server = self.server ?? ""
         switch (source, isWrong, isBehind) {
         case (.gateway, true, true):
-            return String(localized: "Your clock is \(seconds) s behind the gateway’s, so one-time codes made from it are likely refused. Fix the clock, then try again.")
+            return String(
+                localized:
+                    "Your clock is \(seconds) s behind the gateway’s, so one-time codes made from it are likely refused. Fix the clock, then try again."
+            )
         case (.gateway, true, false):
-            return String(localized: "Your clock is \(seconds) s ahead of the gateway’s, so one-time codes made from it are likely refused. Fix the clock, then try again.")
+            return String(
+                localized:
+                    "Your clock is \(seconds) s ahead of the gateway’s, so one-time codes made from it are likely refused. Fix the clock, then try again."
+            )
         case (.gateway, false, _):
             return String(localized: "Your clock matches the gateway’s, \(seconds) s apart.")
         case (.timeServer, true, true):
-            return String(localized: "Your clock is \(seconds) s behind the time server \(server), so one-time codes made from it are likely refused. Fix the clock, then try again.")
+            return String(
+                localized:
+                    "Your clock is \(seconds) s behind the time server \(server), so one-time codes made from it are likely refused. Fix the clock, then try again."
+            )
         case (.timeServer, true, false):
-            return String(localized: "Your clock is \(seconds) s ahead of the time server \(server), so one-time codes made from it are likely refused. Fix the clock, then try again.")
+            return String(
+                localized:
+                    "Your clock is \(seconds) s ahead of the time server \(server), so one-time codes made from it are likely refused. Fix the clock, then try again."
+            )
         case (.timeServer, false, _):
             return String(localized: "Your clock matches the time server \(server), \(seconds) s apart.")
         }

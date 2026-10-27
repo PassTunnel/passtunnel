@@ -1,4 +1,5 @@
 import Foundation
+
 #if canImport(Security)
 import Security
 #endif
@@ -8,40 +9,40 @@ public enum PTError: Error, Equatable, LocalizedError {
     case profileNotFound(String)
     case invalidProfileID(String)
     case emptyName
-    case invalidField(String)              // field name, e.g. "totp.digits"
-    case wrongProfileType(String)          // profile id
-    case fileError(String)                 // path or short reason
+    case invalidField(String)  // field name, e.g. "totp.digits"
+    case wrongProfileType(String)  // profile id
+    case fileError(String)  // path or short reason
     case fileTooLarge(String)
-    case invalidFile(String)               // unreadable / malformed JSON or text
-    case keychain(Int32)                   // OSStatus
+    case invalidFile(String)  // unreadable / malformed JSON or text
+    case keychain(Int32)  // OSStatus
     case invalidSecret
-    case invalidOTPAuthURI(String)         // reason
+    case invalidOTPAuthURI(String)  // reason
     case hotpNotSupported
-    case invalidTemplate(String)           // reason
+    case invalidTemplate(String)  // reason
     case unsupportedShareFile
-    case ovpnReferencedFile(String)        // path that is missing, unreadable or not embeddable
-    case ovpnNotAllowed([String])          // sanitizer violations, e.g. "line 3: up (not allowed)"
+    case ovpnReferencedFile(String)  // path that is missing, unreadable or not embeddable
+    case ovpnNotAllowed([String])  // sanitizer violations, e.g. "line 3: up (not allowed)"
     // connecting
-    case missingPassword(String)           // profile id: no password in the Keychain
-    case missingTOTPSecret(String)         // profile id: no TOTP secret in the Keychain
-    case missingCredential(CredentialField) // `.ask` value not supplied by the caller
-    case missingConfig(String)             // profile id: OpenVPN profile without config.ovpn
-    case missingHost(String)               // profile id: FortiGate profile without a host
-    case usernameTooLong(maxBytes: Int)    // FortiGate user name longer than openfortivpn keeps
-    case helperFailed(String)              // the helper refused the request
-    case authFailed(String)                // log tail
-    case connectFailed(String)             // the VPN tool exited; log tail
-    case serverUnreachable(server: String, reason: String, log: String)   // no answer, refused, no route: nothing sent; log tail
-    case hostNotFound(server: String, log: String)   // the server's name did not resolve; log tail
-    case connectTimeout(Int)               // seconds
+    case missingPassword(String)  // profile id: no password in the Keychain
+    case missingTOTPSecret(String)  // profile id: no TOTP secret in the Keychain
+    case missingCredential(CredentialField)  // `.ask` value not supplied by the caller
+    case missingConfig(String)  // profile id: OpenVPN profile without config.ovpn
+    case missingHost(String)  // profile id: FortiGate profile without a host
+    case usernameTooLong(maxBytes: Int)  // FortiGate user name longer than openfortivpn keeps
+    case helperFailed(String)  // the helper refused the request
+    case authFailed(String)  // log tail
+    case connectFailed(String)  // the VPN tool exited; log tail
+    case serverUnreachable(server: String, reason: String, log: String)  // no answer, refused, no route: nothing sent; log tail
+    case hostNotFound(server: String, log: String)  // the server's name did not resolve; log tail
+    case connectTimeout(Int)  // seconds
     case connectCancelled
-    case otherVPNActive(String)            // interface of the VPN that already takes all traffic
-    case setupFailed(reason: String, log: String)   // DNS hook or all-traffic routes failed; log tail
+    case otherVPNActive(String)  // interface of the VPN that already takes all traffic
+    case setupFailed(reason: String, log: String)  // DNS hook or all-traffic routes failed; log tail
     // confirming the user (Touch ID / password) before stored secrets are used
     case userConfirmationCancelled
-    case userConfirmationFailed(String)    // localized reason
-    case confirmationRequired              // protected secrets, but asking is not possible now (automatic reconnect)
-    case protectionUnavailable             // no Secure Enclave (Linux: no confirmation yet): the protection cannot be used
+    case userConfirmationFailed(String)  // localized reason
+    case confirmationRequired  // protected secrets, but asking is not possible now (automatic reconnect)
+    case protectionUnavailable  // no Secure Enclave (Linux: no confirmation yet): the protection cannot be used
     case protectedSecretUnreadable(SecretKind)  // encrypted item that cannot be decrypted (key lost or data damaged)
 
     public var errorDescription: String? {
@@ -80,7 +81,10 @@ public enum PTError: Error, Equatable, LocalizedError {
         case .unsupportedShareFile:
             return String(localized: "This is not a PassTunnel profile file, or it was made by a newer version.")
         case .ovpnReferencedFile(let path):
-            return String(localized: "The OpenVPN configuration refers to “\(path)”, which is missing or cannot be embedded. Keep the referenced files next to the .ovpn file.")
+            return String(
+                localized:
+                    "The OpenVPN configuration refers to “\(path)”, which is missing or cannot be embedded. Keep the referenced files next to the .ovpn file."
+            )
         case .ovpnNotAllowed(let violations):
             let list = violations.joined(separator: "\n")
             return String(localized: "The OpenVPN configuration contains settings PassTunnel does not allow for security reasons:\n\(list)")
@@ -110,7 +114,9 @@ public enum PTError: Error, Equatable, LocalizedError {
             if server.isEmpty { return String(localized: "The server could not be reached: \(reason). Your sign-in was not sent.") }
             return String(localized: "The server \(server) could not be reached: \(reason). Your sign-in was not sent.")
         case let .hostNotFound(server, _):
-            if server.isEmpty { return String(localized: "The server’s name could not be found. Check the server address and the network connection.") }
+            if server.isEmpty {
+                return String(localized: "The server’s name could not be found. Check the server address and the network connection.")
+            }
             return String(localized: "The server name \(server) could not be found. Check the server address and the network connection.")
         case .connectTimeout(let seconds):
             return String(localized: "The VPN did not connect within \(seconds) seconds.")
@@ -128,16 +134,24 @@ public enum PTError: Error, Equatable, LocalizedError {
             return String(localized: "Reconnecting needs your confirmation (Touch ID or your Mac password): connect it again yourself.")
         case .protectionUnavailable:
             #if os(Linux)
-            return String(localized: "PassTunnel cannot ask for a confirmation on this system yet, so it does not use profiles set to ask for one (require_auth).")
+            return String(
+                localized:
+                    "PassTunnel cannot ask for a confirmation on this system yet, so it does not use profiles set to ask for one (require_auth).")
             #else
             return String(localized: "This Mac has no Secure Enclave, so the saved secrets cannot be protected with Touch ID or your Mac password.")
             #endif
         case .protectedSecretUnreadable(let kind):
             switch kind {
             case .password:
-                return String(localized: "The saved password cannot be decrypted: its key is from another Mac, or the item was damaged. Enter the password again in the profile editor.")
+                return String(
+                    localized:
+                        "The saved password cannot be decrypted: its key is from another Mac, or the item was damaged. Enter the password again in the profile editor."
+                )
             case .totp:
-                return String(localized: "The saved TOTP secret cannot be decrypted: its key is from another Mac, or the item was damaged. Add the secret again in the profile editor.")
+                return String(
+                    localized:
+                        "The saved TOTP secret cannot be decrypted: its key is from another Mac, or the item was damaged. Add the secret again in the profile editor."
+                )
             }
         }
     }
@@ -148,7 +162,7 @@ extension PTError {
     public var logTail: String {
         switch self {
         case .authFailed(let tail), .connectFailed(let tail), .setupFailed(_, let tail), .serverUnreachable(_, _, let tail),
-             .hostNotFound(_, let tail):
+            .hostNotFound(_, let tail):
             return tail
         default: return ""
         }

@@ -1,8 +1,9 @@
+import Foundation
+import PassTunnelShared
+
 #if canImport(Darwin)
 import Darwin
 #endif
-import Foundation
-import PassTunnelShared
 
 /// Decides when the app replaces an outdated helper on its own, e.g. right after the app itself was
 /// updated (the helper still runs the build it was started from). Only an older helper is replaced,
@@ -38,8 +39,10 @@ public struct HelperAutoUpdate: Equatable, Sendable {
         /// ~/Applications) never takes over the helper on its own.
         public var inApplicationsFolder: Bool
 
-        public init(status: HelperStatus, outdated: Bool?, helperIsOlder: Bool, activeSessions: Int, updating: Bool,
-                    inApplicationsFolder: Bool) {
+        public init(
+            status: HelperStatus, outdated: Bool?, helperIsOlder: Bool, activeSessions: Int, updating: Bool,
+            inApplicationsFolder: Bool
+        ) {
             self.status = status
             self.outdated = outdated
             self.helperIsOlder = helperIsOlder
@@ -108,9 +111,11 @@ public enum HelperSessions {
     /// app bundle (`<app>/Contents/Resources/bin/openvpn|openfortivpn`) whose bundle identifier is
     /// PassTunnel's or that is gone from disk (replaced by an update). A restarted helper adopts
     /// tools that are no longer its children, hence the path check.
-    public static func toolPIDs(in processes: [RunningProcess],
-                                bundleIdentifier: (String) -> String? = Self.bundleIdentifier(ofApp:),
-                                exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> [Int32] {
+    public static func toolPIDs(
+        in processes: [RunningProcess],
+        bundleIdentifier: (String) -> String? = Self.bundleIdentifier(ofApp:),
+        exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+    ) -> [Int32] {
         let helpers = Set(processes.filter(isHelper).map(\.pid))
         return processes.filter { p in
             if helpers.contains(p.parent), !isHelper(p) { return true }
@@ -134,14 +139,15 @@ public enum HelperSessions {
         let contents = resources.deletingLastPathComponent()
         let app = contents.deletingLastPathComponent()
         guard bin.lastPathComponent == "bin", resources.lastPathComponent == "Resources",
-              contents.lastPathComponent == "Contents", app.pathExtension == "app" else { return nil }
+            contents.lastPathComponent == "Contents", app.pathExtension == "app"
+        else { return nil }
         return app.path
     }
 
     public static func bundleIdentifier(ofApp path: String) -> String? {
         let plist = URL(fileURLWithPath: path).appendingPathComponent("Contents/Info.plist")
         guard let data = try? Data(contentsOf: plist),
-              let dict = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+            let dict = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
         else { return nil }
         return dict["CFBundleIdentifier"] as? String
     }
@@ -158,7 +164,7 @@ public enum HelperSessions {
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
         var size = 0
         guard sysctl(&mib, 4, nil, &size, nil, 0) == 0, size > 0 else { return [] }
-        size += size / 4   // processes started in between
+        size += size / 4  // processes started in between
         var procs = [kinfo_proc](repeating: kinfo_proc(), count: size / MemoryLayout<kinfo_proc>.stride)
         guard sysctl(&mib, 4, &procs, &size, nil, 0) == 0 else { return [] }
         let count = size / MemoryLayout<kinfo_proc>.stride

@@ -7,8 +7,8 @@ import Foundation
 /// read the state the app shares (`ConnectionManager`'s snapshot file).
 public final class PersistentManagementQuerier: ManagementQuerying, @unchecked Sendable {
     private let lock = NSLock()
-    private var sessions: [String: Session] = [:]       // by socket path
-    private var opening: [String: Task<Session, Error>] = [:]   // one open at a time per socket
+    private var sessions: [String: Session] = [:]  // by socket path
+    private var opening: [String: Task<Session, Error>] = [:]  // one open at a time per socket
     /// Wait for the banner when opening (OpenVPN sends it at once unless another client is served).
     var bannerTimeout: TimeInterval = 1
 
@@ -93,7 +93,7 @@ public final class PersistentManagementQuerier: ManagementQuerying, @unchecked S
         private let lock = NSLock()
         private var _latest: ManagementState?
         private var _alive = true
-        private var descriptorClosed = false     // by the reader thread; never shut down after that
+        private var descriptorClosed = false  // by the reader thread; never shut down after that
 
         private init(_ conn: ManagementSocket.Connection) { self.conn = conn }
 
@@ -106,7 +106,8 @@ public final class PersistentManagementQuerier: ManagementQuerying, @unchecked S
             let deadline = Date().addingTimeInterval(timeout)
             do {
                 guard let banner = try conn.readLine(until: min(deadline, Date().addingTimeInterval(bannerTimeout))),
-                      banner.hasPrefix(">INFO:") else { throw ManagementError.busy }
+                    banner.hasPrefix(">INFO:")
+                else { throw ManagementError.busy }
             } catch ManagementError.timeout {
                 conn.close()
                 throw ManagementError.busy

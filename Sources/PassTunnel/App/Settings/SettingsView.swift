@@ -65,16 +65,18 @@ struct MenuBarPreview: View {
     var body: some View {
         HStack(spacing: 8) {
             ForEach([false, true], id: \.self) { dark in
-                Image(nsImage: MenuBarIcon.rendered(
-                    badges: [
-                        .init(text: "W", symbol: nil, tone: .connected),
-                        .init(text: "H", symbol: nil, tone: .connecting),
-                        .init(text: "L", symbol: nil, tone: .disconnected),
-                    ],
-                    palette: palette, dark: dark))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(dark ? Color(white: 0.16) : Color(white: 0.93), in: RoundedRectangle(cornerRadius: 5))
+                Image(
+                    nsImage: MenuBarIcon.rendered(
+                        badges: [
+                            .init(text: "W", symbol: nil, tone: .connected),
+                            .init(text: "H", symbol: nil, tone: .connecting),
+                            .init(text: "L", symbol: nil, tone: .disconnected)
+                        ],
+                        palette: palette, dark: dark)
+                )
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(dark ? Color(white: 0.16) : Color(white: 0.93), in: RoundedRectangle(cornerRadius: 5))
             }
         }
         .accessibilityLabel(String(localized: "Menu bar preview"))
@@ -89,9 +91,10 @@ extension MenuBarIcon {
 
     static func rendered(_ source: NSImage, dark: Bool, scale: CGFloat = 2) -> NSImage {
         let size = source.size
-        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * scale), pixelsHigh: Int(size.height * scale),
-                                   bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-                                   colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: Int(size.width * scale), pixelsHigh: Int(size.height * scale),
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
         rep.size = size
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
@@ -140,13 +143,18 @@ struct ShortcutSettings: View {
         Form {
             Section {
                 Toggle(String(localized: "Enable global shortcuts"), isOn: $model.prefs.hotkeys)
-                ShortcutRow(keys: Hotkeys.Action.toggleDefault.display,
-                            title: String(localized: "Connect or disconnect the default profile"))
-                    .disabled(!model.prefs.hotkeys)
-                ShortcutRow(keys: Hotkeys.Action.code.display,
-                            title: model.prefs.autoType ? String(localized: "Type the current code")
-                                                        : String(localized: "Copy the current code"))
-                    .disabled(!model.prefs.hotkeys)
+                ShortcutRow(
+                    keys: Hotkeys.Action.toggleDefault.display,
+                    title: String(localized: "Connect or disconnect the default profile")
+                )
+                .disabled(!model.prefs.hotkeys)
+                ShortcutRow(
+                    keys: Hotkeys.Action.code.display,
+                    title: model.prefs.autoType
+                        ? String(localized: "Type the current code")
+                        : String(localized: "Copy the current code")
+                )
+                .disabled(!model.prefs.hotkeys)
             } footer: {
                 Text(String(localized: "Shortcuts work in every app while PassTunnel is running."))
                     .settingsFooter()
@@ -164,8 +172,9 @@ struct ShortcutSettings: View {
 
             Section {
                 Toggle(isOn: autoType) {
-                    SettingLabel(String(localized: "Type the code for me"),
-                                 String(localized: "\(Hotkeys.Action.code.display) types the current code into the focused field instead of copying it."))
+                    SettingLabel(
+                        String(localized: "Type the code for me"),
+                        String(localized: "\(Hotkeys.Action.code.display) types the current code into the focused field instead of copying it."))
                 }
                 if model.prefs.autoType && !(previewTrusted ?? trusted) {
                     HStack(alignment: .top, spacing: 10) {
@@ -175,10 +184,15 @@ struct ShortcutSettings: View {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(String(localized: "PassTunnel needs Accessibility permission to type for you."))
                                 .font(.callout.weight(.medium))
-                            Text(String(localized: "Turn on PassTunnel in System Settings → Privacy & Security → Accessibility. Until then, the code is copied instead."))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
+                            Text(
+                                String(
+                                    localized:
+                                        "Turn on PassTunnel in System Settings → Privacy & Security → Accessibility. Until then, the code is copied instead."
+                                )
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                             Button(String(localized: "Open Accessibility Settings…")) { AutoType.openAccessibilitySettings() }
                                 .controlSize(.small)
                         }
@@ -198,11 +212,13 @@ struct ShortcutSettings: View {
     }
 
     private var autoType: Binding<Bool> {
-        Binding(get: { model.prefs.autoType }, set: { on in
-            model.prefs.autoType = on
-            if on && !AutoType.isTrusted { AutoType.requestTrust() }
-            trusted = AutoType.isTrusted
-        })
+        Binding(
+            get: { model.prefs.autoType },
+            set: { on in
+                model.prefs.autoType = on
+                if on && !AutoType.isTrusted { AutoType.requestTrust() }
+                trusted = AutoType.isTrusted
+            })
     }
 }
 
@@ -252,10 +268,13 @@ private struct UpdateSettingsForm: View {
     var body: some View {
         Form {
             Section {
-                Toggle(String(localized: "Check for updates automatically"),
-                       isOn: Binding(get: { updater.automaticallyChecksForUpdates },
-                                     set: { updater.setAutomaticallyChecks($0) }))
-                    .disabled(!available)
+                Toggle(
+                    String(localized: "Check for updates automatically"),
+                    isOn: Binding(
+                        get: { updater.automaticallyChecksForUpdates },
+                        set: { updater.setAutomaticallyChecks($0) })
+                )
+                .disabled(!available)
                 LabeledContent(String(localized: "Current version"), value: AppInfo.versionString)
                 LabeledContent(String(localized: "Last checked"), value: lastCheck)
                 HStack {
@@ -265,8 +284,13 @@ private struct UpdateSettingsForm: View {
                     Spacer()
                 }
             } footer: {
-                Text(String(localized: "PassTunnel looks for new versions on GitHub once a day and asks before installing one. Updates are signed and checked before they are installed."))
-                    .settingsFooter()
+                Text(
+                    String(
+                        localized:
+                            "PassTunnel looks for new versions on GitHub once a day and asks before installing one. Updates are signed and checked before they are installed."
+                    )
+                )
+                .settingsFooter()
             }
             Section {
                 Link(String(localized: "Open Releases Page"), destination: AppInfo.releasesURL)
@@ -281,7 +305,8 @@ private struct UpdateSettingsForm: View {
 enum AppInfo {
     /// GitHub "owner/name", stamped into Info.plist by build-app.sh from scripts/release.env; the
     /// literal is for unbundled runs (screenshots) and must match release.env (ProjectLinksTests).
-    static let repository = Bundle.main.object(forInfoDictionaryKey: "PTGitHubRepository") as? String
+    static let repository =
+        Bundle.main.object(forInfoDictionaryKey: "PTGitHubRepository") as? String
         ?? "passtunnel/passtunnel"
     static let repositoryURL = URL(string: "https://github.com/\(repository)")!
     static let releasesURL = repositoryURL.appendingPathComponent("releases")
@@ -300,7 +325,8 @@ enum AppInfo {
     /// unbundled (`swift run`, screenshot rendering).
     static let appIcon: NSImage = {
         if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
-           let image = NSImage(contentsOf: url) {
+            let image = NSImage(contentsOf: url)
+        {
             return image
         }
         var dir = Bundle.main.executableURL?.resolvingSymlinksInPath().deletingLastPathComponent()
@@ -308,7 +334,8 @@ enum AppInfo {
             guard let current = dir else { break }
             let candidate = current.appendingPathComponent("Resources/AppIcon.icns")
             if FileManager.default.fileExists(atPath: current.appendingPathComponent("Package.swift").path),
-               let image = NSImage(contentsOf: candidate) {
+                let image = NSImage(contentsOf: candidate)
+            {
                 return image
             }
             dir = current.deletingLastPathComponent()

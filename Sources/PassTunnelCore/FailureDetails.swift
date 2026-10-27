@@ -15,8 +15,10 @@ public struct FailureDetails: Equatable {
     /// When the details were taken.
     public var at: Date
 
-    public init(profileName: String, server: String, failure: ConnectionFailure, retry: UnreachableRetry? = nil,
-                network: NetworkStatus, app: AppInfo, at: Date) {
+    public init(
+        profileName: String, server: String, failure: ConnectionFailure, retry: UnreachableRetry? = nil,
+        network: NetworkStatus, app: AppInfo, at: Date
+    ) {
         self.profileName = profileName
         self.server = server
         self.failure = failure
@@ -39,13 +41,19 @@ public struct FailureDetails: Equatable {
             result += " (\(words))"
         }
         lines.append(String(localized: "Result: \(result)"))
-        lines.append(failure.credentialsSent ? String(localized: "Your sign-in reached the server.")
-                                             : String(localized: "Your sign-in was not sent."))
+        lines.append(
+            failure.credentialsSent
+                ? String(localized: "Your sign-in reached the server.")
+                : String(localized: "Your sign-in was not sent."))
         if failure.codeSent, let left = failure.codeSecondsLeft {
             lines.append(String(localized: "The code was sent with \(left) s left."))
         }
         if let retry {
-            lines.append(String(localized: "Tries: \(retry.tries), the first at \(f.string(from: retry.firstFailedAt)), the last at \(f.string(from: retry.lastFailedAt))"))
+            lines.append(
+                String(
+                    localized:
+                        "Tries: \(retry.tries), the first at \(f.string(from: retry.firstFailedAt)), the last at \(f.string(from: retry.lastFailedAt))"
+                ))
             if let next = retry.nextTryAt {
                 lines.append(String(localized: "Next try at \(f.string(from: next))"))
             } else if retry.waitingForNetwork {

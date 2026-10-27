@@ -24,8 +24,10 @@ public enum OTPComposer {
     ///   the plain password. An invalid template falls back to `OTPTemplatePreset.append`.
     /// - `.separate` + OpenVPN: `SCRV1:b64(password):b64(otp)`; without a code, the plain password.
     /// - `.separate` + Forti: secret = password, separateOTP = otp.
-    public static func compose(password: String, otp: String?, delivery: OTPDelivery, template: String,
-                               type: VPNType) -> (secret: String, separateOTP: String?) {
+    public static func compose(
+        password: String, otp: String?, delivery: OTPDelivery, template: String,
+        type: VPNType
+    ) -> (secret: String, separateOTP: String?) {
         let code = (otp?.isEmpty == false) ? otp : nil
         switch delivery {
         case .combined:
@@ -86,7 +88,7 @@ public enum OTPComposer {
             guard let close = template[open...].firstIndex(of: "}") else { break }
             let inner = template[template.index(after: open)..<close]
             if let nested = inner.lastIndex(of: "{") {
-                i = nested   // "{{otp}" → restart at the inner brace
+                i = nested  // "{{otp}" → restart at the inner brace
                 continue
             }
             out.append(String(template[open...close]))

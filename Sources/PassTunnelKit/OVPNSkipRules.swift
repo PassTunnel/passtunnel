@@ -154,7 +154,7 @@ public enum OVPNSkipRules {
         "writepid": .process,
         "status": .process,
         "tmp-dir": .process,
-        "tls-export-cert": .process,
+        "tls-export-cert": .process
     ]
 
     /// The `log*` and `management*` directives (refused as "managed by PassTunnel") that can be left out:
@@ -177,13 +177,13 @@ public enum OVPNSkipRules {
         "management-forget-disconnect": .management,
         "management-signal": .management,
         "management-up-down": .management,
-        "management-log-cache": .management,
+        "management-log-cache": .management
     ]
 
     /// Clearer words for lines that block although the sanitizer says PassTunnel manages the family.
     static let blockingReasons: [String: String] = [
         "management-external-key": "the private key would come from another program",
-        "management-external-cert": "the certificate would come from another program",
+        "management-external-cert": "the certificate would come from another program"
     ]
 
     /// Why `violation` can be skipped; nil when it blocks.
@@ -227,8 +227,11 @@ public enum OVPNSkipRules {
             // it makes "no blocking lines" mean "the sanitizer accepts the text" whatever happens above.
             let outLines = OVPNInliner.lines(out)
             blocking = sanitizerViolations(out).map { v in
-                blockingEntry(v, text: displayText(outLines.indices.contains(v.line - 1) ? outLines[v.line - 1] : "",
-                                                   firstLine: v.line == 1))
+                blockingEntry(
+                    v,
+                    text: displayText(
+                        outLines.indices.contains(v.line - 1) ? outLines[v.line - 1] : "",
+                        firstLine: v.line == 1))
             }
         }
         return Result(text: out, skipped: skipped, blocking: blocking)
@@ -261,8 +264,10 @@ public enum OVPNSkipRules {
     /// `line` trimmed, cut to `maxBytes` of UTF-8 (ending in "…" when cut), with characters that could
     /// garble a terminal or a label shown as "�": control characters (tabs and other whitespace as a space),
     /// line and paragraph separators and bidirectional formatting.
-    public static func displayText(_ line: String, firstLine: Bool = false,
-                                   maxBytes: Int = OVPNSanitizer.maxLineBytes - marker.utf8.count) -> String {
+    public static func displayText(
+        _ line: String, firstLine: Bool = false,
+        maxBytes: Int = OVPNSanitizer.maxLineBytes - marker.utf8.count
+    ) -> String {
         var line = Substring(line)
         if firstLine, line.hasPrefix("\u{FEFF}") { line = line.dropFirst() }
         let trimmed = String(line).trimmingCharacters(in: .whitespacesAndNewlines)

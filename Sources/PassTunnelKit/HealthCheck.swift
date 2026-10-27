@@ -15,7 +15,8 @@ public enum HealthCheck {
     public static func parse(_ raw: String) -> Target? {
         let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !s.isEmpty, !s.hasPrefix("-"), !s.contains(where: { $0.isWhitespace }),
-              !s.unicodeScalars.contains(where: isControl) else { return nil }
+            !s.unicodeScalars.contains(where: isControl)
+        else { return nil }
 
         if s.hasPrefix("[") {
             guard let close = s.firstIndex(of: "]") else { return nil }

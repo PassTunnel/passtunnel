@@ -19,8 +19,10 @@ public final class AutomationService {
     public static let maxLogLines = 500
     static let maxLogLineLength = 2000
 
-    public init(store: ProfileStore, manager: ConnectionManager, helperInspector: HelperInspecting = SystemHelperInspector(),
-                appInfo: AppInfo = .current, network: @escaping () async -> NetworkStatus = { await NetworkPath.current() }) {
+    public init(
+        store: ProfileStore, manager: ConnectionManager, helperInspector: HelperInspecting = SystemHelperInspector(),
+        appInfo: AppInfo = .current, network: @escaping () async -> NetworkStatus = { await NetworkPath.current() }
+    ) {
         self.store = store
         self.manager = manager
         self.helperInspector = helperInspector
@@ -44,10 +46,11 @@ public final class AutomationService {
     /// The state the manager last saw (no refresh).
     public func status(_ p: Profile, now: Date = Date()) -> ProfileStatus {
         let m = manager
-        var s = ProfileStatus(id: p.id, name: p.name, type: p.type.rawValue, state: "disconnected",
-                              isDefault: store.defaultID == p.id, protected: ProfileSummary.isProtected(p),
-                              autoReconnect: p.autoReconnect, error: m.lastError[p.id],
-                              failure: m.failures[p.id].map { Self.redacted($0, id: p.id) })
+        var s = ProfileStatus(
+            id: p.id, name: p.name, type: p.type.rawValue, state: "disconnected",
+            isDefault: store.defaultID == p.id, protected: ProfileSummary.isProtected(p),
+            autoReconnect: p.autoReconnect, error: m.lastError[p.id],
+            failure: m.failures[p.id].map { Self.redacted($0, id: p.id) })
         if !m.state(p.id).isConnected, let retry = m.unreachableRetry(p.id) {
             s.nextTryAt = retry.nextTryAt
             s.tries = retry.tries
@@ -108,8 +111,9 @@ public final class AutomationService {
     }
 
     public func versionReport() -> VersionReport {
-        VersionReport(version: appInfo.version, build: appInfo.build, appPath: appInfo.appPath,
-                      helperProtocolVersion: PT.helperProtocolVersion)
+        VersionReport(
+            version: appInfo.version, build: appInfo.build, appPath: appInfo.appPath,
+            helperProtocolVersion: PT.helperProtocolVersion)
     }
 
     // MARK: connect / disconnect
@@ -124,9 +128,11 @@ public final class AutomationService {
     /// the confirmation first (`vault.unlock`), so the time a prompt stays open does not count.
     /// `role` is passed on to `ConnectionManager.connect` (the CLI's Ctrl-C handler uses it). A failure the
     /// manager typed (`ConnectionManager.failures`) comes as a `ConnectFailedError` around the error.
-    public func connect(_ id: String, given: [CredentialField: String] = [:], force: Bool = false,
-                        timeout: TimeInterval?, joining: Bool,
-                        role: ((ConnectionManager.ConnectRole) -> Void)? = nil) async throws {
+    public func connect(
+        _ id: String, given: [CredentialField: String] = [:], force: Bool = false,
+        timeout: TimeInterval?, joining: Bool,
+        role: ((ConnectionManager.ConnectRole) -> Void)? = nil
+    ) async throws {
         let manager = self.manager
         let attempt = Attempt()
         let run = { @MainActor in
@@ -243,8 +249,9 @@ public final class AutomationService {
         let all = ActivityLog(url: store.activityURL(id)).read()
         let redactor = LogRedactor(secrets: SecretKind.allCases.compactMap { Secrets.get(id, $0) })
         let events = all.suffix(count).map { $0.withoutCodeDigits().redacted(redactor) }
-        return LogReport(id: id, lines: events.map { $0.line(timeZone: timeZone) }, truncated: all.count > count,
-                         source: "activity", events: events)
+        return LogReport(
+            id: id, lines: events.map { $0.line(timeZone: timeZone) }, truncated: all.count > count,
+            source: "activity", events: events)
     }
 
     // MARK: diagnose
@@ -253,10 +260,11 @@ public final class AutomationService {
     /// only on request, as it contacts that server.
     public func diagnose(checkClock: Bool = false) async -> DiagnoseReport {
         let helper = await helperInspector.report()
-        var report = DiagnoseReport(version: appInfo.version, build: appInfo.build, appPath: appInfo.appPath,
-                                    inApplications: appInfo.inApplications, helper: helper,
-                                    profiles: store.list().map(check), secretStore: await Self.secretStoreReport(),
-                                    network: await network())
+        var report = DiagnoseReport(
+            version: appInfo.version, build: appInfo.build, appPath: appInfo.appPath,
+            inApplications: appInfo.inApplications, helper: helper,
+            profiles: store.list().map(check), secretStore: await Self.secretStoreReport(),
+            network: await network())
         if checkClock {
             do { report.clock = try await manager.checkClock() } catch { report.clockError = error.localizedDescription }
         }
@@ -312,10 +320,11 @@ public final class AutomationService {
         }
         let passwordSaved = p.passwordMode == .keychain ? saved(.password, missing: .missingPassword(p.id)) : nil
         let totpSaved = p.otpMode == .totp ? saved(.totp, missing: .missingTOTPSecret(p.id)) : nil
-        return ProfileCheck(id: p.id, name: p.name, type: p.type.rawValue, ok: problems.isEmpty,
-                            server: ProfileDestination.of(p, store: store).host, protected: ProfileSummary.isProtected(p),
-                            passwordSaved: passwordSaved, totpSaved: totpSaved, asksFor: p.needs.map(\.rawValue),
-                            problems: problems.map(ErrorReport.init), clock: manager.lastClock(p.id))
+        return ProfileCheck(
+            id: p.id, name: p.name, type: p.type.rawValue, ok: problems.isEmpty,
+            server: ProfileDestination.of(p, store: store).host, protected: ProfileSummary.isProtected(p),
+            passwordSaved: passwordSaved, totpSaved: totpSaved, asksFor: p.needs.map(\.rawValue),
+            problems: problems.map(ErrorReport.init), clock: manager.lastClock(p.id))
     }
 }
 
@@ -338,7 +347,7 @@ public struct LogRedactor {
         // OpenVPN static/dynamic challenge responses
         (#"\b((?:SC|C)?RV1:)\S+"#, "$1" + mask),
         // "password = …", "otp: …", "token=…"
-        (#"(?i)\b(pass(?:word|wd|phrase)?|secret|otp|token|response)(\s*[=:]\s*)\S+"#, "$1$2" + mask),
+        (#"(?i)\b(pass(?:word|wd|phrase)?|secret|otp|token|response)(\s*[=:]\s*)\S+"#, "$1$2" + mask)
     ].map { (try! NSRegularExpression(pattern: $0.0), $0.1) }
 
     /// Hex digits, alone or in groups split by single spaces or colons: OpenVPN prints keys and

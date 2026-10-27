@@ -36,7 +36,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if !launchedInBackground,
-           LoginItem.isBackgroundLaunch(arguments: [], launchEvent: NSAppleEventManager.shared().currentAppleEvent) {
+            LoginItem.isBackgroundLaunch(arguments: [], launchEvent: NSAppleEventManager.shared().currentAppleEvent)
+        {
             beginBackgroundLaunch()
         }
         if launchedInBackground {

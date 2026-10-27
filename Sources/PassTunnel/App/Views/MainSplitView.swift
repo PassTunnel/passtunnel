@@ -45,12 +45,13 @@ struct MainSplitView: View {
         }
         .alert(item: $model.alert) { alert in
             if alert.opensHelperSettings {
-                return Alert(title: Text(alert.title), message: Text(alert.message),
-                             primaryButton: .default(Text(String(localized: "Open Helper Settings"))) {
-                                 model.settingsTab = .helper
-                                 AppDelegate.shared?.showSettings()
-                             },
-                             secondaryButton: .cancel())
+                return Alert(
+                    title: Text(alert.title), message: Text(alert.message),
+                    primaryButton: .default(Text(String(localized: "Open Helper Settings"))) {
+                        model.settingsTab = .helper
+                        AppDelegate.shared?.showSettings()
+                    },
+                    secondaryButton: .cancel())
             }
             return Alert(title: Text(alert.title), message: Text(alert.message))
         }
@@ -79,7 +80,7 @@ struct MainSplitView: View {
         .onChange(of: model.toast) { toast in
             guard let toast else { return }
             let info: [NSAccessibility.NotificationUserInfoKey: Any] = [
-                .announcement: toast.text, .priority: NSAccessibilityPriorityLevel.high.rawValue,
+                .announcement: toast.text, .priority: NSAccessibilityPriorityLevel.high.rawValue
             ]
             NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested, userInfo: info)
         }
@@ -89,7 +90,8 @@ struct MainSplitView: View {
     /// the default profile, else the first.
     private func selectWhenNone() {
         guard !model.addingProfile, model.importReview == nil, model.selection.flatMap(model.profile) == nil,
-              let p = model.defaultProfile else { return }
+            let p = model.defaultProfile
+        else { return }
         model.selection = p.id
     }
 }
@@ -259,7 +261,9 @@ private struct AddButton: View {
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
-        Button { model.showAddView() } label: {
+        Button {
+            model.showAddView()
+        } label: {
             Image(systemName: "plus").frame(width: 28, height: 28).contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
@@ -275,7 +279,11 @@ private struct SettingsGear: View {
             if #available(macOS 14, *) {
                 SettingsLink { icon }
             } else {
-                Button { AppDelegate.shared?.showSettings() } label: { icon }
+                Button {
+                    AppDelegate.shared?.showSettings()
+                } label: {
+                    icon
+                }
             }
         }
         .buttonStyle(.borderless)
@@ -369,7 +377,8 @@ struct SplitWindowCommands: View {
 
     var body: some View {
         let selected = model.selection.flatMap(model.profile)
-        let blocked = model.editor != nil || model.credentialRequest != nil || model.importReview != nil
+        let blocked =
+            model.editor != nil || model.credentialRequest != nil || model.importReview != nil
             || model.overlapRequest != nil
         Button(String(localized: "Connect or Disconnect")) { selected.map(model.runAction) }
             .keyboardShortcut(.return, modifiers: [.command])

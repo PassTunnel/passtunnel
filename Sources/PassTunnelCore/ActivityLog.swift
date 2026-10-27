@@ -70,8 +70,10 @@ public struct ActivityEvent: Equatable, Sendable {
         /// is sent on its own (OpenVPN static challenge, FortiGate code field); nil without a code.
         public var format: String?
 
-        public init(username: String, password: Bool, code: Bool, codePrefix: String? = nil, secondsLeft: Int? = nil,
-                    format: String? = nil) {
+        public init(
+            username: String, password: Bool, code: Bool, codePrefix: String? = nil, secondsLeft: Int? = nil,
+            format: String? = nil
+        ) {
             self.username = username
             self.password = password
             self.code = code
@@ -101,9 +103,11 @@ public struct ActivityEvent: Equatable, Sendable {
     }
 
     /// Every `event` value, for schemas.
-    public static let names = ["connecting", "waiting_for_code", "sending", "auth_accepted", "connected", "link_dropped",
-                               "reconnecting", "unreachable", "next_try", "rejected", "failed", "stopped_by_user",
-                               "disconnected_by_user"]
+    public static let names = [
+        "connecting", "waiting_for_code", "sending", "auth_accepted", "connected", "link_dropped",
+        "reconnecting", "unreachable", "next_try", "rejected", "failed", "stopped_by_user",
+        "disconnected_by_user"
+    ]
 
     /// At most the first three digits of `code`, never more than half of it, so a short typed code is not
     /// kept whole; nil when it does not start with a digit.
@@ -125,7 +129,7 @@ public struct ActivityEvent: Equatable, Sendable {
         case .waitingForCode: return .wait
         case .linkDropped, .unreachable, .rejected, .failed: return .error
         case .connecting, .sending, .authAccepted, .connected, .reconnecting, .nextTry, .stoppedByUser,
-             .disconnectedByUser:
+            .disconnectedByUser:
             return .neutral
         }
     }
@@ -222,7 +226,7 @@ public struct ActivityEvent: Equatable, Sendable {
         case let .waitingForCode(.expiring, seconds, prefix):
             return String(localized: "Code \(code(prefix)) has \(seconds) s left, waiting for the next one")
         case let .sending(s):
-            let password = "••••••••"   // always 8 bullets, never the password's length
+            let password = "••••••••"  // always 8 bullets, never the password's length
             var text: String
             if s.code && s.password && s.format == "separate" {
                 text = String(localized: "Sending \(s.username) / \(password), code \(code(s.codePrefix)) separately")
@@ -321,8 +325,8 @@ private extension OTPComposer.Part {
 extension ActivityEvent: Codable {
     enum Key: String, CodingKey {
         case at, event, host, port, transport = "protocol", reason, seconds, codePrefix = "code_prefix", username,
-             password, code, secondsLeft = "seconds_left", format, address, willReconnect = "will_reconnect",
-             attempt, of, tries, nextAt = "next_at", reply, failure, credentialsSent = "credentials_sent"
+            password, code, secondsLeft = "seconds_left", format, address, willReconnect = "will_reconnect",
+            attempt, of, tries, nextAt = "next_at", reply, failure, credentialsSent = "credentials_sent"
     }
 
     public init(from decoder: Decoder) throws {
@@ -330,18 +334,22 @@ extension ActivityEvent: Codable {
         at = try c.decode(Date.self, forKey: .at)
         switch try c.decode(String.self, forKey: .event) {
         case "connecting":
-            kind = .connecting(host: try c.decode(String.self, forKey: .host), port: try c.decodeIfPresent(Int.self, forKey: .port),
-                               transport: try c.decode(String.self, forKey: .transport))
+            kind = .connecting(
+                host: try c.decode(String.self, forKey: .host), port: try c.decodeIfPresent(Int.self, forKey: .port),
+                transport: try c.decode(String.self, forKey: .transport))
         case "waiting_for_code":
-            kind = .waitingForCode(reason: try c.decode(CodeWait.self, forKey: .reason), seconds: try c.decode(Int.self, forKey: .seconds),
-                                   codePrefix: try c.decodeIfPresent(String.self, forKey: .codePrefix))
+            kind = .waitingForCode(
+                reason: try c.decode(CodeWait.self, forKey: .reason), seconds: try c.decode(Int.self, forKey: .seconds),
+                codePrefix: try c.decodeIfPresent(String.self, forKey: .codePrefix))
         case "sending":
-            kind = .sending(Sending(username: try c.decode(String.self, forKey: .username),
-                                    password: try c.decode(Bool.self, forKey: .password),
-                                    code: try c.decode(Bool.self, forKey: .code),
-                                    codePrefix: try c.decodeIfPresent(String.self, forKey: .codePrefix),
-                                    secondsLeft: try c.decodeIfPresent(Int.self, forKey: .secondsLeft),
-                                    format: try c.decodeIfPresent(String.self, forKey: .format)))
+            kind = .sending(
+                Sending(
+                    username: try c.decode(String.self, forKey: .username),
+                    password: try c.decode(Bool.self, forKey: .password),
+                    code: try c.decode(Bool.self, forKey: .code),
+                    codePrefix: try c.decodeIfPresent(String.self, forKey: .codePrefix),
+                    secondsLeft: try c.decodeIfPresent(Int.self, forKey: .secondsLeft),
+                    format: try c.decodeIfPresent(String.self, forKey: .format)))
         case "auth_accepted": kind = .authAccepted
         case "connected": kind = .connected(address: try c.decode(String.self, forKey: .address))
         case "link_dropped": kind = .linkDropped(willReconnect: try c.decode(Bool.self, forKey: .willReconnect))
@@ -352,9 +360,10 @@ extension ActivityEvent: Codable {
         case "next_try": kind = .nextTry(at: try c.decode(Date.self, forKey: .nextAt))
         case "rejected": kind = .rejected(reply: try c.decodeIfPresent(String.self, forKey: .reply))
         case "failed":
-            kind = .failed(kind: try c.decode(ConnectionFailure.Kind.self, forKey: .failure),
-                           reason: try c.decodeIfPresent(String.self, forKey: .reason),
-                           credentialsSent: try c.decode(Bool.self, forKey: .credentialsSent))
+            kind = .failed(
+                kind: try c.decode(ConnectionFailure.Kind.self, forKey: .failure),
+                reason: try c.decodeIfPresent(String.self, forKey: .reason),
+                credentialsSent: try c.decode(Bool.self, forKey: .credentialsSent))
         case "stopped_by_user": kind = .stoppedByUser
         case "disconnected_by_user": kind = .disconnectedByUser
         case let other:

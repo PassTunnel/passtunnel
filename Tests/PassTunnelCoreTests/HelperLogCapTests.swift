@@ -1,5 +1,5 @@
-import XCTest
 import PassTunnelShared
+import XCTest
 
 /// The helper trims a running tool's log once it gets too large.
 final class HelperLogCapTests: XCTestCase {

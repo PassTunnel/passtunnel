@@ -1,12 +1,14 @@
+import Foundation
+import XCTest
+
+@testable import PassTunnelCore
+@testable import PassTunnelKit
+
 #if canImport(CryptoKit)
 import CryptoKit
 #else
 import Crypto
 #endif
-import Foundation
-import XCTest
-@testable import PassTunnelCore
-@testable import PassTunnelKit
 #if canImport(Glibc)
 import Glibc
 #endif
@@ -33,8 +35,10 @@ final class FakeTools: ToolRunning {
     var override: ((Call) throws -> ToolOutput?)?
     private let lock = NSLock()
 
-    func run(_ path: String, _ arguments: [String], environment: [String: String], input: Data,
-             timeout: TimeInterval) throws -> ToolOutput {
+    func run(
+        _ path: String, _ arguments: [String], environment: [String: String], input: Data,
+        timeout: TimeInterval
+    ) throws -> ToolOutput {
         lock.lock()
         defer { lock.unlock() }
         let call = Call(path: path, arguments: arguments, environment: environment, input: input, timeout: timeout)
@@ -90,7 +94,8 @@ final class FakeTools: ToolRunning {
     private func systemdCreds(_ arguments: [String], _ input: Data) -> ToolOutput {
         if arguments == ["--version"] { return Self.ok(Data((systemdVersion + "\n+PAM +AUDIT\n").utf8)) }
         guard let name = arguments.first(where: { $0.hasPrefix("--name=") })?.dropFirst("--name=".count),
-              arguments.suffix(2) == ["-", "-"] else { return Self.failed(1, "Failed to parse arguments") }
+            arguments.suffix(2) == ["-", "-"]
+        else { return Self.failed(1, "Failed to parse arguments") }
         switch arguments.first {
         case "encrypt":
             return Self.ok(Data(("SEALED " + name + " " + input.base64EncodedString() + "\n").utf8))
@@ -148,12 +153,16 @@ class SecretStoreTestCase: XCTestCase {
         }
     }
 
-    func system(environment: [String: String]? = nil, isRoot: Bool = false,
-                interaction: SecretStoreInteraction = .none) -> SecretStoreSystem {
+    func system(
+        environment: [String: String]? = nil, isRoot: Bool = false,
+        interaction: SecretStoreInteraction = .none
+    ) -> SecretStoreSystem {
         SecretStoreSystem(
             service: "PassTunnelTests", paths: AppPaths(root: root),
-            environment: environment ?? ["HOME": "/home/alice", "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus",
-                                         "PASSTUNNEL_HOME": root.path],
+            environment: environment ?? [
+                "HOME": "/home/alice", "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus",
+                "PASSTUNNEL_HOME": root.path
+            ],
             isRoot: isRoot, runner: tools, interaction: interaction,
             isExecutable: { [unowned self] in self.executables.contains($0) },
             isSocket: { [unowned self] in self.sockets.contains($0) },
@@ -168,27 +177,33 @@ class SecretStoreTestCase: XCTestCase {
     /// Values a store must give back byte for byte.
     static let awkwardValues: [String] = [
         "pw", "trailing space ", " leading", "trailing newline\n", "two\n\n", "crlf\r\n", "tab\tinside",
-        "Şifre-ğüış-ÇÖ 🔐", "", "ptpl1:ptse1:x", "ptse1:" + String(repeating: "QUJD", count: 300), "nul\u{0}inside",
+        "Şifre-ğüış-ÇÖ 🔐", "", "ptpl1:ptse1:x", "ptse1:" + String(repeating: "QUJD", count: 300), "nul\u{0}inside"
     ]
 }
 
 // MARK: - Choosing a store
 
 final class SecretStoreSelectionTests: SecretStoreTestCase {
-    func select(env: String? = nil, setting: SecretStoreChoice = .auto, recorded: SecretStoreChoice? = nil,
-                detected: SecretStoreChoice = .file) throws -> SecretStoreSelection {
+    func select(
+        env: String? = nil, setting: SecretStoreChoice = .auto, recorded: SecretStoreChoice? = nil,
+        detected: SecretStoreChoice = .file
+    ) throws -> SecretStoreSelection {
         try SecretStoreSelection.resolve(environment: env, setting: setting, recorded: recorded) { detected }
     }
 
     func testOrder() throws {
-        XCTAssertEqual(try select(env: "systemd-creds", setting: .file, recorded: .secretService),
-                       SecretStoreSelection(store: .systemdCreds, source: .environment))
-        XCTAssertEqual(try select(env: "auto", setting: .file, recorded: .secretService),
-                       SecretStoreSelection(store: .file, source: .setting), "auto in the environment defers")
-        XCTAssertEqual(try select(setting: .systemdCreds, recorded: .secretService),
-                       SecretStoreSelection(store: .systemdCreds, source: .setting))
-        XCTAssertEqual(try select(recorded: .secretService, detected: .file),
-                       SecretStoreSelection(store: .secretService, source: .recorded), "found again over SSH")
+        XCTAssertEqual(
+            try select(env: "systemd-creds", setting: .file, recorded: .secretService),
+            SecretStoreSelection(store: .systemdCreds, source: .environment))
+        XCTAssertEqual(
+            try select(env: "auto", setting: .file, recorded: .secretService),
+            SecretStoreSelection(store: .file, source: .setting), "auto in the environment defers")
+        XCTAssertEqual(
+            try select(setting: .systemdCreds, recorded: .secretService),
+            SecretStoreSelection(store: .systemdCreds, source: .setting))
+        XCTAssertEqual(
+            try select(recorded: .secretService, detected: .file),
+            SecretStoreSelection(store: .secretService, source: .recorded), "found again over SSH")
         XCTAssertEqual(try select(detected: .systemdCreds), SecretStoreSelection(store: .systemdCreds, source: .auto))
     }
 
@@ -272,8 +287,11 @@ final class SecretStoreSelectionTests: SecretStoreTestCase {
         var env = system().environment
         env["PASSTUNNEL_SECRET_STORE"] = "file"
         report = SecretStores.report(system: system(environment: env))
-        XCTAssertEqual(report, SecretStoreReport(name: "file", available: false, setting: "auto", chosenBy: "environment",
-                                                 error: SecretStoreUnavailable.noPassphrase.message))
+        XCTAssertEqual(
+            report,
+            SecretStoreReport(
+                name: "file", available: false, setting: "auto", chosenBy: "environment",
+                error: SecretStoreUnavailable.noPassphrase.message))
         env["PASSTUNNEL_SECRET_STORE"] = "vault"
         report = SecretStores.report(system: system(environment: env))
         XCTAssertEqual(report.name, "vault")
@@ -326,15 +344,21 @@ final class SecretServiceStoreTests: SecretStoreTestCase {
         try store.write("acme/password", Data("hunter2".utf8))
         _ = try store.read("acme/password")
         try store.remove("acme/password")
-        XCTAssertEqual(tools.calls.map(\.arguments), [
-            ["store", "--label=PassTunnel (acme/password)", "service", "PassTunnelTests", "account", "acme/password"],
-            ["lookup", "service", "PassTunnelTests", "account", "acme/password"],
-            ["clear", "service", "PassTunnelTests", "account", "acme/password"],
-        ])
+        XCTAssertEqual(
+            tools.calls.map(\.arguments),
+            [
+                ["store", "--label=PassTunnel (acme/password)", "service", "PassTunnelTests", "account", "acme/password"],
+                ["lookup", "service", "PassTunnelTests", "account", "acme/password"],
+                ["clear", "service", "PassTunnelTests", "account", "acme/password"]
+            ])
         for call in tools.calls {
             XCTAssertEqual(call.path, "/usr/bin/secret-tool")
-            XCTAssertEqual(call.environment, ["LANG": "C", "HOME": "/home/alice", "XDG_RUNTIME_DIR": "/run/user/1000",
-                                              "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus"])
+            XCTAssertEqual(
+                call.environment,
+                [
+                    "LANG": "C", "HOME": "/home/alice", "XDG_RUNTIME_DIR": "/run/user/1000",
+                    "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus"
+                ])
             XCTAssertFalse(call.arguments.joined().contains("hunter2"))
         }
         XCTAssertEqual(tools.calls[0].input, Data("hunter2".utf8))
@@ -343,8 +367,9 @@ final class SecretServiceStoreTests: SecretStoreTestCase {
 
     func testSessionBus() {
         let found: (String) -> Bool = { $0 == "/run/user/1000/bus" }
-        XCTAssertEqual(SecretServiceStore.toolEnvironment(["XDG_RUNTIME_DIR": "/run/user/1000"], isSocket: found),
-                       ["LANG": "C", "XDG_RUNTIME_DIR": "/run/user/1000", "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus"])
+        XCTAssertEqual(
+            SecretServiceStore.toolEnvironment(["XDG_RUNTIME_DIR": "/run/user/1000"], isSocket: found),
+            ["LANG": "C", "XDG_RUNTIME_DIR": "/run/user/1000", "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus"])
         XCTAssertNil(SecretServiceStore.toolEnvironment(["XDG_RUNTIME_DIR": "/run/user/1000", "HOME": "/root"], isSocket: { _ in false }))
         XCTAssertNil(SecretServiceStore.toolEnvironment(["DBUS_SESSION_BUS_ADDRESS": ""], isSocket: found))
         XCTAssertEqual(SecretServiceStore.busAddressEscaped("/run/user/1000/bus"), "/run/user/1000/bus")
@@ -369,8 +394,9 @@ final class SecretServiceStoreTests: SecretStoreTestCase {
         XCTAssertNoThrow(try store.remove("acme/password"), "clear exits 1 without a message: nothing to remove")
         tools.override = { _ in FakeTools.failed(1, "secret-tool: Cannot autolaunch D-Bus without X11 $DISPLAY\n") }
         XCTAssertThrowsError(try store.read("acme/password")) {
-            XCTAssertEqual(($0 as? SecretStoreUnavailable)?.message,
-                           SecretStoreUnavailable.secretServiceFailed("Cannot autolaunch D-Bus without X11 $DISPLAY").message)
+            XCTAssertEqual(
+                ($0 as? SecretStoreUnavailable)?.message,
+                SecretStoreUnavailable.secretServiceFailed("Cannot autolaunch D-Bus without X11 $DISPLAY").message)
         }
         XCTAssertThrowsError(try store.remove("acme/password"))
         XCTAssertThrowsError(try store.write("acme/password", Data("pw".utf8)))
@@ -455,10 +481,12 @@ final class SystemdCredsStoreTests: SecretStoreTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir), ["acme%2Fpassword.cred"], "no temp file left")
         XCTAssertEqual(try store().read("acme/password"), Data("hunter2".utf8))
         let uses = tools.calls.filter { $0.arguments != ["--version"] }
-        XCTAssertEqual(uses.map(\.arguments), [
-            ["encrypt", "--name=acme%2Fpassword", "--user", "-", "-"],
-            ["decrypt", "--name=acme%2Fpassword", "--newline=no", "--user", "-", "-"],
-        ])
+        XCTAssertEqual(
+            uses.map(\.arguments),
+            [
+                ["encrypt", "--name=acme%2Fpassword", "--user", "-", "-"],
+                ["decrypt", "--name=acme%2Fpassword", "--newline=no", "--user", "-", "-"]
+            ])
         XCTAssertEqual(uses[0].input, Data("hunter2".utf8))
         XCTAssertEqual(uses[1].input, try Data(contentsOf: URL(fileURLWithPath: file)))
         for call in tools.calls {
@@ -476,8 +504,9 @@ final class SystemdCredsStoreTests: SecretStoreTestCase {
     func testARenamedFileDoesNotDecrypt() throws {
         try store().write("acme/password", Data("pw".utf8))
         let dir = root.appendingPathComponent("secrets")
-        try FileManager.default.moveItem(at: dir.appendingPathComponent("acme%2Fpassword.cred"),
-                                         to: dir.appendingPathComponent("other%2Fpassword.cred"))
+        try FileManager.default.moveItem(
+            at: dir.appendingPathComponent("acme%2Fpassword.cred"),
+            to: dir.appendingPathComponent("other%2Fpassword.cred"))
         XCTAssertNil(try store().read("acme/password"))
         XCTAssertThrowsError(try store().read("other/password")) {
             XCTAssertTrue(($0 as? SecretStoreUnavailable)?.message.contains("does not match") == true, "\($0)")
@@ -551,7 +580,7 @@ final class FileSecretStoreTests: SecretStoreTestCase {
     func testRoundTripsEveryValueExactly() throws {
         try setPassphrase("correct horse")
         for (i, value) in Self.awkwardValues.enumerated() { try store().write("p\(i)/password", Data(value.utf8)) }
-        FileSecretStore.keys.forget()   // as a new process
+        FileSecretStore.keys.forget()  // as a new process
         for (i, value) in Self.awkwardValues.enumerated() {
             XCTAssertEqual(try store().read("p\(i)/password"), Data(value.utf8), value.debugDescription)
         }
@@ -566,7 +595,8 @@ final class FileSecretStoreTests: SecretStoreTestCase {
         XCTAssertEqual(mode(fileURL.path), 0o600)
         XCTAssertEqual(first.prefix(4), Data("PTSF".utf8))
         XCTAssertEqual(Array(first[4..<9]), [1, 1, 4, 1, 1], "version, scrypt, log2 N, r, p")
-        XCTAssertEqual(first.count, SecretsFile.headerSize + SecretsFile.tagSize + (try JSONEncoder().encode(["acme/password": Data("hunter2".utf8)])).count)
+        XCTAssertEqual(
+            first.count, SecretsFile.headerSize + SecretsFile.tagSize + (try JSONEncoder().encode(["acme/password": Data("hunter2".utf8)])).count)
         XCTAssertNil(first.range(of: Data("hunter2".utf8)))
         XCTAssertNil(first.range(of: Data("acme".utf8)), "account names are encrypted too")
 
@@ -599,7 +629,7 @@ final class FileSecretStoreTests: SecretStoreTestCase {
         try setPassphrase("correct horse")
         try store().write("acme/password", Data("pw".utf8))
         let good = try fileBytes()
-        for index in [10, 6, 45, SecretsFile.headerSize + 1, good.count - 1] {   // salt, log2 N, nonce, ciphertext, tag
+        for index in [10, 6, 45, SecretsFile.headerSize + 1, good.count - 1] {  // salt, log2 N, nonce, ciphertext, tag
             var bad = good
             bad[index] ^= 0x01
             try bad.write(to: fileURL)
@@ -668,8 +698,9 @@ final class FileSecretStoreTests: SecretStoreTestCase {
         }
         try setPassphrase(String(repeating: "x", count: FileSecretStore.maxPassphraseFileSize + 1))
         XCTAssertThrowsError(try store().write("acme/password", Data("pw".utf8)))
-        XCTAssertThrowsError(try store(environment: ["PASSTUNNEL_PASSPHRASE_FILE": root.path]).write("acme/password", Data("pw".utf8)),
-                             "a directory")
+        XCTAssertThrowsError(
+            try store(environment: ["PASSTUNNEL_PASSPHRASE_FILE": root.path]).write("acme/password", Data("pw".utf8)),
+            "a directory")
         XCTAssertThrowsError(try store(environment: ["PASSTUNNEL_PASSPHRASE_FILE": root.path + "/missing"]).write("acme/password", Data("pw".utf8)))
         XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
         try setPassphrase("correct horse")
@@ -702,8 +733,9 @@ final class FileSecretStoreTests: SecretStoreTestCase {
             prompts.append(prompt)
             return answers.isEmpty ? nil : Data(answers.removeFirst().utf8)
         }
-        let terminal = store(environment: ["PASSTUNNEL_PASSPHRASE_FILE": ""],
-                             interaction: SecretStoreInteraction(interactive: true, askPassphrase: ask))
+        let terminal = store(
+            environment: ["PASSTUNNEL_PASSPHRASE_FILE": ""],
+            interaction: SecretStoreInteraction(interactive: true, askPassphrase: ask))
         XCTAssertNil(terminal.unavailability())
 
         answers = ["one", "two", "one", "uno", "a", "b"]
@@ -799,8 +831,9 @@ final class ToolRunnerTests: XCTestCase {
     }
 
     func testStatusAndErrorOutput() throws {
-        let result = try runner.run("/bin/sh", ["-c", "echo out; echo 'secret-tool: No such secret collection' >&2; exit 3"],
-                                    environment: [:], input: Data(), timeout: 5)
+        let result = try runner.run(
+            "/bin/sh", ["-c", "echo out; echo 'secret-tool: No such secret collection' >&2; exit 3"],
+            environment: [:], input: Data(), timeout: 5)
         XCTAssertEqual(result.status, 3)
         XCTAssertEqual(result.output, Data("out\n".utf8))
         XCTAssertEqual(result.errorLine, "No such secret collection")

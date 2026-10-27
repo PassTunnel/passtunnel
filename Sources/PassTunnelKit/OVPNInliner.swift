@@ -9,7 +9,7 @@ public enum OVPNInliner {
     /// Directives whose first argument is a file that becomes `<name>…</name>`.
     static let inlinable: Set<String> = [
         "ca", "cert", "key", "dh", "pkcs12", "extra-certs", "tls-auth", "tls-crypt", "tls-crypt-v2",
-        "secret", "crl-verify", "http-proxy-user-pass",
+        "secret", "crl-verify", "http-proxy-user-pass"
     ]
     /// Credentials that OpenVPN sends to a server named in the config. Only taken from the config's own
     /// folder, so a hostile config cannot have the user's other files (e.g. `../../.git-credentials`) sent out.
@@ -51,7 +51,7 @@ public enum OVPNInliner {
             let lineNo = index + 1
             var line = rawLine
             if line.hasSuffix("\r") { line.removeLast() }
-            if index == 0, line.hasPrefix("\u{FEFF}") { line.removeFirst() }   // UTF-8 BOM (Windows editors)
+            if index == 0, line.hasPrefix("\u{FEFF}") { line.removeFirst() }  // UTF-8 BOM (Windows editors)
 
             if let tag = verbatimTag {
                 emit(line, from: lineNo)
@@ -59,7 +59,7 @@ public enum OVPNInliner {
                 continue
             }
             guard let tokens = tokenize(line), let first = tokens.first else {
-                emit(line, from: lineNo)   // blank, comment, or malformed (the sanitizer reports the latter)
+                emit(line, from: lineNo)  // blank, comment, or malformed (the sanitizer reports the latter)
                 continue
             }
             if tokens.count == 1, let tag = blockTag(first) {
@@ -89,7 +89,7 @@ public enum OVPNInliner {
                 continue
             }
             if name == "crl-verify", args.count > 1, args[1].lowercased() == "dir" {
-                throw PTError.ovpnReferencedFile(path)   // a CRL directory cannot be embedded
+                throw PTError.ovpnReferencedFile(path)  // a CRL directory cannot be embedded
             }
 
             let data = try readReferenced(path, baseDir: baseDir, insideBaseDir: credentialFiles.contains(name))
@@ -206,8 +206,10 @@ public enum OVPNInliner {
         return result
     }
 
-    private static func finish(_ block: CredentialBlock, _ lines: [String], into result: inout StrippedCredentials,
-                               out: inout [String]) {
+    private static func finish(
+        _ block: CredentialBlock, _ lines: [String], into result: inout StrippedCredentials,
+        out: inout [String]
+    ) {
         result.removed.insert(block)
         guard block == .authUserPass else { return }
         out.append("auth-user-pass")
@@ -232,7 +234,8 @@ public enum OVPNInliner {
     static func readReferenced(_ path: String, baseDir: URL, insideBaseDir: Bool = false) throws -> Data {
         // No file name has a NUL; the file system calls below would read only the part before it.
         guard !path.utf8.contains(0) else { throw PTError.ovpnReferencedFile(path) }
-        let url = path.hasPrefix("/")
+        let url =
+            path.hasPrefix("/")
             ? URL(fileURLWithPath: path)
             : baseDir.appendingPathComponent(path)
         let resolved = url.standardizedFileURL.resolvingSymlinksInPath()

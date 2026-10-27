@@ -47,11 +47,11 @@ public enum OVPNSanitizer {
         "status", "replay-persist", "tmp-dir", "tls-export-cert", "dev-node",
         "client-config-dir", "ifconfig-pool-persist",
         "engine", "providers", "pkcs11-providers", "capath",
-        "show-pkcs11-ids",      // loads the given PKCS#11 provider library
-        "genkey",               // writes a key file (truncating it) at the given path
-        "port-share",           // server only; writes journal files into a directory
-        "memstats",             // 2.6 on Linux: creates, truncates and finally deletes the given file
-        "setcon",               // Linux: changes the process's SELinux context, like user/group
+        "show-pkcs11-ids",  // loads the given PKCS#11 provider library
+        "genkey",  // writes a key file (truncating it) at the given path
+        "port-share",  // server only; writes journal files into a directory
+        "memstats",  // 2.6 on Linux: creates, truncates and finally deletes the given file
+        "setcon",  // Linux: changes the process's SELinux context, like user/group
         // Server modes: OpenVPN would accept connections and run the server-side hooks.
         "server", "server-ipv6", "server-bridge", "tls-server", "inetd",
         // Standalone modes: a one-off command, or a change that outlives the session, instead of connecting.
@@ -59,7 +59,7 @@ public enum OVPNSanitizer {
         "show-ciphers", "show-digests", "show-engines", "show-tls", "show-curves", "show-groups",
         "show-gateway", "show-net", "show-net-up", "show-adapters", "show-valid-subnets", "allow-nonadmin",
         // Windows builds: the folder system programs are run from, and the service's internal options.
-        "win-sys", "service", "msg-channel",
+        "win-sys", "service", "msg-channel"
     ]
 
     /// The only `mode` OpenVPN may run in: `mode server` is a server.
@@ -94,14 +94,14 @@ public enum OVPNSanitizer {
     /// would otherwise read arbitrary paths as root.
     public static let fileDirectives: Set<String> = [
         "ca", "cert", "key", "dh", "pkcs12", "extra-certs", "tls-auth", "tls-crypt", "tls-crypt-v2",
-        "secret", "crl-verify", "auth-user-pass", "http-proxy-user-pass", "askpass", "auth-gen-token-secret",
+        "secret", "crl-verify", "auth-user-pass", "http-proxy-user-pass", "askpass", "auth-gen-token-secret"
     ]
 
     /// `setenv` names that are client metadata only. Anything else could steer the shell that runs
     /// the DNS script (e.g. BASH_ENV, PATH).
     static let allowedSetenvNames: Set<String> = [
         "CLIENT_CERT", "FORWARD_COMPATIBLE", "PUSH_PEER_INFO", "FRIENDLY_NAME",
-        "ALLOW_PASSWORD_SAVE", "SERVER_POLL_TIMEOUT", "GENERIC_CONFIG",
+        "ALLOW_PASSWORD_SAVE", "SERVER_POLL_TIMEOUT", "GENERIC_CONFIG"
     ]
 
     /// OpenVPN reads config lines with a 256-byte buffer and silently splits longer ones.
@@ -123,7 +123,7 @@ public enum OVPNSanitizer {
     /// TLS 1.3 suites `tls-ciphersuites` may list (OpenVPN turns `-` into `_`): the ones that encrypt with a
     /// full-length tag. Not the integrity-only suites (no encryption) nor `TLS_AES_128_CCM_8_SHA256`.
     static let allowedTLS13Suites: Set<String> = [
-        "TLS_AES_128_GCM_SHA256", "TLS_AES_256_GCM_SHA384", "TLS_CHACHA20_POLY1305_SHA256", "TLS_AES_128_CCM_SHA256",
+        "TLS_AES_128_GCM_SHA256", "TLS_AES_256_GCM_SHA384", "TLS_CHACHA20_POLY1305_SHA256", "TLS_AES_128_CCM_SHA256"
     ]
 
     /// Words in a `tls-cipher` element that select suites without encryption (`eNULL`, `NULL-SHA`), without
@@ -174,7 +174,8 @@ public enum OVPNSanitizer {
         switch name {
         case "tls-version-min":
             // `or-highest` only matters for a version OpenVPN does not know, which is refused anyway.
-            let valid = (args.count == 1 || (args.count == 2 && args[1] == "or-highest"))
+            let valid =
+                (args.count == 1 || (args.count == 2 && args[1] == "or-highest"))
                 && allowedTLSVersions.contains(args[0])
             return valid ? nil : tlsVersionReason
         case "tls-version-max":
@@ -206,7 +207,7 @@ public enum OVPNSanitizer {
         for element in elements where element.contains("SECLEVEL") {
             let bytes = Array(element.utf8)
             guard bytes.count == prefix.count + 1, bytes.starts(with: prefix),
-                  (UInt8(ascii: "0") + UInt8(minimumSecurityLevel)...UInt8(ascii: "5")).contains(bytes[prefix.count])
+                (UInt8(ascii: "0") + UInt8(minimumSecurityLevel)...UInt8(ascii: "5")).contains(bytes[prefix.count])
             else { return securityLevelReason }
         }
         for element in elements where !["!", "-", "+"].contains(element.first) {
@@ -233,8 +234,10 @@ public enum OVPNSanitizer {
             if i == 0, raw.hasPrefix("\u{FEFF}") { raw.removeFirst() }
 
             if lines[i].content.utf8.count > maxLineBytes {
-                violations.append(Violation(line: lineNo, directive: "(line)",
-                                            reason: "longer than \(maxLineBytes) characters"))
+                violations.append(
+                    Violation(
+                        line: lineNo, directive: "(line)",
+                        reason: "longer than \(maxLineBytes) characters"))
                 i += 1
                 continue
             }
@@ -454,7 +457,8 @@ public enum OVPNSanitizer {
         return bytes.dropFirst(prefix.utf8.count).allSatisfy {
             switch $0 {
             case UInt8(ascii: "a")...UInt8(ascii: "z"), UInt8(ascii: "A")...UInt8(ascii: "Z"),
-                 UInt8(ascii: "0")...UInt8(ascii: "9"), UInt8(ascii: "-"), UInt8(ascii: "_"): return true
+                UInt8(ascii: "0")...UInt8(ascii: "9"), UInt8(ascii: "-"), UInt8(ascii: "_"):
+                return true
             default: return false
             }
         }
@@ -530,9 +534,13 @@ public enum OVPNSanitizer {
             case .initial:
                 if !isSpace(c) {
                     if !backslash, c == "#" || c == ";" { return .success(tokens) }
-                    if !backslash, c == "\"" { state = .quoted }
-                    else if !backslash, c == "'" { state = .squoted }
-                    else { cur.append(c); state = .unquoted }
+                    if !backslash, c == "\"" {
+                        state = .quoted
+                    } else if !backslash, c == "'" {
+                        state = .squoted
+                    } else {
+                        cur.append(c); state = .unquoted
+                    }
                 }
             case .unquoted:
                 if !backslash, isSpace(c) {

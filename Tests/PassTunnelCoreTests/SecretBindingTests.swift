@@ -1,3 +1,10 @@
+import PassTunnelShared
+import XCTest
+
+@testable import PassTunnelCore
+@testable import PassTunnelKit
+@testable import PassTunnelVPNConfig
+
 #if canImport(CryptoKit)
 import CryptoKit
 #else
@@ -6,11 +13,6 @@ import Crypto
 #if canImport(Security)
 import Security
 #endif
-import XCTest
-@testable import PassTunnelCore
-@testable import PassTunnelKit
-import PassTunnelShared
-@testable import PassTunnelVPNConfig
 
 // MARK: - Secrets bound to the destination
 
@@ -40,9 +42,9 @@ extension ConnectionManagerTests {
         let m = makeManager()
         let p = try await makeProtected("Acme", .always, in: m, otp: .totp, autoReconnect: true)
         try await m.connect(p.id)
-        try await clock.sleep(300)                    // past the reuse window: only the session's secrets are left
+        try await clock.sleep(300)  // past the reuse window: only the session's secrets are left
         try writeConfig(p, remote: "vpn2.example.com")
-        await m.refresh()                             // the poll sees the change
+        await m.refresh()  // the poll sees the change
         helper.simulateExit(p.id)
         await m.refresh()
 
@@ -63,7 +65,9 @@ extension ConnectionManagerTests {
         try await m.connect(p.id)
         try await clock.sleep(300)
         // Settings that do not decide where the secrets go.
-        try store.update(p.id) { $0.name = "Acme Office"; $0.healthHost = "10.0.0.9"; $0.sessionLimitMin = 600 }
+        try store.update(p.id) {
+            $0.name = "Acme Office"; $0.healthHost = "10.0.0.9"; $0.sessionLimitMin = 600
+        }
         await m.refresh()
         helper.simulateExit(p.id)
         await m.refresh()
@@ -82,9 +86,12 @@ extension ConnectionManagerTests {
         try writeConfig(p, remote: "vpn2.example.com")
         healthResults = [false, false]
         await m.runHealthChecks()
-        await m.runHealthChecks()                     // outage: forced reconnect
+        await m.runHealthChecks()  // outage: forced reconnect
         await waitUntil { self.events.contains(.destinationChanged(profileID: p.id)) }
-        XCTAssertFalse(events.contains { if case .reconnectFailed = $0 { return true }; return false })
+        XCTAssertFalse(
+            events.contains {
+                if case .reconnectFailed = $0 { return true }; return false
+            })
         XCTAssertEqual(helper.starts.count, 1, "nothing sent to the new server")
         XCTAssertEqual(authenticator.calls, 1)
     }
@@ -95,7 +102,9 @@ extension ConnectionManagerTests {
         try await m.connect(p.id)
         XCTAssertTrue(m.state(p.id).isConnected)
         try await clock.sleep(300)
-        try store.update(p.id) { $0.host = "vpn2.example.com"; $0.trustedCert = String(repeating: "a", count: 64) }
+        try store.update(p.id) {
+            $0.host = "vpn2.example.com"; $0.trustedCert = String(repeating: "a", count: 64)
+        }
         await m.refresh()
         healthResults = [false, false]
         await m.runHealthChecks()
@@ -113,12 +122,12 @@ extension ConnectionManagerTests {
         try await m.connect(p.id)
         try await m.disconnect(p.id)
         try writeConfig(p, remote: "vpn2.example.com")
-        try await m.connect(p.id)                     // still within 60 s, but another server
+        try await m.connect(p.id)  // still within 60 s, but another server
         XCTAssertEqual(authenticator.calls, 2)
         XCTAssertEqual(authenticator.reasons.last, "connect to “Acme VPN” (vpn2.example.com)")
 
         try await m.disconnect(p.id)
-        try await m.connect(p.id)                     // unchanged now: the window applies again
+        try await m.connect(p.id)  // unchanged now: the window applies again
         XCTAssertEqual(authenticator.calls, 2)
     }
 
@@ -205,7 +214,7 @@ extension ConnectionManagerTests {
         same.host = " VPN.example.com "
         XCTAssertEqual(ProfileDestination.of(same, store: store).fingerprint, base.fingerprint)
         let changes: [(inout Profile) -> Void] = [
-            { $0.host = "vpn2.example.com" }, { $0.port = 10443 }, { $0.trustedCert = String(repeating: "b", count: 64) },
+            { $0.host = "vpn2.example.com" }, { $0.port = 10443 }, { $0.trustedCert = String(repeating: "b", count: 64) }
         ]
         for change in changes {
             var other = forti
@@ -252,18 +261,22 @@ final class SecretHardeningTests: CoreTestCase {
     // The Keychain's own rules (macOS).
     #if os(macOS)
     func label(_ account: String) -> String? {
-        let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service!,
-                                kSecAttrAccount as String: account, kSecReturnAttributes as String: true,
-                                kSecMatchLimit as String: kSecMatchLimitOne]
+        let q: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service!,
+            kSecAttrAccount as String: account, kSecReturnAttributes as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
         var out: CFTypeRef?
         guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess else { return nil }
         return (out as? [String: Any])?[kSecAttrLabel as String] as? String
     }
 
     func plant(_ account: String, _ value: String) {
-        let add: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service!,
-                                  kSecAttrAccount as String: account, kSecAttrLabel as String: "planted",
-                                  kSecValueData as String: Data(value.utf8)]
+        let add: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service!,
+            kSecAttrAccount as String: account, kSecAttrLabel as String: "planted",
+            kSecValueData as String: Data(value.utf8)
+        ]
         XCTAssertEqual(SecItemAdd(add as CFDictionary, nil), errSecSuccess)
     }
 
@@ -273,7 +286,7 @@ final class SecretHardeningTests: CoreTestCase {
         try Secrets.set("acme", .password, "s3cret")
         XCTAssertEqual(label("acme/password"), "PassTunnel (acme/password)")
         XCTAssertEqual(Secrets.get("acme", .password), "s3cret")
-        try Secrets.set("acme", .password, "again")        // and again over its own item
+        try Secrets.set("acme", .password, "again")  // and again over its own item
         XCTAssertEqual(Secrets.get("acme", .password), "again")
     }
     #endif
@@ -326,7 +339,7 @@ final class SecretHardeningTests: CoreTestCase {
         let vault = makeVault()
         let p = try await protectedProfile(vault)
         try swapRecordPublicKey(p.id)
-        auth.canReadPublicKey = false                      // only the unlocked key tells
+        auth.canReadPublicKey = false  // only the unlocked key tells
         do {
             _ = try await vault.secret(p, .password, for: .connect)
             XCTFail("expected a mismatch")
@@ -421,7 +434,8 @@ final class SecretHardeningTests: CoreTestCase {
         XCTAssertEqual(untouched.text, plain, "byte for byte when there is nothing to remove")
         XCTAssertEqual(untouched.removed, [])
 
-        let text = "client\n--auth-user-pass [inline]\n<auth-user-pass>\r\nalice\r\npw\r\n</auth-user-pass>\n"
+        let text =
+            "client\n--auth-user-pass [inline]\n<auth-user-pass>\r\nalice\r\npw\r\n</auth-user-pass>\n"
             + "http-proxy-user-pass [inline]\n" + proxy + "remote vpn.example.com\n"
         let all = OVPNInliner.strippingCredentials(text)
         XCTAssertEqual(all.text, "client\nauth-user-pass\nauth-user-pass\nhttp-proxy proxy.example.com 8080\nremote vpn.example.com\n")

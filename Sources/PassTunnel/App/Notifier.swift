@@ -29,7 +29,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         let stop = UNNotificationAction(identifier: Self.stopAction, title: String(localized: "Stop"), options: [])
         center.setNotificationCategories([
             UNNotificationCategory(identifier: Self.reconnectCategory, actions: [connect], intentIdentifiers: [], options: []),
-            UNNotificationCategory(identifier: Self.reconnectingCategory, actions: [stop], intentIdentifiers: [], options: []),
+            UNNotificationCategory(identifier: Self.reconnectingCategory, actions: [stop], intentIdentifiers: [], options: [])
         ])
     }
 
@@ -47,8 +47,9 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         case .stop: category = Self.reconnectingCategory
         case nil: category = nil
         }
-        post(title: notice.title, body: notice.body, profileID: notice.profileID, category: category,
-             connectOnClick: notice.connectOnClick)
+        post(
+            title: notice.title, body: notice.body, profileID: notice.profileID, category: category,
+            connectOnClick: notice.connectOnClick)
     }
 
     func post(title: String, body: String, profileID: String?, category: String? = nil, connectOnClick: Bool = false) {
@@ -82,19 +83,23 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         }
         authorization = task
         let ok = await task.value
-        if !ok { authorization = nil }   // ask again later if the user changes their mind
+        if !ok { authorization = nil }  // ask again later if the user changes their mind
         return ok
     }
 
     // MARK: UNUserNotificationCenterDelegate
 
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
-                                            withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
         completionHandler([.banner, .sound])
     }
 
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
-                                            withCompletionHandler completionHandler: @escaping () -> Void) {
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
         let info = response.notification.request.content.userInfo
         let id = info["profileID"] as? String
         let connectOnClick = info[Self.connectOnClickKey] as? Bool == true
@@ -105,7 +110,8 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             if action == Self.stopAction {
                 if let id { model.stopReconnecting(id) }
             } else if action == Self.connectAction || (action == UNNotificationDefaultActionIdentifier && connectOnClick),
-               let id, let p = model.profile(id) {
+                let id, let p = model.profile(id)
+            {
                 model.connect(p)
                 // A profile that asks for something (connect at login offers those too): the sheet is in the main window.
                 if model.credentialRequest != nil { AppDelegate.shared?.showMainWindow() }

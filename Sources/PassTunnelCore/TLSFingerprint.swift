@@ -1,15 +1,16 @@
+import Foundation
+import PassTunnelKit
+import PassTunnelVPNConfig
+
 #if canImport(CryptoKit)
 import CryptoKit
 #else
-import Crypto   // swift-crypto: the same API, outside Apple platforms
+import Crypto  // swift-crypto: the same API, outside Apple platforms
 #endif
-import Foundation
 #if os(macOS)
 import Network
 import Security
 #endif
-import PassTunnelKit
-import PassTunnelVPNConfig
 
 /// Reads a TLS server's leaf certificate and returns its SHA-256 digest, the format openfortivpn
 /// expects for `trusted-cert`. The certificate is never trusted and no application data is sent:
@@ -51,17 +52,20 @@ public enum TLSFingerprint {
         let queue = DispatchQueue(label: "passtunnel.tls-fingerprint")
         let probe = Probe()
         let tls = NWProtocolTLS.Options()
-        sec_protocol_options_set_verify_block(tls.securityProtocolOptions, { _, trust, complete in
-            let ref = sec_trust_copy_ref(trust).takeRetainedValue()
-            if let chain = SecTrustCopyCertificateChain(ref) as? [SecCertificate], let leaf = chain.first {
-                probe.fingerprint = sha256Hex(SecCertificateCopyData(leaf) as Data)
-            }
-            complete(false)   // never trust it; we only wanted to look
-        }, queue)
+        sec_protocol_options_set_verify_block(
+            tls.securityProtocolOptions,
+            { _, trust, complete in
+                let ref = sec_trust_copy_ref(trust).takeRetainedValue()
+                if let chain = SecTrustCopyCertificateChain(ref) as? [SecCertificate], let leaf = chain.first {
+                    probe.fingerprint = sha256Hex(SecCertificateCopyData(leaf) as Data)
+                }
+                complete(false)  // never trust it; we only wanted to look
+            }, queue)
         let tcp = NWProtocolTCP.Options()
         tcp.connectionTimeout = max(1, Int(timeout.rounded(.up)))
-        let connection = NWConnection(host: NWEndpoint.Host(h), port: nwPort,
-                                      using: NWParameters(tls: tls, tcp: tcp))
+        let connection = NWConnection(
+            host: NWEndpoint.Host(h), port: nwPort,
+            using: NWParameters(tls: tls, tcp: tcp))
 
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in

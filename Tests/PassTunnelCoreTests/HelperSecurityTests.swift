@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import PassTunnelShared
 @testable import PassTunnelVPNConfig
 
@@ -24,11 +25,15 @@ final class HelperRequestDecodingTests: XCTestCase {
 
     func testValidRequestsDecode() throws {
         let requests: [HelperRequest] = [
-            .startOpenVPN(OpenVPNStart(profileID: "acme", profileDir: "/d", username: "alice", secret: "pw",
-                                       logPath: "/d/vpn.log")),
-            .startForti(FortiStart(profileID: "acme", profileDir: "/d", host: "vpn.example.com", username: "alice",
-                                   password: "pw", logPath: "/d/vpn.log")),
-            .stop(profileID: "acme"), .status,
+            .startOpenVPN(
+                OpenVPNStart(
+                    profileID: "acme", profileDir: "/d", username: "alice", secret: "pw",
+                    logPath: "/d/vpn.log")),
+            .startForti(
+                FortiStart(
+                    profileID: "acme", profileDir: "/d", host: "vpn.example.com", username: "alice",
+                    password: "pw", logPath: "/d/vpn.log")),
+            .stop(profileID: "acme"), .status
         ]
         for r in requests {
             XCTAssertEqual(try HelperCore.decodeRequest(try r.jsonData()), r)
@@ -73,16 +78,19 @@ final class HelperRequestDecodingTests: XCTestCase {
     func testProtocolVersionMismatchIsRejected() {
         XCTAssertEqual(PT.helperProtocolVersion, 3)
         for v in [0, 1, 2, 4, 99, -1] {
-            XCTAssertEqual(decodeError(#"{"type":"status","protocol_version":\#(v)}"#),
-                           .versionMismatch(client: v, helper: 3), "\(v)")
+            XCTAssertEqual(
+                decodeError(#"{"type":"status","protocol_version":\#(v)}"#),
+                .versionMismatch(client: v, helper: 3), "\(v)")
         }
         // Clients from before the field speak protocol 2 at most.
         XCTAssertEqual(decodeError(#"{"type":"status"}"#), .versionMismatch(client: 2, helper: 3))
-        XCTAssertEqual(decodeError(#"{"type":"start_openvpn","profile_id":"a","profile_dir":"/d","log_path":"/l"}"#),
-                       .versionMismatch(client: 2, helper: 3))
+        XCTAssertEqual(
+            decodeError(#"{"type":"start_openvpn","profile_id":"a","profile_dir":"/d","log_path":"/l"}"#),
+            .versionMismatch(client: 2, helper: 3))
         // Version is checked before the type, so a newer client gets the clear message.
-        XCTAssertEqual(decodeError(#"{"type":"start_wireguard","protocol_version":4}"#),
-                       .versionMismatch(client: 4, helper: 3))
+        XCTAssertEqual(
+            decodeError(#"{"type":"start_wireguard","protocol_version":4}"#),
+            .versionMismatch(client: 4, helper: 3))
         XCTAssertEqual(decodeError(#"{"type":"status","protocol_version":"2"}"#), .invalidField("protocol_version"))
         XCTAssertEqual(decodeError(#"{"type":"status","protocol_version":true}"#), .invalidField("protocol_version"))
         let msg = HelperCore.RequestError.versionMismatch(client: 4, helper: 3).description
@@ -91,9 +99,11 @@ final class HelperRequestDecodingTests: XCTestCase {
 
     func testMissingOrMistypedFieldsAreNamed() {
         XCTAssertEqual(decodeError(#"{"type":"stop","protocol_version":3}"#), .invalidField("profile_id"))
-        XCTAssertEqual(decodeError(#"{"type":"start_openvpn","protocol_version":3,"profile_id":"a","log_path":"/l"}"#),
-                       .invalidField("profile_dir"))
-        let forti = #"{"type":"start_forti","protocol_version":3,"profile_id":"f","profile_dir":"/d","host":"vpn.example.com","username":"u","password":"p","trusted_cert":"","set_dns":false,"set_routes":true,"log_path":"/d/vpn.log","port":"#
+        XCTAssertEqual(
+            decodeError(#"{"type":"start_openvpn","protocol_version":3,"profile_id":"a","log_path":"/l"}"#),
+            .invalidField("profile_dir"))
+        let forti =
+            #"{"type":"start_forti","protocol_version":3,"profile_id":"f","profile_dir":"/d","host":"vpn.example.com","username":"u","password":"p","trusted_cert":"","set_dns":false,"set_routes":true,"log_path":"/d/vpn.log","port":"#
         XCTAssertEqual(decodeError(forti + #""443"}"#), .invalidField("port"))
         // Not representable: rejected by the JSON layer before a field is known; the value is not echoed.
         XCTAssertEqual(decodeError(forti + "1e30}"), .invalidField("request"))
@@ -104,7 +114,7 @@ final class HelperRequestDecodingTests: XCTestCase {
         let payloads = [
             #"{"type":"start_forti","protocol_version":3,"profile_id":"f","password":["TOPSECRET"]}"#,
             #"{"type":"start_openvpn","protocol_version":3,"profile_id":"a","profile_dir":"/d","log_path":"/l","secret":{"x":"TOPSECRET"}}"#,
-            #"{"type":"start_openvpn","protocol_version":3,"profile_id":"a","profile_dir":"/d","log_path":"/l","username":7,"secret":"TOPSECRET"}"#,
+            #"{"type":"start_openvpn","protocol_version":3,"profile_id":"a","profile_dir":"/d","log_path":"/l","username":7,"secret":"TOPSECRET"}"#
         ]
         for p in payloads {
             guard let e = decodeError(p) else { continue }
@@ -119,21 +129,28 @@ final class HelperRequestDecodingTests: XCTestCase {
 extension HelperCoreTests {
     func testMoreInvalidProfileIDs() throws {
         let lookalikes = [
-            "\u{FF41}cme",          // fullwidth a
-            "\u{0430}cme",          // Cyrillic a
-            "acm\u{0435}",          // Cyrillic e
-            "ac\u{200B}me",         // zero-width space
-            "acme\u{0301}",         // combining accent
+            "\u{FF41}cme",  // fullwidth a
+            "\u{0430}cme",  // Cyrillic a
+            "acm\u{0435}",  // Cyrillic e
+            "ac\u{200B}me",  // zero-width space
+            "acme\u{0301}"  // combining accent
         ]
         // A directory with the lookalike name must not make it acceptable.
-        try FileManager.default.createDirectory(at: profiles.appendingPathComponent(lookalikes[1]),
-                                                withIntermediateDirectories: true)
-        let bad = ["", "ac\u{0}me", "acme\u{0}", String(repeating: "a", count: 200), "acme.", "acme..", "acme ",
-                   " acme", "acme\t", "ac me", "acme\n"] + lookalikes
+        try FileManager.default.createDirectory(
+            at: profiles.appendingPathComponent(lookalikes[1]),
+            withIntermediateDirectories: true)
+        let bad =
+            [
+                "", "ac\u{0}me", "acme\u{0}", String(repeating: "a", count: 200), "acme.", "acme..", "acme ",
+                " acme", "acme\t", "ac me", "acme\n"
+            ] + lookalikes
         for id in bad {
             XCTAssertFalse(HelperCore.isValidProfileID(id), id.debugDescription)
-            assertFails(try self.core().openProfileDir(self.profiles.appendingPathComponent(id).path, profileID: id,
-                                                       uid: self.me)) { $0 == .invalidProfileID(id) }
+            assertFails(
+                try self.core().openProfileDir(
+                    self.profiles.appendingPathComponent(id).path, profileID: id,
+                    uid: self.me)
+            ) { $0 == .invalidProfileID(id) }
             assertFails(try self.core().makeRunDir(profileID: id, uid: self.me)) { $0 == .invalidProfileID(id) }
         }
         for id in ["a", "acme", "acme.vpn", "Acme_2", "a-b", String(repeating: "a", count: 64)] {
@@ -203,7 +220,7 @@ extension HelperCoreTests {
             "auth-user-pass /var/root/secret", "ca /etc/ssl/ca.pem", "writepid /etc/x", "user nobody",
             "mode server", "tls-server", "server 10.8.0.0 255.255.255.0", "client-crresponse /tmp/x",
             "setenv opt client-crresponse /tmp/x", "mktun", "dev ../tmp/x1",
-            "proto tcp-server", "remote vpn.example.com 443 tcp6-server", "local 192.0.2.1 1194 tcp4-server",
+            "proto tcp-server", "remote vpn.example.com 443 tcp6-server", "local 192.0.2.1 1194 tcp4-server"
         ]
         for line in dangerous {
             try writeConfig("client\nremote vpn.example.com 1194\n\(line)\n")
@@ -238,8 +255,10 @@ extension HelperCoreTests {
     /// before anything is prepared. A clean one runs with `--tls-version-min` after the config: 1.2, or the
     /// config's own 1.3.
     func testHelperEnforcesTheTLSFloor() throws {
-        for line in ["tls-version-min 1.0", "tls-version-min 1.1 or-highest", "tls-version-max 1.1",
-                     "tls-cipher DEFAULT:@SECLEVEL=0", "tls-cert-profile insecure", "setenv opt tls-version-min 1.0"] {
+        for line in [
+            "tls-version-min 1.0", "tls-version-min 1.1 or-highest", "tls-version-max 1.1",
+            "tls-cipher DEFAULT:@SECLEVEL=0", "tls-cert-profile insecure", "setenv opt tls-version-min 1.0"
+        ] {
             try writeConfig("client\nremote vpn.example.com 1194\n\(line)\n")
             XCTAssertThrowsError(try core().prepareOpenVPN(openVPNStart(), uid: me), line) { error in
                 XCTAssertEqual((error as? OVPNSanitizer.Failure)?.violations.map(\.line), [3], line)
@@ -287,19 +306,24 @@ extension HelperCoreTests {
     func testExistingDeviceIsRefused() throws {
         var checked: [String] = []
         var linux = core()
-        linux.interfaceExists = { name in checked.append(name); return name == "tun5" || name == "tap-lab01234567" }
-        for text in ["client\nremote vpn.example.com\ndev tun5\n", "client\nremote vpn.example.com\nsetenv opt dev tun5\n",
-                     "client\nremote vpn.example.com\ndev tun5\ndev tun\n",
-                     "client\nremote vpn.example.com\ndev tap-lab0123456789\ndev-type tap\n"] {
+        linux.interfaceExists = { name in
+            checked.append(name); return name == "tun5" || name == "tap-lab01234567"
+        }
+        for text in [
+            "client\nremote vpn.example.com\ndev tun5\n", "client\nremote vpn.example.com\nsetenv opt dev tun5\n",
+            "client\nremote vpn.example.com\ndev tun5\ndev tun\n",
+            "client\nremote vpn.example.com\ndev tap-lab0123456789\ndev-type tap\n"
+        ] {
             try writeConfig(text)
             assertFails(try linux.prepareOpenVPN(self.openVPNStart(), uid: self.me)) {
                 $0 == .deviceExists("tun5") || $0 == .deviceExists("tap-lab01234567")
             }
             XCTAssertFalse(FileManager.default.fileExists(atPath: acmeRunDir), text)
         }
-        XCTAssertEqual(HelperCore.Failure.deviceExists("tun5").description,
-                       "The network device tun5 already exists, and PassTunnel only connects through a device it creates. "
-                       + "Use “dev tun” or “dev tap” so that the system picks a free name, or a name no device has.")
+        XCTAssertEqual(
+            HelperCore.Failure.deviceExists("tun5").description,
+            "The network device tun5 already exists, and PassTunnel only connects through a device it creates. "
+                + "Use “dev tun” or “dev tap” so that the system picks a free name, or a name no device has.")
         checked = []
         for dev in ["tun", "tap", "tun6"] {
             try writeConfig("client\nremote vpn.example.com\ndev \(dev)\n")
@@ -332,12 +356,14 @@ extension HelperCoreTests {
     }
 
     func testHelperConfigIsExactlyTheSanitizedProfileFile() throws {
-        let text = "# Acme\nclient\nremote vpn.example.com 1194\nstatic-challenge \"Code\" 1\nscript-security 1\n"
+        let text =
+            "# Acme\nclient\nremote vpn.example.com 1194\nstatic-challenge \"Code\" 1\nscript-security 1\n"
             + "<ca>\nup /tmp/inside-block-is-data\n</ca>\n"
         try writeConfig(text)
         // Extra keys in the request (a config or arguments of the client's choosing) are ignored.
         let start = openVPNStart()
-        let json = #"{"type":"start_openvpn","protocol_version":3,"profile_id":"acme","profile_dir":"\#(start.profileDir)","#
+        let json =
+            #"{"type":"start_openvpn","protocol_version":3,"profile_id":"acme","profile_dir":"\#(start.profileDir)","#
             + #""username":"alice","secret":"pw","log_path":"\#(start.logPath)","#
             + #""config":"up /tmp/evil.sh","arguments":["--up","/tmp/evil.sh"],"executable":"/bin/sh"}"#
         guard case .startOpenVPN(let decoded) = try HelperCore.decodeRequest(Data(json.utf8)) else {
@@ -368,19 +394,27 @@ extension FortiConfigTests {
 
     func testEqualsAndHashStayInsideTheirValue() throws {
         for value in ["a=b", "#alice", "alice#x", "=alice", "a = b # c", "alice;x", "x=pppd-plugin = /tmp/evil"] {
-            let c = config { $0.username = value; $0.password = value }
+            let c = config {
+                $0.username = value; $0.password = value
+            }
             let pairs = parseLikeOpenfortivpn(try c.render())
-            XCTAssertEqual(pairs.map(\.0), ["host", "port", "username", "password", "otp", "ca-file", "trusted-cert",
-                                            "set-routes", "set-dns", "pppd-use-peerdns"], value)
+            XCTAssertEqual(
+                pairs.map(\.0),
+                [
+                    "host", "port", "username", "password", "otp", "ca-file", "trusted-cert",
+                    "set-routes", "set-dns", "pppd-use-peerdns"
+                ], value)
             XCTAssertEqual(pairs.first { $0.0 == "username" }?.1, value)
             XCTAssertEqual(pairs.first { $0.0 == "password" }?.1, value)
         }
     }
 
     func testHostRejectsSeparatorsCRAndSpaces() {
-        for host in ["vpn.example.com=1", "vpn#example.com", "vpn.example.com\r", "\rvpn.example.com",
-                     " vpn.example.com", "vpn.example.com ", "vpn.example.com\nport = 1", "vpn.example.com;x",
-                     "[2001:db8::1]", "2001:db8::1 ", "vpn_example.com"] {
+        for host in [
+            "vpn.example.com=1", "vpn#example.com", "vpn.example.com\r", "\rvpn.example.com",
+            " vpn.example.com", "vpn.example.com ", "vpn.example.com\nport = 1", "vpn.example.com;x",
+            "[2001:db8::1]", "2001:db8::1 ", "vpn_example.com"
+        ] {
             XCTAssertThrowsError(try config { $0.host = host }.render(), host.debugDescription) {
                 XCTAssertEqual($0 as? FortiConfig.ValidationError, .invalidHost)
             }
@@ -417,8 +451,10 @@ extension FortiConfigTests {
         for u in [String(repeating: "a", count: 64), String(repeating: "ş", count: 32), String(repeating: "a", count: 62) + "é"] {
             XCTAssertNoThrow(try config { $0.username = u }.render(), u)
         }
-        for u in [String(repeating: "a", count: 65), String(repeating: "ş", count: 33), String(repeating: "a", count: 63) + "é",
-                  String(repeating: "a", count: 255)] {
+        for u in [
+            String(repeating: "a", count: 65), String(repeating: "ş", count: 33), String(repeating: "a", count: 63) + "é",
+            String(repeating: "a", count: 255)
+        ] {
             XCTAssertThrowsError(try config { $0.username = u }.render(), u) {
                 guard case .invalidValue(let field, _)? = $0 as? FortiConfig.ValidationError else { return XCTFail("\($0)") }
                 XCTAssertEqual(field, "username")
@@ -461,9 +497,11 @@ final class SessionPolicyTests: XCTestCase {
     let alice: uid_t = 501, bob: uid_t = 502
 
     var sessions: [S] {
-        [S(profileID: "acme", ownerUID: alice, pid: 100, mgmtSocket: PT.mgmtSocketPath(uid: 501, profileID: "acme")),
-         S(profileID: "acme-forti", ownerUID: alice, pid: 101),
-         S(profileID: "lab", ownerUID: bob, pid: 200, mgmtSocket: PT.mgmtSocketPath(uid: 502, profileID: "lab"))]
+        [
+            S(profileID: "acme", ownerUID: alice, pid: 100, mgmtSocket: PT.mgmtSocketPath(uid: 501, profileID: "acme")),
+            S(profileID: "acme-forti", ownerUID: alice, pid: 101),
+            S(profileID: "lab", ownerUID: bob, pid: 200, mgmtSocket: PT.mgmtSocketPath(uid: 502, profileID: "lab"))
+        ]
     }
 
     func testStartForRunningIDIsRejected() {
@@ -475,8 +513,12 @@ final class SessionPolicyTests: XCTestCase {
 
     func testSameIDForTwoUsersDoesNotCollide() throws {
         XCTAssertNoThrow(try SessionPolicy.checkStart(profileID: "acme", uid: bob, sessions: sessions))
-        let both = sessions + [S(profileID: "acme", ownerUID: bob, pid: 300,
-                                 mgmtSocket: PT.mgmtSocketPath(uid: 502, profileID: "acme"))]
+        let both =
+            sessions + [
+                S(
+                    profileID: "acme", ownerUID: bob, pid: 300,
+                    mgmtSocket: PT.mgmtSocketPath(uid: 502, profileID: "acme"))
+            ]
         XCTAssertEqual(SessionPolicy.visible(to: alice, sessions: both)["acme"], 100)
         XCTAssertEqual(SessionPolicy.visible(to: bob, sessions: both)["acme"], 300)
         XCTAssertEqual(SessionPolicy.stopDecision(profileID: "acme", uid: alice, sessions: both), .terminate(pid: 100))
@@ -490,8 +532,9 @@ final class SessionPolicyTests: XCTestCase {
         XCTAssertEqual(SessionPolicy.visible(to: bob, sessions: sessions), ["lab": 200])
         XCTAssertEqual(SessionPolicy.visible(to: 503, sessions: sessions), [:])
         XCTAssertEqual(SessionPolicy.visible(to: 0, sessions: sessions), [:], "root only sees its own sessions")
-        XCTAssertEqual(SessionPolicy.sockets(visibleTo: alice, sessions: sessions),
-                       ["acme": PT.helperRunRoot + "/501/acme/mgmt.sock"])
+        XCTAssertEqual(
+            SessionPolicy.sockets(visibleTo: alice, sessions: sessions),
+            ["acme": PT.helperRunRoot + "/501/acme/mgmt.sock"])
         XCTAssertEqual(SessionPolicy.sockets(visibleTo: 503, sessions: sessions), [:])
     }
 
@@ -599,8 +642,10 @@ final class CodeSignatureTests: XCTestCase {
         try adHocSign(tool)
         // Positive control: the signature itself is intact, so failures below come from the requirement.
         XCTAssertEqual(status(tool, ownIdentifier), errSecSuccess)
-        for req in [PT.toolRequirement(identifier: identifier), PT.toolRequirement(identifier: PT.openvpnIdentifier),
-                    PT.toolRequirement(identifier: PT.openfortivpnIdentifier), PT.clientRequirement, PT.teamRequirement] {
+        for req in [
+            PT.toolRequirement(identifier: identifier), PT.toolRequirement(identifier: PT.openvpnIdentifier),
+            PT.toolRequirement(identifier: PT.openfortivpnIdentifier), PT.clientRequirement, PT.teamRequirement
+        ] {
             XCTAssertEqual(status(tool, req), errSecCSReqFailed, req)
         }
     }
@@ -640,16 +685,19 @@ extension HelperMessageTests {
     func testSecretsRedactedInEveryRendering() {
         let scrv = "SCRV1:VE9QU0VDUkVU:OTg3NjU0"
         let o = OpenVPNStart(profileID: "acme", profileDir: "/d", username: "alice", secret: scrv, logPath: "/d/vpn.log")
-        let f = FortiStart(profileID: "acme", profileDir: "/d", host: "vpn.example.com", username: "alice",
-                           password: "TOPSECRET", otp: "987654", logPath: "/d/vpn.log")
-        let values: [Any] = [o, f, HelperRequest.startOpenVPN(o), HelperRequest.startForti(f), FortiConfig(f),
-                             [HelperRequest.startForti(f)]]
+        let f = FortiStart(
+            profileID: "acme", profileDir: "/d", host: "vpn.example.com", username: "alice",
+            password: "TOPSECRET", otp: "987654", logPath: "/d/vpn.log")
+        let values: [Any] = [
+            o, f, HelperRequest.startOpenVPN(o), HelperRequest.startForti(f), FortiConfig(f),
+            [HelperRequest.startForti(f)]
+        ]
         for v in values {
             for text in rendered(v) {
                 for secret in [scrv, "VE9QU0VDUkVU", "TOPSECRET", "987654"] {
                     XCTAssertFalse(text.contains(secret), "\(secret) leaked in \(text)")
                 }
-                XCTAssertTrue(text.contains("alice"), text)   // non-secret fields stay visible
+                XCTAssertTrue(text.contains("alice"), text)  // non-secret fields stay visible
             }
         }
     }

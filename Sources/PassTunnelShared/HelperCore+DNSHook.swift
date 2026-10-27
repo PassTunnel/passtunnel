@@ -64,8 +64,9 @@ extension HelperCore {
             guard let eq = line.firstIndex(of: "=") else { return nil }
             let name = String(line[..<eq]), value = line[line.index(after: eq)...]
             guard isDNSVariableName(name), names.insert(name).inserted,
-                  !value.isEmpty, value.utf8.count <= 255,
-                  value.unicodeScalars.allSatisfy(isDNSValueScalar) else { return nil }
+                !value.isEmpty, value.utf8.count <= 255,
+                value.unicodeScalars.allSatisfy(isDNSValueScalar)
+            else { return nil }
         }
         guard names.contains("dev"), names.contains(where: { $0.hasPrefix("dns_server_") && $0.contains("_address_") }) else {
             return nil
@@ -129,7 +130,8 @@ extension HelperCore {
         }
         guard count <= maxDNSRecordBytes else { throw Failure.fileTooLarge(path) }
         guard let text = String(bytes: bytes[..<count], encoding: .utf8),
-              let environment = dnsDownEnvironment(record: text) else { throw Failure.unsafeFile(dnsRecordName) }
+            let environment = dnsDownEnvironment(record: text)
+        else { throw Failure.unsafeFile(dnsRecordName) }
         return environment
     }
 }

@@ -4,10 +4,10 @@ import PassTunnelKit
 public enum ManagementError: Error, Equatable, LocalizedError {
     case pathTooLong(String)
     case connectFailed(String, Int32)
-    case busy                       // another client holds the interface
+    case busy  // another client holds the interface
     case timeout
-    case closed                     // OpenVPN closed the connection
-    case commandFailed(String)      // "ERROR: …" reply
+    case closed  // OpenVPN closed the connection
+    case commandFailed(String)  // "ERROR: …" reply
     case unexpectedReply(String)
 
     public var errorDescription: String? {
@@ -28,15 +28,17 @@ public enum ManagementError: Error, Equatable, LocalizedError {
 
 /// Parsed reply of the `state` command: `<since>,<NAME>,<description>,<local IPv4>,<remote>,<rport>,…,<local IPv6>`.
 public struct ManagementState: Equatable {
-    public var name: String          // CONNECTING, WAIT, AUTH, GET_CONFIG, ASSIGN_IP, ADD_ROUTES, CONNECTED, RECONNECTING, EXITING…
-    public var localIP: String       // tunnel IPv4, empty before ASSIGN_IP
+    public var name: String  // CONNECTING, WAIT, AUTH, GET_CONFIG, ASSIGN_IP, ADD_ROUTES, CONNECTED, RECONNECTING, EXITING…
+    public var localIP: String  // tunnel IPv4, empty before ASSIGN_IP
     public var since: Date
-    public var detail: String        // e.g. SUCCESS, or the reason for RECONNECTING
+    public var detail: String  // e.g. SUCCESS, or the reason for RECONNECTING
     public var remoteIP: String
     public var localIPv6: String
 
-    public init(name: String, localIP: String, since: Date, detail: String = "", remoteIP: String = "",
-                localIPv6: String = "") {
+    public init(
+        name: String, localIP: String, since: Date, detail: String = "", remoteIP: String = "",
+        localIPv6: String = ""
+    ) {
         self.name = name
         self.localIP = localIP
         self.since = since
@@ -119,16 +121,19 @@ public struct ManagementSocket {
 
     /// Parses the reply of `state` (the lines before `END`).
     public static func parseState(_ reply: String) throws -> ManagementState {
-        let line = reply.split(whereSeparator: \.isNewline).map(String.init)
+        let line =
+            reply.split(whereSeparator: \.isNewline).map(String.init)
             .first { !$0.hasPrefix(">") && !$0.isEmpty } ?? ""
         let f = line.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
         guard f.count >= 2, let epoch = TimeInterval(f[0]), ManagementState.plausibleEpochs.contains(epoch),
-              !f[1].isEmpty else {
+            !f[1].isEmpty
+        else {
             throw ManagementError.unexpectedReply(line)
         }
         func field(_ i: Int) -> String { i < f.count ? f[i] : "" }
-        return ManagementState(name: f[1], localIP: field(3), since: Date(timeIntervalSince1970: epoch),
-                               detail: field(2), remoteIP: field(4), localIPv6: field(8))
+        return ManagementState(
+            name: f[1], localIP: field(3), since: Date(timeIntervalSince1970: epoch),
+            detail: field(2), remoteIP: field(4), localIPv6: field(8))
     }
 
     private func readReply(_ conn: Connection, until deadline: Date) throws -> String {
@@ -212,8 +217,7 @@ public struct ManagementSocket {
             while !bytes.isEmpty {
                 try waitFor(POLLOUT, until: deadline)
                 let n = bytes.withUnsafeBytes { POSIXSocket.write(fd, $0.baseAddress, $0.count) }
-                if n > 0 { bytes = bytes.dropFirst(n) }
-                else if errno != EAGAIN && errno != EINTR { throw ManagementError.closed }
+                if n > 0 { bytes = bytes.dropFirst(n) } else if errno != EAGAIN && errno != EINTR { throw ManagementError.closed }
             }
         }
 

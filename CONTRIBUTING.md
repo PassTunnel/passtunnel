@@ -77,8 +77,16 @@ the pull request.
   naming, comment density). The package builds in Swift language mode 5 with tools 5.10, uses macOS 13
   APIs, and has no dependencies beyond Sparkle and swift-crypto, each pinned to an exact version in
   `Package.swift`.
-- **Warnings.** A change adds no compiler warnings. Treat the output of `swift build` as part of the
-  review; do not silence a warning without a reason in the code.
+- **Formatting.** The style is the checked-in [`.swift-format`](.swift-format) (4 spaces, lines up to
+  150 characters). CI runs `swift format lint --strict` on every Swift file in the repository and fails
+  on a difference. Before you push, run `swift format --in-place --recursive Sources Tests Package.swift fuzz`
+  (Swift 6 toolchain or Xcode 16 or later; it ships `swift format`), or format only the files you
+  changed. Files generated at build time (`*+Generated.swift`) are not in the repository and not linted.
+- **Warnings.** A change adds no compiler warnings, and CI builds our own targets with warnings as
+  errors, so a warning fails the `Build and test` and `Linux` checks. To see what CI sees, build with
+  `PASSTUNNEL_STRICT_WARNINGS=1 swift build` (and `swift build --build-tests` for the tests). The flag is
+  set per target at the end of `Package.swift`, not with `-Xswiftc`, so Sparkle and swift-crypto are not
+  affected. Fix the cause; do not silence a warning without a reason in the code.
 - **Language.** English identifiers and sparse English comments. Every user-facing string goes
   through `String(localized:)` and has a Turkish translation in `Localizable.xcstrings`;
   `LocalizationTests` fails otherwise ([docs/APP.md](docs/APP.md#localization)).
@@ -92,9 +100,8 @@ the pull request.
 - **Shell and workflows.** Scripts are Bash and pass `shellcheck` where CI runs it (the site
   scripts); GitHub Actions are pinned to full commit SHAs.
 
-There is no automatic formatter or linter for Swift in the repository yet, so these standards are
-checked in review, against the pull request checklist
-([`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md)).
+The formatting and warning rules are enforced by CI; the others are checked in review, against the pull
+request checklist ([`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md)).
 
 ## Tests
 
@@ -118,6 +125,13 @@ is not merged.** This is checked in review by the maintainer and by the checklis
 - **When.** The `Build and test` and `Linux` checks run the whole suite on every pull request and on
   every push to `dev`, and a pull request cannot be merged while they fail. Unit tests that build on
   Linux run there too ([Linux](#linux)).
+- **Coverage.** `Build and test` runs `swift test --enable-code-coverage` and writes the statement
+  (line) coverage of `Sources/` to the job summary, per target and in total, with
+  [`scripts/coverage-report.sh`](scripts/coverage-report.sh); run the same two commands locally to see
+  it. The code that only runs in the app and the helper (the `PassTunnel` and `PassTunnelHelper`
+  executables) is not linked into the tests and is not in the number. The goal is at least 80 % of the
+  statements of the tested targets (about 84 % at the time of writing); the report does not fail the
+  build, and a pull request should not lower the number of the code it changes.
 
 ## Reporting bugs and asking for features
 

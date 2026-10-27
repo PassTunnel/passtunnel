@@ -93,10 +93,12 @@ public enum DisplayStatus: Equatable, Sendable {
         /// `ConnectionManager.unreachableRetries`: a server that did not answer is tried again.
         public var retry: UnreachableRetry?
 
-        public init(state: ConnectionState = .disconnected, reconnect: ReconnectInfo? = nil, codeWaitUntil: Date? = nil,
-                    lastError: String? = nil, warning: String? = nil, notResponding: Bool = false,
-                    statusUnavailable: Bool = false, droppedUnseen: Bool = false, asksToConnect: Bool = false,
-                    usesCode: Bool = false, failure: ConnectionFailure? = nil, retry: UnreachableRetry? = nil) {
+        public init(
+            state: ConnectionState = .disconnected, reconnect: ReconnectInfo? = nil, codeWaitUntil: Date? = nil,
+            lastError: String? = nil, warning: String? = nil, notResponding: Bool = false,
+            statusUnavailable: Bool = false, droppedUnseen: Bool = false, asksToConnect: Bool = false,
+            usesCode: Bool = false, failure: ConnectionFailure? = nil, retry: UnreachableRetry? = nil
+        ) {
             self.state = state
             self.reconnect = reconnect
             self.codeWaitUntil = codeWaitUntil
@@ -112,24 +114,28 @@ public enum DisplayStatus: Equatable, Sendable {
         }
 
         /// The facts about `p`; what follows from its settings is filled in.
-        public init(_ p: Profile, state: ConnectionState, reconnect: ReconnectInfo? = nil, codeWaitUntil: Date? = nil,
-                    lastError: String? = nil, warning: String? = nil, notResponding: Bool = false,
-                    statusUnavailable: Bool = false, droppedUnseen: Bool = false, failure: ConnectionFailure? = nil,
-                    retry: UnreachableRetry? = nil) {
-            self.init(state: state, reconnect: reconnect, codeWaitUntil: codeWaitUntil, lastError: lastError,
-                      warning: warning, notResponding: notResponding, statusUnavailable: statusUnavailable,
-                      droppedUnseen: droppedUnseen, asksToConnect: Facts.asksToConnect(p), usesCode: p.otpMode == .totp,
-                      failure: failure, retry: retry)
+        public init(
+            _ p: Profile, state: ConnectionState, reconnect: ReconnectInfo? = nil, codeWaitUntil: Date? = nil,
+            lastError: String? = nil, warning: String? = nil, notResponding: Bool = false,
+            statusUnavailable: Bool = false, droppedUnseen: Bool = false, failure: ConnectionFailure? = nil,
+            retry: UnreachableRetry? = nil
+        ) {
+            self.init(
+                state: state, reconnect: reconnect, codeWaitUntil: codeWaitUntil, lastError: lastError,
+                warning: warning, notResponding: notResponding, statusUnavailable: statusUnavailable,
+                droppedUnseen: droppedUnseen, asksToConnect: Facts.asksToConnect(p), usesCode: p.otpMode == .totp,
+                failure: failure, retry: retry)
         }
 
         /// What `m` reports about `p` now. `droppedUnseen` is the app's to tell.
         @MainActor
         public init(_ p: Profile, in m: ConnectionManager, droppedUnseen: Bool = false) {
             let id = p.id
-            self.init(p, state: m.state(id), reconnect: m.reconnecting[id], codeWaitUntil: m.codeWaitUntil[id],
-                      lastError: m.lastError[id], warning: m.warnings[id], notResponding: m.health[id] == .unreachable,
-                      statusUnavailable: m.statusUnavailable.contains(id), droppedUnseen: droppedUnseen,
-                      failure: m.failures[id], retry: m.unreachableRetries[id])
+            self.init(
+                p, state: m.state(id), reconnect: m.reconnecting[id], codeWaitUntil: m.codeWaitUntil[id],
+                lastError: m.lastError[id], warning: m.warnings[id], notResponding: m.health[id] == .unreachable,
+                statusUnavailable: m.statusUnavailable.contains(id), droppedUnseen: droppedUnseen,
+                failure: m.failures[id], retry: m.unreachableRetries[id])
         }
 
         /// The profile's "Confirm with Touch ID" setting asks before connecting: either level, since the redesign
@@ -249,8 +255,9 @@ public enum DisplayStatus: Equatable, Sendable {
             // After a failed attempt, the wait for the next one counts down.
             let wait = Self.seconds(until: r.at, now: now)
             if r.attempt > 1 && wait > 0 { return String(localized: "Dropped · next try in \(wait) s") }
-            return freshCode ? String(localized: "Dropped, reconnecting with a fresh code…")
-                             : String(localized: "Dropped, reconnecting…")
+            return freshCode
+                ? String(localized: "Dropped, reconnecting with a fresh code…")
+                : String(localized: "Dropped, reconnecting…")
         case .failed(.message(let message)):
             let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
             return text.isEmpty ? summary(at: now) : text

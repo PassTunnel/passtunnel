@@ -12,7 +12,10 @@ enum ShareActions {
         }
         let panel = NSSavePanel()
         panel.title = String(localized: "Share “\(profile.name)”")
-        panel.message = String(localized: "The file contains the profile’s settings and VPN configuration. It does not contain your username, password or one-time code secret.")
+        panel.message = String(
+            localized:
+                "The file contains the profile’s settings and VPN configuration. It does not contain your username, password or one-time code secret."
+        )
         panel.nameFieldStringValue = "\(profileID).\(ImportActions.shareExtension)"
         panel.allowedContentTypes = ImportActions.shareTypes
         panel.canCreateDirectories = true

@@ -13,9 +13,10 @@ extension AppModel {
         guard previewStates != nil else {
             return DisplayStatus(DisplayStatus.Facts(p, in: connections, droppedUnseen: dropped))
         }
-        return DisplayStatus(DisplayStatus.Facts(
-            p, state: state(id), reconnect: reconnectInfo(id), codeWaitUntil: previewCodeWaits[id], lastError: error(id),
-            notResponding: isUnreachable(id), droppedUnseen: dropped, failure: failure(id), retry: unreachableRetry(id)))
+        return DisplayStatus(
+            DisplayStatus.Facts(
+                p, state: state(id), reconnect: reconnectInfo(id), codeWaitUntil: previewCodeWaits[id], lastError: error(id),
+                notResponding: isUnreachable(id), droppedUnseen: dropped, failure: failure(id), retry: unreachableRetry(id)))
     }
 }
 
@@ -198,23 +199,51 @@ struct ProfileStatusGallery: View {
             ("setupIncomplete", .setupIncomplete(up, warning: "")),
             ("notResponding", .notResponding(up)),
             ("statusUnavailable", .statusUnavailable(up)),
-            ("reconnecting", .reconnecting(ReconnectInfo(attempt: 1, maxAttempts: 3, at: now.addingTimeInterval(4)),
-                                           freshCode: true)),
-            ("reconnecting, no code", .reconnecting(ReconnectInfo(attempt: 1, maxAttempts: 3, at: now),
-                                                    freshCode: false)),
-            ("reconnecting, 2nd try", .reconnecting(ReconnectInfo(attempt: 2, maxAttempts: 3,
-                                                                  at: now.addingTimeInterval(11.5)), freshCode: true)),
+            (
+                "reconnecting",
+                .reconnecting(
+                    ReconnectInfo(attempt: 1, maxAttempts: 3, at: now.addingTimeInterval(4)),
+                    freshCode: true)
+            ),
+            (
+                "reconnecting, no code",
+                .reconnecting(
+                    ReconnectInfo(attempt: 1, maxAttempts: 3, at: now),
+                    freshCode: false)
+            ),
+            (
+                "reconnecting, 2nd try",
+                .reconnecting(
+                    ReconnectInfo(
+                        attempt: 2, maxAttempts: 3,
+                        at: now.addingTimeInterval(11.5)), freshCode: true)
+            ),
             ("dropped", .dropped),
             ("failed", .failed(.message(PTError.authFailed("").localizedDescription))),
             ("sign-in rejected", .failed(.signInRejected)),
             ("server not found", .failed(.hostNotFound)),
-            ("unreachable, next try", .failed(.unreachable(retry: UnreachableRetry(
-                tries: 3, maxTries: 5, nextTryAt: now.addingTimeInterval(17.2), firstFailedAt: now, lastFailedAt: now)))),
-            ("unreachable, trying", .failed(.unreachable(retry: UnreachableRetry(
-                tries: 3, maxTries: 5, firstFailedAt: now, lastFailedAt: now)))),
-            ("unreachable, offline", .failed(.unreachable(retry: UnreachableRetry(
-                tries: 3, maxTries: 5, waitingForNetwork: true, firstFailedAt: now, lastFailedAt: now)))),
-            ("unreachable, gave up", .failed(.unreachable(retry: nil))),
+            (
+                "unreachable, next try",
+                .failed(
+                    .unreachable(
+                        retry: UnreachableRetry(
+                            tries: 3, maxTries: 5, nextTryAt: now.addingTimeInterval(17.2), firstFailedAt: now, lastFailedAt: now)))
+            ),
+            (
+                "unreachable, trying",
+                .failed(
+                    .unreachable(
+                        retry: UnreachableRetry(
+                            tries: 3, maxTries: 5, firstFailedAt: now, lastFailedAt: now)))
+            ),
+            (
+                "unreachable, offline",
+                .failed(
+                    .unreachable(
+                        retry: UnreachableRetry(
+                            tries: 3, maxTries: 5, waitingForNetwork: true, firstFailedAt: now, lastFailedAt: now)))
+            ),
+            ("unreachable, gave up", .failed(.unreachable(retry: nil)))
         ]
     }
 

@@ -9,7 +9,7 @@ public enum Slug {
 
     static let turkish: [Character: String] = [
         "ı": "i", "İ": "I", "ş": "s", "Ş": "S", "ğ": "g", "Ğ": "G",
-        "ü": "u", "Ü": "U", "ö": "o", "Ö": "O", "ç": "c", "Ç": "C",
+        "ü": "u", "Ü": "U", "ö": "o", "Ö": "O", "ç": "c", "Ç": "C"
     ]
 
     public static func make(_ name: String, maxLength: Int = maxIDLength) -> String {

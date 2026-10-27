@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+
 @testable import PassTunnelCore
 @testable import PassTunnelKit
 @testable import PassTunnelVPNConfig
@@ -22,19 +23,25 @@ final class OVPNSanitizerFuzzTests: XCTestCase {
 
     /// Every way of writing a forbidden directive is caught, wherever it appears.
     func testEveryForbiddenDirectiveInEverySpelling() {
-        let names = Array(OVPNSanitizer.forbiddenDirectives) + ["management", "management-client",
-            "management-client-user", "management-hold", "log", "log-append"]
+        let names =
+            Array(OVPNSanitizer.forbiddenDirectives) + [
+                "management", "management-client",
+                "management-client-user", "management-hold", "log", "log-append"
+            ]
         for name in names {
-            let spellings = [name, "--" + name, "---" + name, name.uppercased(), "\"\(name)\"", "'\(name)'",
-                             "\t  " + name, "setenv opt " + name, "--setenv opt --" + name]
+            let spellings = [
+                name, "--" + name, "---" + name, name.uppercased(), "\"\(name)\"", "'\(name)'",
+                "\t  " + name, "setenv opt " + name, "--setenv opt --" + name
+            ]
             for spelled in spellings {
                 for ending in ["\n", "\r\n", ""] {
                     let text = "client\n\(spelled) /tmp/x\(ending)remote vpn.example.com 1194\n"
                     XCTAssertEqual(violations(text).map(\.line), [2], "\(spelled.debugDescription) \(ending.debugDescription)")
                 }
             }
-            XCTAssertEqual(violations("<connection>\nremote vpn.example.com\n\(name) /tmp/x\n</connection>\n").map(\.line),
-                           [3], "inside <connection>: \(name)")
+            XCTAssertEqual(
+                violations("<connection>\nremote vpn.example.com\n\(name) /tmp/x\n</connection>\n").map(\.line),
+                [3], "inside <connection>: \(name)")
             XCTAssertEqual(violations("<\(name)>\nx\n</\(name)>\n").count, 1, "as a block: \(name)")
         }
     }
@@ -42,14 +49,14 @@ final class OVPNSanitizerFuzzTests: XCTestCase {
     /// Options that load code, write files or read root-only files although they are not "scripts".
     func testCodeLoadingFileWritingAndCredentialFileOptions() {
         let cases = [
-            "show-pkcs11-ids /tmp/evil.dylib",           // dlopen()s the given provider as root
+            "show-pkcs11-ids /tmp/evil.dylib",  // dlopen()s the given provider as root
             "show-pkcs11-ids /tmp/evil.dylib 1",
-            "genkey secret /etc/sudoers",                // writes (truncates) the file as root, then exits
+            "genkey secret /etc/sudoers",  // writes (truncates) the file as root, then exits
             "genkey tls-crypt-v2-client /etc/x",
-            "port-share 127.0.0.1 443 /etc/journal",     // writes journal files into a directory
-            "socks-proxy proxy.example.com 1080 /var/root/creds",   // sends the file's first two lines to the proxy
+            "port-share 127.0.0.1 443 /etc/journal",  // writes journal files into a directory
+            "socks-proxy proxy.example.com 1080 /var/root/creds",  // sends the file's first two lines to the proxy
             "socks-proxy proxy.example.com 1080 stdin",
-            "auth-gen-token-secret /var/root/key",       // reads a file
+            "auth-gen-token-secret /var/root/key"  // reads a file
         ]
         for line in cases {
             XCTAssertEqual(violations("client\n\(line)\n").map(\.line), [2], line)
@@ -66,8 +73,10 @@ final class OVPNSanitizerFuzzTests: XCTestCase {
         let server = "mode server\ntls-server\ndev tun\nport 1194\nclient-crresponse \"/tmp/x y\"\n"
         XCTAssertEqual(violations(server).map(\.directive), ["mode", "tls-server", "client-crresponse"])
         XCTAssertEqual(violations("server 10.8.0.0 255.255.255.0\nserver-ipv6 2001:db8::/64\n").count, 2)
-        for line in ["mode server", "--MODE server", "mode SERVER", "mode \"server\"", "mode", "mode p2p server",
-                     "mode p2p x", "setenv opt mode server", "--setenv opt --mode server", "mode p2p\\ "] {
+        for line in [
+            "mode server", "--MODE server", "mode SERVER", "mode \"server\"", "mode", "mode p2p server",
+            "mode p2p x", "setenv opt mode server", "--setenv opt --mode server", "mode p2p\\ "
+        ] {
             XCTAssertEqual(violations("client\n\(line)\n").map(\.line), [2], line)
             XCTAssertEqual(violations("<connection>\nremote vpn.example.com\n\(line)\n</connection>\n").map(\.line), [3], line)
         }
@@ -75,9 +84,11 @@ final class OVPNSanitizerFuzzTests: XCTestCase {
         for ok in ["mode p2p", "--mode p2p", "MODE P2P", "mode 'p2p'", "setenv opt mode p2p"] {
             XCTAssertTrue(violations("client\n\(ok)\n").isEmpty, ok)
         }
-        for line in ["mktun", "rmtun", "--mktun", "MKTUN", "setenv opt rmtun", "version", "help", "test-crypto",
-                     "show-ciphers", "show-tls", "show-curves", "show-gateway 192.0.2.1", "inetd nowait",
-                     "client-crresponse /tmp/x", "memstats /tmp/x"] {
+        for line in [
+            "mktun", "rmtun", "--mktun", "MKTUN", "setenv opt rmtun", "version", "help", "test-crypto",
+            "show-ciphers", "show-tls", "show-curves", "show-gateway 192.0.2.1", "inetd nowait",
+            "client-crresponse /tmp/x", "memstats /tmp/x"
+        ] {
             XCTAssertEqual(violations("client\n\(line)\n").map(\.line), [2], line)
         }
     }
@@ -85,8 +96,10 @@ final class OVPNSanitizerFuzzTests: XCTestCase {
     /// `dev` must be a device type: on macOS a `tap` device (or a `tun` device without utun) is opened as
     /// `/dev/<dev>`, so a name with a path or naming another device would be opened as root.
     func testDeviceNames() {
-        for name in ["../private/tmp/x1", "tap/../../x1", "tun/x", "tun.1", "disk2", "rdisk0", "bpf0", "ttys000",
-                     "TUN", "Tap0", "", "tun 0", "tun\\ 0", "tunç", "nul", "tu", "-tun", "\"tun0\" x", "tun\u{0301}"] {
+        for name in [
+            "../private/tmp/x1", "tap/../../x1", "tun/x", "tun.1", "disk2", "rdisk0", "bpf0", "ttys000",
+            "TUN", "Tap0", "", "tun 0", "tun\\ 0", "tunç", "nul", "tu", "-tun", "\"tun0\" x", "tun\u{0301}"
+        ] {
             let line = name.hasPrefix("\"") || name.contains("\\") ? "dev \(name)" : "dev \"\(name)\""
             XCTAssertEqual(violations("client\n\(line)\n").map(\.directive), ["dev"], line)
             XCTAssertEqual(violations("client\nsetenv opt --DEV \"\(name)\"\n").map(\.directive), ["dev"], name)
@@ -112,42 +125,54 @@ final class OVPNSanitizerFuzzTests: XCTestCase {
     /// OpenVPN waits for incoming connections, as root, with a protocol that listens for TCP or, over UDP,
     /// without any `remote`: refused however it is written.
     func testListeningModes() {
-        for line in ["proto tcp-server", "proto tcp4-server", "proto tcp6-server", "--PROTO tcp-server",
-                     "proto TCP-SERVER", "proto \"tcp-server\"", "setenv opt proto tcp6-server",
-                     "--setenv opt --proto tcp-server", "remote vpn.example.com 1194 tcp-server",
-                     "remote vpn.example.com 1194 tcp4-server", "local 192.0.2.1 1194 tcp6-server",
-                     "proto-force tcp-server"] {
+        for line in [
+            "proto tcp-server", "proto tcp4-server", "proto tcp6-server", "--PROTO tcp-server",
+            "proto TCP-SERVER", "proto \"tcp-server\"", "setenv opt proto tcp6-server",
+            "--setenv opt --proto tcp-server", "remote vpn.example.com 1194 tcp-server",
+            "remote vpn.example.com 1194 tcp4-server", "local 192.0.2.1 1194 tcp6-server",
+            "proto-force tcp-server"
+        ] {
             let found = allViolations("client\n\(line)\nremote vpn.example.com 1194\n")
             XCTAssertEqual(found.map(\.line), [2], line)
             XCTAssertEqual(found.map(\.reason), [OVPNSanitizer.listeningReason], line)
-            XCTAssertEqual(allViolations("<connection>\nremote vpn.example.com\n\(line)\n</connection>\n").map(\.line),
-                           [3], line)
+            XCTAssertEqual(
+                allViolations("<connection>\nremote vpn.example.com\n\(line)\n</connection>\n").map(\.line),
+                [3], line)
         }
-        for ok in ["proto udp", "proto tcp", "proto tcp-client", "proto udp6", "proto tcp4-client",
-                   "remote vpn.example.com 443 tcp", "remote vpn.example.com 443 tcp6-client", "local 192.0.2.1 1194 udp",
-                   "proto-force udp", "remote vpn.example.com tcp-server"] {
+        for ok in [
+            "proto udp", "proto tcp", "proto tcp-client", "proto udp6", "proto tcp4-client",
+            "remote vpn.example.com 443 tcp", "remote vpn.example.com 443 tcp6-client", "local 192.0.2.1 1194 udp",
+            "proto-force udp", "remote vpn.example.com tcp-server"
+        ] {
             XCTAssertEqual(allViolations("client\n\(ok)\nremote vpn.example.com 1194\n"), [], ok)
         }
 
         // No remote: the file as a whole is refused, as line 0.
-        for text in ["", "client\n", "client\nproto udp\nnobind\n", "client\nproto tcp\nport 1194\n",
-                     "<ca>\nremote vpn.example.com\n</ca>\n", "# remote vpn.example.com\n"] {
+        for text in [
+            "", "client\n", "client\nproto udp\nnobind\n", "client\nproto tcp\nport 1194\n",
+            "<ca>\nremote vpn.example.com\n</ca>\n", "# remote vpn.example.com\n"
+        ] {
             XCTAssertEqual(allViolations(text), [OVPNSanitizer.missingRemote], text.debugDescription)
         }
         XCTAssertEqual(OVPNSanitizer.missingRemote.line, 0)
-        XCTAssertEqual(OVPNSanitizer.Failure(violations: [OVPNSanitizer.missingRemote]).description,
-                       "The OpenVPN config contains directives that are not allowed: remote (\(OVPNSanitizer.missingRemote.reason))")
+        XCTAssertEqual(
+            OVPNSanitizer.Failure(violations: [OVPNSanitizer.missingRemote]).description,
+            "The OpenVPN config contains directives that are not allowed: remote (\(OVPNSanitizer.missingRemote.reason))")
         XCTAssertEqual(allViolations("client\nup /tmp/x\n").map(\.directive), ["up", "remote"], "after the lines")
         // Only a remote OpenVPN certainly connects to counts: what it refuses, or ignores after `setenv opt`, does not.
-        for text in ["remote\n", "remote vpn.example.com 1194 udp extra\n", "REMOTE vpn.example.com\n",
-                     "setenv opt --remote vpn.example.com\n", "setenv opt REMOTE vpn.example.com\n",
-                     "setenv opt setenv opt remote vpn.example.com\n", "setenv OPT remote vpn.example.com\n",
-                     "---remote vpn.example.com\n", "<remote>\nvpn.example.com\n</remote>\n"] {
+        for text in [
+            "remote\n", "remote vpn.example.com 1194 udp extra\n", "REMOTE vpn.example.com\n",
+            "setenv opt --remote vpn.example.com\n", "setenv opt REMOTE vpn.example.com\n",
+            "setenv opt setenv opt remote vpn.example.com\n", "setenv OPT remote vpn.example.com\n",
+            "---remote vpn.example.com\n", "<remote>\nvpn.example.com\n</remote>\n"
+        ] {
             XCTAssertTrue(allViolations(text).contains(OVPNSanitizer.missingRemote), text.debugDescription)
         }
-        for text in ["remote vpn.example.com\n", "--remote vpn.example.com 1194\n", "remote 192.0.2.1 1194 udp\n",
-                     "setenv opt remote vpn.example.com\n", "--setenv opt remote vpn.example.com\n",
-                     "<connection>\nremote vpn.example.com\n</connection>\n", "\u{FEFF}remote vpn.example.com"] {
+        for text in [
+            "remote vpn.example.com\n", "--remote vpn.example.com 1194\n", "remote 192.0.2.1 1194 udp\n",
+            "setenv opt remote vpn.example.com\n", "--setenv opt remote vpn.example.com\n",
+            "<connection>\nremote vpn.example.com\n</connection>\n", "\u{FEFF}remote vpn.example.com"
+        ] {
             XCTAssertEqual(allViolations(text), [], text.debugDescription)
         }
     }
@@ -164,8 +189,9 @@ final class OVPNSanitizerFuzzTests: XCTestCase {
         XCTAssertEqual(try OVPNSanitizer.sanitize(harmless), harmless, "byte-for-byte when nothing is stripped")
         XCTAssertEqual(violations("\u{FEFF}up /tmp/x\n").count, 1, "BOM before a directive on line 1")
         XCTAssertEqual(violations("\u{FEFF}--up /tmp/x\r\n").count, 1)
-        XCTAssertEqual(violations("remote vpn.example.com\rup /tmp/x\n").count, 0,
-                       "a lone CR is whitespace: `up` is an argument of remote, as OpenVPN reads it")
+        XCTAssertEqual(
+            violations("remote vpn.example.com\rup /tmp/x\n").count, 0,
+            "a lone CR is whitespace: `up` is an argument of remote, as OpenVPN reads it")
         XCTAssertTrue(violations("").isEmpty)
         XCTAssertTrue(violations("\u{FEFF}").isEmpty)
     }
@@ -183,30 +209,39 @@ final class OVPNSanitizerFuzzTests: XCTestCase {
         XCTAssertEqual(violations("<ca>\n\u{FEFF}-----BEGIN CERTIFICATE-----\n</ca>\n").map(\.line), [2], "inside a block")
         XCTAssertEqual(violations("<connection>\n\u{FEFF}remote vpn.example.com\n</connection>\n").map(\.line), [2])
         XCTAssertEqual(violations("\u{FEFF}\u{FEFF}client\n").map(\.line), [1], "a second BOM on the first line")
-        XCTAssertTrue(violations("\u{FEFF}client\nremote vpn.example.com 1194\u{FEFF}\n").isEmpty,
-                      "elsewhere U+FEFF is an ordinary character")
-        XCTAssertEqual(try OVPNSanitizer.sanitize("\u{FEFF}static-challenge \"Code\" 1\nclient\nremote vpn.example.com\n"),
-                       "client\nremote vpn.example.com\n", "the file's BOM goes with its stripped first line")
+        XCTAssertTrue(
+            violations("\u{FEFF}client\nremote vpn.example.com 1194\u{FEFF}\n").isEmpty,
+            "elsewhere U+FEFF is an ordinary character")
+        XCTAssertEqual(
+            try OVPNSanitizer.sanitize("\u{FEFF}static-challenge \"Code\" 1\nclient\nremote vpn.example.com\n"),
+            "client\nremote vpn.example.com\n", "the file's BOM goes with its stripped first line")
     }
 
     /// The fuzzer's property, with a BOM before any of the lines: whatever is accepted is accepted again
     /// unchanged, and only the first line may start with a BOM.
     func testIdempotentWithByteOrderMarks() throws {
-        let pieces = ["static-challenge \"Code\" 1", "<static-challenge>\nx\n</static-challenge>", "client",
-                      "# note", "", "<ca>\nx\n</ca>", "remote vpn.example.com"]
-        for a in pieces { for b in pieces { for c in pieces {
-            for mask in 0..<8 {
-                let text = [a, b, c].enumerated()
-                    .map { mask & (1 << $0.offset) != 0 ? "\u{FEFF}" + $0.element : $0.element }
-                    .joined(separator: "\n") + "\nremote vpn.example.com"
-                guard let once = try? OVPNSanitizer.sanitize(text) else {
-                    XCTAssertTrue(mask > 1, "only a later BOM is refused: \(text.debugDescription)")
-                    continue
+        let pieces = [
+            "static-challenge \"Code\" 1", "<static-challenge>\nx\n</static-challenge>", "client",
+            "# note", "", "<ca>\nx\n</ca>", "remote vpn.example.com"
+        ]
+        for a in pieces {
+            for b in pieces {
+                for c in pieces {
+                    for mask in 0..<8 {
+                        let text =
+                            [a, b, c].enumerated()
+                            .map { mask & (1 << $0.offset) != 0 ? "\u{FEFF}" + $0.element : $0.element }
+                            .joined(separator: "\n") + "\nremote vpn.example.com"
+                        guard let once = try? OVPNSanitizer.sanitize(text) else {
+                            XCTAssertTrue(mask > 1, "only a later BOM is refused: \(text.debugDescription)")
+                            continue
+                        }
+                        XCTAssertTrue(mask <= 1, "a later BOM is refused: \(text.debugDescription)")
+                        XCTAssertEqual(try OVPNSanitizer.sanitize(once), once, text.debugDescription)
+                    }
                 }
-                XCTAssertTrue(mask <= 1, "a later BOM is refused: \(text.debugDescription)")
-                XCTAssertEqual(try OVPNSanitizer.sanitize(once), once, text.debugDescription)
             }
-        }}}
+        }
     }
 
     func testVerbosityAfterABOM() {
@@ -229,15 +264,19 @@ final class OVPNSanitizerFuzzTests: XCTestCase {
     /// and aborts on that line; reading it as a literal could make the two parsers disagree, e.g.
     /// `<c\a>` would open a verbatim block for the sanitizer only.
     func testBadBackslashIsRejectedLikeOpenVPN() {
-        for line in ["remote vpn\\.example.com", "<c\\a>", "verify-x509-name \"CN=Acme\\x\" name",
-                     "remote \\'vpn.example.com'", "\\#remote x", "\\;remote x", "remote vpn.example.com\\",
-                     "setenv opt foo\\q"] {
+        for line in [
+            "remote vpn\\.example.com", "<c\\a>", "verify-x509-name \"CN=Acme\\x\" name",
+            "remote \\'vpn.example.com'", "\\#remote x", "\\;remote x", "remote vpn.example.com\\",
+            "setenv opt foo\\q"
+        ] {
             XCTAssertEqual(violations(line + "\n").map(\.reason), [OVPNSanitizer.badBackslash], line)
         }
         // The escapes OpenVPN accepts, and backslashes inside single quotes (no escaping there).
-        for line in ["remote vpn\\ example.com 1194", "verify-x509-name \"CN=Acme \\\"VPN\\\"\" name",
-                     "verify-x509-name 'C:\\vpn\\x' name", "remote vpn\\\\.example.com",
-                     "remote vpn.example.com\\\r", "remote \\\"vpn\" 1194"] {
+        for line in [
+            "remote vpn\\ example.com 1194", "verify-x509-name \"CN=Acme \\\"VPN\\\"\" name",
+            "verify-x509-name 'C:\\vpn\\x' name", "remote vpn\\\\.example.com",
+            "remote vpn.example.com\\\r", "remote \\\"vpn\" 1194"
+        ] {
             XCTAssertTrue(violations(line + "\n").isEmpty, line)
         }
         let block = "<ca>\nC:\\x\\y\n</ca>\nremote vpn.example.com\n"
@@ -258,10 +297,12 @@ final class OVPNSanitizerFuzzTests: XCTestCase {
         XCTAssertTrue(violations("<connection>\nremote vpn.example.com\n<ca>\nx\n</ca>\n</connection>\n").isEmpty)
         XCTAssertEqual(violations("<connection>\n<connection>\nup /tmp/x\n</connection>\n</connection>\n").map(\.line), [3])
         XCTAssertEqual(violations("<connection>\nremote vpn.example.com\n").map(\.reason), ["block is never closed"])
-        XCTAssertEqual(violations("<ca>\n<cert>\nup /tmp/x\n</cert>\n").map(\.reason), ["block is never closed"],
-                       "inner tags in a verbatim block are content")
-        XCTAssertEqual(violations("<ca>\nx\n</ca>up /tmp/x\nplugin y\n").map(\.line), [4],
-                       "the rest of a closing line is ignored, as by OpenVPN")
+        XCTAssertEqual(
+            violations("<ca>\n<cert>\nup /tmp/x\n</cert>\n").map(\.reason), ["block is never closed"],
+            "inner tags in a verbatim block are content")
+        XCTAssertEqual(
+            violations("<ca>\nx\n</ca>up /tmp/x\nplugin y\n").map(\.line), [4],
+            "the rest of a closing line is ignored, as by OpenVPN")
         XCTAssertEqual(violations("<ca>\nx\n\u{0B}\u{0C}\r </ca>\nup /tmp/x\n").map(\.line), [4])
         XCTAssertTrue(violations("</connection>\n< ca >\n").isEmpty, "not blocks; OpenVPN rejects them as unknown")
         XCTAssertEqual(violations("<static-challenge>\nx\n</static-challenge>\nup /tmp/x\n").map(\.line), [4])
@@ -301,7 +342,7 @@ final class FortiConfigFuzzTests: XCTestCase {
             ("tab in user", { $0.username = "al\tice" }), ("CR in password", { $0.password = "pw\rpppd-plugin = x" }),
             ("NBSP edge", { $0.password = "\u{00A0}pw" }), ("long password", { $0.password = String(repeating: "x", count: 256) }),
             ("long code", { $0.otp = String(repeating: "1", count: 65) }), ("newline code", { $0.otp = "123\n456" }),
-            ("DEL", { $0.username = "alice\u{7F}" }), ("empty user", { $0.username = "" }),
+            ("DEL", { $0.username = "alice\u{7F}" }), ("empty user", { $0.username = "" })
         ]
         for (label, change) in bad { XCTAssertThrowsError(try config(change).render(), label) }
     }
@@ -337,8 +378,9 @@ final class OVPNInlinerStressTests: CoreTestCase {
     func testCredentialsFileOutsideTheConfigFolderIsRefused() throws {
         let configs = try dir("downloads")
         try Data("alice\nhunter2\n".utf8).write(to: home.appendingPathComponent("private-creds.txt"))
-        try FileManager.default.createSymbolicLink(at: configs.appendingPathComponent("link.txt"),
-                                                   withDestinationURL: home.appendingPathComponent("private-creds.txt"))
+        try FileManager.default.createSymbolicLink(
+            at: configs.appendingPathComponent("link.txt"),
+            withDestinationURL: home.appendingPathComponent("private-creds.txt"))
         for ref in ["../private-creds.txt", home.appendingPathComponent("private-creds.txt").path, "link.txt", "/etc/hosts"] {
             let text = "client\nhttp-proxy proxy.example.com 8080\nhttp-proxy-user-pass \(ref)\n"
             XCTAssertThrowsError(try OVPNInliner.inline(text, baseDir: configs), ref) { error in
@@ -356,8 +398,9 @@ final class OVPNInlinerStressTests: CoreTestCase {
         let configs = try dir("configs")
         let shared = try dir("shared")
         try Data("-----BEGIN CERTIFICATE-----\nAAA\n-----END CERTIFICATE-----\n".utf8).write(to: shared.appendingPathComponent("ca.crt"))
-        try FileManager.default.createSymbolicLink(at: configs.appendingPathComponent("ca-link.crt"),
-                                                   withDestinationURL: shared.appendingPathComponent("ca.crt"))
+        try FileManager.default.createSymbolicLink(
+            at: configs.appendingPathComponent("ca-link.crt"),
+            withDestinationURL: shared.appendingPathComponent("ca.crt"))
         for ref in ["../shared/ca.crt", "ca-link.crt", shared.appendingPathComponent("ca.crt").path] {
             XCTAssertTrue(try OVPNInliner.inline("ca \(ref)\n", baseDir: configs).hasPrefix("<ca>\n-----BEGIN"), ref)
         }
@@ -402,8 +445,9 @@ final class OVPNInlinerStressTests: CoreTestCase {
         XCTAssertThrowsError(try OVPNInliner.prepare(text, baseDir: configs)) {
             XCTAssertEqual($0 as? PTError, .ovpnNotAllowed(["line 2: (line) (\(OVPNSanitizer.misplacedBOM))"]))
         }
-        XCTAssertEqual(OVPNAnalyzer.analyze("client\n\u{FEFF}remote vpn.example.com\n").remotes, [],
-                       "the analyzer does not read the line either")
+        XCTAssertEqual(
+            OVPNAnalyzer.analyze("client\n\u{FEFF}remote vpn.example.com\n").remotes, [],
+            "the analyzer does not read the line either")
     }
 
     func testContentThatOpenVPNWouldReadAsTheBlockEndIsRefused() throws {
@@ -418,8 +462,10 @@ final class OVPNInlinerStressTests: CoreTestCase {
 
     func testHostileImportCreatesNothing() throws {
         let configs = try dir("hostile")
-        for text in ["client\nshow-pkcs11-ids /tmp/evil.dylib\n", "client\ngenkey secret /etc/x\n",
-                     "client\nsocks-proxy p.example.com 1080 /etc/master.passwd\n", "client\nca /etc/does-not-exist\n"] {
+        for text in [
+            "client\nshow-pkcs11-ids /tmp/evil.dylib\n", "client\ngenkey secret /etc/x\n",
+            "client\nsocks-proxy p.example.com 1080 /etc/master.passwd\n", "client\nca /etc/does-not-exist\n"
+        ] {
             let url = configs.appendingPathComponent("acme.ovpn")
             try Data(text.utf8).write(to: url)
             XCTAssertThrowsError(try store.importOVPN(url, name: "Acme"), text)
@@ -447,7 +493,7 @@ final class OVPNTokenizerParityTests: CoreTestCase {
         "<ca>", "</ca>", "<auth-user-pass>", "--<auth-user-pass>", "auth-user-pass [inline]",
         "auth-user-pass\\q [inline]", "auth-user-pass\\ [inline]", "http-proxy-user-pass \"[inline]\"",
         "remote vpn.example.com 1194 \\u0041", "setenv opt up\\ /tmp/x", "key \"a b\" 'c d' e\\ f",
-        "\u{FEFF}client", "ca ca.crt\u{00A0}x", "ca \"tab\there\"",
+        "\u{FEFF}client", "ca ca.crt\u{00A0}x", "ca \"tab\there\""
     ]
 
     func testSameTokensAsTheSanitizer() {

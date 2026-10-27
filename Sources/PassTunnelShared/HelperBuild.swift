@@ -1,9 +1,10 @@
+import Foundation
+
 #if canImport(CryptoKit)
 import CryptoKit
 #else
-import Crypto   // swift-crypto: the same API, outside Apple platforms
+import Crypto  // swift-crypto: the same API, outside Apple platforms
 #endif
-import Foundation
 
 /// Identity of a helper build: the SHA-256 of the helper executable. The helper computes it once at
 /// launch (so a running helper keeps reporting the build it was started from, even after the app
@@ -65,7 +66,7 @@ public enum HelperBuild {
         let dir = (real as NSString).deletingLastPathComponent
         let candidates = [
             ((dir as NSString).deletingLastPathComponent as NSString).appendingPathComponent("sbin/" + daemonExecutableName),
-            (dir as NSString).appendingPathComponent(daemonExecutableName),
+            (dir as NSString).appendingPathComponent(daemonExecutableName)
         ]
         return candidates.first { path in
             var st = stat()
@@ -77,7 +78,8 @@ public enum HelperBuild {
     /// report, as `bundled` is on the Mac. A difference means the daemon still runs an earlier binary
     /// (restart it) or comes from another installation. Nil when there is none (tests), in which case
     /// builds are not compared.
-    public static let installedDaemon: String? = currentExecutablePath
+    public static let installedDaemon: String? =
+        currentExecutablePath
         .flatMap(installedDaemonPath(nextTo:)).flatMap(digest(ofFile:))
     #endif
 
@@ -95,8 +97,9 @@ public enum HelperBuild {
         let contents = ((executable as NSString).deletingLastPathComponent as NSString).deletingLastPathComponent
         let plist = (contents as NSString).appendingPathComponent("Info.plist")
         guard let data = FileManager.default.contents(atPath: plist),
-              let dict = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
-              let value = dict["CFBundleVersion"] as? String else { return nil }
+            let dict = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+            let value = dict["CFBundleVersion"] as? String
+        else { return nil }
         return Int(value.trimmingCharacters(in: .whitespaces))
     }
 
@@ -117,9 +120,11 @@ public enum HelperBuild {
     }
 
     /// Compares the running helper (`helper…`, as it reports itself) with the app's bundled helper.
-    public static func relation(helperProtocol: Int, helperDigest: String?, helperNumber: Int?,
-                                appProtocol: Int = PT.helperProtocolVersion,
-                                appDigest: String?, appNumber: Int?) -> Relation {
+    public static func relation(
+        helperProtocol: Int, helperDigest: String?, helperNumber: Int?,
+        appProtocol: Int = PT.helperProtocolVersion,
+        appDigest: String?, appNumber: Int?
+    ) -> Relation {
         if helperProtocol < appProtocol { return .older }
         if helperProtocol > appProtocol { return .newer }
         guard let appDigest, helperDigest != appDigest else { return .current }

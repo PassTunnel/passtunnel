@@ -51,7 +51,8 @@ extension VPNLog {
     /// A pushed option worth keeping: one of the network options, plain printable ASCII, not too long.
     static func isNetworkOption(_ option: String) -> Bool {
         guard option.utf8.count <= maxOptionLength, option.utf8.allSatisfy({ $0 >= 0x20 && $0 < 0x7F }),
-              let name = option.split(separator: " ").first else { return false }
+            let name = option.split(separator: " ").first
+        else { return false }
         return OVPNAnalyzer.networkOptions.contains(String(name))
     }
 
@@ -64,8 +65,9 @@ extension VPNLog {
     /// (`RoutingTable.routes(onInterface:)` has them).
     public static func fortiOptions(_ text: String) -> [String]? {
         guard let line = text.split(whereSeparator: \.isNewline).last(where: { $0.contains("Got addresses: [") }),
-              line.utf8.count <= maxPushLine,
-              let ns = line.range(of: "], ns [") else { return nil }
+            line.utf8.count <= maxPushLine,
+            let ns = line.range(of: "], ns [")
+        else { return nil }
         var servers = line[ns.upperBound...]
         var domains: [Substring] = []
         if let suffix = servers.range(of: "], ns_suffix [") {
@@ -81,8 +83,10 @@ extension VPNLog {
         where CIDR.host(server) != nil && server != "0.0.0.0" && options.count < NetworkClaims.maxDNSServers {
             options.append("dhcp-option DNS \(server)")
         }
-        for domain in domains where NetworkClaims.normalizedDomain(String(domain)) != nil
-            && options.count < NetworkClaims.maxDNSServers + NetworkClaims.maxDomains {
+        for domain in domains
+        where NetworkClaims.normalizedDomain(String(domain)) != nil
+            && options.count < NetworkClaims.maxDNSServers + NetworkClaims.maxDomains
+        {
             options.append("dhcp-option DOMAIN \(domain)")
         }
         return options

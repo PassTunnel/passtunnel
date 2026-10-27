@@ -1,14 +1,16 @@
-import XCTest
-@testable import PassTunnelCore
 import PassTunnelShared
+import XCTest
+
+@testable import PassTunnelCore
 
 final class HelperBuildTests: XCTestCase {
     func testDigestIsTheFileSHA256() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("helper-build-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: url) }
         try Data("abc".utf8).write(to: url)
-        XCTAssertEqual(HelperBuild.digest(ofFile: url.path),
-                       "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+        XCTAssertEqual(
+            HelperBuild.digest(ofFile: url.path),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
         // Larger than one read chunk.
         let big = Data(repeating: 0x61, count: (1 << 20) + 3)
         try big.write(to: url)
@@ -22,8 +24,9 @@ final class HelperBuildTests: XCTestCase {
     }
 
     func testBundledHelperSitsNextToTheAppExecutable() {
-        XCTAssertEqual(HelperBuild.bundledHelperPath(nextTo: "/Applications/PassTunnel.app/Contents/MacOS/PassTunnel"),
-                       "/Applications/PassTunnel.app/Contents/MacOS/PassTunnelHelper")
+        XCTAssertEqual(
+            HelperBuild.bundledHelperPath(nextTo: "/Applications/PassTunnel.app/Contents/MacOS/PassTunnel"),
+            "/Applications/PassTunnel.app/Contents/MacOS/PassTunnelHelper")
     }
 
     func testBuildsCompareOnlyWhenTheBundledOneIsKnown() {
@@ -50,10 +53,13 @@ final class HelperBuildTests: XCTestCase {
 
     func testRelation() {
         let v = PT.helperProtocolVersion
-        func rel(_ digest: String?, _ number: Int?, proto: Int = PT.helperProtocolVersion,
-                 app: String? = "aa", appNumber: Int? = 10) -> HelperBuild.Relation {
-            HelperBuild.relation(helperProtocol: proto, helperDigest: digest, helperNumber: number,
-                                 appDigest: app, appNumber: appNumber)
+        func rel(
+            _ digest: String?, _ number: Int?, proto: Int = PT.helperProtocolVersion,
+            app: String? = "aa", appNumber: Int? = 10
+        ) -> HelperBuild.Relation {
+            HelperBuild.relation(
+                helperProtocol: proto, helperDigest: digest, helperNumber: number,
+                appDigest: app, appNumber: appNumber)
         }
         XCTAssertEqual(rel("aa", 10), .current)
         XCTAssertEqual(rel("aa", 99), .current, "same binary: numbers do not matter")

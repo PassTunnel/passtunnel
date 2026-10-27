@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+
 @testable import PassTunnelCore
 @testable import PassTunnelKit
 
@@ -42,7 +43,7 @@ final class ServerReceivesTests: XCTestCase {
     }
 
     func testAConnectedProfileSaysWhenTheSignInWasSent() {
-        let sent = Date(timeIntervalSince1970: 1_700_000_000)   // 22:13:20 UTC
+        let sent = Date(timeIntervalSince1970: 1_700_000_000)  // 22:13:20 UTC
         let utc = TimeZone(identifier: "UTC")!
         func footer(_ p: Profile, _ codes: ServerReceives.Codes? = nil, waiting: Bool = false) -> String {
             ServerReceives(p, codes: codes ?? shown, waitingForCode: waiting, sentAt: sent, timeZone: utc).footer
@@ -51,8 +52,9 @@ final class ServerReceivesTests: XCTestCase {
         XCTAssertEqual(footer(profile(), .masked), "Format: Append · sent at 22:13:20", "also with the code hidden")
         XCTAssertEqual(footer(profile { $0.otpDelivery = .separate }), "Format: Sent separately · sent at 22:13:20")
         // The rows are the preview with the current code as before.
-        XCTAssertEqual(ServerReceives(profile(), codes: shown, waitingForCode: false, sentAt: sent).rows,
-                       receives(profile()).rows)
+        XCTAssertEqual(
+            ServerReceives(profile(), codes: shown, waitingForCode: false, sentAt: sent).rows,
+            receives(profile()).rows)
         // A connect that waits sends the next code; nothing else has a code to say it was sent.
         XCTAssertEqual(footer(profile(), waiting: true), "Format: Append · will send the next code")
         XCTAssertEqual(footer(profile { $0.otpMode = .ask }), "Format: Append · asks for the code when connecting")
@@ -66,8 +68,9 @@ final class ServerReceivesTests: XCTestCase {
         XCTAssertEqual(r.rows[1].segments.map(\.text).joined(), "••••••••••••••", "all bullets")
         XCTAssertEqual(r.footer, "Format: Append · preview with the current code")
         XCTAssertEqual(receives(profile(), .masked, waiting: true).footer, "Format: Append · will send the next code")
-        XCTAssertEqual(receives(profile { $0.totp.digits = 8 }, .masked).rows[1].segments.last,
-                       .hiddenCode(digits: 8))
+        XCTAssertEqual(
+            receives(profile { $0.totp.digits = 8 }, .masked).rows[1].segments.last,
+            .hiddenCode(digits: 8))
     }
 
     func testEveryCodeFormat() {
@@ -78,7 +81,7 @@ final class ServerReceivesTests: XCTestCase {
             ("{otp}-{password}", [.code("482913"), .text("-"), .password], "Custom template"),
             ("pin{otp}", [.text("pin"), .code("482913")], "Custom template"),
             // An invalid template is sent as Append, as OTPComposer.compose does.
-            ("{password}", [.password, .code("482913")], "Custom template"),
+            ("{password}", [.password, .code("482913")], "Custom template")
         ]
         for (template, segments, name) in cases {
             let r = receives(profile { $0.otpTemplate = template })
@@ -94,8 +97,9 @@ final class ServerReceivesTests: XCTestCase {
             XCTAssertEqual(r.footer, "Format: Sent separately · preview with the current code")
             XCTAssertEqual(r.rows.map(\.field.label), ["user name", "password", "code"])
         }
-        XCTAssertEqual(receives(profile(.forti) { $0.otpDelivery = .separate }, waiting: true).rows.last,
-                       Row(field: .code, segments: [.code("771204")]))
+        XCTAssertEqual(
+            receives(profile(.forti) { $0.otpDelivery = .separate }, waiting: true).rows.last,
+            Row(field: .code, segments: [.code("771204")]))
     }
 
     func testFortiGateCombined() {
@@ -117,8 +121,9 @@ final class ServerReceivesTests: XCTestCase {
         XCTAssertEqual(r.rows, [alice, password(.password, .exampleCode(digits: 6))])
         XCTAssertEqual(r.rows[1].segments.last?.text, "123456")
         XCTAssertEqual(r.footer, "Format: Append · asks for the code when connecting")
-        XCTAssertEqual(receives(profile { $0.otpMode = .ask }, waiting: true).footer,
-                       "Format: Append · asks for the code when connecting")
+        XCTAssertEqual(
+            receives(profile { $0.otpMode = .ask }, waiting: true).footer,
+            "Format: Append · asks for the code when connecting")
     }
 
     func testNoSecretYet() {
@@ -130,7 +135,10 @@ final class ServerReceivesTests: XCTestCase {
 
     func testAUserNameAskedWhenConnecting() {
         for name in ["", "  "] {
-            let r = receives(profile { $0.username = name; $0.lastUsername = "bob" })
+            let r = receives(
+                profile {
+                    $0.username = name; $0.lastUsername = "bob"
+                })
             XCTAssertEqual(r.rows.first, Row(field: .username, segments: [.askedUsername]))
             XCTAssertEqual(r.rows.first?.segments.first?.text, "asked when connecting")
         }
@@ -139,7 +147,10 @@ final class ServerReceivesTests: XCTestCase {
 
     func testCertificateOnly() {
         for otp in OTPMode.allCases {
-            let r = receives(profile { $0.passwordMode = .none; $0.otpMode = otp })
+            let r = receives(
+                profile {
+                    $0.passwordMode = .none; $0.otpMode = otp
+                })
             XCTAssertEqual(r.rows, [], "OpenVPN sends no user name, password or code (\(otp))")
             XCTAssertEqual(r.footer, "Certificate only: the configuration contains everything needed to sign in.")
         }
@@ -148,9 +159,19 @@ final class ServerReceivesTests: XCTestCase {
     func testAFortiGateProfileWithoutAPassword() {
         let none: (inout Profile) -> Void = { $0.passwordMode = .none }
         XCTAssertEqual(receives(profile(.forti, none)).rows, [alice, password(.code("482913"))])
-        XCTAssertEqual(receives(profile(.forti) { none(&$0); $0.otpDelivery = .separate }).rows,
-                       [alice, Row(field: .code, segments: [.code("482913")])])
-        XCTAssertEqual(receives(profile(.forti) { none(&$0); $0.otpMode = .none }).rows, [alice])
+        XCTAssertEqual(
+            receives(
+                profile(.forti) {
+                    none(&$0); $0.otpDelivery = .separate
+                }
+            ).rows,
+            [alice, Row(field: .code, segments: [.code("482913")])])
+        XCTAssertEqual(
+            receives(
+                profile(.forti) {
+                    none(&$0); $0.otpMode = .none
+                }
+            ).rows, [alice])
     }
 
     // MARK: the password

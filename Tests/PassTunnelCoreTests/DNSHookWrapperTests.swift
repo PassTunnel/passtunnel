@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import PassTunnelShared
 
 /// The Mac's wrapper around OpenVPN's dns-updown and the record it keeps (`HelperCore+DNSHook`).
@@ -29,11 +30,14 @@ final class DNSHookWrapperTests: XCTestCase {
 
     func testDownEnvironmentFromRecord() {
         let lines = Self.record.split(separator: "\n").map(String.init)
-        XCTAssertEqual(HelperCore.dnsDownEnvironment(record: Self.record),
-                       ["PATH=/usr/bin:/bin:/usr/sbin:/sbin", "script_type=dns-down"] + lines)
-        XCTAssertNotNil(HelperCore.dnsDownEnvironment(record: "dev=utun7\ndns_server_2_address_1=198.51.100.1\n"
-                                                      + "dns_search_domain_1=b\u{fc}cher.example\n"),
-                        "OpenVPN lets non-ASCII through")
+        XCTAssertEqual(
+            HelperCore.dnsDownEnvironment(record: Self.record),
+            ["PATH=/usr/bin:/bin:/usr/sbin:/sbin", "script_type=dns-down"] + lines)
+        XCTAssertNotNil(
+            HelperCore.dnsDownEnvironment(
+                record: "dev=utun7\ndns_server_2_address_1=198.51.100.1\n"
+                    + "dns_search_domain_1=b\u{fc}cher.example\n"),
+            "OpenVPN lets non-ASCII through")
     }
 
     func testDownEnvironmentRefusesAnythingElse() {
@@ -50,7 +54,7 @@ final class DNSHookWrapperTests: XCTestCase {
             base + "dns_search_domain_1=a/b\n", base + "dns_search_domain_1='a'\n", base + "dns_search_domain_1=a*\n",
             base + "dns_search_domain_1=a=b\n", base + "dns_search_domain_1=a\tb\n", base + "dns_search_domain_1=a\rb\n",
             base + "dns_search_domain_1=" + String(repeating: "a", count: 256) + "\n",
-            base + "\n",
+            base + "\n"
         ]
         for record in refused {
             XCTAssertNil(HelperCore.dnsDownEnvironment(record: record), record.debugDescription)
@@ -109,29 +113,40 @@ final class DNSHookWrapperTests: XCTestCase {
         try HelperCore.writeNewFile(dir.appendingPathComponent("dns-updown").path, Data(script.utf8), mode: 0o700)
         let recordPath = dir.appendingPathComponent(HelperCore.dnsRecordName).path
         let ranPath = dir.appendingPathComponent("ran").path
-        let openVPN = ["dev": "utun7", "dns_server_1_address_1": "192.0.2.53", "dns_search_domain_1": "corp.example.com",
-                       "PATH": dir.path]
+        let openVPN = [
+            "dev": "utun7", "dns_server_1_address_1": "192.0.2.53", "dns_search_domain_1": "corp.example.com",
+            "PATH": dir.path
+        ]
 
-        XCTAssertEqual(try run(hook, openVPN.merging(["script_type": "dns-up", "exit_with": "3"]) { $1 }), 3,
-                       "the script's status goes back to OpenVPN")
-        XCTAssertEqual(try String(contentsOfFile: recordPath, encoding: .utf8),
-                       "dev=utun7\ndns_search_domain_1=corp.example.com\ndns_server_1_address_1=192.0.2.53\n")
+        XCTAssertEqual(
+            try run(hook, openVPN.merging(["script_type": "dns-up", "exit_with": "3"]) { $1 }), 3,
+            "the script's status goes back to OpenVPN")
+        XCTAssertEqual(
+            try String(contentsOfFile: recordPath, encoding: .utf8),
+            "dev=utun7\ndns_search_domain_1=corp.example.com\ndns_server_1_address_1=192.0.2.53\n")
         let pending = try XCTUnwrap(HelperCore.pendingDNSDown(runDir: dir.path))
-        XCTAssertEqual(pending, ["PATH=/usr/bin:/bin:/usr/sbin:/sbin", "script_type=dns-down", "dev=utun7",
-                                 "dns_search_domain_1=corp.example.com", "dns_server_1_address_1=192.0.2.53"])
+        XCTAssertEqual(
+            pending,
+            [
+                "PATH=/usr/bin:/bin:/usr/sbin:/sbin", "script_type=dns-down", "dev=utun7",
+                "dns_search_domain_1=corp.example.com", "dns_server_1_address_1=192.0.2.53"
+            ])
 
         XCTAssertEqual(try run(hook, openVPN.merging(["script_type": "dns-down", "exit_with": "4"]) { $1 }), 4)
         XCTAssertFalse(FileManager.default.fileExists(atPath: recordPath), "a dns-down ran: nothing is owed")
         XCTAssertNil(try HelperCore.pendingDNSDown(runDir: dir.path))
 
         // What the helper runs for a skipped dns-down: the script itself with the recorded variables.
-        let env = Dictionary(uniqueKeysWithValues: pending.map { line -> (String, String) in
-            let parts = line.split(separator: "=", maxSplits: 1).map(String.init)
-            return (parts[0], parts[1])
-        })
+        let env = Dictionary(
+            uniqueKeysWithValues: pending.map { line -> (String, String) in
+                let parts = line.split(separator: "=", maxSplits: 1).map(String.init)
+                return (parts[0], parts[1])
+            })
         XCTAssertEqual(try run("/bin/bash", env, arguments: [dir.appendingPathComponent("dns-updown").path]), 0)
 
-        XCTAssertEqual(try String(contentsOfFile: ranPath, encoding: .utf8), """
+        XCTAssertEqual(
+            try String(contentsOfFile: ranPath, encoding: .utf8),
+            """
             dns-up /usr/bin:/bin:/usr/sbin:/sbin 192.0.2.53
             dns-down /usr/bin:/bin:/usr/sbin:/sbin 192.0.2.53
             dns-down /usr/bin:/bin:/usr/sbin:/sbin 192.0.2.53

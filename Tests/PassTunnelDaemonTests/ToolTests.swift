@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+
 @testable import PassTunnelDaemon
 @testable import PassTunnelShared
 
@@ -27,7 +28,7 @@ final class ToolCheckTests: DaemonTestCase {
         chmod(toolPath, 0o757)
         XCTAssertThrowsError(try check(toolPath)) { XCTAssertEqual($0 as? TrustedPath.Failure, .writableByOthers(toolPath)) }
         chmod(toolPath, 0o755)
-        chmod(base + "/bin", 0o1777)    // sticky does not help
+        chmod(base + "/bin", 0o1777)  // sticky does not help
         XCTAssertThrowsError(try check(toolPath)) { XCTAssertEqual($0 as? TrustedPath.Failure, .writableByOthers(base + "/bin")) }
         chmod(base + "/bin", 0o775)
         XCTAssertThrowsError(try check(toolPath)) { XCTAssertEqual($0 as? TrustedPath.Failure, .writableByOthers(base + "/bin")) }
@@ -38,8 +39,9 @@ final class ToolCheckTests: DaemonTestCase {
     func testLinksAreRefused() throws {
         XCTAssertEqual(symlink(toolPath, base + "/bin/link"), 0)
         XCTAssertThrowsError(try check(base + "/bin/link")) { XCTAssertEqual($0 as? TrustedPath.Failure, .symlink(base + "/bin/link")) }
-        try FileManager.default.createDirectory(atPath: base + "/real", withIntermediateDirectories: true,
-                                                attributes: [.posixPermissions: 0o755])
+        try FileManager.default.createDirectory(
+            atPath: base + "/real", withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o755])
         XCTAssertEqual(symlink(base + "/real", base + "/dirlink"), 0)
         try makeTool(version: "2.6.9", at: base + "/real/openvpn")
         XCTAssertThrowsError(try check(base + "/dirlink/openvpn")) {
@@ -58,8 +60,9 @@ final class ToolCheckTests: DaemonTestCase {
     }
 
     func spec(_ candidates: [String]) -> ToolSpec {
-        ToolSpec(name: "OpenVPN", candidates: candidates, minimum: ToolVersion(2, 6, 0), package: "openvpn",
-                 versionArguments: ["--version"], parseVersion: ToolSpec.openVPNVersion)
+        ToolSpec(
+            name: "OpenVPN", candidates: candidates, minimum: ToolVersion(2, 6, 0), package: "openvpn",
+            versionArguments: ["--version"], parseVersion: ToolSpec.openVPNVersion)
     }
 
     func testResolveRunsTheFirstExistingCandidate() throws {
@@ -78,8 +81,11 @@ final class ToolCheckTests: DaemonTestCase {
         }
         try makeTool(version: "2.5.11")
         XCTAssertThrowsError(try fakeTools.resolve(spec([toolPath]))) {
-            XCTAssertEqual($0 as? ToolFailure, .tooOld(name: "OpenVPN", version: ToolVersion(2, 5, 11),
-                                                        minimum: ToolVersion(2, 6, 0), package: "openvpn"))
+            XCTAssertEqual(
+                $0 as? ToolFailure,
+                .tooOld(
+                    name: "OpenVPN", version: ToolVersion(2, 5, 11),
+                    minimum: ToolVersion(2, 6, 0), package: "openvpn"))
             XCTAssertEqual(String(describing: $0), "OpenVPN 2.5.11 is too old: PassTunnel needs 2.6.0 or later. Update the openvpn package.")
         }
         try makeTool(version: "unknown")
@@ -110,8 +116,12 @@ final class ToolCheckTests: DaemonTestCase {
         let tools = SystemTools(owner: me, base: base)
         XCTAssertEqual(try testTools.resolve(.openfortivpn), ResolvedTool(path: fortiPath, version: ToolVersion(1, 21, 0)))
         XCTAssertEqual(try testTools.resolve(.pppd), ResolvedTool(path: pppdPath, version: ToolVersion(2, 4, 9)))
-        XCTAssertEqual(tools.caBundles, ["/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt",
-                                         "/etc/ssl/cert.pem"])
+        XCTAssertEqual(
+            tools.caBundles,
+            [
+                "/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt",
+                "/etc/ssl/cert.pem"
+            ])
     }
 
     /// The first CA bundle that exists, resolved and checked like a tool.
@@ -138,7 +148,11 @@ final class ToolCheckTests: DaemonTestCase {
     func testUntrustedToolIsNeverRun() throws {
         chmod(toolPath, 0o777)
         var ran = false
-        let tools = SystemTools(owner: me, base: base, versionOutput: { _, _ in ran = true; return "OpenVPN 2.6.9" })
+        let tools = SystemTools(
+            owner: me, base: base,
+            versionOutput: { _, _ in
+                ran = true; return "OpenVPN 2.6.9"
+            })
         XCTAssertThrowsError(try tools.resolve(spec([toolPath])))
         XCTAssertFalse(ran)
     }
@@ -153,7 +167,7 @@ final class SpawnTests: DaemonTestCase {
     }
 
     func testNoInheritedDescriptors() throws {
-        let fd = open("/dev/null", O_RDONLY)      // without O_CLOEXEC
+        let fd = open("/dev/null", O_RDONLY)  // without O_CLOEXEC
         XCTAssertGreaterThanOrEqual(fd, 0)
         XCTAssertEqual(dup2(fd, 100), 100)
         defer { close(fd); close(100) }
@@ -178,10 +192,11 @@ final class SpawnTests: DaemonTestCase {
             pthread_sigmask(SIG_SETMASK, &old, nil)
         }
         let status = try XCTUnwrap(ToolRunner.output(of: "/bin/cat", arguments: ["/proc/self/status"]))
-        let fields = Dictionary(status.split(separator: "\n").compactMap { line -> (String, String)? in
-            let parts = line.split(separator: ":", maxSplits: 1)
-            return parts.count == 2 ? (String(parts[0]), parts[1].trimmingCharacters(in: .whitespaces)) : nil
-        }, uniquingKeysWith: { a, _ in a })
+        let fields = Dictionary(
+            status.split(separator: "\n").compactMap { line -> (String, String)? in
+                let parts = line.split(separator: ":", maxSplits: 1)
+                return parts.count == 2 ? (String(parts[0]), parts[1].trimmingCharacters(in: .whitespaces)) : nil
+            }, uniquingKeysWith: { a, _ in a })
         // Signals 1–31. glibc's posix_spawn leaves its two internal real-time signals (32, 33)
         // ignored in the child, and the child's own glibc takes them over at start.
         func standard(_ key: String) -> UInt64? { fields[key].flatMap { UInt64($0, radix: 16) }.map { $0 & 0x7FFF_FFFF } }

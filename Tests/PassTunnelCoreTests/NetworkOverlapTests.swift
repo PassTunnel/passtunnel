@@ -1,28 +1,35 @@
+import PassTunnelShared
+import XCTest
+
+@testable import PassTunnelCore
+@testable import PassTunnelKit
+
 #if canImport(Combine)
 import Combine
 #endif
-import XCTest
-@testable import PassTunnelCore
-@testable import PassTunnelKit
-import PassTunnelShared
 
 /// Reading what a tunnel takes over from the tools' logs and the routing table (examples only).
 final class NetworkLogParsingTests: XCTestCase {
-    static let push = "2026-10-25 09:41:02 PUSH: Received control message: 'PUSH_REPLY,route 10.0.0.0 255.0.0.0,route-ipv6 2001:db8::/32,"
+    static let push =
+        "2026-10-25 09:41:02 PUSH: Received control message: 'PUSH_REPLY,route 10.0.0.0 255.0.0.0,route-ipv6 2001:db8::/32,"
         + "dhcp-option DNS 10.8.0.1,dhcp-option DOMAIN-ROUTE example.com,route-gateway 10.8.0.1,topology subnet,ping 10,ping-restart 120,"
         + "ifconfig 10.8.0.6 255.255.255.0,peer-id 0,cipher AES-256-GCM,auth-token SESS_ID_secret'"
 
     func testThePushedOptionsOfOpenVPN() {
         let log = """
-        2026-10-25 09:41:00 OpenVPN 2.7.8 aarch64-apple-darwin25.6.0 [SSL (OpenSSL)]
-        2026-10-25 09:41:01 TLS: Initial packet from [AF_INET]203.0.113.10:1194, sid=1234abcd
-        \(Self.push)
-        2026-10-25 09:41:02 OPTIONS IMPORT: route options modified
+            2026-10-25 09:41:00 OpenVPN 2.7.8 aarch64-apple-darwin25.6.0 [SSL (OpenSSL)]
+            2026-10-25 09:41:01 TLS: Initial packet from [AF_INET]203.0.113.10:1194, sid=1234abcd
+            \(Self.push)
+            2026-10-25 09:41:02 OPTIONS IMPORT: route options modified
 
-        """
-        XCTAssertEqual(VPNLog.pushedOptions(log), ["route 10.0.0.0 255.0.0.0", "route-ipv6 2001:db8::/32", "dhcp-option DNS 10.8.0.1",
-                                                   "dhcp-option DOMAIN-ROUTE example.com"],
-                       "only routes, redirects and DNS; no address, timer, cipher or token")
+            """
+        XCTAssertEqual(
+            VPNLog.pushedOptions(log),
+            [
+                "route 10.0.0.0 255.0.0.0", "route-ipv6 2001:db8::/32", "dhcp-option DNS 10.8.0.1",
+                "dhcp-option DOMAIN-ROUTE example.com"
+            ],
+            "only routes, redirects and DNS; no address, timer, cipher or token")
         XCTAssertFalse(VPNLog.pushedOptions(log)!.joined().contains("SESS_ID"))
     }
 
@@ -33,38 +40,45 @@ final class NetworkLogParsingTests: XCTestCase {
         XCTAssertNil(VPNLog.pushedOptions("PUSH: Received control message: 'PUSH_REPLYX,route 10.0.0.0 255.0.0.0'\n"), "another message")
         XCTAssertNil(VPNLog.pushedOptions("PUSH: Received control message: 'PUSH_REPLY,route 10.0.0.0 255.0.0.0\n"), "no closing quote")
         XCTAssertEqual(VPNLog.pushedOptions("PUSH: Received control message: 'PUSH_REPLY'\n"), [])
-        XCTAssertEqual(VPNLog.pushedOptions("PUSH: Received control message: 'PUSH_REPLY,ping 10,ifconfig 10.8.0.6 255.255.255.0'\n"), [],
-                       "a push that says nothing about routes or DNS")
+        XCTAssertEqual(
+            VPNLog.pushedOptions("PUSH: Received control message: 'PUSH_REPLY,ping 10,ifconfig 10.8.0.6 255.255.255.0'\n"), [],
+            "a push that says nothing about routes or DNS")
     }
 
     func testAPushInSeveralMessagesIsOnePush() {
         let log = """
-        PUSH: Received control message: 'PUSH_REPLY,route 10.1.0.0 255.255.0.0,route 10.2.0.0 255.255.0.0,push-continue 1'
-        PUSH: Received control message: 'PUSH_REPLY,route 10.3.0.0 255.255.0.0,dhcp-option DNS 10.8.0.1,push-continue 1'
-        PUSH: Received control message: 'PUSH_REPLY,route 10.4.0.0 255.255.0.0,ifconfig 10.8.0.6 255.255.255.0,push-continue 2'
+            PUSH: Received control message: 'PUSH_REPLY,route 10.1.0.0 255.255.0.0,route 10.2.0.0 255.255.0.0,push-continue 1'
+            PUSH: Received control message: 'PUSH_REPLY,route 10.3.0.0 255.255.0.0,dhcp-option DNS 10.8.0.1,push-continue 1'
+            PUSH: Received control message: 'PUSH_REPLY,route 10.4.0.0 255.255.0.0,ifconfig 10.8.0.6 255.255.255.0,push-continue 2'
 
-        """
-        XCTAssertEqual(VPNLog.pushedOptions(log), ["route 10.1.0.0 255.255.0.0", "route 10.2.0.0 255.255.0.0", "route 10.3.0.0 255.255.0.0",
-                                                   "dhcp-option DNS 10.8.0.1", "route 10.4.0.0 255.255.0.0"])
+            """
+        XCTAssertEqual(
+            VPNLog.pushedOptions(log),
+            [
+                "route 10.1.0.0 255.255.0.0", "route 10.2.0.0 255.255.0.0", "route 10.3.0.0 255.255.0.0",
+                "dhcp-option DNS 10.8.0.1", "route 10.4.0.0 255.255.0.0"
+            ])
     }
 
     func testALaterPushReplacesAnEarlierOne() {
         let log = """
-        PUSH: Received control message: 'PUSH_REPLY,route 10.1.0.0 255.255.0.0,ifconfig 10.8.0.6 255.255.255.0'
-        SIGUSR1[soft,ping-restart] received, process restarting
-        PUSH: Received control message: 'PUSH_REPLY,route 10.9.0.0 255.255.0.0,ifconfig 10.8.0.6 255.255.255.0'
+            PUSH: Received control message: 'PUSH_REPLY,route 10.1.0.0 255.255.0.0,ifconfig 10.8.0.6 255.255.255.0'
+            SIGUSR1[soft,ping-restart] received, process restarting
+            PUSH: Received control message: 'PUSH_REPLY,route 10.9.0.0 255.255.0.0,ifconfig 10.8.0.6 255.255.255.0'
 
-        """
+            """
         XCTAssertEqual(VPNLog.pushedOptions(log), ["route 10.9.0.0 255.255.0.0"])
         // A push that is cut off after a "push-continue 1" is still what there is.
-        XCTAssertEqual(VPNLog.pushedOptions("PUSH: Received control message: 'PUSH_REPLY,route 10.1.0.0 255.255.0.0,push-continue 1'\n"),
-                       ["route 10.1.0.0 255.255.0.0"])
+        XCTAssertEqual(
+            VPNLog.pushedOptions("PUSH: Received control message: 'PUSH_REPLY,route 10.1.0.0 255.255.0.0,push-continue 1'\n"),
+            ["route 10.1.0.0 255.255.0.0"])
     }
 
     func testServerTextIsReadWithLimits() {
         // Control characters, non-ASCII, and long options are dropped; the rest of the line still counts.
         let longOption = "dhcp-option DOMAIN " + String(repeating: "a", count: 600)
-        let line = "PUSH: Received control message: 'PUSH_REPLY,route 10.0.0.0 255.0.0.0,route 10.1.0.0\u{7} 255.0.0.0,"
+        let line =
+            "PUSH: Received control message: 'PUSH_REPLY,route 10.0.0.0 255.0.0.0,route 10.1.0.0\u{7} 255.0.0.0,"
             + "dhcp-option DOMAIN bücher.example,\(longOption),dhcp-option DNS 10.8.0.1'\n"
         XCTAssertEqual(VPNLog.pushedOptions(line), ["route 10.0.0.0 255.0.0.0", "dhcp-option DNS 10.8.0.1"])
         // A line over the limit is not read at all.
@@ -78,25 +92,32 @@ final class NetworkLogParsingTests: XCTestCase {
         let flood = chunks.map { "PUSH: Received control message: 'PUSH_REPLY,\($0),push-continue 1'\n" }.joined()
         XCTAssertEqual(VPNLog.pushedOptions(flood)?.count, 1024)
         // Options of the same kind with odd spacing are kept as sent, and read by `networkClaims`.
-        XCTAssertEqual(VPNLog.pushedOptions("PUSH: Received control message: 'PUSH_REPLY, route 10.0.0.0 255.0.0.0 ,,'\n"),
-                       ["route 10.0.0.0 255.0.0.0"])
+        XCTAssertEqual(
+            VPNLog.pushedOptions("PUSH: Received control message: 'PUSH_REPLY, route 10.0.0.0 255.0.0.0 ,,'\n"),
+            ["route 10.0.0.0 255.0.0.0"])
     }
 
     func testTheGatewaysDNSOfOpenFortiVPN() {
         let line = "INFO:   Got addresses: [10.212.134.200], ns [198.51.100.53, 198.51.100.54], ns_suffix [example.com;corp.example.com]\n"
-        XCTAssertEqual(VPNLog.fortiOptions("INFO:   Connected to gateway.\n" + line + "INFO:   Tunnel is up and running.\n"),
-                       ["dhcp-option DNS 198.51.100.53", "dhcp-option DNS 198.51.100.54", "dhcp-option DOMAIN example.com",
-                        "dhcp-option DOMAIN corp.example.com"])
-        XCTAssertEqual(VPNLog.fortiOptions("INFO:   Got addresses: [10.212.134.200], ns [198.51.100.53, 0.0.0.0]\n"),
-                       ["dhcp-option DNS 198.51.100.53"])
+        XCTAssertEqual(
+            VPNLog.fortiOptions("INFO:   Connected to gateway.\n" + line + "INFO:   Tunnel is up and running.\n"),
+            [
+                "dhcp-option DNS 198.51.100.53", "dhcp-option DNS 198.51.100.54", "dhcp-option DOMAIN example.com",
+                "dhcp-option DOMAIN corp.example.com"
+            ])
+        XCTAssertEqual(
+            VPNLog.fortiOptions("INFO:   Got addresses: [10.212.134.200], ns [198.51.100.53, 0.0.0.0]\n"),
+            ["dhcp-option DNS 198.51.100.53"])
         XCTAssertEqual(VPNLog.fortiOptions("INFO:   Got addresses: [10.212.134.200], ns [0.0.0.0, 0.0.0.0]\n"), [])
-        XCTAssertEqual(VPNLog.fortiOptions("INFO:   Got addresses: [10.1.2.3], ns [2001:db8::53, bad name], ns_suffix [bad!name;a.example]\n"),
-                       ["dhcp-option DNS 2001:db8::53", "dhcp-option DOMAIN a.example"])
+        XCTAssertEqual(
+            VPNLog.fortiOptions("INFO:   Got addresses: [10.1.2.3], ns [2001:db8::53, bad name], ns_suffix [bad!name;a.example]\n"),
+            ["dhcp-option DNS 2001:db8::53", "dhcp-option DOMAIN a.example"])
         XCTAssertNil(VPNLog.fortiOptions("INFO:   Tunnel is up and running.\n"))
         XCTAssertNil(VPNLog.fortiOptions("INFO:   Got addresses: [10.1.2.3]\n"))
         // The last addresses line wins (a reconnect).
-        XCTAssertEqual(VPNLog.fortiOptions(line + "INFO:   Got addresses: [10.2.3.4], ns [198.51.100.99, 0.0.0.0]\n"),
-                       ["dhcp-option DNS 198.51.100.99"])
+        XCTAssertEqual(
+            VPNLog.fortiOptions(line + "INFO:   Got addresses: [10.2.3.4], ns [198.51.100.99, 0.0.0.0]\n"),
+            ["dhcp-option DNS 198.51.100.99"])
         // What comes out is read by the same code as an OpenVPN push.
         let claims = OVPNAnalyzer.networkClaims("", pushed: VPNLog.fortiOptions(line)!)
         XCTAssertEqual(claims.dnsServers, ["198.51.100.53", "198.51.100.54"])
@@ -119,7 +140,7 @@ final class NetworkLogParsingTests: XCTestCase {
             Route(destination: "fe80::", prefixLength: 64, interface: "ppp0"),
             Route(destination: "2001:db8::", prefixLength: 32, interface: "ppp0"),
             Route(destination: "0.0.0.0", prefixLength: 0, interface: "en0"),
-            Route(destination: "not an address", prefixLength: 8, interface: "ppp0"),
+            Route(destination: "not an address", prefixLength: 8, interface: "ppp0")
         ]
         let served = RoutingTable.servedRoutes(in: table, interface: "ppp0")
         XCTAssertEqual(served.map { "\($0.destination)/\($0.prefixLength)" }, ["10.20.0.0/16", "192.0.2.0/24", "2001:db8::/32"])
@@ -129,19 +150,21 @@ final class NetworkLogParsingTests: XCTestCase {
 
     func testLinuxRoutesOfALink() {
         let links: [Int32: Netlink.Link] = [4: Netlink.Link(index: 4, name: "ppp0", kind: "ppp"), 2: Netlink.Link(index: 2, name: "eth0", kind: nil)]
-        func route(_ destination: [UInt8], _ prefix: Int, family: UInt8 = Netlink.inet, table: UInt32 = Netlink.mainTable,
-                   type: UInt8 = Netlink.unicast, via: [Int32]) -> Netlink.Route {
+        func route(
+            _ destination: [UInt8], _ prefix: Int, family: UInt8 = Netlink.inet, table: UInt32 = Netlink.mainTable,
+            type: UInt8 = Netlink.unicast, via: [Int32]
+        ) -> Netlink.Route {
             Netlink.Route(family: family, destination: destination, prefixLength: prefix, table: table, type: type, interfaces: via)
         }
         let routes = [
             route([10, 20, 0, 0], 16, via: [4]),
-            route([], 0, via: [4]),                                   // a default route through the tunnel
-            route([192, 0, 2, 0], 24, via: [2]),                      // not this link
-            route([10, 50, 0, 0], 16, table: 100, via: [4]),          // not the main table
-            route([10, 60, 0, 0], 16, type: 7, via: [4]),             // not unicast (RTN_UNREACHABLE)
-            route([169, 254, 0, 0], 16, via: [4]),                    // link-local
+            route([], 0, via: [4]),  // a default route through the tunnel
+            route([192, 0, 2, 0], 24, via: [2]),  // not this link
+            route([10, 50, 0, 0], 16, table: 100, via: [4]),  // not the main table
+            route([10, 60, 0, 0], 16, type: 7, via: [4]),  // not unicast (RTN_UNREACHABLE)
+            route([169, 254, 0, 0], 16, via: [4]),  // link-local
             route([0x20, 0x01, 0x0d, 0xb8] + [UInt8](repeating: 0, count: 12), 32, family: Netlink.inet6, via: [4]),
-            route([10, 70, 0, 0], 16, via: [9]),                      // a link nobody knows
+            route([10, 70, 0, 0], 16, via: [9])  // a link nobody knows
         ]
         let served = RoutingTable.linuxRoutes(onInterface: "ppp0", routes: routes, links: links)
         XCTAssertEqual(served.map { "\($0.destination)/\($0.prefixLength)" }, ["10.20.0.0/16", "0.0.0.0/0", "2001:db8::/32"])
@@ -183,28 +206,38 @@ final class NetworkLogParsingTests: XCTestCase {
         let theirFull = overlap(mine, NetworkClaims(routes: [CIDR("10.1.0.0/16")!], fullTunnel: true)).messageLines(connecting: "Lab")
         XCTAssertEqual(theirFull[1], "Work sends all traffic through its tunnel.")
         let both = overlap(NetworkClaims(fullTunnel: true), NetworkClaims(fullTunnel: true)).messageLines(connecting: "Lab")
-        XCTAssertEqual(both, ["Warning: Lab overlaps with Work.", "Both send all traffic through their tunnel.",
-                              "That traffic can only go through one of the two tunnels."])
+        XCTAssertEqual(
+            both,
+            [
+                "Warning: Lab overlaps with Work.", "Both send all traffic through their tunnel.",
+                "That traffic can only go through one of the two tunnels."
+            ])
     }
 
     func testLongListsAreShortened() {
         let many = NetworkClaims(routes: (0..<8).map { CIDR("10.\($0).0.0/16")! })
         let lines = overlap(many, many).messageLines(connecting: "Lab")
-        XCTAssertTrue(lines.contains("Both send these networks through their tunnel: 10.0.0.0/16, 10.1.0.0/16, 10.2.0.0/16, 10.3.0.0/16, 10.4.0.0/16 +3 more"), "\(lines)")
+        XCTAssertTrue(
+            lines.contains("Both send these networks through their tunnel: 10.0.0.0/16, 10.1.0.0/16, 10.2.0.0/16, 10.3.0.0/16, 10.4.0.0/16 +3 more"),
+            "\(lines)")
     }
 
     func testTheWarningOfAConnect() throws {
         let mine = NetworkClaims(routes: [CIDR("10.0.0.0/8")!], fullTunnel: true, dnsDomains: ["example.com"])
         let theirs = NetworkClaims(routes: [CIDR("10.9.0.0/16")!, CIDR("192.0.2.0/24")!], dnsDomains: ["corp.example.com"])
         let warning = ConnectWarning(overlap(mine, theirs), connecting: "lab")
-        XCTAssertEqual(warning, ConnectWarning(kind: "overlap", with: "work", name: "Work", routes: ["10.9.0.0/16"],
-                                                domains: ["corp.example.com"], allTraffic: ["lab"]))
+        XCTAssertEqual(
+            warning,
+            ConnectWarning(
+                kind: "overlap", with: "work", name: "Work", routes: ["10.9.0.0/16"],
+                domains: ["corp.example.com"], allTraffic: ["lab"]))
         let encoder = JSONCoding.encoder()
         let json = String(decoding: try encoder.encode(warning), as: UTF8.self)
         XCTAssertTrue(json.contains(#""all_traffic" : ["#), json)
         XCTAssertTrue(json.contains(#""kind" : "overlap""#), json)
         XCTAssertTrue(json.contains(#""with" : "work""#), json)
-        let none = ConnectWarning(overlap(NetworkClaims(routes: [CIDR("10.0.0.0/8")!]), NetworkClaims(routes: [CIDR("10.1.0.0/16")!])), connecting: "lab")
+        let none = ConnectWarning(
+            overlap(NetworkClaims(routes: [CIDR("10.0.0.0/8")!]), NetworkClaims(routes: [CIDR("10.1.0.0/16")!])), connecting: "lab")
         XCTAssertNil(none.allTraffic)
         XCTAssertFalse(String(decoding: try encoder.encode(none), as: UTF8.self).contains("all_traffic"))
     }
@@ -257,15 +290,17 @@ final class NetworkCacheTests: CoreTestCase {
         try write(good)
         XCTAssertEqual(ProfileNetwork.savedOptions(p, store: store), ["route 10.0.0.0 255.0.0.0"])
 
-        let bad = ["", "not json", "[]", "null", "{}", "{\"version\": 1}", good.replacingOccurrences(of: "\"version\": 1", with: "\"version\": 2"),
-                   good.replacingOccurrences(of: "\"version\": 1", with: "\"version\": \"1\""),
-                   good.replacingOccurrences(of: destination, with: "other"),
-                   good.replacingOccurrences(of: "route 10.0.0.0 255.0.0.0", with: "auth-token SESS_ID_x"),
-                   good.replacingOccurrences(of: "route 10.0.0.0 255.0.0.0", with: "route 10.0.0.0\\u0007255.0.0.0"),
-                   good.replacingOccurrences(of: "[\"route 10.0.0.0 255.0.0.0\"]", with: "[1, 2]"),
-                   good.replacingOccurrences(of: "[\"route 10.0.0.0 255.0.0.0\"]", with: "\"route\""),
-                   String(good.dropLast(5)),
-                   good + good]
+        let bad = [
+            "", "not json", "[]", "null", "{}", "{\"version\": 1}", good.replacingOccurrences(of: "\"version\": 1", with: "\"version\": 2"),
+            good.replacingOccurrences(of: "\"version\": 1", with: "\"version\": \"1\""),
+            good.replacingOccurrences(of: destination, with: "other"),
+            good.replacingOccurrences(of: "route 10.0.0.0 255.0.0.0", with: "auth-token SESS_ID_x"),
+            good.replacingOccurrences(of: "route 10.0.0.0 255.0.0.0", with: "route 10.0.0.0\\u0007255.0.0.0"),
+            good.replacingOccurrences(of: "[\"route 10.0.0.0 255.0.0.0\"]", with: "[1, 2]"),
+            good.replacingOccurrences(of: "[\"route 10.0.0.0 255.0.0.0\"]", with: "\"route\""),
+            String(good.dropLast(5)),
+            good + good
+        ]
         for text in bad {
             try write(text)
             XCTAssertNil(ProfileNetwork.savedOptions(p, store: store), text)

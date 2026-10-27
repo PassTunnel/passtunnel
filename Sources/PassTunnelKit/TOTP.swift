@@ -1,9 +1,10 @@
+import Foundation
+
 #if canImport(CryptoKit)
 import CryptoKit
 #else
-import Crypto   // swift-crypto: the same API, outside Apple platforms
+import Crypto  // swift-crypto: the same API, outside Apple platforms
 #endif
-import Foundation
 
 /// RFC 6238 time-based one-time passwords.
 public enum TOTP {
@@ -21,7 +22,8 @@ public enum TOTP {
         case .sha512: mac = Array(HMAC<SHA512>.authenticationCode(for: message, using: key))
         }
         let offset = Int(mac[mac.count - 1] & 0x0f)
-        let binary = (UInt32(mac[offset] & 0x7f) << 24) | (UInt32(mac[offset + 1]) << 16)
+        let binary =
+            (UInt32(mac[offset] & 0x7f) << 24) | (UInt32(mac[offset + 1]) << 16)
             | (UInt32(mac[offset + 2]) << 8) | UInt32(mac[offset + 3])
         var modulo: UInt32 = 1
         for _ in 0..<digits { modulo *= 10 }
@@ -42,7 +44,7 @@ public enum TOTP {
         let t = date.timeIntervalSince1970.rounded(.down)
         guard t.isFinite else { return period }
         var elapsed = t.truncatingRemainder(dividingBy: Double(period))
-        if elapsed < 0 { elapsed += Double(period) }   // before 1970
+        if elapsed < 0 { elapsed += Double(period) }  // before 1970
         return period - Int(elapsed)
     }
 

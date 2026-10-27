@@ -1,7 +1,8 @@
+import Foundation
+
 #if os(macOS)
 import CoreServices
 #endif
-import Foundation
 
 #if os(macOS)
 /// Watches the support directory (profiles and `config.json`) with FSEvents and calls `onChange`
@@ -17,10 +18,12 @@ public final class ProfilesWatcher {
     private let onChange: () -> Void
     private var stream: FSEventStreamRef?
     private let queue = DispatchQueue(label: "com.furkanprlk.passtunnel.profiles-watcher")
-    private var pending: DispatchWorkItem?          // main queue only
+    private var pending: DispatchWorkItem?  // main queue only
 
-    public init(paths: AppPaths = .default, latency: TimeInterval = 0.3, debounce: TimeInterval = 0.25,
-                onChange: @escaping () -> Void) {
+    public init(
+        paths: AppPaths = .default, latency: TimeInterval = 0.3, debounce: TimeInterval = 0.25,
+        onChange: @escaping () -> Void
+    ) {
         self.paths = paths
         self.latency = latency
         self.debounce = debounce
@@ -61,12 +64,16 @@ public final class ProfilesWatcher {
             }
             sink.handler(events)
         }
-        let flags = FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagUseCFTypes
-            | kFSEventStreamCreateFlagWatchRoot)
-        guard let s = FSEventStreamCreate(kCFAllocatorDefault, callback, &context,
-                                          [paths.root.path] as CFArray,
-                                          FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
-                                          latency, flags) else { return false }
+        let flags = FSEventStreamCreateFlags(
+            kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagUseCFTypes
+                | kFSEventStreamCreateFlagWatchRoot)
+        guard
+            let s = FSEventStreamCreate(
+                kCFAllocatorDefault, callback, &context,
+                [paths.root.path] as CFArray,
+                FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
+                latency, flags)
+        else { return false }
         FSEventStreamSetDispatchQueue(s, queue)
         guard FSEventStreamStart(s) else {
             FSEventStreamInvalidate(s)
@@ -105,14 +112,17 @@ public final class ProfilesWatcher {
     }
 
     /// Files that change while a VPN runs or that only exist mid-write; they never change a profile.
-    static let ignoredNames: Set<String> = ["vpn.log", "mgmt.sock", ".lock", ".DS_Store", ".user-stopped", ".last-otp",
-                                                  ".mgmt-state", "activity.jsonl", ".activity.lock", "clock.json", ProfileNetwork.fileName,
-                                                  ".retry"]
+    static let ignoredNames: Set<String> = [
+        "vpn.log", "mgmt.sock", ".lock", ".DS_Store", ".user-stopped", ".last-otp",
+        ".mgmt-state", "activity.jsonl", ".activity.lock", "clock.json", ProfileNetwork.fileName,
+        ".retry"
+    ]
 
     /// Whether an event can mean a changed profile, config or preference.
     public static func isRelevant(path: String, flags: FSEventStreamEventFlags = 0) -> Bool {
-        let rescan = FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs | kFSEventStreamEventFlagRootChanged
-            | kFSEventStreamEventFlagUserDropped | kFSEventStreamEventFlagKernelDropped)
+        let rescan = FSEventStreamEventFlags(
+            kFSEventStreamEventFlagMustScanSubDirs | kFSEventStreamEventFlagRootChanged
+                | kFSEventStreamEventFlagUserDropped | kFSEventStreamEventFlagKernelDropped)
         if flags & rescan != 0 { return true }
         let name = (path as NSString).lastPathComponent
         if ignoredNames.contains(name) { return false }
@@ -137,8 +147,9 @@ public enum ProfileChangeSignal {
 
     public static func post() {
         #if os(macOS)
-        DistributedNotificationCenter.default().postNotificationName(name, object: nil, userInfo: nil,
-                                                                     deliverImmediately: true)
+        DistributedNotificationCenter.default().postNotificationName(
+            name, object: nil, userInfo: nil,
+            deliverImmediately: true)
         #endif
     }
 }

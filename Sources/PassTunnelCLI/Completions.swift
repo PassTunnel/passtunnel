@@ -4,8 +4,10 @@ import PassTunnelKit
 /// Shell completion scripts (`passtunnel completion zsh|bash|fish`). Profile ids come from
 /// `passtunnel list --quiet`.
 enum CLICompletions {
-    static let profileCommands = ["status", "connect", "disconnect", "toggle", "code", "show", "set", "export",
-                                  "rm", "secret", "default", "pin", "unpin", "log"]
+    static let profileCommands = [
+        "status", "connect", "disconnect", "toggle", "code", "show", "set", "export",
+        "rm", "secret", "default", "pin", "unpin", "log"
+    ]
 
     static func script(for shell: CLICommand.Shell) -> String {
         switch shell {
@@ -18,8 +20,10 @@ enum CLICompletions {
     static var commands: String { CLICommand.commandNames.joined(separator: " ") }
 
     /// Options offered after a profile id.
-    static let profileFlags = ["--json", "--all", "--copy", "--follow", "--lines", "--activity", "--yes", "--force", "--wait",
-                               "--timeout", "--no-input", "--no-auth-prompt"]
+    static let profileFlags = [
+        "--json", "--all", "--copy", "--follow", "--lines", "--activity", "--yes", "--force", "--wait",
+        "--timeout", "--no-input", "--no-auth-prompt"
+    ]
 
     /// `secret-store` (Linux only): its cases, put in front of the `mcp` case of each script.
     static var storeNames: String { SecretStoreChoice.allCases.map(\.rawValue).joined(separator: " ") }
@@ -125,20 +129,24 @@ enum CLICompletions {
             "complete -c passtunnel -n '__fish_seen_subcommand_from import' -F",
             "complete -c passtunnel -n '__fish_seen_subcommand_from helper' -a 'status install uninstall'",
             "complete -c passtunnel -n '__fish_seen_subcommand_from completion' -a 'zsh bash fish'",
-            "complete -c passtunnel -n '__fish_seen_subcommand_from help' -a '\(commands)'",
+            "complete -c passtunnel -n '__fish_seen_subcommand_from help' -a '\(commands)'"
         ]
-        let commonJSONCommands = "status connect disconnect toggle code list show set add import export rm secret default pin unpin log diagnose helper version"
+        let commonJSONCommands =
+            "status connect disconnect toggle code list show set add import export rm secret default pin unpin log diagnose helper version"
         #if os(Linux)
-        lines.insert("complete -c passtunnel -n '__fish_seen_subcommand_from secret-store' -a '\(storeNames)'",
-                     at: lines.count - 1)
+        lines.insert(
+            "complete -c passtunnel -n '__fish_seen_subcommand_from secret-store' -a '\(storeNames)'",
+            at: lines.count - 1)
         let jsonCommands = commonJSONCommands + " secret-store"
         #else
         let jsonCommands = commonJSONCommands
         #endif
-        for (flag, cmds) in [("json", jsonCommands), ("all", "disconnect"), ("copy", "code"),
-                             ("follow", "log"), ("lines", "log"), ("activity", "log"), ("yes", "rm"), ("force", "connect"), ("name", "import"),
-                             ("output", "export"), ("wait", "connect disconnect"), ("timeout", "connect disconnect"),
-                             ("allow-connect", "mcp"), ("check-clock", "diagnose"), ("no-input", commands), ("no-auth-prompt", commands)] {
+        for (flag, cmds) in [
+            ("json", jsonCommands), ("all", "disconnect"), ("copy", "code"),
+            ("follow", "log"), ("lines", "log"), ("activity", "log"), ("yes", "rm"), ("force", "connect"), ("name", "import"),
+            ("output", "export"), ("wait", "connect disconnect"), ("timeout", "connect disconnect"),
+            ("allow-connect", "mcp"), ("check-clock", "diagnose"), ("no-input", commands), ("no-auth-prompt", commands)
+        ] {
             lines.append("complete -c passtunnel -n '__fish_seen_subcommand_from \(cmds)' -l \(flag)")
         }
         return lines.joined(separator: "\n") + "\n"

@@ -1,7 +1,8 @@
+import PassTunnelShared
 import XCTest
+
 @testable import PassTunnelCore
 @testable import PassTunnelKit
-import PassTunnelShared
 
 /// The agent-facing CLI options, error codes and result objects (`Automation.swift`).
 final class AutomationCLITests: XCTestCase {
@@ -22,8 +23,9 @@ final class AutomationCLITests: XCTestCase {
         XCTAssertEqual(try command("connect acme --json"), .connect(id: "acme", json: true))
         XCTAssertEqual(try command("disconnect --all --json"), .disconnect(id: nil, all: true, json: true))
         XCTAssertEqual(try command("toggle --json"), .toggle(id: nil, json: true))
-        XCTAssertEqual(try command("set acme username=alice --json"),
-                       .set(id: "acme", assignments: [.init(key: "username", value: "alice")], json: true))
+        XCTAssertEqual(
+            try command("set acme username=alice --json"),
+            .set(id: "acme", assignments: [.init(key: "username", value: "alice")], json: true))
         XCTAssertEqual(try command("add Acme --type forti --json"), .add(name: "Acme", type: .forti, json: true))
         XCTAssertEqual(try command("import a.ovpn --json"), .importFile(path: "a.ovpn", name: nil, json: true))
         XCTAssertEqual(try command("export acme --json"), .export(id: "acme", output: nil, json: true))
@@ -58,16 +60,19 @@ final class AutomationCLITests: XCTestCase {
     }
 
     func testGlobalOptionsAnywhereAndFromTheEnvironment() throws {
-        XCTAssertEqual(try parse("--no-input connect acme"),
-                       CLIInvocation(command: .connect(id: "acme"), options: CLIOptions(noInput: true)))
-        XCTAssertEqual(try parse("connect acme --no-auth-prompt --no-input"),
-                       CLIInvocation(command: .connect(id: "acme"), options: CLIOptions(noInput: true, noAuthPrompt: true)))
+        XCTAssertEqual(
+            try parse("--no-input connect acme"),
+            CLIInvocation(command: .connect(id: "acme"), options: CLIOptions(noInput: true)))
+        XCTAssertEqual(
+            try parse("connect acme --no-auth-prompt --no-input"),
+            CLIInvocation(command: .connect(id: "acme"), options: CLIOptions(noInput: true, noAuthPrompt: true)))
         XCTAssertEqual(try parse("status", environment: ["PASSTUNNEL_NO_INPUT": "1"]).options, CLIOptions(noInput: true))
         XCTAssertEqual(try parse("status", environment: ["PASSTUNNEL_NO_INPUT": "0"]).options, CLIOptions())
         XCTAssertEqual(try parse("--no-input").command, .status(id: nil, json: false))
         // After "--" it is an argument, not an option.
-        XCTAssertEqual(try CLIInvocation.parse(["import", "--", "--no-input"], environment: [:]),
-                       CLIInvocation(command: .importFile(path: "--no-input", name: nil)))
+        XCTAssertEqual(
+            try CLIInvocation.parse(["import", "--", "--no-input"], environment: [:]),
+            CLIInvocation(command: .importFile(path: "--no-input", name: nil)))
         XCTAssertTrue(CLICommand.isCommand("--no-input"))
         XCTAssertTrue(CLICommand.isCommand("mcp"))
         XCTAssertTrue(CLICommand.isCommand("version"))
@@ -109,7 +114,7 @@ final class AutomationCLITests: XCTestCase {
             (PTError.keychain(-25300), .keychainError, 1),
             (SecretStoreUnavailable("no store"), .keychainError, 1),
             (PTError.protectionUnavailable, .authUnavailable, 4),
-            (NSError(domain: "x", code: 1), .internal, 1),
+            (NSError(domain: "x", code: 1), .internal, 1)
         ]
         for (error, code, exit) in cases {
             XCTAssertEqual(AutomationErrorCode.of(error), code, "\(error)")
@@ -153,7 +158,7 @@ final class AutomationCLITests: XCTestCase {
             "2026-10-21 10:00:00 Incoming Data Channel: HMAC KEY: 0123456789abcdef0123456789abcdef",
             "2026-10-21 10:00:00 pre_master: 01:23:45:67:89:ab:cd:ef:01:23:45:67:89:ab:cd:ef",
             "2026-10-21 10:00:00 TLS: tls_pre_encrypt: key_id=0",
-            "2026-10-21 10:00:00 UDPv4 WRITE [42] to [AF_INET]203.0.113.5:1194: P_DATA_V2 kid=0 DATA 5a1b2c3d 4e5f6071 8293a4b5 c6d7e8f9 0a1b",
+            "2026-10-21 10:00:00 UDPv4 WRITE [42] to [AF_INET]203.0.113.5:1194: P_DATA_V2 kid=0 DATA 5a1b2c3d 4e5f6071 8293a4b5 c6d7e8f9 0a1b"
         ]
         for line in dropped { XCTAssertTrue(LogRedactor.isKeyMaterial(line), line) }
         let kept = [
@@ -165,12 +170,14 @@ final class AutomationCLITests: XCTestCase {
             "INFO:   Remote gateway has allocated a VPN.",
             // openfortivpn's hint: the gateway certificate's public digest.
             "ERROR:      --trusted-cert " + digest,
-            "ERROR:      trusted-cert = " + digest.uppercased(),
+            "ERROR:      trusted-cert = " + digest.uppercased()
         ]
         for line in kept { XCTAssertFalse(LogRedactor.isKeyMaterial(line), line) }
         // Only the digest in that place is exempt.
-        for line in ["ERROR:      --trusted-cert \(digest) key: \(digest)", "certificate digest: " + digest,
-                     "trusted-cert = \(digest)00"] {
+        for line in [
+            "ERROR:      --trusted-cert \(digest) key: \(digest)", "certificate digest: " + digest,
+            "trusted-cert = \(digest)00"
+        ] {
             XCTAssertTrue(LogRedactor.isKeyMaterial(line), line)
         }
     }
@@ -227,17 +234,22 @@ final class MCPServerTests: XCTestCase {
 
     // MARK: harness
 
-    func makeServer(allowConnect: Bool = false, authenticator: UserAuthenticator? = nil,
-                    clock: ConnectionClock? = nil) -> MCPServer {
-        let manager = ConnectionManager(store: store, helper: helper, clock: clock ?? self.clock,
-                                        healthProbe: { _ in (false, 0) }, preferences: { Preferences() },
-                                        routes: { [] }, authenticator: authenticator ?? self.authenticator)
+    func makeServer(
+        allowConnect: Bool = false, authenticator: UserAuthenticator? = nil,
+        clock: ConnectionClock? = nil
+    ) -> MCPServer {
+        let manager = ConnectionManager(
+            store: store, helper: helper, clock: clock ?? self.clock,
+            healthProbe: { _ in (false, 0) }, preferences: { Preferences() },
+            routes: { [] }, authenticator: authenticator ?? self.authenticator)
         manager.serverClock = serverClock
-        let automation = AutomationService(store: store, manager: manager, helperInspector: inspector,
-                                           appInfo: AppInfo(version: "9.9.9", build: "99", appPath: "/Applications/PassTunnel.app"),
-                                           network: { NetworkStatus(online: true, interface: .wifi) })
-        return MCPServer(service: automation, allowConnect: allowConnect, serverVersion: "9.9.9",
-                         send: { [weak self] in self?.sent.append($0) }, log: { [weak self] in self?.logs.append($0) })
+        let automation = AutomationService(
+            store: store, manager: manager, helperInspector: inspector,
+            appInfo: AppInfo(version: "9.9.9", build: "99", appPath: "/Applications/PassTunnel.app"),
+            network: { NetworkStatus(online: true, interface: .wifi) })
+        return MCPServer(
+            service: automation, allowConnect: allowConnect, serverVersion: "9.9.9",
+            send: { [weak self] in self?.sent.append($0) }, log: { [weak self] in self?.logs.append($0) })
     }
 
     var meta: [String: Any] {
@@ -267,8 +279,10 @@ final class MCPServerTests: XCTestCase {
     }
 
     /// `tools/call` over the modern protocol; returns the result object.
-    func callTool(_ server: MCPServer, _ name: String, _ arguments: [String: Any] = [:],
-                  file: StaticString = #filePath, line: UInt = #line) async throws -> [String: Any] {
+    func callTool(
+        _ server: MCPServer, _ name: String, _ arguments: [String: Any] = [:],
+        file: StaticString = #filePath, line: UInt = #line
+    ) async throws -> [String: Any] {
         let reply = await exchange(server, request(name, "tools/call", ["name": name, "arguments": arguments]))
         return try XCTUnwrap(reply?["result"] as? [String: Any], "\(String(describing: reply))", file: file, line: line)
     }
@@ -287,22 +301,27 @@ final class MCPServerTests: XCTestCase {
     func rpcError(_ reply: [String: Any]?) -> Int? { (reply?["error"] as? [String: Any])?["code"] as? Int }
 
     /// `structuredContent` of a successful call.
-    func structured(_ server: MCPServer, _ name: String, _ arguments: [String: Any] = [:],
-                    file: StaticString = #filePath, line: UInt = #line) async throws -> [String: Any] {
+    func structured(
+        _ server: MCPServer, _ name: String, _ arguments: [String: Any] = [:],
+        file: StaticString = #filePath, line: UInt = #line
+    ) async throws -> [String: Any] {
         let result = try await callTool(server, name, arguments, file: file, line: line)
         return try XCTUnwrap(result["structuredContent"] as? [String: Any], "\(result)", file: file, line: line)
     }
 
     /// The error code of a failed call (nil when it succeeded).
-    func toolError(_ server: MCPServer, _ name: String, _ arguments: [String: Any] = [:],
-                   file: StaticString = #filePath, line: UInt = #line) async throws -> String? {
+    func toolError(
+        _ server: MCPServer, _ name: String, _ arguments: [String: Any] = [:],
+        file: StaticString = #filePath, line: UInt = #line
+    ) async throws -> String? {
         errorCode(try await callTool(server, name, arguments, file: file, line: line))
     }
 
     func errorCode(_ result: [String: Any]) -> String? {
         guard result["isError"] as? Bool == true,
-              let text = ((result["content"] as? [[String: Any]])?.first)?["text"] as? String,
-              let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] else { return nil }
+            let text = ((result["content"] as? [[String: Any]])?.first)?["text"] as? String,
+            let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]
+        else { return nil }
         return (object["error"] as? [String: Any])?["code"] as? String
     }
 
@@ -318,8 +337,10 @@ final class MCPServerTests: XCTestCase {
         return p
     }
 
-    func waitUntil(timeout: TimeInterval = 5, file: StaticString = #filePath, line: UInt = #line,
-                   _ condition: () -> Bool) async {
+    func waitUntil(
+        timeout: TimeInterval = 5, file: StaticString = #filePath, line: UInt = #line,
+        _ condition: () -> Bool
+    ) async {
         let deadline = Date().addingTimeInterval(timeout)
         while !condition() {
             if Date() > deadline { return XCTFail("condition not met in time", file: file, line: line) }
@@ -331,9 +352,14 @@ final class MCPServerTests: XCTestCase {
 
     func testInitializeHandshakeEchoesASupportedVersion() async throws {
         let server = makeServer()
-        let reply = try await self.reply(server, ["jsonrpc": "2.0", "id": 1, "method": "initialize", "params": [
-            "protocolVersion": "2025-06-18", "capabilities": [String: Any](), "clientInfo": ["name": "test", "version": "1"],
-        ]])
+        let reply = try await self.reply(
+            server,
+            [
+                "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": [
+                    "protocolVersion": "2025-06-18", "capabilities": [String: Any](), "clientInfo": ["name": "test", "version": "1"]
+                ]
+            ])
         XCTAssertEqual(reply["id"] as? Int, 1)
         let result = try XCTUnwrap(reply["result"] as? [String: Any])
         XCTAssertEqual(result["protocolVersion"] as? String, "2025-06-18")
@@ -355,9 +381,14 @@ final class MCPServerTests: XCTestCase {
     /// place of the Touch ID prompt, that protected profiles are refused (docs/LINUX.md).
     func testInstructionsAndDescriptionsAreWordedPerPlatform() async throws {
         let server = makeServer(allowConnect: true)
-        let handshake = try await self.reply(server, ["jsonrpc": "2.0", "id": 1, "method": "initialize", "params": [
-            "protocolVersion": "2025-06-18", "capabilities": [String: Any](), "clientInfo": ["name": "test", "version": "1"],
-        ]])
+        let handshake = try await self.reply(
+            server,
+            [
+                "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": [
+                    "protocolVersion": "2025-06-18", "capabilities": [String: Any](), "clientInfo": ["name": "test", "version": "1"]
+                ]
+            ])
         let instructions = try XCTUnwrap((handshake["result"] as? [String: Any])?["instructions"] as? String)
         let list = try await self.reply(server, request(2, "tools/list"))
         let tools = try XCTUnwrap((list["result"] as? [String: Any])?["tools"] as? [[String: Any]])
@@ -367,14 +398,20 @@ final class MCPServerTests: XCTestCase {
         let properties = try XCTUnwrap((connect["inputSchema"] as? [String: Any])?["properties"] as? [String: Any])
         let timeout = try XCTUnwrap((properties["timeout_seconds"] as? [String: Any])?["description"] as? String)
 
-        let base = "(OpenVPN and FortiGate SSL VPN). Profiles are identified by their id (from list_profiles). "
+        let base =
+            "(OpenVPN and FortiGate SSL VPN). Profiles are identified by their id (from list_profiles). "
             + "The tools never return passwords, TOTP secrets, one-time codes, keys or configuration files, and they cannot create, change or delete profiles."
         let connectText = try XCTUnwrap(descriptions["connect"])
         let listText = try XCTUnwrap(descriptions["list_profiles"])
         #if os(Linux)
-        XCTAssertEqual(instructions, "PassTunnel manages this computer's VPN connections " + base
-                       + " connect and disconnect are enabled. A protected profile cannot be connected on Linux yet: connect refuses it with auth_unavailable.")
-        XCTAssertTrue(listText.hasSuffix(" protected=true means connecting is refused on Linux for now (auth_unavailable): there is no confirmation to ask for yet."))
+        XCTAssertEqual(
+            instructions,
+            "PassTunnel manages this computer's VPN connections " + base
+                + " connect and disconnect are enabled. A protected profile cannot be connected on Linux yet: connect refuses it with auth_unavailable."
+        )
+        XCTAssertTrue(
+            listText.hasSuffix(
+                " protected=true means connecting is refused on Linux for now (auth_unavailable): there is no confirmation to ask for yet."))
         XCTAssertTrue(connectText.contains("A protected profile cannot be connected on Linux yet: it is refused with auth_unavailable."))
         XCTAssertTrue(connectText.contains("Connecting changes this computer's network routes;"))
         XCTAssertEqual(timeout, "How long to wait for the connection.")
@@ -383,10 +420,14 @@ final class MCPServerTests: XCTestCase {
             XCTAssertFalse(text.contains("Touch ID"), text)
         }
         #else
-        XCTAssertEqual(instructions, "PassTunnel manages this Mac's VPN connections " + base
-                       + " connect and disconnect are enabled. A protected profile shows a Touch ID prompt on the Mac that the user must confirm; tell the user to look for it.")
+        XCTAssertEqual(
+            instructions,
+            "PassTunnel manages this Mac's VPN connections " + base
+                + " connect and disconnect are enabled. A protected profile shows a Touch ID prompt on the Mac that the user must confirm; tell the user to look for it."
+        )
         XCTAssertTrue(listText.hasSuffix(" protected=true means connecting asks the user for Touch ID on the Mac."))
-        XCTAssertTrue(connectText.contains("If the profile is protected, the user must confirm with Touch ID on the Mac: tell them a prompt is waiting."))
+        XCTAssertTrue(
+            connectText.contains("If the profile is protected, the user must confirm with Touch ID on the Mac: tell them a prompt is waiting."))
         XCTAssertTrue(connectText.contains("Connecting changes the Mac's network routes;"))
         XCTAssertEqual(timeout, "How long to wait for the connection (after the Touch ID confirmation).")
         #endif
@@ -395,8 +436,12 @@ final class MCPServerTests: XCTestCase {
     func testInitializeWithAnUnknownVersionGetsTheNewestHandshakeVersion() async throws {
         let server = makeServer()
         for requested in ["1999-01-01", "2026-07-28"] {
-            let reply = await exchange(server, ["jsonrpc": "2.0", "id": "a", "method": "initialize",
-                                                "params": ["protocolVersion": requested, "capabilities": [String: Any]()]])
+            let reply = await exchange(
+                server,
+                [
+                    "jsonrpc": "2.0", "id": "a", "method": "initialize",
+                    "params": ["protocolVersion": requested, "capabilities": [String: Any]()]
+                ])
             XCTAssertEqual((reply?["result"] as? [String: Any])?["protocolVersion"] as? String, "2025-11-25")
             XCTAssertEqual(reply?["id"] as? String, "a")
         }
@@ -406,8 +451,12 @@ final class MCPServerTests: XCTestCase {
 
     func testOlderHandshakeVersionsGetOnlyWhatTheyKnow() async throws {
         let server = makeServer()
-        await exchange(server, ["jsonrpc": "2.0", "id": 1, "method": "initialize",
-                                "params": ["protocolVersion": "2024-11-05", "capabilities": [String: Any]()]])
+        await exchange(
+            server,
+            [
+                "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": ["protocolVersion": "2024-11-05", "capabilities": [String: Any]()]
+            ])
         let list = await exchange(server, request(2, "tools/list", withMeta: false))
         let tools = try XCTUnwrap((list?["result"] as? [String: Any])?["tools"] as? [[String: Any]])
         XCTAssertNil(tools[0]["outputSchema"])
@@ -444,8 +493,12 @@ final class MCPServerTests: XCTestCase {
     func testVersionAndMetaErrors() async throws {
         let server = makeServer()
         var bad = request(1, "tools/list")
-        bad["params"] = ["_meta": ["io.modelcontextprotocol/protocolVersion": "1900-01-01",
-                                   "io.modelcontextprotocol/clientCapabilities": [String: Any]()]]
+        bad["params"] = [
+            "_meta": [
+                "io.modelcontextprotocol/protocolVersion": "1900-01-01",
+                "io.modelcontextprotocol/clientCapabilities": [String: Any]()
+            ]
+        ]
         let badReply = try await self.reply(server, bad)
         let unsupported = try XCTUnwrap(badReply["error"] as? [String: Any])
         XCTAssertEqual(unsupported["code"] as? Int, -32022)
@@ -584,17 +637,19 @@ final class MCPServerTests: XCTestCase {
     func testArgumentsAreCheckedStrictly() async throws {
         try makeOpenVPN()
         let server = makeServer(allowConnect: true)
-        for (tool, args) in [("get_status", ["profile_id": "../../etc"]), ("get_status", ["profile_id": "Acme"]),
-                             ("get_status", ["profile_id": 7]), ("get_status", ["id": "acme"]),
-                             ("get_logs", [:]), ("get_logs", ["profile_id": "acme", "lines": 501]),
-                             ("get_logs", ["profile_id": "acme", "lines": "10"]), ("get_logs", ["profile_id": "acme", "lines": true]),
-                             ("diagnose", ["verbose": true]), ("connect", ["profile_id": "acme", "wait": "yes"]),
-                             ("connect", ["profile_id": "acme", "timeout_seconds": 0]),
-                             ("connect", ["profile_id": "acme", "wait": 1]), ("connect", ["profile_id": "acme", "timeout_seconds": true]),
-                             ("get_logs", ["profile_id": "acme", "lines": 10.5]), ("get_status", ["profile_id": ["acme"]]),
-                             ("get_logs", ["profile_id": "acme", "source": "all"]), ("get_logs", ["profile_id": "acme", "source": 1]),
-                             ("get_logs", ["profile_id": "acme", "source": "Activity"]),
-                             ("disconnect", ["profile_id": "acme", "force": true])] as [(String, [String: Any])] {
+        for (tool, args) in [
+            ("get_status", ["profile_id": "../../etc"]), ("get_status", ["profile_id": "Acme"]),
+            ("get_status", ["profile_id": 7]), ("get_status", ["id": "acme"]),
+            ("get_logs", [:]), ("get_logs", ["profile_id": "acme", "lines": 501]),
+            ("get_logs", ["profile_id": "acme", "lines": "10"]), ("get_logs", ["profile_id": "acme", "lines": true]),
+            ("diagnose", ["verbose": true]), ("connect", ["profile_id": "acme", "wait": "yes"]),
+            ("connect", ["profile_id": "acme", "timeout_seconds": 0]),
+            ("connect", ["profile_id": "acme", "wait": 1]), ("connect", ["profile_id": "acme", "timeout_seconds": true]),
+            ("get_logs", ["profile_id": "acme", "lines": 10.5]), ("get_status", ["profile_id": ["acme"]]),
+            ("get_logs", ["profile_id": "acme", "source": "all"]), ("get_logs", ["profile_id": "acme", "source": 1]),
+            ("get_logs", ["profile_id": "acme", "source": "Activity"]),
+            ("disconnect", ["profile_id": "acme", "force": true])
+        ] as [(String, [String: Any])] {
             let result = try await callTool(server, tool, args)
             XCTAssertEqual(errorCode(result), "invalid_argument", "\(tool) \(args)")
             XCTAssertNil(result["structuredContent"])
@@ -613,19 +668,22 @@ final class MCPServerTests: XCTestCase {
         let server = makeServer(allowConnect: true)
         let meta = #""_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}"#
         func call(_ tool: String, _ arguments: String) async throws -> [String: Any] {
-            let line = #"{"jsonrpc":"2.0","id":"t","method":"tools/call","params":{"# + meta + #","name":""# + tool
+            let line =
+                #"{"jsonrpc":"2.0","id":"t","method":"tools/call","params":{"# + meta + #","name":""# + tool
                 + #"","arguments":"# + arguments + "}}"
             let r = try await reply(server, raw: Data(line.utf8))
             return try XCTUnwrap(r["result"] as? [String: Any], "\(r)")
         }
         let two = try await call("get_logs", #"{"profile_id":"acme","lines":2.0}"#)
         XCTAssertEqual((two["structuredContent"] as? [String: Any])?["lines"] as? [String], ["two", "three"])
-        for (tool, arguments) in [("get_logs", #"{"profile_id":"acme","lines":true}"#),
-                                  ("get_logs", #"{"profile_id":"acme","lines":2.5}"#),
-                                  ("get_logs", #"{"profile_id":"acme","lines":1e300}"#),
-                                  ("disconnect", #"{"profile_id":"acme","wait":0}"#),
-                                  ("disconnect", #"{"profile_id":"acme","wait":"false"}"#),
-                                  ("get_status", #"{"profile_id":true}"#)] {
+        for (tool, arguments) in [
+            ("get_logs", #"{"profile_id":"acme","lines":true}"#),
+            ("get_logs", #"{"profile_id":"acme","lines":2.5}"#),
+            ("get_logs", #"{"profile_id":"acme","lines":1e300}"#),
+            ("disconnect", #"{"profile_id":"acme","wait":0}"#),
+            ("disconnect", #"{"profile_id":"acme","wait":"false"}"#),
+            ("get_status", #"{"profile_id":true}"#)
+        ] {
             let result = try await call(tool, arguments)
             XCTAssertEqual(errorCode(result), "invalid_argument", "\(tool) \(arguments)")
         }
@@ -655,8 +713,12 @@ final class MCPServerTests: XCTestCase {
         let server = makeServer()
 
         let report = try await structured(server, "get_logs", ["profile_id": "acme", "lines": 3])
-        XCTAssertEqual(report["lines"] as? [String], ["line 80", "SENT CONTROL [server]: 'PUSH_REQUEST' auth-token <redacted>",
-                                                      "echo <redacted> back"])
+        XCTAssertEqual(
+            report["lines"] as? [String],
+            [
+                "line 80", "SENT CONTROL [server]: 'PUSH_REQUEST' auth-token <redacted>",
+                "echo <redacted> back"
+            ])
         XCTAssertEqual(report["truncated"] as? Bool, true)
         let all = try await structured(server, "get_logs", ["profile_id": "acme"])
         XCTAssertEqual((all["lines"] as? [String])?.count, 50)
@@ -719,10 +781,12 @@ final class MCPServerTests: XCTestCase {
 
     func testGetLogsLeavesOutKeyMaterial() async throws {
         let p = try makeOpenVPN()
-        let log = ["Peer Connection Initiated with [AF_INET]203.0.113.5:1194",
-                   "Outgoing Data Channel: CIPHER KEY: 0123abcd 4567ef01 89abcdef 01234567 89abcdef",
-                   "TLS: tls_process: chg=0",
-                   "Initialization Sequence Completed"]
+        let log = [
+            "Peer Connection Initiated with [AF_INET]203.0.113.5:1194",
+            "Outgoing Data Channel: CIPHER KEY: 0123abcd 4567ef01 89abcdef 01234567 89abcdef",
+            "TLS: tls_process: chg=0",
+            "Initialization Sequence Completed"
+        ]
         try Data((log.joined(separator: "\n") + "\n").utf8).write(to: store.logURL(p.id))
         let report = try await structured(makeServer(), "get_logs", ["profile_id": "acme"])
         XCTAssertEqual(report["lines"] as? [String], [log[0], log[3]])
@@ -802,8 +866,10 @@ final class MCPServerTests: XCTestCase {
         XCTAssertEqual(clock["server"] as? String, "vpn.example.com")
         XCTAssertEqual(clock["checked_at"] as? String, "2023-11-14T22:13:20Z")
 
-        serverClock.timeServerResult = .success(ClockOffset(offsetSeconds: -3, source: .timeServer, server: "time.apple.com",
-                                                            checkedAt: t0))
+        serverClock.timeServerResult = .success(
+            ClockOffset(
+                offsetSeconds: -3, source: .timeServer, server: "time.apple.com",
+                checkedAt: t0))
         let checked = try await structured(server, "diagnose", ["check_clock": true])
         XCTAssertEqual((checked["clock"] as? [String: Any])?["offset_seconds"] as? Int, -3)
         XCTAssertEqual((checked["clock"] as? [String: Any])?["source"] as? String, "time_server")
@@ -834,9 +900,12 @@ final class MCPServerTests: XCTestCase {
         p.username = "alice"
         try store.save(p)
         try Secrets.set(p.id, .password, password)
-        serverClock.gatewayResult = .success(ClockOffset(offsetSeconds: -52, source: .gateway, server: "vpn.example.com",
-                                                         checkedAt: t0))
-        helper.startLog = "INFO:   Connected to gateway.\n"
+        serverClock.gatewayResult = .success(
+            ClockOffset(
+                offsetSeconds: -52, source: .gateway, server: "vpn.example.com",
+                checkedAt: t0))
+        helper.startLog =
+            "INFO:   Connected to gateway.\n"
             + "ERROR:  Could not authenticate to gateway. Please check the password, client certificate, etc.\n"
         let server = makeServer(allowConnect: true)
         let result = try await callTool(server, "connect", ["profile_id": "forti"])
@@ -922,7 +991,8 @@ final class MCPServerTests: XCTestCase {
     func testAFailedConnectSaysWhy() async throws {
         try makeOpenVPN(otp: .totp)
         helper.openVPNStateLine = nil
-        helper.startLog = "2026-10-25 09:41:01 Control Channel: TLSv1.3, cipher TLSv1.3 TLS_AES_256_GCM_SHA384\n"
+        helper.startLog =
+            "2026-10-25 09:41:01 Control Channel: TLSv1.3, cipher TLSv1.3 TLS_AES_256_GCM_SHA384\n"
             + "2026-10-25 09:41:02 AUTH: Received control message: AUTH_FAILED,not \(password)\n"
         let server = makeServer(allowConnect: true)
         let result = try await callTool(server, "connect", ["profile_id": "acme"])
@@ -950,8 +1020,9 @@ final class MCPServerTests: XCTestCase {
         let statusSchema = try XCTUnwrap(tools.first { $0["name"] as? String == "get_status" }?["outputSchema"] as? [String: Any])
         let profileSchema = try XCTUnwrap(((statusSchema["properties"] as? [String: Any])?["profiles"] as? [String: Any])?["items"] as? [String: Any])
         let failureSchema = try XCTUnwrap((profileSchema["properties"] as? [String: Any])?["failure"] as? [String: Any])
-        XCTAssertEqual(((failureSchema["properties"] as? [String: Any])?["kind"] as? [String: Any])?["enum"] as? [String],
-                       ConnectionFailure.Kind.allCases.map(\.rawValue))
+        XCTAssertEqual(
+            ((failureSchema["properties"] as? [String: Any])?["kind"] as? [String: Any])?["enum"] as? [String],
+            ConnectionFailure.Kind.allCases.map(\.rawValue))
         helper.startLog = "2026-10-25 09:41:00 RESOLVE: Cannot resolve host address: vpn.example.com:1194 (Name or service not known)\n"
         let notFound = try await callTool(server, "connect", ["profile_id": "acme"])
         XCTAssertEqual(errorCode(notFound), "host_not_found")
@@ -1153,8 +1224,9 @@ final class MCPServerTests: XCTestCase {
 
     /// Screen lock and sleep end the reuse window (`passtunnel mcp` registers this, like the app).
     func testVaultExpiryForgetsConfirmationsOnLockAndSleep() async throws {
-        let manager = ConnectionManager(store: store, helper: helper, clock: clock, preferences: { Preferences() },
-                                        authenticator: authenticator)
+        let manager = ConnectionManager(
+            store: store, helper: helper, clock: clock, preferences: { Preferences() },
+            authenticator: authenticator)
         let plain = try makeOpenVPN()
         var p = plain
         p.requireAuth = .connect
@@ -1194,14 +1266,20 @@ final class MCPServerTests: XCTestCase {
         let p = try makeOpenVPN(otp: .totp)
         try Data("Peer Connection Initiated\npassword: \(password)\n".utf8).write(to: store.logURL(p.id))
         let server = makeServer(allowConnect: true)
-        await exchange(server, ["jsonrpc": "2.0", "id": 0, "method": "initialize",
-                                "params": ["protocolVersion": "2025-11-25", "capabilities": [String: Any]()]])
+        await exchange(
+            server,
+            [
+                "jsonrpc": "2.0", "id": 0, "method": "initialize",
+                "params": ["protocolVersion": "2025-11-25", "capabilities": [String: Any]()]
+            ])
         await exchange(server, request(1, "tools/list"))
-        for (name, args) in [("list_profiles", [:]), ("get_status", [:]), ("get_status", ["profile_id": "acme"]),
-                             ("get_logs", ["profile_id": "acme", "lines": 500]), ("diagnose", [:]),
-                             ("connect", ["profile_id": "acme"]), ("get_status", [:]),
-                             ("get_logs", ["profile_id": "acme", "source": "activity"]),
-                             ("disconnect", ["profile_id": "acme"])] as [(String, [String: Any])] {
+        for (name, args) in [
+            ("list_profiles", [:]), ("get_status", [:]), ("get_status", ["profile_id": "acme"]),
+            ("get_logs", ["profile_id": "acme", "lines": 500]), ("diagnose", [:]),
+            ("connect", ["profile_id": "acme"]), ("get_status", [:]),
+            ("get_logs", ["profile_id": "acme", "source": "activity"]),
+            ("disconnect", ["profile_id": "acme"])
+        ] as [(String, [String: Any])] {
             let result = try await callTool(server, name, args)
             XCTAssertNotEqual(result["isError"] as? Bool, true, "\(name): \(result)")
         }

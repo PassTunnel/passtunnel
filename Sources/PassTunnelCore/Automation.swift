@@ -1,11 +1,12 @@
-#if canImport(CryptoKit)
-import CryptoKit
-#else
-import Crypto   // swift-crypto: the same API, outside Apple platforms
-#endif
 import Foundation
 import PassTunnelKit
 import PassTunnelShared
+
+#if canImport(CryptoKit)
+import CryptoKit
+#else
+import Crypto  // swift-crypto: the same API, outside Apple platforms
+#endif
 
 // The structured layer shared by `passtunnel … --json` and the MCP server (`passtunnel mcp`): result
 // objects, stable error codes and exit codes. Both front ends build their output from these types,
@@ -62,7 +63,7 @@ public enum AutomationErrorCode: String, Codable, CaseIterable, Sendable {
         case .inputRequired, .cancelled, .authCancelled, .authUnavailable: return AutomationExit.confirmation
         case .helperNotInstalled, .helperOutdated, .helperUnavailable: return AutomationExit.helper
         case .connectFailed, .serverUnreachable, .hostNotFound, .credentialsRejected, .credentialsMissing, .otherVPNActive,
-             .destinationChanged:
+            .destinationChanged:
             return AutomationExit.connectFailed
         case .timeout: return AutomationExit.timeout
         case .configInvalid, .fileError, .keychainError, .internal: return AutomationExit.error
@@ -93,7 +94,7 @@ public enum AutomationErrorCode: String, Codable, CaseIterable, Sendable {
         switch e {
         case .profileNotFound: return .profileNotFound
         case .invalidProfileID, .emptyName, .invalidField, .wrongProfileType, .invalidSecret, .invalidOTPAuthURI,
-             .hotpNotSupported, .invalidTemplate, .usernameTooLong:
+            .hotpNotSupported, .invalidTemplate, .usernameTooLong:
             return .invalidArgument
         case .fileError, .fileTooLarge: return .fileError
         case .invalidFile, .unsupportedShareFile, .ovpnReferencedFile, .ovpnNotAllowed, .missingConfig, .missingHost:
@@ -158,8 +159,9 @@ public struct ErrorReport: Codable, Equatable {
     }
 
     public init(_ error: Error) {
-        self.init(code: AutomationErrorCode.of(error), message: error.localizedDescription,
-                  failure: (error as? ConnectFailedError)?.failure)
+        self.init(
+            code: AutomationErrorCode.of(error), message: error.localizedDescription,
+            failure: (error as? ConnectFailedError)?.failure)
     }
 }
 
@@ -244,11 +246,13 @@ public struct ProfileStatus: Codable, Equatable {
     public var nextTryAt: Date?
     public var tries: Int?
 
-    public init(id: String, name: String, type: String, state: String, phase: String? = nil, ip: String? = nil,
-                since: Date? = nil, durationSeconds: Int? = nil, isDefault: Bool, protected: Bool = false,
-                autoReconnect: Bool = false, health: String? = nil, error: String? = nil, failure: ConnectionFailure? = nil,
-                warning: String? = nil, statusUnavailable: Bool? = nil, warnings: [ConnectWarning]? = nil,
-                nextTryAt: Date? = nil, tries: Int? = nil) {
+    public init(
+        id: String, name: String, type: String, state: String, phase: String? = nil, ip: String? = nil,
+        since: Date? = nil, durationSeconds: Int? = nil, isDefault: Bool, protected: Bool = false,
+        autoReconnect: Bool = false, health: String? = nil, error: String? = nil, failure: ConnectionFailure? = nil,
+        warning: String? = nil, statusUnavailable: Bool? = nil, warnings: [ConnectWarning]? = nil,
+        nextTryAt: Date? = nil, tries: Int? = nil
+    ) {
         self.id = id
         self.name = name
         self.type = type
@@ -292,8 +296,10 @@ public struct ConnectWarning: Codable, Equatable {
     public var domains: [String]
     public var allTraffic: [String]?
 
-    public init(kind: String = "overlap", with: String, name: String, routes: [String], domains: [String],
-                allTraffic: [String]? = nil) {
+    public init(
+        kind: String = "overlap", with: String, name: String, routes: [String], domains: [String],
+        allTraffic: [String]? = nil
+    ) {
         self.kind = kind
         self.with = with
         self.name = name
@@ -306,8 +312,9 @@ public struct ConnectWarning: Codable, Equatable {
     public init(_ overlap: ProfileOverlap, connecting id: String) {
         let summary = overlap.summary
         let all = (summary.firstTakesAllTraffic ? [id] : []) + (summary.secondTakesAllTraffic ? [overlap.profileID] : [])
-        self.init(with: overlap.profileID, name: overlap.name, routes: summary.routes.map(\.description),
-                  domains: summary.domains, allTraffic: all.isEmpty ? nil : all)
+        self.init(
+            with: overlap.profileID, name: overlap.name, routes: summary.routes.map(\.description),
+            domains: summary.domains, allTraffic: all.isEmpty ? nil : all)
     }
 }
 
@@ -323,8 +330,10 @@ public struct HelperReport: Codable, Equatable {
     public var outdated: Bool?
     public var error: String?
 
-    public init(state: String, responding: Bool, protocolVersion: Int? = nil,
-                expectedProtocolVersion: Int = PT.helperProtocolVersion, outdated: Bool? = nil, error: String? = nil) {
+    public init(
+        state: String, responding: Bool, protocolVersion: Int? = nil,
+        expectedProtocolVersion: Int = PT.helperProtocolVersion, outdated: Bool? = nil, error: String? = nil
+    ) {
         self.state = state
         self.responding = responding
         self.protocolVersion = protocolVersion
@@ -444,10 +453,12 @@ public struct AppInfo: Equatable {
         return AppInfo(version: BuildVersion.version, build: BuildVersion.build, appPath: Bundle.main.executablePath ?? "")
         #else
         let info = Bundle.main.infoDictionary
-        return AppInfo(version: info?["CFBundleShortVersionString"] as? String ?? "dev",
-                       build: info?["CFBundleVersion"] as? String,
-                       appPath: Bundle.main.bundleURL.pathExtension == "app" ? Bundle.main.bundlePath
-                                                                          : Bundle.main.executablePath ?? "")
+        return AppInfo(
+            version: info?["CFBundleShortVersionString"] as? String ?? "dev",
+            build: info?["CFBundleVersion"] as? String,
+            appPath: Bundle.main.bundleURL.pathExtension == "app"
+                ? Bundle.main.bundlePath
+                : Bundle.main.executablePath ?? "")
         #endif
     }
 
@@ -506,8 +517,10 @@ public struct SystemHelperInspector: HelperInspecting {
     /// daemon answers); nil: not compared.
     private let expectedBuild: () -> String?
 
-    public init(socketPath: String = PT.daemonSocketPath(), timeout: TimeInterval = 5,
-                expectedBuild: @autoclosure @escaping () -> String? = HelperBuild.installedDaemon) {
+    public init(
+        socketPath: String = PT.daemonSocketPath(), timeout: TimeInterval = 5,
+        expectedBuild: @autoclosure @escaping () -> String? = HelperBuild.installedDaemon
+    ) {
         self.socketPath = socketPath
         self.timeout = timeout
         self.expectedBuild = expectedBuild
@@ -521,7 +534,8 @@ public struct SystemHelperInspector: HelperInspecting {
             let hello = try await client.hello()
             r.responding = true
             r.protocolVersion = hello.protocolVersion
-            r.outdated = hello.protocolVersion != PT.helperProtocolVersion
+            r.outdated =
+                hello.protocolVersion != PT.helperProtocolVersion
                 || !HelperBuild.matches(helper: hello.build, expected: expectedBuild())
         } catch {
             r.error = error.localizedDescription
@@ -545,6 +559,8 @@ public final class PromptlessAuthenticator: UserAuthenticator {
     public func publicKey(keyData: Data) throws -> P256.KeyAgreement.PublicKey { try base.publicKey(keyData: keyData) }
 
     public func unlock(keyData: Data, reason: String) async throws -> UnlockedProtectionKey {
-        throw AutomationError(.authUnavailable, String(localized: "This needs your confirmation (Touch ID or your Mac password), but prompts are turned off (--no-auth-prompt)."))
+        throw AutomationError(
+            .authUnavailable,
+            String(localized: "This needs your confirmation (Touch ID or your Mac password), but prompts are turned off (--no-auth-prompt)."))
     }
 }

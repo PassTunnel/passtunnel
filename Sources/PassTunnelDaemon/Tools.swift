@@ -195,8 +195,10 @@ public protocol ToolResolving {
 public struct SystemTools: ToolResolving {
     /// Where distributions keep the CA bundle (Debian and Ubuntu, Fedora and RHEL, others); the first
     /// that exists is used (docs/LINUX.md).
-    public static let caBundles = ["/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt",
-                                   "/etc/ssl/cert.pem"]
+    public static let caBundles = [
+        "/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt",
+        "/etc/ssl/cert.pem"
+    ]
 
     public var owner: uid_t
     public var base: String
@@ -204,10 +206,12 @@ public struct SystemTools: ToolResolving {
     /// Runs the tool for its version output; replaced in tests.
     public var versionOutput: (String, [String]) -> String?
 
-    public init(owner: uid_t = 0, base: String = "/", caBundles: [String] = SystemTools.caBundles,
-                versionOutput: @escaping (String, [String]) -> String? = { path, args in
-                    ToolRunner.output(of: path, arguments: args)
-                }) {
+    public init(
+        owner: uid_t = 0, base: String = "/", caBundles: [String] = SystemTools.caBundles,
+        versionOutput: @escaping (String, [String]) -> String? = { path, args in
+            ToolRunner.output(of: path, arguments: args)
+        }
+    ) {
         self.owner = owner
         self.base = base
         self.caBundles = caBundles
@@ -233,8 +237,9 @@ public struct SystemTools: ToolResolving {
 
     public func resolve(_ spec: ToolSpec) throws -> ResolvedTool {
         guard let candidate = spec.candidates.first(where: { access($0, F_OK) == 0 }) else {
-            throw ToolFailure.notInstalled(name: spec.name, candidates: spec.candidates, package: spec.package,
-                                           minimum: spec.minimum)
+            throw ToolFailure.notInstalled(
+                name: spec.name, candidates: spec.candidates, package: spec.package,
+                minimum: spec.minimum)
         }
         guard let real = HelperCore.realPath(candidate) else {
             throw ToolFailure.untrusted(name: spec.name, path: candidate, reason: "its path cannot be resolved.")
@@ -276,8 +281,10 @@ public enum ToolRunner {
 
     /// Runs `path arguments` as `output(of:)` does, with `input` (at most `maxInputBytes`) on standard
     /// input, and waits for it to exit until `timeout`, after which its process group is killed.
-    public static func run(_ path: String, arguments: [String], input: Data? = nil,
-                           timeout: TimeInterval = timeout) -> Result? {
+    public static func run(
+        _ path: String, arguments: [String], input: Data? = nil,
+        timeout: TimeInterval = timeout
+    ) -> Result? {
         var fds: [Int32] = [-1, -1]
         guard pipe(&fds) == 0 else { return nil }
         let readEnd = fds[0], writeEnd = fds[1]
@@ -291,8 +298,9 @@ public enum ToolRunner {
         }
         let pid: pid_t
         do {
-            pid = try Sys.spawn(executable: path, arguments: arguments, environment: HelperCore.fixedEnvironment,
-                                workingDirectory: "/", outputFD: writeEnd, inputFD: inputFD)
+            pid = try Sys.spawn(
+                executable: path, arguments: arguments, environment: HelperCore.fixedEnvironment,
+                workingDirectory: "/", outputFD: writeEnd, inputFD: inputFD)
         } catch {
             close(writeEnd)
             inputFD.map { _ = close($0) }
@@ -320,7 +328,7 @@ public enum ToolRunner {
         while deadline.timeIntervalSinceNow > 0 {
             var info = siginfo_t()
             let rc = waitid(P_PID, id_t(pid), &info, WEXITED | WNOHANG | WNOWAIT)
-            if rc == 0, info.si_signo == SIGCHLD { break }      // exited (Linux leaves it 0 while running)
+            if rc == 0, info.si_signo == SIGCHLD { break }  // exited (Linux leaves it 0 while running)
             if rc != 0, errno != EINTR { break }
             usleep(10_000)
         }
@@ -328,8 +336,9 @@ public enum ToolRunner {
         var status: Int32 = 0
         while waitpid(pid, &status, 0) == -1, errno == EINTR {}
         let signal = status & 0x7F
-        return Result(status: signal == 0 ? (status >> 8) & 0xFF : 128 + signal,
-                      output: String(decoding: data, as: UTF8.self))
+        return Result(
+            status: signal == 0 ? (status >> 8) & 0xFF : 128 + signal,
+            output: String(decoding: data, as: UTF8.self))
     }
 
     /// The read end of a pipe that already holds all of `input` (far less than a pipe's capacity).

@@ -70,7 +70,7 @@ public struct ClockOffset: Codable, Equatable, Sendable {
         guard let status = lines.first, isStatusLine(status) else { return nil }
         var found: Date?
         for line in lines.dropFirst() {
-            if line.isEmpty { break }   // the end of the head
+            if line.isEmpty { break }  // the end of the head
             guard let colon = line.firstIndex(of: ":") else { continue }
             guard line[..<colon].lowercased() == "date" else { continue }
             guard let date = httpDate(String(line[line.index(after: colon)...])) else { return nil }
@@ -96,24 +96,28 @@ public struct ClockOffset: Codable, Equatable, Sendable {
         guard !s.isEmpty, s.unicodeScalars.allSatisfy({ (0x20...0x7E).contains($0.value) }) else { return nil }
         let fields = s.split(separator: " ", omittingEmptySubsequences: false)
         if fields.count == 6, fields[5] == "GMT", fields[0].count == 4, fields[0].hasSuffix(","),
-           shortDays.contains(String(fields[0].dropLast())) {
+            shortDays.contains(String(fields[0].dropLast()))
+        {
             // IMF-fixdate
             guard let day = number(fields[1], digits: 2...2), let month = month(fields[2]),
-                  let year = number(fields[3], digits: 4...4) else { return nil }
+                let year = number(fields[3], digits: 4...4)
+            else { return nil }
             return date(year: year, month: month, day: day, time: fields[4])
         }
         if fields.count == 4, fields[3] == "GMT", fields[0].hasSuffix(","), longDays.contains(String(fields[0].dropLast())) {
             // RFC 850: two-digit years 70–99 are 1970–1999, 00–69 are 2000–2069.
             let parts = fields[1].split(separator: "-", omittingEmptySubsequences: false)
             guard parts.count == 3, let day = number(parts[0], digits: 2...2), let month = month(parts[1]),
-                  let yy = number(parts[2], digits: 2...2) else { return nil }
+                let yy = number(parts[2], digits: 2...2)
+            else { return nil }
             return date(year: yy >= 70 ? 1900 + yy : 2000 + yy, month: month, day: day, time: fields[2])
         }
         // asctime: the day is padded with a space ("Nov  6"), so there are 5 or 6 fields.
         let words = fields.filter { !$0.isEmpty }
         if words.count == 5, shortDays.contains(String(words[0])), s.count == 24 {
             guard let month = month(words[1]), let day = number(words[2], digits: 1...2),
-                  let year = number(words[4], digits: 4...4) else { return nil }
+                let year = number(words[4], digits: 4...4)
+            else { return nil }
             return date(year: year, month: month, day: day, time: words[3])
         }
         return nil
@@ -137,9 +141,10 @@ public struct ClockOffset: Codable, Equatable, Sendable {
     private static func date(year: Int, month: Int, day: Int, time: Substring) -> Date? {
         let hms = time.split(separator: ":", omittingEmptySubsequences: false)
         guard (1900...9999).contains(year), (1...12).contains(month), hms.count == 3,
-              let h = number(hms[0], digits: 2...2), let m = number(hms[1], digits: 2...2),
-              let sec = number(hms[2], digits: 2...2), h < 24, m < 60, sec <= 60,
-              (1...daysIn(month, of: year)).contains(day) else { return nil }
+            let h = number(hms[0], digits: 2...2), let m = number(hms[1], digits: 2...2),
+            let sec = number(hms[2], digits: 2...2), h < 24, m < 60, sec <= 60,
+            (1...daysIn(month, of: year)).contains(day)
+        else { return nil }
         let days = daysFromCivil(year: year, month: month, day: day)
         return Date(timeIntervalSince1970: TimeInterval(days * 86_400 + h * 3600 + m * 60 + sec))
     }

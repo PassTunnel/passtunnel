@@ -150,7 +150,7 @@ public struct ServerReceives: Equatable, Sendable {
         switch OTPTemplatePreset(rawValue: p.otpTemplate) {
         case .append: return String(localized: "Append")
         case .prepend: return String(localized: "Prepend")
-        case .colon: return "password:code"   // as the editor shows them, untranslated
+        case .colon: return "password:code"  // as the editor shows them, untranslated
         case .comma: return "password,code"
         case nil: return String(localized: "Custom template")
         }

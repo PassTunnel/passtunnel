@@ -1,9 +1,10 @@
 import Foundation
+import PassTunnelKit
+import PassTunnelShared
+
 #if os(macOS)
 import ServiceManagement
 #endif
-import PassTunnelKit
-import PassTunnelShared
 
 public enum HelperClientError: Error, Equatable, LocalizedError {
     case notInstalled
@@ -45,15 +46,24 @@ public enum HelperClientError: Error, Equatable, LocalizedError {
             return String(localized: "The PassTunnel helper did not answer within \(Int(s)) seconds.")
         case .versionMismatch(let helper, let app):
             #if os(macOS)
-            return String(localized: "The PassTunnel helper belongs to another version of PassTunnel (version \(helper), expected \(app)). Update it in Settings → Helper.")
+            return String(
+                localized:
+                    "The PassTunnel helper belongs to another version of PassTunnel (version \(helper), expected \(app)). Update it in Settings → Helper."
+            )
             #else
-            return String(localized: "The PassTunnel daemon (passtunneld) belongs to another version of PassTunnel (version \(helper), expected \(app)). Install the same version of both, then restart the daemon (systemctl restart passtunnel).")
+            return String(
+                localized:
+                    "The PassTunnel daemon (passtunneld) belongs to another version of PassTunnel (version \(helper), expected \(app)). Install the same version of both, then restart the daemon (systemctl restart passtunnel)."
+            )
             #endif
         case .buildMismatch:
             #if os(macOS)
             return String(localized: "The PassTunnel helper is from another build of PassTunnel. Update it in Settings → Helper.")
             #else
-            return String(localized: "The running PassTunnel daemon (passtunneld) is not the one installed with this passtunnel. Restart it (systemctl restart passtunnel).")
+            return String(
+                localized:
+                    "The running PassTunnel daemon (passtunneld) is not the one installed with this passtunnel. Restart it (systemctl restart passtunnel)."
+            )
             #endif
         case .badResponse:
             return String(localized: "The PassTunnel helper sent an invalid response.")
@@ -75,8 +85,10 @@ public final class UnixSocketHelperClient: HelperClienting, @unchecked Sendable 
     static let maxReplyBytes = 1 << 20
 
     /// `expectedBuild` is only worked out when a build is compared (it hashes the installed daemon).
-    public init(socketPath: String = PT.daemonSocketPath(), timeout: TimeInterval = 15,
-                expectedBuild: @autoclosure @escaping () -> String? = HelperBuild.installedDaemon) {
+    public init(
+        socketPath: String = PT.daemonSocketPath(), timeout: TimeInterval = 15,
+        expectedBuild: @autoclosure @escaping () -> String? = HelperBuild.installedDaemon
+    ) {
         self.socketPath = socketPath
         self.timeout = timeout
         self.expected = expectedBuild
@@ -271,14 +283,16 @@ public final class HelperClient: @unchecked Sendable {
     public func relation() async throws -> HelperBuild.Relation {
         let v = try await version()
         guard v == PT.helperProtocolVersion, let expected = HelperBuild.bundled else {
-            return HelperBuild.relation(helperProtocol: v, helperDigest: nil, helperNumber: nil,
-                                        appDigest: HelperBuild.bundled, appNumber: HelperBuild.bundledNumber)
+            return HelperBuild.relation(
+                helperProtocol: v, helperDigest: nil, helperNumber: nil,
+                appDigest: HelperBuild.bundled, appNumber: HelperBuild.bundledNumber)
         }
         let digest = try await build()
         if HelperBuild.matches(helper: digest, expected: expected) { return .current }
         let number = try await perform(.status).helperBuild
-        return HelperBuild.relation(helperProtocol: v, helperDigest: digest, helperNumber: number,
-                                    appDigest: expected, appNumber: HelperBuild.bundledNumber)
+        return HelperBuild.relation(
+            helperProtocol: v, helperDigest: digest, helperNumber: number,
+            appDigest: expected, appNumber: HelperBuild.bundledNumber)
     }
 
     /// Sends a request. A response with `ok == false` is returned, not thrown; transport problems throw.
@@ -319,9 +333,12 @@ public final class HelperClient: @unchecked Sendable {
         return c
     }
 
-    private func call<T>(timeout: TimeInterval,
-                         _ body: @escaping (PassTunnelHelperProtocol, @escaping (Result<T, Error>) -> Void) -> Void)
-        async throws -> T {
+    private func call<T>(
+        timeout: TimeInterval,
+        _ body: @escaping (PassTunnelHelperProtocol, @escaping (Result<T, Error>) -> Void) -> Void
+    )
+        async throws -> T
+    {
         let conn = currentConnection()
         return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<T, Error>) in
             let once = ResumeOnce(cont)
@@ -343,7 +360,8 @@ public final class HelperClient: @unchecked Sendable {
     private func translate(_ error: Error) -> Error {
         let ns = error as NSError
         guard ns.domain == NSCocoaErrorDomain,
-              ns.code == NSXPCConnectionInvalid || ns.code == NSXPCConnectionInterrupted else {
+            ns.code == NSXPCConnectionInvalid || ns.code == NSXPCConnectionInterrupted
+        else {
             return HelperClientError.unavailable(ns.localizedDescription)
         }
         if ns.code == NSXPCConnectionInvalid { invalidate() }
@@ -352,9 +370,10 @@ public final class HelperClient: @unchecked Sendable {
         case .requiresApproval: return HelperClientError.requiresApproval
         case .notFound: return HelperClientError.notFound
         case .enabled:
-            return HelperClientError.unavailable(ns.code == NSXPCConnectionInterrupted
-                ? String(localized: "the connection was interrupted")
-                : String(localized: "the connection was refused (is this a properly signed build?)"))
+            return HelperClientError.unavailable(
+                ns.code == NSXPCConnectionInterrupted
+                    ? String(localized: "the connection was interrupted")
+                    : String(localized: "the connection was refused (is this a properly signed build?)"))
         }
     }
 }
