@@ -81,11 +81,20 @@ What this means for users and for anyone who would carry the project on:
   release itself is a workflow, not a manual procedure, so a successor with the secrets can release
   without reconstructing the process.
 
-What is not in place yet: a second person with administrative access, and a way for the project to
-pass to someone if the maintainer is unavailable. Inventing one here would be a claim the repository
-cannot back, so the decision is left open.
+What is not in place: the maintainer is the only person with administrative access, and no second
+organization owner or successor is named. For the Silver criterion that someone else must be able to
+create and close issues, accept changes and release within a week of the maintainer becoming
+unavailable (`access_continuity`), this is **not met today**, and the project does not claim it.
+Meeting it would take at least:
 
-<!-- TODO(maintainer): decide access continuity and write it here. For silver (access_continuity: someone else must be able to create and close issues, accept changes and release within a week of the maintainer becoming unavailable) this needs at least: a second organization owner or a trusted successor; their approval right on environment `release`; a sealed escrow of the secrets that GitHub cannot read back (Developer ID .p12 and password, notarization API key, Sparkle private key, deploy keys) kept offline with that person; and the Apple Developer account recovery path. Name the person or the mechanism, or leave the criterion unmet. -->
+- a second organization owner or a trusted successor;
+- that person's approval right on the `release` environment;
+- a sealed escrow, kept offline with that person, of the secrets GitHub cannot read back: the
+  Developer ID certificate (.p12) and its password, the notarization API key, the Sparkle private key
+  and the deploy keys;
+- a recovery path for the Apple Developer account.
+
+This is revisited if a second maintainer joins.
 
 ## Changing this document
 

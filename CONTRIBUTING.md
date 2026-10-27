@@ -138,8 +138,9 @@ PassTunnel is under the [MIT License](LICENSE). By opening a pull request you st
 change (or have the right to submit it) and that it may be distributed under that license; you keep
 your copyright. Do not submit code you took from a project under an incompatible license (the mobile
 spec lists the engines that must not be copied from: [docs/MOBILE.md](docs/MOBILE.md#android-the-vpn-client)).
-There is no contributor license agreement and no `Signed-off-by` requirement.
-<!-- TODO(maintainer): decide whether to adopt the Developer Certificate of Origin (https://developercertificate.org/): require `Signed-off-by:` on commits, add a check to pull-request.yml, and replace the last sentence above. For silver (dco, a SHOULD) it is Unmet until then. -->
+Contributions are accepted under the project's MIT license (inbound = outbound). There is no
+contributor license agreement, and the Developer Certificate of Origin is not used: commits do not
+need a `Signed-off-by` line.
 
 ## Releases
 
