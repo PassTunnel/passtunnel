@@ -41,6 +41,12 @@ struct UnsupportedProfileDetail: View {
     let profile: UnsupportedProfile
 
     var body: some View {
+        ScrollView {
+            content
+        }
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: Spacing.m) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(verbatim: profile.name)
@@ -77,7 +83,8 @@ struct UnsupportedProfileDetail: View {
         }
         .padding(.horizontal, Spacing.xl)
         .padding(.top, Spacing.s)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(.bottom, Spacing.l)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
