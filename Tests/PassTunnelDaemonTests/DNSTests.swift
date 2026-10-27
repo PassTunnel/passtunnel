@@ -889,7 +889,7 @@ final class DNSResolvedBackendTests: DNSTestCase {
     func testFailureRollsBack() throws {
         try useResolved()
         let session = try session()
-        FileManager.default.createFile(atPath: base + "/fail-domain", contents: nil)
+        _ = FileManager.default.createFile(atPath: base + "/fail-domain", contents: nil)
         XCTAssertThrowsError(try applier.apply(Self.full, interface: "tun0", in: session)) {
             XCTAssertEqual(String(describing: $0), "resolvectl domain failed (status 1): Failed to set DNS: Link tun0 not managed")
         }
@@ -1176,7 +1176,7 @@ final class DaemonDNSTests: DNSTestCase {
     var hook: String { base + "/bin/passtunneld" }
 
     func makeDNSDaemon(_ configure: (inout Daemon.Options) -> Void = { _ in }) throws -> Daemon {
-        FileManager.default.createFile(
+        _ = FileManager.default.createFile(
             atPath: hook, contents: Data("#!/bin/sh\nexit 0\n".utf8),
             attributes: [.posixPermissions: 0o755])
         let system = self.system, hook = self.hook
