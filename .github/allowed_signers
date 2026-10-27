@@ -1,0 +1,2 @@
+# Keys that sign PassTunnel release tags (git tag -v with gpg.ssh.allowedSignersFile; docs/RELEASING.md).
+18267444+Furkanprlk@users.noreply.github.com namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOhENf3EzZwOtSCoc4MVU1sCab+FKWHbUR+EqLYh46KW PassTunnel release tags

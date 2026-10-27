@@ -583,7 +583,11 @@ seconds, the host asked and when.
   unpacking it (`SUVerifyUpdateBeforeExtraction`). An update is installed only when you click
   Install.
 - **Releases** are uploaded to a draft release and published only once every file is attached. The
-  release tag is signed when the release machine has a signing key. The bundled `openvpn`,
+  release tag is signed with a dedicated SSH key (ed25519) whose public half is in
+  [`.github/allowed_signers`](.github/allowed_signers); the release workflow refuses to push a tag
+  whose signature does not verify, and anyone can check one with
+  `git -c gpg.ssh.allowedSignersFile=.github/allowed_signers tag -v vX.Y.Z` (tags up to 1.5.0 are
+  not signed with it; see [docs/RELEASING.md](docs/RELEASING.md#signed-tags)). The bundled `openvpn`,
   `openfortivpn` and their libraries come in pinned versions (`scripts/release.env`); a release
   build stops when Homebrew provides any other version. Details: [docs/RELEASING.md](docs/RELEASING.md).
 - **Replacing the helper.** Registering the helper points the root daemon at the copy of PassTunnel
@@ -609,7 +613,7 @@ Network.framework), swift-crypto on Linux, the bundled tools' OpenSSL and Sparkl
 | VPN tunnels | TLS and the data channel are done by the bundled `openvpn` and `openfortivpn` with their OpenSSL. OpenVPN's control channel uses TLS 1.2 or later: the helper passes `--tls-version-min 1.2` after the configuration (1.3 when the configuration asks for it), and the [sanitizer](#openvpn-configuration-sanitizer) refuses a configuration that sets `tls-version-min` or `tls-version-max` below 1.2, lowers OpenSSL's security level to 0 (`@SECLEVEL=0` in `tls-cipher`, `tls-cert-profile insecure`) or selects suites without encryption or authentication. Within that, the configuration's cipher settings and OpenSSL's defaults decide. For FortiGate the helper writes none of the TLS options, and openfortivpn disables insecure protocols unless asked with `--insecure-ssl`, which PassTunnel never passes. The tools verify the gateway certificate against the system CA bundle (`/etc/ssl/cert.pem`, fixed by the helper) or a trusted SHA-256 certificate digest in the profile | [How OpenVPN is started](#how-openvpn-is-started), [How FortiGate is started](#how-fortigate-is-started) |
 | Gateway clock probe, *Fetch fingerprint* | TLS through Network.framework with the system's default protocol versions (the code sets none). The clock probe accepts the certificate only when its SHA-256 digest is the profile's trusted one or the system trusts it for that name, and sends no credentials, user name or cookie. *Fetch fingerprint* trusts nothing: it aborts the handshake right after reading the digest, which you confirm before saving | [Network connections](#network-connections) |
 | App updates | HTTPS download of the feed and archives from GitHub (Sparkle's URLSession under App Transport Security, which is on with no exceptions in `Info.plist`, so TLS 1.2 or later); the feed and each archive are also signed with an EdDSA (Ed25519) key and refused without a valid signature | [Updates](#updates) |
-| Releases | Developer ID code signatures with the hardened runtime, notarization, build provenance attestations (Sigstore) | [docs/RELEASING.md](docs/RELEASING.md) |
+| Releases | Developer ID code signatures with the hardened runtime, notarization, build provenance attestations (Sigstore), release tags signed with an Ed25519 SSH key (`.github/allowed_signers`) | [docs/RELEASING.md](docs/RELEASING.md) |
 | Helper trust | Code-signing requirements (Team ID) and SHA-256 cdhashes of the bundled tools and libraries; SHA-256 of `config.ovpn` | [Which programs it runs](#which-programs-it-runs) |
 | Confirm with Touch ID | P-256 key agreement key in the Secure Enclave, ephemeral P-256 ECDH, HKDF-SHA256, AES-256-GCM with the account name as authenticated data | [Confirm with Touch ID](#confirm-with-touch-id-secure-enclave) |
 | Secrets on Linux | Desktop keyring, `systemd-creds`, or a file sealed with scrypt (N = 2^17, r = 8, p = 1) and AES-256-GCM | [docs/LINUX.md](docs/LINUX.md#secrets) |
@@ -631,7 +635,7 @@ helper.
 in the Keychain (or the Linux secret store), separate from `profile.json`, `config.json` and logs,
 and can be replaced at any time in the app or with `passtunnel secret` without rebuilding anything.
 Credentials passed to the tools go through root-owned files that are deleted when the tunnel stops.
-The release keys (Developer ID, notarization, Sparkle) are kept out of the repository: in the
+The release keys (Developer ID, notarization, Sparkle, tag signing) are kept out of the repository: in the
 protected GitHub environment `release` and on the maintainer's Mac
 ([docs/RELEASING.md](docs/RELEASING.md#setup)).
 
