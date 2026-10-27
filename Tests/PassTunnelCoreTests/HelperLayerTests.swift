@@ -74,6 +74,123 @@ final class OVPNSanitizerTests: XCTestCase {
         }
     }
 
+    /// TLS 1.2 is the floor: a version setting below it, a security level of 0 (OpenSSL then allows TLS 1.0
+    /// and 1.1 again), suites without encryption or authentication and export suites are refused, in every
+    /// spelling the parser takes. The same directives with safe values stay.
+    func testTLSFloor() {
+        let refused: [(String, String)] = [
+            ("tls-version-min 1.0", OVPNSanitizer.tlsVersionReason),
+            ("tls-version-min 1.1", OVPNSanitizer.tlsVersionReason),
+            ("tls-version-min 1.0 or-highest", OVPNSanitizer.tlsVersionReason),
+            ("tls-version-min 1.1 or-highest", OVPNSanitizer.tlsVersionReason),
+            ("tls-version-min 1.2 something", OVPNSanitizer.tlsVersionReason),
+            ("tls-version-min 2.0 or-highest", OVPNSanitizer.tlsVersionReason),
+            ("tls-version-min 1.2.0", OVPNSanitizer.tlsVersionReason),
+            ("tls-version-min", OVPNSanitizer.tlsVersionReason),
+            ("TLS-Version-Min 1.0", OVPNSanitizer.tlsVersionReason),
+            ("--tls-version-min \"1.1\"", OVPNSanitizer.tlsVersionReason),
+            ("setenv opt tls-version-min 1.0", OVPNSanitizer.tlsVersionReason),
+            ("tls-version-max 1.0", OVPNSanitizer.tlsVersionReason),
+            ("tls-version-max 1.1", OVPNSanitizer.tlsVersionReason),
+            ("tls-version-max 1.2 or-highest", OVPNSanitizer.tlsVersionReason),
+            ("tls-cipher DEFAULT:@SECLEVEL=0", OVPNSanitizer.securityLevelReason),
+            ("tls-cipher 'DEFAULT @SECLEVEL=0'", OVPNSanitizer.securityLevelReason),
+            ("tls-cipher DEFAULT,@SECLEVEL=0", OVPNSanitizer.securityLevelReason),
+            ("tls-cipher DEFAULT;@SECLEVEL=0", OVPNSanitizer.securityLevelReason),
+            ("tls-cipher DEFAULT@SECLEVEL=0", OVPNSanitizer.securityLevelReason),
+            ("tls-cipher DEFAULT:@seclevel=0", OVPNSanitizer.securityLevelReason),
+            ("tls-cipher DEFAULT:@SECLEVEL=2:@SECLEVEL=0", OVPNSanitizer.securityLevelReason),
+            ("tls-cipher DEFAULT:@SECLEVEL=01", OVPNSanitizer.securityLevelReason),
+            ("tls-cipher DEFAULT:@SECLEVEL=", OVPNSanitizer.securityLevelReason),
+            ("tls-cipher DEFAULT:!@SECLEVEL=0", OVPNSanitizer.securityLevelReason),
+            ("tls-cipher DEFAULT:eNULL", OVPNSanitizer.weakCipherReason),
+            ("tls-cipher aNULL", OVPNSanitizer.weakCipherReason),
+            ("tls-cipher ALL:COMPLEMENTOFALL", OVPNSanitizer.weakCipherReason),
+            ("tls-cipher HIGH:kRSA+aNULL", OVPNSanitizer.weakCipherReason),
+            ("tls-cipher DEFAULT:+aNULL:@SECLEVEL=0", OVPNSanitizer.securityLevelReason),
+            ("tls-cipher EXP-RC4-MD5", OVPNSanitizer.weakCipherReason),
+            ("tls-cipher ADH-AES256-GCM-SHA384", OVPNSanitizer.weakCipherReason),
+            ("tls-cipher TLS-DH-anon-WITH-AES-256-GCM-SHA384", OVPNSanitizer.weakCipherReason),
+            ("tls-cipher ECDHE-RSA-NULL-SHA", OVPNSanitizer.weakCipherReason),
+            ("tls-cipher a b", OVPNSanitizer.weakCipherReason),
+            ("tls-ciphersuites TLS_SHA256_SHA256", OVPNSanitizer.tls13SuiteReason),
+            ("tls-ciphersuites TLS_AES_128_GCM_SHA256:TLS_SHA384_SHA384", OVPNSanitizer.tls13SuiteReason),
+            ("tls-ciphersuites TLS_AES_128_CCM_8_SHA256", OVPNSanitizer.tls13SuiteReason),
+            ("tls-ciphersuites TLS_AES_128_GCM_SHA256:", OVPNSanitizer.tls13SuiteReason),
+            ("tls-cert-profile insecure", OVPNSanitizer.certProfileReason),
+            ("tls-cert-profile Insecure", OVPNSanitizer.certProfileReason),
+            ("setenv opt tls-cert-profile insecure", OVPNSanitizer.certProfileReason),
+        ]
+        for (line, reason) in refused {
+            let v = violations("client\n\(line)\n")
+            XCTAssertEqual(v.map(\.line), [2], line)
+            XCTAssertEqual(v.map(\.reason), [reason], line)
+        }
+        // An inline block named after one of them is refused (OpenVPN would not read it either).
+        for tag in ["tls-version-min", "tls-version-max", "tls-cipher", "tls-ciphersuites", "tls-cert-profile"] {
+            XCTAssertEqual(violations("client\n<\(tag)>\n1.0\n</\(tag)>\n").map(\.line), [2], tag)
+        }
+        let allowed = [
+            "tls-version-min 1.2", "tls-version-min 1.3", "tls-version-min 1.2 or-highest",
+            "tls-version-min 1.3 or-highest", "--tls-version-min 1.2", "setenv opt tls-version-min 1.3",
+            "tls-version-max 1.2", "tls-version-max 1.3",
+            "tls-cipher DEFAULT:@SECLEVEL=1", "tls-cipher DEFAULT:@SECLEVEL=2", "tls-cipher HIGH:!aNULL:!eNULL:-EXP",
+            "tls-cipher DEFAULT:+aNULL", "tls-cipher DEFAULT:+eNULL:+EXP", "tls-cipher HIGH:+ADH",
+            "tls-cipher TLS-ECDHE-RSA-WITH-AES-256-GCM-SHA384:TLS-ECDHE-ECDSA-WITH-AES-128-GCM-SHA256",
+            "tls-cipher DEFAULT:!EXP:!LOW:!MEDIUM:!kDH:!kECDH:!DSS:!PSK:!SRP:!kRSA",
+            "tls-ciphersuites TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256",
+            "tls-ciphersuites TLS-AES-128-GCM-SHA256", "tls-ciphersuites TLS_AES_128_CCM_SHA256",
+            "tls-cert-profile legacy", "tls-cert-profile preferred", "tls-cert-profile suiteb",
+            "tls-groups X25519:secp256r1", "# tls-version-min 1.0", "<ca>\ntls-version-min 1.0\n</ca>",
+        ]
+        for line in allowed {
+            XCTAssertEqual(violations("client\n\(line)\n"), [], line)
+        }
+    }
+
+    /// The `--tls-version-min` the helper passes after the config: 1.2, or 1.3 when the `tls-version-min`
+    /// OpenVPN applies asks for it, so the floor never lowers what the config sets. Lines are recognized as
+    /// OpenVPN 2.7 recognizes them: one leading `--`, case-sensitive names, one exact `setenv opt` prefix
+    /// with no `--` after it. Other spellings OpenVPN ignores after `setenv opt` (or stops on) change nothing.
+    func testTLSVersionFloorArguments() {
+        let cases: [(String, [String])] = [
+            ("client\n", ["1.2"]),
+            ("tls-version-min 1.2\n", ["1.2"]),
+            ("tls-version-min 1.3\n", ["1.3"]),
+            ("tls-version-min 1.3 or-highest\n", ["1.3", "or-highest"]),
+            ("--tls-version-min 1.3\n", ["1.3"]),
+            ("setenv opt tls-version-min 1.3\n", ["1.3"]),
+            ("setenv opt tls-version-min 1.3 or-highest\n", ["1.3", "or-highest"]),
+            // Spellings OpenVPN does not recognize: it stops on them, or ignores them after `setenv opt`.
+            ("--TLS-VERSION-MIN 1.3\n", ["1.2"]),
+            ("setenv opt --tls-version-min 1.3\n", ["1.2"]),
+            ("SETENV opt tls-version-min 1.3\n", ["1.2"]),
+            ("setenv OPT tls-version-min 1.3\n", ["1.2"]),
+            ("----tls-version-min 1.3\n", ["1.2"]),
+            // An ignored optional line after a valid one does not lower it.
+            ("tls-version-min 1.3\nsetenv opt TLS-VERSION-MIN 1.2\n", ["1.3"]),
+            ("tls-version-min 1.3\nsetenv opt --tls-version-min 1.2\n", ["1.3"]),
+            ("tls-version-min 1.3\nsetenv opt tls-version-min bogus\n", ["1.3"]),
+            ("tls-version-min 1.3\nsetenv opt tls-version-min 1.2 or-highest extra\n", ["1.3"]),
+            ("tls-version-min 1.3\nsetenv opt\n", ["1.3"]),
+            ("tls-version-min 1.3\nsetenv opt tls-version-min 1.2\n", ["1.2"]),   // recognized: it applies
+            ("tls-version-min 1.3\ntls-version-min 1.2\n", ["1.2"]),      // the last one wins, as in OpenVPN
+            ("tls-version-min 1.2\ntls-version-min 1.3\n", ["1.3"]),
+            ("tls-version-min 1.0\n", ["1.2"]),
+            ("tls-version-min 1.3 bogus\n", ["1.3"]),   // OpenVPN applies 1.3 (the sanitizer refuses the line)
+            ("<ca>\ntls-version-min 1.3\n</ca>\n", ["1.2"]),             // block content is not a directive
+        ]
+        for (config, floor) in cases {
+            XCTAssertEqual(OVPNSanitizer.tlsVersionFloor(of: config), floor, config)
+        }
+        let args = HelperCore.openVPNArguments(configPath: "/c", mgmtSocket: "/s", clientUser: "alice", authFile: nil,
+                                               dnsUpdown: nil, tlsVersionMin: ["1.3", "or-highest"])
+        let floor = args.firstIndex(of: "--tls-version-min") ?? 0
+        XCTAssertGreaterThan(floor, args.firstIndex(of: "--config") ?? .max, "after the config, so it wins")
+        XCTAssertEqual(args.filter { $0 == "--tls-version-min" }.count, 1)
+        XCTAssertEqual(Array(args[floor...].prefix(3)), ["--tls-version-min", "1.3", "or-highest"])
+    }
+
     func testVerbosity() {
         let cases: [(String, Int?, Int)] = [
             ("client\n", nil, 3),
@@ -110,7 +227,8 @@ final class OVPNSanitizerTests: XCTestCase {
         XCTAssertEqual(args.filter { $0 == "--server-poll-timeout" }.count, 1)
         XCTAssertEqual(Array(args.suffix(from: start + 2)),
                        ["--config", "/c", "--verb", "3", "--management", "/s", "unix", "--management-client-user", "alice",
-                        "--auth-nocache", "--remap-usr1", "SIGTERM", "--connect-retry-max", "3", "--auth-user-pass", "/a",
+                        "--auth-nocache", "--remap-usr1", "SIGTERM", "--connect-retry-max", "3", "--tls-version-min", "1.2",
+                        "--auth-user-pass", "/a",
                         "--script-security", "2", "--dns-updown", "/d"])
     }
 
@@ -439,7 +557,8 @@ final class HelperCoreTests: XCTestCase {
             "--pull-filter", "ignore", "\\", "--server-poll-timeout", "10",
             "--config", plan.runDir + "/config.ovpn", "--verb", "3", "--management", plan.runDir + "/mgmt.sock", "unix",
             "--management-client-user", "alice", "--auth-nocache",
-            "--remap-usr1", "SIGTERM", "--connect-retry-max", "3", "--auth-user-pass", plan.runDir + "/auth",
+            "--remap-usr1", "SIGTERM", "--connect-retry-max", "3", "--tls-version-min", "1.2",
+            "--auth-user-pass", plan.runDir + "/auth",
             "--script-security", "1", "--dns-updown", "disable",
         ])
         let config = try String(contentsOfFile: plan.runDir + "/config.ovpn", encoding: .utf8)

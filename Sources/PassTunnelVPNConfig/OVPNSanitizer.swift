@@ -107,6 +107,114 @@ public enum OVPNSanitizer {
     /// OpenVPN reads config lines with a 256-byte buffer and silently splits longer ones.
     public static let maxLineBytes = 254
 
+    // MARK: TLS floor
+
+    /// The oldest TLS version the control channel may use. The helper also passes it to OpenVPN after the
+    /// config (`tlsVersionFloor(of:)`).
+    public static let minimumTLSVersion = "1.2"
+
+    /// The values `tls-version-min` and `tls-version-max` may have. OpenVPN compares them exactly.
+    static let allowedTLSVersions: Set<String> = ["1.2", "1.3"]
+
+    /// `tls-cert-profile` values: `legacy` (OpenVPN's default) sets OpenSSL's security level 1,
+    /// `preferred` 2, `suiteb` 3. `insecure` sets level 0, which allows TLS 1.0 and 1.1 again.
+    static let allowedCertProfiles: Set<String> = ["legacy", "preferred", "suiteb"]
+
+    /// TLS 1.3 suites `tls-ciphersuites` may list (OpenVPN turns `-` into `_`): the ones that encrypt with a
+    /// full-length tag. Not the integrity-only suites (no encryption) nor `TLS_AES_128_CCM_8_SHA256`.
+    static let allowedTLS13Suites: Set<String> = [
+        "TLS_AES_128_GCM_SHA256", "TLS_AES_256_GCM_SHA384", "TLS_CHACHA20_POLY1305_SHA256", "TLS_AES_128_CCM_SHA256",
+    ]
+
+    /// Words in a `tls-cipher` element that select suites without encryption (`eNULL`, `NULL-SHA`), without
+    /// authentication (`aNULL`, `ADH`, `AECDH`, the `…_anon_…` names), export suites (`EXP`, `EXPORT`), or
+    /// the suites `ALL` leaves out (`COMPLEMENTOFALL`, `COMPLEMENTOFDEFAULT`). Compared in upper case.
+    static let weakCipherWords = ["NULL", "EXP", "ADH", "AECDH", "ANON", "COMPLEMENTOF"]
+
+    /// The lowest `@SECLEVEL` a `tls-cipher` list may set: OpenVPN's default (`tls-cert-profile legacy`).
+    /// Level 0 allows TLS 1.0 and 1.1 and the suites above.
+    static let minimumSecurityLevel = 1
+
+    static let tlsVersionReason = "PassTunnel requires TLS 1.2 or later; only 1.2 or 1.3 is allowed"
+    static let securityLevelReason =
+        "lowers OpenSSL's security level below 1, which allows TLS older than 1.2; only @SECLEVEL=1 to 5 is allowed"
+    static let weakCipherReason = "selects cipher suites without encryption or authentication, or export suites"
+    static let tls13SuiteReason =
+        "only TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384, TLS_CHACHA20_POLY1305_SHA256 and TLS_AES_128_CCM_SHA256 are allowed"
+    static let certProfileReason =
+        "only legacy, preferred or suiteb is allowed; insecure allows TLS older than 1.2"
+
+    /// The arguments of the `--tls-version-min` the helper passes after the config, which then overrides
+    /// the config's own: `1.2`, or `1.3` (with `or-highest` if given) when the `tls-version-min` OpenVPN
+    /// uses asks for 1.3, so the floor never lowers what the config sets.
+    ///
+    /// Unlike the sanitizer's checks, this reads options exactly as OpenVPN 2.7 does (`openVPNOption`):
+    /// a spelling OpenVPN ignores (`setenv opt TLS-VERSION-MIN 1.2`, `setenv opt --tls-version-min 1.3`)
+    /// changes nothing here either, and the last line OpenVPN applies wins. A value OpenVPN does not apply
+    /// (it stops on one, or ignores one after `setenv opt`) is skipped too; the sanitizer refuses those.
+    public static func tlsVersionFloor(of text: String) -> [String] {
+        var floor = [minimumTLSVersion]
+        forEachDirective(in: text, keepSetenvOpt: true) { tokens in
+            guard let option = openVPNOption(tokens), option.first == "tls-version-min" else { return }
+            // OpenVPN: `p[1] && !p[3]`, the version from `p[1]` (`tls_version_parse`).
+            let args = Array(option.dropFirst())
+            guard (1...2).contains(args.count) else { return }
+            switch args[0] {
+            case "1.3": floor = args.count == 2 && args[1] == "or-highest" ? ["1.3", "or-highest"] : ["1.3"]
+            case "1.0", "1.1", "1.2": floor = [minimumTLSVersion]
+            default: return
+            }
+        }
+        return floor
+    }
+
+    /// Why a TLS directive could let the control channel use less than TLS 1.2 or weaken OpenSSL's
+    /// checks; nil when it cannot. An inline block named after one of them (no arguments) is refused too.
+    static func tlsReason(_ name: String, args: [String]) -> String? {
+        switch name {
+        case "tls-version-min":
+            // `or-highest` only matters for a version OpenVPN does not know, which is refused anyway.
+            let valid = (args.count == 1 || (args.count == 2 && args[1] == "or-highest"))
+                && allowedTLSVersions.contains(args[0])
+            return valid ? nil : tlsVersionReason
+        case "tls-version-max":
+            return args.count == 1 && allowedTLSVersions.contains(args[0]) ? nil : tlsVersionReason
+        case "tls-cert-profile":
+            return args.count == 1 && allowedCertProfiles.contains(args[0]) ? nil : certProfileReason
+        case "tls-ciphersuites":
+            guard args.count == 1 else { return tls13SuiteReason }
+            let suites = args[0].split(separator: ":", omittingEmptySubsequences: false)
+            let valid = suites.allSatisfy {
+                allowedTLS13Suites.contains($0.replacingOccurrences(of: "-", with: "_").uppercased())
+            }
+            return valid ? nil : tls13SuiteReason
+        case "tls-cipher":
+            guard args.count == 1 else { return weakCipherReason }
+            return cipherListReason(args[0])
+        default:
+            return nil
+        }
+    }
+
+    /// Checks an OpenSSL cipher list (TLS 1.2 and older) as OpenSSL splits it: elements separated by `:`,
+    /// `,`, `;` or spaces. Every `@SECLEVEL` must be exactly `@SECLEVEL=` and one digit from 1 to 5
+    /// (a misspelling is refused too); elements that add suites must not name a weak word. Elements that
+    /// remove suites (`!…`, `-…`) or only move suites already selected to the end (`+…`) may.
+    static func cipherListReason(_ list: String) -> String? {
+        let elements = list.uppercased().split(whereSeparator: { ":,; \t".contains($0) })
+        let prefix = Array("@SECLEVEL=".utf8)
+        for element in elements where element.contains("SECLEVEL") {
+            let bytes = Array(element.utf8)
+            guard bytes.count == prefix.count + 1, bytes.starts(with: prefix),
+                  (UInt8(ascii: "0") + UInt8(minimumSecurityLevel)...UInt8(ascii: "5")).contains(bytes[prefix.count])
+            else { return securityLevelReason }
+        }
+        for element in elements where !["!", "-", "+"].contains(element.first) {
+            if weakCipherWords.contains(where: { element.contains($0) }) { return weakCipherReason }
+        }
+        return nil
+    }
+
     /// Returns the sanitized config, or throws `Failure` listing every offending line, and
     /// `missingRemote` when no line names a server to connect to.
     /// A config without stripped directives is returned byte-for-byte unchanged.
@@ -229,8 +337,8 @@ public enum OVPNSanitizer {
     }
 
     /// Calls `body` with the tokens of every directive line outside verbatim inline blocks (lines in a
-    /// `<connection>` block count), without a `setenv opt` prefix.
-    static func forEachDirective(in text: String, _ body: ([String]) -> Void) {
+    /// `<connection>` block count), without a `setenv opt` prefix (in any case) unless `keepSetenvOpt`.
+    static func forEachDirective(in text: String, keepSetenvOpt: Bool = false, _ body: ([String]) -> Void) {
         var block: (tag: String, verbatim: Bool)?
         for (index, line) in splitLines(text).enumerated() {
             var content = line.content
@@ -244,7 +352,7 @@ public enum OVPNSanitizer {
                 block = (tag: tag, verbatim: normalize(tag) != "connection")
                 continue
             }
-            if normalize(tokens[0]) == "setenv", tokens.count >= 3, tokens[1].lowercased() == "opt" {
+            if !keepSetenvOpt, normalize(tokens[0]) == "setenv", tokens.count >= 3, tokens[1].lowercased() == "opt" {
                 tokens.removeFirst(2)
             }
             body(tokens)
@@ -302,6 +410,7 @@ public enum OVPNSanitizer {
             if name == "dh", file.lowercased() == "none" { return nil }
             return "references an external file; embed it inline as <\(name)>…</\(name)>"
         }
+        if let reason = tlsReason(name, args: args) { return reason }
         if name == "socks-proxy", args.count >= 3 {
             // `socks-proxy host port authfile`: the file's first two lines go to the proxy.
             return "references an external credentials file"
@@ -322,10 +431,19 @@ public enum OVPNSanitizer {
     /// leading `--` on the line, case-sensitive names, one `setenv opt` prefix and no `--` after it. OpenVPN
     /// refuses the other spellings, or after `setenv opt` only warns and goes on without the line.
     static func isRemote(_ tokens: [String]) -> Bool {
+        guard let option = openVPNOption(tokens) else { return false }
+        return option.first == "remote" && (2...4).contains(option.count)
+    }
+
+    /// A line's tokens as OpenVPN 2.7 matches them against its option names (`bypass_doubledash`, then
+    /// `add_option`): one leading `--` removed from a first token of at least 3 bytes, then one exact
+    /// `setenv opt` prefix removed, with no `--` removed after it; names compare case-sensitively. Nil
+    /// for `setenv opt` without an option, which OpenVPN only warns about.
+    static func openVPNOption(_ tokens: [String]) -> [String]? {
         var tokens = tokens
         if let first = tokens.first, first.hasPrefix("--"), first.utf8.count >= 3 { tokens[0] = String(first.dropFirst(2)) }
         if tokens.count >= 2, tokens[0] == "setenv", tokens[1] == "opt" { tokens.removeFirst(2) }
-        return tokens.first == "remote" && (2...4).contains(tokens.count)
+        return tokens.isEmpty ? nil : tokens
     }
 
     /// A device type in lowercase, as OpenVPN compares it, then only ASCII letters, digits, `-` and `_`:

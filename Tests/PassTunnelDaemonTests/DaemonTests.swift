@@ -187,7 +187,8 @@ final class DaemonSessionTests: DaemonTestCase {
         let line = try String(contentsOfFile: log, encoding: .utf8)
         XCTAssertTrue(line.contains("--config \(runDir)/config.ovpn --verb 3 --management \(runDir)/mgmt.sock unix "
                                     + "--management-client-user alice --auth-nocache --remap-usr1 SIGTERM "
-                                    + "--connect-retry-max 3 --auth-user-pass \(runDir)/auth --script-security 1\n"), line)
+                                    + "--connect-retry-max 3 --tls-version-min 1.2 --auth-user-pass \(runDir)/auth "
+                                    + "--script-security 1\n"), line)
         XCTAssertFalse(line.contains("dns-updown"))
 
         let status = try response(daemon.socketPath, .status)

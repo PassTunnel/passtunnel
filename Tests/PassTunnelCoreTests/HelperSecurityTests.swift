@@ -234,6 +234,30 @@ extension HelperCoreTests {
         }
     }
 
+    /// A stored profile that lowers TLS below 1.2 (imported before the floor existed) is refused at connect,
+    /// before anything is prepared. A clean one runs with `--tls-version-min` after the config: 1.2, or the
+    /// config's own 1.3.
+    func testHelperEnforcesTheTLSFloor() throws {
+        for line in ["tls-version-min 1.0", "tls-version-min 1.1 or-highest", "tls-version-max 1.1",
+                     "tls-cipher DEFAULT:@SECLEVEL=0", "tls-cert-profile insecure", "setenv opt tls-version-min 1.0"] {
+            try writeConfig("client\nremote vpn.example.com 1194\n\(line)\n")
+            XCTAssertThrowsError(try core().prepareOpenVPN(openVPNStart(), uid: me), line) { error in
+                XCTAssertEqual((error as? OVPNSanitizer.Failure)?.violations.map(\.line), [3], line)
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: acmeRunDir), line)
+        }
+        for (line, floor) in [("", ["1.2"]), ("tls-version-min 1.2", ["1.2"]), ("tls-version-min 1.3", ["1.3"])] {
+            try writeConfig("client\nremote vpn.example.com 1194\n\(line)\n")
+            let plan = try core().prepareOpenVPN(openVPNStart(), uid: me)
+            defer { close(plan.logFD); core().removeRunDir(profileID: "acme", uid: me) }
+            let args = plan.arguments
+            let index = try XCTUnwrap(args.firstIndex(of: "--tls-version-min"), line)
+            XCTAssertGreaterThan(index, try XCTUnwrap(args.firstIndex(of: "--config")), line)
+            XCTAssertEqual(Array(args[(index + 1)...].prefix(floor.count)), floor, line)
+            XCTAssertEqual(args.filter { $0 == "--tls-version-min" }.count, 1, line)
+        }
+    }
+
     /// The pull filters come before `--config`: OpenVPN tries them in the order it reads them and the first
     /// match decides, so a profile's own `pull-filter accept verb` comes too late. Every spelling of a pushed
     /// `verb` OpenVPN's parser reads as `verb` starts with one of the ignored prefixes.
