@@ -217,7 +217,8 @@ final class Supervisor {
             if let fds = pipeFDs, case .copied(let setDNS) = output {
                 let key = job.key
                 let copier = OutputCopier(readFD: fds.read, logFD: fcntl(plan.logFD, F_DUPFD_CLOEXEC, 0)) { [weak self] line in
-                    self?.queue.async { self?.received(line, key: key, pid: pid) }
+                    guard let self else { return }
+                    self.queue.async { [weak self] in self?.received(line, key: key, pid: pid) }
                 }
                 pipeFDs = (-1, fds.write)  // the copier closes the read end
                 job.output = copier
@@ -311,7 +312,8 @@ final class Supervisor {
         let thread = Thread { [weak self] in
             var info = siginfo_t()
             while waitid(P_PID, id_t(pid), &info, WEXITED | WNOWAIT) != 0, errno == EINTR {}
-            self?.queue.async { self?.exited(key, pid: pid) }
+            guard let self else { return }
+            self.queue.async { [weak self] in self?.exited(key, pid: pid) }
         }
         thread.name = "passtunneld.wait.\(pid)"
         thread.start()
@@ -386,7 +388,8 @@ final class Supervisor {
                 let backend = try dns.apply(settings, interface: name, in: session)
                 return DNSHook.describe(settings, interface: name, backend: backend)
             }
-            self?.queue.async { self?.dnsDone(key, pid: pid, result) }
+            guard let self else { return }
+            self.queue.async { [weak self] in self?.dnsDone(key, pid: pid, result) }
         }
     }
 
