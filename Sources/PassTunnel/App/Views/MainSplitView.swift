@@ -56,12 +56,13 @@ struct MainSplitView: View {
             return Alert(title: Text(alert.title), message: Text(alert.message))
         }
         .profileDeleteConfirmation($model.pendingDelete) { model.delete($0) }
+        .unsupportedDeleteConfirmation($model.pendingDeleteUnsupported) { model.delete($0) }
         .onAppear {
             model.markDropsSeen()
             selectWhenNone()
         }
         .onChange(of: model.profiles) { profiles in
-            if profiles.isEmpty { model.addingProfile = false }
+            if model.hasNoProfiles { model.addingProfile = false }
             selectWhenNone()
         }
         // Selecting a profile (the sidebar, an import) closes the add view and leaves an import review (nothing was
@@ -90,7 +91,7 @@ struct MainSplitView: View {
     /// the default profile, else the first.
     private func selectWhenNone() {
         guard !model.addingProfile, model.importReview == nil, model.selection.flatMap(model.profile) == nil,
-            let p = model.defaultProfile
+            model.selection.flatMap(model.unsupportedProfile) == nil, let p = model.defaultProfile
         else { return }
         model.selection = p.id
     }
@@ -108,12 +109,14 @@ struct SplitDetail: View {
             if let review = model.importReview {
                 ImportReviewView(review: review)
                     .id(ObjectIdentifier(review))
-            } else if model.profiles.isEmpty {
+            } else if model.hasNoProfiles {
                 FirstRunView(isFirstRun: true)
             } else if model.addingProfile {
                 FirstRunView(isFirstRun: false)
             } else if let p = model.selection.flatMap(model.profile) {
                 ProfileDetailView(profile: p)
+            } else if let u = model.selection.flatMap(model.unsupportedProfile) {
+                UnsupportedProfileDetail(profile: u)
             } else {
                 Color.clear
             }
@@ -164,6 +167,7 @@ struct ProfileSidebar: View {
 
     var body: some View {
         let items = model.filteredProfiles
+        let unsupportedItems = model.filteredUnsupported
         List(selection: $model.selection) {
             Section {
                 ForEach(items) { p in
@@ -171,7 +175,11 @@ struct ProfileSidebar: View {
                         .tag(p.id)
                 }
                 .onMove(perform: model.searchText.isEmpty ? { model.move(fromOffsets: $0, toOffset: $1) } : nil)
-                if model.profiles.isEmpty {
+                ForEach(unsupportedItems) { p in
+                    UnsupportedSidebarRow(profile: p)
+                        .tag(p.id)
+                }
+                if model.hasNoProfiles {
                     VStack(spacing: 2) {
                         Text(String(localized: "No profiles yet."))
                         Text(String(localized: "Add one to get started."))
@@ -183,7 +191,7 @@ struct ProfileSidebar: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 28)
                     .accessibilityElement(children: .combine)
-                } else if items.isEmpty && !model.searchText.isEmpty {
+                } else if items.isEmpty && unsupportedItems.isEmpty && !model.searchText.isEmpty {
                     Text(String(localized: "No profiles match “\(model.searchText)”."))
                         .typography(.hint)
                         .foregroundStyle(Palette.fg2)
@@ -199,6 +207,8 @@ struct ProfileSidebar: View {
         .contextMenu(forSelectionType: String.self) { ids in
             if let id = ids.first, let p = model.profile(id) {
                 ProfileMenuItems(profile: p)
+            } else if let id = ids.first, let u = model.unsupportedProfile(id) {
+                Button(String(localized: "Delete…"), role: .destructive) { model.pendingDeleteUnsupported = u }
             }
         } primaryAction: { ids in
             // Return or double click: what the detail's main button does.

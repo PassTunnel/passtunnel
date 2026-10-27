@@ -456,16 +456,19 @@ final class CLIRunner {
 
     private func list(json: Bool, quiet: Bool) throws -> Int32 {
         let profiles = store.list()
+        let unsupported = store.listUnsupported()  // a newer PassTunnel's VPN type: listed, nothing else
         let def = store.defaultID
         if quiet {
-            profiles.forEach { CLITerminal.out($0.id) }
+            (profiles.map(\.id) + unsupported.map(\.id)).forEach { CLITerminal.out($0) }
         } else if json {
-            try printJSON(profiles.map { ProfileSummary($0, isDefault: $0.id == def) })
-        } else if profiles.isEmpty {
+            try printJSON(
+                profiles.map { ProfileSummary($0, isDefault: $0.id == def) }
+                    + unsupported.map { ProfileSummary($0, isDefault: $0.id == def) })
+        } else if profiles.isEmpty && unsupported.isEmpty {
             CLITerminal.out(String(localized: "No profiles. Add one with “passtunnel import FILE” or in the app."))
         } else {
-            let idWidth = profiles.map(\.id.count).max() ?? 0
-            let nameWidth = profiles.map(\.name.count).max() ?? 0
+            let idWidth = (profiles.map(\.id.count) + unsupported.map(\.id.count)).max() ?? 0
+            let nameWidth = (profiles.map(\.name.count) + unsupported.map(\.name.count)).max() ?? 0
             for p in profiles {
                 var flags: [String] = [p.type == .openvpn ? "OpenVPN" : "FortiGate"]
                 if !p.username.isEmpty { flags.append(p.username) }
@@ -475,6 +478,12 @@ final class CLIRunner {
                     (p.id == def ? "* " : "  ") + p.id.padding(toLength: idWidth + 2, withPad: " ", startingAt: 0)
                         + p.name.padding(toLength: nameWidth + 2, withPad: " ", startingAt: 0)
                         + CLITerminal.dim(flags.joined(separator: " · ")))
+            }
+            for p in unsupported {
+                CLITerminal.out(
+                    "  " + p.id.padding(toLength: idWidth + 2, withPad: " ", startingAt: 0)
+                        + p.name.padding(toLength: nameWidth + 2, withPad: " ", startingAt: 0)
+                        + CLITerminal.dim(p.type + " · " + UnsupportedProfile.statusText))
             }
         }
         return Exit.ok
@@ -668,13 +677,14 @@ final class CLIRunner {
     }
 
     private func remove(_ id: String, yes: Bool) async throws -> Int32 {
-        let p = try store.get(id)
+        // Deleting is the one thing a profile of a newer PassTunnel's VPN type allows.
+        let name = try store.unsupportedProfile(id)?.name ?? store.get(id).name
         // Without a terminal nobody can answer: deleting needs --yes then (a script or an agent).
         if !yes && (options.noInput || !CLITerminal.stdinIsTTY) {
             throw AutomationError(.inputRequired, String(localized: "Deleting asks for a confirmation. Add --yes to delete without asking."))
         }
         if !yes {
-            guard CLITerminal.confirm(String(localized: "Delete “\(p.name)” and its saved password and secret?")) else {
+            guard CLITerminal.confirm(String(localized: "Delete “\(name)” and its saved password and secret?")) else {
                 throw AutomationError(.cancelled, String(localized: "Nothing was deleted."))
             }
         }
@@ -682,7 +692,7 @@ final class CLIRunner {
         if manager.state(id).isActive { _ = try? await manager.disconnect(id) }
         try store.delete(id)
         if json { try printJSON(RemoveJSON(id: id, deleted: true)); return Exit.ok }
-        CLITerminal.out(String(localized: "Deleted “\(p.name)”."))
+        CLITerminal.out(String(localized: "Deleted “\(name)”."))
         return Exit.ok
     }
 

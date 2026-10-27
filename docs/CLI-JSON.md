@@ -84,7 +84,7 @@ human confirmation, and a script cannot answer it.
 | `other_vpn_active` | Another VPN already routes all traffic (`connect --force` overrides) |
 | `destination_changed` | The server settings changed after you confirmed: connect again and confirm |
 | `timeout` | `--timeout` passed, or the VPN tool's own limit |
-| `config_invalid` | Missing or rejected OpenVPN configuration, missing FortiGate server, unreadable file |
+| `config_invalid` | Missing or rejected OpenVPN configuration, missing FortiGate server, unreadable file, a profile or share file of a VPN type that needs a newer PassTunnel |
 | `file_error` | A file could not be read or written |
 | `keychain_error` | The secret store (the Keychain on the Mac; on Linux secret-service, systemd-creds or the passphrase-encrypted file) refused or cannot be used, or a protected secret cannot be decrypted; `message` says why |
 | `internal` | Anything else |
@@ -117,6 +117,10 @@ From `list`, `add`, `import`, `pin`, `unpin` and the MCP tool `list_profiles`.
 `off`, `connect` or `always`. `connect_at_login`: the app connects the profile when it opens at login
 (one that asks first gets a notification instead). The MCP tool adds `state` (as in ProfileStatus); `list` does not ask
 the helper and leaves it out.
+
+A profile whose VPN type this version does not know (made by a newer PassTunnel) is listed with its stored `type` and
+`"needs_newer_version" : true` (left out otherwise); its settings read as empty. Commands and tools that use it fail with
+`config_invalid`, except `rm`, which deletes it.
 
 ### ProfileStatus
 

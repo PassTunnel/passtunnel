@@ -295,6 +295,18 @@ enum RenderSnapshots {
         _ = try? store.update(ids[0]) { $0.otpTemplate = template }
         model.reload()
 
+        // A profile of a VPN type a newer PassTunnel added (`UnsupportedProfile`): its row under the others, selected.
+        let future = "branch-office"
+        try? FileIO.makeDirectory(store.dir(future))
+        try? Data(#"{"id": "branch-office", "name": "Branch office", "order": 9, "type": "anyconnect"}"#.utf8)
+            .write(to: store.dir(future).appendingPathComponent("profile.json"))
+        model.reload()
+        model.selection = future
+        render("-unsupported")
+        try? store.delete(future)
+        model.reload()
+        model.selection = ids[0]
+
         // The add view the sidebar's + opens (`add-vpn`), and the question about opening at login under the detail
         // once there is a profile (`main-split-login`).
         let helper = model.previewHelperStatus

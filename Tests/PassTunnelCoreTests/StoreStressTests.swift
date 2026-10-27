@@ -70,7 +70,7 @@ final class ProfileStoreStressTests: CoreTestCase {
         // Wrong types, unknown keys, nulls and a foreign id: tolerated, the directory name wins.
         try Data(
             """
-            {"id": "../../etc", "name": 42, "type": "wireguard", "port": "443", "totp": null, "otp_mode": "TOTP",
+            {"id": "../../etc", "name": 42, "type": 7, "port": "443", "totp": null, "otp_mode": "TOTP",
              "future_key": {"a": [1, 2]}, "session_limit_min": -5}
             """.utf8
         ).write(to: store.profileURL(good.id))

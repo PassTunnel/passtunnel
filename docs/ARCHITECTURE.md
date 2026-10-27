@@ -38,7 +38,7 @@ A bundle without `dns-updown` pins an empty set for it, so the helper refuses an
 | Target | Owns | Depends on |
 |---|---|---|
 | `PassTunnelVPNConfig` | `OVPNSanitizer`, `FortiConfig`: the configurations the helper runs as root | — |
-| `PassTunnelKit` | the portable logic (Foundation, CryptoKit and Security only; builds for macOS 13, iOS 17 and Linux): model, `PTError`, `JSONCoding`, `TOTP`, `OTPAuthURI`, `OTPComposer`, `OVPNAnalyzer`, `OVPNInliner`, `OVPNSkipRules`, `OVPNImportReport`, `ShareFile`, `Slug`, `ProfileFields`, `ProfileMerge`, `SecretEnvelope`, `HealthCheck` (parsing), `ClockOffset` (clock offset, HTTP dates) | VPNConfig (and swift-crypto on Linux) |
+| `PassTunnelKit` | the portable logic (Foundation, CryptoKit and Security only; builds for macOS 13, iOS 17 and Linux): model, `PTError`, `JSONCoding`, `TOTP`, `OTPAuthURI`, `OTPComposer`, `OVPNAnalyzer`, `OVPNInliner`, `OVPNSkipRules`, `OVPNImportReport`, `ShareFile`, `UnsupportedProfile`, `Slug`, `ProfileFields`, `ProfileMerge`, `SecretEnvelope`, `HealthCheck` (parsing), `ClockOffset` (clock offset, HTTP dates) | VPNConfig (and swift-crypto on Linux) |
 | `PassTunnelShared` | XPC protocol, request/response types, `HelperCore` (request decoding, path checks, tool environment; `HelperCore+DNSHook`: the Mac's DNS script wrapper and its record), `SessionPolicy`, `CodeSignature`, `Spawner` (verified, suspended launch), `PinnedTools`, `ToolStager` (root-owned copy of the tools and their dylibs), `HelperBuild`, identifiers | VPNConfig (and swift-crypto on Linux) |
 | `PassTunnelCore` | `ProfileStore` + `ImportDraft`, `ProfilesWatcher`, `Secrets` + `SecretStore` (Keychain; on Linux `SecretStores`: secret-service, systemd-creds, file), `SecretVault` + `UserAuthenticator` (Secure Enclave protection), `Preferences`, `HealthCheck.check` (the probe), `QRDecoder`, `OpenedFiles` (files the app is asked to open), `ScannedCodeTarget` (where a scanned code goes), `TLSFingerprint`, `ServerClock` + `SNTP` (clock checks), `HelperClient`, `HelperAutoUpdate`, `ConnectionManager` + `ProfileDestination`, `ConnectionFailure`, `UnreachableRetry`, `FailureDetails` ("Copy details"), `NetworkPath` + `NetworkStatus`, `ActivityLog` + `ActivityEvent`, `LoginConnector` (connect at login), CLI parsing (`CLICommand`, `CLIInvocation`), automation objects + `AutomationService`, `MCPServer` + `MCPTools` + `JSONValue` | Kit, VPNConfig, Shared (and swift-crypto's Crypto and CryptoExtras on Linux) |
 | `PassTunnelCLI` | the `passtunnel` command: `PassTunnelCLI.run` (entry, `CLIHelp`), `CLIRunner`, `CLICompletions`, `CLITerminal`, `CLIClipboard`; `Pasteboard` (macOS: the app's too) | Core, Kit, Shared |
@@ -263,13 +263,28 @@ Decoding must tolerate missing keys (defaults) so older/newer files load (no `re
 unknown values → `off`; no `connect_at_login` → false). Share files leave `require_auth` and `connect_at_login` out
 (per-user choices, like `pinned`).
 
+An unknown `type` is the exception: a profile written by a newer version (a VPN type added later) is never read as
+OpenVPN, which would show it as something it is not and rewrite it without its new fields on the next save.
+`Profile.init(from:)` throws `PTError.unsupportedProfileType(type)` for a `type` string that is not a `VPNType` (no
+`type` at all is still an old OpenVPN profile). `ProfileStore` keeps such a profile beside the known ones as an
+`UnsupportedProfile` (id, name, order, the stored type): `listUnsupported()` lists them, `list()` leaves them out, and
+`get`, `update`, `save`, `setDefault`, `exportShare` and `setOVPN` throw `unsupportedProfileType`, so nothing connects,
+edits, duplicates, shares or exports it. Its `profile.json` is never read into a `Profile` and never rewritten (every
+profile has its own file, so saving another profile cannot touch it: the object, unknown keys included, stays
+byte-equal; `save` fails closed: it also refuses to replace an existing `profile.json` that is of an unknown type, too large or
+unreadable, or not a JSON object, because a newer version may have written it since the profile was read); only `delete` works. Importing a share file with an unknown `type` throws the same error before anything
+is created. The error is `config_invalid` in the CLI and MCP tools, and its message says the profile needs a newer
+PassTunnel. `list` and `list_profiles` show the profile with its stored `type` and `needs_newer_version: true`.
+
 ## Core APIs
 
 ```swift
 public struct ProfileStore {                       // all methods throw PTError on bad input
     public init(paths: AppPaths = .default)
     public func list() -> [Profile]                // sorted by (order, name)
-    public func get(_ id: String) throws -> Profile
+    public func listUnsupported() -> [UnsupportedProfile]   // VPN type of a newer version: listed, refused, deletable
+    public func unsupportedProfile(_ id: String) -> UnsupportedProfile?
+    public func get(_ id: String) throws -> Profile        // throws unsupportedProfileType for those
     public func create(name: String, type: VPNType) throws -> Profile   // slug id (Turkish chars folded), unique; deletes Keychain items left under the id
     public func save(_ p: Profile) throws
     public func update(_ id: String, _ change: (inout Profile) throws -> Void) throws -> Profile   // re-read, change, save (locked)
@@ -285,7 +300,7 @@ public struct ProfileStore {                       // all methods throw PTError 
         // nil values come from the file; ovpnNotAllowed while the draft has blocking lines; the config is checked
         // with the sanitizer again before it is written; <auth-user-pass> → username + Keychain password
     public func exportShare(_ id: String, to: URL) throws                 // ShareFile, 0600; config without credential blocks
-    public func importShare(_ url: URL, name: String?) throws -> Profile  // drops an <auth-user-pass> block
+    public func importShare(_ url: URL, name: String?) throws -> Profile  // drops an <auth-user-pass> block; an unknown `type` throws unsupportedProfileType
 }
 public enum OVPNInliner {
     public static func prepare(_ text: String, baseDir: URL?) throws -> String   // referenced files inlined, then OVPNSanitizer

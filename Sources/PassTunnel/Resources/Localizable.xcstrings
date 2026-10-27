@@ -1693,6 +1693,16 @@
         }
       }
     },
+    "Needs a newer PassTunnel" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daha yeni bir PassTunnel gerekli"
+          }
+        }
+      }
+    },
     "Needs you" : {
       "localizations" : {
         "tr" : {
@@ -3179,6 +3189,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bu profil şunları soruyor: %@."
+          }
+        }
+      }
+    },
+    "This profile uses a VPN type this version of PassTunnel does not know. It is kept as it is. Update PassTunnel to connect, edit or share it." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu profil, PassTunnel’in bu sürümünün tanımadığı bir VPN türünü kullanıyor. Olduğu gibi saklanır. Bağlanmak, düzenlemek veya paylaşmak için PassTunnel’i güncelleyin."
+          }
+        }
+      }
+    },
+    "This profile uses the VPN type “%@”, which needs a newer PassTunnel. Update PassTunnel to use it. It can still be deleted." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu profil, daha yeni bir PassTunnel gerektiren “%@” VPN türünü kullanıyor. Kullanmak için PassTunnel’i güncelleyin. Yine de silinebilir."
           }
         }
       }

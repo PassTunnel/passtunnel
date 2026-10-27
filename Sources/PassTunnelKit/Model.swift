@@ -180,6 +180,9 @@ public struct Profile: Codable, Identifiable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = c.lenient(String.self, .id) ?? ""
         name = c.lenient(String.self, .name) ?? ""
+        // A type this version does not know (written by a newer one) is not read as OpenVPN: the profile
+        // would be shown, and saved, as something it is not (`UnsupportedProfile`).
+        if let raw = c.lenient(String.self, .type), VPNType(rawValue: raw) == nil { throw PTError.unsupportedProfileType(raw) }
         type = c.lenientEnum(VPNType.self, .type) ?? .openvpn
         order = c.lenient(Int.self, .order) ?? 0
         badge = c.lenient(String.self, .badge) ?? ""

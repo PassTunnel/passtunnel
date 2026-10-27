@@ -41,6 +41,8 @@ final class AppModel: ObservableObject {
     let paths: AppPaths
 
     @Published private(set) var profiles: [Profile] = []
+    /// Profiles of a VPN type this version does not know (a newer PassTunnel's): listed, deletable, nothing else.
+    @Published private(set) var unsupported: [UnsupportedProfile] = []
     @Published var prefs: Preferences {
         didSet { if prefs != oldValue { prefsChanged(from: oldValue) } }
     }
@@ -51,6 +53,7 @@ final class AppModel: ObservableObject {
     @Published var toast: ToastMessage?
     @Published var alert: AppAlert?
     @Published var pendingDelete: Profile?
+    @Published var pendingDeleteUnsupported: UnsupportedProfile?
     /// The .ovpn under review in the window's detail (`ImportReviewView`); nil when none. Selecting a
     /// profile leaves it, as Cancel does: nothing was written.
     @Published var importReview: ImportReviewModel?
@@ -169,7 +172,9 @@ final class AppModel: ObservableObject {
         } else if secretsChanged {
             objectWillChange.send()
         }
-        if let sel = selection, !fresh.contains(where: { $0.id == sel }) { selection = nil }
+        let unknown = store.listUnsupported()
+        if unknown != unsupported { unsupported = unknown }
+        if let sel = selection, !fresh.contains(where: { $0.id == sel }), !unknown.contains(where: { $0.id == sel }) { selection = nil }
     }
 
     /// Picks up changes made by the CLI (profiles, Keychain items, preferences). Editor sheets keep
@@ -215,6 +220,11 @@ final class AppModel: ObservableObject {
 
     func profile(_ id: String) -> Profile? { profiles.first { $0.id == id } }
 
+    func unsupportedProfile(_ id: String) -> UnsupportedProfile? { unsupported.first { $0.id == id } }
+
+    /// Nothing to show in the sidebar: the first-run view takes the window.
+    var hasNoProfiles: Bool { profiles.isEmpty && unsupported.isEmpty }
+
     var filteredProfiles: [Profile] {
         let q = searchText.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return profiles }
@@ -222,6 +232,12 @@ final class AppModel: ObservableObject {
             $0.name.localizedCaseInsensitiveContains(q) || $0.id.localizedCaseInsensitiveContains(q)
                 || $0.username.localizedCaseInsensitiveContains(q) || $0.host.localizedCaseInsensitiveContains(q)
         }
+    }
+
+    var filteredUnsupported: [UnsupportedProfile] {
+        let q = searchText.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return unsupported }
+        return unsupported.filter { $0.name.localizedCaseInsensitiveContains(q) || $0.id.localizedCaseInsensitiveContains(q) }
     }
 
     var defaultProfile: Profile? {
@@ -742,6 +758,15 @@ final class AppModel: ObservableObject {
             } catch { showError(error) }
             reload()
         }
+    }
+
+    /// Removes the profile directory and the Keychain items under its id; the file itself is never read as a profile.
+    func delete(_ p: UnsupportedProfile) {
+        do {
+            try store.delete(p.id)
+            prefs = Preferences.load(paths: paths)
+        } catch { showError(error) }
+        reload()
     }
 
     func share(_ p: Profile) { ShareActions.export(profileID: p.id) }

@@ -29,6 +29,24 @@ public struct ProfileStore {
         }
     }
 
+    /// Profiles of a VPN type this version does not know (written by a newer PassTunnel), sorted like `list()`.
+    /// `list()` and `get` leave them out and refuse them (`PTError.unsupportedProfileType`); only delete works.
+    public func listUnsupported() -> [UnsupportedProfile] {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: paths.profilesDir.path) else { return [] }
+        return names.filter(Slug.isValid).compactMap(unsupportedProfile).sorted {
+            if $0.order != $1.order { return $0.order < $1.order }
+            let byName = $0.name.localizedStandardCompare($1.name)
+            if byName != .orderedSame { return byName == .orderedAscending }
+            return $0.id < $1.id
+        }
+    }
+
+    /// The stored profile `id` when its type is one this version does not know, else nil.
+    public func unsupportedProfile(_ id: String) -> UnsupportedProfile? {
+        guard Slug.isValid(id) else { return nil }
+        return (try? FileIO.read(profileURL(id))).flatMap { UnsupportedProfile(id: id, json: $0) }
+    }
+
     public func get(_ id: String) throws -> Profile {
         try checkID(id)
         guard FileManager.default.fileExists(atPath: profileURL(id).path) else { throw PTError.profileNotFound(id) }
@@ -64,6 +82,7 @@ public struct ProfileStore {
     /// Writes `profile.json` (creating the directory if needed). Validates the editable fields.
     public func save(_ p: Profile) throws {
         try checkID(p.id)
+        try checkSupported(p.id)
         guard !p.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw PTError.emptyName }
         guard (6...8).contains(p.totp.digits) else { throw PTError.invalidField("totp.digits") }
         guard (1...600).contains(p.totp.period) else { throw PTError.invalidField("totp.period") }
@@ -125,6 +144,7 @@ public struct ProfileStore {
     public func setDefault(_ id: String?) throws {
         if let id {
             try checkID(id)
+            if let profile = unsupportedProfile(id) { throw profile.error }  // the default must be something that connects
             guard exists(id) else { throw PTError.profileNotFound(id) }
         }
         var prefs = Preferences.load(paths: paths)
@@ -300,6 +320,18 @@ public struct ProfileStore {
 
     private func checkID(_ id: String) throws {
         guard Slug.isValid(id) else { throw PTError.invalidProfileID(id) }
+    }
+
+    /// Fails closed before `save` writes: an existing `profile.json` that cannot be read (too large, unreadable) or
+    /// parsed far enough to know its type is not overwritten, and neither is one of an unknown type
+    /// (`unsupportedProfileType`) that a newer version may have written since the profile was read. Only a missing
+    /// file (a profile being created) or one of a known type, or without one, may be replaced.
+    private func checkSupported(_ id: String) throws {
+        let url = profileURL(id)
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        let data = try FileIO.read(url)
+        guard (try? JSONSerialization.jsonObject(with: data)) is [String: Any] else { throw PTError.invalidFile(Self.profileFile) }
+        if let profile = UnsupportedProfile(id: id, json: data) { throw profile.error }
     }
 
     private func uniqueID(for name: String) throws -> String {

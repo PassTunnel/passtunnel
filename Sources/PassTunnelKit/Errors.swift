@@ -11,6 +11,7 @@ public enum PTError: Error, Equatable, LocalizedError {
     case emptyName
     case invalidField(String)  // field name, e.g. "totp.digits"
     case wrongProfileType(String)  // profile id
+    case unsupportedProfileType(String)  // the `type` of a profile written by a newer version
     case fileError(String)  // path or short reason
     case fileTooLarge(String)
     case invalidFile(String)  // unreadable / malformed JSON or text
@@ -57,6 +58,11 @@ public enum PTError: Error, Equatable, LocalizedError {
             return String(localized: "The value of “\(field)” is not valid.")
         case .wrongProfileType(let id):
             return String(localized: "This action is not available for the VPN type of profile “\(id)”.")
+        case .unsupportedProfileType(let type):
+            return String(
+                localized:
+                    "This profile uses the VPN type “\(type)”, which needs a newer PassTunnel. Update PassTunnel to use it. It can still be deleted."
+            )
         case .fileError(let detail):
             return String(localized: "A file operation failed: \(detail)")
         case .fileTooLarge(let name):
