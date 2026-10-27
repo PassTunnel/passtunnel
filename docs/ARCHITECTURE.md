@@ -270,7 +270,8 @@ OpenVPN, which would show it as something it is not and rewrite it without its n
 `get`, `update`, `save`, `setDefault`, `exportShare` and `setOVPN` throw `unsupportedProfileType`, so nothing connects,
 edits, duplicates, shares or exports it. Its `profile.json` is never read into a `Profile` and never rewritten (every
 profile has its own file, so saving another profile cannot touch it: the object, unknown keys included, stays
-byte-equal); only `delete` works. Importing a share file with an unknown `type` throws the same error before anything
+byte-equal; `save` fails closed: it also refuses to replace an existing `profile.json` that is of an unknown type, too large or
+unreadable, or not a JSON object, because a newer version may have written it since the profile was read); only `delete` works. Importing a share file with an unknown `type` throws the same error before anything
 is created. The error is `config_invalid` in the CLI and MCP tools, and its message says the profile needs a newer
 PassTunnel. `list` and `list_profiles` show the profile with its stored `type` and `needs_newer_version: true`.
 

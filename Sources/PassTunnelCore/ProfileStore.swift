@@ -144,7 +144,7 @@ public struct ProfileStore {
     public func setDefault(_ id: String?) throws {
         if let id {
             try checkID(id)
-            try checkSupported(id)
+            if let profile = unsupportedProfile(id) { throw profile.error }  // the default must be something that connects
             guard exists(id) else { throw PTError.profileNotFound(id) }
         }
         var prefs = Preferences.load(paths: paths)
@@ -322,9 +322,16 @@ public struct ProfileStore {
         guard Slug.isValid(id) else { throw PTError.invalidProfileID(id) }
     }
 
-    /// Throws `unsupportedProfileType` when `id` is stored with an unknown type: its file is never overwritten.
+    /// Fails closed before `save` writes: an existing `profile.json` that cannot be read (too large, unreadable) or
+    /// parsed far enough to know its type is not overwritten, and neither is one of an unknown type
+    /// (`unsupportedProfileType`) that a newer version may have written since the profile was read. Only a missing
+    /// file (a profile being created) or one of a known type, or without one, may be replaced.
     private func checkSupported(_ id: String) throws {
-        if let profile = unsupportedProfile(id) { throw profile.error }
+        let url = profileURL(id)
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        let data = try FileIO.read(url)
+        guard (try? JSONSerialization.jsonObject(with: data)) is [String: Any] else { throw PTError.invalidFile(Self.profileFile) }
+        if let profile = UnsupportedProfile(id: id, json: data) { throw profile.error }
     }
 
     private func uniqueID(for name: String) throws -> String {

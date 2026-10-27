@@ -112,6 +112,70 @@ final class UnsupportedProfileTests: CoreTestCase {
         XCTAssertFalse(store.exists("future"))
     }
 
+    /// The scenario of a save that was prepared before a newer version replaced the file: the profile read earlier is
+    /// saved, and the file written meanwhile must survive whatever it is.
+    func testASaveNeverOverwritesAFileItCannotVouchFor() throws {
+        let known = try store.create(name: "Known", type: .openvpn)
+        let url = store.profileURL(known.id)
+        var edited = known
+        edited.pinned = true
+
+        // Replaced by an unknown type.
+        let replaced = try writeFuture(known.id)
+        assertThrows(.unsupportedProfileType("anyconnect")) { try store.save(edited) }
+        XCTAssertEqual(try Data(contentsOf: url), replaced)
+
+        // Replaced by an unknown type too large to read.
+        var large = Data(Self.futureJSON.utf8)
+        large.append(Data(repeating: 0x20, count: FileIO.maxReadSize + 1))
+        try large.write(to: url)
+        assertThrows(.fileTooLarge("profile.json")) { try store.save(edited) }
+        XCTAssertEqual(try Data(contentsOf: url), large)
+
+        // Not JSON, not an object, empty.
+        for garbage in ["{\"type\": \"anyconnect\", ", "[1, 2]", "\"anyconnect\"", ""] {
+            try Data(garbage.utf8).write(to: url)
+            assertThrows(.invalidFile("profile.json")) { try store.save(edited) }
+            XCTAssertEqual(try Data(contentsOf: url), Data(garbage.utf8), garbage)
+        }
+
+        // Unreadable (not as root, which reads anything).
+        if getuid() != 0 {
+            try replaced.write(to: url)
+            chmod(url.path, 0)
+            defer { chmod(url.path, 0o600) }
+            assertThrows(.fileError(url.path)) { try store.save(edited) }
+            chmod(url.path, 0o600)
+            XCTAssertEqual(try Data(contentsOf: url), replaced)
+        }
+    }
+
+    func testASaveStillWritesNewAndKnownProfiles() throws {
+        // No file yet: a profile being created.
+        try paths.ensureDirectories()
+        try store.save(Profile(id: "fresh", name: "Fresh", type: .forti))
+        XCTAssertEqual(try store.get("fresh").type, .forti)
+        // A file of a known type, or without a type, is replaced as before.
+        var p = try store.get("fresh")
+        p.pinned = true
+        try store.save(p)
+        try Data("{\"name\": \"Old\"}".utf8).write(to: store.profileURL("fresh"))
+        try store.save(p)
+        XCTAssertEqual(try store.get("fresh").type, .forti)
+    }
+
+    func testUpdateRefusesWhateverReplacedTheFileMeanwhile() throws {
+        let known = try store.create(name: "Known", type: .openvpn)
+        let url = store.profileURL(known.id)
+        var large = Data(Self.futureJSON.utf8)
+        large.append(Data(repeating: 0x20, count: FileIO.maxReadSize + 1))
+        try large.write(to: url)
+        assertThrows(.fileTooLarge("profile.json")) { _ = try store.update(known.id) { $0.pinned = true } }
+        XCTAssertEqual(try Data(contentsOf: url), large)
+        try store.delete(known.id)  // still removable
+        XCTAssertFalse(store.exists(known.id))
+    }
+
     func testDeleteClearsTheDefault() throws {
         try writeFuture()
         var prefs = Preferences.load(paths: paths)
