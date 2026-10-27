@@ -4,12 +4,20 @@
 #   scripts/build-app.sh                                   # ad-hoc signed (local testing)
 #   scripts/build-app.sh --sign "Developer ID Application: Name (TEAMID)"
 #   scripts/build-app.sh --sign "…" --version 1.2.0          # CFBundleShortVersionString (release.sh)
+#   scripts/build-app.sh --version 1.2.0 --tools-from PassTunnel.app   # rebuild a release (verify-build.sh)
 #
 # Signing is inside-out (dylibs, tools, Sparkle, helper, app) with the hardened runtime; an ad-hoc
 # build signs the app without library validation, or it could not load Sparkle. Only a Developer ID
 # build can talk to the helper: the helper checks the Team ID of its clients and of the tools.
 # The tools and their dylibs are signed first: the helper is compiled with their cdhashes (PinnedTools),
 # stages exactly these builds into a root-owned directory and runs them from there.
+# --tools-from (ad-hoc only) takes the signed tools and dylibs from a released app instead of signing
+# its own, after checking that they are this build's apart from the signature: the pins compiled in
+# are then the release's, and the rest of the bundle can be compared with it (docs/RELEASING.md,
+# Verifying a release).
+#
+# The build is repeatable: the same commit, Xcode and Homebrew bottles give the same bundle, apart
+# from the code signatures. The Xcode build is recorded in Info.plist (DTXcodeBuild).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -17,14 +25,21 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT/scripts/release.env"
 IDENTITY="-"
 VERSION=""
+TOOLS_FROM=""
 while (($#)); do
     case "$1" in
         --sign) IDENTITY="${2:?--sign needs an identity}"; shift 2 ;;
         --version) VERSION="${2:?--version needs a version}"; shift 2 ;;
-        -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
+        --tools-from) TOOLS_FROM="${2:?--tools-from needs an app}"; shift 2 ;;
+        -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done
+if [[ -n "$TOOLS_FROM" ]]; then
+    [[ "$IDENTITY" == "-" ]] || { echo "error: --tools-from is for ad-hoc builds only" >&2; exit 2; }
+    [[ -d "$TOOLS_FROM/Contents" ]] || { echo "error: $TOOLS_FROM is not an app bundle" >&2; exit 2; }
+    TOOLS_FROM="$(cd "$TOOLS_FROM" && pwd)"
+fi
 
 cd "$ROOT"
 APP="$ROOT/build/PassTunnel.app"
@@ -40,13 +55,29 @@ mkdir -p "$C/MacOS" "$C/Resources" "$C/Library/LaunchDaemons" "$C/Frameworks"
 echo "==> bundling VPN tools"
 "$ROOT/scripts/bundle-tools.sh" "$APP"
 
-echo "==> signing VPN tools with: $([[ "$IDENTITY" == "-" ]] && echo "ad-hoc" || echo "$IDENTITY")"
-for lib in "$C/Frameworks"/*.dylib; do "${SIGN[@]}" "$lib"; done
-"${SIGN[@]}" --identifier com.furkanprlk.passtunnel.openvpn "$C/Resources/bin/openvpn"
-"${SIGN[@]}" --identifier com.furkanprlk.passtunnel.openfortivpn "$C/Resources/bin/openfortivpn"
-if [[ -f "$C/Resources/bin/dns-updown" ]]; then
-    # Non-Mach-O: the signature is stored in extended attributes; the helper verifies its own copy.
-    "${SIGN[@]}" --identifier com.furkanprlk.passtunnel.dns-updown "$C/Resources/bin/dns-updown"
+if [[ -n "$TOOLS_FROM" ]]; then
+    echo "==> taking the signed VPN tools from $TOOLS_FROM"
+    # The same files on both sides, and each one this build's apart from its signature.
+    diff <(cd "$C" && ls Resources/bin/* Frameworks/*.dylib) \
+        <(cd "$TOOLS_FROM/Contents" && ls Resources/bin/* Frameworks/*.dylib) \
+        || { echo "error: $TOOLS_FROM bundles other tools or libraries" >&2; exit 1; }
+    for f in "$C"/Resources/bin/* "$C"/Frameworks/*.dylib; do
+        theirs="$TOOLS_FROM/Contents/${f#"$C"/}"
+        "$ROOT/scripts/compare-app.sh" "$f" "$theirs" >/dev/null \
+            || { echo "error: ${f#"$C"/} differs from the one in $TOOLS_FROM apart from the signature" >&2; exit 1; }
+        # ditto keeps the signature, also dns-updown's, which is in extended attributes.
+        rm -f "$f"
+        ditto "$theirs" "$f"
+    done
+else
+    echo "==> signing VPN tools with: $([[ "$IDENTITY" == "-" ]] && echo "ad-hoc" || echo "$IDENTITY")"
+    for lib in "$C/Frameworks"/*.dylib; do "${SIGN[@]}" "$lib"; done
+    "${SIGN[@]}" --identifier com.furkanprlk.passtunnel.openvpn "$C/Resources/bin/openvpn"
+    "${SIGN[@]}" --identifier com.furkanprlk.passtunnel.openfortivpn "$C/Resources/bin/openfortivpn"
+    if [[ -f "$C/Resources/bin/dns-updown" ]]; then
+        # Non-Mach-O: the signature is stored in extended attributes; the helper verifies its own copy.
+        "${SIGN[@]}" --identifier com.furkanprlk.passtunnel.dns-updown "$C/Resources/bin/dns-updown"
+    fi
 fi
 
 # The CDHash of every architecture of a signed file (a script has one), one per line. It is what the
@@ -117,8 +148,12 @@ trap 'rm -f "$PINS"' EXIT
 } > "$PINS"
 
 echo "==> swift build -c release"
-swift build -c release -Xswiftc -DPASSTUNNEL_TOOL_PINS
-BIN_DIR="$(swift build -c release -Xswiftc -DPASSTUNNEL_TOOL_PINS --show-bin-path)"
+# -Xlinker -S: no debug map (the stabs that name every object file by its absolute path in .build,
+# with its modification time). Nothing uses it: no dSYM is made from it, and the symbol table stays.
+# Without it, the executables differed between two checkouts and two builds of the same checkout.
+BUILD=(swift build -c release -Xswiftc -DPASSTUNNEL_TOOL_PINS -Xlinker -S)
+"${BUILD[@]}"
+BIN_DIR="$("${BUILD[@]}" --show-bin-path)"
 
 echo "==> assembling $APP"
 cp "$BIN_DIR/PassTunnel" "$C/MacOS/PassTunnel"
@@ -144,7 +179,12 @@ for exe in PassTunnel PassTunnelHelper; do
 done
 cp "$ROOT/Resources/com.furkanprlk.passtunnel.helper.plist" "$C/Library/LaunchDaemons/"
 
-DESCRIBE="$(git describe --tags --always --dirty 2>/dev/null || echo unknown)"
+# A release is tagged after its build (release.sh), so its own tag is left out: rebuilt at the tag,
+# the app says what the release says. A fixed abbreviation, as the default one grows with the
+# repository.
+DESCRIBE_ARGS=(--tags --always --dirty --abbrev=12)
+[[ -n "$VERSION" ]] && DESCRIBE_ARGS+=(--exclude "v$VERSION")
+DESCRIBE="$(git describe "${DESCRIBE_ARGS[@]}" 2>/dev/null || echo unknown)"
 BUILD_NUMBER="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
 if [[ -n "$VERSION" ]]; then
     SHORT_VERSION="$VERSION"
@@ -156,6 +196,9 @@ fi
 sed -e "s/__SHORT_VERSION__/$SHORT_VERSION/" -e "s/__BUILD_NUMBER__/$BUILD_NUMBER/" \
     -e "s/__GIT_DESCRIBE__/$DESCRIBE/" -e "s|__GITHUB_REPO__|$GITHUB_REPO|g" \
     "$ROOT/Resources/Info.plist" > "$C/Info.plist"
+# The Xcode that built the app (as Xcode itself records it), for rebuilding a release.
+XCODE_BUILD="$(xcodebuild -version 2>/dev/null | sed -n 's/^Build version //p')"
+[[ -n "$XCODE_BUILD" ]] && plutil -insert DTXcodeBuild -string "$XCODE_BUILD" "$C/Info.plist"
 plutil -lint -s "$C/Info.plist"
 printf 'APPL????' > "$C/PkgInfo"
 
