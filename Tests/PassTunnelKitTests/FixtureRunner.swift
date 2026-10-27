@@ -8,12 +8,19 @@ enum JSON: Equatable, Codable, CustomStringConvertible {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.singleValueContainer()
-        if c.decodeNil() { self = .null }
-        else if let b = try? c.decode(Bool.self) { self = .bool(b) }
-        else if let n = try? c.decode(Double.self) { self = .number(n) }
-        else if let s = try? c.decode(String.self) { self = .string(s) }
-        else if let a = try? c.decode([JSON].self) { self = .array(a) }
-        else { self = .object(try c.decode([String: JSON].self)) }
+        if c.decodeNil() {
+            self = .null
+        } else if let b = try? c.decode(Bool.self) {
+            self = .bool(b)
+        } else if let n = try? c.decode(Double.self) {
+            self = .number(n)
+        } else if let s = try? c.decode(String.self) {
+            self = .string(s)
+        } else if let a = try? c.decode([JSON].self) {
+            self = .array(a)
+        } else {
+            self = .object(try c.decode([String: JSON].self))
+        }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -66,47 +73,47 @@ enum FixtureRunner {
             "code": Group(inputs: ["secret_hex", "digits", "period", "algorithm", "time"], run: totpCode),
             "remaining": Group(inputs: ["period", "time"], run: totpRemaining),
             "decode_secret": Group(inputs: ["input"], run: decodeSecret),
-            "base32_encode": Group(inputs: ["hex"], run: base32Encode),
+            "base32_encode": Group(inputs: ["hex"], run: base32Encode)
         ],
         "otpauth.json": [
-            "parse": Group(inputs: ["uri"], run: otpauth),
+            "parse": Group(inputs: ["uri"], run: otpauth)
         ],
         "codes.json": [
             "presets": Group(inputs: ["preset"], run: preset),
             "validate_template": Group(inputs: ["template"], run: validateTemplate),
-            "compose": Group(inputs: ["password", "otp", "delivery", "template", "type"], run: compose),
+            "compose": Group(inputs: ["password", "otp", "delivery", "template", "type"], run: compose)
         ],
         "ovpn-sanitizer.json": [
             "tokens": Group(inputs: ["line"], run: tokens),
             "sanitize": Group(inputs: ["config"], run: sanitize),
-            "verbosity": Group(inputs: ["config"], run: verbosity),
+            "verbosity": Group(inputs: ["config"], run: verbosity)
         ],
         "ovpn-analyzer.json": [
-            "analyze": Group(inputs: ["config"], run: analyze),
+            "analyze": Group(inputs: ["config"], run: analyze)
         ],
         "ovpn-inliner.json": [
             "inline": Group(inputs: ["config", "files", "binary_files"], run: { try inline($0, prepare: false) }),
             "prepare": Group(inputs: ["config", "files", "binary_files"], run: { try inline($0, prepare: true) }),
-            "strip_credentials": Group(inputs: ["config", "blocks"], run: stripCredentials),
+            "strip_credentials": Group(inputs: ["config", "blocks"], run: stripCredentials)
         ],
         "ovpn-import.json": [
-            "review": Group(inputs: ["config", "files", "binary_files"], run: review),
+            "review": Group(inputs: ["config", "files", "binary_files"], run: review)
         ],
         "share-files.json": [
             "decode": Group(inputs: ["file"], run: shareDecode),
-            "encode": Group(inputs: ["profile", "files"], run: shareEncode),
+            "encode": Group(inputs: ["profile", "files"], run: shareEncode)
         ],
         "slugs.json": [
             "make": Group(inputs: ["profile_name", "max_length"], run: slugMake),
             "suffixed": Group(inputs: ["base", "n"], run: slugSuffixed),
-            "is_valid": Group(inputs: ["id"], run: slugValid),
+            "is_valid": Group(inputs: ["id"], run: slugValid)
         ],
         "profile-merge.json": [
-            "merge": Group(inputs: ["original", "edited", "current"], run: merge),
+            "merge": Group(inputs: ["original", "edited", "current"], run: merge)
         ],
         "profile-fields.json": [
-            "set": Group(inputs: ["type", "key", "value"], run: fieldsSet),
-        ],
+            "set": Group(inputs: ["type", "key", "value"], run: fieldsSet)
+        ]
     ]
 
     // MARK: inputs
@@ -217,9 +224,11 @@ enum FixtureRunner {
     static func otpauth(_ c: [String: JSON]) throws -> [String: JSON] {
         do {
             let u = try OTPAuthURI(try str(c, "uri"))
-            return ["label": .string(u.label), "account": .string(u.account), "issuer": .string(u.issuer),
-                    "secret_hex": .string(hex(u.secret)), "digits": .number(Double(u.params.digits)),
-                    "period": .number(Double(u.params.period)), "algorithm": .string(u.params.algorithm.rawValue)]
+            return [
+                "label": .string(u.label), "account": .string(u.account), "issuer": .string(u.issuer),
+                "secret_hex": .string(hex(u.secret)), "digits": .number(Double(u.params.digits)),
+                "period": .number(Double(u.params.period)), "algorithm": .string(u.params.algorithm.rawValue)
+            ]
         } catch {
             return Self.error(error)
         }
@@ -244,9 +253,11 @@ enum FixtureRunner {
 
     static func compose(_ c: [String: JSON]) throws -> [String: JSON] {
         guard let delivery = OTPDelivery(rawValue: try str(c, "delivery")),
-              let type = VPNType(rawValue: try str(c, "type")) else { throw FixtureError("delivery or type") }
-        let r = OTPComposer.compose(password: try str(c, "password"), otp: try optionalString(c, "otp"),
-                                    delivery: delivery, template: try str(c, "template"), type: type)
+            let type = VPNType(rawValue: try str(c, "type"))
+        else { throw FixtureError("delivery or type") }
+        let r = OTPComposer.compose(
+            password: try str(c, "password"), otp: try optionalString(c, "otp"),
+            delivery: delivery, template: try str(c, "template"), type: type)
         return ["secret": .string(r.secret), "separate_otp": optional(r.separateOTP)]
     }
 
@@ -261,9 +272,12 @@ enum FixtureRunner {
         do {
             return ["output": .string(try OVPNSanitizer.sanitize(try str(c, "config")))]
         } catch let f as OVPNSanitizer.Failure {
-            return ["violations": .array(f.violations.map {
-                .object(["line": .number(Double($0.line)), "directive": .string($0.directive), "reason": .string($0.reason)])
-            })]
+            return [
+                "violations": .array(
+                    f.violations.map {
+                        .object(["line": .number(Double($0.line)), "directive": .string($0.directive), "reason": .string($0.reason)])
+                    })
+            ]
         }
     }
 
@@ -274,11 +288,13 @@ enum FixtureRunner {
     static func analyze(_ c: [String: JSON]) throws -> [String: JSON] {
         let text = try str(c, "config")
         let a = OVPNAnalyzer.analyze(text)
-        return ["password_mode": .string(a.passwordMode.rawValue), "otp_mode": .string(a.otpMode.rawValue),
-                "otp_delivery": .string(a.otpDelivery.rawValue), "remote": .string(a.remote),
-                "remotes": .array(a.remotes.map { .string($0) }),
-                "server_description": .string(OVPNAnalyzer.serverDescription(text)),
-                "redirects_gateway": OVPNAnalyzer.redirectsGateway(text).map { .bool($0) } ?? .null]
+        return [
+            "password_mode": .string(a.passwordMode.rawValue), "otp_mode": .string(a.otpMode.rawValue),
+            "otp_delivery": .string(a.otpDelivery.rawValue), "remote": .string(a.remote),
+            "remotes": .array(a.remotes.map { .string($0) }),
+            "server_description": .string(OVPNAnalyzer.serverDescription(text)),
+            "redirects_gateway": OVPNAnalyzer.redirectsGateway(text).map { .bool($0) } ?? .null
+        ]
     }
 
     /// The referenced files are written to a fresh temporary folder: `config/` is the config's folder,
@@ -296,21 +312,24 @@ enum FixtureRunner {
         try withConfigFolder(c) { base in
             let r = try OVPNImportReport.make(try str(c, "config"), baseDir: base)
             func line(_ number: Int, _ directive: String, _ text: String, _ reason: String) -> JSON {
-                .object(["line": .number(Double(number)), "directive": .string(directive), "text": .string(text),
-                         "reason": .string(reason)])
+                .object([
+                    "line": .number(Double(number)), "directive": .string(directive), "text": .string(text),
+                    "reason": .string(reason)
+                ])
             }
             return [
                 "stored": optional(r.config),
                 "skipped": .array(r.skipped.map { line($0.line, $0.directive, $0.text, $0.reason.rawValue) }),
                 "blocking": .array(r.blocking.map { line($0.line, $0.directive, $0.text, $0.reason) }),
-                "servers": .array(r.servers.map {
-                    .object(["host": .string($0.host), "port": .string($0.port), "tcp": .bool($0.tcp)])
-                }),
+                "servers": .array(
+                    r.servers.map {
+                        .object(["host": .string($0.host), "port": .string($0.port), "tcp": .bool($0.tcp)])
+                    }),
                 "certificates": .array(r.certificates.map { .object(["name": .string($0.name), "file": optional($0.file)]) }),
                 "password_mode": .string(r.passwordMode.rawValue), "otp_mode": .string(r.otpMode.rawValue),
                 "otp_delivery": .string(r.otpDelivery.rawValue),
                 "username": optional(r.username), "password": optional(r.password),
-                "needs": .array(r.needs.map { .string($0.rawValue) }),
+                "needs": .array(r.needs.map { .string($0.rawValue) })
             ]
         }
     }
@@ -345,14 +364,17 @@ enum FixtureRunner {
     static func stripCredentials(_ c: [String: JSON]) throws -> [String: JSON] {
         var blocks = Set(OVPNInliner.CredentialBlock.allCases)
         if let names = c["blocks"]?.array {
-            blocks = Set(try names.map {
-                guard let b = $0.string.flatMap(OVPNInliner.CredentialBlock.init(rawValue:)) else { throw FixtureError("block") }
-                return b
-            })
+            blocks = Set(
+                try names.map {
+                    guard let b = $0.string.flatMap(OVPNInliner.CredentialBlock.init(rawValue:)) else { throw FixtureError("block") }
+                    return b
+                })
         }
         let r = OVPNInliner.strippingCredentials(try str(c, "config"), blocks: blocks)
-        return ["output": .string(r.text), "username": optional(r.username), "password": optional(r.password),
-                "removed": .array(r.removed.map(\.rawValue).sorted().map { .string($0) })]
+        return [
+            "output": .string(r.text), "username": optional(r.username), "password": optional(r.password),
+            "removed": .array(r.removed.map(\.rawValue).sorted().map { .string($0) })
+        ]
     }
 
     // MARK: share files
@@ -408,8 +430,10 @@ enum FixtureRunner {
     static func merge(_ c: [String: JSON]) throws -> [String: JSON] {
         let original = try profile(c["original"]), edited = try profile(c["edited"])
         let merged = try ProfileMerge.merge(original: original, edited: edited, current: try profile(c["current"]))
-        return ["merged": try encoded(merged),
-                "changed_fields": .array(try ProfileMerge.changedFields(from: original, to: edited).map { .string($0) })]
+        return [
+            "merged": try encoded(merged),
+            "changed_fields": .array(try ProfileMerge.changedFields(from: original, to: edited).map { .string($0) })
+        ]
     }
 
     static func fieldsSet(_ c: [String: JSON]) throws -> [String: JSON] {

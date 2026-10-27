@@ -1,5 +1,5 @@
-import FuzzDriver
 import Foundation
+import FuzzDriver
 
 /// The harness's `LLVMFuzzerTestOneInput`, set once by `runFuzzer` before libFuzzer starts. libFuzzer
 /// takes a C function pointer, which cannot capture it, so `runOne` reads it from here.

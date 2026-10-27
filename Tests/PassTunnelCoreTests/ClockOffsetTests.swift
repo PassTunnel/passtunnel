@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+
 @testable import PassTunnelCore
 @testable import PassTunnelKit
 
@@ -16,20 +17,24 @@ final class ClockOffsetTests: XCTestCase {
         XCTAssertEqual(ClockOffset.httpDate("Sun, 25 Oct 2026 09:41:02 GMT"), Date(timeIntervalSince1970: 1_792_921_262))
         XCTAssertEqual(ClockOffset.httpDate("Thu, 01 Jan 1970 00:00:00 GMT"), Date(timeIntervalSince1970: 0))
         XCTAssertEqual(ClockOffset.httpDate("Tue, 29 Feb 2028 12:00:00 GMT"), Date(timeIntervalSince1970: 1_835_438_400))
-        XCTAssertEqual(ClockOffset.httpDate("Wed, 31 Dec 2025 23:59:60 GMT"), Date(timeIntervalSince1970: 1_767_225_600),
-                       "a leap second")
-        XCTAssertEqual(ClockOffset.httpDate("Friday, 01-Jan-38 00:00:00 GMT"), Date(timeIntervalSince1970: 2_145_916_800),
-                       "two-digit years below 70 are 20xx")
+        XCTAssertEqual(
+            ClockOffset.httpDate("Wed, 31 Dec 2025 23:59:60 GMT"), Date(timeIntervalSince1970: 1_767_225_600),
+            "a leap second")
+        XCTAssertEqual(
+            ClockOffset.httpDate("Friday, 01-Jan-38 00:00:00 GMT"), Date(timeIntervalSince1970: 2_145_916_800),
+            "two-digit years below 70 are 20xx")
     }
 
     func testRefusesAnythingElse() {
-        for text in ["", "GMT", "Sun, 06 Nov 1994 08:49:37 UTC", "Sun, 06 Nov 1994 08:49:37 +0000", "Sun, 6 Nov 1994 08:49:37 GMT",
-                     "Sun 06 Nov 1994 08:49:37 GMT", "Sun, 06 nov 1994 08:49:37 GMT", "Xyz, 06 Nov 1994 08:49:37 GMT",
-                     "Sun, 31 Nov 1994 08:49:37 GMT", "Sun, 29 Feb 2026 08:49:37 GMT", "Sun, 06 Nov 1994 24:00:00 GMT",
-                     "Sun, 06 Nov 1994 08:60:00 GMT", "Sun, 06 Nov 1994 08:49:61 GMT", "Sun, 06 Nov 1994 8:49:37 GMT",
-                     "Sun, 06 Nov 0994 08:49:37 GMT", "Sun, 06 Nov 1994 08:49:37 GMT extra", "Sun, 06 Nov 1994 08:49:37 GMT\r\nX: 1",
-                     "Sun, ٠٦ Nov 1994 08:49:37 GMT", "Sun, 00 Nov 1994 08:49:37 GMT", "Sunday, 06-Nov-1994 08:49:37 GMT",
-                     "Sun Nov  6 08:49:37 1994 GMT", "1792921262"] {
+        for text in [
+            "", "GMT", "Sun, 06 Nov 1994 08:49:37 UTC", "Sun, 06 Nov 1994 08:49:37 +0000", "Sun, 6 Nov 1994 08:49:37 GMT",
+            "Sun 06 Nov 1994 08:49:37 GMT", "Sun, 06 nov 1994 08:49:37 GMT", "Xyz, 06 Nov 1994 08:49:37 GMT",
+            "Sun, 31 Nov 1994 08:49:37 GMT", "Sun, 29 Feb 2026 08:49:37 GMT", "Sun, 06 Nov 1994 24:00:00 GMT",
+            "Sun, 06 Nov 1994 08:60:00 GMT", "Sun, 06 Nov 1994 08:49:61 GMT", "Sun, 06 Nov 1994 8:49:37 GMT",
+            "Sun, 06 Nov 0994 08:49:37 GMT", "Sun, 06 Nov 1994 08:49:37 GMT extra", "Sun, 06 Nov 1994 08:49:37 GMT\r\nX: 1",
+            "Sun, ٠٦ Nov 1994 08:49:37 GMT", "Sun, 00 Nov 1994 08:49:37 GMT", "Sunday, 06-Nov-1994 08:49:37 GMT",
+            "Sun Nov  6 08:49:37 1994 GMT", "1792921262"
+        ] {
             XCTAssertNil(ClockOffset.httpDate(text), text)
         }
     }
@@ -38,8 +43,9 @@ final class ClockOffsetTests: XCTestCase {
         let head = "HTTP/1.1 302 Found\r\nLocation: /remote/login\r\ndate: Sun, 06 Nov 1994 08:49:37 GMT\r\nServer: xxxxxxxx\r\n"
         XCTAssertEqual(ClockOffset.dateHeader(inResponse: head), rfcExample, "header names are case-insensitive")
         XCTAssertEqual(ClockOffset.dateHeader(inResponse: "HTTP/1.0 200 OK\nDate:Sun, 06 Nov 1994 08:49:37 GMT\n\n"), rfcExample)
-        XCTAssertEqual(ClockOffset.dateHeader(inResponse: head + "Date: Sun, 06 Nov 1994 08:49:37 GMT\r\n"), rfcExample,
-                       "the same date twice")
+        XCTAssertEqual(
+            ClockOffset.dateHeader(inResponse: head + "Date: Sun, 06 Nov 1994 08:49:37 GMT\r\n"), rfcExample,
+            "the same date twice")
 
         XCTAssertNil(ClockOffset.dateHeader(inResponse: "HTTP/1.1 200 OK\r\nServer: x\r\n\r\n"), "no Date")
         XCTAssertNil(ClockOffset.dateHeader(inResponse: head + "Date: Mon, 07 Nov 1994 08:49:37 GMT\r\n"), "two that disagree")
@@ -48,8 +54,9 @@ final class ClockOffsetTests: XCTestCase {
         XCTAssertNil(ClockOffset.dateHeader(inResponse: "HTTP/2 200\r\nDate: Sun, 06 Nov 1994 08:49:37 GMT\r\n"))
         XCTAssertNil(ClockOffset.dateHeader(inResponse: "HTTP/1.1 2000 OK\r\nDate: Sun, 06 Nov 1994 08:49:37 GMT\r\n"))
         XCTAssertNil(ClockOffset.dateHeader(inResponse: "HTTP/1.1 200 OK\r\nX-Date: Sun, 06 Nov 1994 08:49:37 GMT\r\n"))
-        XCTAssertNil(ClockOffset.dateHeader(inResponse: "HTTP/1.1 200 OK\r\n\r\nDate: Sun, 06 Nov 1994 08:49:37 GMT\r\n"),
-                     "after the head: the body")
+        XCTAssertNil(
+            ClockOffset.dateHeader(inResponse: "HTTP/1.1 200 OK\r\n\r\nDate: Sun, 06 Nov 1994 08:49:37 GMT\r\n"),
+            "after the head: the body")
         XCTAssertNil(ClockOffset.dateHeader(inResponse: ""))
     }
 
@@ -59,8 +66,9 @@ final class ClockOffsetTests: XCTestCase {
         let sent = Date(timeIntervalSince1970: 1_000)
         let received = Date(timeIntervalSince1970: 1_002)
         XCTAssertEqual(ClockOffset.offset(serverTime: Date(timeIntervalSince1970: 1_049), sent: sent, received: received), 48)
-        XCTAssertEqual(ClockOffset.offset(serverTime: Date(timeIntervalSince1970: 1_048), resolution: 1, sent: sent, received: received),
-                       47.5)
+        XCTAssertEqual(
+            ClockOffset.offset(serverTime: Date(timeIntervalSince1970: 1_048), resolution: 1, sent: sent, received: received),
+            47.5)
         XCTAssertEqual(ClockOffset.offset(serverTime: Date(timeIntervalSince1970: 952), sent: sent, received: received), -49)
 
         let c = ClockOffset(offset: 47.5, source: .gateway, server: "vpn.example.com", checkedAt: received)
@@ -93,17 +101,24 @@ final class ClockOffsetTests: XCTestCase {
         XCTAssertEqual(try decoder.decode(ClockOffset.self, from: Data(text.utf8)), c)
         XCTAssertEqual(ClockOffset.Source.allCases.map(\.rawValue), ["gateway", "time_server"])
 
-        XCTAssertEqual(c.sentence, "Your clock is 48 s behind the gateway’s, so one-time codes made from it are likely refused. Fix the clock, then try again.")
+        XCTAssertEqual(
+            c.sentence, "Your clock is 48 s behind the gateway’s, so one-time codes made from it are likely refused. Fix the clock, then try again.")
         var ahead = c
         ahead.offsetSeconds = -20
-        XCTAssertEqual(ahead.sentence, "Your clock is 20 s ahead of the gateway’s, so one-time codes made from it are likely refused. Fix the clock, then try again.")
+        XCTAssertEqual(
+            ahead.sentence,
+            "Your clock is 20 s ahead of the gateway’s, so one-time codes made from it are likely refused. Fix the clock, then try again.")
         var close = c
         close.offsetSeconds = -2
         XCTAssertEqual(close.sentence, "Your clock matches the gateway’s, 2 s apart.")
         let server = ClockOffset(offsetSeconds: 31, source: .timeServer, server: "time.apple.com", checkedAt: c.checkedAt)
-        XCTAssertEqual(server.sentence, "Your clock is 31 s behind the time server time.apple.com, so one-time codes made from it are likely refused. Fix the clock, then try again.")
-        XCTAssertEqual(ClockOffset(offsetSeconds: 0, source: .timeServer, server: "time.apple.com", checkedAt: c.checkedAt).sentence,
-                       "Your clock matches the time server time.apple.com, 0 s apart.")
+        XCTAssertEqual(
+            server.sentence,
+            "Your clock is 31 s behind the time server time.apple.com, so one-time codes made from it are likely refused. Fix the clock, then try again."
+        )
+        XCTAssertEqual(
+            ClockOffset(offsetSeconds: 0, source: .timeServer, server: "time.apple.com", checkedAt: c.checkedAt).sentence,
+            "Your clock matches the time server time.apple.com, 0 s apart.")
     }
 
     func testDaysFromCivil() {

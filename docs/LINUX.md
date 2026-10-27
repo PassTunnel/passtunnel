@@ -118,7 +118,7 @@ The macOS rules apply where they make sense; these replace the ones built on cod
 - **OpenVPN** runs with the Mac's fixed flags (`--pull-filter ignore` for a pushed `verb` and
   `--server-poll-timeout 10` before the config, `--management <run>/mgmt.sock unix`,
   `--management-client-user`, `--auth-nocache`, `--remap-usr1 SIGTERM`, `--connect-retry-max 3`,
-  capped `--verb`; the same `HelperCore.openVPNArguments`), the sanitized config (`OVPNSanitizer`,
+  `--tls-version-min 1.2`, capped `--verb`; the same `HelperCore.openVPNArguments`), the sanitized config (`OVPNSanitizer`,
   unchanged: it also refuses a config that would wait for incoming connections, `proto tcp-server` or
   no `remote` at all, with the Mac's words) and `--script-security 2` with
   the DNS hook below, the only script it can run (the sanitizer removes every other). The management
@@ -518,6 +518,10 @@ and fakes for the system tools; the Mac's tests a Keychain service of their own)
     requests with the build number, and `passtunnel` finds it beside itself and reports a replaced
     file as outdated. Attaching tarballs to releases waits for phase 3, and so does a Linux section
     in the README: until then there is nothing to download but the CI artifact.
+  - The tarball is repeatable: the same commit, version and build number, built in the same
+    container with the checkout at `/src`, give the same bytes (it is built without debug
+    information, see `build-linux.sh`). The workflow `Repeatable build` checks it on x86_64; see
+    [RELEASING.md](RELEASING.md#verifying-a-release).
   - The `Dockerfile` builds `passtunnel` in release mode on the CI's Swift image (`swift:6.4.1-noble`)
     and runs `passtunnel mcp` on `ubuntu:24.04` as the user `mcp` (uid 10001), both images pinned by
     digest: what MCP directories build and introspect. It starts without a profile store or a secret

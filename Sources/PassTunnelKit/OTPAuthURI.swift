@@ -2,16 +2,17 @@ import Foundation
 
 /// A parsed `otpauth://totp/Issuer:account?secret=…&issuer=…&digits=…&period=…&algorithm=…` link.
 public struct OTPAuthURI: Equatable {
-    public var label: String      // full decoded label, e.g. "Acme:alice"
-    public var account: String    // label without the issuer prefix, e.g. "alice"
-    public var issuer: String     // `issuer` parameter, else the label prefix
+    public var label: String  // full decoded label, e.g. "Acme:alice"
+    public var account: String  // label without the issuer prefix, e.g. "alice"
+    public var issuer: String  // `issuer` parameter, else the label prefix
     public var secret: Data
     public var params: TOTPParams
 
     public init(_ uri: String) throws {
         let text = uri.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let schemeEnd = text.range(of: "://"),
-              text[..<schemeEnd.lowerBound].lowercased() == "otpauth" else {
+            text[..<schemeEnd.lowerBound].lowercased() == "otpauth"
+        else {
             throw PTError.invalidOTPAuthURI(String(localized: "it does not start with otpauth://"))
         }
         let rest = text[schemeEnd.upperBound...]

@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+
 @testable import PassTunnelCore
 @testable import PassTunnelDaemon
 @testable import PassTunnelShared
@@ -8,12 +9,16 @@ import XCTest
 
 final class DNSSettingsTests: XCTestCase {
     func testAddresses() throws {
-        let good = [("192.0.2.53", "192.0.2.53"), ("2001:DB8:0:0::53", "2001:db8::53"), ("198.51.100.1", "198.51.100.1"),
-                    ("::ffff:192.0.2.1", "::ffff:192.0.2.1"), ("2001:db8::1:0:0:1", "2001:db8::1:0:0:1")]
+        let good = [
+            ("192.0.2.53", "192.0.2.53"), ("2001:DB8:0:0::53", "2001:db8::53"), ("198.51.100.1", "198.51.100.1"),
+            ("::ffff:192.0.2.1", "::ffff:192.0.2.1"), ("2001:db8::1:0:0:1", "2001:db8::1:0:0:1")
+        ]
         for (text, canonical) in good { XCTAssertEqual(try DNSSettings.address(text), canonical, text) }
-        let bad = ["", "0.0.0.0", "::", "1.2.3", "256.1.1.1", "192.0.2.1;reboot", "192.0.2.1 198.51.100.1",
-                   "fe80::1%eth0", "192.0.2.1:53", "[2001:db8::1]", "-192.0.2.1", "192.0.2.1\n", "192.0.2.1\u{0}x",
-                   "vpn.example.com", "$(reboot)", String(repeating: "1", count: 100), " 192.0.2.1"]
+        let bad = [
+            "", "0.0.0.0", "::", "1.2.3", "256.1.1.1", "192.0.2.1;reboot", "192.0.2.1 198.51.100.1",
+            "fe80::1%eth0", "192.0.2.1:53", "[2001:db8::1]", "-192.0.2.1", "192.0.2.1\n", "192.0.2.1\u{0}x",
+            "vpn.example.com", "$(reboot)", String(repeating: "1", count: 100), " 192.0.2.1"
+        ]
         for text in bad {
             XCTAssertThrowsError(try DNSSettings.address(text), text) {
                 XCTAssertEqual($0 as? DNSFailure, .invalid("DNS server", text))
@@ -27,10 +32,12 @@ final class DNSSettingsTests: XCTestCase {
         XCTAssertEqual(try DNSSettings.domain("lan"), "lan")
         let label = String(repeating: "a", count: 63)
         XCTAssertEqual(try DNSSettings.domain(label + ".example.com"), label + ".example.com")
-        let long = Array(repeating: label, count: 4).joined(separator: ".")      // 255 bytes
-        let bad = ["", ".", "..", "a..b", "-x.example.com", "x-.example.com", "~corp.example.com", "corp example.com",
-                   "exa$mple.com", "example.com/x", "ex\nample.com", "ünicode.example", label + "a.example.com", long,
-                   "*.example.com", "example.com;reboot", "-", "\u{0}"]
+        let long = Array(repeating: label, count: 4).joined(separator: ".")  // 255 bytes
+        let bad = [
+            "", ".", "..", "a..b", "-x.example.com", "x-.example.com", "~corp.example.com", "corp example.com",
+            "exa$mple.com", "example.com/x", "ex\nample.com", "ünicode.example", label + "a.example.com", long,
+            "*.example.com", "example.com;reboot", "-", "\u{0}"
+        ]
         for text in bad {
             XCTAssertThrowsError(try DNSSettings.domain(text), text) {
                 XCTAssertEqual($0 as? DNSFailure, .invalid("DNS domain", text))
@@ -54,8 +61,9 @@ final class DNSSettingsTests: XCTestCase {
     }
 
     func testCountsAndRepeats() throws {
-        let settings = try DNSSettings(servers: ["192.0.2.1", "192.0.2.1", "2001:db8::1", "2001:DB8::1"],
-                                       searchDomains: ["Example.com", "example.com."], fullTunnel: true)
+        let settings = try DNSSettings(
+            servers: ["192.0.2.1", "192.0.2.1", "2001:db8::1", "2001:DB8::1"],
+            searchDomains: ["Example.com", "example.com."], fullTunnel: true)
         XCTAssertEqual(settings.servers, ["192.0.2.1", "2001:db8::1"])
         XCTAssertEqual(settings.searchDomains, ["example.com"])
         let nine = (1...9).map { "192.0.2.\($0)" }
@@ -82,30 +90,39 @@ final class OpenVPNDNSTests: XCTestCase {
 
     /// OpenVPN 2.7's `--dns-updown` environment (also 2.6's for pushed `dns` options).
     func testDNSOptions() throws {
-        let split = try XCTUnwrap(try settings([
-            "dev": "tun0", "script_type": "dns-up",
-            "dns_search_domain_1": "corp.example.com", "dns_search_domain_2": "eu.example.com",
-            "dns_server_1_address_1": "192.0.2.53", "dns_server_1_address_2": "2001:db8::53",
-            "dns_server_1_port_2": "53", "dns_server_1_resolve_domain_1": "corp.example.com",
-            "dns_server_1_resolve_domain_2": "example.net", "dns_server_1_dnssec": "optional",
-        ]))
-        XCTAssertEqual(split, try DNSSettings(servers: ["192.0.2.53", "2001:db8::53"],
-                                              searchDomains: ["corp.example.com", "eu.example.com"],
-                                              routingDomains: ["corp.example.com", "example.net"], fullTunnel: false))
+        let split = try XCTUnwrap(
+            try settings([
+                "dev": "tun0", "script_type": "dns-up",
+                "dns_search_domain_1": "corp.example.com", "dns_search_domain_2": "eu.example.com",
+                "dns_server_1_address_1": "192.0.2.53", "dns_server_1_address_2": "2001:db8::53",
+                "dns_server_1_port_2": "53", "dns_server_1_resolve_domain_1": "corp.example.com",
+                "dns_server_1_resolve_domain_2": "example.net", "dns_server_1_dnssec": "optional"
+            ]))
+        XCTAssertEqual(
+            split,
+            try DNSSettings(
+                servers: ["192.0.2.53", "2001:db8::53"],
+                searchDomains: ["corp.example.com", "eu.example.com"],
+                routingDomains: ["corp.example.com", "example.net"], fullTunnel: false))
 
         // dhcp-options turned into --dns by 2.7: no resolve domains, so every name goes through the tunnel;
         // a DOMAIN that was not pushed leaves a gap before the DOMAIN-SEARCH entries.
-        let converted = try XCTUnwrap(try settings(["dns_server_1_address_1": "192.0.2.53", "dns_search_domain_3": "b.example.com",
-                                                    "dns_search_domain_2": "a.example.com"]))
+        let converted = try XCTUnwrap(
+            try settings([
+                "dns_server_1_address_1": "192.0.2.53", "dns_search_domain_3": "b.example.com",
+                "dns_search_domain_2": "a.example.com"
+            ]))
         XCTAssertEqual(converted.searchDomains, ["a.example.com", "b.example.com"])
         XCTAssertTrue(converted.fullTunnel)
     }
 
     func testFirstServerPlainDNSReaches() throws {
-        let env = ["dns_server_1_address_1": "192.0.2.1", "dns_server_1_transport": "DoT",
-                   "dns_server_2_address_1": "192.0.2.2", "dns_server_2_port_1": "853",
-                   "dns_server_3_address_1": "192.0.2.3", "dns_server_3_transport": "plain", "dns_server_3_port_1": "53",
-                   "dns_server_4_address_1": "192.0.2.4"]
+        let env = [
+            "dns_server_1_address_1": "192.0.2.1", "dns_server_1_transport": "DoT",
+            "dns_server_2_address_1": "192.0.2.2", "dns_server_2_port_1": "853",
+            "dns_server_3_address_1": "192.0.2.3", "dns_server_3_transport": "plain", "dns_server_3_port_1": "53",
+            "dns_server_4_address_1": "192.0.2.4"
+        ]
         XCTAssertEqual(try settings(env)?.servers, ["192.0.2.3"])
         XCTAssertThrowsError(try settings(["dns_server_1_address_1": "192.0.2.1", "dns_server_1_transport": "DoH"])) {
             XCTAssertEqual($0 as? DNSFailure, .noUsableServer)
@@ -114,19 +131,25 @@ final class OpenVPNDNSTests: XCTestCase {
 
     /// OpenVPN 2.6's `--route-up` environment: `dhcp-option`s, in the order pushed.
     func testDHCPOptions() throws {
-        let env = ["dev": "tun0", "script_type": "route-up",
-                   "foreign_option_1": "dhcp-option DOMAIN corp.example.com",
-                   "foreign_option_2": "dhcp-option DNS 192.0.2.53",
-                   "foreign_option_3": "dhcp-option WINS 192.0.2.99",
-                   "foreign_option_10": "dhcp-option DNS6 2001:db8::53",
-                   "foreign_option_4": "dhcp-option DOMAIN-SEARCH example.net",
-                   "foreign_option_5": "dhcp-option ADAPTER-DOMAIN-SUFFIX lan",
-                   "foreign_option_6": "dhcp-option NTP 192.0.2.123 192.0.2.124"]
-        XCTAssertEqual(try settings(env), try DNSSettings(servers: ["192.0.2.53", "2001:db8::53"],
-                                                          searchDomains: ["corp.example.com", "example.net", "lan"],
-                                                          fullTunnel: true))
-        XCTAssertNil(try settings(["foreign_option_1": "dhcp-option DOMAIN corp.example.com", "dev": "tun0"]),
-                     "no server: nothing to set up")
+        let env = [
+            "dev": "tun0", "script_type": "route-up",
+            "foreign_option_1": "dhcp-option DOMAIN corp.example.com",
+            "foreign_option_2": "dhcp-option DNS 192.0.2.53",
+            "foreign_option_3": "dhcp-option WINS 192.0.2.99",
+            "foreign_option_10": "dhcp-option DNS6 2001:db8::53",
+            "foreign_option_4": "dhcp-option DOMAIN-SEARCH example.net",
+            "foreign_option_5": "dhcp-option ADAPTER-DOMAIN-SUFFIX lan",
+            "foreign_option_6": "dhcp-option NTP 192.0.2.123 192.0.2.124"
+        ]
+        XCTAssertEqual(
+            try settings(env),
+            try DNSSettings(
+                servers: ["192.0.2.53", "2001:db8::53"],
+                searchDomains: ["corp.example.com", "example.net", "lan"],
+                fullTunnel: true))
+        XCTAssertNil(
+            try settings(["foreign_option_1": "dhcp-option DOMAIN corp.example.com", "dev": "tun0"]),
+            "no server: nothing to set up")
         XCTAssertNil(try settings(["dev": "tun0", "script_type": "route-up"]))
     }
 
@@ -154,7 +177,7 @@ final class OpenVPNDNSTests: XCTestCase {
             ["dns_server_1_address_65": "192.0.2.1"],
             ["dns_server_1_address_1": "192.0.2.1", "dns_search_domain_1": "corp.example.com\nnameserver 198.51.100.1"],
             ["dns_server_1_address_1": "192.0.2.1", "dns_server_1_resolve_domain_1": "--help"],
-            (1...9).reduce(into: [:]) { env, i in env["dns_server_1_address_\(i)"] = "192.0.2.\(i)" },
+            (1...9).reduce(into: [:]) { env, i in env["dns_server_1_address_\(i)"] = "192.0.2.\(i)" }
         ]
         for env in cases {
             XCTAssertThrowsError(try settings(env), "\(env)")
@@ -185,8 +208,9 @@ class DNSTestCase: DaemonTestCase {
     override func setUpWithError() throws {
         try super.setUpWithError()
         for dir in ["/etc", "/run/systemd/resolve", "/usr/bin", "/usr/sbin"] {
-            try FileManager.default.createDirectory(atPath: root + dir, withIntermediateDirectories: true,
-                                                    attributes: [.posixPermissions: 0o755])
+            try FileManager.default.createDirectory(
+                atPath: root + dir, withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o755])
         }
         try Self.original.write(toFile: resolvConf, atomically: false, encoding: .utf8)
         chmod(resolvConf, 0o644)
@@ -226,13 +250,13 @@ class DNSTestCase: DaemonTestCase {
     /// `<base>/fail-<first argument>` exists.
     func makeFakeTool(_ path: String, name: String) throws {
         let script = """
-        #!/bin/sh
-        echo "\(name) $*" >> '\(calls)'
-        if [ "$1" = "-a" ]; then cat >> '\(calls)'; fi
-        if [ -e '\(base)/fail-'"$1" ]; then echo "Failed to set DNS: Link tun0 not managed" ; exit 1; fi
-        exit 0
+            #!/bin/sh
+            echo "\(name) $*" >> '\(calls)'
+            if [ "$1" = "-a" ]; then cat >> '\(calls)'; fi
+            if [ -e '\(base)/fail-'"$1" ]; then echo "Failed to set DNS: Link tun0 not managed" ; exit 1; fi
+            exit 0
 
-        """
+            """
         try script.write(toFile: path, atomically: false, encoding: .utf8)
         chmod(path, 0o755)
     }
@@ -258,10 +282,12 @@ class DNSTestCase: DaemonTestCase {
     var callLog: String { (try? String(contentsOfFile: calls, encoding: .utf8)) ?? "" }
     var resolvConfText: String { (try? String(contentsOfFile: resolvConf, encoding: .utf8)) ?? "<none>" }
 
-    static let full = try! DNSSettings(servers: ["192.0.2.53", "2001:db8::53"], searchDomains: ["corp.example.com"],
-                                       fullTunnel: true)
-    static let split = try! DNSSettings(servers: ["192.0.2.53"], searchDomains: ["corp.example.com"],
-                                        routingDomains: ["example.net"], fullTunnel: false)
+    static let full = try! DNSSettings(
+        servers: ["192.0.2.53", "2001:db8::53"], searchDomains: ["corp.example.com"],
+        fullTunnel: true)
+    static let split = try! DNSSettings(
+        servers: ["192.0.2.53"], searchDomains: ["corp.example.com"],
+        routingDomains: ["example.net"], fullTunnel: false)
 }
 
 final class IndexBox: @unchecked Sendable {
@@ -274,17 +300,17 @@ final class IndexBox: @unchecked Sendable {
 
 final class DNSFileBackendTests: DNSTestCase {
     static let applied = """
-    # PassTunnel tun0 begin: DNS of the VPN, removed when it disconnects
-    nameserver 192.0.2.53
-    nameserver 2001:db8::53
-    search corp.example.com
-    # PassTunnel tun0 end
-    # from the network
-    #PassTunnel tun0# nameserver 192.0.2.1
-    #PassTunnel tun0# search lan
-    options edns0
+        # PassTunnel tun0 begin: DNS of the VPN, removed when it disconnects
+        nameserver 192.0.2.53
+        nameserver 2001:db8::53
+        search corp.example.com
+        # PassTunnel tun0 end
+        # from the network
+        #PassTunnel tun0# nameserver 192.0.2.1
+        #PassTunnel tun0# search lan
+        options edns0
 
-    """
+        """
 
     func testApplyAndRevert() throws {
         let session = try session()
@@ -394,16 +420,16 @@ final class DNSFileBackendTests: DNSTestCase {
 
     /// The file with only tun1's DNS in effect: what two tunnels give while tun1 is the newer one.
     static let appliedTun1 = """
-    # PassTunnel tun1 begin: DNS of the VPN, removed when it disconnects
-    nameserver 198.51.100.53
-    search example.net
-    # PassTunnel tun1 end
-    # from the network
-    #PassTunnel tun1# nameserver 192.0.2.1
-    #PassTunnel tun1# search lan
-    options edns0
+        # PassTunnel tun1 begin: DNS of the VPN, removed when it disconnects
+        nameserver 198.51.100.53
+        search example.net
+        # PassTunnel tun1 end
+        # from the network
+        #PassTunnel tun1# nameserver 192.0.2.1
+        #PassTunnel tun1# search lan
+        options edns0
 
-    """
+        """
     static let tun1 = try! DNSSettings(servers: ["198.51.100.53"], searchDomains: ["example.net"], fullTunnel: true)
 
     /// Two tunnels at once: the newer one's DNS is in effect; the older one ending changes nothing, and
@@ -547,19 +573,20 @@ final class DNSFileBackendTests: DNSTestCase {
     func testInterruptedChanges() {
         let previous = Array("abcdefgh".utf8), longer = Array("ABCDEFGHIJKL".utf8), shorter = Array("ABC".utf8)
         let cases: [([UInt8]?, [UInt8]?, [UInt8]?, Bool)] = [
-            (previous, previous, longer, true), (longer, previous, longer, true),       // not begun, done
-            (Array("ABCdefgh".utf8), previous, longer, true),                           // in place, part way
-            (Array("ABCDEFGHIJ".utf8), previous, longer, true),                         // past the old end
-            (Array("ABCdefgh".utf8), previous, shorter, true),                          // written, not cut
-            (Array("ABCdefgX".utf8), previous, shorter, false),                         // and changed after
+            (previous, previous, longer, true), (longer, previous, longer, true),  // not begun, done
+            (Array("ABCdefgh".utf8), previous, longer, true),  // in place, part way
+            (Array("ABCDEFGHIJ".utf8), previous, longer, true),  // past the old end
+            (Array("ABCdefgh".utf8), previous, shorter, true),  // written, not cut
+            (Array("ABCdefgX".utf8), previous, shorter, false),  // and changed after
             (Array("xbcdefgh".utf8), previous, longer, false), (Array("ABCDEFGHIJKX".utf8), previous, longer, false),
             (Array("abcd".utf8), previous, longer, false),
             (nil, previous, nil, true), (nil, nil, longer, true), (longer, nil, longer, true),
-            (Array("ABC".utf8), nil, longer, false), (nil, previous, longer, false), (previous, nil, nil, false),
+            (Array("ABC".utf8), nil, longer, false), (nil, previous, longer, false), (previous, nil, nil, false)
         ]
         for (current, before, after, interrupted) in cases {
-            XCTAssertEqual(ResolvConfBaseline.isInterrupted(current, previous: before, intended: after), interrupted,
-                           "\(String(decoding: current ?? [], as: UTF8.self)) \(String(decoding: after ?? [], as: UTF8.self))")
+            XCTAssertEqual(
+                ResolvConfBaseline.isInterrupted(current, previous: before, intended: after), interrupted,
+                "\(String(decoding: current ?? [], as: UTF8.self)) \(String(decoding: after ?? [], as: UTF8.self))")
         }
     }
 
@@ -677,18 +704,25 @@ final class DNSFileBackendTests: DNSTestCase {
         let previous = Array("nameserver 192.0.2.1\n nameserver x\nnameservers\nsearch\tlan\ndomain lan\n#nameserver y".utf8)
         let applied = ResolvConf.apply(Self.full, interface: "tun0", to: previous)
         let lines = String(decoding: applied, as: UTF8.self).components(separatedBy: "\n")
-        XCTAssertEqual(Array(lines.suffix(6)), ["#PassTunnel tun0# nameserver 192.0.2.1", " nameserver x", "nameservers",
-                                                "#PassTunnel tun0# search\tlan", "#PassTunnel tun0# domain lan", "#nameserver y"])
+        XCTAssertEqual(
+            Array(lines.suffix(6)),
+            [
+                "#PassTunnel tun0# nameserver 192.0.2.1", " nameserver x", "nameservers",
+                "#PassTunnel tun0# search\tlan", "#PassTunnel tun0# domain lan", "#nameserver y"
+            ])
         XCTAssertEqual(ResolvConf.stripAll(applied), previous)
         XCTAssertNil(ResolvConf.stripAll(previous))
         // Blocks and marks of any interface go (one a crash left behind too); text that only looks like
         // them stays.
-        let leftovers = ResolvConf.begin("tun7") + [0x0A] + Array("nameserver 198.51.100.7\n".utf8) + ResolvConf.end("tun7")
+        let leftovers =
+            ResolvConf.begin("tun7") + [0x0A] + Array("nameserver 198.51.100.7\n".utf8) + ResolvConf.end("tun7")
             + [0x0A] + ResolvConf.mark("ppp0") + Array("nameserver 192.0.2.9\n".utf8)
-        let lookalikes = Array("# PassTunnel tun8 begin: DNS of the VPN, removed when it disconnects\nnameserver 192.0.2.8\n".utf8)
+        let lookalikes =
+            Array("# PassTunnel tun8 begin: DNS of the VPN, removed when it disconnects\nnameserver 192.0.2.8\n".utf8)
             + Array("#PassTunnel tun 0# x\n#PassTunnel -x# y\n#PassTunnel tun0#z\n".utf8)
-        XCTAssertEqual(ResolvConf.stripAll(leftovers + lookalikes),
-                       Array("nameserver 192.0.2.9\n".utf8) + lookalikes, "a block without its end is not one")
+        XCTAssertEqual(
+            ResolvConf.stripAll(leftovers + lookalikes),
+            Array("nameserver 192.0.2.9\n".utf8) + lookalikes, "a block without its end is not one")
         XCTAssertNil(ResolvConf.stripAll(lookalikes))
         // Bytes that are not UTF-8 survive.
         let binary: [UInt8] = [0x23, 0xFF, 0xFE, 0x0A] + Array("nameserver 192.0.2.1".utf8)
@@ -700,20 +734,25 @@ final class DNSFileBackendTests: DNSTestCase {
         let file = DNSRecord(backend: .file, interface: "tun0", index: 7, serial: 3, settings: full)
         XCTAssertEqual(file.text, "passtunnel-dns 2\nfile\ntun0\n7\n3\n192.0.2.53 2001:db8::53\ncorp.example.com\n")
         XCTAssertEqual(DNSRecord(text: file.text), file)
-        XCTAssertEqual(DNSRecord(text: "passtunnel-dns 2\nfile\ntun0\n7\n1\n192.0.2.53\n-\n"),
-                       DNSRecord(backend: .file, interface: "tun0", index: 7, serial: 1,
-                                 settings: try DNSSettings(servers: ["192.0.2.53"], fullTunnel: true)))
-        XCTAssertEqual(DNSRecord(text: "passtunnel-dns 2\nresolved\ntun0\n7\n-\n-\n-\n"),
-                       DNSRecord(backend: .resolved, interface: "tun0", index: 7))
-        for bad in ["", "passtunnel-dns 1\nresolved\ntun0\n7\n-\nnone\n", "passtunnel-dns 2\nother\ntun0\n7\n-\n-\n-\n",
-                    "passtunnel-dns 2\nresolved\n-tun0\n7\n-\n-\n-\n", "passtunnel-dns 2\nresolved\ntun0\n07\n-\n-\n-\n",
-                    "passtunnel-dns 2\nresolved\ntun0\n0\n-\n-\n-\n", "passtunnel-dns 2\nresolved\n7\n7\n-\n-\n-\n",
-                    "passtunnel-dns 2\nresolved\ntun0\n7\n1\n192.0.2.53\n-\n", "passtunnel-dns 2\nfile\ntun0\n7\n-\n-\n-\n",
-                    "passtunnel-dns 2\nfile\ntun0\n7\n0\n192.0.2.53\n-\n", "passtunnel-dns 2\nfile\ntun0\n7\n01\n192.0.2.53\n-\n",
-                    "passtunnel-dns 2\nfile\ntun0\n7\n1\n2001:DB8::53\n-\n", "passtunnel-dns 2\nfile\ntun0\n7\n1\n192.0.2.53  192.0.2.54\n-\n",
-                    "passtunnel-dns 2\nfile\ntun0\n7\n1\n192.0.2.53\nCorp.example.com\n",
-                    "passtunnel-dns 2\nfile\ntun0\n7\n1\n192.0.2.53\n~corp.example.com\n",
-                    "passtunnel-dns 2\nfile\ntun0\n7\n1\n192.0.2.53\n-\nx\n", "passtunnel-dns 2\nresolved\ntun0\n7\n-\n-\n-"] {
+        XCTAssertEqual(
+            DNSRecord(text: "passtunnel-dns 2\nfile\ntun0\n7\n1\n192.0.2.53\n-\n"),
+            DNSRecord(
+                backend: .file, interface: "tun0", index: 7, serial: 1,
+                settings: try DNSSettings(servers: ["192.0.2.53"], fullTunnel: true)))
+        XCTAssertEqual(
+            DNSRecord(text: "passtunnel-dns 2\nresolved\ntun0\n7\n-\n-\n-\n"),
+            DNSRecord(backend: .resolved, interface: "tun0", index: 7))
+        for bad in [
+            "", "passtunnel-dns 1\nresolved\ntun0\n7\n-\nnone\n", "passtunnel-dns 2\nother\ntun0\n7\n-\n-\n-\n",
+            "passtunnel-dns 2\nresolved\n-tun0\n7\n-\n-\n-\n", "passtunnel-dns 2\nresolved\ntun0\n07\n-\n-\n-\n",
+            "passtunnel-dns 2\nresolved\ntun0\n0\n-\n-\n-\n", "passtunnel-dns 2\nresolved\n7\n7\n-\n-\n-\n",
+            "passtunnel-dns 2\nresolved\ntun0\n7\n1\n192.0.2.53\n-\n", "passtunnel-dns 2\nfile\ntun0\n7\n-\n-\n-\n",
+            "passtunnel-dns 2\nfile\ntun0\n7\n0\n192.0.2.53\n-\n", "passtunnel-dns 2\nfile\ntun0\n7\n01\n192.0.2.53\n-\n",
+            "passtunnel-dns 2\nfile\ntun0\n7\n1\n2001:DB8::53\n-\n", "passtunnel-dns 2\nfile\ntun0\n7\n1\n192.0.2.53  192.0.2.54\n-\n",
+            "passtunnel-dns 2\nfile\ntun0\n7\n1\n192.0.2.53\nCorp.example.com\n",
+            "passtunnel-dns 2\nfile\ntun0\n7\n1\n192.0.2.53\n~corp.example.com\n",
+            "passtunnel-dns 2\nfile\ntun0\n7\n1\n192.0.2.53\n-\nx\n", "passtunnel-dns 2\nresolved\ntun0\n7\n-\n-\n-"
+        ] {
             XCTAssertNil(DNSRecord(text: bad), bad)
         }
     }
@@ -726,19 +765,23 @@ final class DNSFileBackendTests: DNSTestCase {
             ResolvConfBaseline(written: digest, content: content),
             ResolvConfBaseline(written: digest, content: nil),
             ResolvConfBaseline(written: digest, content: []),
-            ResolvConfBaseline(written: HelperCore.sha256Hex(Data(after)), content: content,
-                               pending: .init(previous: content + [0x41], intended: after)),
+            ResolvConfBaseline(
+                written: HelperCore.sha256Hex(Data(after)), content: content,
+                pending: .init(previous: content + [0x41], intended: after)),
             ResolvConfBaseline(written: nil, content: nil, pending: .init(previous: after, intended: nil)),
-            ResolvConfBaseline(written: HelperCore.sha256Hex(Data(after)), content: nil, pending: .init(previous: nil, intended: after)),
+            ResolvConfBaseline(written: HelperCore.sha256Hex(Data(after)), content: nil, pending: .init(previous: nil, intended: after))
         ]
         for state in states { XCTAssertEqual(ResolvConfBaseline(bytes: state.bytes), state, "\(state)") }
-        XCTAssertEqual(String(decoding: states[3].bytes.prefix(99), as: UTF8.self),
-                       "passtunnel-resolv-base 2\n\(HelperCore.sha256Hex(Data(after)))\n23\n24 24\n")
+        XCTAssertEqual(
+            String(decoding: states[3].bytes.prefix(99), as: UTF8.self),
+            "passtunnel-resolv-base 2\n\(HelperCore.sha256Hex(Data(after)))\n23\n24 24\n")
         let head = "passtunnel-resolv-base 2\n\(digest)\n"
-        for bad in ["", "passtunnel-resolv-base 1\n\(digest)\n0\n-\n", head + "0\n-\nx", head + "1\n-\n", head + "01\n-\nx",
-                    head + "-1\n-\n", head + "x\n-\n", "passtunnel-resolv-base 2\n\(digest.uppercased())\n0\n-\n",
-                    "passtunnel-resolv-base 2\nabc\n0\n-\n", head + "0\n1 1\nab", "passtunnel-resolv-base 2\n-\n0\n1 1\nab",
-                    head + "0\n1\na", head + "0\n-", head + "\(DNSApplier.maxResolvConfBytes + 1)\n-\n"] {
+        for bad in [
+            "", "passtunnel-resolv-base 1\n\(digest)\n0\n-\n", head + "0\n-\nx", head + "1\n-\n", head + "01\n-\nx",
+            head + "-1\n-\n", head + "x\n-\n", "passtunnel-resolv-base 2\n\(digest.uppercased())\n0\n-\n",
+            "passtunnel-resolv-base 2\nabc\n0\n-\n", head + "0\n1 1\nab", "passtunnel-resolv-base 2\n-\n0\n1 1\nab",
+            head + "0\n1\na", head + "0\n-", head + "\(DNSApplier.maxResolvConfBytes + 1)\n-\n"
+        ] {
             XCTAssertNil(ResolvConfBaseline(bytes: Array(bad.utf8)), bad)
         }
     }
@@ -759,15 +802,18 @@ final class DNSResolvedBackendTests: DNSTestCase {
         let session = try session()
         XCTAssertEqual(try applier.apply(Self.full, interface: "tun0", in: session), .resolved)
         // The link by its index (tun0 is 7), never by its name.
-        XCTAssertEqual(callLog, """
-        resolvectl dns 7 192.0.2.53 2001:db8::53
-        resolvectl domain 7 corp.example.com ~.
-        resolvectl default-route 7 true
+        XCTAssertEqual(
+            callLog,
+            """
+            resolvectl dns 7 192.0.2.53 2001:db8::53
+            resolvectl domain 7 corp.example.com ~.
+            resolvectl default-route 7 true
 
-        """)
+            """)
         XCTAssertEqual(recorded(session), "passtunnel-dns 2\nresolved\ntun0\n7\n-\n-\n-\n")
-        XCTAssertEqual(try String(contentsOfFile: root + "/run/systemd/resolve/stub-resolv.conf", encoding: .utf8),
-                       "nameserver 127.0.0.53\n", "the link is never written through")
+        XCTAssertEqual(
+            try String(contentsOfFile: root + "/run/systemd/resolve/stub-resolv.conf", encoding: .utf8),
+            "nameserver 127.0.0.53\n", "the link is never written through")
         XCTAssertEqual(applier.revert(in: session), "restored the DNS of tun0 (systemd-resolved)")
         XCTAssertTrue(callLog.hasSuffix("resolvectl revert 7\n"), callLog)
     }
@@ -775,12 +821,14 @@ final class DNSResolvedBackendTests: DNSTestCase {
     func testSplitTunnel() throws {
         try useResolved()
         try applier.apply(Self.split, interface: "tun0", in: try session())
-        XCTAssertEqual(callLog, """
-        resolvectl dns 7 192.0.2.53
-        resolvectl domain 7 corp.example.com ~example.net
-        resolvectl default-route 7 false
+        XCTAssertEqual(
+            callLog,
+            """
+            resolvectl dns 7 192.0.2.53
+            resolvectl domain 7 corp.example.com ~example.net
+            resolvectl default-route 7 false
 
-        """)
+            """)
     }
 
     /// Right before each call the recorded index must still name the interface, and no interface may
@@ -790,7 +838,7 @@ final class DNSResolvedBackendTests: DNSTestCase {
         let session = try session()
         let tool = try XCTUnwrap(try applier.trustedTool(system.resolvectl))
         let record = DNSRecord(backend: .resolved, interface: "tun0", index: 7)
-        indexes.set(["tun0": 9])          // replaced after apply looked it up
+        indexes.set(["tun0": 9])  // replaced after apply looked it up
         XCTAssertThrowsError(try applier.commit(record, settings: Self.full, tool: tool, root: -1)) {
             XCTAssertEqual($0 as? DNSFailure, .interfaceChanged("tun0", 7))
         }
@@ -801,7 +849,7 @@ final class DNSResolvedBackendTests: DNSTestCase {
         }
         XCTAssertEqual(callLog, "", "resolvectl never ran")
         XCTAssertNotNil(recorded(session), "its revert could not run either: kept, to try again")
-        indexes.set([:])                  // the link went: systemd-resolved forgot it
+        indexes.set([:])  // the link went: systemd-resolved forgot it
         XCTAssertEqual(applier.revert(in: session), "restored the DNS of tun0 (systemd-resolved)")
         XCTAssertNil(recorded(session))
         // Set up, then the same: the revert does not run either, says why, and keeps the record.
@@ -841,7 +889,7 @@ final class DNSResolvedBackendTests: DNSTestCase {
     func testFailureRollsBack() throws {
         try useResolved()
         let session = try session()
-        FileManager.default.createFile(atPath: base + "/fail-domain", contents: nil)
+        _ = FileManager.default.createFile(atPath: base + "/fail-domain", contents: nil)
         XCTAssertThrowsError(try applier.apply(Self.full, interface: "tun0", in: session)) {
             XCTAssertEqual(String(describing: $0), "resolvectl domain failed (status 1): Failed to set DNS: Link tun0 not managed")
         }
@@ -875,10 +923,12 @@ final class DNSResolvedBackendTests: DNSTestCase {
         unlink(resolvConf)
         XCTAssertEqual(symlink("../run/systemd/resolve/../../../elsewhere", resolvConf), 0)
         XCTAssertThrowsError(try applier.chooseBackend())
-        XCTAssertEqual(DNSApplier.lexicalTarget(of: "/etc/resolv.conf", target: "../run/systemd/resolve/stub-resolv.conf"),
-                       "/run/systemd/resolve/stub-resolv.conf")
-        XCTAssertEqual(DNSApplier.lexicalTarget(of: "/etc/resolv.conf", target: "/run/./x/../resolvconf/resolv.conf"),
-                       "/run/resolvconf/resolv.conf")
+        XCTAssertEqual(
+            DNSApplier.lexicalTarget(of: "/etc/resolv.conf", target: "../run/systemd/resolve/stub-resolv.conf"),
+            "/run/systemd/resolve/stub-resolv.conf")
+        XCTAssertEqual(
+            DNSApplier.lexicalTarget(of: "/etc/resolv.conf", target: "/run/./x/../resolvconf/resolv.conf"),
+            "/run/resolvconf/resolv.conf")
     }
 }
 
@@ -886,17 +936,20 @@ final class DNSResolvconfBackendTests: DNSTestCase {
     func testApplyAndRevert() throws {
         try makeFakeTool(resolvconf, name: "resolvconf")
         let session = try session()
-        let settings = try DNSSettings(servers: ["192.0.2.1", "192.0.2.2", "192.0.2.3", "192.0.2.4"],
-                                       searchDomains: ["corp.example.com", "example.net"], fullTunnel: true)
+        let settings = try DNSSettings(
+            servers: ["192.0.2.1", "192.0.2.2", "192.0.2.3", "192.0.2.4"],
+            searchDomains: ["corp.example.com", "example.net"], fullTunnel: true)
         XCTAssertEqual(try applier.apply(settings, interface: "tun0", in: session), .resolvconf)
-        XCTAssertEqual(callLog, """
-        resolvconf -a tun0.passtunnel-7
-        nameserver 192.0.2.1
-        nameserver 192.0.2.2
-        nameserver 192.0.2.3
-        search corp.example.com example.net
+        XCTAssertEqual(
+            callLog,
+            """
+            resolvconf -a tun0.passtunnel-7
+            nameserver 192.0.2.1
+            nameserver 192.0.2.2
+            nameserver 192.0.2.3
+            search corp.example.com example.net
 
-        """)
+            """)
         XCTAssertEqual(resolvConfText, Self.original, "resolvconf's to write")
         applier.revert(in: session)
         XCTAssertTrue(callLog.hasSuffix("resolvconf -d tun0.passtunnel-7\n"), callLog)
@@ -955,7 +1008,7 @@ final class DNSResolvconfBackendTests: DNSTestCase {
             ("resolv_conf_mv=yes\n", true), ("  resolv_conf_mv=\"Yes\" # rename\n", true), ("resolv_conf_mv=1", true),
             ("\tresolv_conf_mv='on';\n", true), ("resolv_conf_mv=true\n", true),
             ("# resolv_conf_mv=yes\n", false), ("resolv_conf_mv=no\n", false), ("resolv_conf_mv=\n", false),
-            ("resolv_conf_mv=yes\nresolv_conf_mv=NO\n", false), ("resolv_conf=/etc/resolv.conf\n", false), ("", false),
+            ("resolv_conf_mv=yes\nresolv_conf_mv=NO\n", false), ("resolv_conf=/etc/resolv.conf\n", false), ("", false)
         ]
         for (text, replaces) in cases {
             try text.write(toFile: path, atomically: false, encoding: .utf8)
@@ -1017,8 +1070,10 @@ final class DNSHookTests: DNSTestCase {
         DNSHook.run(environment: environment, options: options(in: directory))
     }
 
-    static let up27 = ["dev": "tun0", "script_type": "dns-up", "dns_server_1_address_1": "192.0.2.53",
-                       "dns_server_1_address_2": "2001:db8::53", "dns_search_domain_1": "corp.example.com"]
+    static let up27 = [
+        "dev": "tun0", "script_type": "dns-up", "dns_server_1_address_1": "192.0.2.53",
+        "dns_server_1_address_2": "2001:db8::53", "dns_search_domain_1": "corp.example.com"
+    ]
 
     func testOpenVPN27() throws {
         let session = try hookSession()
@@ -1032,8 +1087,10 @@ final class DNSHookTests: DNSTestCase {
 
     func testOpenVPN26() throws {
         let session = try hookSession()
-        let up = ["dev": "tun0", "script_type": "route-up", "foreign_option_1": "dhcp-option DNS 192.0.2.53",
-                  "foreign_option_2": "dhcp-option DOMAIN corp.example.com", "redirect_gateway": "2"]
+        let up = [
+            "dev": "tun0", "script_type": "route-up", "foreign_option_1": "dhcp-option DNS 192.0.2.53",
+            "foreign_option_2": "dhcp-option DOMAIN corp.example.com", "redirect_gateway": "2"
+        ]
         XCTAssertEqual(run(up, in: session.path), 0, "\(output)")
         XCTAssertTrue(resolvConfText.hasPrefix("# PassTunnel tun0 begin"), resolvConfText)
         XCTAssertEqual(run(["dev": "tun0", "script_type": "down", "script_context": "init"], in: session.path), 0)
@@ -1077,8 +1134,10 @@ final class DNSHookTests: DNSTestCase {
 
     func testOnlyForItsOwnSession() throws {
         let session = try hookSession()
-        for directory in [base, runRoot, runRoot + "/\(me)", session.path + "/x", runRoot + "/x/acme", runRoot + "/0\(me)/acme",
-                          runRoot + "/\(me)/other"] {
+        for directory in [
+            base, runRoot, runRoot + "/\(me)", session.path + "/x", runRoot + "/x/acme", runRoot + "/0\(me)/acme",
+            runRoot + "/\(me)/other"
+        ] {
             XCTAssertEqual(run(Self.up27, in: directory), 1, directory)
             XCTAssertTrue(output.first?.hasPrefix("setting DNS failed: not run by a PassTunnel session") == true, "\(output)")
         }
@@ -1117,8 +1176,9 @@ final class DaemonDNSTests: DNSTestCase {
     var hook: String { base + "/bin/passtunneld" }
 
     func makeDNSDaemon(_ configure: (inout Daemon.Options) -> Void = { _ in }) throws -> Daemon {
-        FileManager.default.createFile(atPath: hook, contents: Data("#!/bin/sh\nexit 0\n".utf8),
-                                       attributes: [.posixPermissions: 0o755])
+        _ = FileManager.default.createFile(
+            atPath: hook, contents: Data("#!/bin/sh\nexit 0\n".utf8),
+            attributes: [.posixPermissions: 0o755])
         let system = self.system, hook = self.hook
         return try makeDaemon {
             $0.dns = system
@@ -1137,12 +1197,13 @@ final class DaemonDNSTests: DNSTestCase {
         }
         let pid = try XCTUnwrap(try response(daemon.socketPath, .startOpenVPN(start())).pid)
         let session = try HelperCore(runRoot: runRoot).openRunDir(profileID: "acme", uid: me)
-        try applier.apply(Self.full, interface: "tun0", in: session)      // as the hook would
+        try applier.apply(Self.full, interface: "tun0", in: session)  // as the hook would
         let held = try applier.lock()
         kill(pid, SIGKILL)
         XCTAssertTrue(eventually { (try? self.response(daemon.socketPath, .status))?.running == [:] })
-        XCTAssertTrue(eventually { PreviousInstance.entries(session.path) == [DNSRecord.fileName] },
-                      "\(PreviousInstance.entries(session.path))")
+        XCTAssertTrue(
+            eventually { PreviousInstance.entries(session.path) == [DNSRecord.fileName] },
+            "\(PreviousInstance.entries(session.path))")
         XCTAssertEqual(resolvConfText, DNSFileBackendTests.applied)
         let refused = try response(daemon.socketPath, .startOpenVPN(start()))
         XCTAssertFalse(refused.ok)
@@ -1198,8 +1259,10 @@ final class DaemonDNSTests: DNSTestCase {
         let pid = try XCTUnwrap(try response(daemon.socketPath, .startOpenVPN(start())).pid)
         let runDir = PT.sessionDir(uid: me, profileID: "acme", runRoot: runRoot)
         XCTAssertTrue(eventually { self.log().contains("fake openvpn") })
-        XCTAssertTrue(log().contains("--auth-user-pass \(runDir)/auth --script-security 2 --route-up \(runDir)/dns-hook "
-                                     + "--down \(runDir)/dns-hook --down-pre\n"), log())
+        XCTAssertTrue(
+            log().contains(
+                "--auth-user-pass \(runDir)/auth --script-security 2 --route-up \(runDir)/dns-hook "
+                    + "--down \(runDir)/dns-hook --down-pre\n"), log())
         XCTAssertEqual(DNSApplier.readLink(runDir + "/dns-hook"), hook)
         XCTAssertEqual(try response(daemon.socketPath, .stop(profileID: "acme")).pid, pid)
     }
@@ -1221,7 +1284,7 @@ final class DaemonDNSTests: DNSTestCase {
         for end in ["stop", "kill", "shutdown"] {
             let pid = try XCTUnwrap(try response(daemon.socketPath, .startOpenVPN(start())).pid, end)
             let session = try HelperCore(runRoot: runRoot).openRunDir(profileID: "acme", uid: me)
-            try applier.apply(Self.full, interface: "tun0", in: session)      // as the hook would
+            try applier.apply(Self.full, interface: "tun0", in: session)  // as the hook would
             XCTAssertEqual(resolvConfText, DNSFileBackendTests.applied)
             switch end {
             case "stop": XCTAssertEqual(try response(daemon.socketPath, .stop(profileID: "acme")).pid, pid)
@@ -1265,13 +1328,20 @@ final class DaemonDNSTests: DNSTestCase {
     }
 
     func testArguments() {
-        let common = HelperCore.ignoredPushPrefixes.flatMap { ["--pull-filter", "ignore", $0] } + ["--server-poll-timeout", "10", "--config", "/c", "--verb", "3", "--management", "/m", "unix", "--management-client-user", "alice",
-                      "--auth-nocache", "--remap-usr1", "SIGTERM", "--connect-retry-max", "3"]
-        XCTAssertEqual(HelperCore.openVPNArguments(configPath: "/c", mgmtSocket: "/m", clientUser: "alice", authFile: nil,
-                                                   dnsUpdown: "/r/dns-hook", hasDNSUpdown: false),
-                       common + ["--script-security", "2", "--route-up", "/r/dns-hook", "--down", "/r/dns-hook", "--down-pre"])
-        XCTAssertEqual(HelperCore.openVPNArguments(configPath: "/c", mgmtSocket: "/m", clientUser: "alice", authFile: nil,
-                                                   dnsUpdown: "/r/dns-hook"),
-                       common + ["--script-security", "2", "--dns-updown", "/r/dns-hook"], "as the Mac's")
+        let common =
+            HelperCore.ignoredPushPrefixes.flatMap { ["--pull-filter", "ignore", $0] } + [
+                "--server-poll-timeout", "10", "--config", "/c", "--verb", "3", "--management", "/m", "unix", "--management-client-user", "alice",
+                "--auth-nocache", "--remap-usr1", "SIGTERM", "--connect-retry-max", "3", "--tls-version-min", "1.2"
+            ]
+        XCTAssertEqual(
+            HelperCore.openVPNArguments(
+                configPath: "/c", mgmtSocket: "/m", clientUser: "alice", authFile: nil,
+                dnsUpdown: "/r/dns-hook", hasDNSUpdown: false),
+            common + ["--script-security", "2", "--route-up", "/r/dns-hook", "--down", "/r/dns-hook", "--down-pre"])
+        XCTAssertEqual(
+            HelperCore.openVPNArguments(
+                configPath: "/c", mgmtSocket: "/m", clientUser: "alice", authFile: nil,
+                dnsUpdown: "/r/dns-hook"),
+            common + ["--script-security", "2", "--dns-updown", "/r/dns-hook"], "as the Mac's")
     }
 }

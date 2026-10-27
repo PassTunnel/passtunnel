@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import PassTunnelCore
 @testable import PassTunnelKit
 
@@ -28,8 +29,9 @@ final class ProfileMergeTests: CoreTestCase {
         edited.name = "Acme Corp"
         edited.totp.digits = 8
         edited.autoReconnect = true
-        XCTAssertEqual(try ProfileMerge.changedFields(from: original, to: edited),
-                       ["auto_reconnect", "name", "totp.digits"])
+        XCTAssertEqual(
+            try ProfileMerge.changedFields(from: original, to: edited),
+            ["auto_reconnect", "name", "totp.digits"])
 
         let saved = try store.update(original.id) {
             $0 = try ProfileMerge.merge(original: original, edited: edited, current: $0)
@@ -55,7 +57,9 @@ final class ProfileMergeTests: CoreTestCase {
 
     func testUnchangedEditorKeepsTheStoredProfile() throws {
         let original = try makeProfile()
-        let current = try store.update(original.id) { $0.order = 7; $0.lastUsername = "carol" }
+        let current = try store.update(original.id) {
+            $0.order = 7; $0.lastUsername = "carol"
+        }
         XCTAssertEqual(try ProfileMerge.changedFields(from: original, to: original), [])
         XCTAssertEqual(try ProfileMerge.merge(original: original, edited: original, current: current), current)
     }

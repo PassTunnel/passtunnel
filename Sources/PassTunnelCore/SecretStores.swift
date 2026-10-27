@@ -1,5 +1,6 @@
 import Foundation
 import PassTunnelKit
+
 #if canImport(Glibc)
 import Glibc
 #endif
@@ -69,8 +70,10 @@ struct SecretStoreSelection: Equatable {
     var store: SecretStoreChoice
     var source: SecretStoreSource
 
-    static func resolve(environment: String?, setting: SecretStoreChoice, recorded: SecretStoreChoice?,
-                        detect: () -> SecretStoreChoice) throws -> SecretStoreSelection {
+    static func resolve(
+        environment: String?, setting: SecretStoreChoice, recorded: SecretStoreChoice?,
+        detect: () -> SecretStoreChoice
+    ) throws -> SecretStoreSelection {
         if let environment {
             guard let choice = SecretStoreChoice(rawValue: environment) else {
                 throw SecretStoreUnavailable.unknownStore(environment)
@@ -106,8 +109,10 @@ struct SecretStoreSystem {
     var cachesProbes = false
 
     /// The variables the stores read (and pass on, in part, to their tools).
-    static let environmentNames = ["HOME", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "PASSTUNNEL_HOME",
-                                   "PASSTUNNEL_SECRET_STORE", FileSecretStore.passphraseFileVariable]
+    static let environmentNames = [
+        "HOME", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "PASSTUNNEL_HOME",
+        "PASSTUNNEL_SECRET_STORE", FileSecretStore.passphraseFileVariable
+    ]
 
     /// This process: its environment now, its user, the support directory and `SecretStores.interaction`.
     static func current(service: String) -> SecretStoreSystem {
@@ -182,8 +187,10 @@ public enum SecretStores {
     static func chosen(system: SecretStoreSystem) -> ChosenSecretStore {
         let prefs = Preferences.load(paths: system.paths)
         let selection = Result<SecretStoreSelection, Error> {
-            try SecretStoreSelection.resolve(environment: environmentChoice(system), setting: prefs.secretStore,
-                                             recorded: prefs.secretStoreUsed) { detect(system) }
+            try SecretStoreSelection.resolve(
+                environment: environmentChoice(system), setting: prefs.secretStore,
+                recorded: prefs.secretStoreUsed
+            ) { detect(system) }
         }.mapError { $0 as? SecretStoreUnavailable ?? SecretStoreUnavailable($0.localizedDescription) }
         return ChosenSecretStore(selection: selection, system: system)
     }
@@ -233,9 +240,10 @@ public enum SecretStores {
         let service = Env.keychainService
         #if DEBUG
         if Env.secretStore == MemorySecretStore.name {
-            return SecretStoreReport(name: MemorySecretStore.name, available: true,
-                                     setting: Preferences.load().secretStore.rawValue,
-                                     chosenBy: SecretStoreSource.environment.rawValue)
+            return SecretStoreReport(
+                name: MemorySecretStore.name, available: true,
+                setting: Preferences.load().secretStore.rawValue,
+                chosenBy: SecretStoreSource.environment.rawValue)
         }
         #endif
         return report(system: .current(service: service))
@@ -247,11 +255,13 @@ public enum SecretStores {
         switch chosen.selection {
         case let .success(selection):
             let problem = system.unavailability(selection.store)
-            return SecretStoreReport(name: selection.store.rawValue, available: problem == nil, setting: setting,
-                                     chosenBy: selection.source.rawValue, error: problem?.message)
+            return SecretStoreReport(
+                name: selection.store.rawValue, available: problem == nil, setting: setting,
+                chosenBy: selection.source.rawValue, error: problem?.message)
         case let .failure(error):
-            return SecretStoreReport(name: environmentChoice(system) ?? "", available: false, setting: setting,
-                                     chosenBy: SecretStoreSource.environment.rawValue, error: error.message)
+            return SecretStoreReport(
+                name: environmentChoice(system) ?? "", available: false, setting: setting,
+                chosenBy: SecretStoreSource.environment.rawValue, error: error.message)
         }
     }
 
@@ -268,7 +278,8 @@ public enum SecretStores {
 
 extension SecretStoreUnavailable {
     static func unknownStore(_ name: String) -> Self {
-        Self(String(localized: "PASSTUNNEL_SECRET_STORE is “\(name)”, which is not a secret store (use auto, secret-service, systemd-creds or file)."))
+        Self(
+            String(localized: "PASSTUNNEL_SECRET_STORE is “\(name)”, which is not a secret store (use auto, secret-service, systemd-creds or file)."))
     }
 
     static var secretServiceToolMissing: Self {
@@ -276,7 +287,11 @@ extension SecretStoreUnavailable {
     }
 
     static var secretServiceNoBus: Self {
-        Self(String(localized: "The Secret Service cannot be reached: there is no session bus here (for example over SSH). Use PassTunnel in your desktop session, or choose another store with “passtunnel secret-store”."))
+        Self(
+            String(
+                localized:
+                    "The Secret Service cannot be reached: there is no session bus here (for example over SSH). Use PassTunnel in your desktop session, or choose another store with “passtunnel secret-store”."
+            ))
     }
 
     static func secretServiceTimeout(_ seconds: Int) -> Self {
@@ -316,11 +331,17 @@ extension SecretStoreUnavailable {
     }
 
     static var noPassphrase: Self {
-        Self(String(localized: "The secrets file is protected by a passphrase, which cannot be asked for here: run the command in a terminal, or set PASSTUNNEL_PASSPHRASE_FILE to a file that holds it."))
+        Self(
+            String(
+                localized:
+                    "The secrets file is protected by a passphrase, which cannot be asked for here: run the command in a terminal, or set PASSTUNNEL_PASSPHRASE_FILE to a file that holds it."
+            ))
     }
 
     static func passphraseFile(_ path: String) -> Self {
-        Self(String(localized: "PASSTUNNEL_PASSPHRASE_FILE must name a regular file that belongs to you and that only you can read (chmod 600): \(path)"))
+        Self(
+            String(
+                localized: "PASSTUNNEL_PASSPHRASE_FILE must name a regular file that belongs to you and that only you can read (chmod 600): \(path)"))
     }
 
     static var noPassphraseEntered: Self {

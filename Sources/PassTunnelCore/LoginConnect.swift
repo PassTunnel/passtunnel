@@ -54,8 +54,10 @@ public final class LoginConnector {
     private let readiness: () -> Readiness
     private let notify: (ConnectionNotice) -> Void
 
-    public init(manager: ConnectionManager, clock: ConnectionClock = SystemClock(),
-                readiness: @escaping () -> Readiness, notify: @escaping (ConnectionNotice) -> Void) {
+    public init(
+        manager: ConnectionManager, clock: ConnectionClock = SystemClock(),
+        readiness: @escaping () -> Readiness, notify: @escaping (ConnectionNotice) -> Void
+    ) {
         self.manager = manager
         self.clock = clock
         self.readiness = readiness
@@ -87,8 +89,10 @@ public final class LoginConnector {
     private func handle(_ p: Profile, ready: Readiness) async -> Outcome {
         if manager.state(p.id).isActive { return .alreadyActive }
         guard ready.isReady else {
-            let reason = ready.helper ? String(localized: "This Mac is offline.")
-                                      : String(localized: "The PassTunnel helper is not ready.")
+            let reason =
+                ready.helper
+                ? String(localized: "This Mac is offline.")
+                : String(localized: "The PassTunnel helper is not ready.")
             notify(.notConnectedAtLogin(subject(p), reason: reason, profileID: p.id))
             return .failed(reason: reason)
         }

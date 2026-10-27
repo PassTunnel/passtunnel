@@ -12,17 +12,19 @@ enum RenderSnapshots {
     /// Backing scale from `PASSTUNNEL_RENDER_SCALE` (1–8), if set.
     static let scaleOverride: CGFloat? = {
         guard let raw = ProcessInfo.processInfo.environment["PASSTUNNEL_RENDER_SCALE"], let value = Double(raw),
-              (1...8).contains(value) else { return nil }
+            (1...8).contains(value)
+        else { return nil }
         return CGFloat(value)
     }()
 
     static var scale: CGFloat { scaleOverride ?? 2 }
 
     static func bitmap(_ size: CGSize, scale: CGFloat) -> NSBitmapImageRep {
-        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int((size.width * scale).rounded()),
-                                   pixelsHigh: Int((size.height * scale).rounded()),
-                                   bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-                                   colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: Int((size.width * scale).rounded()),
+            pixelsHigh: Int((size.height * scale).rounded()),
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
         rep.size = size
         return rep
     }
@@ -53,8 +55,9 @@ enum RenderSnapshots {
             emptyModel.previewStates = [:]
             emptyModel.previewErrors = [:]
             for dark in [false, true] {
-                snapshot(MenuBarPanelPreview(now: Date()).environmentObject(emptyModel), size: nil, dark: dark, to: out,
-                         name: "menubar-panel-empty")
+                snapshot(
+                    MenuBarPanelPreview(now: Date()).environmentObject(emptyModel), size: nil, dark: dark, to: out,
+                    name: "menubar-panel-empty")
             }
             renderFirstRun(emptyModel, to: out)
 
@@ -62,8 +65,9 @@ enum RenderSnapshots {
             for contrast in [false, true] {
                 Palette.previewIncreasedContrast = contrast
                 for dark in [false, true] {
-                    snapshot(DesignGallery(isDark: dark, isContrast: contrast), size: nil, dark: dark, to: out,
-                             name: contrast ? "components-contrast" : "components")
+                    snapshot(
+                        DesignGallery(isDark: dark, isContrast: contrast), size: nil, dark: dark, to: out,
+                        name: contrast ? "components-contrast" : "components")
                 }
             }
             Palette.previewIncreasedContrast = false
@@ -94,8 +98,9 @@ enum RenderSnapshots {
             if let needy = model.profiles.first(where: { !$0.needs.isEmpty }) {
                 let req = CredentialRequest(profile: needy, needs: needy.needs)
                 for dark in [false, true] {
-                    snapshot(CredentialSheet(request: req).environmentObject(model), size: nil,
-                             dark: dark, to: out, name: "credential-sheet")
+                    snapshot(
+                        CredentialSheet(request: req).environmentObject(model), size: nil,
+                        dark: dark, to: out, name: "credential-sheet")
                 }
             }
 
@@ -115,7 +120,8 @@ enum RenderSnapshots {
                     // The badges alone on a transparent background, at the render scale.
                     let bare = MenuBarIcon.rendered(badges: badges, palette: palette, dark: dark, scale: scale)
                     if let rep = bare.representations.first as? NSBitmapImageRep,
-                       let png = rep.representation(using: .png, properties: [:]) {
+                        let png = rep.representation(using: .png, properties: [:])
+                    {
                         try? png.write(to: out.appendingPathComponent("menubar-badges-\(palette.rawValue)\(dark ? "-dark" : "").png"))
                     }
                 }
@@ -127,13 +133,15 @@ enum RenderSnapshots {
             for tab in SettingsTab.allCases {
                 for dark in [false, true] {
                     let pane = tabView(tab, model: model)
-                    snapshot(pane.frame(width: 540).environmentObject(model), size: nil, dark: dark, to: out,
-                             name: "settings-\(tab.rawValue)", window: true)
+                    snapshot(
+                        pane.frame(width: 540).environmentObject(model), size: nil, dark: dark, to: out,
+                        name: "settings-\(tab.rawValue)", window: true)
                 }
             }
             let approval = GeneralSettings(previewLoginStatus: .requiresApproval, fullHeight: true, licensesAvailable: true)
-            snapshot(approval.frame(width: 540).environmentObject(model),
-                     size: nil, dark: false, to: out, name: "settings-general-login-approval", window: true)
+            snapshot(
+                approval.frame(width: 540).environmentObject(model),
+                size: nil, dark: false, to: out, name: "settings-general-login-approval", window: true)
 
             renderSplitWindow(model, sample: sample, store: store, now: now, to: out)
             try renderImportReview(model, home: home, store: store, now: now, to: out)
@@ -144,8 +152,9 @@ enum RenderSnapshots {
             // scrolls); then three (connected, Touch ID to connect with the code locked, dropped) with auto-type on.
             // Last, as it deletes sample profiles. Without an authenticator, turning on "Confirm with Touch ID"
             // encrypts nothing and makes no Secure Enclave key.
-            let panel = AppModel(paths: paths, connections: ConnectionManager(authenticator: UnavailableAuthenticator()),
-                                 live: false)
+            let panel = AppModel(
+                paths: paths, connections: ConnectionManager(authenticator: UnavailableAuthenticator()),
+                live: false)
             panel.previewNow = now
             panel.previewStates = sample.states(now)
             panel.previewErrors = sample.errors
@@ -158,8 +167,9 @@ enum RenderSnapshots {
                 panel.reload()
             }
             for dark in [false, true] {
-                snapshot(MenuBarPanelPreview(now: now).environmentObject(panel), size: nil, dark: dark, to: out,
-                         name: "menubar-panel-pinned")
+                snapshot(
+                    MenuBarPanelPreview(now: now).environmentObject(panel), size: nil, dark: dark, to: out,
+                    name: "menubar-panel-pinned")
             }
             try pin([work])
             panel.previewStates = sample.states(now).filter { $0.key == work }
@@ -167,23 +177,26 @@ enum RenderSnapshots {
             panel.previewUnreachable = []
             panel.setPreviewDropped([home])
             for dark in [false, true] {
-                snapshot(MenuBarPanelPreview(now: now).environmentObject(panel), size: nil, dark: dark, to: out,
-                         name: "menubar-panel-dropped")
+                snapshot(
+                    MenuBarPanelPreview(now: now).environmentObject(panel), size: nil, dark: dark, to: out,
+                    name: "menubar-panel-dropped")
             }
             try pin([])
             panel.previewStates = [:]
             panel.setPreviewDropped([])
             for dark in [false, true] {
-                snapshot(MenuBarPanelPreview(now: now).environmentObject(panel), size: nil, dark: dark, to: out,
-                         name: "menubar-panel-idle")
+                snapshot(
+                    MenuBarPanelPreview(now: now).environmentObject(panel), size: nil, dark: dark, to: out,
+                    name: "menubar-panel-idle")
             }
             panel.previewStates = sample.states(now)
             panel.previewErrors = sample.errors
             panel.previewUnreachable = sample.unreachable
             panel.setPreviewDropped(sample.dropped)
             for dark in [false, true] {
-                snapshot(MenuBarPanelPreview(now: now).environmentObject(panel), size: nil, dark: dark, to: out,
-                         name: "menubar-panel-scroll")
+                snapshot(
+                    MenuBarPanelPreview(now: now).environmentObject(panel), size: nil, dark: dark, to: out,
+                    name: "menubar-panel-scroll")
             }
             try pin([work, staging, travel])
             for id in sample.ids where ![work, staging, travel].contains(id) { try store.delete(id) }
@@ -194,8 +207,9 @@ enum RenderSnapshots {
             panel.previewLockedCodes = [staging]
             panel.prefs.autoType = true
             for dark in [false, true] {
-                snapshot(MenuBarPanelPreview(now: now).environmentObject(panel), size: nil, dark: dark, to: out,
-                         name: "menubar-panel")
+                snapshot(
+                    MenuBarPanelPreview(now: now).environmentObject(panel), size: nil, dark: dark, to: out,
+                    name: "menubar-panel")
             }
 
             // The website's hero (`main-split-hero`): a narrower window with two tunnels, Work (connected) selected,
@@ -211,8 +225,9 @@ enum RenderSnapshots {
             model.selection = work
             model.previewNow = now
             for dark in [false, true] {
-                snapshot(SplitWindowRender().environmentObject(model), size: CGSize(width: 800, height: 580), dark: dark,
-                         to: out, name: "main-split-hero", window: true)
+                snapshot(
+                    SplitWindowRender().environmentObject(model), size: CGSize(width: 800, height: 580), dark: dark,
+                    to: out, name: "main-split-hero", window: true)
             }
         } catch {
             FileHandle.standardError.write(Data("render failed: \(error.localizedDescription)\n".utf8))
@@ -230,10 +245,12 @@ enum RenderSnapshots {
     /// cards stacked) and `-template` (a custom code format). Sets its own overrides and leaves the model and the
     /// profiles as it found them.
     private static func renderSplitWindow(_ model: AppModel, sample: Sample, store: ProfileStore, now: Date, to out: URL) {
-        let ids = sample.ids   // work, lab, home, staging, client, travel
-        let configs = [ids[0]: "client\nremote vpn.example.com 1194 udp\n",
-                       ids[2]: "client\nproto tcp\nremote 203.0.113.10 443\n",
-                       ids[5]: "client\nremote vpn2.example.com 1194\nremote vpn3.example.com 1194\n"]
+        let ids = sample.ids  // work, lab, home, staging, client, travel
+        let configs = [
+            ids[0]: "client\nremote vpn.example.com 1194 udp\n",
+            ids[2]: "client\nproto tcp\nremote 203.0.113.10 443\n",
+            ids[5]: "client\nremote vpn2.example.com 1194\nremote vpn3.example.com 1194\n"
+        ]
         for (id, text) in configs { try? Data(text.utf8).write(to: store.ovpnURL(id)) }
         // A connect waits into the next window: shown 3.6 s before it starts.
         let nextWindow = CodeCard.nextWindow(TOTPParams(), after: now)
@@ -244,8 +261,9 @@ enum RenderSnapshots {
         let selection = model.selection
         func render(_ suffix: String, size: CGSize = CGSize(width: 1080, height: 700)) {
             for dark in [false, true] {
-                snapshot(SplitWindowRender().environmentObject(model), size: size, dark: dark, to: out,
-                         name: "main-split\(suffix)", window: true)
+                snapshot(
+                    SplitWindowRender().environmentObject(model), size: size, dark: dark, to: out,
+                    name: "main-split\(suffix)", window: true)
             }
         }
         let shown = [(ids[0], ""), (ids[3], "-waiting"), (ids[5], "-dropped"), (ids[2], "-off"), (ids[4], "-failed")]
@@ -263,16 +281,18 @@ enum RenderSnapshots {
         model.prefs.hideCodes = true
         render("-hidden")
         model.prefs.hideCodes = false
-        model.setPreviewCopy(CodeCard.Copy(profileID: ids[0], kind: .code, at: now,
-                                           window: TOTP.counter(params: TOTPParams(), at: now)))
+        model.setPreviewCopy(
+            CodeCard.Copy(
+                profileID: ids[0], kind: .code, at: now,
+                window: TOTP.counter(params: TOTPParams(), at: now)))
         render("-copied")
         model.setPreviewCopy(nil)
         render("-narrow", size: CGSize(width: 820, height: 640))
         let template = model.profile(ids[0])?.otpTemplate ?? OTPTemplatePreset.append.rawValue
-        try? store.update(ids[0]) { $0.otpTemplate = "{otp}-{password}" }
+        _ = try? store.update(ids[0]) { $0.otpTemplate = "{otp}-{password}" }
         model.reload()
         render("-template")
-        try? store.update(ids[0]) { $0.otpTemplate = template }
+        _ = try? store.update(ids[0]) { $0.otpTemplate = template }
         model.reload()
 
         // The add view the sidebar's + opens (`add-vpn`), and the question about opening at login under the detail
@@ -283,16 +303,18 @@ enum RenderSnapshots {
         model.selection = nil
         model.addingProfile = true
         for dark in [false, true] {
-            snapshot(SplitWindowRender().environmentObject(model), size: CGSize(width: 1080, height: 700),
-                     dark: dark, to: out, name: "add-vpn", window: true)
+            snapshot(
+                SplitWindowRender().environmentObject(model), size: CGSize(width: 1080, height: 700),
+                dark: dark, to: out, name: "add-vpn", window: true)
         }
         model.addingProfile = false
         model.previewHelperStatus = helper
         model.refreshHelperStatus()
         model.selection = ids[0]
         for dark in [false, true] {
-            snapshot(SplitWindowRender(loginQuestion: true).environmentObject(model), size: CGSize(width: 1080, height: 700),
-                     dark: dark, to: out, name: "main-split-login", window: true)
+            snapshot(
+                SplitWindowRender(loginQuestion: true).environmentObject(model), size: CGSize(width: 1080, height: 700),
+                dark: dark, to: out, name: "main-split-login", window: true)
         }
         // The window "Show all" opens: the connected profile's whole activity, only its errors, and a profile without any.
         func renderActivityLog(_ id: String, _ name: String, errorsOnly: Bool = false) {
@@ -302,8 +324,9 @@ enum RenderSnapshots {
                 let content = ActivityLogContent(model: model, profile: profile, errorsOnly: errorsOnly)
                     .navigationTitle(profile.name)
                     .navigationSubtitle(String(localized: "Activity"))
-                snapshot(content.environmentObject(model), size: CGSize(width: 620, height: 460), dark: dark, to: out,
-                         name: name, window: true)
+                snapshot(
+                    content.environmentObject(model), size: CGSize(width: 620, height: 460), dark: dark, to: out,
+                    name: name, window: true)
             }
         }
         renderActivityLog(ids[0], "activity-log")
@@ -338,14 +361,17 @@ enum RenderSnapshots {
             model.selection = before
         }
         // The profile under test is not connected; the others keep their states.
-        func render(_ name: String, profile: String, failure: ConnectionFailure?, error: String,
-                    retry: UnreachableRetry? = nil, network: NetworkStatus = .unknown, clocks: [ClockOffset] = [],
-                    events: [ActivityEvent] = [], size: CGSize = CGSize(width: 1080, height: 700)) {
+        func render(
+            _ name: String, profile: String, failure: ConnectionFailure?, error: String,
+            retry: UnreachableRetry? = nil, network: NetworkStatus = .unknown, clocks: [ClockOffset] = [],
+            events: [ActivityEvent] = [], size: CGSize = CGSize(width: 1080, height: 700)
+        ) {
             model.previewStates = states?.filter { $0.key != profile }
             model.previewErrors = (errors ?? [:]).merging([profile: error]) { $1 }
             model.previewActivity = [profile: events]
-            model.previewFailures = FailurePreview(failures: failure.map { [profile: $0] } ?? [:],
-                                                   retries: retry.map { [profile: $0] } ?? [:], network: network, clocks: clocks)
+            model.previewFailures = FailurePreview(
+                failures: failure.map { [profile: $0] } ?? [:],
+                retries: retry.map { [profile: $0] } ?? [:], network: network, clocks: clocks)
             model.selection = profile
             for dark in [false, true] {
                 snapshot(SplitWindowRender().environmentObject(model), size: size, dark: dark, to: out, name: name, window: true)
@@ -357,13 +383,18 @@ enum RenderSnapshots {
         }
 
         // Sign-in rejected: the code was fresh (22 s left), the clock behind (the gateway's time), and the password.
-        var rejected = ConnectionFailure(kind: .authRejected, at: now.addingTimeInterval(-2), reply: "AUTH_FAILED",
-                                         credentialsSent: true, codeSent: true, codeSecondsLeft: 22)
+        var rejected = ConnectionFailure(
+            kind: .authRejected, at: now.addingTimeInterval(-2), reply: "AUTH_FAILED",
+            credentialsSent: true, codeSent: true, codeSecondsLeft: 22)
         let rejectedError = PTError.authFailed("").localizedDescription
-        let sent = ActivityEvent.Kind.sending(.init(username: "sam", password: true, code: true, codePrefix: "604", secondsLeft: 22,
-                                                    format: OTPTemplatePreset.append.rawValue))
-        let rejectedEvents = [event(5, .connecting(host: "vpn.example.com", port: 1194, transport: "udp")), event(3, sent),
-                              event(2, .rejected(reply: "AUTH_FAILED"))]
+        let sent = ActivityEvent.Kind.sending(
+            .init(
+                username: "sam", password: true, code: true, codePrefix: "604", secondsLeft: 22,
+                format: OTPTemplatePreset.append.rawValue))
+        let rejectedEvents = [
+            event(5, .connecting(host: "vpn.example.com", port: 1194, transport: "udp")), event(3, sent),
+            event(2, .rejected(reply: "AUTH_FAILED"))
+        ]
         let behind = clock(48, .gateway, "vpn.example.com")
         rejected.clock = behind
         render("error-rejected-clock", profile: work, failure: rejected, error: rejectedError, clocks: [behind], events: rejectedEvents)
@@ -377,29 +408,41 @@ enum RenderSnapshots {
         let timeout = "Connection timed out"
         let failure = ConnectionFailure(kind: .unreachable, at: now.addingTimeInterval(-12), reason: timeout, tries: 3)
         let unreachableError = PTError.serverUnreachable(server: "203.0.113.10:443", reason: timeout, log: "").localizedDescription
-        let unreachableEvents = [event(42, .connecting(host: "203.0.113.10", port: 443, transport: "tcp")),
-                                 event(12, .unreachable(tries: 3, reason: timeout)), event(12, .nextTry(at: now.addingTimeInterval(18)))]
+        let unreachableEvents = [
+            event(42, .connecting(host: "203.0.113.10", port: 443, transport: "tcp")),
+            event(12, .unreachable(tries: 3, reason: timeout)), event(12, .nextTry(at: now.addingTimeInterval(18)))
+        ]
         let wifi = NetworkStatus(online: true, interface: .wifi)
         func retry(next: TimeInterval?, waiting: Bool = false) -> UnreachableRetry {
-            UnreachableRetry(tries: 3, maxTries: 5, nextTryAt: next.map { now.addingTimeInterval($0) }, waitingForNetwork: waiting,
-                             firstFailedAt: now.addingTimeInterval(-42), lastFailedAt: now.addingTimeInterval(-12))
+            UnreachableRetry(
+                tries: 3, maxTries: 5, nextTryAt: next.map { now.addingTimeInterval($0) }, waitingForNetwork: waiting,
+                firstFailedAt: now.addingTimeInterval(-42), lastFailedAt: now.addingTimeInterval(-12))
         }
-        render("error-unreachable", profile: homeLab, failure: failure, error: unreachableError, retry: retry(next: 18), network: wifi,
-               events: unreachableEvents)
-        render("error-unreachable-offline", profile: homeLab, failure: failure, error: unreachableError,
-               retry: retry(next: nil, waiting: true), network: NetworkStatus(online: false), events: unreachableEvents)
-        render("error-unreachable-ended", profile: homeLab, failure: failure, error: unreachableError, network: wifi,
-               events: unreachableEvents)
+        render(
+            "error-unreachable", profile: homeLab, failure: failure, error: unreachableError, retry: retry(next: 18), network: wifi,
+            events: unreachableEvents)
+        render(
+            "error-unreachable-offline", profile: homeLab, failure: failure, error: unreachableError,
+            retry: retry(next: nil, waiting: true), network: NetworkStatus(online: false), events: unreachableEvents)
+        render(
+            "error-unreachable-ended", profile: homeLab, failure: failure, error: unreachableError, network: wifi,
+            events: unreachableEvents)
 
         // A name that was not found, and another failure with the tool's reason.
-        render("error-host-not-found", profile: staging, failure: ConnectionFailure(kind: .hostNotFound, at: now),
-               error: PTError.hostNotFound(server: "staging.example.net:443", log: "").localizedDescription,
-               events: [event(4, .connecting(host: "staging.example.net", port: 443, transport: "tcp")),
-                        event(2, .failed(kind: .hostNotFound, reason: nil, credentialsSent: false))])
-        render("error-other", profile: travel, failure: ConnectionFailure(kind: .failed, at: now, reason: "Connection reset by peer"),
-               error: String(localized: "The VPN connection could not be established. See the log for details."),
-               events: [event(4, .connecting(host: "vpn2.example.com", port: 1194, transport: "udp")),
-                        event(2, .failed(kind: .failed, reason: "Connection reset by peer", credentialsSent: false))])
+        render(
+            "error-host-not-found", profile: staging, failure: ConnectionFailure(kind: .hostNotFound, at: now),
+            error: PTError.hostNotFound(server: "staging.example.net:443", log: "").localizedDescription,
+            events: [
+                event(4, .connecting(host: "staging.example.net", port: 443, transport: "tcp")),
+                event(2, .failed(kind: .hostNotFound, reason: nil, credentialsSent: false))
+            ])
+        render(
+            "error-other", profile: travel, failure: ConnectionFailure(kind: .failed, at: now, reason: "Connection reset by peer"),
+            error: String(localized: "The VPN connection could not be established. See the log for details."),
+            events: [
+                event(4, .connecting(host: "vpn2.example.com", port: 1194, transport: "udp")),
+                event(2, .failed(kind: .failed, reason: "Connection reset by peer", credentialsSent: false))
+            ])
 
         // The banner over a profile that is connected.
         model.previewStates = states
@@ -408,14 +451,16 @@ enum RenderSnapshots {
         model.previewFailures = FailurePreview(clocks: [behind])
         model.selection = work
         for dark in [false, true] {
-            snapshot(SplitWindowRender().environmentObject(model), size: CGSize(width: 1080, height: 700), dark: dark, to: out,
-                     name: "error-clock-banner", window: true)
+            snapshot(
+                SplitWindowRender().environmentObject(model), size: CGSize(width: 1080, height: 700), dark: dark, to: out,
+                name: "error-clock-banner", window: true)
         }
         model.previewFailures = FailurePreview(clocks: [behind])
         model.selection = work
         for dark in [false, true] {
-            snapshot(SplitWindowRender().environmentObject(model), size: CGSize(width: 820, height: 640), dark: dark, to: out,
-                     name: "error-clock-banner-narrow", window: true)
+            snapshot(
+                SplitWindowRender().environmentObject(model), size: CGSize(width: 820, height: 640), dark: dark, to: out,
+                name: "error-clock-banner-narrow", window: true)
         }
 
         // "Data Center overlaps with Work": the same network and the same names, behind different DNS servers.
@@ -424,9 +469,10 @@ enum RenderSnapshots {
         if let p = model.profile(dataCenter) {
             let overlap = ProfileOverlap(profileID: work, name: "Work", overlaps: mine.overlaps(with: theirs), mine: mine, theirs: theirs)
             for dark in [false, true] {
-                snapshot(OverlapSheet(request: OverlapRequest(profile: p, overlaps: [overlap]))
-                            .background(Palette.background).environmentObject(model),
-                         size: nil, dark: dark, to: out, name: "overlap-sheet")
+                snapshot(
+                    OverlapSheet(request: OverlapRequest(profile: p, overlaps: [overlap]))
+                        .background(Palette.background).environmentObject(model),
+                    size: nil, dark: dark, to: out, name: "overlap-sheet")
             }
         }
     }
@@ -438,8 +484,10 @@ enum RenderSnapshots {
             ActivityEvent(at: now.addingTimeInterval(-ago), kind)
         }
         func sending(_ user: String, code prefix: String, left: Int? = 22) -> ActivityEvent.Kind {
-            .sending(.init(username: user, password: true, code: true, codePrefix: prefix, secondsLeft: left,
-                           format: OTPTemplatePreset.append.rawValue))
+            .sending(
+                .init(
+                    username: user, password: true, code: true, codePrefix: prefix, secondsLeft: left,
+                    format: OTPTemplatePreset.append.rawValue))
         }
         let up: TimeInterval = 72 * 60 + 14
         let work: [ActivityEvent] = [
@@ -457,7 +505,7 @@ enum RenderSnapshots {
             event(up + 3, .waitingForCode(reason: .used, seconds: 9, codePrefix: "604")),
             event(up + 2, sending("sam", code: "604")),
             event(up + 1, .authAccepted),
-            event(up, .connected(address: "10.8.0.6")),
+            event(up, .connected(address: "10.8.0.6"))
         ]
         let travel: [ActivityEvent] = [
             event(3 * 3600 + 40, .connecting(host: "vpn2.example.com", port: 1194, transport: "udp")),
@@ -467,16 +515,16 @@ enum RenderSnapshots {
             event(3 * 3600 + 3, sending("sam", code: "482")),
             event(3 * 3600 + 1, .connected(address: "10.8.1.14")),
             event(30, .linkDropped(willReconnect: true)),
-            event(25, .reconnecting(attempt: 1, of: 3)),
+            event(25, .reconnecting(attempt: 1, of: 3))
         ]
         let staging: [ActivityEvent] = [
             ActivityEvent(at: waitingNow.addingTimeInterval(-1), .connecting(host: "staging.example.net", port: 443, transport: "tcp")),
-            ActivityEvent(at: waitingNow, .waitingForCode(reason: .expiring, seconds: 4, codePrefix: "482")),
+            ActivityEvent(at: waitingNow, .waitingForCode(reason: .expiring, seconds: 4, codePrefix: "482"))
         ]
         let partner: [ActivityEvent] = [
             event(95, .connecting(host: "203.0.113.20", port: 1194, transport: "udp")),
             event(93, .sending(.init(username: "s.guest", password: true, code: false))),
-            event(92, .rejected(reply: "AUTH_FAILED")),
+            event(92, .rejected(reply: "AUTH_FAILED"))
         ]
         return [ids[0]: work, ids[3]: staging, ids[4]: partner, ids[5]: travel]
     }
@@ -488,8 +536,9 @@ enum RenderSnapshots {
             model.previewHelperStatus = status
             model.refreshHelperStatus()
             for dark in status == .notRegistered ? [false, true] : [false] {
-                snapshot(SplitWindowRender().environmentObject(model), size: CGSize(width: 1080, height: 700),
-                         dark: dark, to: out, name: name, window: true)
+                snapshot(
+                    SplitWindowRender().environmentObject(model), size: CGSize(width: 1080, height: 700),
+                    dark: dark, to: out, name: name, window: true)
             }
         }
         model.previewHelperStatus = nil
@@ -499,12 +548,15 @@ enum RenderSnapshots {
     /// (two lines skipped, the code secret missing), `-ready` with the secret added, `-certificate` for a
     /// certificate-only file whose keys come from files next to it, and `-narrow` at the window's smallest size, where
     /// the columns stack. Nothing is added; the model is left as it was found.
-    private static func renderImportReview(_ model: AppModel, home: URL, store: ProfileStore, now: Date,
-                                           to out: URL) throws {
+    private static func renderImportReview(
+        _ model: AppModel, home: URL, store: ProfileStore, now: Date,
+        to out: URL
+    ) throws {
         let downloads = home.appendingPathComponent("Downloads", isDirectory: true)
         try FileManager.default.createDirectory(at: downloads, withIntermediateDirectories: true)
         let pem = "-----BEGIN CERTIFICATE-----\nMIIBCA==\n-----END CERTIFICATE-----\n"
-        let work = "client\ndev tun\nremote vpn.example.com 1194 udp\nscript-security 2\nup /etc/openvpn/update-dns\n"
+        let work =
+            "client\ndev tun\nremote vpn.example.com 1194 udp\nscript-security 2\nup /etc/openvpn/update-dns\n"
             + "<ca>\n\(pem)</ca>\n<cert>\n\(pem)</cert>\n<key>\n-----BEGIN PRIVATE KEY-----\nMIIBCC==\n"
             + "-----END PRIVATE KEY-----\n</key>\n<auth-user-pass>\nalice\nsample-password\n</auth-user-pass>\n"
             + "static-challenge \"Enter code\" 1\n"
@@ -513,7 +565,7 @@ enum RenderSnapshots {
             "home-lab.ovpn": Data("client\nremote 203.0.113.10 443 tcp\nca ca.crt\npkcs12 home.p12\ntls-crypt ta.key\n".utf8),
             "ca.crt": Data(pem.utf8),
             "home.p12": Data([0, 1, 2, 3]),
-            "ta.key": Data("-----BEGIN OpenVPN Static key V1-----\n0123abcd\n-----END OpenVPN Static key V1-----\n".utf8),
+            "ta.key": Data("-----BEGIN OpenVPN Static key V1-----\n0123abcd\n-----END OpenVPN Static key V1-----\n".utf8)
         ]
         for (name, data) in files { try data.write(to: downloads.appendingPathComponent(name)) }
 
@@ -522,16 +574,19 @@ enum RenderSnapshots {
             model.importReview = nil
             model.selection = selection
         }
-        func render(_ file: String, _ name: String, size: CGSize = CGSize(width: 1080, height: 700),
-                    edit: (ImportReviewModel) -> Void = { _ in }) throws {
+        func render(
+            _ file: String, _ name: String, size: CGSize = CGSize(width: 1080, height: 700),
+            edit: (ImportReviewModel) -> Void = { _ in }
+        ) throws {
             let review = ImportReviewModel(draft: try store.analyzeOVPN(downloads.appendingPathComponent(file)))
             review.previewNow = now
             edit(review)
             model.selection = nil
             model.importReview = review
             for dark in [false, true] {
-                snapshot(SplitWindowRender().environmentObject(model), size: size, dark: dark, to: out, name: name,
-                         window: true)
+                snapshot(
+                    SplitWindowRender().environmentObject(model), size: size, dark: dark, to: out, name: name,
+                    window: true)
             }
         }
         try render("work.ovpn", "import-review") { $0.name = "Work" }
@@ -621,11 +676,13 @@ enum RenderSnapshots {
 
         return Sample(
             ids: [work.id, lab.id, home.id, staging.id, client.id, travel.id],
-            states: { now in [
-                work.id: .connected(ip: "10.8.0.6", since: now.addingTimeInterval(-(72 * 60 + 14))),
-                lab.id: .connected(ip: "172.16.4.21", since: now.addingTimeInterval(-540)),
-                staging.id: .connecting(String(localized: "Authenticating…")),
-            ] },
+            states: { now in
+                [
+                    work.id: .connected(ip: "10.8.0.6", since: now.addingTimeInterval(-(72 * 60 + 14))),
+                    lab.id: .connected(ip: "172.16.4.21", since: now.addingTimeInterval(-540)),
+                    staging.id: .connecting(String(localized: "Authenticating…"))
+                ]
+            },
             errors: [client.id: String(localized: "The server rejected the sign-in. Check the user name, password and one-time code.")],
             unreachable: [lab.id],
             dropped: [travel.id]
@@ -633,18 +690,18 @@ enum RenderSnapshots {
     }
 
     private static let sampleNotices = """
-    openvpn          2.7.7      GPL-2.0 (with OpenSSL linking exception)
-                     https://openvpn.net/community-downloads/
+        openvpn          2.7.7      GPL-2.0 (with OpenSSL linking exception)
+                         https://openvpn.net/community-downloads/
 
-    openfortivpn     1.24.1     GPL-3.0 (with OpenSSL linking exception)
-                     https://github.com/adrienverge/openfortivpn
+        openfortivpn     1.24.1     GPL-3.0 (with OpenSSL linking exception)
+                         https://github.com/adrienverge/openfortivpn
 
-    lz4              1.10.0     BSD-2-Clause
-                     https://github.com/lz4/lz4
+        lz4              1.10.0     BSD-2-Clause
+                         https://github.com/lz4/lz4
 
-    openssl@3        3.6.4      Apache-2.0
-                     https://www.openssl.org/source/
-    """
+        openssl@3        3.6.4      Apache-2.0
+                         https://www.openssl.org/source/
+        """
 
     // MARK: rendering
 
@@ -714,8 +771,9 @@ enum RenderSnapshots {
         appearance.performAsCurrentDrawingAppearance {
             NSColor.windowBackgroundColor.setFill()
             full.fill()
-            content.draw(in: NSRect(x: 0, y: 0, width: size.width, height: size.height - titleBarHeight), from: .zero,
-                         operation: .sourceOver, fraction: 1, respectFlipped: false, hints: nil)
+            content.draw(
+                in: NSRect(x: 0, y: 0, width: size.width, height: size.height - titleBarHeight), from: .zero,
+                operation: .sourceOver, fraction: 1, respectFlipped: false, hints: nil)
             if let titleBar, titleBarHeight > 0 {
                 let strip = NSRect(x: 0, y: size.height - titleBarHeight, width: size.width, height: titleBarHeight)
                 NSColor.windowBackgroundColor.setFill()

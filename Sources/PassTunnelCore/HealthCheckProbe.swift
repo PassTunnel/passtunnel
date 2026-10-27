@@ -70,15 +70,19 @@ extension HealthCheck {
     /// The ping that sends one echo request to `host` and waits at most `seconds` for the reply; nil
     /// when there is none. macOS: `ping` (`-t`: the whole run) and `ping6`. Linux (iputils): `-W` (the
     /// wait for the reply) and `-6` for IPv6.
-    static func pingCommand(_ host: String, ipv6: Bool, seconds: Int,
-                            isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) })
-        -> (tool: String, arguments: [String])? {
+    static func pingCommand(
+        _ host: String, ipv6: Bool, seconds: Int,
+        isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
+    )
+        -> (tool: String, arguments: [String])?
+    {
         #if os(Linux)
         guard let tool = linuxPingPaths.first(where: isExecutable) else { return nil }
         return (tool, (ipv6 ? ["-6"] : []) + ["-n", "-q", "-c", "1", "-W", String(seconds), host])
         #else
-        return ipv6 ? ("/sbin/ping6", ["-n", "-q", "-c", "1", host])
-                    : ("/sbin/ping", ["-n", "-q", "-c", "1", "-t", String(seconds), host])
+        return ipv6
+            ? ("/sbin/ping6", ["-n", "-q", "-c", "1", host])
+            : ("/sbin/ping", ["-n", "-q", "-c", "1", "-t", String(seconds), host])
         #endif
     }
 
@@ -114,7 +118,8 @@ extension HealthCheck {
     /// "rtt min/avg/max/mdev = 0.06/0.07/0.08/0.00 ms" (Linux, iputils).
     static func roundTripMS(_ output: String) -> Int? {
         guard let line = output.split(separator: "\n").first(where: { $0.contains("round-trip") || $0.hasPrefix("rtt ") }),
-              let eq = line.firstIndex(of: "=") else { return nil }
+            let eq = line.firstIndex(of: "=")
+        else { return nil }
         let fields = line[line.index(after: eq)...].trimmingCharacters(in: .whitespaces).split(separator: "/")
         // A round trip is under a minute (the probe times out long before); anything else is not a time.
         guard fields.count >= 2, let avg = Double(fields[1]), (0...60_000).contains(avg) else { return nil }

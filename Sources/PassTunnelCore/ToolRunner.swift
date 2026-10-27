@@ -1,5 +1,6 @@
 import Foundation
 import PassTunnelKit
+
 #if canImport(Glibc)
 import Glibc
 #endif
@@ -44,8 +45,10 @@ struct ToolTimeout: Error, Equatable {
 /// given, with `input` on standard input. Secrets go over standard input and output only, never in
 /// arguments or the environment. A tool still running at the deadline is stopped (`ToolTimeout`).
 protocol ToolRunning {
-    func run(_ path: String, _ arguments: [String], environment: [String: String], input: Data,
-             timeout: TimeInterval) throws -> ToolOutput
+    func run(
+        _ path: String, _ arguments: [String], environment: [String: String], input: Data,
+        timeout: TimeInterval
+    ) throws -> ToolOutput
 }
 
 /// `ToolRunning` with Foundation's `Process`. Standard input is a socket pair, so a tool that exits
@@ -55,8 +58,10 @@ struct SystemToolRunner: ToolRunning {
     /// The most kept of each output stream.
     static let maxOutput = 1 << 20
 
-    func run(_ path: String, _ arguments: [String], environment: [String: String], input: Data,
-             timeout: TimeInterval) throws -> ToolOutput {
+    func run(
+        _ path: String, _ arguments: [String], environment: [String: String], input: Data,
+        timeout: TimeInterval
+    ) throws -> ToolOutput {
         let deadline = Date().addingTimeInterval(timeout)
         var pair: [Int32] = [-1, -1]
         guard socketpair(AF_UNIX, POSIXSocket.stream, 0, &pair) == 0 else { throw PTError.fileError(path) }
@@ -84,8 +89,9 @@ struct SystemToolRunner: ToolRunning {
         }
         try? childInput.close()
 
-        var streams = Streams(input: inputFD, output: output.fileHandleForReading.fileDescriptor,
-                              errorOutput: errorOutput.fileHandleForReading.fileDescriptor, pending: input)
+        var streams = Streams(
+            input: inputFD, output: output.fileHandleForReading.fileDescriptor,
+            errorOutput: errorOutput.fileHandleForReading.fileDescriptor, pending: input)
         defer { streams.wipe() }
         streams.pump(until: deadline)
 
@@ -98,8 +104,10 @@ struct SystemToolRunner: ToolRunning {
             }
             throw ToolTimeout(seconds: Int(timeout.rounded(.up)))
         }
-        let status = process.terminationReason == .uncaughtSignal ? 128 + process.terminationStatus
-                                                                  : process.terminationStatus
+        let status =
+            process.terminationReason == .uncaughtSignal
+            ? 128 + process.terminationStatus
+            : process.terminationStatus
         return ToolOutput(status: status, output: streams.output, errorOutput: streams.errorOutput)
     }
 
@@ -159,7 +167,7 @@ struct SystemToolRunner: ToolRunning {
                 written += n
                 if written == pending.count { closeInput() }
             } else if n < 0 && errno != EAGAIN && errno != EINTR {
-                closeInput()      // the tool closed its input (exited early): the rest is not needed
+                closeInput()  // the tool closed its input (exited early): the rest is not needed
             }
         }
 

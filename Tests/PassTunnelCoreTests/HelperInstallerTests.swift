@@ -55,8 +55,9 @@ final class HelperInstallerTests: XCTestCase {
         }
     }
 
-    static let eperm = NSError(domain: "SMAppServiceErrorDomain", code: Int(EPERM),
-                               userInfo: [NSLocalizedDescriptionKey: "Operation not permitted"])
+    static let eperm = NSError(
+        domain: "SMAppServiceErrorDomain", code: Int(EPERM),
+        userInfo: [NSLocalizedDescriptionKey: "Operation not permitted"])
     static let posixEPERM = NSError(domain: NSPOSIXErrorDomain, code: Int(EPERM))
     static let denied = NSError(domain: "SMAppServiceErrorDomain", code: kSMErrorLaunchDeniedByUser)
     static let already = NSError(domain: "SMAppServiceErrorDomain", code: kSMErrorAlreadyRegistered)
@@ -72,8 +73,9 @@ final class HelperInstallerTests: XCTestCase {
         XCTAssertEqual(HelperInstaller.classify(Self.other), .other)
         // POSIX 11 / 12 are EDEADLK / ENOMEM, not the ServiceManagement codes.
         XCTAssertEqual(HelperInstaller.classify(NSError(domain: NSPOSIXErrorDomain, code: 12)), .other)
-        let wrapped = NSError(domain: "SMAppServiceErrorDomain", code: kSMErrorInternalFailure,
-                              userInfo: [NSUnderlyingErrorKey: Self.posixEPERM])
+        let wrapped = NSError(
+            domain: "SMAppServiceErrorDomain", code: kSMErrorInternalFailure,
+            userInfo: [NSUnderlyingErrorKey: Self.posixEPERM])
         XCTAssertEqual(HelperInstaller.classify(wrapped), .notPermitted)
     }
 

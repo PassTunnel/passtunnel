@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+
 @testable import PassTunnelCore
 @testable import PassTunnelKit
 
@@ -34,7 +35,7 @@ final class ProfileStoreStressTests: CoreTestCase {
                 try? ProfileStore().delete(p.id)
                 deleted.signal()
             }
-            _ = deleted.wait(timeout: .now() + 0.2)   // returns at once without the lock, times out with it
+            _ = deleted.wait(timeout: .now() + 0.2)  // returns at once without the lock, times out with it
             profile.lastUsername = "bob"
         }
         deleter.wait()
@@ -67,10 +68,12 @@ final class ProfileStoreStressTests: CoreTestCase {
         XCTAssertNoThrow(try store.delete(bad.id), "a damaged profile can still be removed")
 
         // Wrong types, unknown keys, nulls and a foreign id: tolerated, the directory name wins.
-        try Data("""
-        {"id": "../../etc", "name": 42, "type": "wireguard", "port": "443", "totp": null, "otp_mode": "TOTP",
-         "future_key": {"a": [1, 2]}, "session_limit_min": -5}
-        """.utf8).write(to: store.profileURL(good.id))
+        try Data(
+            """
+            {"id": "../../etc", "name": 42, "type": "wireguard", "port": "443", "totp": null, "otp_mode": "TOTP",
+             "future_key": {"a": [1, 2]}, "session_limit_min": -5}
+            """.utf8
+        ).write(to: store.profileURL(good.id))
         let p = try store.get(good.id)
         XCTAssertEqual(p.id, good.id)
         XCTAssertEqual(p.name, good.id)
@@ -86,8 +89,10 @@ final class ProfileStoreStressTests: CoreTestCase {
     func testMissingDirectoriesAndBadIDs() throws {
         XCTAssertEqual(store.list(), [])
         assertThrows(.profileNotFound("acme")) { _ = try store.get("acme") }
-        for id in ["", "..", "../acme", "acme/..", "a/b", "Acme", "acme-", "-acme", "a--b", "acme ", "ac me", "şirket",
-                   "acme\u{0}", String(repeating: "a", count: 65)] {
+        for id in [
+            "", "..", "../acme", "acme/..", "a/b", "Acme", "acme-", "-acme", "a--b", "acme ", "ac me", "şirket",
+            "acme\u{0}", String(repeating: "a", count: 65)
+        ] {
             assertThrows(.invalidProfileID(id)) { _ = try store.get(id) }
             assertThrows(.invalidProfileID(id)) { try store.delete(id) }
             assertThrows(.invalidProfileID(id)) { try store.save(Profile(id: id, name: "X", type: .openvpn)) }
@@ -126,7 +131,7 @@ final class ProfileStoreStressTests: CoreTestCase {
         var edited = p
         edited.username = "alice"
         edited.totp.period = 60
-        try JSONCoding.write(edited, to: store.profileURL(p.id), mode: 0o600)   // another process
+        try JSONCoding.write(edited, to: store.profileURL(p.id), mode: 0o600)  // another process
         XCTAssertEqual(try store.get(p.id).username, "alice")
         XCTAssertEqual(store.list().first?.totp.period, 60)
         XCTAssertEqual(try store.update(p.id) { $0.pinned = true }.username, "alice")
@@ -150,9 +155,11 @@ final class ShareFileStressTests: CoreTestCase {
         let out = home.appendingPathComponent("acme.passtunnel")
         try store.exportShare(p.id, to: out)
         let text = try String(contentsOf: out, encoding: .utf8)
-        for secret in ["Pa55-word-XYZ", "GEZDGNBVGY3TQOJQ", "12345678901234567890", "MTIzNDU2Nzg5MDEyMzQ1Njc4OTA",
-                       "alice-user", "bob-last", "\"pinned\"", "\"order\"", "configImportedAt", "config_imported_at",
-                       "connect_at_login"] {
+        for secret in [
+            "Pa55-word-XYZ", "GEZDGNBVGY3TQOJQ", "12345678901234567890", "MTIzNDU2Nzg5MDEyMzQ1Njc4OTA",
+            "alice-user", "bob-last", "\"pinned\"", "\"order\"", "configImportedAt", "config_imported_at",
+            "connect_at_login"
+        ] {
             XCTAssertFalse(text.contains(secret), secret)
         }
         XCTAssertEqual(try mode(out), 0o600)
@@ -173,11 +180,13 @@ final class ShareFileStressTests: CoreTestCase {
             ("{\"passtunnel_profile\": 1}", .unsupportedShareFile),
             ("{\"passtunnel_profile\": 1, \"profile\": {\"name\": \"A\"}, \"files\": {\"config.ovpn\": \"\(up)\"}}", nil),
             ("{\"passtunnel_profile\": 1, \"profile\": {\"name\": \"A\"}, \"files\": {\"config.ovpn\": \"\(ext)\"}}", nil),
-            ("{\"passtunnel_profile\": 1, \"profile\": {\"name\": \"A\"}, \"files\": {\"config.ovpn\": \"\(notUTF8)\"}}",
-             .invalidFile("config.ovpn")),
+            (
+                "{\"passtunnel_profile\": 1, \"profile\": {\"name\": \"A\"}, \"files\": {\"config.ovpn\": \"\(notUTF8)\"}}",
+                .invalidFile("config.ovpn")
+            ),
             ("{\"passtunnel_profile\": 1, \"profile\": {\"name\": \"A\", \"totp\": {\"period\": 0}}}", .invalidField("totp.period")),
             ("{\"passtunnel_profile\": 1, \"profile\": {\"name\": \"A\", \"port\": 70000}}", .invalidField("port")),
-            ("{\"passtunnel_profile\": 1, \"profile\": {\"name\": \"A\", \"otp_mode\": \"totp\", \"otp_template\": \"{password}\"}}", nil),
+            ("{\"passtunnel_profile\": 1, \"profile\": {\"name\": \"A\", \"otp_mode\": \"totp\", \"otp_template\": \"{password}\"}}", nil)
         ]
         for (json, expected) in cases {
             XCTAssertThrowsError(try store.importShare(try share(json), name: nil), json) { error in
@@ -203,19 +212,20 @@ final class ShareFileStressTests: CoreTestCase {
     func testPathsAndIDsFromTheFileAreNeverUsed() throws {
         let ovpn = Data("client\nremote vpn.example.com 1194\n".utf8).base64EncodedString()
         let json = """
-        {"passtunnel_profile": 1,
-         "profile": {"id": "../../escape", "name": "../../Escape", "type": "openvpn", "config_source_name": "../../x.ovpn",
-                     "session_limit_min": -10, "username": "mallory", "pinned": true, "connect_at_login": true},
-         "files": {"config.ovpn": "\(ovpn)", "../../evil.sh": "\(ovpn)", "/tmp/evil": "\(ovpn)", "profile.json": "\(ovpn)"}}
-        """
+            {"passtunnel_profile": 1,
+             "profile": {"id": "../../escape", "name": "../../Escape", "type": "openvpn", "config_source_name": "../../x.ovpn",
+                         "session_limit_min": -10, "username": "mallory", "pinned": true, "connect_at_login": true},
+             "files": {"config.ovpn": "\(ovpn)", "../../evil.sh": "\(ovpn)", "/tmp/evil": "\(ovpn)", "profile.json": "\(ovpn)"}}
+            """
         let p = try store.importShare(try share(json), name: nil)
         XCTAssertEqual(p.id, "escape")
         XCTAssertEqual(p.sessionLimitMin, 0)
         XCTAssertEqual(p.username, "", "per-user fields are not taken from a share file")
         XCTAssertFalse(p.pinned)
         XCTAssertFalse(p.connectAtLogin)
-        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: store.dir(p.id).path).sorted(),
-                       ["config.ovpn", "profile.json"])
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: store.dir(p.id).path).sorted(),
+            ["config.ovpn", "profile.json"])
         XCTAssertEqual(try store.get(p.id).name, "../../Escape")
         let all = FileManager.default.enumerator(atPath: home.path)?.allObjects as? [String] ?? []
         XCTAssertFalse(all.contains { $0.hasSuffix("evil.sh") || $0.hasSuffix("evil") })
@@ -234,27 +244,35 @@ final class CLIInputStressTests: XCTestCase {
 
     /// Exit code 2 (usage) for every malformed command line.
     func testMalformedCommandLines() {
-        for args in [["frobnicate"], ["Status"], ["CONNECT"], ["show"], ["set"], ["set", "acme"], ["set", "acme", "=x"],
-                     ["set", "acme", "username=alice", "--pinned=true"], ["set", "--bogus", "acme", "a=b"],
-                     ["add"], ["add", "--type"], ["add", "Acme", "--type", ""], ["add", "Acme", "--type", "wireguard", "-x"],
-                     ["add", "Acme", "-t", "forti", "--weird"], ["import"], ["import", "a", "b"], ["import", "--name"],
-                     ["export"], ["export", "acme", "-o"], ["rm"], ["rm", "a", "b"], ["secret", "acme"],
-                     ["secret", "acme", "otp"], ["secret", "acme", "totp", "extra"], ["log"], ["pin"], ["unpin", "a", "b"],
-                     ["helper", "start"], ["completion"], ["completion", "powershell"], ["code", "--copy=1"],
-                     ["status", "a", "b"], ["disconnect", "--all", "acme"], ["toggle", "-x"], ["default", "a", "b"],
-                     ["list", "extra"], ["help", "a", "b"]] {
+        for args in [
+            ["frobnicate"], ["Status"], ["CONNECT"], ["show"], ["set"], ["set", "acme"], ["set", "acme", "=x"],
+            ["set", "acme", "username=alice", "--pinned=true"], ["set", "--bogus", "acme", "a=b"],
+            ["add"], ["add", "--type"], ["add", "Acme", "--type", ""], ["add", "Acme", "--type", "wireguard", "-x"],
+            ["add", "Acme", "-t", "forti", "--weird"], ["import"], ["import", "a", "b"], ["import", "--name"],
+            ["export"], ["export", "acme", "-o"], ["rm"], ["rm", "a", "b"], ["secret", "acme"],
+            ["secret", "acme", "otp"], ["secret", "acme", "totp", "extra"], ["log"], ["pin"], ["unpin", "a", "b"],
+            ["helper", "start"], ["completion"], ["completion", "powershell"], ["code", "--copy=1"],
+            ["status", "a", "b"], ["disconnect", "--all", "acme"], ["toggle", "-x"], ["default", "a", "b"],
+            ["list", "extra"], ["help", "a", "b"]
+        ] {
             assertUsage(args)
         }
     }
 
     func testOddButValidCommandLines() throws {
-        XCTAssertEqual(try parse(["set", "acme", "otp_template={password}=={otp}", "badge=-", "session_limit=-5"]),
-                       .set(id: "acme", assignments: [.init(key: "otp_template", value: "{password}=={otp}"),
-                                                      .init(key: "badge", value: "-"), .init(key: "session_limit", value: "-5")]))
+        XCTAssertEqual(
+            try parse(["set", "acme", "otp_template={password}=={otp}", "badge=-", "session_limit=-5"]),
+            .set(
+                id: "acme",
+                assignments: [
+                    .init(key: "otp_template", value: "{password}=={otp}"),
+                    .init(key: "badge", value: "-"), .init(key: "session_limit", value: "-5")
+                ]))
         XCTAssertEqual(try parse(["import", "--name=", "a.ovpn"]), .importFile(path: "a.ovpn", name: ""))
         XCTAssertEqual(try parse(["import", "--", "--name"]), .importFile(path: "--name", name: nil))
-        XCTAssertEqual(try parse(["add", "--type", "forti", "--type", "openvpn", "Acme"]), .add(name: "Acme", type: .openvpn),
-                       "the last --type wins")
+        XCTAssertEqual(
+            try parse(["add", "--type", "forti", "--type", "openvpn", "Acme"]), .add(name: "Acme", type: .openvpn),
+            "the last --type wins")
         XCTAssertEqual(try parse(["add", "-t", "FortiGate", "Şirket", "VPN"]), .add(name: "Şirket VPN", type: .forti))
         XCTAssertEqual(try parse(["connect", "-"]), .connect(id: "-"))
         XCTAssertEqual(try parse(["secret", "acme", "TOTP"]), .secret(id: "acme", kind: .totp))
@@ -269,7 +287,7 @@ final class CLIInputStressTests: XCTestCase {
         let cases: [(String, String)] = [
             ("pw", "pw"), ("pw\n", "pw"), ("pw\r\n", "pw"), ("pw\r", "pw"), ("pw\n\n", "pw"), ("pw\r\n\r\n", "pw"),
             ("pw \n", "pw "), ("\tpw\n", "\tpw"), ("p\r\nw\r\n", "p\r\nw"), ("\n", ""), ("\r\n", ""), ("", ""),
-            ("şifre🔥\r\n", "şifre🔥"),
+            ("şifre🔥\r\n", "şifre🔥")
         ]
         for (input, expected) in cases {
             XCTAssertEqual(CLICommand.trimmingFinalLineBreaks(input), expected, input.debugDescription)

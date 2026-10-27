@@ -29,6 +29,7 @@ secret in the Keychain and fills in the current code (and your password) every t
 [AI assistants](#use-with-ai-assistants-mcp) ·
 [FAQ](#faq) ·
 [Security](SECURITY.md) ·
+[Project](#project) ·
 [Türkçe](#türkçe)
 
 </div>
@@ -539,6 +540,20 @@ Merging `dev` into `main` releases. The workflow, title rules and checks are in
 - No third-party Swift dependencies besides Sparkle (updates) and swift-crypto (CryptoKit's API on
   Linux). Run `swift test` before sending a PR.
 
+## Project
+
+PassTunnel is maintained by one person, in the open.
+
+- [GOVERNANCE.md](GOVERNANCE.md): how decisions are made, who does what, who holds which access, and
+  the current bus factor.
+- [ROADMAP.md](ROADMAP.md): what is planned for the next year, and what is not.
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md): the Contributor Covenant, and how to report conduct problems.
+- [SECURITY.md](SECURITY.md): what is protected and what is not, supported versions, how to report a
+  vulnerability and how reports are handled, and the cryptography used.
+- [docs/ASSURANCE.md](docs/ASSURANCE.md): the assurance case (threat model, trust boundaries, design
+  principles, weaknesses countered).
+- [CONTRIBUTING.md](CONTRIBUTING.md): the workflow, coding standards, test policy and how to report bugs.
+
 ## License
 
 PassTunnel is released under the [MIT License](LICENSE). Copyright © 2026 Furkanprlk.
@@ -584,3 +599,8 @@ istenir. Bunu Sistem Ayarları → Genel → Giriş Öğeleri'nden bir kez onayl
 uygulamanın içindeki imzalı `openvpn` ve `openfortivpn` kopyalarını çalıştırır; sudoers kuralı
 gerekmez. Güvenlik modeli için [SECURITY.md](SECURITY.md), diğer her şey için bu belgenin İngilizce
 bölümlerine bakın.
+
+**Proje:** yönetim modeli için [GOVERNANCE.md](GOVERNANCE.md), yol haritası için [ROADMAP.md](ROADMAP.md),
+davranış kuralları için [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), güvence analizi için
+[docs/ASSURANCE.md](docs/ASSURANCE.md), katkı kuralları için [CONTRIBUTING.md](CONTRIBUTING.md)
+(belgeler İngilizcedir).

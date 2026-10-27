@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+
 @testable import PassTunnelCore
 @testable import PassTunnelKit
 
@@ -26,14 +27,16 @@ final class DisplayStatusTests: XCTestCase {
     }
 
     func testConnecting() {
-        XCTAssertEqual(status(Facts(state: .connecting(ConnectionManager.Phase.signingIn))),
-                       .connecting(phase: ConnectionManager.Phase.signingIn))
+        XCTAssertEqual(
+            status(Facts(state: .connecting(ConnectionManager.Phase.signingIn))),
+            .connecting(phase: ConnectionManager.Phase.signingIn))
     }
 
     func testWaitingForAFreshCode() {
         let until = now.addingTimeInterval(4)
-        XCTAssertEqual(status(Facts(state: .connecting(ConnectionManager.Phase.waitingForCode), codeWaitUntil: until)),
-                       .waitingForCode(until: until))
+        XCTAssertEqual(
+            status(Facts(state: .connecting(ConnectionManager.Phase.waitingForCode), codeWaitUntil: until)),
+            .waitingForCode(until: until))
         // The deadline is published just before the state: the wait shows at once.
         XCTAssertEqual(status(Facts(codeWaitUntil: until)), .waitingForCode(until: until))
     }
@@ -44,8 +47,9 @@ final class DisplayStatusTests: XCTestCase {
     }
 
     func testConnectedWithAProblem() {
-        XCTAssertEqual(status(Facts(state: up, warning: "route add failed")),
-                       .setupIncomplete(connection, warning: "route add failed"))
+        XCTAssertEqual(
+            status(Facts(state: up, warning: "route add failed")),
+            .setupIncomplete(connection, warning: "route add failed"))
         XCTAssertEqual(status(Facts(state: up, statusUnavailable: true)), .statusUnavailable(connection))
         XCTAssertEqual(status(Facts(state: up, notResponding: true)), .notResponding(connection))
     }
@@ -66,8 +70,9 @@ final class DisplayStatusTests: XCTestCase {
     private func failure(_ kind: ConnectionFailure.Kind) -> ConnectionFailure { ConnectionFailure(kind: kind, at: now) }
 
     private func retry(next: TimeInterval? = 18, waiting: Bool = false) -> UnreachableRetry {
-        UnreachableRetry(tries: 3, maxTries: 5, nextTryAt: next.map { now.addingTimeInterval($0) }, waitingForNetwork: waiting,
-                         firstFailedAt: now.addingTimeInterval(-60), lastFailedAt: now.addingTimeInterval(-12))
+        UnreachableRetry(
+            tries: 3, maxTries: 5, nextTryAt: next.map { now.addingTimeInterval($0) }, waitingForNetwork: waiting,
+            firstFailedAt: now.addingTimeInterval(-60), lastFailedAt: now.addingTimeInterval(-12))
     }
 
     /// The typed reason of the failure decides what is shown; a kind with no case of its own keeps the error's words.
@@ -97,17 +102,20 @@ final class DisplayStatusTests: XCTestCase {
     /// Not responding is the worst (the tunnel carries nothing), then a failed setup step, then a state that
     /// could not be read.
     func testTheWorstProblemOfAConnectionWins() {
-        XCTAssertEqual(status(Facts(state: up, warning: "w", notResponding: true, statusUnavailable: true)),
-                       .notResponding(connection))
-        XCTAssertEqual(status(Facts(state: up, warning: "w", statusUnavailable: true)),
-                       .setupIncomplete(connection, warning: "w"))
+        XCTAssertEqual(
+            status(Facts(state: up, warning: "w", notResponding: true, statusUnavailable: true)),
+            .notResponding(connection))
+        XCTAssertEqual(
+            status(Facts(state: up, warning: "w", statusUnavailable: true)),
+            .setupIncomplete(connection, warning: "w"))
     }
 
     /// A connection that is up wins over what is left from before it (a reconnect that just ended, an old error,
     /// a drop not seen yet).
     func testAConnectionThatIsUpWins() {
-        let all = Facts(state: up, reconnect: reconnect, codeWaitUntil: now, lastError: rejected, droppedUnseen: true,
-                        asksToConnect: true, usesCode: true)
+        let all = Facts(
+            state: up, reconnect: reconnect, codeWaitUntil: now, lastError: rejected, droppedUnseen: true,
+            asksToConnect: true, usesCode: true)
         XCTAssertEqual(status(all), .connected(connection))
     }
 
@@ -116,17 +124,27 @@ final class DisplayStatusTests: XCTestCase {
     func testAReconnectCoversItsAttempts() {
         let shown = DisplayStatus.reconnecting(reconnect, freshCode: true)
         XCTAssertEqual(status(Facts(reconnect: reconnect, warning: "w", droppedUnseen: true, usesCode: true)), shown)
-        XCTAssertEqual(status(Facts(state: .connecting(ConnectionManager.Phase.waitingForCode), reconnect: reconnect,
-                                    codeWaitUntil: now.addingTimeInterval(3), usesCode: true)), shown)
-        XCTAssertEqual(status(Facts(state: .connecting(ConnectionManager.Phase.signingIn), reconnect: reconnect,
-                                    usesCode: true)), shown)
-        XCTAssertEqual(status(Facts(reconnect: reconnect, lastError: "boom", droppedUnseen: true, asksToConnect: true,
-                                    usesCode: true)), shown)
+        XCTAssertEqual(
+            status(
+                Facts(
+                    state: .connecting(ConnectionManager.Phase.waitingForCode), reconnect: reconnect,
+                    codeWaitUntil: now.addingTimeInterval(3), usesCode: true)), shown)
+        XCTAssertEqual(
+            status(
+                Facts(
+                    state: .connecting(ConnectionManager.Phase.signingIn), reconnect: reconnect,
+                    usesCode: true)), shown)
+        XCTAssertEqual(
+            status(
+                Facts(
+                    reconnect: reconnect, lastError: "boom", droppedUnseen: true, asksToConnect: true,
+                    usesCode: true)), shown)
     }
 
     func testAConnectUnderWayWinsOverAnOldFailure() {
-        XCTAssertEqual(status(Facts(state: .connecting(ConnectionManager.Phase.starting), lastError: rejected)),
-                       .connecting(phase: ConnectionManager.Phase.starting))
+        XCTAssertEqual(
+            status(Facts(state: .connecting(ConnectionManager.Phase.starting), lastError: rejected)),
+            .connecting(phase: ConnectionManager.Phase.starting))
         XCTAssertEqual(status(Facts(codeWaitUntil: now, lastError: rejected)), .waitingForCode(until: now))
     }
 
@@ -184,7 +202,7 @@ final class DisplayStatusTests: XCTestCase {
             (.failed(.signInRejected), .tryAgain),
             (.failed(.hostNotFound), .tryAgain),
             (.failed(.unreachable(retry: nil)), .tryAgain),
-            (.failed(.unreachable(retry: retry())), .stop),
+            (.failed(.unreachable(retry: retry())), .stop)
         ]
         for (status, action) in cases {
             XCTAssertEqual(status.action, action, "\(status)")
@@ -204,14 +222,20 @@ final class DisplayStatusTests: XCTestCase {
             (.off, "Disconnected", "Disconnected"),
             (.protected, "Touch ID to connect", "Disconnected · asks for Touch ID"),
             (.connecting(phase: "Signing in…"), "Connecting…", "Connecting to vpn.example.com:1194…"),
-            (.waitingForCode(until: now.addingTimeInterval(3.25)), "Waiting for a fresh code · 4 s",
-             "Waiting for a fresh code · sends in 4 s"),
+            (
+                .waitingForCode(until: now.addingTimeInterval(3.25)), "Waiting for a fresh code · 4 s",
+                "Waiting for a fresh code · sends in 4 s"
+            ),
             (.connected(connection), "Connected · 1h 12m", "Connected · 1h 12m · 10.8.0.6"),
-            (.setupIncomplete(connection, warning: "w"), "Connected · setup incomplete",
-             "Connected · 1h 12m · 10.8.0.6 · setup incomplete"),
+            (
+                .setupIncomplete(connection, warning: "w"), "Connected · setup incomplete",
+                "Connected · 1h 12m · 10.8.0.6 · setup incomplete"
+            ),
             (.notResponding(connection), "Connected · not responding", "Connected · 1h 12m · 10.8.0.6 · not responding"),
-            (.statusUnavailable(connection), "Connected · status unavailable",
-             "Connected · 1h 12m · 10.8.0.6 · status unavailable"),
+            (
+                .statusUnavailable(connection), "Connected · status unavailable",
+                "Connected · 1h 12m · 10.8.0.6 · status unavailable"
+            ),
             (.reconnecting(reconnect, freshCode: true), "Dropped, reconnecting…", "Dropped, reconnecting with a fresh code…"),
             (.reconnecting(reconnect, freshCode: false), "Dropped, reconnecting…", "Dropped, reconnecting…"),
             (.dropped, "Connection dropped", "Connection dropped"),
@@ -219,12 +243,18 @@ final class DisplayStatusTests: XCTestCase {
             (.failed(.signInRejected), "Sign-in rejected", "Sign-in rejected by the server"),
             (.failed(.hostNotFound), "Server not found", "Can’t find the server"),
             (.failed(.unreachable(retry: nil)), "Unreachable", "Can’t reach the server"),
-            (.failed(.unreachable(retry: retry(next: 17.2))), "Unreachable, retrying",
-             "Can’t reach the server · next try in 18 s"),
-            (.failed(.unreachable(retry: retry(next: nil, waiting: true))), "Unreachable, retrying",
-             "Can’t reach the server · waiting for the network"),
-            (.failed(.unreachable(retry: retry(next: nil))), "Unreachable, retrying",
-             "Can’t reach the server · trying again…"),
+            (
+                .failed(.unreachable(retry: retry(next: 17.2))), "Unreachable, retrying",
+                "Can’t reach the server · next try in 18 s"
+            ),
+            (
+                .failed(.unreachable(retry: retry(next: nil, waiting: true))), "Unreachable, retrying",
+                "Can’t reach the server · waiting for the network"
+            ),
+            (
+                .failed(.unreachable(retry: retry(next: nil))), "Unreachable, retrying",
+                "Can’t reach the server · trying again…"
+            )
         ]
         for (status, summary, line) in cases {
             XCTAssertEqual(status.summary(at: now), summary, "\(status)")
@@ -248,10 +278,12 @@ final class DisplayStatusTests: XCTestCase {
     func testConnectedLeavesOutWhatIsUnknown() {
         XCTAssertEqual(DisplayStatus.connected(Connection(since: nil, address: "")).summary(at: now), "Connected")
         XCTAssertEqual(DisplayStatus.connected(Connection(since: nil, address: "")).line(at: now), "Connected")
-        XCTAssertEqual(DisplayStatus.connected(Connection(since: nil, address: "10.8.0.6")).line(at: now),
-                       "Connected · 10.8.0.6")
-        XCTAssertEqual(DisplayStatus.notResponding(Connection(since: nil, address: "")).line(at: now),
-                       "Connected · not responding")
+        XCTAssertEqual(
+            DisplayStatus.connected(Connection(since: nil, address: "10.8.0.6")).line(at: now),
+            "Connected · 10.8.0.6")
+        XCTAssertEqual(
+            DisplayStatus.notResponding(Connection(since: nil, address: "")).line(at: now),
+            "Connected · not responding")
     }
 
     /// The first attempt reconnects as the design says; after a failed one, the wait for the next counts down.
@@ -260,10 +292,12 @@ final class DisplayStatusTests: XCTestCase {
         XCTAssertEqual(DisplayStatus.reconnecting(second, freshCode: true).line(at: now), "Dropped · next try in 12 s")
         XCTAssertEqual(DisplayStatus.reconnecting(second, freshCode: true).summary(at: now), "Dropped, reconnecting…")
         // The attempt itself is under way.
-        XCTAssertEqual(DisplayStatus.reconnecting(second, freshCode: true).line(at: second.at),
-                       "Dropped, reconnecting with a fresh code…")
-        XCTAssertEqual(DisplayStatus.reconnecting(second, freshCode: false).line(at: second.at.addingTimeInterval(9)),
-                       "Dropped, reconnecting…")
+        XCTAssertEqual(
+            DisplayStatus.reconnecting(second, freshCode: true).line(at: second.at),
+            "Dropped, reconnecting with a fresh code…")
+        XCTAssertEqual(
+            DisplayStatus.reconnecting(second, freshCode: false).line(at: second.at.addingTimeInterval(9)),
+            "Dropped, reconnecting…")
     }
 
     func testAFailureWithoutWordsSaysItCouldNotConnect() {

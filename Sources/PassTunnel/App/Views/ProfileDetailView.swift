@@ -88,7 +88,9 @@ struct DetailActionButton: View {
     let action: DisplayStatus.Action
 
     var body: some View {
-        Button { model.runAction(profile) } label: {
+        Button {
+            model.runAction(profile)
+        } label: {
             ZStack {
                 ForEach(DisplayStatus.Action.allCases, id: \.self) { Text($0.title).hidden() }
                     .accessibilityHidden(true)
@@ -191,8 +193,9 @@ private enum ConfigEndpoints {
             cache[url] = nil
             return nil
         }
-        let stamp = Stamp(modified: attributes[.modificationDate] as? Date,
-                          size: (attributes[.size] as? NSNumber)?.intValue)
+        let stamp = Stamp(
+            modified: attributes[.modificationDate] as? Date,
+            size: (attributes[.size] as? NSNumber)?.intValue)
         if let entry = cache[url], entry.stamp == stamp { return entry.endpoint }
         let endpoint = (try? String(contentsOf: url, encoding: .utf8)).flatMap(OVPNAnalyzer.endpoint)
         cache[url] = (stamp, endpoint)

@@ -71,7 +71,7 @@ public struct OVPNImportReport: Equatable {
     /// Blocks whose content `certificates` lists.
     static let certificateBlocks: Set<String> = [
         "ca", "cert", "key", "pkcs12", "extra-certs", "tls-auth", "tls-crypt", "tls-crypt-v2", "secret",
-        "crl-verify", "peer-fingerprint",
+        "crl-verify", "peer-fingerprint"
     ]
 
     /// Reads `text` as an import would: files it refers to are embedded from `baseDir` (none when nil),
@@ -79,7 +79,8 @@ public struct OVPNImportReport: Equatable {
     /// what embedding a file throws (`ovpnReferencedFile`, `fileTooLarge`); blocking lines are reported.
     public static func make(_ text: String, baseDir: URL?) throws -> OVPNImportReport {
         let original = OVPNInliner.lines(text)
-        let inlined = try baseDir.map { try OVPNInliner.inlineMapped(text, baseDir: $0) }
+        let inlined =
+            try baseDir.map { try OVPNInliner.inlineMapped(text, baseDir: $0) }
             ?? OVPNInliner.Inlined(text: text, origins: Array(original.indices.map { $0 + 1 }), embedded: [])
         let rules = OVPNSkipRules.apply(inlined.text)
 
@@ -98,7 +99,7 @@ public struct OVPNImportReport: Equatable {
         for b in rules.blocking {
             let line = origin(b.line)
             let entry = OVPNSkipRules.Blocking(line: line, directive: b.directive, text: shown(line), reason: b.reason)
-            if seen.insert(entry).inserted { blocking.append(entry) }   // several lines of one embedded file
+            if seen.insert(entry).inserted { blocking.append(entry) }  // several lines of one embedded file
         }
 
         let stripped = OVPNInliner.strippingCredentials(rules.text, blocks: [.authUserPass])
@@ -118,15 +119,18 @@ public struct OVPNImportReport: Equatable {
 
     /// The certificate and key blocks of `text` (the inlined configuration) in file order, each once, with
     /// the file it was embedded from; a `peer-fingerprint` line counts too.
-    static func certificates(in text: String, origins: [Int],
-                             embedded: [(line: Int, directive: String, path: String)]) -> [Certificate] {
+    static func certificates(
+        in text: String, origins: [Int],
+        embedded: [(line: Int, directive: String, path: String)]
+    ) -> [Certificate] {
         var found: [Certificate] = []
         for (item, index) in OVPNAnalyzer.scan(text) {
             let name: String
             switch item {
             case .block(let tag) where certificateBlocks.contains(tag):
                 name = tag
-            case .directive(let words, _) where words[0] == "peer-fingerprint" && words.count > 1
+            case .directive(let words, _)
+            where words[0] == "peer-fingerprint" && words.count > 1
                 && words[1].lowercased() != "[inline]":
                 name = "peer-fingerprint"
             default:

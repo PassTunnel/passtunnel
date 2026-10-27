@@ -10,7 +10,7 @@ enum CommandLineTool {
 
     enum Result: Equatable {
         case installed(URL)
-        case installedNeedsPath(URL)   // ~/.local/bin is not on PATH yet
+        case installedNeedsPath(URL)  // ~/.local/bin is not on PATH yet
     }
 
     static var executable: URL? { Bundle.main.executableURL?.resolvingSymlinksInPath() }
@@ -21,7 +21,8 @@ enum CommandLineTool {
         for dir in [systemDir, userDir] {
             let link = dir.appendingPathComponent(name)
             if let dest = try? FileManager.default.destinationOfSymbolicLink(atPath: link.path),
-               URL(fileURLWithPath: dest, relativeTo: dir).resolvingSymlinksInPath() == exe {
+                URL(fileURLWithPath: dest, relativeTo: dir).resolvingSymlinksInPath() == exe
+            {
                 return link
             }
         }
@@ -58,7 +59,8 @@ enum CommandLineTool {
         let home = FileManager.default.homeDirectoryForCurrentUser
         for file in [".zprofile", ".zshrc", ".bash_profile", ".bashrc", ".profile", ".config/fish/config.fish"] {
             if let text = try? String(contentsOf: home.appendingPathComponent(file), encoding: .utf8),
-               text.contains(".local/bin") || text.contains(dir) {
+                text.contains(".local/bin") || text.contains(dir)
+            {
                 return true
             }
         }

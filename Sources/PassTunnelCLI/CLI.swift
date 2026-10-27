@@ -121,13 +121,17 @@ enum CLIHelp {
         ("helper", "passtunnel helper status|install|uninstall [--json]"),
         ("mcp", "passtunnel mcp [--allow-connect]"),
         ("completion", "passtunnel completion zsh|bash|fish"),
-        ("version", "passtunnel version [--json]"),
+        ("version", "passtunnel version [--json]")
     ]
 
     static func summary(_ command: String) -> String {
         switch command {
         case "status": return String(localized: "Show the state of all profiles, or of one (exit code 3 when not connected).")
-        case "connect": return String(localized: "Connect a profile (default: the default profile). Asks for missing input on a terminal. --wait gives up after --timeout seconds (default 60).")
+        case "connect":
+            return String(
+                localized:
+                    "Connect a profile (default: the default profile). Asks for missing input on a terminal. --wait gives up after --timeout seconds (default 60)."
+            )
         case "disconnect": return String(localized: "Disconnect a profile, or every profile with --all.")
         case "toggle": return String(localized: "Connect when disconnected, disconnect otherwise.")
         case "code": return String(localized: "Print the current one-time code and the seconds left; -c copies it.")
@@ -139,27 +143,54 @@ enum CLIHelp {
         case "export": return String(localized: "Export a profile as a .passtunnel file (no passwords or secrets).")
         #if os(Linux)
         case "rm": return String(localized: "Delete a profile and its saved password and TOTP secret.")
-        case "secret": return String(localized: "Save the password or TOTP secret (Base32 or otpauth:// link) in the secret store. Reads from the terminal without echo, or from standard input.")
-        case "secret-store": return String(localized: "Show where passwords and TOTP secrets are kept, or choose it: auto, secret-service (the desktop keyring), systemd-creds or file (encrypted with a passphrase).")
+        case "secret":
+            return String(
+                localized:
+                    "Save the password or TOTP secret (Base32 or otpauth:// link) in the secret store. Reads from the terminal without echo, or from standard input."
+            )
+        case "secret-store":
+            return String(
+                localized:
+                    "Show where passwords and TOTP secrets are kept, or choose it: auto, secret-service (the desktop keyring), systemd-creds or file (encrypted with a passphrase)."
+            )
         #else
         case "rm": return String(localized: "Delete a profile and its Keychain items.")
-        case "secret": return String(localized: "Save the password or TOTP secret (Base32 or otpauth:// link) in the Keychain. Reads from the terminal without echo, or from standard input.")
+        case "secret":
+            return String(
+                localized:
+                    "Save the password or TOTP secret (Base32 or otpauth:// link) in the Keychain. Reads from the terminal without echo, or from standard input."
+            )
         #endif
         case "default": return String(localized: "Show or set the default profile.")
         case "pin": return String(localized: "Always show the profile in the menu bar.")
         case "unpin": return String(localized: "Show the profile in the menu bar only while it is active.")
-        case "log": return String(localized: "Print the VPN log of a profile; -f keeps following it, -n prints only the last N lines. --activity prints what PassTunnel did instead: connecting, codes, sign-in, drops.")
+        case "log":
+            return String(
+                localized:
+                    "Print the VPN log of a profile; -f keeps following it, -n prints only the last N lines. --activity prints what PassTunnel did instead: connecting, codes, sign-in, drops."
+            )
         #if os(Linux)
-        case "diagnose": return String(localized: "Check the installation and every profile without connecting, with the last clock measurement. --check-clock also asks the NTP server this computer is set up with how far the clock is off.")
+        case "diagnose":
+            return String(
+                localized:
+                    "Check the installation and every profile without connecting, with the last clock measurement. --check-clock also asks the NTP server this computer is set up with how far the clock is off."
+            )
         #else
-        case "diagnose": return String(localized: "Check the installation and every profile without connecting, with the last clock measurement. --check-clock also asks Apple’s time server (time.apple.com) how far the clock is off.")
+        case "diagnose":
+            return String(
+                localized:
+                    "Check the installation and every profile without connecting, with the last clock measurement. --check-clock also asks Apple’s time server (time.apple.com) how far the clock is off."
+            )
         #endif
         case "helper": return String(localized: "Show, install or remove the privileged helper.")
         case "mcp": return String(localized: "Run the MCP server for AI assistants on standard input and output. Read-only unless --allow-connect.")
         case "completion": return String(localized: "Print a shell completion script.")
         case "version": return String(localized: "Print the version.")
         #if DEBUG
-        case "debug": return String(localized: "Test hook: make a connected OpenVPN profile drop as if the server ended the session (not a user stop, so auto-reconnect runs).")
+        case "debug":
+            return String(
+                localized:
+                    "Test hook: make a connected OpenVPN profile drop as if the server ended the session (not a user stop, so auto-reconnect runs).")
         #endif
         default: return ""
         }
@@ -188,11 +219,23 @@ enum CLIHelp {
         lines.append("")
         lines.append(String(localized: "Without arguments, passtunnel prints the status of all profiles."))
         #if os(Linux)
-        lines.append(String(localized: "Options for every command: --no-input never asks on the terminal (also PASSTUNNEL_NO_INPUT=1), --no-auth-prompt never asks for a confirmation."))
+        lines.append(
+            String(
+                localized:
+                    "Options for every command: --no-input never asks on the terminal (also PASSTUNNEL_NO_INPUT=1), --no-auth-prompt never asks for a confirmation."
+            ))
         #else
-        lines.append(String(localized: "Options for every command: --no-input never asks on the terminal (also PASSTUNNEL_NO_INPUT=1), --no-auth-prompt never shows Touch ID."))
+        lines.append(
+            String(
+                localized:
+                    "Options for every command: --no-input never asks on the terminal (also PASSTUNNEL_NO_INPUT=1), --no-auth-prompt never shows Touch ID."
+            ))
         #endif
-        lines.append(String(localized: "Exit codes: 0 ok, 1 error, 2 usage, 3 not found or not connected, 4 confirmation cancelled or not possible, 5 helper missing or outdated, 6 connection failed, 7 timeout."))
+        lines.append(
+            String(
+                localized:
+                    "Exit codes: 0 ok, 1 error, 2 usage, 3 not found or not connected, 4 confirmation cancelled or not possible, 5 helper missing or outdated, 6 connection failed, 7 timeout."
+            ))
         return lines.joined(separator: "\n")
     }
 }

@@ -51,11 +51,16 @@ struct FirstRunView: View {
                 .accessibilityAddTraits(.isHeader)
             if isFirstRun {
                 // Not "nothing leaves this Mac": the VPN and update checks do (decision D-13).
-                Text(String(localized: "PassTunnel works out the one-time code and sends it with your password when you connect. No account. Your passwords and secrets stay on this Mac."))
-                    .typography(.intro)
-                    .foregroundStyle(Palette.fg2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: 520, alignment: .leading)
+                Text(
+                    String(
+                        localized:
+                            "PassTunnel works out the one-time code and sends it with your password when you connect. No account. Your passwords and secrets stay on this Mac."
+                    )
+                )
+                .typography(.intro)
+                .foregroundStyle(Palette.fg2)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 520, alignment: .leading)
             }
         }
         .padding(.top, isFirstRun ? 10 : 0)
@@ -173,7 +178,9 @@ private struct AddTile: View {
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: Radius.compactCard, style: .continuous)
-        Button { option.run() } label: {
+        Button {
+            option.run()
+        } label: {
             VStack(alignment: .leading, spacing: 6) {
                 Image(systemName: option.symbol)
                     .font(.system(size: 17))
@@ -238,10 +245,15 @@ private struct HelperCard: View {
                         .typography(.bodyEmphasized)
                         .foregroundStyle(Palette.fg)
                         .accessibilityAddTraits(.isHeader)
-                    Text(String(localized: "Creating a VPN tunnel needs administrator rights. A small helper does that part, and it only runs the signed VPN tools that ship inside PassTunnel."))
-                        .typography(.hint)
-                        .foregroundStyle(Palette.fg2)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Text(
+                        String(
+                            localized:
+                                "Creating a VPN tunnel needs administrator rights. A small helper does that part, and it only runs the signed VPN tools that ship inside PassTunnel."
+                        )
+                    )
+                    .typography(.hint)
+                    .foregroundStyle(Palette.fg2)
+                    .fixedSize(horizontal: false, vertical: true)
                     status
                     if let errorText {
                         Text(errorText)
@@ -323,8 +335,11 @@ struct OpenAtLoginQuestion: View {
     var preview: Bool?
 
     var body: some View {
-        if preview ?? LoginItem.asksAfterFirstProfile(answered: answered, hasProfiles: !model.profiles.isEmpty,
-                                                      status: LoginItem.status) {
+        if preview
+            ?? LoginItem.asksAfterFirstProfile(
+                answered: answered, hasProfiles: !model.profiles.isEmpty,
+                status: LoginItem.status)
+        {
             Card(style: .compact) {
                 // The buttons go under the words when both do not fit on one line. No fixed size for the words:
                 // outside a scroll view it would raise the window's minimum height.

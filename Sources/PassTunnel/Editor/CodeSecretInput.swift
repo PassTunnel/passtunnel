@@ -12,12 +12,14 @@ enum CodeSecretInput {
     /// the pasteboard holds none of these; throws when what it holds is not a usable code.
     static func fromPasteboard(_ pb: NSPasteboard = .general) throws -> CodeSecretInput? {
         if let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
-           let url = urls.first {
+            let url = urls.first
+        {
             return try fromImage(at: url)
         }
         if let image = NSImage(pasteboard: pb) { return try fromImage(image) }
         guard let text = pb.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !text.isEmpty else { return nil }
+            !text.isEmpty
+        else { return nil }
         return try fromText(text)
     }
 

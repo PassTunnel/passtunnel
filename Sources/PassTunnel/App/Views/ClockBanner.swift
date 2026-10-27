@@ -38,7 +38,9 @@ struct ClockCheckButton: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
-            Button { check.run(model.connections) } label: {
+            Button {
+                check.run(model.connections)
+            } label: {
                 Text(check.state == .checking ? String(localized: "Checking…") : title)
             }
             .buttonStyle(.secondaryCapsule(.compact))
@@ -46,11 +48,14 @@ struct ClockCheckButton: View {
             .help(Self.disclosure)
             .accessibilityHint(Text(Self.disclosure))
             .accessibilityIdentifier("clock.check")
-            Text(check.state == .failed ? String(localized: "Couldn’t reach the time server. Check the network, then try again.")
-                                        : Self.disclosure)
-                .typography(.hint)
-                .foregroundStyle(check.state == .failed ? Palette.red : Palette.fg2)
-                .fixedSize(horizontal: false, vertical: true)
+            Text(
+                check.state == .failed
+                    ? String(localized: "Couldn’t reach the time server. Check the network, then try again.")
+                    : Self.disclosure
+            )
+            .typography(.hint)
+            .foregroundStyle(check.state == .failed ? Palette.red : Palette.fg2)
+            .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.top, 2)
     }
@@ -114,15 +119,22 @@ struct ClockBanner: View {
     private var banner: AttributedString {
         var headline = AttributedString(clock.headline)
         headline.font = .body.weight(.semibold)
-        return headline + AttributedString(" " + String(localized: "Codes are worked out from the time, so every code will be wrong until it’s fixed."))
+        return headline
+            + AttributedString(" " + String(localized: "Codes are worked out from the time, so every code will be wrong until it’s fixed."))
     }
 
     private var buttons: some View {
         HStack(spacing: Spacing.xs) {
-            Button { Self.openDateAndTime() } label: { Text(String(localized: "Open Date & Time")) }
-                .buttonStyle(.secondaryCapsule(.compact))
-                .accessibilityIdentifier("clock.openSettings")
-            Button { check.run(model.connections) } label: {
+            Button {
+                Self.openDateAndTime()
+            } label: {
+                Text(String(localized: "Open Date & Time"))
+            }
+            .buttonStyle(.secondaryCapsule(.compact))
+            .accessibilityIdentifier("clock.openSettings")
+            Button {
+                check.run(model.connections)
+            } label: {
                 Text(check.state == .checking ? String(localized: "Checking…") : String(localized: "Check again"))
             }
             .buttonStyle(.secondaryCapsule(.compact))

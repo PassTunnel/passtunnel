@@ -12,24 +12,30 @@ let package = Package(
     name: "PassTunnelFuzz",
     platforms: [.macOS(.v13)],
     dependencies: [
-        .package(name: "PassTunnel", path: ".."),
+        .package(name: "PassTunnel", path: "..")
     ],
     targets: [
         // C shim: the one libFuzzer entry point we call ourselves, so each harness is a normal
         // executable that drives the fuzzer instead of letting libFuzzer own `main`.
         .target(name: "FuzzDriver"),
         .target(name: "FuzzSupport", dependencies: ["FuzzDriver"]),
-        .executableTarget(name: "FuzzOVPNSanitizer",
-                          dependencies: ["FuzzSupport", .product(name: "PassTunnelKit", package: "PassTunnel")]),
-        .executableTarget(name: "FuzzOVPNImport",
-                          dependencies: ["FuzzSupport", .product(name: "PassTunnelKit", package: "PassTunnel")]),
-        .executableTarget(name: "FuzzFortiConfig",
-                          dependencies: ["FuzzSupport", .product(name: "PassTunnelKit", package: "PassTunnel")]),
-        .executableTarget(name: "FuzzManagementParser",
-                          dependencies: ["FuzzSupport", .product(name: "PassTunnelCore", package: "PassTunnel")]),
-        .executableTarget(name: "FuzzOTPAuthURI",
-                          dependencies: ["FuzzSupport", .product(name: "PassTunnelKit", package: "PassTunnel")]),
-        .executableTarget(name: "FuzzMCPDecode",
-                          dependencies: ["FuzzSupport", .product(name: "PassTunnelCore", package: "PassTunnel")]),
+        .executableTarget(
+            name: "FuzzOVPNSanitizer",
+            dependencies: ["FuzzSupport", .product(name: "PassTunnelKit", package: "PassTunnel")]),
+        .executableTarget(
+            name: "FuzzOVPNImport",
+            dependencies: ["FuzzSupport", .product(name: "PassTunnelKit", package: "PassTunnel")]),
+        .executableTarget(
+            name: "FuzzFortiConfig",
+            dependencies: ["FuzzSupport", .product(name: "PassTunnelKit", package: "PassTunnel")]),
+        .executableTarget(
+            name: "FuzzManagementParser",
+            dependencies: ["FuzzSupport", .product(name: "PassTunnelCore", package: "PassTunnel")]),
+        .executableTarget(
+            name: "FuzzOTPAuthURI",
+            dependencies: ["FuzzSupport", .product(name: "PassTunnelKit", package: "PassTunnel")]),
+        .executableTarget(
+            name: "FuzzMCPDecode",
+            dependencies: ["FuzzSupport", .product(name: "PassTunnelCore", package: "PassTunnel")])
     ]
 )

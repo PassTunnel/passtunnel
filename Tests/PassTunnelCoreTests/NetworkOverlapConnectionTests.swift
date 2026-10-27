@@ -1,10 +1,12 @@
+import PassTunnelShared
+import XCTest
+
+@testable import PassTunnelCore
+@testable import PassTunnelKit
+
 #if canImport(Combine)
 import Combine
 #endif
-import XCTest
-@testable import PassTunnelCore
-@testable import PassTunnelKit
-import PassTunnelShared
 
 /// `ConnectionManager.checkCanStart` / `overlaps(for:)` with the fake helper: PassTunnel's own sessions only,
 /// the routing table never read.
@@ -20,7 +22,8 @@ final class NetworkOverlapConnectionTests: XCTestCase {
     var store: ProfileStore { ProfileStore() }
 
     let t0 = Date(timeIntervalSince1970: 1_700_000_000)
-    static let push = "2026-10-25 09:41:02 PUSH: Received control message: 'PUSH_REPLY,route 172.16.0.0 255.240.0.0,"
+    static let push =
+        "2026-10-25 09:41:02 PUSH: Received control message: 'PUSH_REPLY,route 172.16.0.0 255.240.0.0,"
         + "dhcp-option DNS 10.8.0.1,dhcp-option DOMAIN-ROUTE example.com,ifconfig 10.8.0.6 255.255.255.0,auth-token SESS_ID_x'\n"
 
     override func setUp() async throws {
@@ -42,8 +45,9 @@ final class NetworkOverlapConnectionTests: XCTestCase {
     }
 
     func makeManager(routes: [RoutingTable.Route] = []) -> ConnectionManager {
-        let m = ConnectionManager(store: store, helper: helper, clock: clock, healthProbe: { _ in (false, 0) },
-                                  preferences: { Preferences() }, routes: { routes }, authenticator: FakeAuthenticator())
+        let m = ConnectionManager(
+            store: store, helper: helper, clock: clock, healthProbe: { _ in (false, 0) },
+            preferences: { Preferences() }, routes: { routes }, authenticator: FakeAuthenticator())
         m.tunnelRoutes = { [weak self] in self?.tunnelTable[$0] ?? [] }
         return m
     }
@@ -154,8 +158,9 @@ final class NetworkOverlapConnectionTests: XCTestCase {
         XCTAssertFalse(text.contains("auth-token"), "only routes and DNS")
         XCTAssertFalse(text.contains("SESS_ID"), text)
         XCTAssertFalse(text.contains("ifconfig"), text)
-        XCTAssertEqual(ProfileNetwork.savedOptions(work, store: store),
-                       ["route 172.16.0.0 255.240.0.0", "dhcp-option DNS 10.8.0.1", "dhcp-option DOMAIN-ROUTE example.com"])
+        XCTAssertEqual(
+            ProfileNetwork.savedOptions(work, store: store),
+            ["route 172.16.0.0 255.240.0.0", "dhcp-option DNS 10.8.0.1", "dhcp-option DOMAIN-ROUTE example.com"])
         let attributes = try FileManager.default.attributesOfItem(atPath: cache(work).path)
         XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
     }
@@ -216,8 +221,10 @@ final class NetworkOverlapConnectionTests: XCTestCase {
     func testTheOtherVPNCheckComesFirst() async throws {
         let lab = try makeOpenVPN("Lab", lines: "redirect-gateway def1\n")
         let work = try makeOpenVPN("Work", lines: "route 10.0.0.0 255.0.0.0\n")
-        let m = makeManager(routes: [RoutingTable.Route(destination: "0.0.0.0", prefixLength: 1, interface: "utun9"),
-                                     RoutingTable.Route(destination: "128.0.0.0", prefixLength: 1, interface: "utun9")])
+        let m = makeManager(routes: [
+            RoutingTable.Route(destination: "0.0.0.0", prefixLength: 1, interface: "utun9"),
+            RoutingTable.Route(destination: "128.0.0.0", prefixLength: 1, interface: "utun9")
+        ])
         try await m.connect(work.id)
         do {
             try await m.checkCanStart(lab.id)
@@ -232,7 +239,8 @@ final class NetworkOverlapConnectionTests: XCTestCase {
 
     // MARK: FortiGate
 
-    static let fortiUp = "INFO:   Got addresses: [10.212.134.200], ns [198.51.100.53, 198.51.100.54], ns_suffix [example.com]\n"
+    static let fortiUp =
+        "INFO:   Got addresses: [10.212.134.200], ns [198.51.100.53, 198.51.100.54], ns_suffix [example.com]\n"
         + "INFO:   Interface ppp0 is UP.\nINFO:   Tunnel is up and running.\n"
         + "passtunneld: DNS of ppp0 set through systemd-resolved: 198.51.100.53, 198.51.100.54\n"
 
@@ -252,14 +260,17 @@ final class NetworkOverlapConnectionTests: XCTestCase {
         helper.startLog = Self.fortiUp
         tunnelTable["ppp0"] = [
             RoutingTable.Route(destination: "10.20.0.0", prefixLength: 16, interface: "ppp0"),
-            RoutingTable.Route(destination: "10.212.134.200", prefixLength: 32, interface: "ppp0"),   // its own address
-            RoutingTable.Route(destination: "192.0.2.77", prefixLength: 32, interface: "ppp0"),      // a real host route
+            RoutingTable.Route(destination: "10.212.134.200", prefixLength: 32, interface: "ppp0"),  // its own address
+            RoutingTable.Route(destination: "192.0.2.77", prefixLength: 32, interface: "ppp0")  // a real host route
         ]
         let m = makeManager()
         try await m.connect(office.id)
-        XCTAssertEqual(ProfileNetwork.savedOptions(office, store: store),
-                       ["dhcp-option DNS 198.51.100.53", "dhcp-option DNS 198.51.100.54", "dhcp-option DOMAIN example.com",
-                        "route 10.20.0.0 255.255.0.0", "route 192.0.2.77 255.255.255.255"])
+        XCTAssertEqual(
+            ProfileNetwork.savedOptions(office, store: store),
+            [
+                "dhcp-option DNS 198.51.100.53", "dhcp-option DNS 198.51.100.54", "dhcp-option DOMAIN example.com",
+                "route 10.20.0.0 255.255.0.0", "route 192.0.2.77 255.255.255.255"
+            ])
 
         // Another profile that sends part of the same network, and looks up a name inside its suffix.
         let lab = try makeOpenVPN("Lab", lines: "route 10.20.1.0 255.255.255.0\ndhcp-option DOMAIN-ROUTE corp.example.com\n")

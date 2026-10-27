@@ -34,9 +34,11 @@ enum BundledTools {
             let next = i + 1 < lines.count ? lines[i + 1].trimmingCharacters(in: .whitespaces) : ""
             // Homebrew revisions ("1.24.1_1") are packaging details, not upstream versions.
             let version = parts[1].split(separator: "_").first.map(String.init) ?? String(parts[1])
-            out.append(BundledTool(name: String(parts[0]), version: version,
-                                   license: parts[2].trimmingCharacters(in: .whitespaces),
-                                   url: next.hasPrefix("http") ? next : ""))
+            out.append(
+                BundledTool(
+                    name: String(parts[0]), version: version,
+                    license: parts[2].trimmingCharacters(in: .whitespaces),
+                    url: next.hasPrefix("http") ? next : ""))
         }
         return out
     }
@@ -132,8 +134,13 @@ struct HelperSettings: View {
             } header: {
                 Text(String(localized: "Privileged helper"))
             } footer: {
-                Text(String(localized: "VPN tools need administrator rights to create the tunnel. The helper only runs the signed copies of OpenVPN and openfortivpn inside PassTunnel, never anything else."))
-                    .settingsFooter()
+                Text(
+                    String(
+                        localized:
+                            "VPN tools need administrator rights to create the tunnel. The helper only runs the signed copies of OpenVPN and openfortivpn inside PassTunnel, never anything else."
+                    )
+                )
+                .settingsFooter()
             }
 
             Section {
@@ -170,22 +177,35 @@ struct HelperSettings: View {
         .onDisappear { declined() }
         .onChange(of: model.pendingHelperAction) { _ in runPendingAction() }
         .confirmationDialog(String(localized: "Remove the PassTunnel helper?"), isPresented: $confirmRemove) {
-            Button(String(localized: "Remove"), role: .destructive) { replyTo = nil; remove() }
+            Button(String(localized: "Remove"), role: .destructive) {
+                replyTo = nil; remove()
+            }
             Button(String(localized: "Cancel"), role: .cancel) { declined() }
         } message: {
             Text(String(localized: "Active connections stop. You can install the helper again at any time."))
         }
         .confirmationDialog(String(localized: "Replace the PassTunnel helper?"), isPresented: $confirmReplace) {
-            Button(String(localized: "Replace Helper")) { replyTo = nil; performUpdate() }
+            Button(String(localized: "Replace Helper")) {
+                replyTo = nil; performUpdate()
+            }
             Button(String(localized: "Cancel"), role: .cancel) { declined() }
         } message: {
-            Text(String(localized: "The helper is replaced with the one inside this copy of PassTunnel (\(Bundle.main.bundlePath)). Active connections stop."))
+            Text(
+                String(
+                    localized:
+                        "The helper is replaced with the one inside this copy of PassTunnel (\(Bundle.main.bundlePath)). Active connections stop."))
         }
         .confirmationDialog(String(localized: "Replace the helper with an older version?"), isPresented: $confirmDowngrade) {
-            Button(String(localized: "Install Older Helper"), role: .destructive) { replyTo = nil; performUpdate() }
+            Button(String(localized: "Install Older Helper"), role: .destructive) {
+                replyTo = nil; performUpdate()
+            }
             Button(String(localized: "Cancel"), role: .cancel) { declined() }
         } message: {
-            Text(String(localized: "The installed helper is from a newer version of PassTunnel than this copy. Replacing it installs an older helper. Active connections stop."))
+            Text(
+                String(
+                    localized:
+                        "The installed helper is from a newer version of PassTunnel than this copy. Replacing it installs an older helper. Active connections stop."
+                ))
         }
         .sheet(isPresented: $showLicenses) { LicensesView() }
     }
@@ -210,10 +230,14 @@ struct HelperSettings: View {
             return String(localized: "Replacing the helper with the one from this copy of PassTunnel. Active connections stop.")
         }
         if outdated && model.helperRelation == .newer {
-            return String(localized: "This helper belongs to a newer version of PassTunnel. Update PassTunnel to connect, or replace the helper with the older one from this copy.")
+            return String(
+                localized:
+                    "This helper belongs to a newer version of PassTunnel. Update PassTunnel to connect, or replace the helper with the older one from this copy."
+            )
         }
         if outdated && model.helperUpdateWaiting {
-            return String(localized: "This helper belongs to another version of PassTunnel. It updates itself when all VPN connections are disconnected.")
+            return String(
+                localized: "This helper belongs to another version of PassTunnel. It updates itself when all VPN connections are disconnected.")
         }
         if outdated {
             return String(localized: "This helper belongs to another version of PassTunnel. Update it to connect; active connections stop.")
@@ -256,7 +280,8 @@ struct HelperSettings: View {
         model.pendingHelperAction = nil
         model.refreshHelperStatus()
         if action != .uninstall, model.helperStatus != .requiresApproval,
-           !HelperSessions.isInApplicationsFolder(Bundle.main.bundlePath) {
+            !HelperSessions.isInApplicationsFolder(Bundle.main.bundlePath)
+        {
             errorText = String(localized: "Open PassTunnel from the Applications folder to install or update the helper from the command line.")
             action.postReply(.refused)
             return
@@ -289,7 +314,7 @@ struct HelperSettings: View {
 
     /// Shows a confirmation for a CLI request and tells the CLI it now waits for the user.
     private func ask(for action: HelperHandoff, _ show: () -> Void) {
-        if replyTo != action { declined() }      // a confirmation still open for another request
+        if replyTo != action { declined() }  // a confirmation still open for another request
         replyTo = action
         show()
         action.postReply(.asking)

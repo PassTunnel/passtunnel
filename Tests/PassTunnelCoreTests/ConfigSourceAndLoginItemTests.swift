@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+
 @testable import PassTunnelCore
 @testable import PassTunnelKit
 
@@ -69,9 +70,10 @@ final class ConfigSourceTests: CoreTestCase {
 #if os(macOS)
 final class LoginItemTests: XCTestCase {
     private func openEvent(property: OSType?) -> NSAppleEventDescriptor {
-        let event = NSAppleEventDescriptor(eventClass: AEEventClass(kCoreEventClass), eventID: AEEventID(kAEOpenApplication),
-                                           targetDescriptor: nil, returnID: AEReturnID(kAutoGenerateReturnID),
-                                           transactionID: AETransactionID(kAnyTransactionID))
+        let event = NSAppleEventDescriptor(
+            eventClass: AEEventClass(kCoreEventClass), eventID: AEEventID(kAEOpenApplication),
+            targetDescriptor: nil, returnID: AEReturnID(kAutoGenerateReturnID),
+            transactionID: AETransactionID(kAnyTransactionID))
         if let property {
             event.setParam(NSAppleEventDescriptor(enumCode: property), forKeyword: AEKeyword(keyAEPropData))
         }
@@ -79,11 +81,15 @@ final class LoginItemTests: XCTestCase {
     }
 
     func testLoginLaunchEvent() {
-        XCTAssertTrue(LoginItem.isBackgroundLaunch(arguments: ["PassTunnel"],
-                                                   launchEvent: openEvent(property: OSType(keyAELaunchedAsLogInItem))))
+        XCTAssertTrue(
+            LoginItem.isBackgroundLaunch(
+                arguments: ["PassTunnel"],
+                launchEvent: openEvent(property: OSType(keyAELaunchedAsLogInItem))))
         XCTAssertFalse(LoginItem.isBackgroundLaunch(arguments: ["PassTunnel"], launchEvent: openEvent(property: nil)))
-        XCTAssertFalse(LoginItem.isBackgroundLaunch(arguments: ["PassTunnel"],
-                                                    launchEvent: openEvent(property: OSType(keyAELaunchedAsServiceItem))))
+        XCTAssertFalse(
+            LoginItem.isBackgroundLaunch(
+                arguments: ["PassTunnel"],
+                launchEvent: openEvent(property: OSType(keyAELaunchedAsServiceItem))))
         XCTAssertFalse(LoginItem.isBackgroundLaunch(arguments: ["PassTunnel"], launchEvent: nil))
     }
 

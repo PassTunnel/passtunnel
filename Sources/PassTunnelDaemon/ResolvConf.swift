@@ -60,15 +60,17 @@ enum ResolvConf {
     static func blockInterface(_ line: [UInt8]) -> String? {
         let prefix = Array("# PassTunnel ".utf8), suffix = Array(" begin: DNS of the VPN, removed when it disconnects".utf8)
         guard line.count > prefix.count + suffix.count, line.starts(with: prefix), line.suffix(suffix.count).elementsEqual(suffix),
-              let name = interfaceName(line[prefix.count..<(line.count - suffix.count)]) else { return nil }
+            let name = interfaceName(line[prefix.count..<(line.count - suffix.count)])
+        else { return nil }
         return name
     }
 
     /// The line a mark (`#PassTunnel <interface># `) disabled; nil when it has none.
     static func unmarked(_ line: [UInt8]) -> [UInt8]? {
         let prefix = Array("#PassTunnel ".utf8)
-        guard line.starts(with: prefix), let close = line[prefix.count...].firstIndex(of: 0x23),        // "#"
-              let name = interfaceName(line[prefix.count..<close]) else { return nil }
+        guard line.starts(with: prefix), let close = line[prefix.count...].firstIndex(of: 0x23),  // "#"
+            let name = interfaceName(line[prefix.count..<close])
+        else { return nil }
         let mark = mark(name)
         return line.starts(with: mark) ? Array(line.dropFirst(mark.count)) : nil
     }

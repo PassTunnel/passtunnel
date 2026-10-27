@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import PassTunnelKit
 
 /// `CIDR`, `NetworkClaims` and its overlap math, and what the OpenVPN config and a server's push say about
@@ -46,14 +47,16 @@ final class NetworkClaimsTests: XCTestCase {
     }
 
     func testRefusedText() {
-        let refused = ["", "/", "/8", "10.0.0.0/", "10.0.0.0/33", "10.0.0.0/-1", "10.0.0.0/+8", "10.0.0.0/08", "10.0.0.0/8/9",
-                       "10.0.0.0/ 8", "256.0.0.0/8", "10.0.0/8", "10.0.0.0.0/8", "10.0.0.01/8", "010.0.0.0/8", " 10.0.0.0/8",
-                       "10.0.0.0/8 ", "10.0.0.-1/8", "1e1.0.0.0/8", "vpn.example.com", "example.com/24", "10.0.0.0:80",
-                       "10.0.0.1%en0", "０.0.0.0/8", "10.0.0.0/1000",
-                       "2001:db8::/129", "2001:db8::/", ":::", "1::2::3", "12345::", "1:2:3:4:5:6:7:8:9", "1:2:3:4:5:6:7",
-                       "1:2:3:4:5:6:7:8::", "::1:2:3:4:5:6:7:8", "fe80::1%en0", "[::1]", "::g", "2001:db8::/-1",
-                       ":1::", "1::2:", ":1:2:3:4:5:6:7", "::1.2.3", "1.2.3.4::", "::1.2.3.4:5", "1:1.2.3.4::1",
-                       "::ffff:192.0.2.256", "2001:db8::1/64/64"]
+        let refused = [
+            "", "/", "/8", "10.0.0.0/", "10.0.0.0/33", "10.0.0.0/-1", "10.0.0.0/+8", "10.0.0.0/08", "10.0.0.0/8/9",
+            "10.0.0.0/ 8", "256.0.0.0/8", "10.0.0/8", "10.0.0.0.0/8", "10.0.0.01/8", "010.0.0.0/8", " 10.0.0.0/8",
+            "10.0.0.0/8 ", "10.0.0.-1/8", "1e1.0.0.0/8", "vpn.example.com", "example.com/24", "10.0.0.0:80",
+            "10.0.0.1%en0", "０.0.0.0/8", "10.0.0.0/1000",
+            "2001:db8::/129", "2001:db8::/", ":::", "1::2::3", "12345::", "1:2:3:4:5:6:7:8:9", "1:2:3:4:5:6:7",
+            "1:2:3:4:5:6:7:8::", "::1:2:3:4:5:6:7:8", "fe80::1%en0", "[::1]", "::g", "2001:db8::/-1",
+            ":1::", "1::2:", ":1:2:3:4:5:6:7", "::1.2.3", "1.2.3.4::", "::1.2.3.4:5", "1:1.2.3.4::1",
+            "::ffff:192.0.2.256", "2001:db8::1/64/64"
+        ]
         for text in refused { XCTAssertNil(CIDR(text), "“\(text)”") }
         XCTAssertNil(CIDR.host("10.0.0.0/8"), "a host is an address alone")
         XCTAssertEqual(CIDR.host("10.0.0.1")?.description, "10.0.0.1/32")
@@ -185,8 +188,11 @@ final class NetworkClaimsTests: XCTestCase {
             }
             let octets = (0..<4).map { _ in UInt8([0, 10, 128, 192, 255][Int(next() % 5)]) }
             let prefix = Int(next() % 33)
-            return (octets.map(String.init).joined(separator: ".") + "/\(prefix)", bits(octets.map { UInt16($0) << 8 })
-                .enumerated().filter { $0.offset % 16 < 8 }.map(\.element), prefix)
+            return (
+                octets.map(String.init).joined(separator: ".") + "/\(prefix)",
+                bits(octets.map { UInt16($0) << 8 })
+                    .enumerated().filter { $0.offset % 16 < 8 }.map(\.element), prefix
+            )
         }
         for i in 0..<4000 {
             let v6 = i % 2 == 0
@@ -215,12 +221,14 @@ final class NetworkClaimsTests: XCTestCase {
         XCTAssertEqual(NetworkClaims.normalizedDomain("a-b.example.com"), "a-b.example.com")
         XCTAssertEqual(NetworkClaims.normalizedDomain("intranet"), "intranet")
         XCTAssertEqual(NetworkClaims.normalizedDomain(String(repeating: "a", count: 63) + ".com"), String(repeating: "a", count: 63) + ".com")
-        let tooLong = Array(repeating: String(repeating: "a", count: 62), count: 4).joined(separator: ".")   // 251 + ".com"
+        let tooLong = Array(repeating: String(repeating: "a", count: 62), count: 4).joined(separator: ".")  // 251 + ".com"
         XCTAssertNotNil(NetworkClaims.normalizedDomain(tooLong))
         XCTAssertNil(NetworkClaims.normalizedDomain(tooLong + ".example"))
-        for bad in ["", ".", "..", "~", "~.", "*", "example..com", "-example.com", "example-.com", "exa mple.com", "example.com/x",
-                    "exam;ple.com", "example.com\n", "ex\u{7}ample.com", "bücher.example", String(repeating: "a", count: 64) + ".com",
-                    "x..."] {
+        for bad in [
+            "", ".", "..", "~", "~.", "*", "example..com", "-example.com", "example-.com", "exa mple.com", "example.com/x",
+            "exam;ple.com", "example.com\n", "ex\u{7}ample.com", "bücher.example", String(repeating: "a", count: 64) + ".com",
+            "x..."
+        ] {
             XCTAssertNil(NetworkClaims.normalizedDomain(bad), "“\(bad)”")
         }
     }
@@ -321,8 +329,9 @@ final class NetworkClaimsTests: XCTestCase {
 
     func testMerge() {
         var a = NetworkClaims(routes: [cidr("10.0.0.0/8")], dnsServers: ["10.8.0.1"], dnsDomains: ["example.com"])
-        let b = NetworkClaims(routes: [cidr("10.0.0.0/8"), cidr("192.0.2.0/24")], fullTunnelIPv6: true, dnsServers: ["10.8.0.2"],
-                              searchDomains: ["corp.example.com"])
+        let b = NetworkClaims(
+            routes: [cidr("10.0.0.0/8"), cidr("192.0.2.0/24")], fullTunnelIPv6: true, dnsServers: ["10.8.0.2"],
+            searchDomains: ["corp.example.com"])
         a.merge(b)
         XCTAssertEqual(a.routes.map(\.description), ["10.0.0.0/8", "192.0.2.0/24"])
         XCTAssertEqual(a.dnsServers, ["10.8.0.1", "10.8.0.2"])
@@ -334,10 +343,13 @@ final class NetworkClaimsTests: XCTestCase {
 
     // MARK: overlaps
 
-    func claims(_ routes: [String] = [], full: Bool = false, full6: Bool = false, dns: [String] = [], split: [String] = [],
-                search: [String] = []) -> NetworkClaims {
-        NetworkClaims(routes: routes.map(cidr), fullTunnel: full, fullTunnelIPv6: full6, dnsServers: dns, dnsDomains: split,
-                      searchDomains: search)
+    func claims(
+        _ routes: [String] = [], full: Bool = false, full6: Bool = false, dns: [String] = [], split: [String] = [],
+        search: [String] = []
+    ) -> NetworkClaims {
+        NetworkClaims(
+            routes: routes.map(cidr), fullTunnel: full, fullTunnelIPv6: full6, dnsServers: dns, dnsDomains: split,
+            searchDomains: search)
     }
 
     func testTheDesignExample() {
@@ -358,8 +370,9 @@ final class NetworkClaimsTests: XCTestCase {
         let wide = claims(["10.0.0.0/8"]), narrow = claims(["10.9.0.0/16"]), apart = claims(["172.16.0.0/12"])
         XCTAssertEqual(NetworkClaims.overlaps(wide, narrow), [.route(cidr("10.0.0.0/8"), cidr("10.9.0.0/16"))])
         XCTAssertEqual(NetworkClaims.overlaps(narrow, wide), [.route(cidr("10.9.0.0/16"), cidr("10.0.0.0/8"))])
-        XCTAssertEqual(OverlapSummary(NetworkClaims.overlaps(wide, narrow)).routes.map(\.description), ["10.9.0.0/16"],
-                       "what both send is the narrower network")
+        XCTAssertEqual(
+            OverlapSummary(NetworkClaims.overlaps(wide, narrow)).routes.map(\.description), ["10.9.0.0/16"],
+            "what both send is the narrower network")
         XCTAssertEqual(NetworkClaims.overlaps(wide, apart), [])
         XCTAssertEqual(NetworkClaims.overlaps(narrow, apart), [])
         // Host routes, and networks of the other family.
@@ -387,8 +400,10 @@ final class NetworkClaimsTests: XCTestCase {
     func testFullTunnelMeetsAnything() {
         let full = claims(full: true)
         // Routes, names, a DNS server, another full tunnel: all collide.
-        for other in [claims(["10.0.0.0/8"]), claims(split: ["example.com"]), claims(search: ["example.com"]),
-                      claims(dns: ["10.8.0.1"]), claims(full: true)] {
+        for other in [
+            claims(["10.0.0.0/8"]), claims(split: ["example.com"]), claims(search: ["example.com"]),
+            claims(dns: ["10.8.0.1"]), claims(full: true)
+        ] {
             let found = NetworkClaims.overlaps(full, other)
             XCTAssertEqual(found, [.allTraffic(first: true, second: other.fullTunnel)], "\(other)")
             XCTAssertEqual(NetworkClaims.overlaps(other, full), [.allTraffic(first: other.fullTunnel, second: true)])
@@ -413,8 +428,9 @@ final class NetworkClaimsTests: XCTestCase {
         XCTAssertEqual(NetworkClaims.overlaps(work, claims(split: ["Example.com."])), [.domain("example.com", "example.com")])
         XCTAssertEqual(NetworkClaims.overlaps(work, claims(split: ["lab.example.com"])), [.domain("example.com", "lab.example.com")])
         XCTAssertEqual(NetworkClaims.overlaps(claims(split: ["lab.example.com"]), work), [.domain("lab.example.com", "example.com")])
-        XCTAssertEqual(NetworkClaims.overlaps(work, claims(search: ["example.com"])), [.domain("example.com", "example.com")],
-                       "search domains count as names too")
+        XCTAssertEqual(
+            NetworkClaims.overlaps(work, claims(search: ["example.com"])), [.domain("example.com", "example.com")],
+            "search domains count as names too")
         XCTAssertEqual(NetworkClaims.overlaps(work, claims(split: ["notexample.com"])), [])
         XCTAssertEqual(NetworkClaims.overlaps(work, claims(split: ["example.org", "other.example"])), [])
         XCTAssertEqual(NetworkClaims.overlaps(work, claims(split: ["work.example"])).count, 1, "corp.work.example is inside work.example")
@@ -424,8 +440,10 @@ final class NetworkClaimsTests: XCTestCase {
     }
 
     func testOverlapsAreSymmetricInSize() {
-        let items = [claims(["10.0.0.0/8", "192.0.2.0/24"], split: ["example.com"]), claims(["10.9.0.0/16"], full: true),
-                     claims(["2001:db8::/32"], full6: true, search: ["a.example.com"]), claims(dns: ["10.8.0.1"]), NetworkClaims()]
+        let items = [
+            claims(["10.0.0.0/8", "192.0.2.0/24"], split: ["example.com"]), claims(["10.9.0.0/16"], full: true),
+            claims(["2001:db8::/32"], full6: true, search: ["a.example.com"]), claims(dns: ["10.8.0.1"]), NetworkClaims()
+        ]
         for a in items {
             for b in items {
                 XCTAssertEqual(NetworkClaims.overlaps(a, b).count, NetworkClaims.overlaps(b, a).count)
@@ -452,36 +470,38 @@ final class OVPNNetworkClaimsTests: XCTestCase {
     func routes(_ claims: NetworkClaims) -> [String] { claims.routes.map(\.description) }
 
     func testRoutesOfTheConfig() {
-        let c = claims("""
-        client
-        remote vpn.example.com 1194
-        route 10.0.0.0 255.0.0.0
-        route 192.0.2.0 255.255.255.0 vpn_gateway 5
-        route 198.51.100.7
-        route 203.0.113.0 255.255.255.0 default
-        route-ipv6 2001:db8::/32
-        route-ipv6 2001:db8:1::/48 2001:db8:ffff::1 100
-        """)
+        let c = claims(
+            """
+            client
+            remote vpn.example.com 1194
+            route 10.0.0.0 255.0.0.0
+            route 192.0.2.0 255.255.255.0 vpn_gateway 5
+            route 198.51.100.7
+            route 203.0.113.0 255.255.255.0 default
+            route-ipv6 2001:db8::/32
+            route-ipv6 2001:db8:1::/48 2001:db8:ffff::1 100
+            """)
         XCTAssertEqual(routes(c), ["10.0.0.0/8", "192.0.2.0/24", "198.51.100.7/32", "203.0.113.0/24", "2001:db8::/32", "2001:db8:1::/48"])
         XCTAssertFalse(c.fullTunnel)
     }
 
     func testRoutesThatDoNotUseTheTunnelOrCannotBeRead() {
-        let c = claims("""
-        route 203.0.113.10 255.255.255.255 net_gateway
-        route 203.0.113.11 255.255.255.255 remote_host
-        route-ipv6 2001:db8:5::/48 net_gateway
-        route vpn_gateway
-        route net_gateway 255.0.0.0
-        route remote_host
-        route intranet.example.com
-        route 10.0.0.0 255.0.255.0
-        route 10.0.0.0 24
-        route
-        route-ipv6 2001:db8::1
-        route-ipv6 intranet.example.com/64
-        route-ipv6
-        """)
+        let c = claims(
+            """
+            route 203.0.113.10 255.255.255.255 net_gateway
+            route 203.0.113.11 255.255.255.255 remote_host
+            route-ipv6 2001:db8:5::/48 net_gateway
+            route vpn_gateway
+            route net_gateway 255.0.0.0
+            route remote_host
+            route intranet.example.com
+            route 10.0.0.0 255.0.255.0
+            route 10.0.0.0 24
+            route
+            route-ipv6 2001:db8::1
+            route-ipv6 intranet.example.com/64
+            route-ipv6
+            """)
         XCTAssertTrue(c.isEmpty, "\(c)")
     }
 
@@ -509,36 +529,38 @@ final class OVPNNetworkClaimsTests: XCTestCase {
     }
 
     func testDNSOptions() {
-        let c = claims("""
-        dhcp-option DNS 10.8.0.1
-        dhcp-option DNS6 2001:db8::53
-        dhcp-option DOMAIN corp.example.com
-        dhcp-option DOMAIN-SEARCH lab.example.com
-        dhcp-option ADAPTER-DOMAIN-SUFFIX Example.ORG.
-        dhcp-option DOMAIN-ROUTE example.com
-        dhcp-option WINS 10.8.0.9
-        dhcp-option DNS dns.example.com
-        dhcp-option DISABLE-NBT
-        dhcp-option PROXY_HTTP 10.0.0.9 3128
-        """)
+        let c = claims(
+            """
+            dhcp-option DNS 10.8.0.1
+            dhcp-option DNS6 2001:db8::53
+            dhcp-option DOMAIN corp.example.com
+            dhcp-option DOMAIN-SEARCH lab.example.com
+            dhcp-option ADAPTER-DOMAIN-SUFFIX Example.ORG.
+            dhcp-option DOMAIN-ROUTE example.com
+            dhcp-option WINS 10.8.0.9
+            dhcp-option DNS dns.example.com
+            dhcp-option DISABLE-NBT
+            dhcp-option PROXY_HTTP 10.0.0.9 3128
+            """)
         XCTAssertEqual(c.dnsServers, ["10.8.0.1", "2001:db8::53"])
         XCTAssertEqual(c.searchDomains, ["corp.example.com", "lab.example.com", "example.org"])
         XCTAssertEqual(c.dnsDomains, ["example.com"])
     }
 
     func testOpenVPN27DNSOptions() {
-        let c = claims("""
-        dns server 1 address 10.8.0.1 10.8.0.2:53
-        dns server 1 address [2001:db8::1]:53
-        dns server 1 resolve-domains example.com corp.example.com
-        dns server 1 dnssec yes
-        dns server 1 transport DoH
-        dns search-domains search.example.com
-        dns domain nonsense
-        dns
-        dns server
-        dns server 1 address
-        """)
+        let c = claims(
+            """
+            dns server 1 address 10.8.0.1 10.8.0.2:53
+            dns server 1 address [2001:db8::1]:53
+            dns server 1 resolve-domains example.com corp.example.com
+            dns server 1 dnssec yes
+            dns server 1 transport DoH
+            dns search-domains search.example.com
+            dns domain nonsense
+            dns
+            dns server
+            dns server 1 address
+            """)
         XCTAssertEqual(c.dnsServers, ["10.8.0.1", "10.8.0.2", "2001:db8::1"])
         XCTAssertEqual(c.dnsDomains, ["example.com", "corp.example.com"])
         XCTAssertEqual(c.searchDomains, ["search.example.com"])
@@ -548,10 +570,13 @@ final class OVPNNetworkClaimsTests: XCTestCase {
     }
 
     func testPushedOptionsAddToTheConfigsOwn() {
-        let c = claims("route 10.0.0.0 255.0.0.0\ndhcp-option DNS 10.8.0.1",
-                       pushed: ["route 172.16.0.0 255.240.0.0", "route-ipv6 2001:db8::/32", "dhcp-option DNS 10.8.0.2",
-                                "dhcp-option DOMAIN-ROUTE example.com", "dhcp-option DOMAIN corp.example.com",
-                                "dns server 2 resolve-domains lab.example.com"])
+        let c = claims(
+            "route 10.0.0.0 255.0.0.0\ndhcp-option DNS 10.8.0.1",
+            pushed: [
+                "route 172.16.0.0 255.240.0.0", "route-ipv6 2001:db8::/32", "dhcp-option DNS 10.8.0.2",
+                "dhcp-option DOMAIN-ROUTE example.com", "dhcp-option DOMAIN corp.example.com",
+                "dns server 2 resolve-domains lab.example.com"
+            ])
         XCTAssertEqual(routes(c), ["10.0.0.0/8", "172.16.0.0/12", "2001:db8::/32"])
         XCTAssertEqual(c.dnsServers, ["10.8.0.1", "10.8.0.2"])
         XCTAssertEqual(c.dnsDomains, ["example.com", "lab.example.com"])
@@ -559,8 +584,12 @@ final class OVPNNetworkClaimsTests: XCTestCase {
     }
 
     func testOnlyNetworkOptionsAreRead() {
-        let c = claims("", pushed: ["ifconfig 10.8.0.6 255.255.255.0", "route-gateway 10.8.0.1", "auth-token SESS_ID_x", "ping 10",
-                                    "block-outside-dns", "Route 10.0.0.0 255.0.0.0", "route-delay 5", "topology subnet", "", "   "])
+        let c = claims(
+            "",
+            pushed: [
+                "ifconfig 10.8.0.6 255.255.255.0", "route-gateway 10.8.0.1", "auth-token SESS_ID_x", "ping 10",
+                "block-outside-dns", "Route 10.0.0.0 255.0.0.0", "route-delay 5", "topology subnet", "", "   "
+            ])
         XCTAssertTrue(c.isEmpty)
         let tabs = claims("", pushed: ["route\t10.0.0.0\t255.0.0.0"])
         XCTAssertEqual(routes(tabs), ["10.0.0.0/8"])
@@ -571,8 +600,12 @@ final class OVPNNetworkClaimsTests: XCTestCase {
 
     func testRouteNopullRefusesWhatIsPushed() {
         let config = "route-nopull\nroute 10.0.0.0 255.0.0.0\ndhcp-option DNS 10.8.0.5"
-        let c = claims(config, pushed: ["route 172.16.0.0 255.240.0.0", "redirect-gateway def1", "dhcp-option DNS 10.8.0.1",
-                                        "dns server 1 address 10.8.0.2"])
+        let c = claims(
+            config,
+            pushed: [
+                "route 172.16.0.0 255.240.0.0", "redirect-gateway def1", "dhcp-option DNS 10.8.0.1",
+                "dns server 1 address 10.8.0.2"
+            ])
         XCTAssertEqual(routes(c), ["10.0.0.0/8"], "the config's own routes still count")
         XCTAssertEqual(c.dnsServers, ["10.8.0.5"])
         XCTAssertFalse(c.fullTunnel)
@@ -580,55 +613,63 @@ final class OVPNNetworkClaimsTests: XCTestCase {
 
     func testPullFilters() {
         let config = """
-        pull-filter ignore "route 172."
-        pull-filter ignore "redirect-gateway"
-        pull-filter reject "dhcp-option DOMAIN"
-        pull-filter accept "dhcp-option"
-        """
-        let c = claims(config, pushed: ["route 172.16.0.0 255.240.0.0", "route 172.20.0.0 255.255.0.0", "route 10.0.0.0 255.0.0.0",
-                                        "redirect-gateway def1", "dhcp-option DNS 10.8.0.1", "dhcp-option DOMAIN corp.example.com",
-                                        "dhcp-option DOMAIN-ROUTE example.com"])
+            pull-filter ignore "route 172."
+            pull-filter ignore "redirect-gateway"
+            pull-filter reject "dhcp-option DOMAIN"
+            pull-filter accept "dhcp-option"
+            """
+        let c = claims(
+            config,
+            pushed: [
+                "route 172.16.0.0 255.240.0.0", "route 172.20.0.0 255.255.0.0", "route 10.0.0.0 255.0.0.0",
+                "redirect-gateway def1", "dhcp-option DNS 10.8.0.1", "dhcp-option DOMAIN corp.example.com",
+                "dhcp-option DOMAIN-ROUTE example.com"
+            ])
         XCTAssertEqual(routes(c), ["10.0.0.0/8"])
         XCTAssertFalse(c.fullTunnel)
         XCTAssertEqual(c.dnsServers, ["10.8.0.1"])
         XCTAssertEqual(c.searchDomains, [], "rejected by the filter before the accept")
         XCTAssertEqual(c.dnsDomains, [], "DOMAIN-ROUTE starts with the rejected pattern too")
         // The first filter that matches decides, so an accept in front keeps what a later ignore drops.
-        let accepted = claims("pull-filter accept \"route 172.16.\"\npull-filter ignore \"route\"",
-                              pushed: ["route 172.16.0.0 255.240.0.0", "route 10.0.0.0 255.0.0.0"])
+        let accepted = claims(
+            "pull-filter accept \"route 172.16.\"\npull-filter ignore \"route\"",
+            pushed: ["route 172.16.0.0 255.240.0.0", "route 10.0.0.0 255.0.0.0"])
         XCTAssertEqual(routes(accepted), ["172.16.0.0/12"])
         // A pattern is a prefix of the whole option: it is case sensitive and not found inside it.
-        XCTAssertEqual(routes(claims("pull-filter ignore \"ROUTE\"\npull-filter ignore \"10.0.0.0\"", pushed: ["route 10.0.0.0 255.0.0.0"])),
-                       ["10.0.0.0/8"])
+        XCTAssertEqual(
+            routes(claims("pull-filter ignore \"ROUTE\"\npull-filter ignore \"10.0.0.0\"", pushed: ["route 10.0.0.0 255.0.0.0"])),
+            ["10.0.0.0/8"])
         XCTAssertEqual(claims("pull-filter ignore \"dns\"", pushed: ["dns server 1 address 10.8.0.2"]).dnsServers, [])
         XCTAssertEqual(claims("pull-filter bogus \"route\"\npull-filter ignore", pushed: ["route 10.0.0.0 255.0.0.0"]).routes.count, 1)
     }
 
     func testRouteNoexecAddsNoRoutes() {
-        let c = claims("route-noexec\nroute 10.0.0.0 255.0.0.0\nredirect-gateway def1\ndhcp-option DNS 10.8.0.1",
-                       pushed: ["route 172.16.0.0 255.240.0.0", "redirect-gateway def1", "route-ipv6 2001:db8::/32"])
+        let c = claims(
+            "route-noexec\nroute 10.0.0.0 255.0.0.0\nredirect-gateway def1\ndhcp-option DNS 10.8.0.1",
+            pushed: ["route 172.16.0.0 255.240.0.0", "redirect-gateway def1", "route-ipv6 2001:db8::/32"])
         XCTAssertTrue(c.routes.isEmpty)
         XCTAssertFalse(c.fullTunnel)
         XCTAssertEqual(c.dnsServers, ["10.8.0.1"], "the DNS still is set")
     }
 
     func testTheConfigIsReadAsOpenVPNReadsIt() {
-        let c = claims("""
-        # route 10.0.0.0 255.0.0.0
-        ; route 10.1.0.0 255.255.0.0
-        <ca>
-        route 10.2.0.0 255.255.0.0
-        </ca>
-        <connection>
-        remote vpn.example.com
-        route 10.3.0.0 255.255.0.0
-        </connection>
-        setenv opt route 10.4.0.0 255.255.0.0
-        setenv route 10.5.0.0 255.255.0.0
-        route "10.6.0.0" '255.255.0.0'
-        --route 10.7.0.0 255.255.0.0
-        ROUTE 10.8.0.0 255.255.0.0
-        """)
+        let c = claims(
+            """
+            # route 10.0.0.0 255.0.0.0
+            ; route 10.1.0.0 255.255.0.0
+            <ca>
+            route 10.2.0.0 255.255.0.0
+            </ca>
+            <connection>
+            remote vpn.example.com
+            route 10.3.0.0 255.255.0.0
+            </connection>
+            setenv opt route 10.4.0.0 255.255.0.0
+            setenv route 10.5.0.0 255.255.0.0
+            route "10.6.0.0" '255.255.0.0'
+            --route 10.7.0.0 255.255.0.0
+            ROUTE 10.8.0.0 255.255.0.0
+            """)
         XCTAssertEqual(routes(c), ["10.3.0.0/16", "10.4.0.0/16", "10.6.0.0/16", "10.7.0.0/16", "10.8.0.0/16"])
         XCTAssertTrue(claims("").isEmpty)
         XCTAssertTrue(claims("\u{0}\u{1}garbage \"unterminated").isEmpty)

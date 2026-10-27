@@ -181,8 +181,10 @@ public struct ProfileStore {
     /// go to the Keychain; a TOTP secret sets the profile to fill in codes, with `totp`'s digits, period
     /// and algorithm. Throws `ovpnNotAllowed` while the draft has blocking lines; nothing is left behind
     /// when any step fails.
-    public func commit(_ draft: ImportDraft, name: String? = nil, username: String? = nil, password: String? = nil,
-                       totpSecret: Data? = nil, totp: TOTPParams = TOTPParams(), now: Date = Date()) throws -> Profile {
+    public func commit(
+        _ draft: ImportDraft, name: String? = nil, username: String? = nil, password: String? = nil,
+        totpSecret: Data? = nil, totp: TOTPParams = TOTPParams(), now: Date = Date()
+    ) throws -> Profile {
         let report = draft.report
         guard report.blocking.isEmpty, let config = report.config else {
             throw PTError.ovpnNotAllowed(report.blocking.map(\.description))
@@ -243,11 +245,12 @@ public struct ProfileStore {
         if src.type == .openvpn, let ovpn = share.files[Self.ovpnFile] {
             guard ovpn.count <= Self.maxOVPNSize else { throw PTError.fileTooLarge(Self.ovpnFile) }
             guard let text = String(data: ovpn, encoding: .utf8) else { throw PTError.invalidFile(Self.ovpnFile) }
-            try OVPNInliner.check(text)   // share files are already self-contained
+            try OVPNInliner.check(text)  // share files are already self-contained
             sharedOVPN = Data(OVPNInliner.strippingCredentials(text, blocks: [.authUserPass]).text.utf8)
         }
-        var p = try create(name: Self.pick(name, src.name.isEmpty ? url.deletingPathExtension().lastPathComponent : src.name),
-                           type: src.type)
+        var p = try create(
+            name: Self.pick(name, src.name.isEmpty ? url.deletingPathExtension().lastPathComponent : src.name),
+            type: src.type)
         do {
             p.badge = src.badge
             p.icon = src.icon
@@ -290,7 +293,7 @@ public struct ProfileStore {
 
     private func load(_ id: String) throws -> Profile {
         var p = try JSONCoding.read(Profile.self, from: profileURL(id))
-        p.id = id   // the directory name is authoritative
+        p.id = id  // the directory name is authoritative
         if p.name.trimmingCharacters(in: .whitespaces).isEmpty { p.name = id }
         return p
     }

@@ -2,7 +2,7 @@ import Foundation
 import PassTunnelVPNConfig
 
 public enum VPNType: String, Codable, CaseIterable { case openvpn, forti }
-public enum PasswordMode: String, Codable, CaseIterable { case keychain, ask, none }   // none = certificate only
+public enum PasswordMode: String, Codable, CaseIterable { case keychain, ask, none }  // none = certificate only
 public enum OTPMode: String, Codable, CaseIterable { case none, totp, ask }
 
 /// How the one-time code reaches the server.
@@ -68,17 +68,17 @@ public struct TOTPParams: Codable, Equatable {
 }
 
 public struct Profile: Codable, Identifiable, Equatable {
-    public var id: String                 // slug, unique, immutable
+    public var id: String  // slug, unique, immutable
     public var name: String
     public var type: VPNType
     public var order = 0
     // appearance
-    public var badge = ""                 // empty → first letter of name
-    public var icon = ""                  // SF Symbol name
+    public var badge = ""  // empty → first letter of name
+    public var icon = ""  // SF Symbol name
     public var badgeStyle = BadgeStyle.letter
     public var pinned = false
     // authentication
-    public var username = ""              // empty → ask each time (remember lastUsername)
+    public var username = ""  // empty → ask each time (remember lastUsername)
     public var lastUsername = ""
     public var passwordMode = PasswordMode.keychain
     public var otpMode = OTPMode.none
@@ -90,7 +90,7 @@ public struct Profile: Codable, Identifiable, Equatable {
     public var autoReconnect = false
     /// Connected when PassTunnel opens at login (the app's login item); a per-user choice, like `pinned`.
     public var connectAtLogin = false
-    public var healthHost = ""            // "10.0.0.5" (ICMP) or "host:port" (TCP) or "[v6]:port"
+    public var healthHost = ""  // "10.0.0.5" (ICMP) or "host:port" (TCP) or "[v6]:port"
     public var otpDelivery = OTPDelivery.combined
     public var otpTemplate = OTPTemplatePreset.append.rawValue
     // OpenVPN
@@ -166,13 +166,15 @@ public struct Profile: Codable, Identifiable, Equatable {
         case sessionLimitMin, autoReconnect, connectAtLogin, healthHost, otpDelivery, otpTemplate
         case mgmtPort, host, port, trustedCert, setRoutes
         case configSourceName, configImportedAt
-        case setDNS = "setDns"   // matches "set_dns" under the snake_case strategies
-        case otpFormat           // legacy, read only
+        case setDNS = "setDns"  // matches "set_dns" under the snake_case strategies
+        case otpFormat  // legacy, read only
     }
 
     /// Keys left out of share files.
-    static let shareExcludedKeys: Set<CodingKeys> = [.username, .lastUsername, .order, .mgmtPort, .pinned, .configImportedAt,
-                                                     .requireAuth, .connectAtLogin]
+    static let shareExcludedKeys: Set<CodingKeys> = [
+        .username, .lastUsername, .order, .mgmtPort, .pinned, .configImportedAt,
+        .requireAuth, .connectAtLogin
+    ]
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)

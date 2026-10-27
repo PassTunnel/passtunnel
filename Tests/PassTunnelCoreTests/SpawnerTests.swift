@@ -54,10 +54,13 @@ final class SpawnerTests: XCTestCase {
         kill(pid, 0) == -1 && errno == ESRCH
     }
 
-    func spawn(_ executable: String, _ args: [String], verifier: LaunchVerifier,
-               environment: [String] = HelperCore.fixedEnvironment) throws -> pid_t {
-        try Spawner.spawnVerified(executable: executable, arguments: args, environment: environment,
-                                  workingDirectory: dir.path, outputFD: outputFD, verifier: verifier)
+    func spawn(
+        _ executable: String, _ args: [String], verifier: LaunchVerifier,
+        environment: [String] = HelperCore.fixedEnvironment
+    ) throws -> pid_t {
+        try Spawner.spawnVerified(
+            executable: executable, arguments: args, environment: environment,
+            workingDirectory: dir.path, outputFD: outputFD, verifier: verifier)
     }
 
     func waitForExit(_ pid: pid_t) -> Int32 {
@@ -129,7 +132,8 @@ final class SpawnerTests: XCTestCase {
         try "#include <stdio.h>\nint main(void) { puts(\"\(text)\"); return 0; }\n"
             .write(to: src, atomically: true, encoding: .utf8)
         guard run("/usr/bin/xcrun", ["clang", "-o", bin, src.path]) == 0,
-              run("/usr/bin/codesign", ["-f", "-s", "-", "-i", "com.example.acme." + name, bin]) == 0 else {
+            run("/usr/bin/codesign", ["-f", "-s", "-", "-i", "com.example.acme." + name, bin]) == 0
+        else {
             throw XCTSkip("no C compiler or codesign available")
         }
         return bin
@@ -179,8 +183,9 @@ final class SpawnerTests: XCTestCase {
         XCTAssertThrowsError(try spawn(path, [], verifier: verifier)) { error in
             XCTAssertNotNil(error as? CodeSignature.Failure, "\(error)")
         }
-        XCTAssertNoThrow(try CodeSignature.verify(path: path, requirement: requirement),
-                         "the file now at the path is valid on its own")
+        XCTAssertNoThrow(
+            try CodeSignature.verify(path: path, requirement: requirement),
+            "the file now at the path is valid on its own")
         XCTAssertTrue(Self.isGone(swap.pid))
         XCTAssertEqual(try outputText(), "", "the swapped-in program never ran")
     }
@@ -251,7 +256,8 @@ final class SpawnerTests: XCTestCase {
         let src = dir.appendingPathComponent("older.c")
         try "#include <stdio.h>\nint main(void) { puts(\"older\"); return 0; }\n".write(to: src, atomically: true, encoding: .utf8)
         guard run("/usr/bin/xcrun", ["clang", "-o", older, src.path]) == 0,
-              run("/usr/bin/codesign", ["-f", "-s", "-", "-i", "com.example.acme.tool", older]) == 0 else {
+            run("/usr/bin/codesign", ["-f", "-s", "-", "-i", "com.example.acme.tool", older]) == 0
+        else {
             throw XCTSkip("no C compiler or codesign available")
         }
         let requirement = "identifier \"com.example.acme.tool\""
@@ -320,8 +326,9 @@ final class ToolEnvironmentTests: XCTestCase {
         XCTAssertEqual(value("PATH"), "/usr/bin:/bin:/usr/sbin:/sbin")
         XCTAssertEqual(value("LC_ALL"), "C")
         XCTAssertFalse(HelperCore.fixedEnvironment.contains { $0.hasPrefix("DYLD_") })
-        XCTAssertEqual(Set(HelperCore.fixedEnvironment.map { $0.prefix { $0 != "=" } }).count,
-                       HelperCore.fixedEnvironment.count, "no variable twice")
+        XCTAssertEqual(
+            Set(HelperCore.fixedEnvironment.map { $0.prefix { $0 != "=" } }).count,
+            HelperCore.fixedEnvironment.count, "no variable twice")
     }
 
     func testPathsAreRootOwned() {

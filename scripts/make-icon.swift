@@ -1,5 +1,4 @@
-#!/usr/bin/env swift
-// Renders the PassTunnel app icon with AppKit and builds Resources/AppIcon.icns.
+#!/usr/bin/env swift  // Renders the PassTunnel app icon with AppKit and builds Resources/AppIcon.icns.
 //
 //   swift scripts/make-icon.swift                      # writes Resources/AppIcon.icns
 //   swift scripts/make-icon.swift --iconset DIR        # also keeps the .iconset PNGs in DIR
@@ -15,15 +14,16 @@ import AppKit
 let canvas: CGFloat = 1024
 
 func rgb(_ hex: UInt32) -> CGColor {
-    CGColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255,
-            blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
+    CGColor(
+        srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255,
+        blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
 }
 
 enum Palette {
-    static let tile = rgb(0x2563EB)     // blue
+    static let tile = rgb(0x2563EB)  // blue
     static let shield = rgb(0xFFFFFF)
-    static let code = rgb(0xFFB224)     // amber
-    static let digits = rgb(0x0B1636)   // ink
+    static let code = rgb(0xFFB224)  // amber
+    static let digits = rgb(0x0B1636)  // ink
 }
 
 /// Rounded rectangle with continuous ("squircle") corners, close to the macOS app icon shape.
@@ -33,11 +33,13 @@ func squircle(in rect: CGRect, radius: CGFloat) -> CGPath {
     let segments: [(CGPoint, CGPoint, CGPoint)] = [
         (CGPoint(x: -1.08849323, y: 0), CGPoint(x: -0.86840689, y: 0), CGPoint(x: -0.63149399, y: -0.07491139)),
         (CGPoint(x: -0.37282392, y: -0.16906013), CGPoint(x: -0.16906013, y: -0.37282392), CGPoint(x: -0.07491139, y: -0.63149399)),
-        (CGPoint(x: 0, y: -0.86840689), CGPoint(x: 0, y: -1.08849323), CGPoint(x: 0, y: -1.52866483)),
+        (CGPoint(x: 0, y: -0.86840689), CGPoint(x: 0, y: -1.08849323), CGPoint(x: 0, y: -1.52866483))
     ]
     // Clockwise: top right, bottom right, bottom left, top left; each turn rotates offsets by -90°.
-    let corners = [CGPoint(x: rect.maxX, y: rect.maxY), CGPoint(x: rect.maxX, y: rect.minY),
-                   CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: rect.minX, y: rect.maxY)]
+    let corners = [
+        CGPoint(x: rect.maxX, y: rect.maxY), CGPoint(x: rect.maxX, y: rect.minY),
+        CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: rect.minX, y: rect.maxY)
+    ]
     func rotate(_ p: CGPoint, _ turns: Int) -> CGPoint {
         var q = p
         for _ in 0..<turns { q = CGPoint(x: q.y, y: -q.x) }
@@ -63,16 +65,20 @@ func shieldPath(width w: CGFloat, top: CGFloat, bottom: CGFloat) -> CGPath {
     let r = w / 2
     let p = CGMutablePath()
     p.move(to: CGPoint(x: 0, y: top))
-    p.addCurve(to: CGPoint(x: r, y: top - h * 0.10),
-               control1: CGPoint(x: r * 0.45, y: top), control2: CGPoint(x: r * 0.80, y: top - h * 0.04))
+    p.addCurve(
+        to: CGPoint(x: r, y: top - h * 0.10),
+        control1: CGPoint(x: r * 0.45, y: top), control2: CGPoint(x: r * 0.80, y: top - h * 0.04))
     p.addLine(to: CGPoint(x: r, y: top - h * 0.40))
-    p.addCurve(to: CGPoint(x: 0, y: bottom),
-               control1: CGPoint(x: r, y: top - h * 0.78), control2: CGPoint(x: r * 0.42, y: bottom + h * 0.06))
-    p.addCurve(to: CGPoint(x: -r, y: top - h * 0.40),
-               control1: CGPoint(x: -r * 0.42, y: bottom + h * 0.06), control2: CGPoint(x: -r, y: top - h * 0.78))
+    p.addCurve(
+        to: CGPoint(x: 0, y: bottom),
+        control1: CGPoint(x: r, y: top - h * 0.78), control2: CGPoint(x: r * 0.42, y: bottom + h * 0.06))
+    p.addCurve(
+        to: CGPoint(x: -r, y: top - h * 0.40),
+        control1: CGPoint(x: -r * 0.42, y: bottom + h * 0.06), control2: CGPoint(x: -r, y: top - h * 0.78))
     p.addLine(to: CGPoint(x: -r, y: top - h * 0.10))
-    p.addCurve(to: CGPoint(x: 0, y: top),
-               control1: CGPoint(x: -r * 0.80, y: top - h * 0.04), control2: CGPoint(x: -r * 0.45, y: top))
+    p.addCurve(
+        to: CGPoint(x: 0, y: top),
+        control1: CGPoint(x: -r * 0.80, y: top - h * 0.04), control2: CGPoint(x: -r * 0.45, y: top))
     p.closeSubpath()
     return p
 }
@@ -91,9 +97,11 @@ func capsule(_ rect: CGRect) -> CGPath {
 func drawDigits(_ string: String, in ctx: CGContext, center: CGPoint, size: CGFloat, color: CGColor) {
     let base = NSFont.systemFont(ofSize: size, weight: .heavy)
     let font = base.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: size) } ?? base
-    let text = NSAttributedString(string: string, attributes: [
-        .font: font, .foregroundColor: NSColor(cgColor: color) ?? .black, .kern: size * 0.06,
-    ])
+    let text = NSAttributedString(
+        string: string,
+        attributes: [
+            .font: font, .foregroundColor: NSColor(cgColor: color) ?? .black, .kern: size * 0.06
+        ])
     let line = CTLineCreateWithAttributedString(text)
     ctx.textPosition = .zero
     let box = CTLineGetImageBounds(line, ctx)
@@ -138,15 +146,19 @@ func drawIcon(in ctx: CGContext, pixels: Int) {
     shackle.addLine(to: CGPoint(x: 78, y: 110))
     ctx.addPath(shackle.copy(strokingWithWidth: small ? 58 : 50, lineCap: .butt, lineJoin: .round, miterLimit: 10))
     ctx.fillPath()
-    ctx.addPath(CGPath(roundedRect: CGRect(x: -132, y: -40, width: 264, height: 170),
-                       cornerWidth: 36, cornerHeight: 36, transform: nil))
+    ctx.addPath(
+        CGPath(
+            roundedRect: CGRect(x: -132, y: -40, width: 264, height: 170),
+            cornerWidth: 36, cornerHeight: 36, transform: nil))
     ctx.fillPath()
     ctx.setBlendMode(.normal)
     ctx.endTransparencyLayer()
 
     // Code pill across the shield's base, separated from it by a gap in the tile colour.
-    let pill = small ? CGRect(x: -290, y: -330, width: 580, height: 190)
-                     : CGRect(x: -250, y: -300, width: 500, height: 160)
+    let pill =
+        small
+        ? CGRect(x: -290, y: -330, width: 580, height: 190)
+        : CGRect(x: -250, y: -300, width: 500, height: 160)
     let gap: CGFloat = small ? 36 : 26
     fill(ctx, capsule(pill.insetBy(dx: -gap, dy: -gap)), Palette.tile)
     fill(ctx, capsule(pill), Palette.code)
@@ -165,10 +177,13 @@ func drawIcon(in ctx: CGContext, pixels: Int) {
 }
 
 func renderPNG(pixels: Int) -> Data {
-    guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels,
-                                     bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-                                     colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
-          let gc = NSGraphicsContext(bitmapImageRep: rep) else { fatalError("cannot create bitmap") }
+    guard
+        let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+        let gc = NSGraphicsContext(bitmapImageRep: rep)
+    else { fatalError("cannot create bitmap") }
     rep.size = NSSize(width: pixels, height: pixels)
     NSGraphicsContext.saveGraphicsState()
     NSGraphicsContext.current = gc

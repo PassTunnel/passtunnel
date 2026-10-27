@@ -1,8 +1,9 @@
 import Foundation
+import PassTunnelShared
 import XCTest
+
 @testable import PassTunnelCore
 @testable import PassTunnelKit
-import PassTunnelShared
 
 final class PathsAndSlugTests: CoreTestCase {
     func testEnvironmentIsReadAtCallTime() {
@@ -28,7 +29,7 @@ final class PathsAndSlugTests: CoreTestCase {
         XCTAssertEqual(Slug.make("Acme Office VPN With A Long Name"), "acme-office-vpn-with-a-l")
         XCTAssertEqual(Slug.suffixed(String(repeating: "a", count: 24), 2), String(repeating: "a", count: 22) + "-2")
         XCTAssertEqual(Slug.suffixed("acme-office-vpn-with-a-l", 12), "acme-office-vpn-with-12")
-        XCTAssertTrue(Slug.isValid(String(repeating: "a", count: 40)))   // older, longer ids still load
+        XCTAssertTrue(Slug.isValid(String(repeating: "a", count: 40)))  // older, longer ids still load
         XCTAssertTrue(Slug.isValid("acme-2"))
         for bad in ["", "-a", "a-", "a--b", "A", "a/b", "..", "a b", "ş"] { XCTAssertFalse(Slug.isValid(bad), bad) }
     }
@@ -63,7 +64,8 @@ final class ModelTests: CoreTestCase {
     }
 
     func testUnknownValuesAndKeysAreTolerated() throws {
-        let p = try decode(#"{"id":"x","name":"X","type":"forti","badge_style":"sparkle","otp_mode":"push","port":"oops","future_key":[1,2],"totp":{"digits":8}}"#)
+        let p = try decode(
+            #"{"id":"x","name":"X","type":"forti","badge_style":"sparkle","otp_mode":"push","port":"oops","future_key":[1,2],"totp":{"digits":8}}"#)
         XCTAssertEqual(p.type, .forti)
         XCTAssertEqual(p.badgeStyle, .letter)
         XCTAssertEqual(p.otpMode, .none)
@@ -127,14 +129,16 @@ final class ModelTests: CoreTestCase {
     }
 
     func testErrorsHaveMessages() {
-        let all: [PTError] = [.profileNotFound("acme"), .invalidProfileID("x"), .emptyName, .invalidField("port"),
-                              .wrongProfileType("acme"), .fileError("/x"), .fileTooLarge("x"), .invalidFile("x"),
-                              .keychain(-25300), .invalidSecret, .invalidOTPAuthURI("x"), .hotpNotSupported,
-                              .invalidTemplate("x"), .unsupportedShareFile,
-                              .missingPassword("a"), .missingTOTPSecret("a"), .missingCredential(.otp),
-                              .missingConfig("a"), .missingHost("a"), .helperFailed("x"), .authFailed("x"),
-                              .connectFailed("x"), .connectTimeout(60), .connectCancelled,
-                              .usernameTooLong(maxBytes: 64)]
+        let all: [PTError] = [
+            .profileNotFound("acme"), .invalidProfileID("x"), .emptyName, .invalidField("port"),
+            .wrongProfileType("acme"), .fileError("/x"), .fileTooLarge("x"), .invalidFile("x"),
+            .keychain(-25300), .invalidSecret, .invalidOTPAuthURI("x"), .hotpNotSupported,
+            .invalidTemplate("x"), .unsupportedShareFile,
+            .missingPassword("a"), .missingTOTPSecret("a"), .missingCredential(.otp),
+            .missingConfig("a"), .missingHost("a"), .helperFailed("x"), .authFailed("x"),
+            .connectFailed("x"), .connectTimeout(60), .connectCancelled,
+            .usernameTooLong(maxBytes: 64)
+        ]
         for e in all {
             XCTAssertFalse((e.errorDescription ?? "").isEmpty)
             XCTAssertFalse(e.localizedDescription.contains("PassTunnelCore.PTError"))
@@ -336,10 +340,12 @@ final class SecretsTests: CoreTestCase {
     #if os(macOS)
     func testUsesOverriddenService() throws {
         try Secrets.set("acme", .password, "x")
-        let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-                                kSecAttrService as String: service!,
-                                kSecAttrAccount as String: "acme/password",
-                                kSecReturnData as String: true]
+        let q: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service!,
+            kSecAttrAccount as String: "acme/password",
+            kSecReturnData as String: true
+        ]
         var out: CFTypeRef?
         XCTAssertEqual(SecItemCopyMatching(q as CFDictionary, &out), errSecSuccess)
         XCTAssertEqual(out as? Data, Data("x".utf8))
@@ -349,17 +355,18 @@ final class SecretsTests: CoreTestCase {
 
 final class OVPNAnalyzerTests: CoreTestCase {
     func testCertificateOnly() {
-        let a = OVPNAnalyzer.analyze("""
-        client
-        dev tun
-        # auth-user-pass
-        ; static-challenge "Code" 1
-        remote vpn.example.com 1194 udp
-        <ca>
-        auth-user-pass
-        remote evil.example.com
-        </ca>
-        """)
+        let a = OVPNAnalyzer.analyze(
+            """
+            client
+            dev tun
+            # auth-user-pass
+            ; static-challenge "Code" 1
+            remote vpn.example.com 1194 udp
+            <ca>
+            auth-user-pass
+            remote evil.example.com
+            </ca>
+            """)
         XCTAssertEqual(a.passwordMode, .none)
         XCTAssertEqual(a.otpMode, .none)
         XCTAssertEqual(a.otpDelivery, .combined)
@@ -375,18 +382,19 @@ final class OVPNAnalyzerTests: CoreTestCase {
     }
 
     func testStaticChallenge() {
-        let a = OVPNAnalyzer.analyze("""
-        <tls-auth>
-        -----BEGIN OpenVPN Static key V1-----
-        remote nope.example.com
-        -----END OpenVPN Static key V1-----
-        </tls-auth>
-        AUTH-USER-PASS
-        static-challenge "Enter code" 1
-        <connection>
-        remote vpn.example.com 1194
-        </connection>
-        """)
+        let a = OVPNAnalyzer.analyze(
+            """
+            <tls-auth>
+            -----BEGIN OpenVPN Static key V1-----
+            remote nope.example.com
+            -----END OpenVPN Static key V1-----
+            </tls-auth>
+            AUTH-USER-PASS
+            static-challenge "Enter code" 1
+            <connection>
+            remote vpn.example.com 1194
+            </connection>
+            """)
         XCTAssertEqual(a.passwordMode, .keychain)
         XCTAssertEqual(a.otpMode, .ask)
         XCTAssertEqual(a.otpDelivery, .separate)
@@ -410,8 +418,9 @@ final class OVPNAnalyzerTests: CoreTestCase {
 
     func testCommentAfterHost() {
         let a = OVPNAnalyzer.analyze("remote vpn.example.com#other.example.com\nremote vpn2.example.com ;1194\n")
-        XCTAssertEqual(a.remotes, ["vpn.example.com#other.example.com", "vpn2.example.com"],
-                       "# and ; start a comment only where a token starts")
+        XCTAssertEqual(
+            a.remotes, ["vpn.example.com#other.example.com", "vpn2.example.com"],
+            "# and ; start a comment only where a token starts")
         XCTAssertEqual(OVPNAnalyzer.analyze("remote vpn.example.com # 1194\n").remotes, ["vpn.example.com"])
         XCTAssertEqual(OVPNAnalyzer.analyze("  # remote evil.example.com\n\t; remote evil.example.com\n").remotes, [])
     }
@@ -429,22 +438,24 @@ final class OVPNAnalyzerTests: CoreTestCase {
     }
 
     func testInlineBlockContentsIgnored() {
-        let a = OVPNAnalyzer.analyze("""
-        <ca>
-        remote evil.example.com
-        </ca>
-        --<tls-crypt>
-        remote evil.example.com
-          </tls-crypt> trailing
-        <cert>
-        remote evil.example.com
-        </CERT>
-        remote vpn.example.com
-        """)
+        let a = OVPNAnalyzer.analyze(
+            """
+            <ca>
+            remote evil.example.com
+            </ca>
+            --<tls-crypt>
+            remote evil.example.com
+              </tls-crypt> trailing
+            <cert>
+            remote evil.example.com
+            </CERT>
+            remote vpn.example.com
+            """)
         XCTAssertEqual(a.remotes, ["vpn.example.com"])
         // A comment after the tag still opens the block for OpenVPN.
-        XCTAssertEqual(OVPNAnalyzer.analyze("<ca> # pem\nremote evil.example.com\n</ca>\nremote vpn.example.com\n").remotes,
-                       ["vpn.example.com"])
+        XCTAssertEqual(
+            OVPNAnalyzer.analyze("<ca> # pem\nremote evil.example.com\n</ca>\nremote vpn.example.com\n").remotes,
+            ["vpn.example.com"])
     }
 
     func testMultipleRemotes() {
@@ -454,23 +465,25 @@ final class OVPNAnalyzerTests: CoreTestCase {
         XCTAssertEqual(a.remotes, ["vpn.example.com", "vpn2.example.com", "203.0.113.5"])
         XCTAssertEqual(OVPNAnalyzer.serverDescription(text), "vpn.example.com +2 more")
         XCTAssertEqual(OVPNAnalyzer.serverDescription(["vpn.example.com"]), "vpn.example.com")
-        XCTAssertEqual(UserPresenceAction.connect.reason("Work", host: OVPNAnalyzer.serverDescription(text)),
-                       "connect to “Work” (vpn.example.com +2 more)")
+        XCTAssertEqual(
+            UserPresenceAction.connect.reason("Work", host: OVPNAnalyzer.serverDescription(text)),
+            "connect to “Work” (vpn.example.com +2 more)")
     }
 
     func testConnectionBlockRemotes() {
-        let a = OVPNAnalyzer.analyze("""
-        client
-        <connection>
-        remote vpn.example.com 1194 udp
-        <ca>
-        remote evil.example.com
-        </ca>
-        </connection>
-        <CONNECTION>
-        remote "vpn2.example.com" 443 tcp
-        </CONNECTION>
-        """)
+        let a = OVPNAnalyzer.analyze(
+            """
+            client
+            <connection>
+            remote vpn.example.com 1194 udp
+            <ca>
+            remote evil.example.com
+            </ca>
+            </connection>
+            <CONNECTION>
+            remote "vpn2.example.com" 443 tcp
+            </CONNECTION>
+            """)
         XCTAssertEqual(a.remotes, ["vpn.example.com", "vpn2.example.com"])
     }
 
@@ -481,34 +494,39 @@ final class OVPNAnalyzerTests: CoreTestCase {
         XCTAssertEqual(endpoint("proto tcp\nport 8443\nremote vpn.example.com\n"), "vpn.example.com:8443 · TCP")
         XCTAssertEqual(endpoint("rport 1195\nproto udp6\nremote vpn.example.com\n"), "vpn.example.com:1195 · UDP")
         XCTAssertEqual(endpoint("remote vpn.example.com\nport 1\nport 2\n"), "vpn.example.com:2 · UDP", "the last line wins")
-        XCTAssertEqual(endpoint("proto tcp\nremote vpn.example.com 1194 udp\n"), "vpn.example.com:1194 · UDP",
-                       "the remote line's own protocol")
+        XCTAssertEqual(
+            endpoint("proto tcp\nremote vpn.example.com 1194 udp\n"), "vpn.example.com:1194 · UDP",
+            "the remote line's own protocol")
         XCTAssertEqual(endpoint("remote 2001:db8::1 1194\n"), "[2001:db8::1]:1194 · UDP")
-        XCTAssertEqual(endpoint("remote vpn.example.com 1194\nremote vpn2.example.com 443 tcp\nremote 203.0.113.5\n"),
-                       "vpn.example.com:1194 +2 more · UDP")
-        XCTAssertEqual(endpoint("<ca>\nremote evil.example.com 1\n</ca>\nremote \"vpn.example.com\" 1194 # udp\n"),
-                       "vpn.example.com:1194 · UDP", "lines read as OpenVPN reads them")
+        XCTAssertEqual(
+            endpoint("remote vpn.example.com 1194\nremote vpn2.example.com 443 tcp\nremote 203.0.113.5\n"),
+            "vpn.example.com:1194 +2 more · UDP")
+        XCTAssertEqual(
+            endpoint("<ca>\nremote evil.example.com 1\n</ca>\nremote \"vpn.example.com\" 1194 # udp\n"),
+            "vpn.example.com:1194 · UDP", "lines read as OpenVPN reads them")
         XCTAssertEqual(endpoint(""), "")
         XCTAssertNil(OVPNAnalyzer.endpoint("client\nproto tcp\n"))
 
         // A <connection> block's own port and protocol, then the ones outside any block.
         let blocks = """
-        proto tcp
-        port 443
-        <connection>
-        remote vpn.example.com
-        proto udp
-        </connection>
-        <connection>
-        remote vpn2.example.com 1195
-        port 9
-        </connection>
-        port 8443
-        """
-        XCTAssertEqual(OVPNAnalyzer.endpoint(blocks),
-                       OVPNAnalyzer.Endpoint(host: "vpn.example.com", port: "8443", tcp: false, others: 1))
-        XCTAssertEqual(OVPNAnalyzer.endpoint("<connection>\nremote vpn.example.com\nport 1195\n</connection>\nport 443\n")?.port,
-                       "1195")
+            proto tcp
+            port 443
+            <connection>
+            remote vpn.example.com
+            proto udp
+            </connection>
+            <connection>
+            remote vpn2.example.com 1195
+            port 9
+            </connection>
+            port 8443
+            """
+        XCTAssertEqual(
+            OVPNAnalyzer.endpoint(blocks),
+            OVPNAnalyzer.Endpoint(host: "vpn.example.com", port: "8443", tcp: false, others: 1))
+        XCTAssertEqual(
+            OVPNAnalyzer.endpoint("<connection>\nremote vpn.example.com\nport 1195\n</connection>\nport 443\n")?.port,
+            "1195")
     }
 
     func testSetenvOpt() {
@@ -599,9 +617,9 @@ final class ProfileStoreTests: CoreTestCase {
     func testFortiUsernameLimitOnSave() throws {
         var p = try store.create(name: "Lab", type: .forti)
         p.host = "vpn.example.com"
-        p.username = String(repeating: "ş", count: 32)       // 64 bytes
+        p.username = String(repeating: "ş", count: 32)  // 64 bytes
         try store.save(p)
-        p.username = String(repeating: "ş", count: 33)       // 33 characters, 66 bytes
+        p.username = String(repeating: "ş", count: 33)  // 33 characters, 66 bytes
         assertThrows(.usernameTooLong(maxBytes: 64)) { try store.save(p) }
         assertThrows(.usernameTooLong(maxBytes: 64)) {
             try store.update(p.id) { try ProfileFields.set(&$0, key: "username", value: String(repeating: "a", count: 65)) }
@@ -682,8 +700,9 @@ final class ProfileStoreTests: CoreTestCase {
     }
 
     func testImportOVPN() throws {
-        let url = try write("client\nauth-user-pass\nstatic-challenge \"Code\" 1\nremote vpn.example.com 1194\n",
-                            name: "Acme Office.ovpn")
+        let url = try write(
+            "client\nauth-user-pass\nstatic-challenge \"Code\" 1\nremote vpn.example.com 1194\n",
+            name: "Acme Office.ovpn")
         let p = try store.importOVPN(url, name: nil)
         XCTAssertEqual(p.id, "acme-office")
         XCTAssertEqual(p.name, "Acme Office")
@@ -740,10 +759,10 @@ final class ProfileStoreTests: CoreTestCase {
     func testImportShareIgnoresUnknownFileNames() throws {
         let payload = Data("pwned".utf8).base64EncodedString()
         let json = """
-        {"passtunnel_profile":1,
-         "profile":{"id":"../../evil","name":"Evil","type":"openvpn","mgmt_port":7505,"username":"bob"},
-         "files":{"../../escape.txt":"\(payload)","profile.json":"\(payload)","config.ovpn":"\(Data("client\nremote vpn.example.com\n".utf8).base64EncodedString())"}}
-        """
+            {"passtunnel_profile":1,
+             "profile":{"id":"../../evil","name":"Evil","type":"openvpn","mgmt_port":7505,"username":"bob"},
+             "files":{"../../escape.txt":"\(payload)","profile.json":"\(payload)","config.ovpn":"\(Data("client\nremote vpn.example.com\n".utf8).base64EncodedString())"}}
+            """
         let url = try write(json, name: "evil.passtunnel")
         let p = try store.importShare(url, name: nil)
         XCTAssertEqual(p.id, "evil")
@@ -753,8 +772,10 @@ final class ProfileStoreTests: CoreTestCase {
         XCTAssertEqual(files, ["config.ovpn", "profile.json"])
         XCTAssertEqual(try store.get(p.id).name, "Evil")
         XCTAssertFalse(FileManager.default.fileExists(atPath: home.appendingPathComponent("escape.txt").path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: store.dir("x").deletingLastPathComponent()
-            .deletingLastPathComponent().appendingPathComponent("escape.txt").path))
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: store.dir("x").deletingLastPathComponent()
+                    .deletingLastPathComponent().appendingPathComponent("escape.txt").path))
     }
 
     func testImportShareRejectsOtherFiles() throws {
@@ -800,7 +821,9 @@ final class HealthCheckTests: CoreTestCase {
 
     func testRoundTripParsing() {
         XCTAssertEqual(HealthCheck.roundTripMS("round-trip min/avg/max/stddev = 0.067/12.6/0.067/0.000 ms"), 13)
-        XCTAssertEqual(HealthCheck.roundTripMS("1 packets transmitted, 1 received, 0% packet loss, time 0ms\nrtt min/avg/max/mdev = 0.041/7.4/0.041/0.000 ms\n"), 7)
+        XCTAssertEqual(
+            HealthCheck.roundTripMS("1 packets transmitted, 1 received, 0% packet loss, time 0ms\nrtt min/avg/max/mdev = 0.041/7.4/0.041/0.000 ms\n"),
+            7)
         XCTAssertNil(HealthCheck.roundTripMS("nothing"))
         for avg in ["nan", "inf", "-inf", "1e300", "-1"] {
             XCTAssertNil(HealthCheck.roundTripMS("round-trip min/avg/max/stddev = 0.067/\(avg)/0.067/0.000 ms"), avg)
@@ -841,16 +864,19 @@ final class HealthCheckTests: CoreTestCase {
         #if os(Linux)
         let found: (String) -> Bool = { $0 == "/bin/ping" }
         XCTAssertEqual(HealthCheck.pingCommand("10.0.0.5", ipv6: false, seconds: 3, isExecutable: found)?.tool, "/bin/ping")
-        XCTAssertEqual(HealthCheck.pingCommand("10.0.0.5", ipv6: false, seconds: 3, isExecutable: found)?.arguments,
-                       ["-n", "-q", "-c", "1", "-W", "3", "10.0.0.5"])
-        XCTAssertEqual(HealthCheck.pingCommand("2001:db8::1", ipv6: true, seconds: 2, isExecutable: found)?.arguments,
-                       ["-6", "-n", "-q", "-c", "1", "-W", "2", "2001:db8::1"])
+        XCTAssertEqual(
+            HealthCheck.pingCommand("10.0.0.5", ipv6: false, seconds: 3, isExecutable: found)?.arguments,
+            ["-n", "-q", "-c", "1", "-W", "3", "10.0.0.5"])
+        XCTAssertEqual(
+            HealthCheck.pingCommand("2001:db8::1", ipv6: true, seconds: 2, isExecutable: found)?.arguments,
+            ["-6", "-n", "-q", "-c", "1", "-W", "2", "2001:db8::1"])
         XCTAssertNil(HealthCheck.pingCommand("10.0.0.5", ipv6: false, seconds: 3, isExecutable: { _ in false }))
         XCTAssertEqual(HealthCheck.pingCommand("h", ipv6: false, seconds: 1, isExecutable: { _ in true })?.tool, "/usr/bin/ping")
         #else
         XCTAssertEqual(HealthCheck.pingCommand("10.0.0.5", ipv6: false, seconds: 3)?.tool, "/sbin/ping")
-        XCTAssertEqual(HealthCheck.pingCommand("10.0.0.5", ipv6: false, seconds: 3)?.arguments,
-                       ["-n", "-q", "-c", "1", "-t", "3", "10.0.0.5"])
+        XCTAssertEqual(
+            HealthCheck.pingCommand("10.0.0.5", ipv6: false, seconds: 3)?.arguments,
+            ["-n", "-q", "-c", "1", "-t", "3", "10.0.0.5"])
         XCTAssertEqual(HealthCheck.pingCommand("::1", ipv6: true, seconds: 3)?.tool, "/sbin/ping6")
         XCTAssertEqual(HealthCheck.pingCommand("::1", ipv6: true, seconds: 3)?.arguments, ["-n", "-q", "-c", "1", "::1"])
         #endif
@@ -858,7 +884,7 @@ final class HealthCheckTests: CoreTestCase {
 
     func testICMPHardTimeout() {
         let start = Date()
-        XCTAssertFalse(HealthCheck.check("192.0.2.1", timeout: 1).ok)   // TEST-NET-1, never answers
+        XCTAssertFalse(HealthCheck.check("192.0.2.1", timeout: 1).ok)  // TEST-NET-1, never answers
         XCTAssertLessThan(Date().timeIntervalSince(start), 3)
         XCTAssertFalse(HealthCheck.check("", timeout: 1).ok)
     }
@@ -874,8 +900,11 @@ final class HealthCheckTests: CoreTestCase {
             #endif
             a.sin_family = sa_family_t(AF_INET)
             a.sin_addr.s_addr = inet_addr("127.0.0.1")
-            rc = withUnsafePointer(to: &a) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                TestSocket.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) } }
+            rc = withUnsafePointer(to: &a) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    TestSocket.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                }
+            }
         } else {
             var a = sockaddr_in6()
             #if canImport(Darwin)
@@ -883,14 +912,20 @@ final class HealthCheckTests: CoreTestCase {
             #endif
             a.sin6_family = sa_family_t(AF_INET6)
             a.sin6_addr = in6addr_loopback
-            rc = withUnsafePointer(to: &a) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                TestSocket.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in6>.size)) } }
+            rc = withUnsafePointer(to: &a) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    TestSocket.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in6>.size))
+                }
+            }
         }
         guard rc == 0, TestSocket.listen(fd, 4) == 0 else { close(fd); throw PTError.fileError("bind") }
         var storage = sockaddr_storage()
         var len = socklen_t(MemoryLayout<sockaddr_storage>.size)
-        _ = withUnsafeMutablePointer(to: &storage) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-            getsockname(fd, $0, &len) } }
+        _ = withUnsafeMutablePointer(to: &storage) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                getsockname(fd, $0, &len)
+            }
+        }
         let port: UInt16 = withUnsafePointer(to: &storage) { ptr in
             family == AF_INET
                 ? ptr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { UInt16(bigEndian: $0.pointee.sin_port) }

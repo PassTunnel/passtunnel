@@ -1,13 +1,14 @@
+import Foundation
+import PassTunnelKit
+
 #if canImport(CryptoKit)
 import CryptoKit
 #else
-import Crypto   // swift-crypto: the same API, outside Apple platforms
+import Crypto  // swift-crypto: the same API, outside Apple platforms
 #endif
-import Foundation
 #if canImport(LocalAuthentication)
 import LocalAuthentication
 #endif
-import PassTunnelKit
 #if canImport(Security)
 import Security
 #endif
@@ -96,13 +97,15 @@ public final class SecureEnclaveAuthenticator: UserAuthenticator {
     public var isAvailable: Bool { SecureEnclave.isAvailable }
 
     private static func accessControl() -> SecAccessControl? {
-        SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-                                        [.privateKeyUsage, .userPresence], nil)
+        SecAccessControlCreateWithFlags(
+            nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            [.privateKeyUsage, .userPresence], nil)
     }
 
     public func createKey() throws -> ProtectionKey {
         guard isAvailable, let access = Self.accessControl(),
-              let key = try? SecureEnclave.P256.KeyAgreement.PrivateKey(compactRepresentable: false, accessControl: access) else {
+            let key = try? SecureEnclave.P256.KeyAgreement.PrivateKey(compactRepresentable: false, accessControl: access)
+        else {
             throw PTError.protectionUnavailable
         }
         return ProtectionKey(data: key.dataRepresentation, publicKey: key.publicKey)
@@ -133,8 +136,11 @@ public final class SecureEnclaveAuthenticator: UserAuthenticator {
         } catch {
             throw Self.map(error)
         }
-        guard let key = try? SecureEnclave.P256.KeyAgreement.PrivateKey(dataRepresentation: keyData,
-                                                                         authenticationContext: context) else {
+        guard
+            let key = try? SecureEnclave.P256.KeyAgreement.PrivateKey(
+                dataRepresentation: keyData,
+                authenticationContext: context)
+        else {
             throw ProtectionKeyUnusable()
         }
         return Unlocked(key: key)
@@ -171,9 +177,11 @@ public final class SecureEnclaveAuthenticator: UserAuthenticator {
         case .userCancel, .appCancel, .userFallback:
             return PTError.userConfirmationCancelled
         case .notInteractive, .systemCancel:
-            return PTError.userConfirmationFailed(String(localized: "the confirmation cannot be shown in this session (for example over SSH). Use PassTunnel on the Mac itself."))
+            return PTError.userConfirmationFailed(
+                String(localized: "the confirmation cannot be shown in this session (for example over SSH). Use PassTunnel on the Mac itself."))
         case .biometryLockout:
-            return PTError.userConfirmationFailed(String(localized: "Touch ID is locked after too many attempts. Unlock it with your Mac password, then try again."))
+            return PTError.userConfirmationFailed(
+                String(localized: "Touch ID is locked after too many attempts. Unlock it with your Mac password, then try again."))
         case .passcodeNotSet:
             return PTError.userConfirmationFailed(String(localized: "this Mac user has no login password."))
         case .authenticationFailed:

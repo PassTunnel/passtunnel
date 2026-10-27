@@ -1,9 +1,11 @@
+import XCTest
+
+@testable import PassTunnelCore
+@testable import PassTunnelKit
+
 #if canImport(Darwin)
 import Darwin
 #endif
-import XCTest
-@testable import PassTunnelCore
-@testable import PassTunnelKit
 
 /// Routing table parsing, the other-VPN check and reading set-up failures from the OpenVPN log.
 final class FullTunnelTests: XCTestCase {
@@ -46,19 +48,22 @@ final class FullTunnelTests: XCTestCase {
     func testParsesDestinationsPrefixesAndInterfaces() {
         let lo = UInt16(if_nametoindex("lo0"))
         XCTAssertGreaterThan(lo, 0)
-        let buf = record(dst: [0, 0, 0, 0], mask: [128, 0, 0, 0], index: lo)
+        let buf =
+            record(dst: [0, 0, 0, 0], mask: [128, 0, 0, 0], index: lo)
             + record(dst: [128, 0, 0, 0], mask: [128, 0, 0, 0], index: lo)
             + record(dst: [0, 0, 0, 0], mask: [], index: lo)
             + record(dst: [10, 1, 0, 0], mask: [255, 255, 0, 0], index: lo, flags: RTF_UP | RTF_IFSCOPE)
             + record(dst: [10, 1, 2, 3], mask: nil, index: lo, flags: RTF_UP | RTF_HOST)
         let routes = RoutingTable.parse(buf)
-        XCTAssertEqual(routes, [
-            Route(destination: "0.0.0.0", prefixLength: 1, interface: "lo0"),
-            Route(destination: "128.0.0.0", prefixLength: 1, interface: "lo0"),
-            Route(destination: "0.0.0.0", prefixLength: 0, interface: "lo0"),
-            Route(destination: "10.1.0.0", prefixLength: 16, interface: "lo0", scoped: true),
-            Route(destination: "10.1.2.3", prefixLength: 32, interface: "lo0"),
-        ])
+        XCTAssertEqual(
+            routes,
+            [
+                Route(destination: "0.0.0.0", prefixLength: 1, interface: "lo0"),
+                Route(destination: "128.0.0.0", prefixLength: 1, interface: "lo0"),
+                Route(destination: "0.0.0.0", prefixLength: 0, interface: "lo0"),
+                Route(destination: "10.1.0.0", prefixLength: 16, interface: "lo0", scoped: true),
+                Route(destination: "10.1.2.3", prefixLength: 32, interface: "lo0")
+            ])
         XCTAssertEqual(routes.map(\.capturesAllTraffic), [true, true, true, false, false])
         XCTAssertEqual(RoutingTable.parse(Array(buf.prefix(10))), [], "truncated")
     }
@@ -84,8 +89,9 @@ final class FullTunnelTests: XCTestCase {
             if type == Netlink.newLink, let l = Netlink.Link(body) { links.append(l) }
         }
         XCTAssertTrue(readRoutes && readRules && readLinks)
-        XCTAssertTrue(rules.contains { $0.family == Netlink.inet && $0.priority == 32766 && $0.table == Netlink.mainTable },
-                      "\(rules)")
+        XCTAssertTrue(
+            rules.contains { $0.family == Netlink.inet && $0.priority == 32766 && $0.table == Netlink.mainTable },
+            "\(rules)")
         let lo = links.first { $0.name == "lo" }?.index ?? -1
         XCTAssertTrue(routes.contains { $0.table == 255 && $0.interfaces.contains(lo) }, "\(routes)")
         // No VPN in the CI container: its default route goes through an ordinary link.
@@ -112,8 +118,10 @@ final class FullTunnelTests: XCTestCase {
     }
 
     /// RTM_NEWROUTE: `struct rtmsg` and RTA_TABLE, RTA_DST (unless default), RTA_OIF or RTA_MULTIPATH.
-    func route(_ dst: [UInt8], _ prefix: UInt8, family: UInt8 = 2, table: UInt32 = 254, type: UInt8 = 1,
-               oif: Int32? = nil, nexthops: [Int32] = [], flags: UInt32 = 0) -> [UInt8] {
+    func route(
+        _ dst: [UInt8], _ prefix: UInt8, family: UInt8 = 2, table: UInt32 = 254, type: UInt8 = 1,
+        oif: Int32? = nil, nexthops: [Int32] = [], flags: UInt32 = 0
+    ) -> [UInt8] {
         var payload: [UInt8] = [family, prefix, 0, 0, UInt8(min(table, 252)), 3, 0, type] + le32(flags)
         payload += attribute(15, le32(table))
         if !dst.isEmpty { payload += attribute(1, dst) }
@@ -127,8 +135,10 @@ final class FullTunnelTests: XCTestCase {
 
     /// RTM_NEWRULE: `struct fib_rule_hdr`, FRA_TABLE, FRA_PRIORITY, FRA_SUPPRESS_PREFIXLEN (-1 unless
     /// given), then `extra` attributes.
-    func rule(_ family: UInt8 = 2, priority: UInt32, table: UInt32, action: UInt8 = 1, invert: Bool = false,
-              suppress: Int32 = -1, extra: [[UInt8]] = []) -> [UInt8] {
+    func rule(
+        _ family: UInt8 = 2, priority: UInt32, table: UInt32, action: UInt8 = 1, invert: Bool = false,
+        suppress: Int32 = -1, extra: [[UInt8]] = []
+    ) -> [UInt8] {
         var payload: [UInt8] = [family, 0, 0, 0, UInt8(min(table, 252)), 0, 0, action] + le32(invert ? 2 : 0)
         payload += attribute(15, le32(table)) + attribute(14, le32(UInt32(bitPattern: suppress)))
         if priority != 0 { payload += attribute(6, le32(priority)) }
@@ -185,8 +195,9 @@ final class FullTunnelTests: XCTestCase {
         let (messages, finished) = Netlink.messages(buf)
         XCTAssertTrue(finished)
         XCTAssertEqual(messages.map(\.type), [16, 16])
-        XCTAssertEqual(messages.compactMap { Netlink.Link($0.body) },
-                       [Netlink.Link(index: 1, name: "lo"), Netlink.Link(index: 4, name: "tun0", kind: "tun")])
+        XCTAssertEqual(
+            messages.compactMap { Netlink.Link($0.body) },
+            [Netlink.Link(index: 1, name: "lo"), Netlink.Link(index: 4, name: "tun0", kind: "tun")])
         XCTAssertFalse(Netlink.messages(Array(buf.prefix(30))).finished, "more to come")
         XCTAssertEqual(Netlink.messages(Array(buf.prefix(30))).messages.count, 0, "truncated message")
         XCTAssertEqual(Netlink.messages([]).messages.count, 0)
@@ -198,19 +209,24 @@ final class FullTunnelTests: XCTestCase {
     }
 
     func testParsesRoutesAndRules() throws {
-        let routes = Netlink.messages(route([], 0, oif: 2) + route([10, 8, 0, 0], 24, oif: 4)
-                                      + route([0x20] + [UInt8](repeating: 0, count: 15), 4, family: 10, table: 254, oif: 4)
-                                      + route([], 0, table: 51820, nexthops: [5, 7])
-                                      + route([], 0, oif: 2, flags: 0x200)          // cached
-                                      + route([], 0, family: 28, oif: 2)).messages          // AF_MPLS
+        let routes = Netlink.messages(
+            route([], 0, oif: 2) + route([10, 8, 0, 0], 24, oif: 4)
+                + route([0x20] + [UInt8](repeating: 0, count: 15), 4, family: 10, table: 254, oif: 4)
+                + route([], 0, table: 51820, nexthops: [5, 7])
+                + route([], 0, oif: 2, flags: 0x200)  // cached
+                + route([], 0, family: 28, oif: 2)
+        ).messages  // AF_MPLS
             .compactMap { Netlink.Route($0.body) }
-        XCTAssertEqual(routes, [
-            Netlink.Route(family: 2, destination: [], prefixLength: 0, table: 254, type: 1, interfaces: [2]),
-            Netlink.Route(family: 2, destination: [10, 8, 0, 0], prefixLength: 24, table: 254, type: 1, interfaces: [4]),
-            Netlink.Route(family: 10, destination: [0x20] + [UInt8](repeating: 0, count: 15), prefixLength: 4, table: 254,
-                          type: 1, interfaces: [4]),
-            Netlink.Route(family: 2, destination: [], prefixLength: 0, table: 51820, type: 1, interfaces: [5, 7]),
-        ])
+        XCTAssertEqual(
+            routes,
+            [
+                Netlink.Route(family: 2, destination: [], prefixLength: 0, table: 254, type: 1, interfaces: [2]),
+                Netlink.Route(family: 2, destination: [10, 8, 0, 0], prefixLength: 24, table: 254, type: 1, interfaces: [4]),
+                Netlink.Route(
+                    family: 10, destination: [0x20] + [UInt8](repeating: 0, count: 15), prefixLength: 4, table: 254,
+                    type: 1, interfaces: [4]),
+                Netlink.Route(family: 2, destination: [], prefixLength: 0, table: 51820, type: 1, interfaces: [5, 7])
+            ])
         XCTAssertEqual(Netlink.address([], family: 2), "0.0.0.0")
         XCTAssertEqual(Netlink.address([128, 0, 0, 0], family: 2), "128.0.0.0")
         XCTAssertEqual(Netlink.address([0x80] + [UInt8](repeating: 0, count: 15), family: 10), "8000::")
@@ -219,20 +235,24 @@ final class FullTunnelTests: XCTestCase {
 
         let rules = Netlink.messages(
             rule(priority: 32764, table: 254, suppress: 0)
-            + rule(priority: 32765, table: 51820, invert: true, extra: [attribute(10, le32(0xCA6C))])
-            + rule(priority: 5210, table: 254, extra: [attribute(10, le32(0x80000)), attribute(16, le32(0xFF0000))])
-            + rule(priority: 100, table: 100, extra: [attribute(20, le32(1000) + le32(1999)), attribute(3, string("lo"))])
-            + rule(priority: 200, table: 200, extra: [attribute(17, string("wlp2s0")), attribute(22, [6])])
-            + rule(10, priority: 0, table: 255)).messages.compactMap { Netlink.Rule($0.body) }
-        XCTAssertEqual(rules, [
-            Netlink.Rule(family: 2, priority: 32764, table: 254, action: 1, suppressPrefixLength: 0),
-            Netlink.Rule(family: 2, priority: 32765, table: 51820, action: 1, invert: true,
-                         selectors: [.mark(0xCA6C, mask: .max)]),
-            Netlink.Rule(family: 2, priority: 5210, table: 254, action: 1, selectors: [.mark(0x80000, mask: 0xFF0000)]),
-            Netlink.Rule(family: 2, priority: 100, table: 100, action: 1, selectors: [.uidRange(1000, 1999), .inputInterface("lo")]),
-            Netlink.Rule(family: 2, priority: 200, table: 200, action: 1, selectors: [.other(17), .other(22)]),
-            Netlink.Rule(family: 10, priority: 0, table: 255, action: 1),
-        ])
+                + rule(priority: 32765, table: 51820, invert: true, extra: [attribute(10, le32(0xCA6C))])
+                + rule(priority: 5210, table: 254, extra: [attribute(10, le32(0x80000)), attribute(16, le32(0xFF0000))])
+                + rule(priority: 100, table: 100, extra: [attribute(20, le32(1000) + le32(1999)), attribute(3, string("lo"))])
+                + rule(priority: 200, table: 200, extra: [attribute(17, string("wlp2s0")), attribute(22, [6])])
+                + rule(10, priority: 0, table: 255)
+        ).messages.compactMap { Netlink.Rule($0.body) }
+        XCTAssertEqual(
+            rules,
+            [
+                Netlink.Rule(family: 2, priority: 32764, table: 254, action: 1, suppressPrefixLength: 0),
+                Netlink.Rule(
+                    family: 2, priority: 32765, table: 51820, action: 1, invert: true,
+                    selectors: [.mark(0xCA6C, mask: .max)]),
+                Netlink.Rule(family: 2, priority: 5210, table: 254, action: 1, selectors: [.mark(0x80000, mask: 0xFF0000)]),
+                Netlink.Rule(family: 2, priority: 100, table: 100, action: 1, selectors: [.uidRange(1000, 1999), .inputInterface("lo")]),
+                Netlink.Rule(family: 2, priority: 200, table: 200, action: 1, selectors: [.other(17), .other(22)]),
+                Netlink.Rule(family: 10, priority: 0, table: 255, action: 1)
+            ])
         XCTAssertTrue(rules[1].applies(uid: 1000), "not fwmark: ordinary traffic has no mark")
         XCTAssertFalse(rules[2].applies(uid: 1000), "marked traffic only")
         XCTAssertTrue(rules[3].applies(uid: 1500))
@@ -259,7 +279,8 @@ final class FullTunnelTests: XCTestCase {
     /// wg-quick: the main table without its default route (`suppress_prefixlength 0`), then every
     /// packet without wg-quick's mark through table 51820, whose default route is the WireGuard link.
     func testWireGuardThroughPolicyRules() {
-        let wgRules = rule(priority: 0, table: 255) + rule(priority: 32764, table: 254, suppress: 0)
+        let wgRules =
+            rule(priority: 0, table: 255) + rule(priority: 32764, table: 254, suppress: 0)
             + rule(priority: 32765, table: 51820, invert: true, extra: [attribute(10, le32(0xCA6C))])
             + rule(priority: 32766, table: 254) + rule(priority: 32767, table: 253)
         let routes = traffic(routes: mainTable + route([], 0, table: 51820, oif: 5), rules: wgRules)
@@ -270,13 +291,17 @@ final class FullTunnelTests: XCTestCase {
         XCTAssertEqual(FullTunnelCheck.foreignFullTunnel(in: named, own: []), "acme")
         // A rule for marked packets only does not take ordinary traffic there.
         let marked = rule(priority: 32765, table: 51820, extra: [attribute(10, le32(0xCA6C))]) + defaultRules()
-        XCTAssertNil(FullTunnelCheck.foreignFullTunnel(in: traffic(routes: mainTable + route([], 0, table: 51820, oif: 5),
-                                                                    rules: marked), own: []))
+        XCTAssertNil(
+            FullTunnelCheck.foreignFullTunnel(
+                in: traffic(
+                    routes: mainTable + route([], 0, table: 51820, oif: 5),
+                    rules: marked), own: []))
     }
 
     /// Tailscale: table 52 is looked up before main; with an exit node it holds a default route.
     func testTailscaleExitNode() {
-        let tsRules = rule(priority: 0, table: 255)
+        let tsRules =
+            rule(priority: 0, table: 255)
             + rule(priority: 5210, table: 254, extra: [attribute(10, le32(0x80000)), attribute(16, le32(0xFF0000))])
             + rule(priority: 5230, table: 253, extra: [attribute(10, le32(0x80000)), attribute(16, le32(0xFF0000))])
             + rule(priority: 5250, table: 0, action: 7, extra: [attribute(10, le32(0x80000)), attribute(16, le32(0xFF0000))])
@@ -291,15 +316,22 @@ final class FullTunnelTests: XCTestCase {
     func testRulesOrderUidsAndDrops() {
         let vpnTable = route([], 0, table: 100, oif: 8)
         // Looked up only after main, which already has a default route.
-        XCTAssertNil(FullTunnelCheck.foreignFullTunnel(in: traffic(routes: mainTable + vpnTable,
-                                                                    rules: defaultRules() + rule(priority: 32800, table: 100)),
-                                                       own: []))
+        XCTAssertNil(
+            FullTunnelCheck.foreignFullTunnel(
+                in: traffic(
+                    routes: mainTable + vpnTable,
+                    rules: defaultRules() + rule(priority: 32800, table: 100)),
+                own: []))
         // Per user: only for uids 1000-1000.
         let perUser = rule(priority: 100, table: 100, extra: [attribute(20, le32(1000) + le32(1000))]) + defaultRules()
-        XCTAssertEqual(FullTunnelCheck.foreignFullTunnel(in: traffic(routes: mainTable + vpnTable, rules: perUser, uid: 1000),
-                                                         own: []), "ppp0")
-        XCTAssertNil(FullTunnelCheck.foreignFullTunnel(in: traffic(routes: mainTable + vpnTable, rules: perUser, uid: 1001),
-                                                       own: []))
+        XCTAssertEqual(
+            FullTunnelCheck.foreignFullTunnel(
+                in: traffic(routes: mainTable + vpnTable, rules: perUser, uid: 1000),
+                own: []), "ppp0")
+        XCTAssertNil(
+            FullTunnelCheck.foreignFullTunnel(
+                in: traffic(routes: mainTable + vpnTable, rules: perUser, uid: 1001),
+                own: []))
         // Locally generated traffic (`iif lo`) counts; another input interface does not.
         let local = rule(priority: 100, table: 100, extra: [attribute(3, string("lo"))]) + defaultRules()
         XCTAssertEqual(FullTunnelCheck.foreignFullTunnel(in: traffic(routes: mainTable + vpnTable, rules: local), own: []), "ppp0")
@@ -309,18 +341,22 @@ final class FullTunnelTests: XCTestCase {
         let blackhole = rule(priority: 50, table: 0, action: 6) + rule(priority: 100, table: 100) + defaultRules()
         XCTAssertEqual(traffic(routes: mainTable + vpnTable, rules: blackhole), [])
         // Unreachable and other non-unicast routes are not paths.
-        XCTAssertNil(FullTunnelCheck.foreignFullTunnel(
-            in: traffic(routes: route([], 0, table: 100, type: 7, oif: 8) + mainTable,
-                        rules: rule(priority: 100, table: 100) + defaultRules()), own: []))
+        XCTAssertNil(
+            FullTunnelCheck.foreignFullTunnel(
+                in: traffic(
+                    routes: route([], 0, table: 100, type: 7, oif: 8) + mainTable,
+                    rules: rule(priority: 100, table: 100) + defaultRules()), own: []))
     }
 
     func testIPv6AndMultipath() {
-        let v6Main = route([], 0, family: 10, oif: 2)
+        let v6Main =
+            route([], 0, family: 10, oif: 2)
             + route([0x20] + [UInt8](repeating: 0, count: 15), 4, family: 10, oif: 4)
             + route([0x30] + [UInt8](repeating: 0, count: 15), 4, family: 10, oif: 4)
         let routes = traffic(routes: mainTable + v6Main, rules: defaultRules() + defaultRules(10))
-        XCTAssertEqual(routes.map { "\($0.destination)/\($0.prefixLength) \($0.interface)" },
-                       ["0.0.0.0/0 wlp2s0", "::/0 wlp2s0", "2000::/4 tun0", "3000::/4 tun0"])
+        XCTAssertEqual(
+            routes.map { "\($0.destination)/\($0.prefixLength) \($0.interface)" },
+            ["0.0.0.0/0 wlp2s0", "::/0 wlp2s0", "2000::/4 tun0", "3000::/4 tun0"])
         XCTAssertEqual(FullTunnelCheck.foreignFullTunnel(in: routes, own: []), "tun0")
         // A default route over two links, one of them a tunnel.
         let multipath = traffic(routes: route([], 0, nexthops: [2, 4]), rules: defaultRules())
@@ -350,18 +386,29 @@ final class FullTunnelTests: XCTestCase {
     // MARK: other VPN
 
     func testForeignFullTunnel() {
-        let other = [Route(destination: "0.0.0.0", prefixLength: 0, interface: "en0"),
-                     Route(destination: "0.0.0.0", prefixLength: 1, interface: "utun4"),
-                     Route(destination: "128.0.0.0", prefixLength: 1, interface: "utun4")]
+        let other = [
+            Route(destination: "0.0.0.0", prefixLength: 0, interface: "en0"),
+            Route(destination: "0.0.0.0", prefixLength: 1, interface: "utun4"),
+            Route(destination: "128.0.0.0", prefixLength: 1, interface: "utun4")
+        ]
         XCTAssertEqual(FullTunnelCheck.foreignFullTunnel(in: other, own: []), "utun4")
         XCTAssertNil(FullTunnelCheck.foreignFullTunnel(in: other, own: ["utun4"]), "our own session")
         XCTAssertNil(FullTunnelCheck.foreignFullTunnel(in: [other[0]], own: []), "plain default route")
-        XCTAssertEqual(FullTunnelCheck.foreignFullTunnel(in: [Route(destination: "0.0.0.0", prefixLength: 0, interface: "ppp0")],
-                                                         own: []), "ppp0")
-        XCTAssertNil(FullTunnelCheck.foreignFullTunnel(in: [Route(destination: "0.0.0.0", prefixLength: 0, interface: "utun2",
-                                                                  scoped: true)], own: []), "scoped")
-        XCTAssertNil(FullTunnelCheck.foreignFullTunnel(in: [Route(destination: "10.0.0.0", prefixLength: 8, interface: "utun3")],
-                                                       own: []), "split tunnel")
+        XCTAssertEqual(
+            FullTunnelCheck.foreignFullTunnel(
+                in: [Route(destination: "0.0.0.0", prefixLength: 0, interface: "ppp0")],
+                own: []), "ppp0")
+        XCTAssertNil(
+            FullTunnelCheck.foreignFullTunnel(
+                in: [
+                    Route(
+                        destination: "0.0.0.0", prefixLength: 0, interface: "utun2",
+                        scoped: true)
+                ], own: []), "scoped")
+        XCTAssertNil(
+            FullTunnelCheck.foreignFullTunnel(
+                in: [Route(destination: "10.0.0.0", prefixLength: 8, interface: "utun3")],
+                own: []), "split tunnel")
         XCTAssertFalse(FullTunnelCheck.isVPNInterface("utunx"))
         XCTAssertFalse(FullTunnelCheck.isVPNInterface("en0"))
         XCTAssertTrue(FullTunnelCheck.isVPNInterface("ipsec0"))
@@ -395,83 +442,89 @@ final class FullTunnelTests: XCTestCase {
     func testSetupProblems() {
         XCTAssertNil(VPNLog.setupProblem("2026-01-01 10:00:00 Initialization Sequence Completed\n"))
 
-        let dns = VPNLog.setupProblem("""
-        2026-01-01 10:00:00 Opened utun device utun10
-        setting DNS failed, already redirecting to another tunnel
-        2026-01-01 10:00:01 WARNING: Failed running dns updown
-        """)
+        let dns = VPNLog.setupProblem(
+            """
+            2026-01-01 10:00:00 Opened utun device utun10
+            setting DNS failed, already redirecting to another tunnel
+            2026-01-01 10:00:01 WARNING: Failed running dns updown
+            """)
         XCTAssertEqual(dns, VPNLog.SetupProblem(reason: "setting DNS failed, already redirecting to another tunnel", allTraffic: true))
         XCTAssertEqual(VPNLog.setupProblem("2026-01-01 10:00:01 WARNING: Failed running dns updown\n")?.allTraffic, true)
 
-        XCTAssertEqual(VPNLog.setupProblem("add net 128.0.0.0: gateway 10.8.0.1: File exists\n"),
-                       VPNLog.SetupProblem(reason: "add net 128.0.0.0: gateway 10.8.0.1: File exists", allTraffic: true))
+        XCTAssertEqual(
+            VPNLog.setupProblem("add net 128.0.0.0: gateway 10.8.0.1: File exists\n"),
+            VPNLog.SetupProblem(reason: "add net 128.0.0.0: gateway 10.8.0.1: File exists", allTraffic: true))
         XCTAssertEqual(VPNLog.setupProblem("add net ::: gateway fe80::1%utun5: File exists\n")?.allTraffic, true)
 
         // A single other route: incomplete, not unusable — unless a DNS failure follows.
         let route = "add host 203.0.113.5: gateway 192.168.1.1: File exists"
         XCTAssertEqual(VPNLog.setupProblem(route), VPNLog.SetupProblem(reason: route, allTraffic: false))
         XCTAssertEqual(VPNLog.setupProblem(route + "\nsetting DNS failed, no compatible server profile\n")?.allTraffic, true)
-        XCTAssertEqual(VPNLog.setupProblem("2026-01-01 10:00:00 ERROR: OS X route add command failed: external program exited with error status: 1\n"),
-                       VPNLog.SetupProblem(reason: "ERROR: OS X route add command failed: external program exited with error status: 1",
-                                           allTraffic: false))
+        XCTAssertEqual(
+            VPNLog.setupProblem("2026-01-01 10:00:00 ERROR: OS X route add command failed: external program exited with error status: 1\n"),
+            VPNLog.SetupProblem(
+                reason: "ERROR: OS X route add command failed: external program exited with error status: 1",
+                allTraffic: false))
     }
 
     /// A session killed without cleanup (e.g. its helper was unregistered) leaves the host route to the
     /// server via the original gateway; the next connect's "File exists" for it is harmless.
     static let leftoverServerRouteLog = """
-    2026-01-01 10:00:00 TCP/UDP: Preserving recently used remote address: [AF_INET]203.0.113.10:1194
-    2026-01-01 10:00:00 UDPv4 link remote: [AF_INET]203.0.113.10:1194
-    2026-01-01 10:00:01 ROUTE_GATEWAY 192.0.2.1/255.255.255.0 IFACE=en0 HWADDR=aa:bb:cc:dd:ee:ff
-    2026-01-01 10:00:01 Opened utun device utun6
-    2026-01-01 10:00:01 /sbin/route add -net 203.0.113.10 192.0.2.1 255.255.255.255
-                                    route: writing to routing socket: File exists
-    add net 203.0.113.10: gateway 192.0.2.1: File exists
-    2026-01-01 10:00:01 ERROR: OS X route add command failed: external program exited with error status: 1
-    2026-01-01 10:00:01 /sbin/route add -net 0.0.0.0 10.8.0.1 128.0.0.0
-    add net 0.0.0.0: gateway 10.8.0.1
-    2026-01-01 10:00:01 /sbin/route add -net 128.0.0.0 10.8.0.1 128.0.0.0
-    add net 128.0.0.0: gateway 10.8.0.1
-    2026-01-01 10:00:02 Initialization Sequence Completed
+        2026-01-01 10:00:00 TCP/UDP: Preserving recently used remote address: [AF_INET]203.0.113.10:1194
+        2026-01-01 10:00:00 UDPv4 link remote: [AF_INET]203.0.113.10:1194
+        2026-01-01 10:00:01 ROUTE_GATEWAY 192.0.2.1/255.255.255.0 IFACE=en0 HWADDR=aa:bb:cc:dd:ee:ff
+        2026-01-01 10:00:01 Opened utun device utun6
+        2026-01-01 10:00:01 /sbin/route add -net 203.0.113.10 192.0.2.1 255.255.255.255
+                                        route: writing to routing socket: File exists
+        add net 203.0.113.10: gateway 192.0.2.1: File exists
+        2026-01-01 10:00:01 ERROR: OS X route add command failed: external program exited with error status: 1
+        2026-01-01 10:00:01 /sbin/route add -net 0.0.0.0 10.8.0.1 128.0.0.0
+        add net 0.0.0.0: gateway 10.8.0.1
+        2026-01-01 10:00:01 /sbin/route add -net 128.0.0.0 10.8.0.1 128.0.0.0
+        add net 128.0.0.0: gateway 10.8.0.1
+        2026-01-01 10:00:02 Initialization Sequence Completed
 
-    """
+        """
 
     /// Every session adds the server's host route three times: from `redirect-gateway def1` (works),
     /// from a config `route <server> 255.255.255.255 net_gateway` and from the same route pushed by the
     /// server (both "File exists"). The log names no server address here, so only the duplicate rule applies.
     static let duplicateServerRouteLog = """
-    2026-01-01 10:00:01 /sbin/route add -net 203.0.113.10 192.0.2.1 255.255.255.255
-    add net 203.0.113.10: gateway 192.0.2.1
-    2026-01-01 10:00:01 /sbin/route add -net 0.0.0.0 10.8.0.1 128.0.0.0
-    add net 0.0.0.0: gateway 10.8.0.1
-    2026-01-01 10:00:01 /sbin/route add -net 128.0.0.0 10.8.0.1 128.0.0.0
-    add net 128.0.0.0: gateway 10.8.0.1
-    2026-01-01 10:00:01 /sbin/route add -net 203.0.113.10 192.0.2.1 255.255.255.255
-                                    route: writing to routing socket: File exists
-    add net 203.0.113.10: gateway 192.0.2.1: File exists
-    2026-01-01 10:00:01 ERROR: OS X route add command failed: external program exited with error status: 1
-    2026-01-01 10:00:01 /sbin/route add -net 10.20.0.0 10.8.0.1 255.255.0.0
-    add net 10.20.0.0: gateway 10.8.0.1
-    2026-01-01 10:00:01 /sbin/route add -net 203.0.113.10 192.0.2.1 255.255.255.255
-    add net 203.0.113.10: gateway 192.0.2.1: File exists
-    2026-01-01 10:00:02 Initialization Sequence Completed
+        2026-01-01 10:00:01 /sbin/route add -net 203.0.113.10 192.0.2.1 255.255.255.255
+        add net 203.0.113.10: gateway 192.0.2.1
+        2026-01-01 10:00:01 /sbin/route add -net 0.0.0.0 10.8.0.1 128.0.0.0
+        add net 0.0.0.0: gateway 10.8.0.1
+        2026-01-01 10:00:01 /sbin/route add -net 128.0.0.0 10.8.0.1 128.0.0.0
+        add net 128.0.0.0: gateway 10.8.0.1
+        2026-01-01 10:00:01 /sbin/route add -net 203.0.113.10 192.0.2.1 255.255.255.255
+                                        route: writing to routing socket: File exists
+        add net 203.0.113.10: gateway 192.0.2.1: File exists
+        2026-01-01 10:00:01 ERROR: OS X route add command failed: external program exited with error status: 1
+        2026-01-01 10:00:01 /sbin/route add -net 10.20.0.0 10.8.0.1 255.255.0.0
+        add net 10.20.0.0: gateway 10.8.0.1
+        2026-01-01 10:00:01 /sbin/route add -net 203.0.113.10 192.0.2.1 255.255.255.255
+        add net 203.0.113.10: gateway 192.0.2.1: File exists
+        2026-01-01 10:00:02 Initialization Sequence Completed
 
-    """
+        """
 
     func testRouteAddedEarlierInTheSessionIsNotASetupProblem() {
         XCTAssertNil(VPNLog.setupProblem(Self.duplicateServerRouteLog))
         // A route that exists, but not because this session added it: still reported.
-        let foreign = Self.duplicateServerRouteLog + """
-        2026-01-01 10:00:03 /sbin/route add -net 10.30.0.0 10.8.0.1 255.255.0.0
-        add net 10.30.0.0: gateway 10.8.0.1: File exists
+        let foreign =
+            Self.duplicateServerRouteLog + """
+                2026-01-01 10:00:03 /sbin/route add -net 10.30.0.0 10.8.0.1 255.255.0.0
+                add net 10.30.0.0: gateway 10.8.0.1: File exists
 
-        """
+                """
         XCTAssertEqual(VPNLog.setupProblem(foreign)?.reason, "add net 10.30.0.0: gateway 10.8.0.1: File exists")
         // The same destination with another mask is another route.
-        let otherMask = Self.duplicateServerRouteLog + """
-        2026-01-01 10:00:03 /sbin/route add -net 10.20.0.0 10.8.0.1 255.255.255.0
-        add net 10.20.0.0: gateway 10.8.0.1: File exists
+        let otherMask =
+            Self.duplicateServerRouteLog + """
+                2026-01-01 10:00:03 /sbin/route add -net 10.20.0.0 10.8.0.1 255.255.255.0
+                add net 10.20.0.0: gateway 10.8.0.1: File exists
 
-        """
+                """
         XCTAssertEqual(VPNLog.setupProblem(otherMask)?.reason, "add net 10.20.0.0: gateway 10.8.0.1: File exists")
         // A duplicate that fails for another reason than "File exists" is still a problem.
         let unreachable = Self.duplicateServerRouteLog.replacingOccurrences(
@@ -482,8 +535,9 @@ final class FullTunnelTests: XCTestCase {
     }
 
     func testRouteCommandParsing() {
-        XCTAssertEqual(VPNLog.RouteCommand("/sbin/route add -net 203.0.113.10 192.0.2.1 255.255.255.255"),
-                       VPNLog.RouteCommand(destination: "203.0.113.10", mask: "255.255.255.255"))
+        XCTAssertEqual(
+            VPNLog.RouteCommand("/sbin/route add -net 203.0.113.10 192.0.2.1 255.255.255.255"),
+            VPNLog.RouteCommand(destination: "203.0.113.10", mask: "255.255.255.255"))
         XCTAssertEqual(VPNLog.RouteCommand("/sbin/route add -inet6 2000:: -prefixlen 3 fe80::1%utun6")?.mask, "3")
         XCTAssertEqual(VPNLog.addedRouteDestination("add net 10.20.0.0: gateway 10.8.0.1"), "10.20.0.0")
         XCTAssertNil(VPNLog.addedRouteDestination("add net 10.20.0.0: gateway 10.8.0.1: File exists"))
@@ -491,12 +545,14 @@ final class FullTunnelTests: XCTestCase {
 
     func testRemoteAddressesAndDefaultGateway() {
         XCTAssertEqual(VPNLog.remoteAddresses(Self.leftoverServerRouteLog), ["203.0.113.10"])
-        XCTAssertEqual(VPNLog.remoteAddresses("2026-01-01 10:00:00 TCP connection established with [AF_INET]203.0.113.20:443\n"),
-                       ["203.0.113.20"])
+        XCTAssertEqual(
+            VPNLog.remoteAddresses("2026-01-01 10:00:00 TCP connection established with [AF_INET]203.0.113.20:443\n"),
+            ["203.0.113.20"])
         XCTAssertEqual(VPNLog.remoteAddresses("TCPv4_CLIENT link remote: [AF_INET]203.0.113.21:443\n"), ["203.0.113.21"])
         XCTAssertEqual(VPNLog.remoteAddresses("UDPv6 link remote: [AF_INET6]2001:db8::5:1194\n"), ["2001:db8::5"])
-        XCTAssertEqual(VPNLog.remoteAddresses("[vpn.example.com] Peer Connection Initiated with [AF_INET]203.0.113.22:1194\n"),
-                       ["203.0.113.22"])
+        XCTAssertEqual(
+            VPNLog.remoteAddresses("[vpn.example.com] Peer Connection Initiated with [AF_INET]203.0.113.22:1194\n"),
+            ["203.0.113.22"])
         XCTAssertEqual(VPNLog.remoteAddresses("UDPv4 link local: (not bound)\n"), [])
         XCTAssertEqual(VPNLog.defaultGateway(Self.leftoverServerRouteLog), "192.0.2.1")
         XCTAssertNil(VPNLog.defaultGateway("ROUTE: default_gateway=UNDEF\n"))
@@ -505,30 +561,36 @@ final class FullTunnelTests: XCTestCase {
     func testLeftoverServerRouteIsNotASetupProblem() {
         XCTAssertNil(VPNLog.setupProblem(Self.leftoverServerRouteLog))
         // The same without the "command failed" line (route's own error line only).
-        XCTAssertNil(VPNLog.setupProblem(Self.leftoverServerRouteLog.replacingOccurrences(
-            of: "2026-01-01 10:00:01 ERROR: OS X route add command failed: external program exited with error status: 1\n", with: "")))
+        XCTAssertNil(
+            VPNLog.setupProblem(
+                Self.leftoverServerRouteLog.replacingOccurrences(
+                    of: "2026-01-01 10:00:01 ERROR: OS X route add command failed: external program exited with error status: 1\n", with: "")))
     }
 
     func testOtherRouteFailuresStillCount() {
         // Another host than the server.
         let otherHost = Self.leftoverServerRouteLog.replacingOccurrences(of: "add net 203.0.113.10:", with: "add net 203.0.113.99:")
-        XCTAssertEqual(VPNLog.setupProblem(otherHost),
-                       VPNLog.SetupProblem(reason: "add net 203.0.113.99: gateway 192.0.2.1: File exists", allTraffic: false))
+        XCTAssertEqual(
+            VPNLog.setupProblem(otherHost),
+            VPNLog.SetupProblem(reason: "add net 203.0.113.99: gateway 192.0.2.1: File exists", allTraffic: false))
         // The server, but through another gateway than the default one.
-        let otherGateway = Self.leftoverServerRouteLog.replacingOccurrences(of: "add net 203.0.113.10: gateway 192.0.2.1",
-                                                                            with: "add net 203.0.113.10: gateway 192.0.2.9")
+        let otherGateway = Self.leftoverServerRouteLog.replacingOccurrences(
+            of: "add net 203.0.113.10: gateway 192.0.2.1",
+            with: "add net 203.0.113.10: gateway 192.0.2.9")
         XCTAssertEqual(VPNLog.setupProblem(otherGateway)?.reason, "add net 203.0.113.10: gateway 192.0.2.9: File exists")
         // The server, but another error than "File exists".
-        let unreachable = Self.leftoverServerRouteLog.replacingOccurrences(of: "gateway 192.0.2.1: File exists",
-                                                                           with: "gateway 192.0.2.1: Network is unreachable")
+        let unreachable = Self.leftoverServerRouteLog.replacingOccurrences(
+            of: "gateway 192.0.2.1: File exists",
+            with: "gateway 192.0.2.1: Network is unreachable")
         XCTAssertEqual(VPNLog.setupProblem(unreachable)?.reason, "add net 203.0.113.10: gateway 192.0.2.1: Network is unreachable")
         // A later route command that fails is still reported, even after the ignored one.
         let laterFailure = Self.leftoverServerRouteLog.replacingOccurrences(
             of: "add net 128.0.0.0: gateway 10.8.0.1\n",
             with: "add net 128.0.0.0: gateway 10.8.0.1\n2026-01-01 10:00:01 /sbin/route add -net 10.20.0.0 10.8.0.1 255.255.0.0\n"
                 + "2026-01-01 10:00:01 ERROR: OS X route add command failed: external program exited with error status: 1\n")
-        XCTAssertEqual(VPNLog.setupProblem(laterFailure)?.reason,
-                       "ERROR: OS X route add command failed: external program exited with error status: 1")
+        XCTAssertEqual(
+            VPNLog.setupProblem(laterFailure)?.reason,
+            "ERROR: OS X route add command failed: external program exited with error status: 1")
         // Without a known server address nothing is excused.
         XCTAssertEqual(VPNLog.setupProblem("add net 203.0.113.10: gateway 192.0.2.1: File exists\n")?.allTraffic, false)
     }
@@ -542,30 +604,30 @@ final class FullTunnelTests: XCTestCase {
 
     /// OpenVPN 2.6 on Linux (rtnetlink, `redirect-gateway def1`), at the default verbosity.
     static let linuxOpenVPNLog = """
-    2026-01-01 10:00:00 OpenVPN 2.6.9 x86_64-pc-linux-gnu [SSL (OpenSSL)] [LZO] [LZ4] [EPOLL] [PKCS11] [MH/PKTINFO] [AEAD] [DCO]
-    2026-01-01 10:00:00 library versions: OpenSSL 3.0.13 30 Jan 2024, LZO 2.10
-    2026-01-01 10:00:00 DCO version: N/A
-    2026-01-01 10:00:00 MANAGEMENT: unix domain socket listening on /run/passtunnel/1000/acme/mgmt.sock
-    2026-01-01 10:00:00 TCP/UDP: Preserving recently used remote address: [AF_INET]203.0.113.10:1194
-    2026-01-01 10:00:00 UDPv4 link local: (not bound)
-    2026-01-01 10:00:00 UDPv4 link remote: [AF_INET]203.0.113.10:1194
-    2026-01-01 10:00:01 [vpn.example.com] Peer Connection Initiated with [AF_INET]203.0.113.10:1194
-    2026-01-01 10:00:01 PUSH: Received control message: 'PUSH_REPLY,redirect-gateway def1,dhcp-option DNS 10.8.0.1,route-gateway 10.8.0.1,topology subnet,ping 10,ping-restart 120,ifconfig 10.8.0.6 255.255.255.0,peer-id 0,cipher AES-256-GCM'
-    2026-01-01 10:00:01 OPTIONS IMPORT: --ifconfig/up options modified
-    2026-01-01 10:00:01 OPTIONS IMPORT: route options modified
-    2026-01-01 10:00:01 net_route_v4_best_gw query: dst 0.0.0.0
-    2026-01-01 10:00:01 net_route_v4_best_gw result: via 192.0.2.1 dev wlp2s0
-    2026-01-01 10:00:01 ROUTE_GATEWAY 192.0.2.1/255.255.255.0 IFACE=wlp2s0 HWADDR=02:00:00:00:00:01
-    2026-01-01 10:00:01 TUN/TAP device tun0 opened
-    2026-01-01 10:00:01 net_iface_mtu_set: mtu 1500 for tun0
-    2026-01-01 10:00:01 net_iface_up: set tun0 up
-    2026-01-01 10:00:01 net_addr_v4_add: 10.8.0.6/24 dev tun0
-    2026-01-01 10:00:01 net_route_v4_add: 203.0.113.10/32 via 192.0.2.1 dev [NULL] table 0 metric -1
-    2026-01-01 10:00:01 net_route_v4_add: 0.0.0.0/1 via 10.8.0.1 dev [NULL] table 0 metric -1
-    2026-01-01 10:00:01 net_route_v4_add: 128.0.0.0/1 via 10.8.0.1 dev [NULL] table 0 metric -1
-    2026-01-01 10:00:01 Initialization Sequence Completed
+        2026-01-01 10:00:00 OpenVPN 2.6.9 x86_64-pc-linux-gnu [SSL (OpenSSL)] [LZO] [LZ4] [EPOLL] [PKCS11] [MH/PKTINFO] [AEAD] [DCO]
+        2026-01-01 10:00:00 library versions: OpenSSL 3.0.13 30 Jan 2024, LZO 2.10
+        2026-01-01 10:00:00 DCO version: N/A
+        2026-01-01 10:00:00 MANAGEMENT: unix domain socket listening on /run/passtunnel/1000/acme/mgmt.sock
+        2026-01-01 10:00:00 TCP/UDP: Preserving recently used remote address: [AF_INET]203.0.113.10:1194
+        2026-01-01 10:00:00 UDPv4 link local: (not bound)
+        2026-01-01 10:00:00 UDPv4 link remote: [AF_INET]203.0.113.10:1194
+        2026-01-01 10:00:01 [vpn.example.com] Peer Connection Initiated with [AF_INET]203.0.113.10:1194
+        2026-01-01 10:00:01 PUSH: Received control message: 'PUSH_REPLY,redirect-gateway def1,dhcp-option DNS 10.8.0.1,route-gateway 10.8.0.1,topology subnet,ping 10,ping-restart 120,ifconfig 10.8.0.6 255.255.255.0,peer-id 0,cipher AES-256-GCM'
+        2026-01-01 10:00:01 OPTIONS IMPORT: --ifconfig/up options modified
+        2026-01-01 10:00:01 OPTIONS IMPORT: route options modified
+        2026-01-01 10:00:01 net_route_v4_best_gw query: dst 0.0.0.0
+        2026-01-01 10:00:01 net_route_v4_best_gw result: via 192.0.2.1 dev wlp2s0
+        2026-01-01 10:00:01 ROUTE_GATEWAY 192.0.2.1/255.255.255.0 IFACE=wlp2s0 HWADDR=02:00:00:00:00:01
+        2026-01-01 10:00:01 TUN/TAP device tun0 opened
+        2026-01-01 10:00:01 net_iface_mtu_set: mtu 1500 for tun0
+        2026-01-01 10:00:01 net_iface_up: set tun0 up
+        2026-01-01 10:00:01 net_addr_v4_add: 10.8.0.6/24 dev tun0
+        2026-01-01 10:00:01 net_route_v4_add: 203.0.113.10/32 via 192.0.2.1 dev [NULL] table 0 metric -1
+        2026-01-01 10:00:01 net_route_v4_add: 0.0.0.0/1 via 10.8.0.1 dev [NULL] table 0 metric -1
+        2026-01-01 10:00:01 net_route_v4_add: 128.0.0.0/1 via 10.8.0.1 dev [NULL] table 0 metric -1
+        2026-01-01 10:00:01 Initialization Sequence Completed
 
-    """
+        """
 
     func linuxLog(replacing line: String, with replacement: String) -> String {
         precondition(Self.linuxOpenVPNLog.contains(line + "\n"))
@@ -587,68 +649,84 @@ final class FullTunnelTests: XCTestCase {
         XCTAssertFalse(VPNLog.isAuthFailure(log))
 
         // Data channel offload: OpenVPN makes the device itself.
-        let dco = linuxLog(replacing: "2026-01-01 10:00:01 TUN/TAP device tun0 opened",
-                           with: "2026-01-01 10:00:01 net_iface_new: add tun0 type ovpn-dco\n2026-01-01 10:00:01 DCO device tun0 opened")
+        let dco = linuxLog(
+            replacing: "2026-01-01 10:00:01 TUN/TAP device tun0 opened",
+            with: "2026-01-01 10:00:01 net_iface_new: add tun0 type ovpn-dco\n2026-01-01 10:00:01 DCO device tun0 opened")
         XCTAssertEqual(VPNLog.tunnelInterface(dco), "tun0")
         XCTAssertEqual(VPNLog.tunnelInterface("2026-01-01 10:00:01 TUN/TAP device tap-acme opened\n"), "tap-acme")
         XCTAssertNil(VPNLog.tunnelInterface("2026-01-01 10:00:01 TUN/TAP device /dev/tun0 opened\n"))
         XCTAssertNil(VPNLog.tunnelInterface("2026-01-01 10:00:01 Cannot open TUN/TAP dev /dev/net/tun: No such file or directory\n"))
         // Point-to-point topology, and builds that run `ip`.
         XCTAssertEqual(VPNLog.openVPNLocalIP("2026-01-01 10:00:01 net_addr_ptp_v4_add: 10.8.0.6 peer 10.8.0.5 dev tun0\n"), "10.8.0.6")
-        XCTAssertEqual(VPNLog.openVPNLocalIP("2026-01-01 10:00:01 /sbin/ip addr add dev tun0 10.8.0.10/24 broadcast 10.8.0.255\n"),
-                       "10.8.0.10")
-        XCTAssertEqual(VPNLog.openVPNLocalIP("2026-01-01 10:00:01 /usr/sbin/ip addr add dev tun0 local 10.8.0.14 peer 10.8.0.13\n"),
-                       "10.8.0.14")
+        XCTAssertEqual(
+            VPNLog.openVPNLocalIP("2026-01-01 10:00:01 /sbin/ip addr add dev tun0 10.8.0.10/24 broadcast 10.8.0.255\n"),
+            "10.8.0.10")
+        XCTAssertEqual(
+            VPNLog.openVPNLocalIP("2026-01-01 10:00:01 /usr/sbin/ip addr add dev tun0 local 10.8.0.14 peer 10.8.0.13\n"),
+            "10.8.0.14")
     }
 
     /// Another VPN already has `0/1`: the kernel refuses OpenVPN's route.
     func testLinuxAllTrafficRouteFailure() {
-        let log = linuxLog(replacing: "2026-01-01 10:00:01 net_route_v4_add: 0.0.0.0/1 via 10.8.0.1 dev [NULL] table 0 metric -1",
-                           with: """
-                           2026-01-01 10:00:01 net_route_v4_add: 0.0.0.0/1 via 10.8.0.1 dev [NULL] table 0 metric -1
-                           2026-01-01 10:00:01 sitnl_send: rtnl: generic error (-17): File exists
-                           2026-01-01 10:00:01 NOTE: Linux route add command failed because route exists
-                           """)
-        XCTAssertEqual(VPNLog.setupProblem(log), VPNLog.SetupProblem(
-            reason: "net_route_v4_add: 0.0.0.0/1 via 10.8.0.1 dev [NULL] table 0 metric -1: File exists", allTraffic: true))
+        let log = linuxLog(
+            replacing: "2026-01-01 10:00:01 net_route_v4_add: 0.0.0.0/1 via 10.8.0.1 dev [NULL] table 0 metric -1",
+            with: """
+                2026-01-01 10:00:01 net_route_v4_add: 0.0.0.0/1 via 10.8.0.1 dev [NULL] table 0 metric -1
+                2026-01-01 10:00:01 sitnl_send: rtnl: generic error (-17): File exists
+                2026-01-01 10:00:01 NOTE: Linux route add command failed because route exists
+                """)
+        XCTAssertEqual(
+            VPNLog.setupProblem(log),
+            VPNLog.SetupProblem(
+                reason: "net_route_v4_add: 0.0.0.0/1 via 10.8.0.1 dev [NULL] table 0 metric -1: File exists", allTraffic: true))
         // OpenVPN's note alone (no rtnetlink line) says the same.
         let noteOnly = log.replacingOccurrences(of: "2026-01-01 10:00:01 sitnl_send: rtnl: generic error (-17): File exists\n", with: "")
         XCTAssertEqual(VPNLog.setupProblem(noteOnly)?.allTraffic, true)
         // IPv6 (`redirect-gateway ipv6`).
         let v6 = """
-        2026-01-01 10:00:01 net_route_v6_add: 2000::/4 via :: dev tun0 table 0 metric -1
-        2026-01-01 10:00:01 sitnl_send: rtnl: generic error (-17): File exists
-        2026-01-01 10:00:01 NOTE: Linux route add command failed because route exists
-        """
-        XCTAssertEqual(VPNLog.setupProblem(v6), VPNLog.SetupProblem(
-            reason: "net_route_v6_add: 2000::/4 via :: dev tun0 table 0 metric -1: File exists", allTraffic: true))
+            2026-01-01 10:00:01 net_route_v6_add: 2000::/4 via :: dev tun0 table 0 metric -1
+            2026-01-01 10:00:01 sitnl_send: rtnl: generic error (-17): File exists
+            2026-01-01 10:00:01 NOTE: Linux route add command failed because route exists
+            """
+        XCTAssertEqual(
+            VPNLog.setupProblem(v6),
+            VPNLog.SetupProblem(
+                reason: "net_route_v6_add: 2000::/4 via :: dev tun0 table 0 metric -1: File exists", allTraffic: true))
         // A build that runs `ip`.
         let iproute = """
-        2026-01-01 10:00:01 /sbin/ip route add 128.0.0.0/1 via 10.8.0.1
-        RTNETLINK answers: File exists
-        2026-01-01 10:00:01 ERROR: Linux route add command failed: external program exited with error status: 2
-        """
-        XCTAssertEqual(VPNLog.setupProblem(iproute), VPNLog.SetupProblem(
-            reason: "/sbin/ip route add 128.0.0.0/1 via 10.8.0.1: File exists", allTraffic: true))
+            2026-01-01 10:00:01 /sbin/ip route add 128.0.0.0/1 via 10.8.0.1
+            RTNETLINK answers: File exists
+            2026-01-01 10:00:01 ERROR: Linux route add command failed: external program exited with error status: 2
+            """
+        XCTAssertEqual(
+            VPNLog.setupProblem(iproute),
+            VPNLog.SetupProblem(
+                reason: "/sbin/ip route add 128.0.0.0/1 via 10.8.0.1: File exists", allTraffic: true))
         XCTAssertTrue(VPNLog.pushedRedirectGateway(iproute))
     }
 
     func testLinuxOtherRouteFailureIsAWarning() {
         let route = "2026-01-01 10:00:01 net_route_v4_add: 10.30.0.0/16 via 10.8.0.1 dev [NULL] table 0 metric -1"
-        let log = linuxLog(replacing: "2026-01-01 10:00:01 Initialization Sequence Completed", with: """
-        \(route)
-        2026-01-01 10:00:01 sitnl_send: rtnl: generic error (-101): Network is unreachable
-        2026-01-01 10:00:01 ERROR: Linux route add command failed
-        2026-01-01 10:00:01 Initialization Sequence Completed
-        """)
-        XCTAssertEqual(VPNLog.setupProblem(log), VPNLog.SetupProblem(
-            reason: "net_route_v4_add: 10.30.0.0/16 via 10.8.0.1 dev [NULL] table 0 metric -1: Network is unreachable",
-            allTraffic: false))
+        let log = linuxLog(
+            replacing: "2026-01-01 10:00:01 Initialization Sequence Completed",
+            with: """
+                \(route)
+                2026-01-01 10:00:01 sitnl_send: rtnl: generic error (-101): Network is unreachable
+                2026-01-01 10:00:01 ERROR: Linux route add command failed
+                2026-01-01 10:00:01 Initialization Sequence Completed
+                """)
+        XCTAssertEqual(
+            VPNLog.setupProblem(log),
+            VPNLog.SetupProblem(
+                reason: "net_route_v4_add: 10.30.0.0/16 via 10.8.0.1 dev [NULL] table 0 metric -1: Network is unreachable",
+                allTraffic: false))
         // OpenVPN's error line alone.
-        let errorOnly = log.replacingOccurrences(of: "2026-01-01 10:00:01 sitnl_send: rtnl: generic error (-101): Network is unreachable\n",
-                                                 with: "")
-        XCTAssertEqual(VPNLog.setupProblem(errorOnly)?.reason,
-                       "net_route_v4_add: 10.30.0.0/16 via 10.8.0.1 dev [NULL] table 0 metric -1: ERROR: Linux route add command failed")
+        let errorOnly = log.replacingOccurrences(
+            of: "2026-01-01 10:00:01 sitnl_send: rtnl: generic error (-101): Network is unreachable\n",
+            with: "")
+        XCTAssertEqual(
+            VPNLog.setupProblem(errorOnly)?.reason,
+            "net_route_v4_add: 10.30.0.0/16 via 10.8.0.1 dev [NULL] table 0 metric -1: ERROR: Linux route add command failed")
         // A DNS failure after it still makes the session unusable.
         XCTAssertEqual(VPNLog.setupProblem(log + "setting DNS failed, no compatible server profile\n")?.allTraffic, true)
     }
@@ -657,33 +735,41 @@ final class FullTunnelTests: XCTestCase {
     /// server), or left behind by a session killed without cleanup: "File exists" is harmless then.
     func testLinuxServerRouteThatExistsIsNotAProblem() {
         let serverRoute = "2026-01-01 10:00:01 net_route_v4_add: 203.0.113.10/32 via 192.0.2.1 dev [NULL] table 0 metric -1"
-        let exists = "2026-01-01 10:00:01 sitnl_send: rtnl: generic error (-17): File exists\n"
+        let exists =
+            "2026-01-01 10:00:01 sitnl_send: rtnl: generic error (-17): File exists\n"
             + "2026-01-01 10:00:01 NOTE: Linux route add command failed because route exists"
-        let duplicate = linuxLog(replacing: "2026-01-01 10:00:01 Initialization Sequence Completed",
-                                 with: "\(serverRoute)\n\(exists)\n2026-01-01 10:00:01 Initialization Sequence Completed")
+        let duplicate = linuxLog(
+            replacing: "2026-01-01 10:00:01 Initialization Sequence Completed",
+            with: "\(serverRoute)\n\(exists)\n2026-01-01 10:00:01 Initialization Sequence Completed")
         XCTAssertNil(VPNLog.setupProblem(duplicate))
         let leftover = linuxLog(replacing: serverRoute, with: "\(serverRoute)\n\(exists)")
         XCTAssertNil(VPNLog.setupProblem(leftover))
         // Through another gateway than the default one, it is not the route OpenVPN wanted.
         let otherGateway = leftover.replacingOccurrences(of: "203.0.113.10/32 via 192.0.2.1", with: "203.0.113.10/32 via 192.0.2.9")
-        XCTAssertEqual(VPNLog.setupProblem(otherGateway)?.reason,
-                       "net_route_v4_add: 203.0.113.10/32 via 192.0.2.9 dev [NULL] table 0 metric -1: File exists")
+        XCTAssertEqual(
+            VPNLog.setupProblem(otherGateway)?.reason,
+            "net_route_v4_add: 203.0.113.10/32 via 192.0.2.9 dev [NULL] table 0 metric -1: File exists")
         // A route that exists, but not because this session added it.
-        let foreign = linuxLog(replacing: "2026-01-01 10:00:01 Initialization Sequence Completed", with: """
-        2026-01-01 10:00:01 net_route_v4_add: 10.20.0.0/16 via 10.8.0.1 dev [NULL] table 0 metric -1
-        \(exists)
-        """)
+        let foreign = linuxLog(
+            replacing: "2026-01-01 10:00:01 Initialization Sequence Completed",
+            with: """
+                2026-01-01 10:00:01 net_route_v4_add: 10.20.0.0/16 via 10.8.0.1 dev [NULL] table 0 metric -1
+                \(exists)
+                """)
         XCTAssertEqual(VPNLog.setupProblem(foreign)?.allTraffic, false)
         // The same destination with another prefix length is another route.
-        let added = linuxLog(replacing: "2026-01-01 10:00:01 Initialization Sequence Completed", with: """
-        2026-01-01 10:00:01 net_route_v4_add: 10.20.0.0/16 via 10.8.0.1 dev [NULL] table 0 metric -1
-        2026-01-01 10:00:01 net_route_v4_add: 10.20.0.0/16 via 10.8.0.1 dev [NULL] table 0 metric -1
-        \(exists)
-        2026-01-01 10:00:01 net_route_v4_add: 10.20.0.0/24 via 10.8.0.1 dev [NULL] table 0 metric -1
-        \(exists)
-        """)
-        XCTAssertEqual(VPNLog.setupProblem(added)?.reason,
-                       "net_route_v4_add: 10.20.0.0/24 via 10.8.0.1 dev [NULL] table 0 metric -1: File exists")
+        let added = linuxLog(
+            replacing: "2026-01-01 10:00:01 Initialization Sequence Completed",
+            with: """
+                2026-01-01 10:00:01 net_route_v4_add: 10.20.0.0/16 via 10.8.0.1 dev [NULL] table 0 metric -1
+                2026-01-01 10:00:01 net_route_v4_add: 10.20.0.0/16 via 10.8.0.1 dev [NULL] table 0 metric -1
+                \(exists)
+                2026-01-01 10:00:01 net_route_v4_add: 10.20.0.0/24 via 10.8.0.1 dev [NULL] table 0 metric -1
+                \(exists)
+                """)
+        XCTAssertEqual(
+            VPNLog.setupProblem(added)?.reason,
+            "net_route_v4_add: 10.20.0.0/24 via 10.8.0.1 dev [NULL] table 0 metric -1: File exists")
     }
 
     func testLinuxDNSHookFailure() {
@@ -691,14 +777,18 @@ final class FullTunnelTests: XCTestCase {
         // lines). The hook says "setting DNS failed" first, unless it could not run at all.
         let hook = "passtunneld dns-hook: setting DNS failed: invalid DNS server “192.0.2.1;x”"
         let routeUp = "WARNING: Failed running command (--route-up): external program exited with error status: 1"
-        XCTAssertEqual(VPNLog.setupProblem(Self.linuxOpenVPNLog + hook + "\n2026-01-01 10:00:01 " + routeUp + "\n"),
-                       VPNLog.SetupProblem(reason: hook, allTraffic: true))
+        XCTAssertEqual(
+            VPNLog.setupProblem(Self.linuxOpenVPNLog + hook + "\n2026-01-01 10:00:01 " + routeUp + "\n"),
+            VPNLog.SetupProblem(reason: hook, allTraffic: true))
         XCTAssertFalse(VPNLog.isFatal(Self.linuxOpenVPNLog + hook + "\n"))
-        XCTAssertEqual(VPNLog.setupProblem(Self.linuxOpenVPNLog + "2026-01-01 10:00:01 " + routeUp + "\n"),
-                       VPNLog.SetupProblem(reason: routeUp, allTraffic: true))
+        XCTAssertEqual(
+            VPNLog.setupProblem(Self.linuxOpenVPNLog + "2026-01-01 10:00:01 " + routeUp + "\n"),
+            VPNLog.SetupProblem(reason: routeUp, allTraffic: true))
         let up = "2026-01-01 10:00:01 WARNING: Failed running command (--up/--down): external program exited with error status: 1\n"
-        XCTAssertEqual(VPNLog.setupProblem(Self.linuxOpenVPNLog + up), VPNLog.SetupProblem(
-            reason: "WARNING: Failed running command (--up/--down): external program exited with error status: 1", allTraffic: true))
+        XCTAssertEqual(
+            VPNLog.setupProblem(Self.linuxOpenVPNLog + up),
+            VPNLog.SetupProblem(
+                reason: "WARNING: Failed running command (--up/--down): external program exited with error status: 1", allTraffic: true))
         let updown = VPNLog.setupProblem(Self.linuxOpenVPNLog + "2026-01-01 10:00:01 WARNING: Failed running dns updown\n")
         XCTAssertEqual(updown?.allTraffic, true)
     }
@@ -706,31 +796,34 @@ final class FullTunnelTests: XCTestCase {
     /// openfortivpn on Linux: the same lines as on the Mac for the address and the interface.
     func testLinuxOpenFortiVPNSession() {
         let log = """
-        INFO:   Connected to gateway.
-        INFO:   Authenticated.
-        INFO:   Remote gateway has allocated a VPN.
-        INFO:   Got addresses: [10.212.134.200], ns [198.51.100.53, 198.51.100.54]
-        INFO:   Negotiation complete.
-        INFO:   Interface ppp0 is UP.
-        INFO:   Setting new routes...
-        INFO:   Tunnel is up and running.
+            INFO:   Connected to gateway.
+            INFO:   Authenticated.
+            INFO:   Remote gateway has allocated a VPN.
+            INFO:   Got addresses: [10.212.134.200], ns [198.51.100.53, 198.51.100.54]
+            INFO:   Negotiation complete.
+            INFO:   Interface ppp0 is UP.
+            INFO:   Setting new routes...
+            INFO:   Tunnel is up and running.
 
-        """
+            """
         XCTAssertEqual(VPNLog.tunnelInterface(log), "ppp0")
         XCTAssertTrue(VPNLog.fortiIsUp(log))
         XCTAssertEqual(VPNLog.fortiAddress(log), "10.212.134.200")
         XCTAssertFalse(VPNLog.isFatal(log))
         // What passtunneld adds once it set (or could not set) the session's DNS.
         XCTAssertFalse(VPNLog.fortiDNSSettled(log))
-        for line in ["passtunneld: DNS of ppp0 set through systemd-resolved: 198.51.100.53, 198.51.100.54",
-                     "passtunneld: the gateway named no DNS servers; DNS is left as it is",
-                     "passtunneld: setting DNS failed: there is no interface ppp0"] {
+        for line in [
+            "passtunneld: DNS of ppp0 set through systemd-resolved: 198.51.100.53, 198.51.100.54",
+            "passtunneld: the gateway named no DNS servers; DNS is left as it is",
+            "passtunneld: setting DNS failed: there is no interface ppp0"
+        ] {
             XCTAssertTrue(VPNLog.fortiDNSSettled(log + line + "\n"), line)
         }
         XCTAssertFalse(VPNLog.fortiDNSSettled(log + "INFO:   passtunneld: DNS of ppp0 set through x\n"))
         let failed = log + "passtunneld: setting DNS failed: there is no interface ppp0\n"
-        XCTAssertEqual(VPNLog.setupProblem(failed),
-                       VPNLog.SetupProblem(reason: "passtunneld: setting DNS failed: there is no interface ppp0", allTraffic: true))
+        XCTAssertEqual(
+            VPNLog.setupProblem(failed),
+            VPNLog.SetupProblem(reason: "passtunneld: setting DNS failed: there is no interface ppp0", allTraffic: true))
         XCTAssertNil(VPNLog.setupProblem(log))
     }
 }

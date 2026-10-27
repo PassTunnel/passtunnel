@@ -1,10 +1,12 @@
 import Foundation
+import XCTest
+
+@testable import PassTunnelCore
+
 #if os(macOS)
 import Network
 import Security
 #endif
-import XCTest
-@testable import PassTunnelCore
 
 /// Uses only a TLS server on 127.0.0.1 started by the test; never contacts other hosts.
 final class TLSFingerprintTests: XCTestCase {
@@ -16,15 +18,18 @@ final class TLSFingerprintTests: XCTestCase {
         XCTAssertNil(TLSFingerprint.normalize("ab:cd"))
         XCTAssertNil(TLSFingerprint.normalize(String(repeating: "zz", count: 32)))
         XCTAssertEqual(TLSFingerprint.display("ab01ff"), "AB:01:FF")
-        XCTAssertEqual(TLSFingerprint.sha256Hex(Data("abc".utf8)),
-                       "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+        XCTAssertEqual(
+            TLSFingerprint.sha256Hex(Data("abc".utf8)),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
     }
 
     // Reading a certificate is macOS only (Network).
     #if os(macOS)
     func testRejectsBadInputWithoutConnecting() async {
-        for (host, port, expected) in [("https://vpn.example.com", 443, TLSFingerprint.Failure.invalidHost),
-                                       ("", 443, .invalidHost), ("127.0.0.1", 0, .invalidPort)] {
+        for (host, port, expected) in [
+            ("https://vpn.example.com", 443, TLSFingerprint.Failure.invalidHost),
+            ("", 443, .invalidHost), ("127.0.0.1", 0, .invalidPort)
+        ] {
             do {
                 _ = try await TLSFingerprint.fetch(host: host, port: port, timeout: 1)
                 XCTFail("expected \(expected)")
@@ -99,10 +104,10 @@ final class LocalTLSServer: @unchecked Sendable {
     let listener: NWListener
     let queue = DispatchQueue(label: "tls-test-server")
     private var connections: [NWConnection] = []
-    private var started = false   // touched only on `queue`
+    private var started = false  // touched only on `queue`
     /// What a connection sent so far → the answer to send (and then close), or nil to keep reading.
     private let respond: ((Data) -> Data?)?
-    private var receivedData = Data()   // touched only on `queue`
+    private var receivedData = Data()  // touched only on `queue`
 
     /// Everything the clients sent after the handshake.
     var received: Data { queue.sync { receivedData } }
@@ -178,20 +183,28 @@ final class LocalTLSServer: @unchecked Sendable {
         let cert = dir.appendingPathComponent("cert.pem").path
         let der = dir.appendingPathComponent("cert.der").path
         let p12 = dir.appendingPathComponent("id.p12").path
-        try TLSFingerprintTests.run(openssl, ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", key, "-out", cert,
-                                              "-days", "1", "-subj", "/CN=localhost"])
+        try TLSFingerprintTests.run(
+            openssl,
+            [
+                "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", key, "-out", cert,
+                "-days", "1", "-subj", "/CN=localhost"
+            ])
         try TLSFingerprintTests.run(openssl, ["x509", "-in", cert, "-outform", "der", "-out", der])
         try TLSFingerprintTests.run(openssl, ["pkcs12", "-export", "-in", cert, "-inkey", key, "-out", p12, "-passout", "pass:test"])
         let digest = TLSFingerprint.sha256Hex(try Data(contentsOf: URL(fileURLWithPath: der)))
 
         var items: CFArray?
-        let options: [String: Any] = [kSecImportExportPassphrase as String: "test",
-                                      kSecImportToMemoryOnly as String: true]
-        let status = SecPKCS12Import(try Data(contentsOf: URL(fileURLWithPath: p12)) as CFData,
-                                     options as CFDictionary, &items)
+        let options: [String: Any] = [
+            kSecImportExportPassphrase as String: "test",
+            kSecImportToMemoryOnly as String: true
+        ]
+        let status = SecPKCS12Import(
+            try Data(contentsOf: URL(fileURLWithPath: p12)) as CFData,
+            options as CFDictionary, &items)
         guard status == errSecSuccess,
-              let first = (items as? [[String: Any]])?.first,
-              let identityRef = first[kSecImportItemIdentity as String] else {
+            let first = (items as? [[String: Any]])?.first,
+            let identityRef = first[kSecImportItemIdentity as String]
+        else {
             throw XCTSkip("could not import the test identity (\(status))")
         }
         return (identityRef as! SecIdentity, digest)

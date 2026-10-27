@@ -1,8 +1,9 @@
 import Foundation
+import PassTunnelShared
+
 #if canImport(Glibc)
 import Glibc
 #endif
-import PassTunnelShared
 
 /// Where DNS is changed (docs/LINUX.md, "DNS"), in this order of preference.
 public enum DNSBackend: String, Equatable, Sendable {
@@ -108,9 +109,11 @@ public struct DNSApplier {
             var record = DNSRecord(backend: backend, interface: name, index: index)
             if backend == .file {
                 let serial = (fileSessions(excluding: session.path).map(\.serial).max() ?? 0) + 1
-                record = DNSRecord(backend: .file, interface: name, index: index, serial: serial,
-                                   settings: try DNSSettings(servers: settings.servers, searchDomains: settings.searchDomains,
-                                                             fullTunnel: true))
+                record = DNSRecord(
+                    backend: .file, interface: name, index: index, serial: serial,
+                    settings: try DNSSettings(
+                        servers: settings.servers, searchDomains: settings.searchDomains,
+                        fullTunnel: true))
             }
             if let earlier = try? DNSRecord.load(in: session) {
                 if earlier.backend != .file || backend != .file { _ = undo(earlier, in: session, root: root) }
@@ -137,8 +140,10 @@ public struct DNSApplier {
             let tool = tool!, link = String(record.index)
             var domains = settings.searchDomains + settings.routingDomains.map { "~" + $0 }
             if settings.fullTunnel { domains.append("~.") }
-            for arguments in [["dns", link] + settings.servers, ["domain", link] + domains,
-                              ["default-route", link, settings.fullTunnel ? "true" : "false"]] {
+            for arguments in [
+                ["dns", link] + settings.servers, ["domain", link] + domains,
+                ["default-route", link, settings.fullTunnel ? "true" : "false"]
+            ] {
                 try checkLink(record)
                 try run(tool, "resolvectl", arguments)
             }
@@ -157,7 +162,8 @@ public struct DNSApplier {
     /// are not reused soon (the kernel counts up), so a link that passes is the session's own.
     func checkLink(_ record: DNSRecord) throws {
         guard system.interfaceIndex(record.interface) == record.index,
-              system.interfaceIndex(String(record.index)).map({ $0 == record.index }) ?? true else {
+            system.interfaceIndex(String(record.index)).map({ $0 == record.index }) ?? true
+        else {
             throw DNSFailure.interfaceChanged(record.interface, record.index)
         }
     }
@@ -249,8 +255,10 @@ public struct DNSApplier {
         let sessions = fileSessions()
         let interrupted = ResolvConfBaseline.load(in: root, path: runRoot)?.pending != nil
         guard sessions.isEmpty || interrupted else { return nil }
-        let what = sessions.isEmpty ? "\(system.resolvConf), which no session uses any more"
-                                    : "an interrupted change of \(system.resolvConf)"
+        let what =
+            sessions.isEmpty
+            ? "\(system.resolvConf), which no session uses any more"
+            : "an interrupted change of \(system.resolvConf)"
         do {
             try updateResolvConf(root: root, sessions: sessions)
             return sessions.isEmpty ? "restored \(what)" : "finished \(what)"
@@ -277,7 +285,8 @@ public struct DNSApplier {
             }
             for id in PreviousInstance.entries(runRoot + "/" + entry) where HelperCore.isValidProfileID(id) {
                 guard let session = try? core.openRunDir(profileID: id, uid: uid), session.path != excluding,
-                      let record = try? DNSRecord.load(in: session), record.backend == .file else { continue }
+                    let record = try? DNSRecord.load(in: session), record.backend == .file
+                else { continue }
                 found.append(record)
             }
         }
@@ -312,8 +321,10 @@ public struct DNSApplier {
         var current = try readResolvConf()
         var saved = ResolvConfBaseline.load(in: root, path: runRoot)
         if let state = saved, let pending = state.pending {
-            if ResolvConfBaseline.isInterrupted(current.map { [UInt8]($0.data) }, previous: pending.previous,
-                                                intended: pending.intended) {
+            if ResolvConfBaseline.isInterrupted(
+                current.map { [UInt8]($0.data) }, previous: pending.previous,
+                intended: pending.intended)
+            {
                 try replaceResolvConf(with: pending.intended, expected: current)
                 current = try readResolvConf()
             }
@@ -350,8 +361,9 @@ public struct DNSApplier {
     /// dying in the middle of a rewrite in place leaves a change the next one finishes, never a file
     /// taken for someone else's.
     private func transact(_ content: [UInt8]?, over current: ResolvConfFile?, baseline: [UInt8]?, root: Int32) throws {
-        var state = ResolvConfBaseline(written: content.map { HelperCore.sha256Hex(Data($0)) }, content: baseline,
-                                       pending: .init(previous: current.map { [UInt8]($0.data) }, intended: content))
+        var state = ResolvConfBaseline(
+            written: content.map { HelperCore.sha256Hex(Data($0)) }, content: baseline,
+            pending: .init(previous: current.map { [UInt8]($0.data) }, intended: content))
         try state.write(in: root, path: runRoot)
         try replaceResolvConf(with: content, expected: current)
         state.pending = nil
@@ -395,7 +407,8 @@ public struct DNSApplier {
     static func replacesResolvConf(_ path: String) -> Bool {
         var st = stat()
         guard lstat(path, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG, st.st_size <= 64 << 10,
-              let text = try? String(contentsOfFile: path, encoding: .utf8) else { return false }
+            let text = try? String(contentsOfFile: path, encoding: .utf8)
+        else { return false }
         var replaces = false
         for raw in text.split(whereSeparator: \.isNewline) {
             let line = raw.drop { $0 == " " || $0 == "\t" }
@@ -495,8 +508,9 @@ public struct DNSApplier {
             data.append(contentsOf: buffer[0..<n])
             guard data.count <= Self.maxResolvConfBytes else { throw DNSFailure.tooLarge(path) }
         }
-        return ResolvConfFile(data: data, mode: st.st_mode & 0o7777, group: st.st_gid,
-                              device: UInt64(opened.st_dev), inode: UInt64(opened.st_ino))
+        return ResolvConfFile(
+            data: data, mode: st.st_mode & 0o7777, group: st.st_gid,
+            device: UInt64(opened.st_dev), inode: UInt64(opened.st_ino))
     }
 
     /// `content` in place of the file that was `expected` when PassTunnel read it (nil: there was none;
@@ -664,16 +678,18 @@ public struct DNSRecord: Equatable {
     init?(text: String) {
         let lines = text.components(separatedBy: "\n")
         guard lines.count == 8, lines[7].isEmpty, lines[0] == Self.header, let backend = DNSBackend(rawValue: lines[1]),
-              (try? DNSSettings.interface(lines[2])) != nil, let index = UInt32(lines[3]), String(index) == lines[3],
-              index > 0 else { return nil }
+            (try? DNSSettings.interface(lines[2])) != nil, let index = UInt32(lines[3]), String(index) == lines[3],
+            index > 0
+        else { return nil }
         guard backend == .file else {
             guard lines[4...6].allSatisfy({ $0 == "-" }) else { return nil }
             self.init(backend: backend, interface: lines[2], index: index)
             return
         }
         guard let serial = UInt64(lines[4]), String(serial) == lines[4], serial > 0,
-              let servers = Self.list(lines[5], DNSSettings.address), let search = Self.list(lines[6], DNSSettings.domain),
-              let settings = try? DNSSettings(servers: servers, searchDomains: search, fullTunnel: true) else { return nil }
+            let servers = Self.list(lines[5], DNSSettings.address), let search = Self.list(lines[6], DNSSettings.domain),
+            let settings = try? DNSSettings(servers: servers, searchDomains: search, fullTunnel: true)
+        else { return nil }
         self.init(backend: .file, interface: lines[2], index: index, serial: serial, settings: settings)
     }
 
@@ -762,7 +778,8 @@ struct ResolvConfBaseline: Equatable {
             written = nil
         } else {
             guard lines[1].utf8.count == 64,
-                  lines[1].utf8.allSatisfy({ ($0 >= 0x30 && $0 <= 0x39) || ($0 >= 0x61 && $0 <= 0x66) }) else { return nil }
+                lines[1].utf8.allSatisfy({ ($0 >= 0x30 && $0 <= 0x39) || ($0 >= 0x61 && $0 <= 0x66) })
+            else { return nil }
             written = lines[1]
         }
         var rest = bytes[start...]
@@ -777,7 +794,8 @@ struct ResolvConfBaseline: Equatable {
         if lines[3] != "-" {
             let fields = lines[3].split(separator: " ", omittingEmptySubsequences: false)
             guard fields.count == 2, let previous = take(fields[0]), let intended = take(fields[1]),
-                  written == intended.map({ HelperCore.sha256Hex(Data($0)) }) else { return nil }
+                written == intended.map({ HelperCore.sha256Hex(Data($0)) })
+            else { return nil }
             pending = Pending(previous: previous, intended: intended)
         }
         guard rest.isEmpty else { return nil }
@@ -807,8 +825,8 @@ struct ResolvConfBaseline: Equatable {
         guard let current, let previous, let intended else { return false }
         if current.count > previous.count { return intended.starts(with: current) }
         guard current.count == previous.count else { return false }
-        let written = zip(current, intended).prefix { $0 == $1 }.count       // at most this much of `intended`
-        var kept = current.count                                             // `previous` from here on
+        let written = zip(current, intended).prefix { $0 == $1 }.count  // at most this much of `intended`
+        var kept = current.count  // `previous` from here on
         while kept > 0, current[kept - 1] == previous[kept - 1] { kept -= 1 }
         return kept <= written
     }
@@ -841,7 +859,7 @@ enum RootFile {
     }
 
     static func store(_ name: String, _ data: Data, at dir: Int32, path: String) throws {
-        let temp = "." + name + ".\(getpid()).new"          // a name of each process's own
+        let temp = "." + name + ".\(getpid()).new"  // a name of each process's own
         if unlinkat(dir, temp, 0) != 0, errno != ENOENT { throw DNSFailure.system("remove \(path)/\(temp)", errno) }
         let fd = openat(dir, temp, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
         guard fd >= 0 else { throw DNSFailure.system("create \(path)/\(temp)", errno) }

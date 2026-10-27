@@ -57,21 +57,25 @@ enum PreviousInstance {
     /// removes everything in `runRoot` but the entries in `keep` (the daemon's socket and lock), the
     /// sessions whose DNS could not be restored, and the file backend's state while it is needed.
     @discardableResult
-    static func cleanUp(runRoot: String, keep: Set<String>, grace: TimeInterval = 5, dns: DNSApplier? = nil,
-                        pidfds: Pidfds = Pidfds()) -> Outcome {
+    static func cleanUp(
+        runRoot: String, keep: Set<String>, grace: TimeInterval = 5, dns: DNSApplier? = nil,
+        pidfds: Pidfds = Pidfds()
+    ) -> Outcome {
         var running: [State] = []
         for entry in entries(runRoot) where !keep.contains(entry) {
             let path = runRoot + "/" + entry
             guard let uid = uid_t(entry), String(uid) == entry, isRealDirectory(path) else { continue }
             for id in entries(path) {
                 guard HelperCore.isValidProfileID(id), let state = readState(path + "/" + id + "/" + Supervisor.stateFileName),
-                      state.uid == uid else { continue }
+                    state.uid == uid
+                else { continue }
                 switch identify(state) {
                 case .same:
                     running.append(state)
                 case .unverifiable:
-                    DaemonLog.info("pid \(state.pid) of uid \(state.uid) runs \(state.executable), recorded by an earlier "
-                                   + "instance without its start time: not stopped, as it may be another process")
+                    DaemonLog.info(
+                        "pid \(state.pid) of uid \(state.uid) runs \(state.executable), recorded by an earlier "
+                            + "instance without its start time: not stopped, as it may be another process")
                 case .gone:
                     continue
                 }
@@ -108,7 +112,7 @@ enum PreviousInstance {
                     HelperCore.removeEntry(path + "/" + id)
                 }
             }
-            _ = rmdir(path)              // unless a session is left in it
+            _ = rmdir(path)  // unless a session is left in it
         }
         return outcome
     }
@@ -139,8 +143,9 @@ enum PreviousInstance {
     static func deliver(_ sig: Int32, to state: State, pidfds: Pidfds = Pidfds()) -> Bool {
         guard let pidfd = pidfds.open(state.pid) else {
             if identify(state) == .same {
-                DaemonLog.info("pid \(state.pid) of uid \(state.uid) is not signalled: this kernel has no pidfds, "
-                               + "and a signal by number could reach another process")
+                DaemonLog.info(
+                    "pid \(state.pid) of uid \(state.uid) is not signalled: this kernel has no pidfds, "
+                        + "and a signal by number could reach another process")
             }
             return false
         }
@@ -153,10 +158,12 @@ enum PreviousInstance {
     static func readState(_ path: String) -> State? {
         var st = stat()
         guard lstat(path, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG, st.st_uid == geteuid(), st.st_size < 8192,
-              let text = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
+            let text = try? String(contentsOfFile: path, encoding: .utf8)
+        else { return nil }
         let parts = text.components(separatedBy: "\n")
         guard parts.count >= 3, let pid = pid_t(parts[0]), let uid = uid_t(parts[1]), pid > 1,
-              parts[2].hasPrefix("/") else { return nil }
+            parts[2].hasPrefix("/")
+        else { return nil }
         var state = State(pid: pid, uid: uid, executable: parts[2])
         // Boot ID and start time follow profile directory and management socket; both or none.
         if parts.count >= 7, !parts[5].isEmpty || !parts[6].isEmpty {
@@ -197,7 +204,8 @@ enum PreviousInstance {
     /// third (the state letter) on.
     static func statFields(_ pid: pid_t) -> [Substring]? {
         guard let text = try? String(contentsOfFile: "/proc/\(pid)/stat", encoding: .utf8),
-              let end = text.lastIndex(of: ")") else { return nil }
+            let end = text.lastIndex(of: ")")
+        else { return nil }
         return text[text.index(after: end)...].split(separator: " ")
     }
 
@@ -222,9 +230,10 @@ enum PreviousInstance {
     /// A UUID as the kernel writes it: 36 lowercase hex digits and dashes.
     static func isBootID(_ text: String) -> Bool {
         let bytes = Array(text.utf8)
-        return bytes.count == 36 && bytes.enumerated().allSatisfy { i, c in
-            [8, 13, 18, 23].contains(i) ? c == 0x2D : (c >= 0x30 && c <= 0x39) || (c >= 0x61 && c <= 0x66)
-        }
+        return bytes.count == 36
+            && bytes.enumerated().allSatisfy { i, c in
+                [8, 13, 18, 23].contains(i) ? c == 0x2D : (c >= 0x30 && c <= 0x39) || (c >= 0x61 && c <= 0x66)
+            }
     }
 
     static func executable(of pid: pid_t) -> String? {

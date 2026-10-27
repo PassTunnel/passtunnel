@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import PassTunnelCore
 
 /// A scripted OpenVPN-like management server on a unix socket. Each accepted connection is handed
@@ -113,11 +114,15 @@ final class ManagementSocketTests: XCTestCase {
     // MARK: Client
 
     func testStateCommand() throws {
-        let server = FakeManagementServer(path: sockPath, handlers: [
-            FakeManagementServer.answering("state", with:
-                ">STATE:1700000000,CONNECTED,SUCCESS,10.8.0.6,203.0.113.5,1194,,\r\n" +
-                "1700000000,CONNECTED,SUCCESS,10.8.0.6,203.0.113.5,1194,,\r\nEND\r\n"),
-        ])
+        let server = FakeManagementServer(
+            path: sockPath,
+            handlers: [
+                FakeManagementServer.answering(
+                    "state",
+                    with:
+                        ">STATE:1700000000,CONNECTED,SUCCESS,10.8.0.6,203.0.113.5,1194,,\r\n"
+                        + "1700000000,CONNECTED,SUCCESS,10.8.0.6,203.0.113.5,1194,,\r\nEND\r\n")
+            ])
         waitForSocket()
         let state = try ManagementSocket(path: sockPath).state()
         XCTAssertEqual(state.name, "CONNECTED")
@@ -126,10 +131,12 @@ final class ManagementSocketTests: XCTestCase {
     }
 
     func testSuccessAndErrorReplies() throws {
-        let server = FakeManagementServer(path: sockPath, handlers: [
-            FakeManagementServer.answering("signal SIGTERM", with: ">LOG:x\r\nSUCCESS: signal SIGTERM thrown\r\n"),
-            FakeManagementServer.answering("bogus", with: "ERROR: unknown command, enter 'help' for more options\r\n"),
-        ])
+        let server = FakeManagementServer(
+            path: sockPath,
+            handlers: [
+                FakeManagementServer.answering("signal SIGTERM", with: ">LOG:x\r\nSUCCESS: signal SIGTERM thrown\r\n"),
+                FakeManagementServer.answering("bogus", with: "ERROR: unknown command, enter 'help' for more options\r\n")
+            ])
         waitForSocket()
         let m = ManagementSocket(path: sockPath)
         XCTAssertEqual(try m.command("signal SIGTERM"), "SUCCESS: signal SIGTERM thrown")
@@ -140,19 +147,23 @@ final class ManagementSocketTests: XCTestCase {
     }
 
     func testRetriesWhileSocketAppears() throws {
-        let server = FakeManagementServer(path: sockPath, startDelay: 0.3, handlers: [
-            FakeManagementServer.answering("state", with: "1700000000,CONNECTING,,,,,,\r\nEND\r\n"),
-        ])
+        let server = FakeManagementServer(
+            path: sockPath, startDelay: 0.3,
+            handlers: [
+                FakeManagementServer.answering("state", with: "1700000000,CONNECTING,,,,,,\r\nEND\r\n")
+            ])
         XCTAssertEqual(try ManagementSocket(path: sockPath).state(timeout: 3).name, "CONNECTING")
         server.wait()
     }
 
     func testRetriesWhenAnotherClientIsServed() throws {
         // First connection gets no banner (OpenVPN is busy with another client) and is dropped.
-        let server = FakeManagementServer(path: sockPath, handlers: [
-            { _ in usleep(1_700_000) },
-            FakeManagementServer.answering("state", with: "1700000000,CONNECTED,SUCCESS,10.8.0.9,,,,\r\nEND\r\n"),
-        ])
+        let server = FakeManagementServer(
+            path: sockPath,
+            handlers: [
+                { _ in usleep(1_700_000) },
+                FakeManagementServer.answering("state", with: "1700000000,CONNECTED,SUCCESS,10.8.0.9,,,,\r\nEND\r\n")
+            ])
         waitForSocket()
         var m = ManagementSocket(path: sockPath)
         m.retryDelay = 0.05
@@ -174,13 +185,15 @@ final class ManagementSocketTests: XCTestCase {
     }
 
     func testTimeoutWhenNoReply() throws {
-        let server = FakeManagementServer(path: sockPath, handlers: [
-            { fd in
-                FakeManagementServer.send(fd, FakeManagementServer.banner)
-                _ = FakeManagementServer.readLine(fd)
-                usleep(800_000)
-            },
-        ])
+        let server = FakeManagementServer(
+            path: sockPath,
+            handlers: [
+                { fd in
+                    FakeManagementServer.send(fd, FakeManagementServer.banner)
+                    _ = FakeManagementServer.readLine(fd)
+                    usleep(800_000)
+                }
+            ])
         waitForSocket()
         XCTAssertThrowsError(try ManagementSocket(path: sockPath).command("state", timeout: 0.5)) {
             XCTAssertEqual($0 as? ManagementError, .timeout)

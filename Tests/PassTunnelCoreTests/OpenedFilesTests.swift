@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+
 @testable import PassTunnelCore
 @testable import PassTunnelKit
 
@@ -18,15 +19,17 @@ final class OpenedFilesTests: CoreTestCase {
             let url = URL(fileURLWithPath: "/tmp/\(name)")
             XCTAssertEqual(OpenedFiles.route([url]), .importOVPN(url), name)
         }
-        XCTAssertEqual(OpenedFiles.route([URL(string: "https://vpn.example.com/acme.ovpn")!]),
-                       .unsupported("https://vpn.example.com/acme.ovpn"))
+        XCTAssertEqual(
+            OpenedFiles.route([URL(string: "https://vpn.example.com/acme.ovpn")!]),
+            .unsupported("https://vpn.example.com/acme.ovpn"))
     }
 
     func testOtherFilesAreRejected() {
         XCTAssertNil(OpenedFiles.route([]))
         XCTAssertEqual(OpenedFiles.route([URL(fileURLWithPath: "/tmp/acme.ovpn.txt")]), .unsupported("acme.ovpn.txt"))
-        XCTAssertEqual(OpenedFiles.route([URL(fileURLWithPath: "/tmp/acme.passtunnel.json")]),
-                       .unsupported("acme.passtunnel.json"))
+        XCTAssertEqual(
+            OpenedFiles.route([URL(fileURLWithPath: "/tmp/acme.passtunnel.json")]),
+            .unsupported("acme.passtunnel.json"))
         XCTAssertEqual(OpenedFiles.route([URL(fileURLWithPath: "/tmp/passtunnel")]), .unsupported("passtunnel"))
         let web = URL(string: "https://vpn.example.com/acme.passtunnel")!
         XCTAssertEqual(OpenedFiles.route([web]), .unsupported(web.absoluteString))
@@ -41,14 +44,16 @@ final class OpenedFilesTests: CoreTestCase {
 
     /// An opened file goes through `ProfileStore.importShare`, with all its checks (hosts included).
     func testOpenedFileIsValidatedLikeAnImport() throws {
-        let bad = try write(#"{"passtunnel_profile":1,"profile":{"name":"Acme","type":"forti","host":"vpn.example.com\u0000"}}"#,
-                            name: "bad.passtunnel")
+        let bad = try write(
+            #"{"passtunnel_profile":1,"profile":{"name":"Acme","type":"forti","host":"vpn.example.com\u0000"}}"#,
+            name: "bad.passtunnel")
         guard case .importShare(let url)? = OpenedFiles.route([bad]) else { return XCTFail("not routed to the import") }
         assertThrows(.invalidField("host")) { _ = try store.importShare(url, name: nil) }
         XCTAssertTrue(store.list().isEmpty)
 
-        let good = try write(#"{"passtunnel_profile":1,"profile":{"name":"Acme","type":"forti","host":"vpn.example.com"}}"#,
-                             name: "good.passtunnel")
+        let good = try write(
+            #"{"passtunnel_profile":1,"profile":{"name":"Acme","type":"forti","host":"vpn.example.com"}}"#,
+            name: "good.passtunnel")
         guard case .importShare(let url)? = OpenedFiles.route([good]) else { return XCTFail("not routed to the import") }
         XCTAssertEqual(try store.importShare(url, name: nil).host, "vpn.example.com")
     }
@@ -59,7 +64,8 @@ final class OpenedFilesTests: CoreTestCase {
         let delegate = try String(contentsOf: root.appendingPathComponent("App/AppDelegate.swift"), encoding: .utf8)
         XCTAssertTrue(delegate.contains("func application(_ application: NSApplication, open urls: [URL])"))
         let actions = try String(contentsOf: root.appendingPathComponent("Editor/ImportActions.swift"), encoding: .utf8)
-        XCTAssertTrue(actions.contains("case .importShare(let url):\n            AppDelegate.shared?.showMainWindow()\n            importShared(at: url)"))
+        XCTAssertTrue(
+            actions.contains("case .importShare(let url):\n            AppDelegate.shared?.showMainWindow()\n            importShared(at: url)"))
         // An opened configuration goes through the review, like File → Import .ovpn….
         XCTAssertTrue(actions.contains("case .importOVPN(let url):\n            importOVPN(at: url)"))
         XCTAssertTrue(actions.contains("guard let model = AppModel.shared else { return }\n        review(url, in: model)"))

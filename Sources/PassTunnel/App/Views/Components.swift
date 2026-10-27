@@ -33,7 +33,7 @@ extension AppModel {
 extension VPNType {
     var displayName: String {
         switch self {
-        case .openvpn: return "OpenVPN"   // product names stay untranslated
+        case .openvpn: return "OpenVPN"  // product names stay untranslated
         case .forti: return "FortiGate"
         }
     }
@@ -169,7 +169,7 @@ struct CodeRing: View {
         let elapsed = period - left
         guard elapsed < Motion.refillDuration else { return level }
         let t = elapsed / Motion.refillDuration
-        return level * (1 - pow(1 - t, 3))   // ease-out from empty
+        return level * (1 - pow(1 - t, 3))  // ease-out from empty
     }
 
     /// 0 before the last 5 s, then up to 1 over 200 ms (ease-out); at once when stepped.

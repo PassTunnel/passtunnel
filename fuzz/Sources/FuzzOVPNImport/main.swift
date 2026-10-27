@@ -34,14 +34,16 @@ func LLVMFuzzerTestOneInput(_ data: UnsafePointer<UInt8>?, _ size: Int) -> CInt 
         }
     }
     for shown in result.skipped.map(\.text) + result.blocking.map(\.text) {
-        precondition(!shown.unicodeScalars.contains { $0.properties.generalCategory == .control },
-                     "a shown line has a control character")
+        precondition(
+            !shown.unicodeScalars.contains { $0.properties.generalCategory == .control },
+            "a shown line has a control character")
     }
 
     let accepted = (try? OVPNSanitizer.sanitize(text)) != nil
     if accepted {
-        precondition(result.text.utf8.elementsEqual(text.utf8) && result.skipped.isEmpty && result.blocking.isEmpty,
-                     "an accepted text was changed")
+        precondition(
+            result.text.utf8.elementsEqual(text.utf8) && result.skipped.isEmpty && result.blocking.isEmpty,
+            "an accepted text was changed")
     }
     guard let report = try? OVPNImportReport.make(text, baseDir: nil) else {
         fatalError("the report threw without a folder to read")
@@ -51,8 +53,9 @@ func LLVMFuzzerTestOneInput(_ data: UnsafePointer<UInt8>?, _ size: Int) -> CInt 
         guard let stored = report.config else { fatalError("nothing to store without a blocking line") }
         precondition((try? OVPNSanitizer.sanitize(stored)) != nil, "the stored configuration is refused")
         let again = OVPNSkipRules.apply(result.text)
-        precondition(again.text.utf8.elementsEqual(result.text.utf8) && again.skipped.isEmpty && again.blocking.isEmpty,
-                     "the rewritten text is not stable")
+        precondition(
+            again.text.utf8.elementsEqual(result.text.utf8) && again.skipped.isEmpty && again.blocking.isEmpty,
+            "the rewritten text is not stable")
     } else {
         precondition(!accepted, "an accepted text has blocking lines")
         precondition(report.config == nil, "a configuration with a blocking line would be stored")

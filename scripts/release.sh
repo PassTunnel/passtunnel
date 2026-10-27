@@ -34,7 +34,9 @@
 # in Identifiers.swift), NOTARY_PROFILE (notarytool keychain profile, default: passtunnel),
 # SPARKLE_PRIVATE_KEY_FILE (the Sparkle EdDSA private key as generate_keys -x exports it, instead of
 # the key in the keychain; the release workflow uses it because the Sparkle tools cannot read a key
-# without a keychain prompt there).
+# without a keychain prompt there), REQUIRE_SIGNED_TAG=1 (with --publish: stop unless the tag is
+# signed and its signature checks out against .github/allowed_signers, the release tag key; the
+# release workflow sets it; without it an unsigned tag is only a warning).
 # PASSTUNNEL_ALLOW_UNPINNED_TOOLS is refused: bundled tool versions must match release.env.
 set -euo pipefail
 
@@ -44,7 +46,7 @@ source "$ROOT/scripts/release.env"
 
 die() { echo "error: $*" >&2; exit 1; }
 step() { printf '\n==> %s\n' "$*"; }
-usage() { sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,41p' "$0" | sed 's/^# \{0,1\}//'; }
 
 VERSION=""
 DRAFT=0
@@ -101,11 +103,25 @@ fi
 ((PUBLISH && ALLOW_BRANCH)) && die "--publish releases from main only; drop --allow-branch"
 ((PUBLISH && SKIP_NOTARIZE)) && die "--publish needs a notarized build; drop --skip-notarize"
 ((DRAFT && !PUBLISH)) && echo "note: --draft only matters with --publish"
+REQUIRE_SIGNED_TAG="${REQUIRE_SIGNED_TAG:-0}"
+[[ "$REQUIRE_SIGNED_TAG" == 0 || "$REQUIRE_SIGNED_TAG" == 1 ]] || die "REQUIRE_SIGNED_TAG must be 0 or 1"
 [[ -z "${PASSTUNNEL_ALLOW_UNPINNED_TOOLS:-}" ]] \
     || die "unset PASSTUNNEL_ALLOW_UNPINNED_TOOLS: releases bundle the tool versions pinned in scripts/release.env"
 
 # The files of every release, in the order they are uploaded.
 RELEASE_ASSETS=("$DMG_NAME" "$STABLE_DMG_NAME" "$ZIP_NAME" "$MCPB_NAME" appcast.xml SHA256SUMS)
+
+# Whether git signs the tag: user.signingkey, or gpg.format ssh with a default key.
+has_signing_key() {
+    [[ -n "$(git config --get user.signingkey || true)" || "$(git config --get gpg.format || true)" == ssh ]]
+}
+
+# Fails unless TAG carries a valid signature of the release tag key in .github/allowed_signers.
+verify_tag() {
+    git -c gpg.ssh.allowedSignersFile="$ROOT/.github/allowed_signers" tag -v "$TAG" >/dev/null \
+        || die "tag $TAG is not signed by the release tag key in .github/allowed_signers"
+    echo "tag $TAG: signature verified against .github/allowed_signers"
+}
 
 # Fails unless the draft release of TAG has every asset named in the arguments.
 check_draft_assets() {
@@ -174,6 +190,11 @@ if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
     TAG_COMMIT="$(git rev-parse "$TAG^{commit}")"
     ((PUBLISH)) && [[ "$TAG_COMMIT" == "$COMMIT" ]] || die "tag $TAG already exists"
     echo "tag $TAG exists at HEAD; continuing"
+fi
+if ((PUBLISH && REQUIRE_SIGNED_TAG)); then
+    has_signing_key || die "REQUIRE_SIGNED_TAG=1, but git has no signing key (gpg.format, user.signingkey)"
+    # A tag that is already there (re-run) cannot be replaced (tag rules); it must be signed already.
+    if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then verify_tag; fi
 fi
 
 # The section "## [VERSION] …" up to the next "## "; a pre-release falls back to its base version.
@@ -454,14 +475,16 @@ rm -rf "$WORK"
 if ((PUBLISH)); then
     step "publishing $TAG on $GITHUB_REPO"
     if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-        # Signed when git has a signing key (user.signingkey, or gpg.format ssh with a default key).
-        if [[ -n "$(git config --get user.signingkey || true)" || "$(git config --get gpg.format || true)" == ssh ]]; then
+        if has_signing_key; then
             git tag -s "$TAG" -m "PassTunnel $VERSION"
         else
+            ((!REQUIRE_SIGNED_TAG)) || die "REQUIRE_SIGNED_TAG=1, but git has no signing key"
             echo "warning: no git signing key configured; creating an unsigned annotated tag (docs/RELEASING.md)" >&2
             git tag -a "$TAG" -m "PassTunnel $VERSION"
         fi
     fi
+    # Checked before the push: a pushed release tag can no longer be changed or deleted.
+    ((!REQUIRE_SIGNED_TAG)) || verify_tag
     git push origin "$TAG"
     ASSETS=()
     for f in "${RELEASE_ASSETS[@]}"; do ASSETS+=("$DIST/$f"); done

@@ -112,7 +112,8 @@ public struct CIDR: Hashable, Comparable, Sendable, Codable, CustomStringConvert
     private static func decimal(_ text: Substring, maxDigits: Int) -> Int? {
         let bytes = text.utf8
         guard !bytes.isEmpty, bytes.count <= maxDigits, bytes.allSatisfy({ $0 >= 0x30 && $0 <= 0x39 }),
-              bytes.count == 1 || bytes.first != 0x30 else { return nil }
+            bytes.count == 1 || bytes.first != 0x30
+        else { return nil }
         return Int(text)
     }
 
@@ -152,8 +153,9 @@ public struct CIDR: Hashable, Comparable, Sendable, Codable, CustomStringConvert
                     out += [UInt16(v4 >> 16), UInt16(v4 & 0xFFFF)]
                 } else {
                     guard (1...4).contains(item.utf8.count),
-                          item.utf8.allSatisfy({ ($0 >= 0x30 && $0 <= 0x39) || ($0 | 0x20 >= 0x61 && $0 | 0x20 <= 0x66) }),
-                          let g = UInt16(item, radix: 16) else { return nil }
+                        item.utf8.allSatisfy({ ($0 >= 0x30 && $0 <= 0x39) || ($0 | 0x20 >= 0x61 && $0 | 0x20 <= 0x66) }),
+                        let g = UInt16(item, radix: 16)
+                    else { return nil }
                     out.append(g)
                 }
             }
@@ -165,7 +167,8 @@ public struct CIDR: Hashable, Comparable, Sendable, Codable, CustomStringConvert
             all = g
         } else {
             guard let head = groups(halves[0], last: false), let tail = groups(halves[1], last: true),
-                  head.count + tail.count <= 7 else { return nil }
+                head.count + tail.count <= 7
+            else { return nil }
             all = head + [UInt16](repeating: 0, count: 8 - head.count - tail.count) + tail
         }
         let high = all[0..<4].reduce(UInt64(0)) { $0 << 16 | UInt64($1) }
@@ -227,8 +230,10 @@ public struct NetworkClaims: Equatable, Sendable {
     /// Names the tunnel adds to the search list (`dhcp-option DOMAIN`), the same form.
     public private(set) var searchDomains: [String]
 
-    public init(routes: [CIDR] = [], fullTunnel: Bool = false, fullTunnelIPv6: Bool = false, dnsServers: [String] = [],
-                dnsDomains: [String] = [], searchDomains: [String] = []) {
+    public init(
+        routes: [CIDR] = [], fullTunnel: Bool = false, fullTunnelIPv6: Bool = false, dnsServers: [String] = [],
+        dnsDomains: [String] = [], searchDomains: [String] = []
+    ) {
         self.routes = []
         self.fullTunnel = fullTunnel
         self.fullTunnelIPv6 = fullTunnelIPv6
@@ -293,7 +298,8 @@ public struct NetworkClaims: Equatable, Sendable {
 
     public mutating func addSearchDomain(_ text: String) {
         guard let name = Self.normalizedDomain(text), !searchDomains.contains(name),
-              searchDomains.count < Self.maxDomains else { return }
+            searchDomains.count < Self.maxDomains
+        else { return }
         searchDomains.append(name)
     }
 
@@ -320,7 +326,7 @@ public struct NetworkClaims: Equatable, Sendable {
         guard !name.isEmpty, name.utf8.count <= 253 else { return nil }
         for label in name.split(separator: ".", omittingEmptySubsequences: false) {
             guard (1...63).contains(label.utf8.count), label.first != "-", label.last != "-",
-                  label.utf8.allSatisfy({ ($0 >= 0x61 && $0 <= 0x7A) || ($0 >= 0x30 && $0 <= 0x39) || $0 == 0x2D || $0 == 0x5F })
+                label.utf8.allSatisfy({ ($0 >= 0x61 && $0 <= 0x7A) || ($0 >= 0x30 && $0 <= 0x39) || $0 == 0x2D || $0 == 0x5F })
             else { return nil }
         }
         return name

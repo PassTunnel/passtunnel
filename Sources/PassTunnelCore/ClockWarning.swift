@@ -26,7 +26,8 @@ extension ClockOffset {
 
     /// "This Mac’s clock is 48 s behind."
     public var headline: String {
-        isBehind ? String(localized: "This Mac’s clock is \(offBy) behind.")
-                 : String(localized: "This Mac’s clock is \(offBy) ahead.")
+        isBehind
+            ? String(localized: "This Mac’s clock is \(offBy) behind.")
+            : String(localized: "This Mac’s clock is \(offBy) ahead.")
     }
 }

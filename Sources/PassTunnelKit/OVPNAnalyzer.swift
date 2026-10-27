@@ -3,8 +3,10 @@ import PassTunnelVPNConfig
 
 /// Reads an .ovpn file and guesses how the profile authenticates.
 public enum OVPNAnalyzer {
-    public typealias Result = (passwordMode: PasswordMode, otpMode: OTPMode, otpDelivery: OTPDelivery, remote: String,
-                               remotes: [String])
+    public typealias Result = (
+        passwordMode: PasswordMode, otpMode: OTPMode, otpDelivery: OTPDelivery, remote: String,
+        remotes: [String]
+    )
 
     /// No `auth-user-pass` → certificate only (password none, otp none).
     /// `static-challenge` → otp ask, delivery separate. Otherwise delivery combined.
@@ -126,7 +128,7 @@ public enum OVPNAnalyzer {
     /// "[2001:db8::1]:1194 · UDP"; "" when there is no `remote`.
     public static func endpointDescription(_ text: String) -> String {
         guard let endpoint = endpoint(text) else { return "" }
-        return "\(endpoint.server) · \(endpoint.tcp ? "TCP" : "UDP")"   // protocol names stay untranslated
+        return "\(endpoint.server) · \(endpoint.tcp ? "TCP" : "UDP")"  // protocol names stay untranslated
     }
 
     /// Whether the profile sends all traffic through the tunnel: true with a local `redirect-gateway`,
@@ -140,7 +142,8 @@ public enum OVPNAnalyzer {
             case "route-nopull": refusesPush = true
             case "pull-filter":
                 if words.count > 2, words[1].lowercased() == "ignore",
-                   "redirect-gateway".hasPrefix(words[2].lowercased()) {
+                    "redirect-gateway".hasPrefix(words[2].lowercased())
+                {
                     refusesPush = true
                 }
             default: break
@@ -184,7 +187,7 @@ public enum OVPNAnalyzer {
         var connections = 0
         for (index, rawLine) in OVPNInliner.lines(text).enumerated() {
             var line = rawLine
-            if index == 0, line.hasPrefix("\u{FEFF}") { line.removeFirst() }   // UTF-8 BOM
+            if index == 0, line.hasPrefix("\u{FEFF}") { line.removeFirst() }  // UTF-8 BOM
             if let top = blocks.last {
                 if OVPNSanitizer.isInlineBlockEnd(line, tag: top.tag) {
                     blocks.removeLast()

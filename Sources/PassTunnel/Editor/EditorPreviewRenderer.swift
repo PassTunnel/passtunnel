@@ -34,16 +34,20 @@ enum EditorPreviewRenderer {
         var out: [State] = []
 
         for dark in [false, true] {
-            out.append(State(name: "editor-new-openvpn\(dark ? "-dark" : "")",
-                             model: EditorModel(preview: EditorModel.blank(.openvpn), isNew: true, now: now), dark: dark))
+            out.append(
+                State(
+                    name: "editor-new-openvpn\(dark ? "-dark" : "")",
+                    model: EditorModel(preview: EditorModel.blank(.openvpn), isNew: true, now: now), dark: dark))
         }
-        out.append(State(name: "editor-new-forti", model: EditorModel(preview: EditorModel.blank(.forti), isNew: true, now: now),
-                         height: 920))
+        out.append(
+            State(
+                name: "editor-new-forti", model: EditorModel(preview: EditorModel.blank(.forti), isNew: true, now: now),
+                height: 920))
 
         let forti = EditorModel(preview: EditorModel.blank(.forti), isNew: true, now: now)
         forti.draft.host = "https://vpn.example.com"
         forti.draft.trustedCert = "12:34"
-        _ = forti.save()   // preview models only validate
+        _ = forti.save()  // preview models only validate
         out.append(State(name: "editor-new-forti-errors", model: forti, height: 1000))
 
         // A saved FortiGate profile.
@@ -59,29 +63,38 @@ enum EditorPreviewRenderer {
         // The whole sheet for the website: a saved profile with its secret ("Work", as on the site). The height
         // keeps the 480 px wide site image a whole number of pixels high at 1x, 1.5x and 2x.
         for dark in [false, true] {
-            out.append(State(name: "editor-one-time-code\(dark ? "-dark" : "")", model: workModel(), dark: dark,
-                             height: 704))
+            out.append(
+                State(
+                    name: "editor-one-time-code\(dark ? "-dark" : "")", model: workModel(), dark: dark,
+                    height: 704))
         }
 
         // Everything under Advanced.
         for dark in [false, true] {
-            out.append(State(name: "editor-advanced\(dark ? "-dark" : "")", model: totpModel(), dark: dark,
-                             height: 1700, showAdvanced: true))
+            out.append(
+                State(
+                    name: "editor-advanced\(dark ? "-dark" : "")", model: totpModel(), dark: dark,
+                    height: 1700, showAdvanced: true))
         }
 
         // Generate chosen, no secret yet.
-        out.append(State(name: "editor-code-empty",
-                         model: EditorModel(preview: workProfile(), isNew: false, passwordStored: true,
-                                            configServer: "vpn.example.com:1194 · UDP", now: now)))
+        out.append(
+            State(
+                name: "editor-code-empty",
+                model: EditorModel(
+                    preview: workProfile(), isNew: false, passwordStored: true,
+                    configServer: "vpn.example.com:1194 · UDP", now: now)))
 
         // Scan QR on screen: waiting for the system's picker, and nothing found in what was picked.
         if #available(macOS 14, *) {
-            let scanning = EditorModel(preview: workProfile(), isNew: false, passwordStored: true,
-                                       configServer: "vpn.example.com:1194 · UDP", now: now)
+            let scanning = EditorModel(
+                preview: workProfile(), isNew: false, passwordStored: true,
+                configServer: "vpn.example.com:1194 · UDP", now: now)
             scanning.scanningScreen = true
             out.append(State(name: "editor-scan-screen", model: scanning))
-            let nothing = EditorModel(preview: workProfile(), isNew: false, passwordStored: true,
-                                      configServer: "vpn.example.com:1194 · UDP", now: now)
+            let nothing = EditorModel(
+                preview: workProfile(), isNew: false, passwordStored: true,
+                configServer: "vpn.example.com:1194 · UDP", now: now)
             nothing.scanError = ScreenQRScanner.ScanError.noCodeOnScreen.localizedDescription
             out.append(State(name: "editor-scan-screen-none", model: nothing))
         }
@@ -114,8 +127,10 @@ enum EditorPreviewRenderer {
 
         // "Connect at login" on while PassTunnel itself does not open at login: the switch says so.
         for dark in [false, true] {
-            out.append(State(name: "editor-connect-at-login\(dark ? "-dark" : "")",
-                             model: workModel(opensAtLogin: false), dark: dark, height: 820))
+            out.append(
+                State(
+                    name: "editor-connect-at-login\(dark ? "-dark" : "")",
+                    model: workModel(opensAtLogin: false), dark: dark, height: 820))
         }
         // On for a profile that asks before connecting: a notification at login offers the connection instead.
         let asking = protectedModel(.always)
@@ -134,8 +149,9 @@ enum EditorPreviewRenderer {
         p.healthHost = "10.0.0.5"
         p.configSourceName = "acme.ovpn"
         p.configImportedAt = imported
-        let model = EditorModel(preview: p, isNew: false, passwordStored: true,
-                                configServer: "vpn.example.com:1194 · UDP", now: now)
+        let model = EditorModel(
+            preview: p, isNew: false, passwordStored: true,
+            configServer: "vpn.example.com:1194 · UDP", now: now)
         if let uri = try? OTPAuthURI("otpauth://totp/Acme:alice?secret=\(sampleSecret)&issuer=Acme") {
             model.apply(uri)
         }
@@ -155,9 +171,10 @@ enum EditorPreviewRenderer {
     }
 
     @MainActor private static func workModel(opensAtLogin: Bool = true) -> EditorModel {
-        EditorModel(preview: workProfile(), isNew: false, passwordStored: true,
-                    storedTOTP: try? TOTP.decodeSecret(sampleSecret), configServer: "vpn.example.com:1194 · UDP",
-                    opensAtLogin: opensAtLogin, now: now)
+        EditorModel(
+            preview: workProfile(), isNew: false, passwordStored: true,
+            storedTOTP: try? TOTP.decodeSecret(sampleSecret), configServer: "vpn.example.com:1194 · UDP",
+            opensAtLogin: opensAtLogin, now: now)
     }
 
     @MainActor private static func fortiModel() -> EditorModel {
@@ -168,8 +185,9 @@ enum EditorPreviewRenderer {
         p.username = "alice"
         p.otpMode = .totp
         p.otpDelivery = .separate
-        return EditorModel(preview: p, isNew: false, passwordStored: true, storedTOTP: try? TOTP.decodeSecret(sampleSecret),
-                           now: now)
+        return EditorModel(
+            preview: p, isNew: false, passwordStored: true, storedTOTP: try? TOTP.decodeSecret(sampleSecret),
+            now: now)
     }
 
     /// A saved profile protected by "Confirm with Touch ID" at `level`.
@@ -181,9 +199,10 @@ enum EditorPreviewRenderer {
         p.otpMode = .totp
         p.requireAuth = level
         // At `connect` with a saved password the TOTP secret stays plain, so its code shows.
-        return EditorModel(preview: p, isNew: false, passwordStored: true,
-                           storedTOTP: level == .always ? nil : try? TOTP.decodeSecret(sampleSecret),
-                           storedTOTPProtected: level == .always, configServer: "vpn.example.com:1194 · UDP", now: now)
+        return EditorModel(
+            preview: p, isNew: false, passwordStored: true,
+            storedTOTP: level == .always ? nil : try? TOTP.decodeSecret(sampleSecret),
+            storedTOTPProtected: level == .always, configServer: "vpn.example.com:1194 · UDP", now: now)
     }
 
     /// Writes one PNG per state into `dir` and returns their URLs.
@@ -213,7 +232,7 @@ enum EditorPreviewRenderer {
         defer { window.contentView = nil; window.close() }
 
         hosting.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.3))   // let SwiftUI finish its first update
+        RunLoop.current.run(until: Date().addingTimeInterval(0.3))  // let SwiftUI finish its first update
         hosting.layoutSubtreeIfNeeded()
 
         let rep: NSBitmapImageRep

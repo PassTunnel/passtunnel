@@ -13,7 +13,7 @@ import PassTunnelVPNConfig
 @_cdecl("LLVMFuzzerTestOneInput")
 func LLVMFuzzerTestOneInput(_ data: UnsafePointer<UInt8>?, _ size: Int) -> CInt {
     guard let text = String(data: fuzzData(data, size), encoding: .utf8) else { return 0 }
-    guard let sanitized = try? OVPNSanitizer.sanitize(text) else { return 0 }   // rejected: fine
+    guard let sanitized = try? OVPNSanitizer.sanitize(text) else { return 0 }  // rejected: fine
 
     guard let again = try? OVPNSanitizer.sanitize(sanitized) else {
         fatalError("sanitized output was rejected on a second pass")

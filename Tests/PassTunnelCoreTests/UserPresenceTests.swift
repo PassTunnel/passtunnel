@@ -1,3 +1,8 @@
+import XCTest
+
+@testable import PassTunnelCore
+@testable import PassTunnelKit
+
 #if canImport(Combine)
 import Combine
 #endif
@@ -9,9 +14,6 @@ import Crypto
 #if canImport(LocalAuthentication)
 import LocalAuthentication
 #endif
-import XCTest
-@testable import PassTunnelCore
-@testable import PassTunnelKit
 
 /// Stands in for the Secure Enclave: a software P-256 key behind the same protocol. Each `unlock` is
 /// one "prompt"; results are consumed in order (none left = confirmed).
@@ -76,8 +78,10 @@ extension ConnectionManagerTests {
     /// An OpenVPN profile with plain secrets, then switched to `requirement` the way the editor and the
     /// CLI do it (encrypting needs no prompt).
     @discardableResult
-    func makeProtected(_ name: String = "Acme VPN", _ requirement: AuthRequirement = .connect, in m: ConnectionManager,
-                       otp: OTPMode = .none, autoReconnect: Bool = false, healthHost: String = "") async throws -> Profile {
+    func makeProtected(
+        _ name: String = "Acme VPN", _ requirement: AuthRequirement = .connect, in m: ConnectionManager,
+        otp: OTPMode = .none, autoReconnect: Bool = false, healthHost: String = ""
+    ) async throws -> Profile {
         let plain = try makeOpenVPN(name, otp: otp, autoReconnect: autoReconnect, healthHost: healthHost)
         var p = plain
         p.requireAuth = requirement
@@ -152,7 +156,7 @@ extension ConnectionManagerTests {
         XCTAssertTrue(events.isEmpty)
         XCTAssertNil(m.usedCode(p.id), "no code was spent")
 
-        try await m.connect(p.id)                     // a cancel is not a confirmation
+        try await m.connect(p.id)  // a cancel is not a confirmation
         XCTAssertEqual(authenticator.calls, 2)
         XCTAssertTrue(m.state(p.id).isConnected)
     }
@@ -179,18 +183,18 @@ extension ConnectionManagerTests {
         try await m.connect(p.id)
         try await m.disconnect(p.id)
         try await clock.sleep(50)
-        try await m.connect(p.id)                     // within 60 s: no second prompt
+        try await m.connect(p.id)  // within 60 s: no second prompt
         XCTAssertEqual(authenticator.calls, 1)
         try await m.disconnect(p.id)
 
         try await clock.sleep(61)
-        await m.refresh()                             // the poll drops the expired plain text
+        await m.refresh()  // the poll drops the expired plain text
         XCTAssertFalse(m.vault.isUnlocked(p.id, .password))
         try await m.connect(p.id)
         XCTAssertEqual(authenticator.calls, 2)
         try await m.disconnect(p.id)
 
-        prefs.authReuseMinutes = 5                    // read on every check
+        prefs.authReuseMinutes = 5  // read on every check
         try await clock.sleep(200)
         try await m.connect(p.id)
         XCTAssertEqual(authenticator.calls, 2)
@@ -202,7 +206,7 @@ extension ConnectionManagerTests {
         let m = makeManager()
         let p = try await makeProtected("Acme", .always, in: m, otp: .totp, autoReconnect: true)
         try await m.connect(p.id)
-        try await clock.sleep(300)                    // long past the reuse window
+        try await clock.sleep(300)  // long past the reuse window
         await m.refresh()
         helper.simulateExit(p.id)
         await m.refresh()
@@ -261,8 +265,9 @@ extension ConnectionManagerTests {
         await m.handleDidWake()
         await waitUntil { self.events.contains(.reconnected(profileID: plain.id)) }
 
-        XCTAssertEqual(events.filter { $0.profileID == p.id }, [.droppedWhileAsleep(profileID: p.id)],
-                       "no prompt out of the blue and no automatic reconnect")
+        XCTAssertEqual(
+            events.filter { $0.profileID == p.id }, [.droppedWhileAsleep(profileID: p.id)],
+            "no prompt out of the blue and no automatic reconnect")
         XCTAssertEqual(m.state(p.id), .disconnected)
         XCTAssertNil(m.reconnecting[p.id])
         XCTAssertEqual(authenticator.calls, 1)
@@ -286,7 +291,7 @@ extension ConnectionManagerTests {
 
     func testHandEditedSettingEncryptsBeforeTheFirstUse() async throws {
         var p = try makeOpenVPN("Acme", otp: .totp)
-        p.requireAuth = .always                        // as if profile.json was edited: secrets still plain
+        p.requireAuth = .always  // as if profile.json was edited: secrets still plain
         try store.save(p)
         XCTAssertNotNil(Secrets.get(p.id, .password))
         let m = makeManager()
@@ -368,22 +373,30 @@ final class SecretVaultTests: CoreTestCase {
         let sealed = try SecretEnvelope.seal("pässword", to: key.publicKey, account: "acme/password")
         XCTAssertTrue(sealed.hasPrefix("ptse1:"))
         XCTAssertTrue(SecretEnvelope.isEnvelope(sealed))
-        XCTAssertNotEqual(try SecretEnvelope.seal("pässword", to: key.publicKey, account: "acme/password"), sealed,
-                          "a fresh ephemeral key every time")
+        XCTAssertNotEqual(
+            try SecretEnvelope.seal("pässword", to: key.publicKey, account: "acme/password"), sealed,
+            "a fresh ephemeral key every time")
         let parsed = try XCTUnwrap(SecretEnvelope.parse(sealed))
         let shared = try key.sharedSecretFromKeyAgreement(with: parsed.ephemeral)
-        XCTAssertEqual(try SecretEnvelope.open(parsed, shared: shared, recipient: key.publicKey,
-                                               account: "acme/password", kind: .password), "pässword")
+        XCTAssertEqual(
+            try SecretEnvelope.open(
+                parsed, shared: shared, recipient: key.publicKey,
+                account: "acme/password", kind: .password), "pässword")
         // Moved to another item: the account is authenticated.
-        XCTAssertThrowsError(try SecretEnvelope.open(parsed, shared: shared, recipient: key.publicKey,
-                                                     account: "acme/totp", kind: .totp)) { error in
+        XCTAssertThrowsError(
+            try SecretEnvelope.open(
+                parsed, shared: shared, recipient: key.publicKey,
+                account: "acme/totp", kind: .totp)
+        ) { error in
             XCTAssertEqual(error as? PTError, .protectedSecretUnreadable(.totp))
         }
         // Another key.
         let other = P256.KeyAgreement.PrivateKey()
         let wrong = try other.sharedSecretFromKeyAgreement(with: parsed.ephemeral)
-        XCTAssertThrowsError(try SecretEnvelope.open(parsed, shared: wrong, recipient: key.publicKey,
-                                                     account: "acme/password", kind: .password))
+        XCTAssertThrowsError(
+            try SecretEnvelope.open(
+                parsed, shared: wrong, recipient: key.publicKey,
+                account: "acme/password", kind: .password))
     }
 
     func testEnvelopeVersionAndMarker() throws {
@@ -439,7 +452,7 @@ final class SecretVaultTests: CoreTestCase {
         XCTAssertEqual(auth.calls, 0)
         XCTAssertEqual(auth.keysCreated, 1, "one key per profile")
 
-        p = try await change(p, to: .connect, in: vault)              // the TOTP secret leaves the protection
+        p = try await change(p, to: .connect, in: vault)  // the TOTP secret leaves the protection
         XCTAssertEqual(auth.reasons, ["change the confirmation setting for “Acme”"])
         XCTAssertEqual(Secrets.get(p.id, .totp), totp)
         XCTAssertTrue(Secrets.isProtected(p.id, .password))
@@ -471,7 +484,7 @@ final class SecretVaultTests: CoreTestCase {
         let vault = makeVault()
         var p = try makeProfile(password: "pw", otp: false)
         p = try await change(p, to: .connect, in: vault)
-        Secrets.delete(p.id, .password)                                 // key, but no encrypted item
+        Secrets.delete(p.id, .password)  // key, but no encrypted item
         _ = try await change(p, to: .off, in: vault)
         XCTAssertEqual(auth.calls, 1, "the key is used once so the confirmation is real")
         XCTAssertNil(Secrets.protectionKey(p.id))
@@ -498,7 +511,7 @@ final class SecretVaultTests: CoreTestCase {
         let vault = makeVault()
         var p = try makeProfile()
         p.requireAuth = .connect
-        try store.save(p)                              // edited by hand, not through applyProtection
+        try store.save(p)  // edited by hand, not through applyProtection
         XCTAssertTrue(vault.reconcile(p))
         XCTAssertTrue(Secrets.isProtected(p.id, .password))
         XCTAssertFalse(Secrets.isProtected(p.id, .totp), "connect leaves the TOTP secret readable")
@@ -522,7 +535,7 @@ final class SecretVaultTests: CoreTestCase {
         let p = try await change(try makeProfile(), to: .always, in: vault)
         var off = p
         off.requireAuth = .off
-        try store.save(off)                            // turned off by hand: no decrypt happened
+        try store.save(off)  // turned off by hand: no decrypt happened
         XCTAssertFalse(vault.reconcile(off))
         XCTAssertTrue(vault.needsPrompt(off, for: .connect), "still asks: the items are still encrypted")
         XCTAssertTrue(vault.requiresConfirmation(off))
@@ -651,8 +664,9 @@ final class SecretVaultTests: CoreTestCase {
     func testOldProfileWithoutTheKeyDecodesAsOff() throws {
         let old = try JSONCoding.decode(Profile.self, from: Data(#"{"id":"acme","name":"Acme","type":"openvpn"}"#.utf8))
         XCTAssertEqual(old.requireAuth, .off)
-        let newer = try JSONCoding.decode(Profile.self,
-                                          from: Data(#"{"id":"acme","name":"Acme","type":"openvpn","require_auth":"sometimes"}"#.utf8))
+        let newer = try JSONCoding.decode(
+            Profile.self,
+            from: Data(#"{"id":"acme","name":"Acme","type":"openvpn","require_auth":"sometimes"}"#.utf8))
         XCTAssertEqual(newer.requireAuth, .off, "unknown values fall back to off")
         var p = old
         p.requireAuth = .always

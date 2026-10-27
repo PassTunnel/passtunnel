@@ -8,7 +8,7 @@ public struct FortiConfig: Equatable, CustomStringConvertible, CustomDebugString
     public var username: String
     public var password: String
     public var otp: String?
-    public var trustedCert: String      // sha256 digest of the gateway certificate, or empty
+    public var trustedCert: String  // sha256 digest of the gateway certificate, or empty
     public var setDNS: Bool
     public var setRoutes: Bool
 
@@ -44,8 +44,10 @@ public struct FortiConfig: Equatable, CustomStringConvertible, CustomDebugString
     /// build machine's Homebrew prefix, which its owner (or any admin) can change.
     public static let systemCAFile = "/etc/ssl/cert.pem"
 
-    public init(host: String, port: Int = 443, username: String, password: String, otp: String? = nil,
-                trustedCert: String = "", setDNS: Bool = false, setRoutes: Bool = true) {
+    public init(
+        host: String, port: Int = 443, username: String, password: String, otp: String? = nil,
+        trustedCert: String = "", setDNS: Bool = false, setRoutes: Bool = true
+    ) {
         self.host = host
         self.port = port
         self.username = username
@@ -63,9 +65,13 @@ public struct FortiConfig: Equatable, CustomStringConvertible, CustomDebugString
     }
     public var debugDescription: String { description }
     public var customMirror: Mirror {
-        Mirror(self, children: ["host": host, "port": port, "username": username, "password": "<redacted>",
-                                "otp": otp == nil ? "nil" : "<redacted>", "trustedCert": trustedCert,
-                                "setDNS": setDNS, "setRoutes": setRoutes])
+        Mirror(
+            self,
+            children: [
+                "host": host, "port": port, "username": username, "password": "<redacted>",
+                "otp": otp == nil ? "nil" : "<redacted>", "trustedCert": trustedCert,
+                "setDNS": setDNS, "setRoutes": setRoutes
+            ])
     }
 
     public func validate() throws {
@@ -80,8 +86,10 @@ public struct FortiConfig: Equatable, CustomStringConvertible, CustomDebugString
     }
 
     /// Every key `render` can write, in its order.
-    public static let renderedKeys = ["host", "port", "username", "password", "otp", "ca-file", "trusted-cert",
-                                      "set-routes", "set-dns", "pppd-use-peerdns"]
+    public static let renderedKeys = [
+        "host", "port", "username", "password", "otp", "ca-file", "trusted-cert",
+        "set-routes", "set-dns", "pppd-use-peerdns"
+    ]
 
     /// The config file text. Throws `ValidationError` instead of emitting anything unsafe: the fields
     /// are validated first, and the finished text is checked again (`checkRendered`) before it is returned.
@@ -99,7 +107,7 @@ public struct FortiConfig: Equatable, CustomStringConvertible, CustomDebugString
             "host = \(host)",
             "port = \(port)",
             "username = \(username)",
-            "password = \(password)",
+            "password = \(password)"
         ]
         if let otp, !otp.isEmpty { lines.append("otp = \(otp)") }
         // Explicit, so openfortivpn never falls back to OpenSSL's default store (a Homebrew prefix).
@@ -133,12 +141,13 @@ public struct FortiConfig: Equatable, CustomStringConvertible, CustomDebugString
         guard bytes.last == 0x0A else { throw fail("no final line break") }
         let lines = bytes.dropLast().split(separator: 0x0A, omittingEmptySubsequences: false)
         guard lines.count == lineCount else { throw fail("\(lines.count) lines instead of \(lineCount)") }
-        var next = 0   // index into renderedKeys: keys must appear once each, in order
+        var next = 0  // index into renderedKeys: keys must appear once each, in order
         for (n, line) in lines.enumerated() {
             if line.first == UInt8(ascii: "#") { continue }
             let separator = Array(" = ".utf8)
             guard let eq = line.firstIndex(of: UInt8(ascii: "=")), eq > line.startIndex,
-                  Array(line[(eq - 1)...].prefix(3)) == separator, eq + 2 < line.endIndex else {
+                Array(line[(eq - 1)...].prefix(3)) == separator, eq + 2 < line.endIndex
+            else {
                 throw fail("line \(n + 1) is not “key = value”")
             }
             let key = String(decoding: line[..<(eq - 1)], as: UTF8.self)
@@ -160,7 +169,8 @@ public struct FortiConfig: Equatable, CustomStringConvertible, CustomDebugString
     /// C-level check alone would pass whatever follows one.
     public static func isValidHost(_ s: String) -> Bool {
         guard !s.isEmpty, s.utf8.count <= maxHostBytes, !s.hasPrefix("-"), !s.hasPrefix("."),
-              !s.unicodeScalars.contains(where: { isForbiddenScalar($0) || $0.properties.isWhitespace }) else {
+            !s.unicodeScalars.contains(where: { isForbiddenScalar($0) || $0.properties.isWhitespace })
+        else {
             return false
         }
         if s.utf8.contains(UInt8(ascii: ":")) { return isValidIPv6(s) }
@@ -177,9 +187,11 @@ public struct FortiConfig: Equatable, CustomStringConvertible, CustomDebugString
         let bytes = Array(s.utf8)
         let percent = bytes.firstIndex(of: UInt8(ascii: "%"))
         let address = bytes[..<(percent ?? bytes.endIndex)]
-        guard !address.isEmpty, address.allSatisfy({
-            isASCIIHexDigit($0) || $0 == UInt8(ascii: ":") || $0 == UInt8(ascii: ".")
-        }) else { return false }
+        guard !address.isEmpty,
+            address.allSatisfy({
+                isASCIIHexDigit($0) || $0 == UInt8(ascii: ":") || $0 == UInt8(ascii: ".")
+            })
+        else { return false }
         if let percent {
             let zone = bytes[(percent + 1)...]
             guard (1...maxZoneIDBytes).contains(zone.count), zone.allSatisfy(isASCIIAlphanumeric) else { return false }
@@ -211,7 +223,8 @@ public struct FortiConfig: Equatable, CustomStringConvertible, CustomDebugString
         }
         // openfortivpn trims whitespace around values, so it cannot be represented.
         if let f = s.unicodeScalars.first, let l = s.unicodeScalars.last,
-           f.properties.isWhitespace || l.properties.isWhitespace {
+            f.properties.isWhitespace || l.properties.isWhitespace
+        {
             throw ValidationError.invalidValue(field: field, reason: "cannot start or end with whitespace")
         }
     }

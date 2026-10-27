@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+
 @testable import PassTunnelDaemon
 @testable import PassTunnelShared
 
@@ -27,9 +28,11 @@ final class DaemonCallTests: XCTestCase {
 
     /// The request reaches `HelperCore.decodeRequest` byte for byte as the client wrote it.
     func testPerformCarriesTheRequestBytes() throws {
-        let request = HelperRequest.startOpenVPN(OpenVPNStart(profileID: "acme", profileDir: "/home/alice/x",
-                                                              username: "alice", secret: "p\"w}{\\",
-                                                              logPath: "/home/alice/x/vpn.log"))
+        let request = HelperRequest.startOpenVPN(
+            OpenVPNStart(
+                profileID: "acme", profileDir: "/home/alice/x",
+                username: "alice", secret: "p\"w}{\\",
+                logPath: "/home/alice/x/vpn.log"))
         let line = try DaemonProtocol.performLine(request)
         XCTAssertEqual(line.last, 0x0A)
         guard case .perform(let data) = try DaemonCall.parse(line.dropLast()) else { return XCTFail("not perform") }
@@ -48,15 +51,18 @@ final class DaemonCallTests: XCTestCase {
     }
 
     func testMalformedMessages() {
-        for bad in ["", "hello", "[]", #""op""#, "{", #"{"op":"hello""#, #"{"op":1}"#, #"{"op":null}"#, "{}",
-                    #"{"request":{}}"#, #"{"op":"hello","op":"perform"}"#, #"{"op":"perform","request":1,"request":2}"#] {
+        for bad in [
+            "", "hello", "[]", #""op""#, "{", #"{"op":"hello""#, #"{"op":1}"#, #"{"op":null}"#, "{}",
+            #"{"request":{}}"#, #"{"op":"hello","op":"perform"}"#, #"{"op":"perform","request":1,"request":2}"#
+        ] {
             XCTAssertEqual(failure(bad), .malformed, bad)
         }
         XCTAssertEqual(failure(#"{"op":"perform"}"#), .missingRequest)
         XCTAssertEqual(failure(#"{"op":"reboot"}"#), .unknownOperation("reboot"))
         XCTAssertEqual(failure(#"{"op":"a\nb\u001b"}"#), .unknownOperation("a?b?"), "echoed printable only")
-        XCTAssertEqual(failure(#"{"op":"\#(String(repeating: "x", count: 100))"}"#),
-                       .unknownOperation(String(repeating: "x", count: 32)))
+        XCTAssertEqual(
+            failure(#"{"op":"\#(String(repeating: "x", count: 100))"}"#),
+            .unknownOperation(String(repeating: "x", count: 32)))
     }
 
     func testMembers() {
@@ -82,12 +88,15 @@ final class DaemonCallTests: XCTestCase {
 
     func testHelloEncoding() throws {
         let hello = DaemonHello(build: "ab12", buildNumber: 214)
-        XCTAssertEqual(String(decoding: try hello.jsonData(), as: UTF8.self),
-                       #"{"build":"ab12","build_number":214,"protocol":3}"#)
-        XCTAssertEqual(String(decoding: try DaemonHello(build: "ab12").jsonData(), as: UTF8.self),
-                       #"{"build":"ab12","protocol":3}"#, "no number in development builds")
-        XCTAssertEqual(try DaemonHello(jsonData: Data(#"{"protocol":4,"build":"x"}"#.utf8)),
-                       DaemonHello(protocolVersion: 4, build: "x"))
+        XCTAssertEqual(
+            String(decoding: try hello.jsonData(), as: UTF8.self),
+            #"{"build":"ab12","build_number":214,"protocol":3}"#)
+        XCTAssertEqual(
+            String(decoding: try DaemonHello(build: "ab12").jsonData(), as: UTF8.self),
+            #"{"build":"ab12","protocol":3}"#, "no number in development builds")
+        XCTAssertEqual(
+            try DaemonHello(jsonData: Data(#"{"protocol":4,"build":"x"}"#.utf8)),
+            DaemonHello(protocolVersion: 4, build: "x"))
     }
 }
 
@@ -171,8 +180,9 @@ final class LineIOTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(start), 2)
         close(pair[0])
         pair[0] = -1
-        XCTAssertFalse(LineIO.write(pair[1], Data("gone\n".utf8), deadline: Date().addingTimeInterval(1)),
-                       "a closed peer, without SIGPIPE")
+        XCTAssertFalse(
+            LineIO.write(pair[1], Data("gone\n".utf8), deadline: Date().addingTimeInterval(1)),
+            "a closed peer, without SIGPIPE")
     }
 }
 
@@ -194,8 +204,10 @@ final class AccessTests: XCTestCase {
     }
 
     let startRequest = HelperRequest.startOpenVPN(OpenVPNStart(profileID: "acme", profileDir: "/d", logPath: "/d/vpn.log"))
-    let fortiRequest = HelperRequest.startForti(FortiStart(profileID: "f", profileDir: "/d", host: "vpn.example.com",
-                                                           username: "alice", password: "pw", logPath: "/d/vpn.log"))
+    let fortiRequest = HelperRequest.startForti(
+        FortiStart(
+            profileID: "f", profileDir: "/d", host: "vpn.example.com",
+            username: "alice", password: "pw", logPath: "/d/vpn.log"))
 
     func testRootAndMembersMayStart() {
         for request in [startRequest, fortiRequest] {
@@ -255,7 +267,7 @@ final class ToolVersionTests: XCTestCase {
             ("2.6.9", ToolVersion(2, 6, 9)), ("2.6.14", ToolVersion(2, 6, 14)), ("2.7.0", ToolVersion(2, 7, 0)),
             ("2.7_rc2", ToolVersion(2, 7, 0)), ("2.6_git", ToolVersion(2, 6, 0)), ("2.5", ToolVersion(2, 5, 0)),
             ("1.21.0-dirty", ToolVersion(1, 21, 0)), ("10.0.1.4", ToolVersion(10, 0, 1)),
-            ("2", nil), ("x2.6", nil), ("", nil), (".6.1", nil), ("9999999.1", nil),
+            ("2", nil), ("x2.6", nil), ("", nil), (".6.1", nil), ("9999999.1", nil)
         ]
         for (text, expected) in cases {
             XCTAssertEqual(ToolVersion(parsing: Substring(text)), expected, text)
@@ -267,11 +279,11 @@ final class ToolVersionTests: XCTestCase {
 
     func testOpenVPNOutput() {
         let ubuntu = """
-        OpenVPN 2.6.9 x86_64-pc-linux-gnu [SSL (OpenSSL)] [LZO] [LZ4] [EPOLL] [PKCS11] [MH/PKTINFO] [AEAD] [DCO]
-        library versions: OpenSSL 3.0.13 30 Jan 2024, LZO 2.10
-        DCO version: N/A
-        Originally developed by James Yonan
-        """
+            OpenVPN 2.6.9 x86_64-pc-linux-gnu [SSL (OpenSSL)] [LZO] [LZ4] [EPOLL] [PKCS11] [MH/PKTINFO] [AEAD] [DCO]
+            library versions: OpenSSL 3.0.13 30 Jan 2024, LZO 2.10
+            DCO version: N/A
+            Originally developed by James Yonan
+            """
         XCTAssertEqual(ToolSpec.openVPNVersion(ubuntu), ToolVersion(2, 6, 9))
         XCTAssertEqual(ToolSpec.openVPNVersion("\nOpenVPN 2.7_rc2 aarch64-unknown-linux-gnu [SSL]\n"), ToolVersion(2, 7, 0))
         XCTAssertNil(ToolSpec.openVPNVersion("openvpn: command not found"))

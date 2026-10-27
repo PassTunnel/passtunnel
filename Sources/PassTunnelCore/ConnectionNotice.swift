@@ -49,8 +49,9 @@ public struct ConnectionNotice: Equatable, Sendable {
         public init(_ p: Profile, state: ConnectionState, store: ProfileStore) {
             var address = ""
             if case .connected(let ip, _) = state { address = ip }
-            self.init(name: p.name, usesCode: p.otpMode == .totp, address: address,
-                      server: ProfileDestination.of(p, store: store).host)
+            self.init(
+                name: p.name, usesCode: p.otpMode == .totp, address: address,
+                server: ProfileDestination.of(p, store: store).host)
         }
     }
 
@@ -70,23 +71,26 @@ public struct ConnectionNotice: Equatable, Sendable {
 
     /// "Connected to Work" / "10.8.0.6 · vpn.example.com".
     public static func connected(_ s: Subject, profileID: String) -> ConnectionNotice {
-        ConnectionNotice(title: String(localized: "Connected to \(s.name)"),
-                         body: [s.address, s.server].filter { !$0.isEmpty }.joined(separator: " · "),
-                         profileID: profileID)
+        ConnectionNotice(
+            title: String(localized: "Connected to \(s.name)"),
+            body: [s.address, s.server].filter { !$0.isEmpty }.joined(separator: " · "),
+            profileID: profileID)
     }
 
     /// Connect at login, for a profile that needs a confirmation or asks for something: offered instead of a
     /// prompt nobody expects at login. A click connects (and asks).
     public static func offeredAtLogin(_ s: Subject, profileID: String) -> ConnectionNotice {
-        ConnectionNotice(title: String(localized: "“\(s.name)” is set to connect at login"),
-                         body: String(localized: "Click to connect."),
-                         profileID: profileID, actions: .connect, connectOnClick: true)
+        ConnectionNotice(
+            title: String(localized: "“\(s.name)” is set to connect at login"),
+            body: String(localized: "Click to connect."),
+            profileID: profileID, actions: .connect, connectOnClick: true)
     }
 
     /// Connect at login did not connect the profile: `reason` is the error, or what was not ready in time.
     public static func notConnectedAtLogin(_ s: Subject, reason: String, profileID: String) -> ConnectionNotice {
-        ConnectionNotice(title: String(localized: "Could not connect “\(s.name)” at login"), body: reason,
-                         profileID: profileID, actions: .connect)
+        ConnectionNotice(
+            title: String(localized: "Could not connect “\(s.name)” at login"), body: reason,
+            profileID: profileID, actions: .connect)
     }
 
     /// The notification for `event`, or nil when `prefs` turn that kind off. Drops, reconnects and
@@ -97,51 +101,62 @@ public struct ConnectionNotice: Equatable, Sendable {
         switch event {
         case .dropped(let id, true):
             guard prefs.notifyOnDrop else { return nil }
-            return ConnectionNotice(title: String(localized: "\(s.name) dropped"),
-                                    body: s.usesCode ? String(localized: "Reconnecting with a fresh code…")
-                                                     : String(localized: "Reconnecting…"),
-                                    profileID: id, actions: .stop)
+            return ConnectionNotice(
+                title: String(localized: "\(s.name) dropped"),
+                body: s.usesCode
+                    ? String(localized: "Reconnecting with a fresh code…")
+                    : String(localized: "Reconnecting…"),
+                profileID: id, actions: .stop)
         case .dropped(let id, false):
             guard prefs.notifyOnDrop else { return nil }
-            return ConnectionNotice(title: String(localized: "\(s.name) dropped"),
-                                    body: String(localized: "It will not reconnect automatically."),
-                                    profileID: id, actions: .connect)
+            return ConnectionNotice(
+                title: String(localized: "\(s.name) dropped"),
+                body: String(localized: "It will not reconnect automatically."),
+                profileID: id, actions: .connect)
         case .reconnected(let id):
             // A reconnect is an automatic connect (`announcesConnect`).
             guard prefs.notifyOnDrop else { return nil }
             return connected(s, profileID: id)
         case .reconnectFailed(let id, let reason):
             guard prefs.notifyOnDrop else { return nil }
-            return ConnectionNotice(title: String(localized: "Could not reconnect \(s.name)"), body: reason,
-                                    profileID: id, actions: .connect)
+            return ConnectionNotice(
+                title: String(localized: "Could not reconnect \(s.name)"), body: reason,
+                profileID: id, actions: .connect)
         case .unreachable(let id):
             guard prefs.notifyHealth else { return nil }
-            return ConnectionNotice(title: String(localized: "\(s.name) is not responding"),
-                                    body: String(localized: "The VPN is connected, but the health check host cannot be reached."),
-                                    profileID: id)
+            return ConnectionNotice(
+                title: String(localized: "\(s.name) is not responding"),
+                body: String(localized: "The VPN is connected, but the health check host cannot be reached."),
+                profileID: id)
         case .reachableAgain(let id):
             guard prefs.notifyHealth else { return nil }
-            return ConnectionNotice(title: String(localized: "\(s.name) is responding again"),
-                                    body: String(localized: "The health check host can be reached again."), profileID: id)
+            return ConnectionNotice(
+                title: String(localized: "\(s.name) is responding again"),
+                body: String(localized: "The health check host can be reached again."), profileID: id)
         case .sessionEnding(let id, let minutes):
             guard prefs.sessionNotifyMin > 0 else { return nil }
-            return ConnectionNotice(title: String(localized: "\(s.name) session is ending"),
-                                    body: String(localized: "The session limit is reached in \(minutes) minutes."),
-                                    profileID: id)
+            return ConnectionNotice(
+                title: String(localized: "\(s.name) session is ending"),
+                body: String(localized: "The session limit is reached in \(minutes) minutes."),
+                profileID: id)
         case .droppedWhileAsleep(let id):
-            return ConnectionNotice(title: String(localized: "“\(s.name)” disconnected while the Mac was asleep."),
-                                    body: String(localized: "Click to reconnect."),
-                                    profileID: id, actions: .connect, connectOnClick: true)
+            return ConnectionNotice(
+                title: String(localized: "“\(s.name)” disconnected while the Mac was asleep."),
+                body: String(localized: "Click to reconnect."),
+                profileID: id, actions: .connect, connectOnClick: true)
         case .destinationChanged(let id, true):
             // The forced reconnect of a health outage, not done: the old tunnel is still up. Connecting
             // on click would do nothing while it is; a click shows the profile.
-            return ConnectionNotice(title: String(localized: "“\(s.name)” server settings changed"),
-                                    body: String(localized: "It is still connected to the server you confirmed, which is not responding. Reconnect to confirm the new settings."),
-                                    profileID: id)
+            return ConnectionNotice(
+                title: String(localized: "“\(s.name)” server settings changed"),
+                body: String(
+                    localized: "It is still connected to the server you confirmed, which is not responding. Reconnect to confirm the new settings."),
+                profileID: id)
         case .destinationChanged(let id, false):
-            return ConnectionNotice(title: String(localized: "“\(s.name)” was not reconnected"),
-                                    body: String(localized: "Its server settings changed after you confirmed the connection. Click to connect and confirm again."),
-                                    profileID: id, actions: .connect, connectOnClick: true)
+            return ConnectionNotice(
+                title: String(localized: "“\(s.name)” was not reconnected"),
+                body: String(localized: "Its server settings changed after you confirmed the connection. Click to connect and confirm again."),
+                profileID: id, actions: .connect, connectOnClick: true)
         }
     }
 }

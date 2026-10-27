@@ -1,8 +1,9 @@
 import Foundation
+import PassTunnelShared
+
 #if canImport(Glibc)
 import Glibc
 #endif
-import PassTunnelShared
 
 // FortiGate sessions (docs/LINUX.md, "DNS"): the daemon reads openfortivpn's output itself, from a pipe
 // only it and the tool hold, copies it into the session log, and sets the DNS openfortivpn reports
@@ -266,7 +267,8 @@ public struct InterfaceSystem {
 
     static func sysfsType(_ name: String) -> Int? {
         guard (try? DNSSettings.interface(name)) != nil,
-              let text = try? String(contentsOfFile: "/sys/class/net/\(name)/type", encoding: .utf8) else { return nil }
+            let text = try? String(contentsOfFile: "/sys/class/net/\(name)/type", encoding: .utf8)
+        else { return nil }
         return Int(text.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
@@ -304,10 +306,12 @@ public struct InterfaceSystem {
 /// session, which is how openfortivpn itself picks it out. So a line forged in the output (a gateway
 /// may get text into it) cannot point the DNS at another interface.
 enum SessionInterface {
-    static let pppType = 512        // ARPHRD_PPP
+    static let pppType = 512  // ARPHRD_PPP
 
-    static func check(_ name: String, address: String, createdAfter indexAtStart: UInt32,
-                      system: InterfaceSystem) throws -> String {
+    static func check(
+        _ name: String, address: String, createdAfter indexAtStart: UInt32,
+        system: InterfaceSystem
+    ) throws -> String {
         let name = try DNSSettings.interface(name)
         guard name.hasPrefix("ppp"), name.count > 3, name.dropFirst(3).allSatisfy({ $0.isASCII && $0.isNumber }) else {
             throw DNSFailure.notSessionInterface(name, "it is not a ppp interface")

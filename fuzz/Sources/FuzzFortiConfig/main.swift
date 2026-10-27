@@ -25,9 +25,10 @@ func LLVMFuzzerTestOneInput(_ data: UnsafePointer<UInt8>?, _ size: Int) -> CInt 
     let otp = otpField.isEmpty ? nil : otpField
     let trustedCert = field(5)
 
-    let config = FortiConfig(host: host, port: port, username: username, password: password,
-                             otp: otp, trustedCert: trustedCert)
-    guard let text = try? config.render() else { return 0 }   // rejected values: fine
+    let config = FortiConfig(
+        host: host, port: port, username: username, password: password,
+        otp: otp, trustedCert: trustedCert)
+    guard let text = try? config.render() else { return 0 }  // rejected values: fine
 
     let (parsed, keys) = parseLikeOpenfortivpn(Array(text.utf8))
     var expectedKeys = ["host", "port", "username", "password"]

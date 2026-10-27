@@ -147,7 +147,8 @@ enum JSONMembers {
                 return nil
             default:
                 while i < bytes.count, bytes[i] != comma, bytes[i] != closeBrace, bytes[i] != closeBracket,
-                      !whitespace.contains(bytes[i]) {
+                    !whitespace.contains(bytes[i])
+                {
                     i += 1
                 }
                 return i > start ? start..<i : nil

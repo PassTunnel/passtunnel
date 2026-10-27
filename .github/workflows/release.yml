@@ -25,18 +25,25 @@
 #                   the Sparkle EdDSA private key (the file generate_keys -x writes)
 #   TAP_DEPLOY_KEY  the ed25519 private key of a write deploy key on the tap repository (deploy keys
 #                   may bypass the tap's signed-commit rule)
+#   TAG_SIGNING_KEY the ed25519 private key that signs the release tag (OpenSSH format, no
+#                   passphrase); its public half is .github/allowed_signers and a signing key of the
+#                   maintainer's GitHub account
 #
 # The identity and the notarytool profile "passtunnel" go into a temporary keychain that is the job's
 # default keychain, so release.sh finds them as on a Mac; the Sparkle key is a file
 # (SPARKLE_PRIVATE_KEY_FILE). Files with secrets are written to RUNNER_TEMP with umask 077, and the
-# keychain and the files are deleted at the end whatever happened. The tag is an unsigned annotated
-# tag (no signing key here).
+# keychain and the files are deleted at the end whatever happened. The tag is signed with
+# TAG_SIGNING_KEY (git, SSH format) and tagged by the maintainer's noreply identity, so GitHub shows it
+# as Verified; release.sh runs with REQUIRE_SIGNED_TAG=1 and stops unless the tag's signature checks
+# out against .github/allowed_signers before it pushes it. Anyone can check a tag the same way:
+#   git -c gpg.ssh.allowedSignersFile=.github/allowed_signers tag -v vX.Y.Z
 #
 # Re-running: Actions → Release → Run workflow on main. When HEAD already carries the tag of an
-# unfinished release (tag pushed, release still a draft or missing), that version is built again:
-# release.sh replaces the draft's files and removes a provenance bundle of the earlier build, and the
-# new bundle is attested and attached before publishing. A published release is final, and the run
-# then only reports it.
+# unfinished release (tag pushed, release still a draft or missing), that version is built again
+# with the tag that is there (release tags cannot be changed or deleted, and release.sh checks its
+# signature before the build): release.sh replaces the draft's files and removes a provenance bundle
+# of the earlier build, and the new bundle is attested and attached before publishing. A published
+# release is final, and the run then only reports it.
 name: Release
 
 on:
@@ -193,19 +200,49 @@ jobs:
           printf '%s\n' "$SPARKLE_PRIVATE_KEY" > "$secrets/sparkle-private-key.txt"
           echo "SPARKLE_PRIVATE_KEY_FILE=$secrets/sparkle-private-key.txt" >> "$GITHUB_ENV"
 
-      # Tags, creates the draft release and uploads everything, but does not publish it.
+      # The release tag: signed with TAG_SIGNING_KEY (a file, repository-local git config of this
+      # checkout) and tagged by the maintainer's noreply identity, the account the key is registered
+      # on as a signing key. Pushes and gh keep using GH_TOKEN.
+      - name: Set up the tag signing key
+        env:
+          TAG_SIGNING_KEY: ${{ secrets.TAG_SIGNING_KEY }}
+        run: |
+          umask 077
+          [[ -n "$TAG_SIGNING_KEY" ]] || { echo "::error::the secret TAG_SIGNING_KEY is not set in the environment 'release'"; exit 1; }
+          key="$RUNNER_TEMP/secrets/tag-signing-key"
+          mkdir -p "$RUNNER_TEMP/secrets"
+          printf '%s\n' "$TAG_SIGNING_KEY" > "$key"
+          # It must be the key of .github/allowed_signers (before the long build; only the public half
+          # is printed).
+          public="$(ssh-keygen -y -P '' -f "$key" | cut -d ' ' -f 1,2)" \
+            || { echo "::error::TAG_SIGNING_KEY is not an OpenSSH private key without a passphrase"; exit 1; }
+          grep -qF " $public " .github/allowed_signers \
+            || { echo "::error::TAG_SIGNING_KEY ($public) is not the key in .github/allowed_signers"; exit 1; }
+          git config gpg.format ssh
+          git config user.signingkey "$key"
+          git config tag.gpgSign true
+          git config user.name Furkanprlk
+          git config user.email 18267444+Furkanprlk@users.noreply.github.com
+          echo "TAG_SIGNING_KEY_FILE=$key" >> "$GITHUB_ENV"
+
+      # Tags (signed; REQUIRE_SIGNED_TAG=1 stops the release unless the tag verifies against
+      # .github/allowed_signers before it is pushed), creates the draft release and uploads
+      # everything, but does not publish it. Last, the tag on GitHub must be the verified one.
       - name: Build the draft release
         env:
           GH_TOKEN: ${{ github.token }}
           NOTES: ${{ needs.plan.outputs.notes }}
+          REQUIRE_SIGNED_TAG: 1
         run: |
           printf '%s\n' "$NOTES" > "$RUNNER_TEMP/release-notes.md"
-          # The tag's author; git push and gh use GH_TOKEN (gh as git's credential helper).
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # git push and gh use GH_TOKEN (gh as git's credential helper).
           gh auth setup-git
           scripts/release.sh "$VERSION" --publish --draft --notes-file "$RUNNER_TEMP/release-notes.md"
-          rm -P "$SPARKLE_PRIVATE_KEY_FILE"
+          rm -P "$SPARKLE_PRIVATE_KEY_FILE" "$TAG_SIGNING_KEY_FILE"
+          git -c gpg.ssh.allowedSignersFile=.github/allowed_signers tag -v "v$VERSION"
+          pushed="$(git ls-remote origin "refs/tags/v$VERSION" | cut -f 1)"
+          [[ "$pushed" == "$(git rev-parse "refs/tags/v$VERSION")" ]] \
+            || { echo "::error::the tag v$VERSION on GitHub ($pushed) is not the verified local tag"; exit 1; }
 
       # One attestation for the three files, stored on GitHub and written as a Sigstore bundle (one JSON
       # line) to bundle-path. dist/PassTunnel.dmg is not a subject of its own: it has the bytes of the
@@ -279,6 +316,9 @@ jobs:
           security default-keychain -d user -s login.keychain-db || true
           keychain="$RUNNER_TEMP/release.keychain-db"
           [[ ! -e "$keychain" ]] || security delete-keychain "$keychain" || true
+          for dir in "$RUNNER_TEMP/secrets" "$RUNNER_TEMP/tap-ssh"; do
+            [[ ! -d "$dir" ]] || find "$dir" -type f -exec rm -P {} + || true
+          done
           rm -rf "$RUNNER_TEMP/secrets" "$RUNNER_TEMP/release-notes.md" "$RUNNER_TEMP/tap-ssh" "$RUNNER_TEMP/tap"
 
   mcp-registry:

@@ -27,7 +27,8 @@ extension RoutingTable {
         let local = ["169.254.0.0/16", "224.0.0.0/4", "255.255.255.255/32", "fe80::/10", "ff00::/8"].compactMap(CIDR.init)
         return routes.filter { route in
             guard route.interface == interface, !route.scoped,
-                  let network = CIDR("\(route.destination)/\(route.prefixLength)") else { return false }
+                let network = CIDR("\(route.destination)/\(route.prefixLength)")
+            else { return false }
             return !local.contains { $0.contains(network) }
         }
     }
@@ -38,9 +39,12 @@ extension RoutingTable {
         for route in routes where route.table == Netlink.mainTable && route.type == Netlink.unicast {
             for index in route.interfaces {
                 guard let link = links[index], link.name == name,
-                      let destination = Netlink.address(route.destination, family: route.family) else { continue }
-                out.append(Route(destination: destination, prefixLength: route.prefixLength, interface: name,
-                                 tunnelDevice: link.isTunnel))
+                    let destination = Netlink.address(route.destination, family: route.family)
+                else { continue }
+                out.append(
+                    Route(
+                        destination: destination, prefixLength: route.prefixLength, interface: name,
+                        tunnelDevice: link.isTunnel))
             }
         }
         return Array(servedRoutes(in: out, interface: name).prefix(maxInterfaceRoutes))

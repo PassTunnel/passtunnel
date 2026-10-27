@@ -1,4 +1,5 @@
 import Foundation
+
 #if canImport(Network)
 import Network
 #endif
@@ -170,8 +171,10 @@ public final class NetworkPath: NetworkPathWatching {
     /// through a link that is up (`operstate` "up", or "unknown", which tun devices and some drivers
     /// report). The interface is that of the first such link that is not a tunnel: Wi-Fi when it is
     /// wireless, Ethernet for ARPHRD_ETHER (1), else other.
-    nonisolated static func linuxStatus(routes: [RoutingTable.Route], operstate: (String) -> String?,
-                                        isWireless: (String) -> Bool, linkType: (String) -> Int?) -> NetworkStatus {
+    nonisolated static func linuxStatus(
+        routes: [RoutingTable.Route], operstate: (String) -> String?,
+        isWireless: (String) -> Bool, linkType: (String) -> Int?
+    ) -> NetworkStatus {
         var seen = Set<String>()
         let up = routes.filter { $0.capturesAllTraffic && !$0.scoped && $0.interface != "lo" && !$0.interface.isEmpty }
             .filter { seen.insert($0.interface).inserted }

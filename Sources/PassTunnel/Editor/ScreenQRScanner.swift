@@ -58,7 +58,7 @@ final class ScreenQRScanner: NSObject, SCContentSharingPickerObserver {
     // MARK: the system picker
 
     private func pick() async -> Pick {
-        guard pending == nil else { return .cancelled }   // one scan at a time
+        guard pending == nil else { return .cancelled }  // one scan at a time
         let picker = SCContentSharingPicker.shared
         var configuration = SCContentSharingPickerConfiguration()
         configuration.allowedPickerModes = [.singleWindow, .singleDisplay]
@@ -85,8 +85,10 @@ final class ScreenQRScanner: NSObject, SCContentSharingPickerObserver {
         DispatchQueue.main.async { MainActor.assumeIsolated { self.finish(.cancelled) } }
     }
 
-    nonisolated func contentSharingPicker(_ picker: SCContentSharingPicker, didUpdateWith filter: SCContentFilter,
-                                          for stream: SCStream?) {
+    nonisolated func contentSharingPicker(
+        _ picker: SCContentSharingPicker, didUpdateWith filter: SCContentFilter,
+        for stream: SCStream?
+    ) {
         DispatchQueue.main.async { MainActor.assumeIsolated { self.finish(.content(filter)) } }
     }
 
@@ -123,7 +125,10 @@ final class ScreenQRScanner: NSObject, SCContentSharingPickerObserver {
     private func scanDisplaysAfterAsking() async throws -> OTPAuthURI? {
         let alert = NSAlert()
         alert.messageText = String(localized: "Scan your screens instead?")
-        alert.informativeText = String(localized: "macOS did not let PassTunnel capture what you picked. PassTunnel can take one picture of each screen instead and read the QR code from it. This needs Screen Recording permission, which macOS asks for the first time. The pictures stay in memory and are never saved or sent.")
+        alert.informativeText = String(
+            localized:
+                "macOS did not let PassTunnel capture what you picked. PassTunnel can take one picture of each screen instead and read the QR code from it. This needs Screen Recording permission, which macOS asks for the first time. The pictures stay in memory and are never saved or sent."
+        )
         alert.addButton(withTitle: String(localized: "Scan Screens"))
         alert.addButton(withTitle: String(localized: "Cancel"))
         guard alert.runModal() == .alertFirstButtonReturn else { return nil }
@@ -135,8 +140,11 @@ final class ScreenQRScanner: NSObject, SCContentSharingPickerObserver {
         let own = content.applications.filter { $0.processID == me }
         var images: [CGImage] = []
         for display in content.displays {
-            images.append(try await Self.capture(SCContentFilter(display: display, excludingApplications: own,
-                                                                 exceptingWindows: [])))
+            images.append(
+                try await Self.capture(
+                    SCContentFilter(
+                        display: display, excludingApplications: own,
+                        exceptingWindows: [])))
         }
         return try Self.decode(images)
     }

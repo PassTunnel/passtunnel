@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+
 @testable import PassTunnelCore
 
 /// Checks `Sources/PassTunnel/Resources/Localizable.xcstrings`: every key has a Turkish translation
@@ -54,7 +55,8 @@ final class LocalizationTests: XCTestCase {
             let tr = langs["tr"] ?? []
             let states = catalog.states[key]?["tr"] ?? []
             if tr.isEmpty || tr.contains(where: { $0.trimmingCharacters(in: .whitespaces).isEmpty })
-                || states.contains(where: { $0 != "translated" }) {
+                || states.contains(where: { $0 != "translated" })
+            {
                 untranslated.append(key)
             }
         }
@@ -105,13 +107,14 @@ final class LocalizationTests: XCTestCase {
         let prefixes = [
             "String(localized: ", "Text(", "Button(", "Toggle(", "Label(", "Section(", ".help(", "TextField(",
             "SecureField(", "Picker(", "LabeledContent(", "DisclosureGroup(", "Stepper(", "EditorHint(",
-            ".navigationTitle(", "Menu(", "CommandMenu(",
+            ".navigationTitle(", "Menu(", "CommandMenu("
         ]
         var result: [Literal] = []
         let dirs = ["Sources/PassTunnel", "Sources/PassTunnelCLI", "Sources/PassTunnelCore", "Sources/PassTunnelKit"]
         for dir in dirs {
             let base = root.appendingPathComponent(dir)
-            let files = FileManager.default.enumerator(at: base, includingPropertiesForKeys: nil)?
+            let files =
+                FileManager.default.enumerator(at: base, includingPropertiesForKeys: nil)?
                 .compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" } ?? []
             for file in files {
                 let source = Array(try String(contentsOf: file, encoding: .utf8))
@@ -121,11 +124,13 @@ final class LocalizationTests: XCTestCase {
                     if source[i] == "\n" { line += 1 }
                     if let prefix = prefixes.first(where: { matches(source, at: i, $0) }) {
                         let start = i + prefix.count
-                        let isWordStart = i == 0 || !(source[i - 1].isLetter || source[i - 1].isNumber)
+                        let isWordStart =
+                            i == 0 || !(source[i - 1].isLetter || source[i - 1].isNumber)
                             || prefix.hasPrefix(".")
                         if isWordStart, start < source.count, source[start] == "\"",
-                           !matches(source, at: start, "\"\"\""),
-                           let (text, end) = readLiteral(source, from: start) {
+                            !matches(source, at: start, "\"\"\""),
+                            let (text, end) = readLiteral(source, from: start)
+                        {
                             result.append(Literal(file: file.lastPathComponent, line: line, text: text))
                             line += source[start..<end].filter { $0 == "\n" }.count
                             i = end
@@ -189,7 +194,8 @@ final class LocalizationTests: XCTestCase {
                 case "\\": text += "\\"
                 case "u":
                     if let close = s[(i + 2)...].firstIndex(of: "}"),
-                       let scalar = UInt32(String(s[(i + 3)..<close]), radix: 16).flatMap(Unicode.Scalar.init) {
+                        let scalar = UInt32(String(s[(i + 3)..<close]), radix: 16).flatMap(Unicode.Scalar.init)
+                    {
                         text.unicodeScalars.append(scalar)
                         i = close + 1
                         continue
@@ -208,8 +214,9 @@ final class LocalizationTests: XCTestCase {
     /// Catalog key with its format specifiers replaced by a marker.
     static func normalizedKey(_ key: String) -> String {
         let regex = try! NSRegularExpression(pattern: #"%(?:\d+\$)?(@|lld|ld|llu|lu|d|lf|f)"#)
-        let replaced = regex.stringByReplacingMatches(in: key, range: NSRange(location: 0, length: (key as NSString).length),
-                                                      withTemplate: "\u{1}")
+        let replaced = regex.stringByReplacingMatches(
+            in: key, range: NSRange(location: 0, length: (key as NSString).length),
+            withTemplate: "\u{1}")
         return replaced.replacingOccurrences(of: "%%", with: "%")
     }
 

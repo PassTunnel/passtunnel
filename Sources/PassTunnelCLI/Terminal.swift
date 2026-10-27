@@ -1,11 +1,12 @@
+import Foundation
+import PassTunnelCore
+import PassTunnelKit
+
 #if canImport(Darwin)
 import Darwin
 #elseif canImport(Glibc)
 import Glibc
 #endif
-import Foundation
-import PassTunnelCore
-import PassTunnelKit
 
 /// Terminal I/O for the CLI: output streams, colors, prompts and no-echo input.
 enum CLITerminal {

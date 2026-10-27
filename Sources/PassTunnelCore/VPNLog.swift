@@ -33,8 +33,10 @@ public enum VPNLog {
             .suffix(lines).joined(separator: "\n")
     }
 
-    static let managementChatter = ["MANAGEMENT: Client connected from ", "MANAGEMENT: Client disconnected",
-                                    "MANAGEMENT: CMD '"]
+    static let managementChatter = [
+        "MANAGEMENT: Client connected from ", "MANAGEMENT: Client disconnected",
+        "MANAGEMENT: CMD '"
+    ]
 
     static func isManagementChatter(_ line: Substring) -> Bool {
         managementChatter.contains { line.contains($0) }
@@ -76,13 +78,15 @@ public enum VPNLog {
     /// routes that take all traffic) mean another VPN is in the way and the session is unusable;
     /// others (a single route) leave a working but incomplete tunnel.
     public struct SetupProblem: Equatable, Sendable {
-        public var reason: String          // the log line, without its timestamp
+        public var reason: String  // the log line, without its timestamp
         public var allTraffic: Bool
     }
 
     /// Destinations of the routes `redirect-gateway` adds (IPv4 `def1`, IPv6 `def1` and `!ipv4`).
-    static let allTrafficDestinations: Set<String> = ["0.0.0.0", "128.0.0.0", "default", "::", "8000::",
-                                                       "2000::", "3000::", "fc00::"]
+    static let allTrafficDestinations: Set<String> = [
+        "0.0.0.0", "128.0.0.0", "default", "::", "8000::",
+        "2000::", "3000::", "fc00::"
+    ]
 
     /// The first DNS-hook failure or all-traffic route failure, else the first other route failure.
     /// Not counted (`File exists` that means the route is already there the way OpenVPN wants it):
@@ -99,9 +103,9 @@ public enum VPNLog {
         let gateway = defaultGateway(text)
         var routeProblem: SetupProblem?
         var skipCommandFailure = false
-        var command: RouteCommand?           // the last `/sbin/route add …` OpenVPN ran
-        var added: Set<String> = []          // RouteCommand.key of routes added in this session
-        var adding: LinuxRoute?              // Linux: the route OpenVPN is adding, until another line follows
+        var command: RouteCommand?  // the last `/sbin/route add …` OpenVPN ran
+        var added: Set<String> = []  // RouteCommand.key of routes added in this session
+        var adding: LinuxRoute?  // Linux: the route OpenVPN is adding, until another line follows
         var addingFailed = false
         for raw in text.split(whereSeparator: \.isNewline) {
             let line = withoutTimestamp(raw)
@@ -111,7 +115,8 @@ public enum VPNLog {
                 // OpenVPN 2.6 on Linux runs the daemon's hook as --route-up (and --down); the hook's own
                 // "setting DNS failed" line comes first, unless it could not say anything.
                 || lower.contains("failed running command (--route-up)")
-                || lower.contains("failed running command (--up/--down)") {
+                || lower.contains("failed running command (--up/--down)")
+            {
                 return SetupProblem(reason: line, allTraffic: true)
             }
             if let route = LinuxRoute(line) {
@@ -126,8 +131,10 @@ public enum VPNLog {
                     guard !addingFailed else { continue }
                     addingFailed = true
                     let failed = FailedRoute(destination: route.destination, gateway: route.gateway, error: error)
-                    if error.lowercased().contains("file exists"), added.contains(route.key)
-                        || isLeftoverServerRoute(failed, servers: servers, defaultGateway: gateway) {
+                    if error.lowercased().contains("file exists"),
+                        added.contains(route.key)
+                            || isLeftoverServerRoute(failed, servers: servers, defaultGateway: gateway)
+                    {
                         continue
                     }
                     let reason = route.line + ": " + error
@@ -135,7 +142,7 @@ public enum VPNLog {
                     if routeProblem == nil { routeProblem = SetupProblem(reason: reason, allTraffic: false) }
                     continue
                 }
-                if line.hasPrefix("sitnl_") { continue }        // more about the same netlink request
+                if line.hasPrefix("sitnl_") { continue }  // more about the same netlink request
                 if !addingFailed { added.insert(route.key) }
                 adding = nil
             }
@@ -145,8 +152,10 @@ public enum VPNLog {
             }
             if let route = failedRoute(line) {
                 let key = RouteCommand.key(route.destination, after: command)
-                if route.error.lowercased().contains("file exists"), added.contains(key)
-                    || isLeftoverServerRoute(route, servers: servers, defaultGateway: gateway) {
+                if route.error.lowercased().contains("file exists"),
+                    added.contains(key)
+                        || isLeftoverServerRoute(route, servers: servers, defaultGateway: gateway)
+                {
                     skipCommandFailure = true
                     continue
                 }
@@ -212,7 +221,7 @@ public enum VPNLog {
         var line: String
         var destination: String
         var prefix: String
-        var gateway: String              // empty when the route names none
+        var gateway: String  // empty when the route names none
 
         /// What `RouteCommand.key` is on the Mac: destination and prefix length.
         var key: String { destination + "/" + prefix }
@@ -249,7 +258,8 @@ public enum VPNLog {
         /// exists" and "ERROR: Linux route add command failed…", which also follow the other two.
         static func failure(_ line: String) -> String? {
             if line.hasPrefix("sitnl_"), let open = line.range(of: "error ("),
-               let close = line.range(of: "): ", range: open.upperBound..<line.endIndex) {
+                let close = line.range(of: "): ", range: open.upperBound..<line.endIndex)
+            {
                 return String(line[close.upperBound...])
             }
             if let r = line.range(of: "RTNETLINK answers: ") { return String(line[r.upperBound...]) }
@@ -280,11 +290,13 @@ public enum VPNLog {
     static func failedRoute(_ line: String) -> FailedRoute? {
         for kind in ["add net ", "add host "] {
             guard let start = line.range(of: kind),
-                  let gateway = line.range(of: ": gateway ", range: start.upperBound..<line.endIndex),
-                  let error = line.range(of: ": ", range: gateway.upperBound..<line.endIndex) else { continue }
-            return FailedRoute(destination: String(line[start.upperBound..<gateway.lowerBound]),
-                               gateway: String(line[gateway.upperBound..<error.lowerBound]),
-                               error: String(line[error.upperBound...]))
+                let gateway = line.range(of: ": gateway ", range: start.upperBound..<line.endIndex),
+                let error = line.range(of: ": ", range: gateway.upperBound..<line.endIndex)
+            else { continue }
+            return FailedRoute(
+                destination: String(line[start.upperBound..<gateway.lowerBound]),
+                gateway: String(line[gateway.upperBound..<error.lowerBound]),
+                error: String(line[error.upperBound...]))
         }
         return nil
     }
@@ -312,7 +324,8 @@ public enum VPNLog {
             if let family = rest.range(of: "]"), rest.hasPrefix("[AF_INET") { rest = rest[family.upperBound...] }
             var address = String(rest.prefix { !$0.isWhitespace && $0 != "," })
             if let colon = address.lastIndex(of: ":"), address[address.index(after: colon)...].allSatisfy(\.isNumber),
-               address.index(after: colon) < address.endIndex {
+                address.index(after: colon) < address.endIndex
+            {
                 address = String(address[..<colon])
             }
             if address.hasPrefix("::ffff:"), address.contains(".") { address.removeFirst(7) }
@@ -336,7 +349,8 @@ public enum VPNLog {
         let s = line.trimmingCharacters(in: .whitespaces)
         let parts = s.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: false)
         if parts.count == 3, parts[0].count == 10, parts[0].filter({ $0 == "-" }).count == 2,
-           parts[1].count == 8, parts[1].filter({ $0 == ":" }).count == 2 {
+            parts[1].count == 8, parts[1].filter({ $0 == ":" }).count == 2
+        {
             return String(parts[2])
         }
         return s
@@ -344,8 +358,10 @@ public enum VPNLog {
 
     // MARK: OpenVPN state from the log
 
-    static let openVPNRestartMarkers = ["SIGUSR1[", "SIGHUP[", "SIGTERM[", "Restart pause", "Inactivity timeout",
-                                        "Connection reset, restarting"]
+    static let openVPNRestartMarkers = [
+        "SIGUSR1[", "SIGHUP[", "SIGTERM[", "Restart pause", "Inactivity timeout",
+        "Connection reset, restarting"
+    ]
 
     /// OpenVPN: the tunnel came up ("Initialization Sequence Completed") and has not restarted since.
     /// Only a fallback for when the management interface cannot be read.
@@ -374,7 +390,7 @@ public enum VPNLog {
             } else if let r = line.range(of: "net_addr_v4_add: ") ?? line.range(of: "net_addr_ptp_v4_add: ") {
                 candidate = line[r.upperBound...].prefix { $0 != "/" && $0 != " " }
             } else if let r = line.range(of: "/ip addr add dev ") {
-                let tokens = line[r.upperBound...].split(separator: " ")   // device, [local], address[/bits], …
+                let tokens = line[r.upperBound...].split(separator: " ")  // device, [local], address[/bits], …
                 let index = tokens.count > 2 && tokens[1] == "local" ? 2 : 1
                 if tokens.count > index { candidate = tokens[index].prefix { $0 != "/" } }
             }
@@ -402,7 +418,8 @@ public enum VPNLog {
     /// openfortivpn: first address of the last "Got addresses: [10.1.2.3], ns [...]" line.
     public static func fortiAddress(_ text: String) -> String? {
         guard let line = text.split(whereSeparator: \.isNewline).last(where: { $0.contains("Got addresses: [") }),
-              let open = line.range(of: "Got addresses: [") else { return nil }
+            let open = line.range(of: "Got addresses: [")
+        else { return nil }
         let rest = line[open.upperBound...]
         guard let close = rest.firstIndex(of: "]") else { return nil }
         let ip = rest[..<close].split(separator: ",").first?.trimmingCharacters(in: .whitespaces) ?? ""
@@ -411,7 +428,7 @@ public enum VPNLog {
 
     static let authFailureMarkers = [
         "AUTH_FAILED", "auth-failure", "Could not authenticate", "Authentication failed",
-        "VPN credentials are incorrect", "Login failed", "Invalid credentials",
+        "VPN credentials are incorrect", "Login failed", "Invalid credentials"
     ]
 
     /// True when the log shows the server rejected the credentials.
@@ -444,8 +461,10 @@ public enum VPNLog {
     /// Channel: TLSv1.3, …", then "Peer Connection Initiated"), openfortivpn in its login request once it
     /// is "Connected to gateway"; or the server answered the sign-in.
     public static func credentialsSent(_ text: String) -> Bool {
-        let markers = ["Control Channel: ", "Peer Connection Initiated", "PUSH_REPLY", "Initialization Sequence Completed",
-                       "Connected to gateway.", "Authenticated.", "has allocated a VPN", "Tunnel is up and running"]
+        let markers = [
+            "Control Channel: ", "Peer Connection Initiated", "PUSH_REPLY", "Initialization Sequence Completed",
+            "Connected to gateway.", "Authenticated.", "has allocated a VPN", "Tunnel is up and running"
+        ]
         return markers.contains { text.contains($0) } || isAuthFailure(text)
     }
 
@@ -481,8 +500,10 @@ public enum VPNLog {
     /// The tool tried to reach the server (whether or not it answered): what tells a server that is not
     /// there from a log that says nothing.
     public static func attempted(_ text: String) -> Bool {
-        let markers = ["link remote: ", "Attempting to establish TCP connection", "TCP connection established",
-                       "TLS: Initial packet from", "TLS key negotiation failed"]
+        let markers = [
+            "link remote: ", "Attempting to establish TCP connection", "TCP connection established",
+            "TLS: Initial packet from", "TLS key negotiation failed"
+        ]
         return markers.contains { text.contains($0) } || verdict(text) != nil
     }
 
@@ -493,7 +514,8 @@ public enum VPNLog {
         for raw in text.split(whereSeparator: \.isNewline) {
             let line = withoutTimestamp(raw)
             if (line.hasPrefix("UDP") && line.contains("link remote: ")) || line.hasPrefix("Attempting to establish TCP connection")
-                || (line.hasPrefix("ERROR:") && line.contains(" connect: ")) {
+                || (line.hasPrefix("ERROR:") && line.contains(" connect: "))
+            {
                 n += 1
             }
         }
@@ -510,8 +532,10 @@ public enum VPNLog {
             guard let e = rest.range(of: "error=") else { return String(rest) }
             return String(rest[e.upperBound...].prefix { $0 != ":" })
         }
-        for marker in ["Gateway certificate validation failed", "certificate verify failed", "Cannot load ",
-                       "private key password verification failed"] where line.contains(marker) {
+        for marker in [
+            "Gateway certificate validation failed", "certificate verify failed", "Cannot load ",
+            "private key password verification failed"
+        ] where line.contains(marker) {
             return marker == "Cannot load " ? line : marker
         }
         return nil
@@ -536,7 +560,8 @@ public enum VPNLog {
     static func noAnswer(_ line: String) -> String? {
         if line.hasPrefix("TCP: connect to "), let r = line.range(of: " failed: ") { return String(line[r.upperBound...]) }
         if let r = line.range(of: "TLS key negotiation failed to occur within ") {
-            return "TLS key negotiation failed to occur within " + line[r.upperBound...].prefix { $0 != "(" }
+            return "TLS key negotiation failed to occur within "
+                + line[r.upperBound...].prefix { $0 != "(" }
                 .trimmingCharacters(in: .whitespaces)
         }
         if line.contains("Server poll timeout") { return "Server poll timeout" }
@@ -554,7 +579,7 @@ public enum VPNLog {
 
     static let fatalMarkers = [
         "Exiting due to fatal error", "Options error", "Cannot resolve host address",
-        "Gateway certificate validation failed", "Could not connect to gateway", "PassTunnel: ",
+        "Gateway certificate validation failed", "Could not connect to gateway", "PassTunnel: "
     ]
 
     /// True when the log shows a non-authentication error the tool will not recover from.

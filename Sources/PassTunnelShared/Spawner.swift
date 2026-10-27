@@ -21,8 +21,10 @@ public struct RequirementVerifier: LaunchVerifier {
         self.init(requirement: requirement, cdhashes: cdhashes, validate: CodeSignature.verify(pid:path:requirement:))
     }
 
-    init(requirement: String, cdhashes: Set<String>?,
-         validate: @escaping (_ pid: pid_t, _ path: String, _ requirement: String) throws -> String) {
+    init(
+        requirement: String, cdhashes: Set<String>?,
+        validate: @escaping (_ pid: pid_t, _ path: String, _ requirement: String) throws -> String
+    ) {
         self.requirement = requirement
         self.cdhashes = cdhashes
         self.validate = validate
@@ -44,8 +46,10 @@ public enum Spawner {
     /// posix_spawn in a new process group, stdin from /dev/null, stdout+stderr to `outputFD`,
     /// default signal handlers, no inherited descriptors. `suspended`: the process is created stopped
     /// before its first instruction and runs only after SIGCONT.
-    public static func spawn(executable: String, arguments: [String], environment: [String],
-                             workingDirectory: String, outputFD: Int32, suspended: Bool = false) throws -> pid_t {
+    public static func spawn(
+        executable: String, arguments: [String], environment: [String],
+        workingDirectory: String, outputFD: Int32, suspended: Bool = false
+    ) throws -> pid_t {
         var actions: posix_spawn_file_actions_t?
         posix_spawn_file_actions_init(&actions)
         defer { posix_spawn_file_actions_destroy(&actions) }
@@ -83,11 +87,14 @@ public enum Spawner {
     /// kernel actually loaded. Checking the file before the spawn alone is not enough: the path is
     /// opened again by posix_spawn, and whoever can write the app bundle could swap the file in between.
     /// If the check fails, the process is killed and reaped before it ran, and the error is rethrown.
-    public static func spawnVerified(executable: String, arguments: [String], environment: [String],
-                                     workingDirectory: String, outputFD: Int32,
-                                     verifier: LaunchVerifier) throws -> pid_t {
-        let pid = try spawn(executable: executable, arguments: arguments, environment: environment,
-                            workingDirectory: workingDirectory, outputFD: outputFD, suspended: true)
+    public static func spawnVerified(
+        executable: String, arguments: [String], environment: [String],
+        workingDirectory: String, outputFD: Int32,
+        verifier: LaunchVerifier
+    ) throws -> pid_t {
+        let pid = try spawn(
+            executable: executable, arguments: arguments, environment: environment,
+            workingDirectory: workingDirectory, outputFD: outputFD, suspended: true)
         do {
             try verifier.verify(pid: pid, executable: executable)
         } catch {
