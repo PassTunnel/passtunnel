@@ -105,7 +105,7 @@ final class MCPTools {
         Tool(
             name: "get_status", title: "Get connection status",
             description:
-                "Returns the connection state of every profile (or only profile_id): disconnected, connecting or connected, the tunnel IP, since when, the last error and why it happened (failure: auth_rejected, host_not_found, unreachable, configuration, setup, timeout, cancelled or failed; the server's reply; whether the sign-in and a one-time code were sent; for a rejected sign-in, clock: how far \(MCPWording.thisMachines) clock was off, when known), when the app tries a server that did not answer again (next_try_at, tries), and whether the privileged helper that starts VPNs is installed and current.",
+                "Returns the connection state of every profile (or only profile_id): disconnected, connecting or connected, the tunnel IP, since when, the last error and why it happened (failure: auth_rejected, host_not_found, unreachable, configuration, setup, timeout, cancelled, tool_unsupported (the VPN tool does not run on this macOS version) or failed; the server's reply; whether the sign-in and a one-time code were sent; for a rejected sign-in, clock: how far \(MCPWording.thisMachines) clock was off, when known), when the app tries a server that did not answer again (next_try_at, tries), and whether the privileged helper that starts VPNs is installed and current.",
             input: Schema.object(["profile_id": Schema.profileID(optional: true)]), output: Schema.statusReport, readOnly: true),
         Tool(
             name: "get_logs", title: "Read VPN log",
@@ -126,7 +126,7 @@ final class MCPTools {
         Tool(
             name: "diagnose", title: "Diagnose PassTunnel",
             description:
-                "Checks the PassTunnel installation and every profile without connecting: app version and location, helper installed/enabled/outdated, whether \(MCPWording.theMachine) is online and over what kind of network (from the system's own view, nothing is contacted), and per profile whether the configuration, server and saved credentials are in place (never their values) and the last clock measurement (a FortiGate gateway's time, taken after it rejected a sign-in). Start here when something does not work. A clock off by \(ClockOffset.warnSeconds) s or more makes one-time codes fail.",
+                "Checks the PassTunnel installation and every profile without connecting: app version and location, helper installed/enabled/outdated, whether \(MCPWording.theMachine) is online and over what kind of network (from the system's own view, nothing is contacted), and per profile whether the configuration, server and saved credentials are in place (never their values) and the last clock measurement (a FortiGate gateway's time, taken after it rejected a sign-in); on a Mac also whether each VPN tool bundled with the app starts on this macOS version (run with --version; nothing is contacted). Start here when something does not work. A clock off by \(ClockOffset.warnSeconds) s or more makes one-time codes fail.",
             input: Schema.object([
                 "check_clock": Schema.boolean(
                     default: false,
@@ -478,6 +478,10 @@ enum Schema {
         ["online": bool, "interface": oneOf(NetworkStatus.Interface.allCases.map(\.rawValue))],
         required: [])
 
+    /// `ToolCheck`: one VPN tool of the app run with `--version`.
+    static let toolCheck = result(
+        ["name": string, "ok": bool, "version": string, "problem": string], required: ["name", "ok"])
+
     static let diagnose: [String: Any] = {
         var properties: [String: Any] = [
             "version": string, "build": string, "app_path": string, "in_applications": bool, "helper": helper,
@@ -485,6 +489,8 @@ enum Schema {
         ]
         #if os(Linux)
         properties["secret_store"] = secretStore
+        #else
+        properties["tools"] = array(toolCheck)
         #endif
         return result(properties, required: ["version", "app_path", "in_applications", "helper", "profiles"])
     }()

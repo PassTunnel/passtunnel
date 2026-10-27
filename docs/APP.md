@@ -580,7 +580,7 @@ passtunnel secret ID password|totp           reads from TTY (no echo) or stdin; 
 passtunnel secret-store [STORE]              Linux only: the secret store in use; STORE sets it (below)
 passtunnel default ID / pin ID / unpin ID
 passtunnel log ID [-f] [-n N] [--activity]   --activity: the activity log, worded (no code digits)
-passtunnel diagnose [--check-clock]          installation, helper, each profile's problems and last clock
+passtunnel diagnose [--check-clock]          installation, helper, VPN tools, each profile's problems and last clock
                                              measurement; --check-clock also asks the time server
 passtunnel helper status|install|uninstall
 passtunnel mcp [--allow-connect]             MCP server on stdio (below)

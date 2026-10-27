@@ -1,0 +1,14 @@
+# What each library and the libraries it re-exports export on macOS 13.0 (arm64).
+# Written by scripts/make-system-symbols.sh from these SDKs (a symbol is listed when every one
+# of them exports it), with the checksums of the stubs read:
+MacOSX12.3.sdk (macosx12.3, macOS 12.3)
+MacOSX13.1.sdk (macosx13.1, macOS 13.1)
+/usr/lib/libSystem.B.dylib:
+  4dfb8d13440af2c33638d22f4597759914f432a1fcb3698d136ca098eea8b84a  MacOSX12.3.sdk/usr/lib/libSystem.B.tbd
+  5c2efda5a80f4908e5c9e5e2ed8fb0b6b206fd6596eebc69440da009f89bb85a  MacOSX13.1.sdk/usr/lib/libSystem.B.tbd
+/usr/lib/libresolv.9.dylib:
+  94c068ecf476e013656b604f15d076d1820afd9c38bdcbf7ccc27b9d97763c26  MacOSX12.3.sdk/usr/lib/libresolv.9.tbd
+  56499d6dd5698b88ba2012033c47a6a447f958ab74d0f9ee81bb84de1709b7a0  MacOSX13.1.sdk/usr/lib/libresolv.9.tbd
+/usr/lib/libutil.dylib:
+  242cf93237f3eb283ab0061438a882313d1bf6691593a6158b88a0448ceaf5f9  MacOSX12.3.sdk/usr/lib/libutil.tbd
+  33b259c621bf7c3ee8a1602b40e3c79d59434b7219526548bdb3d17b046c1c5c  MacOSX13.1.sdk/usr/lib/libutil.tbd

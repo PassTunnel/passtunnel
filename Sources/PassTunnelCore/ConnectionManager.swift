@@ -1344,7 +1344,7 @@ public final class ConnectionManager: ObservableObject {
         case .authRejected: record(id, .rejected(reply: failure.reply))
         case .unreachable: record(id, .unreachable(tries: failure.tries ?? 1, reason: failure.reason))
         case .cancelled: break  // `disconnect` records the stop
-        case .hostNotFound, .configuration, .setup, .timeout, .failed:
+        case .hostNotFound, .configuration, .setup, .timeout, .toolUnsupported, .failed:
             record(id, .failed(kind: failure.kind, reason: failure.reason, credentialsSent: failure.credentialsSent))
         }
     }
@@ -1364,6 +1364,13 @@ public final class ConnectionManager: ObservableObject {
         return .serverUnreachable(
             server: serverAddress(p), reason: String(localized: "no answer within \(Int(timeout)) seconds"),
             log: tail)
+    }
+
+    /// Why a tool that stopped on its own (or with a fatal error) ended: dyld did not let it start on this
+    /// macOS (`toolUnsupported`), the server was not reached (`unreached`), else `connectFailed`.
+    private func ended(_ p: Profile, log: String) -> PTError {
+        if let reason = VPNLog.toolLoadFailure(log) { return .toolUnsupported(reason: reason, log: VPNLog.tail(log)) }
+        return unreached(p, log: log) ?? .connectFailed(VPNLog.tail(log))
     }
 
     /// "vpn.example.com:1194", "[2001:db8::1]:443": the server a connect goes to; "" when unknown.
@@ -1401,7 +1408,7 @@ public final class ConnectionManager: ObservableObject {
             }
             if VPNLog.isFatal(log) {
                 if owned { await stopQuietly(id) }
-                throw unreached(p, log: log) ?? PTError.connectFailed(VPNLog.tail(log))
+                throw ended(p, log: log)
             }
             try await checkSetup(p, log: log, owned: owned)
             if VPNLog.authAccepted(log) { noteAccepted() }
@@ -1441,7 +1448,7 @@ public final class ConnectionManager: ObservableObject {
                     if hasUserStoppedMarker(id) { throw PTError.connectCancelled }
                     let final = VPNLog.read(logURL)
                     if VPNLog.isAuthFailure(final) { throw PTError.authFailed(VPNLog.tail(final)) }
-                    throw unreached(p, log: final) ?? PTError.connectFailed(VPNLog.tail(final))
+                    throw ended(p, log: final)
                 }
             }
             if clock.now().timeIntervalSince(started) >= timeout {

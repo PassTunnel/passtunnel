@@ -234,6 +234,14 @@ final class MCPServerTests: XCTestCase {
 
     // MARK: harness
 
+    /// What `diagnose` reports for the app's VPN tools here (never the installed app's).
+    static let toolChecks = [
+        ToolCheck(name: "openvpn", ok: true, version: "OpenVPN 2.7.8 aarch64-apple-darwin25.6.0"),
+        ToolCheck(
+            name: "openfortivpn", ok: false,
+            problem: PTError.toolUnsupported(reason: "Symbol not found: _strchrnul", log: "").localizedDescription)
+    ]
+
     func makeServer(
         allowConnect: Bool = false, authenticator: UserAuthenticator? = nil,
         clock: ConnectionClock? = nil
@@ -246,7 +254,7 @@ final class MCPServerTests: XCTestCase {
         let automation = AutomationService(
             store: store, manager: manager, helperInspector: inspector,
             appInfo: AppInfo(version: "9.9.9", build: "99", appPath: "/Applications/PassTunnel.app"),
-            network: { NetworkStatus(online: true, interface: .wifi) })
+            network: { NetworkStatus(online: true, interface: .wifi) }, tools: { _ in Self.toolChecks })
         return MCPServer(
             service: automation, allowConnect: allowConnect, serverVersion: "9.9.9",
             send: { [weak self] in self?.sent.append($0) }, log: { [weak self] in self?.logs.append($0) })
@@ -828,6 +836,14 @@ final class MCPServerTests: XCTestCase {
         XCTAssertEqual((report["helper"] as? [String: Any])?["outdated"] as? Bool, true)
         let network = report["network"] as? [String: Any]
         XCTAssertEqual(network?["online"] as? Bool, true)
+        let tools = try XCTUnwrap(report["tools"] as? [[String: Any]])
+        XCTAssertEqual(tools.map { $0["name"] as? String }, ["openvpn", "openfortivpn"])
+        XCTAssertEqual(tools.map { $0["ok"] as? Bool }, [true, false])
+        XCTAssertEqual(tools[0]["version"] as? String, "OpenVPN 2.7.8 aarch64-apple-darwin25.6.0")
+        XCTAssertNil(tools[0]["problem"])
+        XCTAssertEqual(
+            tools[1]["problem"] as? String,
+            "This VPN tool does not run on this version of macOS (Symbol not found: _strchrnul). Check for a PassTunnel update.")
         XCTAssertEqual(network?["interface"] as? String, "wifi")
         let checks = try XCTUnwrap(report["profiles"] as? [[String: Any]])
         let byID = Dictionary(uniqueKeysWithValues: checks.map { ($0["id"] as! String, $0) })
@@ -891,6 +907,10 @@ final class MCPServerTests: XCTestCase {
         XCTAssertEqual((input["check_clock"] as? [String: Any])?["type"] as? String, "boolean")
         let output = try XCTUnwrap((diagnose["outputSchema"] as? [String: Any])?["properties"] as? [String: Any])
         XCTAssertEqual(((output["clock"] as? [String: Any])?["required"] as? [String]), ["offset_seconds", "source", "checked_at"])
+        #if os(macOS)
+        let toolItems = (output["tools"] as? [String: Any])?["items"] as? [String: Any]
+        XCTAssertEqual(toolItems?["required"] as? [String], ["name", "ok"])
+        #endif
     }
 
     /// A FortiGate's rejection: the failure that `connect` reports already has the gateway's time.

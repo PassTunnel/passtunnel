@@ -262,6 +262,7 @@ public struct ActivityEvent: Equatable, Sendable {
             case .configuration: text = String(localized: "Configuration or certificate refused")
             case .setup: text = String(localized: "Network setup failed")
             case .timeout: text = String(localized: "Did not connect in time")
+            case .toolUnsupported: text = String(localized: "The VPN tool does not run on this macOS")
             case .authRejected, .unreachable, .cancelled, .failed: text = String(localized: "Could not connect")
             }
             return Self.adding(reason, to: text)

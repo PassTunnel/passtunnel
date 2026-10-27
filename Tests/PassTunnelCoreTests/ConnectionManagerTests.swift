@@ -1793,6 +1793,41 @@ final class ConnectionManagerTests: XCTestCase {
         XCTAssertEqual(m.activity(p.id).last?.kind, .failed(kind: .hostNotFound, reason: "Name or service not known", credentialsSent: false))
     }
 
+    /// dyld stops the tool at launch on a macOS that lacks a symbol it imports: the connect fails at once
+    /// with its own error and failure kind, for OpenVPN and openfortivpn alike, and nothing counts as sent.
+    func testAToolThatDoesNotRunOnThisMacOS() async throws {
+        helper.openVPNStateLine = nil
+        helper.startLog = """
+            dyld[4242]: Symbol not found: _strchrnul
+              Referenced from: <3C3A9F0E-1D6B-3C2E-9E4A-0B6E1C9A7F21> /var/run/passtunnel/run/Frameworks/libidn2.0.dylib (built for macOS 26.0 which is newer than running OS)
+              Expected in:     <5F2B8E1A-6C4D-3A9B-8E7F-2D1C0B9A8E76> /usr/lib/libSystem.B.dylib
+
+            """
+        let m = makeManager()
+        let openVPN = try makeOpenVPN()
+        var forti = try store.create(name: "Forti", type: .forti)
+        forti.host = "vpn.example.com"
+        forti.username = "alice"
+        try store.save(forti)
+        try Secrets.set(forti.id, .password, "pw")
+        for p in [openVPN, forti] {
+            do { try await m.connect(p.id); XCTFail("connected") } catch {
+                XCTAssertEqual(
+                    error as? PTError, .toolUnsupported(reason: "Symbol not found: _strchrnul", log: VPNLog.tail(helper.startLog)), p.name)
+                XCTAssertEqual(
+                    error.localizedDescription,
+                    "This VPN tool does not run on this version of macOS (Symbol not found: _strchrnul). Check for a PassTunnel update.")
+            }
+            XCTAssertEqual(m.failures[p.id]?.kind, .toolUnsupported, p.name)
+            XCTAssertEqual(m.failures[p.id]?.reason, "Symbol not found: _strchrnul", p.name)
+            XCTAssertEqual(m.failures[p.id]?.credentialsSent, false, p.name)
+            XCTAssertEqual(
+                m.activity(p.id).last?.kind, .failed(kind: .toolUnsupported, reason: "Symbol not found: _strchrnul", credentialsSent: false),
+                p.name)
+            XCTAssertEqual(m.state(p.id), .disconnected, p.name)
+        }
+    }
+
     /// The tool tried and nothing answered within the connect's limit: unreachable, not a plain timeout.
     /// A log that says nothing at all stays a timeout (`testProcessExitAndTimeout`).
     func testNoAnswerUntilTheLimitIsUnreachable() async throws {

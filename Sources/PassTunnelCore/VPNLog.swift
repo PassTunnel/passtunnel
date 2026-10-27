@@ -470,19 +470,21 @@ public enum VPNLog {
 
     /// What a failed attempt's log says went wrong, and the tool's words for it.
     public struct Verdict: Equatable, Sendable {
-        /// `.authRejected`, `.configuration`, `.hostNotFound` or `.unreachable`.
+        /// `.toolUnsupported`, `.authRejected`, `.configuration`, `.hostNotFound` or `.unreachable`.
         public var kind: ConnectionFailure.Kind
         /// "Connection refused", "Name or service not known", "certificate has expired"; nil when the log
         /// gives none.
         public var reason: String?
     }
 
-    /// A rejected sign-in first, then a refused configuration or certificate; otherwise, unless the
-    /// credentials were sent (the server was reached), the last sign that the server's name did not
-    /// resolve or that it did not answer. Lines of OpenVPN (2.5 to 2.7) and openfortivpn, as the Mac and
-    /// Linux word them ("Operation timed out" / "Connection timed out", "nodename nor servname provided,
-    /// or not known" / "Name or service not known"). nil when nothing is recognized.
+    /// dyld stopping the tool first (it did not run), then a rejected sign-in, then a refused configuration
+    /// or certificate; otherwise, unless the credentials were sent (the server was reached), the last sign
+    /// that the server's name did not resolve or that it did not answer. Lines of OpenVPN (2.5 to 2.7) and
+    /// openfortivpn, as the Mac and Linux word them ("Operation timed out" / "Connection timed out",
+    /// "nodename nor servname provided, or not known" / "Name or service not known"). nil when nothing is
+    /// recognized.
     public static func verdict(_ text: String) -> Verdict? {
+        if let reason = toolLoadFailure(text) { return Verdict(kind: .toolUnsupported, reason: reason) }
         if isAuthFailure(text) { return Verdict(kind: .authRejected, reason: nil) }
         var network: Verdict?
         for raw in text.split(whereSeparator: \.isNewline) {
@@ -584,6 +586,30 @@ public enum VPNLog {
 
     /// True when the log shows a non-authentication error the tool will not recover from.
     public static func isFatal(_ text: String) -> Bool {
-        fatalMarkers.contains { text.contains($0) }
+        fatalMarkers.contains { text.contains($0) } || toolLoadFailure(text) != nil
+    }
+
+    /// dyld stopped the tool before it ran (exit 134), as it writes on its standard error, which the
+    /// helper sends to the log: "dyld[123]: Symbol not found: _strchrnul" (followed by "Referenced from:
+    /// … (built for macOS 26.0 which is newer than running OS)") for a symbol this macOS lacks, or
+    /// "dyld[123]: Library not loaded: /usr/lib/…" for a library; "dyld: …" before macOS 12. → "Symbol
+    /// not found: _strchrnul". dlopen errors (OpenVPN plugins) do not start with "dyld".
+    public static func toolLoadFailure(_ text: String) -> String? {
+        for raw in text.split(whereSeparator: \.isNewline) {
+            var line = raw.drop { $0 == " " || $0 == "\t" }
+            guard line.hasPrefix("dyld") else { continue }
+            line = line.dropFirst(4)
+            if line.hasPrefix("[") {
+                guard let close = line.firstIndex(of: "]"), line[line.index(after: line.startIndex)..<close].allSatisfy(\.isNumber)
+                else { continue }
+                line = line[line.index(after: close)...]
+            }
+            guard line.hasPrefix(": ") else { continue }
+            let message = line.dropFirst(2).trimmingCharacters(in: .whitespaces)
+            if message.hasPrefix("Symbol not found") || message.hasPrefix("Library not loaded") {
+                return String(message.prefix(300))
+            }
+        }
+        return nil
     }
 }
