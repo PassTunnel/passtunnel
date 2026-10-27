@@ -2850,9 +2850,9 @@
       ]
     },
     {
-      "name": "TLS settings at or above the 1.2 floor pass unchanged",
-      "config": "client\nremote vpn.example.com 1194\ntls-version-min 1.2 or-highest\ntls-version-max 1.3\ntls-cipher DEFAULT:!aNULL:!eNULL:-EXP:@SECLEVEL=2\ntls-ciphersuites TLS_AES_256_GCM_SHA384:TLS-CHACHA20-POLY1305-SHA256\ntls-cert-profile preferred\n",
-      "output": "client\nremote vpn.example.com 1194\ntls-version-min 1.2 or-highest\ntls-version-max 1.3\ntls-cipher DEFAULT:!aNULL:!eNULL:-EXP:@SECLEVEL=2\ntls-ciphersuites TLS_AES_256_GCM_SHA384:TLS-CHACHA20-POLY1305-SHA256\ntls-cert-profile preferred\n"
+      "name": "TLS settings at or above the 1.2 floor pass unchanged (a + element only moves suites already selected)",
+      "config": "client\nremote vpn.example.com 1194\ntls-version-min 1.2 or-highest\ntls-version-max 1.3\ntls-cipher DEFAULT:!aNULL:!eNULL:-EXP:+aNULL:@SECLEVEL=2\ntls-ciphersuites TLS_AES_256_GCM_SHA384:TLS-CHACHA20-POLY1305-SHA256\ntls-cert-profile preferred\n",
+      "output": "client\nremote vpn.example.com 1194\ntls-version-min 1.2 or-highest\ntls-version-max 1.3\ntls-cipher DEFAULT:!aNULL:!eNULL:-EXP:+aNULL:@SECLEVEL=2\ntls-ciphersuites TLS_AES_256_GCM_SHA384:TLS-CHACHA20-POLY1305-SHA256\ntls-cert-profile preferred\n"
     },
     {
       "name": "TLS settings below the 1.2 floor are refused, also behind setenv opt",

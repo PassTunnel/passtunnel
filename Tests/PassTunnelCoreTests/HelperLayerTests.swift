@@ -106,7 +106,8 @@ final class OVPNSanitizerTests: XCTestCase {
             ("tls-cipher DEFAULT:eNULL", OVPNSanitizer.weakCipherReason),
             ("tls-cipher aNULL", OVPNSanitizer.weakCipherReason),
             ("tls-cipher ALL:COMPLEMENTOFALL", OVPNSanitizer.weakCipherReason),
-            ("tls-cipher HIGH:+NULL", OVPNSanitizer.weakCipherReason),
+            ("tls-cipher HIGH:kRSA+aNULL", OVPNSanitizer.weakCipherReason),
+            ("tls-cipher DEFAULT:+aNULL:@SECLEVEL=0", OVPNSanitizer.securityLevelReason),
             ("tls-cipher EXP-RC4-MD5", OVPNSanitizer.weakCipherReason),
             ("tls-cipher ADH-AES256-GCM-SHA384", OVPNSanitizer.weakCipherReason),
             ("tls-cipher TLS-DH-anon-WITH-AES-256-GCM-SHA384", OVPNSanitizer.weakCipherReason),
@@ -134,6 +135,7 @@ final class OVPNSanitizerTests: XCTestCase {
             "tls-version-min 1.3 or-highest", "--tls-version-min 1.2", "setenv opt tls-version-min 1.3",
             "tls-version-max 1.2", "tls-version-max 1.3",
             "tls-cipher DEFAULT:@SECLEVEL=1", "tls-cipher DEFAULT:@SECLEVEL=2", "tls-cipher HIGH:!aNULL:!eNULL:-EXP",
+            "tls-cipher DEFAULT:+aNULL", "tls-cipher DEFAULT:+eNULL:+EXP", "tls-cipher HIGH:+ADH",
             "tls-cipher TLS-ECDHE-RSA-WITH-AES-256-GCM-SHA384:TLS-ECDHE-ECDSA-WITH-AES-128-GCM-SHA256",
             "tls-cipher DEFAULT:!EXP:!LOW:!MEDIUM:!kDH:!kECDH:!DSS:!PSK:!SRP:!kRSA",
             "tls-ciphersuites TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256",
@@ -146,20 +148,36 @@ final class OVPNSanitizerTests: XCTestCase {
         }
     }
 
-    /// The `--tls-version-min` the helper passes after the config: 1.2, or 1.3 when the config's last
-    /// `tls-version-min` asks for it, so the floor never lowers what the config sets.
+    /// The `--tls-version-min` the helper passes after the config: 1.2, or 1.3 when the `tls-version-min`
+    /// OpenVPN applies asks for it, so the floor never lowers what the config sets. Lines are recognized as
+    /// OpenVPN 2.7 recognizes them: one leading `--`, case-sensitive names, one exact `setenv opt` prefix
+    /// with no `--` after it. Other spellings OpenVPN ignores after `setenv opt` (or stops on) change nothing.
     func testTLSVersionFloorArguments() {
         let cases: [(String, [String])] = [
             ("client\n", ["1.2"]),
             ("tls-version-min 1.2\n", ["1.2"]),
             ("tls-version-min 1.3\n", ["1.3"]),
             ("tls-version-min 1.3 or-highest\n", ["1.3", "or-highest"]),
-            ("--TLS-VERSION-MIN 1.3\n", ["1.3"]),
+            ("--tls-version-min 1.3\n", ["1.3"]),
             ("setenv opt tls-version-min 1.3\n", ["1.3"]),
+            ("setenv opt tls-version-min 1.3 or-highest\n", ["1.3", "or-highest"]),
+            // Spellings OpenVPN does not recognize: it stops on them, or ignores them after `setenv opt`.
+            ("--TLS-VERSION-MIN 1.3\n", ["1.2"]),
+            ("setenv opt --tls-version-min 1.3\n", ["1.2"]),
+            ("SETENV opt tls-version-min 1.3\n", ["1.2"]),
+            ("setenv OPT tls-version-min 1.3\n", ["1.2"]),
+            ("----tls-version-min 1.3\n", ["1.2"]),
+            // An ignored optional line after a valid one does not lower it.
+            ("tls-version-min 1.3\nsetenv opt TLS-VERSION-MIN 1.2\n", ["1.3"]),
+            ("tls-version-min 1.3\nsetenv opt --tls-version-min 1.2\n", ["1.3"]),
+            ("tls-version-min 1.3\nsetenv opt tls-version-min bogus\n", ["1.3"]),
+            ("tls-version-min 1.3\nsetenv opt tls-version-min 1.2 or-highest extra\n", ["1.3"]),
+            ("tls-version-min 1.3\nsetenv opt\n", ["1.3"]),
+            ("tls-version-min 1.3\nsetenv opt tls-version-min 1.2\n", ["1.2"]),   // recognized: it applies
             ("tls-version-min 1.3\ntls-version-min 1.2\n", ["1.2"]),      // the last one wins, as in OpenVPN
             ("tls-version-min 1.2\ntls-version-min 1.3\n", ["1.3"]),
             ("tls-version-min 1.0\n", ["1.2"]),
-            ("tls-version-min 1.3 bogus\n", ["1.2"]),
+            ("tls-version-min 1.3 bogus\n", ["1.3"]),   // OpenVPN applies 1.3 (the sanitizer refuses the line)
             ("<ca>\ntls-version-min 1.3\n</ca>\n", ["1.2"]),             // block content is not a directive
         ]
         for (config, floor) in cases {

@@ -139,7 +139,7 @@ final class OVPNImportTests: CoreTestCase {
         }
         XCTAssertEqual(try report("client\ntls-version-min 1.0\nremote vpn.example.com\n").blocking.first?.description,
                        "line 2: tls-version-min (\(OVPNSanitizer.tlsVersionReason))")
-        let safe = "client\ntls-version-min 1.2 or-highest\ntls-cipher DEFAULT:@SECLEVEL=2\ntls-cert-profile preferred\n"
+        let safe = "client\ntls-version-min 1.2 or-highest\ntls-cipher DEFAULT:+aNULL:@SECLEVEL=2\ntls-cert-profile preferred\n"
             + "remote vpn.example.com\n"
         XCTAssertEqual(try report(safe).config, safe)
     }

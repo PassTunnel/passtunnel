@@ -202,7 +202,8 @@ FortiGate, stop, and status. It enforces the following rules on every request.
   `--management <run directory>/mgmt.sock unix`, `--management-client-user <your user name>`,
   `--verb` (the configuration's `verb`, at most 4; 3 when it sets none), `--auth-nocache`,
   `--remap-usr1 SIGTERM`, `--connect-retry-max 3`, `--tls-version-min 1.2` (`1.3` when the
-  configuration asks for 1.3, so the flag never lowers it), and explicit
+  `tls-version-min` OpenVPN applies from the configuration is 1.3, read with OpenVPN's own rules so a
+  line OpenVPN ignores changes nothing; the flag never lowers it), and explicit
   `--script-security`/`--dns-updown` settings. The cap keeps OpenVPN's debug levels (from 5 every
   packet, from 7 the data-channel keys, from 9 packet contents) out of the log, which you, the app
   and `get_logs` can read. Only `--server-poll-timeout 10` (how long a server that does not answer is
@@ -290,7 +291,8 @@ tls-version-min V [or-highest]   (unless V is 1.2 or 1.3; or-highest only as the
 tls-version-max V                (unless V is 1.2 or 1.3)
 tls-cipher L                     (when an @SECLEVEL in L is not exactly @SECLEVEL=1 to 5, or an
                                   element that adds suites names NULL, EXP, ADH, AECDH, anon or
-                                  COMPLEMENTOF…, in any case; elements starting with ! or - may)
+                                  COMPLEMENTOF…, in any case; elements starting with !, - or +
+                                  may: they remove suites or only move ones already selected)
 tls-ciphersuites L               (unless every suite is TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384,
                                   TLS_CHACHA20_POLY1305_SHA256 or TLS_AES_128_CCM_SHA256; - for _ is fine)
 tls-cert-profile P               (unless P is legacy, preferred or suiteb: insecure is level 0)
