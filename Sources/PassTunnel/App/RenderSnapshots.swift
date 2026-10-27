@@ -289,10 +289,10 @@ enum RenderSnapshots {
         model.setPreviewCopy(nil)
         render("-narrow", size: CGSize(width: 820, height: 640))
         let template = model.profile(ids[0])?.otpTemplate ?? OTPTemplatePreset.append.rawValue
-        try? store.update(ids[0]) { $0.otpTemplate = "{otp}-{password}" }
+        _ = try? store.update(ids[0]) { $0.otpTemplate = "{otp}-{password}" }
         model.reload()
         render("-template")
-        try? store.update(ids[0]) { $0.otpTemplate = template }
+        _ = try? store.update(ids[0]) { $0.otpTemplate = template }
         model.reload()
 
         // The add view the sidebar's + opens (`add-vpn`), and the question about opening at login under the detail

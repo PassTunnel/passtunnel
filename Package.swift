@@ -89,3 +89,13 @@ package.targets.append(
         name: "PassTunnelDaemonTests",
         dependencies: ["PassTunnelDaemon", "PassTunnelShared", "PassTunnelCore", "PassTunnelVPNConfig"]))
 #endif
+
+// CI builds our own targets with warnings as errors (PASSTUNNEL_STRICT_WARNINGS=1, see
+// .github/workflows/ci.yml). It is a per-target flag, not `swift build -Xswiftc -warnings-as-errors`,
+// which would also apply to swift-crypto on Linux, whose warnings are not ours to fix. Off by default:
+// a package that uses unsafeFlags cannot be a dependency of the fuzz package (fuzz/).
+if Context.environment["PASSTUNNEL_STRICT_WARNINGS"] == "1" {
+    for target in package.targets {
+        target.swiftSettings = (target.swiftSettings ?? []) + [.unsafeFlags(["-warnings-as-errors"])]
+    }
+}

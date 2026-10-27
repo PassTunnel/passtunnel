@@ -26,18 +26,23 @@ final class HoldingClock: ConnectionClock, @unchecked Sendable {
 
     func now() -> Date { base.now() }
 
+    // Synchronous, so the lock is never held across a suspension point.
+    private func adjustWaiting(_ delta: Int) { lock.withLock { _waiting += delta } }
+
+    private func takeRelease() -> Bool {
+        lock.withLock {
+            guard releases > 0 else { return false }
+            releases -= 1
+            return true
+        }
+    }
+
     func sleep(_ seconds: TimeInterval) async throws {
         if seconds == held {
-            lock.lock(); _waiting += 1; lock.unlock()
-            defer { lock.lock(); _waiting -= 1; lock.unlock() }
+            adjustWaiting(1)
+            defer { adjustWaiting(-1) }
             while true {
-                let go = { () -> Bool in
-                    lock.lock(); defer { lock.unlock() }
-                    guard releases > 0 else { return false }
-                    releases -= 1
-                    return true
-                }()
-                if go { break }
+                if takeRelease() { break }
                 try await Task.sleep(nanoseconds: 2_000_000)
             }
         }

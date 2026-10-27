@@ -1,10 +1,12 @@
 # Builds and tests every pull request into dev or main and every push to them. The job names are
 # required status checks in the branch rulesets, so renaming a job means updating the rulesets too:
 #
-#   Build and test    swift build and swift test on macOS (Apple silicon), and the PassTunnelKit
-#                     library built for iOS (the iPhone app uses it)
+#   Build and test    swift format lint, swift build and swift test on macOS (Apple silicon) with our
+#                     targets' warnings as errors, a statement coverage report in the job summary
+#                     (not gating), and the PassTunnelKit library built for iOS (the iPhone app uses it)
 #   Linux (x86_64)    the Linux targets (Package.swift: the portable code, the CLI, the `passtunnel`
-#   Linux (aarch64)   command and the `passtunneld` daemon) built and the tests that build there run
+#   Linux (aarch64)   command and the `passtunneld` daemon) built, with warnings as errors, and the
+#                     tests that build there run
 #                     (the golden cases in fixtures/ included), in the official Swift container; then
 #                     a smoke test of `passtunnel` (with the file secret store), one real Secret
 #                     Service round trip against a throwaway keyring, and, as root in the container,
@@ -15,7 +17,7 @@
 #                     its README says, `passtunnel` and, as root, `passtunneld` with their build number
 #   Docker image      the Dockerfile built, and an MCP session with the image
 #   (x86_64, aarch64)
-#   Release scripts   shellcheck of next-version.sh, its test and build-linux.sh, and the self-test of
+#   Release scripts   shellcheck of next-version.sh, its test, build-linux.sh and coverage-report.sh, and the self-test of
 #                     scripts/next-version.sh (in a temporary repository)
 #   Site              shellcheck of the site scripts and scripts/check-site.sh, the static checks
 #                     of the website in site/ (docs/WEBSITE.md)
@@ -47,6 +49,9 @@ jobs:
     name: Build and test
     runs-on: macos-26
     timeout-minutes: 45
+    env:
+      # Warnings of our own targets are errors (the end of Package.swift); the dependencies are not touched.
+      PASSTUNNEL_STRICT_WARNINGS: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -58,12 +63,21 @@ jobs:
           xcodebuild -version
           swift --version
 
+      # The style is the checked-in .swift-format (CONTRIBUTING.md, "Coding standards"). Only the files
+      # in the repository: the generated ones are not ours to format.
+      - name: Lint (swift format)
+        run: git ls-files '*.swift' | xargs swift format lint --strict
+
       - name: Build
         run: swift build
 
       # The tests isolate themselves (PASSTUNNEL_HOME and PASSTUNNEL_KEYCHAIN_SERVICE per test).
       - name: Test
-        run: swift test
+        run: swift test --enable-code-coverage
+
+      # Statement coverage of Sources/, per target and in total, in the job summary. It only reports.
+      - name: Coverage report
+        run: scripts/coverage-report.sh
 
       # The portable library must keep building for the iPhone app (docs/MOBILE.md).
       - name: Build PassTunnelKit for iOS
@@ -81,6 +95,8 @@ jobs:
             runner: ubuntu-24.04
           - arch: aarch64
             runner: ubuntu-24.04-arm
+    env:
+      PASSTUNNEL_STRICT_WARNINGS: "1"
     container:
       # swift:6.4.1-noble, pinned by the digest of its multi-arch index (both architectures).
       image: swift:6.4.1-noble@sha256:19cbe56bdaec1918f7cf5fdeba42b9bd55bdd8a6149c9990d0e0e3a89a127d63
@@ -659,7 +675,7 @@ jobs:
           persist-credentials: false
 
       - name: Shellcheck
-        run: shellcheck --version && shellcheck scripts/next-version.sh scripts/test-next-version.sh scripts/build-linux.sh
+        run: shellcheck --version && shellcheck scripts/next-version.sh scripts/test-next-version.sh scripts/build-linux.sh scripts/coverage-report.sh
 
       - name: Self-test of next-version.sh
         run: scripts/test-next-version.sh
