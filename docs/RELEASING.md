@@ -404,8 +404,10 @@ scripts/build-app.sh                                               # prints the 
 
 Read the upstream changelogs (security fixes in particular), set the new versions in `release.env`,
 build again and send the pins as a pull request (`fix(deps): bundle openvpn 2.7.8`, so it releases).
-The release workflow installs the tools with the runner's Homebrew, so it stops the release as soon
-as Homebrew has moved past a pin; the same pull request fixes that. For a local build against other
+The release workflow and the Repeatable build run `brew update`, install `openvpn` and `openfortivpn`
+and upgrade exactly the bundled formulas (the runner image ships older versions of some, which
+`brew install` leaves alone), so both stop as soon as Homebrew has moved past a pin; the same pull
+request fixes that. For a local build against other
 versions, `PASSTUNNEL_ALLOW_UNPINNED_TOOLS=1 scripts/build-app.sh` only warns; `release.sh`
 refuses to run with it set.
 
@@ -495,7 +497,7 @@ earlier, at `--tools-from`. What it relies on:
 absolute path in `.build` with its modification time, so two builds of the same checkout differed.
 No dSYM is made from it, and the symbol table stays. The workflow **Repeatable build**
 (`.github/workflows/repeatable.yml`, not a required check) runs `verify-build.sh` on an ad-hoc build
-of every pull request and push, and builds the Linux tarball twice, from two copies of the checkout, and compares
+of every pull request and push (with the Homebrew tools held to the pins in `release.env`, as in a release), and builds the Linux tarball twice, from two copies of the checkout, and compares
 the two.
 
 The [Linux tarball](#linux-tarball) is repeatable as well: `build-linux.sh` in the documented

@@ -46,8 +46,8 @@ jobs:
           xcodebuild -version
           swift --version
 
-      # As in release.yml. The versions are not held to the pins here (PASSTUNNEL_ALLOW_UNPINNED_TOOLS
-      # below): this checks the build, and the release workflow checks the pins.
+      # As in release.yml. The versions are held to the pins in scripts/release.env, so that Homebrew
+      # moving past a pin fails here, in a pull request, and not at the next release.
       - name: Install the bundled tools
         env:
           HOMEBREW_NO_INSTALL_CLEANUP: 1
@@ -55,7 +55,12 @@ jobs:
           HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ github.token }}
         run: |
+          # The runner image ships Homebrew formulae of its own (openssl@4 among them) that
+          # `brew install` leaves alone, so bring the index up to date and upgrade exactly the
+          # bundled formulas; bundle-tools.sh then checks the result against release.env.
+          brew update
           brew install openvpn openfortivpn
+          brew upgrade openvpn openfortivpn openssl@4 lz4 lzo pkcs11-helper
           brew list --versions openvpn openfortivpn openssl@4 lz4 lzo pkcs11-helper
 
       # A version tag on the commit (local, never pushed), as a release rebuilt at its tag has: the
@@ -65,8 +70,6 @@ jobs:
         run: git tag v99.0.0
 
       - name: Build
-        env:
-          PASSTUNNEL_ALLOW_UNPINNED_TOOLS: 1
         run: |
           set -euo pipefail
           scripts/build-app.sh
@@ -77,8 +80,6 @@ jobs:
           test "$describe" != v99.0.0
 
       - name: Build again and compare
-        env:
-          PASSTUNNEL_ALLOW_UNPINNED_TOOLS: 1
         run: scripts/verify-build.sh build/PassTunnel.app --path-length "${#GITHUB_WORKSPACE}"
 
   linux:
