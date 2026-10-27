@@ -71,8 +71,12 @@ they all match.
      the cask with one, see [Automatic releases](#automatic-releases)). The cask is what
      `brew install` trusts.
 5. **Tag signing key (optional, recommended).** `release.sh` signs the release tag (`git tag -s`)
-   when git has a signing key, and otherwise creates an unsigned annotated tag with a warning. With
-   an SSH key, for example:
+   when git has a signing key, and otherwise creates an unsigned annotated tag with a warning
+   (`REQUIRE_SIGNED_TAG=1` makes that an error and also requires the tag to verify against
+   `.github/allowed_signers`; the release workflow sets it). The release tag key itself is only in
+   the environment `release` (see [Signed tags](#signed-tags)), so a tag made on a Mac is signed
+   with the maintainer's own key and does not verify against that file. With an SSH key, for
+   example:
 
    ```sh
    git config gpg.format ssh
@@ -109,8 +113,11 @@ they all match.
    - **Build and publish** waits for approval in the environment `release` (Actions → the run →
      *Review deployments*). It then installs `openvpn` and `openfortivpn` with Homebrew, puts the
      Developer ID identity and the notarytool profile into a temporary keychain, writes the Sparkle
-     key to a file and runs `scripts/release.sh VERSION --publish --draft --notes-file …`, which
-     tags, builds and uploads everything to a **draft** release. It then creates a build provenance
+     key and the tag signing key to files, sets up git to sign tags with the latter
+     ([Signed tags](#signed-tags)) and runs
+     `REQUIRE_SIGNED_TAG=1 scripts/release.sh VERSION --publish --draft --notes-file …`, which
+     builds, creates the signed tag, checks its signature before pushing it and uploads everything
+     to a **draft** release; the workflow then checks that the tag on GitHub is that verified tag. It then creates a build provenance
      attestation for the dmg, zip and MCP bundle (`actions/attest-build-provenance`), checks its
      Sigstore bundle against the three files and `PassTunnel.dmg` (the dmg's copy, same digest),
      attaches it to the draft as `PassTunnel-VERSION.intoto.jsonl` and publishes the draft with
@@ -124,8 +131,34 @@ they all match.
 
 Nothing in the repository is changed by a release: the version is in the tag only (`build-app.sh`
 stamps it into the app), and `docs/CHANGELOG.md` is not updated (it covers 1.1.1 and earlier). The
-tag is an unsigned annotated tag (the runner has no signing key); the attestations and the
-immutable release are the proof of origin.
+tag is signed ([Signed tags](#signed-tags)); the tag signature, the attestations and the immutable
+release are the proof of origin.
+
+### Signed tags
+
+The workflow signs each release tag with an SSH key of its own (ed25519, the secret
+`TAG_SIGNING_KEY`), and the tagger is the maintainer's GitHub noreply address
+(`Furkanprlk <18267444+Furkanprlk@users.noreply.github.com>`). The key is registered as a signing
+key on that account, so GitHub shows the tag as **Verified**. Its public half is in
+[`.github/allowed_signers`](../.github/allowed_signers), and anyone can check a tag against it
+with git 2.34 or later:
+
+```sh
+git clone https://github.com/PassTunnel/passtunnel.git && cd passtunnel
+git -c gpg.ssh.allowedSignersFile=.github/allowed_signers tag -v v1.6.0
+```
+
+It prints `Good "git" signature for 18267444+Furkanprlk@users.noreply.github.com with ED25519
+key SHA256:…` and exits with 0; an unsigned tag (`no signature found`) or a tag signed with another
+key (`No principal matched`) makes it fail. Take `.github/allowed_signers` from a checkout you
+trust (or compare its key with the one above), not from the tag being checked. `release.sh` runs
+the same check (`REQUIRE_SIGNED_TAG=1`) before it pushes the tag, so the workflow never pushes a
+tag that fails it, and the workflow compares the tag on GitHub with the verified one afterwards.
+
+Tags up to and including `v1.5.0` are not signed with this key: `v1.1.0` and `v1.1.1` (made on a
+Mac) carry the maintainer's own signature, the others are unsigned annotated tags. Releases made on
+a Mac ([Releasing from a Mac](#releasing-from-a-mac)) are signed with the maintainer's own key, if
+one is set up, and also do not verify against `.github/allowed_signers`.
 
 ### Checking the provenance
 
@@ -159,7 +192,10 @@ an unfinished release, that version is built again: `release.sh` replaces the dr
 removes files it did not build (a provenance bundle of the earlier build would not match the new
 files), and a new attestation is attached before the draft is published. `PassTunnel.dmg` is one
 of the files it builds: it is copied again from the new disk image and replaces the draft's copy. A
-published release is final, and the run then only reports it.
+published release is final, and the run then only reports it. The tag that is already on GitHub is
+used as it is (the tag ruleset forbids changing or deleting `v*` tags); `release.sh` checks its
+signature before the build and stops if it does not verify. Since the workflow checks a tag before
+pushing it, that only happens with a tag pushed before tags were signed.
 
 ### Setup
 
@@ -172,6 +208,7 @@ maintainer's approval, and holds these secrets:
 | `NOTARY_KEY_P8_BASE64`, `NOTARY_KEY_ID`, `NOTARY_ISSUER_ID` | an App Store Connect API key with the Developer role (Users and Access → Integrations → Team Keys), for notarytool |
 | `SPARKLE_PRIVATE_KEY` | the Sparkle EdDSA private key, as `generate_keys -x` writes it |
 | `TAP_DEPLOY_KEY` | the private half of an ed25519 deploy key with write access on `TAP_REPO` |
+| `TAG_SIGNING_KEY` | the private half of the ed25519 key that signs release tags, in OpenSSH format without a passphrase. Its public half is `.github/allowed_signers` and a *signing* key of the maintainer's GitHub account; the workflow stops when the secret does not match that file ([Signed tags](#signed-tags)) |
 
 Secrets of an environment are only given to jobs that run in it, so pull requests and forks never
 see them. Anyone who can approve a release can sign an update for every installed copy: keep the
@@ -232,7 +269,7 @@ tag from the `main` that is on GitHub, and the tap and the MCP Registry are then
    ```
 
    This repeats the build, creates the tag `v1.2.0` (signed if a signing key is set up, see
-   One-time setup), pushes it, creates a **draft** GitHub release with the dmg (as
+   One-time setup; the release tag key of [Signed tags](#signed-tags) is not on the Mac), pushes it, creates a **draft** GitHub release with the dmg (as
    `PassTunnel-1.2.0.dmg` and `PassTunnel.dmg`), zip, MCP bundle, `appcast.xml` and `SHA256SUMS`,
    checks that all six are attached, and only then publishes it (pre-releases are marked as such
    and never become "latest"). Publishing it starts the MCP Registry
