@@ -20,23 +20,43 @@ trap 'rm -rf "$WORK"' EXIT
 
 is_macho() { lipo -archs "$1" >/dev/null 2>&1; }
 
-# Same contents apart from the signature.
+# Same contents apart from the signature: returns 0 (same), 1 (different) or 2 (could not compare).
+# Called in a condition, where errexit is off, so every step checks its own result. Fresh copies for
+# each comparison.
 same_file() {
-    local a="$1" b="$2"
+    local a="$1" b="$2" ca cb f
     if is_macho "$a" && is_macho "$b"; then
-        cp "$a" "$WORK/a" && cp "$b" "$WORK/b"
-        chmod u+w "$WORK/a" "$WORK/b"
-        # An unsigned file has nothing to remove; codesign then fails, which changes nothing.
-        codesign --remove-signature "$WORK/a" 2>/dev/null || true
-        codesign --remove-signature "$WORK/b" 2>/dev/null || true
-        cmp -s "$WORK/a" "$WORK/b"
+        ca="$(mktemp "$WORK/a.XXXXXX")" || return 2
+        cb="$(mktemp "$WORK/b.XXXXXX")" || return 2
+        cp "$a" "$ca" && cp "$b" "$cb" && chmod u+w "$ca" "$cb" || return 2
+        for f in "$ca" "$cb"; do
+            # An unsigned file has nothing to remove; a signed one must lose its signature.
+            if codesign -d "$f" >/dev/null 2>&1; then
+                codesign --remove-signature "$f" || return 2
+            fi
+        done
+        cmp -s "$ca" "$cb"
+        local r=$?
+        rm -f "$ca" "$cb"
+        return "$r"
     else
         cmp -s "$a" "$b"
     fi
 }
 
+# Runs same_file; a comparison that could not be made stops the script.
+check_file() {
+    local r=0
+    same_file "$1" "$2" || r=$?
+    if ((r > 1)); then
+        echo "error: cannot compare $1 and $2" >&2
+        exit 2
+    fi
+    return "$r"
+}
+
 if [[ -f "$A" && -f "$B" ]]; then
-    same_file "$A" "$B" && exit 0
+    check_file "$A" "$B" && exit 0
     echo "differs: $A $B"
     exit 1
 fi
@@ -59,7 +79,7 @@ while read -r mode path; do
     case "$mode" in
         -*)
             [[ -f "$B/$path" && ! -L "$B/$path" ]] || continue
-            same_file "$A/$path" "$B/$path" || { echo "differs: ${path#./}"; status=1; } ;;
+            check_file "$A/$path" "$B/$path" || { echo "differs: ${path#./}"; status=1; } ;;
         l*)
             [[ -L "$B/$path" ]] || continue
             [[ "$(readlink "$A/$path")" == "$(readlink "$B/$path")" ]] || { echo "link differs: ${path#./}"; status=1; } ;;

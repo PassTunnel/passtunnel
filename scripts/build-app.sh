@@ -179,18 +179,20 @@ for exe in PassTunnel PassTunnelHelper; do
 done
 cp "$ROOT/Resources/com.furkanprlk.passtunnel.helper.plist" "$C/Library/LaunchDaemons/"
 
-# A release is tagged after its build (release.sh), so the tag of this version is left out when it is
-# on this commit: rebuilt at the tag, the app says what the release says. A fixed abbreviation, as the
-# default one grows with the repository.
+# PTGitDescribe leaves out the tags on this commit, so that it is the same whether the commit is tagged
+# yet or not: a release is tagged after its build (release.sh) and rebuilt at the tag. A fixed
+# abbreviation, as the default one grows with the repository. The version without --version still
+# comes from the nearest tag, this commit's included.
 DESCRIBE_ARGS=(--tags --always --dirty --abbrev=12)
-if [[ -n "$VERSION" && "$(git rev-parse -q --verify "refs/tags/v$VERSION^{commit}" 2>/dev/null)" == "$(git rev-parse HEAD 2>/dev/null)" ]]; then
-    DESCRIBE_ARGS+=(--exclude "v$VERSION")
-fi
+while IFS= read -r tag; do
+    [[ -n "$tag" ]] && DESCRIBE_ARGS+=(--exclude "$tag")
+done < <(git tag --points-at HEAD 2>/dev/null || true)
 DESCRIBE="$(git describe "${DESCRIBE_ARGS[@]}" 2>/dev/null || echo unknown)"
+NEAREST_TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
 BUILD_NUMBER="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
 if [[ -n "$VERSION" ]]; then
     SHORT_VERSION="$VERSION"
-elif [[ "$DESCRIBE" =~ ^v?([0-9]+\.[0-9]+(\.[0-9]+)?)(-|$) ]]; then
+elif [[ "$NEAREST_TAG" =~ ^v?([0-9]+\.[0-9]+(\.[0-9]+)?)(-|$) ]]; then
     SHORT_VERSION="${BASH_REMATCH[1]}"
 else
     SHORT_VERSION="0.0.0"

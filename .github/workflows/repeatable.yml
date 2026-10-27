@@ -1,10 +1,11 @@
 # Checks that the release builds are repeatable (docs/RELEASING.md, Verifying a release). Not a
 # required status check: a failure here is a regression to fix, not a broken build.
 #
-#   Repeatable build (macOS)   build-app.sh (ad-hoc signed, as the release minus the Developer ID),
-#                              then verify-build.sh: the same commit built again in a second worktree
-#                              at another path of the same length, with the first build's signed tools,
-#                              must give the same bundle apart from the code signatures
+#   Repeatable build (macOS)   build-app.sh (ad-hoc signed, as the release minus the Developer ID) of
+#                              the commit with a version tag, then verify-build.sh: the same commit
+#                              built again in a second worktree at another path of the same length,
+#                              with the first build's signed tools, must give the same bundle apart
+#                              from the code signatures
 #   Repeatable build (Linux)   build-linux.sh twice in the release container, from two copies of the
 #                              checkout, must give the same tarball; on x86_64 only, the script and the
 #                              toolchain being the same on aarch64
@@ -57,10 +58,23 @@ jobs:
           brew install openvpn openfortivpn
           brew list --versions openvpn openfortivpn openssl@4 lz4 lzo pkcs11-helper
 
+      # A version tag on the commit (local, never pushed), as a release rebuilt at its tag has: the
+      # version comes from it, and PTGitDescribe must not, so that the rebuild below, given the
+      # version with --version, writes the same Info.plist.
+      - name: Tag the commit
+        run: git tag v99.0.0
+
       - name: Build
         env:
           PASSTUNNEL_ALLOW_UNPINNED_TOOLS: 1
-        run: scripts/build-app.sh
+        run: |
+          set -euo pipefail
+          scripts/build-app.sh
+          plist=build/PassTunnel.app/Contents/Info.plist
+          test "$(plutil -extract CFBundleShortVersionString raw "$plist")" = 99.0.0
+          describe="$(plutil -extract PTGitDescribe raw "$plist")"
+          echo "PTGitDescribe: $describe"
+          test "$describe" != v99.0.0
 
       - name: Build again and compare
         env:

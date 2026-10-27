@@ -450,8 +450,9 @@ earlier, at `--tools-from`. What it relies on:
   characters, the length of the release workflow's `/Users/runner/work/passtunnel/passtunnel`; a
   release built on a Mac needs `--path-length` with the length of its checkout's path.
 - **The version stamps.** `CFBundleVersion` is the commit count (a full clone, not a shallow one).
-  `PTGitDescribe` is `git describe` of the commit with a 12-digit hash and without the release's own
-  tag, which `release.sh` creates only after the build. `DTXcodeBuild` is the Xcode build.
+  `PTGitDescribe` is `git describe` of the commit with a 12-digit hash, leaving out the tags on the
+  commit itself, so it is the same before the release's tag exists (`release.sh` creates it after
+  the build) and at the tag. `DTXcodeBuild` is the Xcode build.
 
 `build-app.sh` links without a debug map (`-Xlinker -S`): the map named every object file by its
 absolute path in `.build` with its modification time, so two builds of the same checkout differed.
