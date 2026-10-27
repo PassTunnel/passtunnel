@@ -309,6 +309,7 @@ public struct HelperCore {
             let args = Self.openVPNArguments(configPath: configPath, mgmtSocket: socketPath, clientUser: clientUser,
                                              authFile: authPath, dnsUpdown: hookPath,
                                              verbosity: Self.openVPNVerbosity(sanitized),
+                                             tlsVersionMin: OVPNSanitizer.tlsVersionFloor(of: sanitized),
                                              hasDNSUpdown: openVPNHasDNSUpdown)
             let logFD = try dir.createLogFile(logName)
             return LaunchPlan(profileID: s.profileID, ownerUID: uid, tool: .openvpn, arguments: args,
@@ -357,8 +358,12 @@ public struct HelperCore {
     /// limited to OpenVPN's built-in commands and nothing changes DNS. A hook on OpenVPN 2.6 (only the
     /// Linux daemon's) runs as `--route-up`, whose failure OpenVPN logs without exiting, as 2.7 does for
     /// `--dns-updown`, and as `--down` before the device closes (`--down-pre`).
+    /// `--tls-version-min` (`tlsVersionMin`, from `OVPNSanitizer.tlsVersionFloor(of:)`: 1.2, or the config's
+    /// own 1.3) holds the TLS floor even for a spelling the sanitizer missed: OpenVPN reads the command line
+    /// and the file in order and the last `tls-version-min` wins, so this one, after `--config`, does.
     public static func openVPNArguments(configPath: String, mgmtSocket: String, clientUser: String,
                                         authFile: String?, dnsUpdown: String?, verbosity: Int = defaultVerbosity,
+                                        tlsVersionMin: [String] = [OVPNSanitizer.minimumTLSVersion],
                                         hasDNSUpdown: Bool = true) -> [String] {
         var args = ignoredPushPrefixes.flatMap { ["--pull-filter", "ignore", $0] }
         args += [
@@ -370,7 +375,8 @@ public struct HelperCore {
             "--auth-nocache",
             "--remap-usr1", "SIGTERM",
             "--connect-retry-max", "3",
-        ]
+            "--tls-version-min",
+        ] + tlsVersionMin
         if let authFile { args += ["--auth-user-pass", authFile] }
         if let dnsUpdown, hasDNSUpdown {
             args += ["--script-security", "2", "--dns-updown", dnsUpdown]

@@ -2848,6 +2848,73 @@
           "reason": "missing; without a server to connect to, OpenVPN waits for incoming connections"
         }
       ]
+    },
+    {
+      "name": "TLS settings at or above the 1.2 floor pass unchanged",
+      "config": "client\nremote vpn.example.com 1194\ntls-version-min 1.2 or-highest\ntls-version-max 1.3\ntls-cipher DEFAULT:!aNULL:!eNULL:-EXP:@SECLEVEL=2\ntls-ciphersuites TLS_AES_256_GCM_SHA384:TLS-CHACHA20-POLY1305-SHA256\ntls-cert-profile preferred\n",
+      "output": "client\nremote vpn.example.com 1194\ntls-version-min 1.2 or-highest\ntls-version-max 1.3\ntls-cipher DEFAULT:!aNULL:!eNULL:-EXP:@SECLEVEL=2\ntls-ciphersuites TLS_AES_256_GCM_SHA384:TLS-CHACHA20-POLY1305-SHA256\ntls-cert-profile preferred\n"
+    },
+    {
+      "name": "TLS settings below the 1.2 floor are refused, also behind setenv opt",
+      "config": "client\nremote vpn.example.com 1194\ntls-version-min 1.0\n--TLS-VERSION-MIN 1.1 or-highest\ntls-version-max 1.1\nsetenv opt tls-version-min 1.0\n",
+      "violations": [
+        {
+          "directive": "tls-version-min",
+          "line": 3,
+          "reason": "PassTunnel requires TLS 1.2 or later; only 1.2 or 1.3 is allowed"
+        },
+        {
+          "directive": "tls-version-min",
+          "line": 4,
+          "reason": "PassTunnel requires TLS 1.2 or later; only 1.2 or 1.3 is allowed"
+        },
+        {
+          "directive": "tls-version-max",
+          "line": 5,
+          "reason": "PassTunnel requires TLS 1.2 or later; only 1.2 or 1.3 is allowed"
+        },
+        {
+          "directive": "tls-version-min",
+          "line": 6,
+          "reason": "PassTunnel requires TLS 1.2 or later; only 1.2 or 1.3 is allowed"
+        }
+      ]
+    },
+    {
+      "name": "cipher lists that lower the security level to 0 or select suites without encryption, authentication or export suites are refused",
+      "config": "client\nremote vpn.example.com 1194\ntls-cipher DEFAULT:@SECLEVEL=0\ntls-cipher 'DEFAULT @seclevel=0'\ntls-cipher HIGH:eNULL\ntls-cipher TLS-DH-anon-WITH-AES-256-GCM-SHA384\ntls-ciphersuites TLS_SHA256_SHA256\ntls-cert-profile insecure\n",
+      "violations": [
+        {
+          "directive": "tls-cipher",
+          "line": 3,
+          "reason": "lowers OpenSSL's security level below 1, which allows TLS older than 1.2; only @SECLEVEL=1 to 5 is allowed"
+        },
+        {
+          "directive": "tls-cipher",
+          "line": 4,
+          "reason": "lowers OpenSSL's security level below 1, which allows TLS older than 1.2; only @SECLEVEL=1 to 5 is allowed"
+        },
+        {
+          "directive": "tls-cipher",
+          "line": 5,
+          "reason": "selects cipher suites without encryption or authentication, or export suites"
+        },
+        {
+          "directive": "tls-cipher",
+          "line": 6,
+          "reason": "selects cipher suites without encryption or authentication, or export suites"
+        },
+        {
+          "directive": "tls-ciphersuites",
+          "line": 7,
+          "reason": "only TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384, TLS_CHACHA20_POLY1305_SHA256 and TLS_AES_128_CCM_SHA256 are allowed"
+        },
+        {
+          "directive": "tls-cert-profile",
+          "line": 8,
+          "reason": "only legacy, preferred or suiteb is allowed; insecure allows TLS older than 1.2"
+        }
+      ]
     }
   ],
   "verbosity": [

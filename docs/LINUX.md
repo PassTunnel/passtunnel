@@ -118,7 +118,7 @@ The macOS rules apply where they make sense; these replace the ones built on cod
 - **OpenVPN** runs with the Mac's fixed flags (`--pull-filter ignore` for a pushed `verb` and
   `--server-poll-timeout 10` before the config, `--management <run>/mgmt.sock unix`,
   `--management-client-user`, `--auth-nocache`, `--remap-usr1 SIGTERM`, `--connect-retry-max 3`,
-  capped `--verb`; the same `HelperCore.openVPNArguments`), the sanitized config (`OVPNSanitizer`,
+  `--tls-version-min 1.2`, capped `--verb`; the same `HelperCore.openVPNArguments`), the sanitized config (`OVPNSanitizer`,
   unchanged: it also refuses a config that would wait for incoming connections, `proto tcp-server` or
   no `remote` at all, with the Mac's words) and `--script-security 2` with
   the DNS hook below, the only script it can run (the sanitizer removes every other). The management

@@ -737,16 +737,22 @@ Security rules (helper):
   one (exactly `remote`, with one leading `--` or one `setenv opt` prefix, 1–3 arguments, also in a
   `<connection>` block; without one OpenVPN waits for a peer to reach it: `OVPNSanitizer.missingRemote`,
   reported as line 0, which `Violation` and `OVPNSkipRules.Blocking` list without a line number),
-  external files incl. a `socks-proxy` credentials file, and, like OpenVPN's own parser, a backslash
-  outside single quotes that does not escape `\`, `"` or whitespace, or ends the line, and a line that
+  external files incl. a `socks-proxy` credentials file, TLS settings below the 1.2 floor (`tls-version-min`
+  other than `1.2`/`1.3` with an optional `or-highest`, `tls-version-max` other than `1.2`/`1.3`, a `tls-cipher`
+  whose `@SECLEVEL` is not exactly 1–5 or whose adding elements name `NULL`, `EXP`, `ADH`, `AECDH`, `anon` or
+  `COMPLEMENTOF`, `tls-ciphersuites` outside the four encrypting TLS 1.3 suites, `tls-cert-profile` other than
+  `legacy`, `preferred`, `suiteb`: `OVPNSanitizer.tlsReason`; they block an import), and, like OpenVPN's own
+  parser, a backslash outside single quotes that does not escape `\`, `"` or whitespace, or ends the line, and a line that
   starts with a byte order mark anywhere but at the start of the file; strips `static-challenge`; the same
   check for every config, also those whose import commented out refused lines, `OVPNSkipRules`), writes
   the sanitized copy and the auth file into the session's run directory, then runs openvpn with fixed flags (`--management <runDir>/mgmt.sock unix`
   `--management-client-user <caller's user name>` so only the calling user can talk to it, no
   `--management-hold`; `--verb N` with the config's last `verb` capped at 4, 3 when it sets none
   (`HelperCore.openVPNVerbosity`, from `OVPNSanitizer.verbosity(of:)`); `--auth-nocache`,
-  `--remap-usr1 SIGTERM`, `--connect-retry-max 3`, stdout/stderr to logPath). Only the pull filters
-  and `--server-poll-timeout 10` come before `--config`. `--pull-filter ignore` for each of
+  `--remap-usr1 SIGTERM`, `--connect-retry-max 3`, `--tls-version-min 1.2` (`1.3`, with `or-highest` if given,
+  when the config's last `tls-version-min` is 1.3: `OVPNSanitizer.tlsVersionFloor(of:)`, so it never lowers the
+  config; OpenVPN takes the last `tls-version-min` it reads, and this one follows `--config`, so it holds even for a
+  spelling the sanitizer missed), stdout/stderr to logPath). Only the pull filters and `--server-poll-timeout 10` come before `--config`. `--pull-filter ignore` for each of
   `HelperCore.ignoredPushPrefixes` (`verb`, `"verb`, `'verb`, `\`) drops a pushed `verb`, which would
   otherwise raise the capped level after connecting: OpenVPN compares the start of each pushed option
   (after leading whitespace) with the filters in the order it read them, the command line up to

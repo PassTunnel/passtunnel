@@ -201,11 +201,12 @@ FortiGate, stop, and status. It enforces the following rules on every request.
 - OpenVPN gets fixed flags after `--config`, so they override anything left in the file:
   `--management <run directory>/mgmt.sock unix`, `--management-client-user <your user name>`,
   `--verb` (the configuration's `verb`, at most 4; 3 when it sets none), `--auth-nocache`,
-  `--remap-usr1 SIGTERM`, `--connect-retry-max 3`, and explicit `--script-security`/`--dns-updown`
-  settings. The cap keeps OpenVPN's debug levels (from 5 every packet, from 7 the data-channel keys,
-  from 9 packet contents) out of the log, which you, the app and `get_logs` can read. Only
-  `--server-poll-timeout 10` (how long a server that does not answer is waited for) comes before
-  `--config`, as a default the configuration may change.
+  `--remap-usr1 SIGTERM`, `--connect-retry-max 3`, `--tls-version-min 1.2` (`1.3` when the
+  configuration asks for 1.3, so the flag never lowers it), and explicit
+  `--script-security`/`--dns-updown` settings. The cap keeps OpenVPN's debug levels (from 5 every
+  packet, from 7 the data-channel keys, from 9 packet contents) out of the log, which you, the app
+  and `get_logs` can read. Only `--server-poll-timeout 10` (how long a server that does not answer is
+  waited for) comes before `--config`, as a default the configuration may change.
 - **Management over a per-user unix socket.** The management interface is a unix socket in the
   session's root-owned run directory, not a TCP port. OpenVPN only serves the user named in
   `--management-client-user` (peer credential check). Once the socket exists, the helper also
@@ -280,6 +281,28 @@ dev NAME                     (unless NAME is tun, tap, utun or null, optionally 
 proto, proto-force P         (when P is tcp-server, tcp4-server or tcp6-server)
 remote, local … P            (the same protocols as the third argument)
 ```
+
+**TLS 1.2 is the floor.** These are rejected too, so a configuration cannot make OpenVPN accept a
+control channel older than TLS 1.2 or weaken OpenSSL's checks:
+
+```
+tls-version-min V [or-highest]   (unless V is 1.2 or 1.3; or-highest only as the second word)
+tls-version-max V                (unless V is 1.2 or 1.3)
+tls-cipher L                     (when an @SECLEVEL in L is not exactly @SECLEVEL=1 to 5, or an
+                                  element that adds suites names NULL, EXP, ADH, AECDH, anon or
+                                  COMPLEMENTOF…, in any case; elements starting with ! or - may)
+tls-ciphersuites L               (unless every suite is TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384,
+                                  TLS_CHACHA20_POLY1305_SHA256 or TLS_AES_128_CCM_SHA256; - for _ is fine)
+tls-cert-profile P               (unless P is legacy, preferred or suiteb: insecure is level 0)
+```
+
+OpenSSL allows TLS 1.0 and 1.1, and suites without encryption or authentication, only at security
+level 0, which `@SECLEVEL=0` or `tls-cert-profile insecure` selects; OpenVPN's default profile,
+`legacy`, is level 1, so `@SECLEVEL=1` stays allowed. With the bundled OpenVPN 2.7 and OpenSSL 4, a
+configuration with `tls-version-min 1.0` and `tls-cipher DEFAULT:@SECLEVEL=0` connects with TLS 1.1;
+either line alone does not. Whatever the configuration says, the helper also passes
+`--tls-version-min 1.2` after it (the last value wins in OpenVPN), so the floor holds even for a
+spelling the sanitizer missed.
 
 The list was checked against the option parser of OpenVPN 2.4 to 2.7. A configuration cannot make
 OpenVPN a server, run one of its standalone commands or wait for incoming connections, and a device
@@ -366,6 +389,9 @@ Everything else the sanitizer refuses blocks the file, in particular:
   `help`, `version`, `test-crypto`, the `show-…` listings, `allow-nonadmin`;
 - `memstats`, `setcon`, `win-sys`, `service`, `msg-channel`, and a `dev` name that is not a device
   type;
+- a TLS setting below the [floor](#openvpn-configuration-sanitizer) (`tls-version-min` or
+  `tls-version-max` below 1.2, `@SECLEVEL=0`, suites without encryption or authentication,
+  `tls-cert-profile insecure`): leaving it out would change which servers the profile can reach;
 - anything that makes OpenVPN wait for incoming connections: a listening protocol (`tcp-server`,
   `tcp4-server`, `tcp6-server` in `proto`, `proto-force`, `remote` or `local`) and a file without any
   `remote`, which is listed without a line number;
@@ -578,7 +604,7 @@ Network.framework), swift-crypto on Linux, the bundled tools' OpenSSL and Sparkl
 
 | Use | What | Where |
 |---|---|---|
-| VPN tunnels | TLS and the data channel are done by the bundled `openvpn` and `openfortivpn` with their OpenSSL. PassTunnel passes no TLS version or cipher option (`tls-version-min`, `tls-cipher`, `--min-tls`, `--insecure-ssl`, `--cipher-list`) to either tool; the tools' defaults and, for OpenVPN, the imported configuration decide. The bundled OpenVPN 2.7 with OpenSSL 4 refuses TLS older than 1.2 by default, but the [sanitizer](#openvpn-configuration-sanitizer) does not reject `tls-version-min`, `tls-version-max` or `tls-cipher`, so a configuration that sets `tls-version-min 1.0` and a `tls-cipher` list with `@SECLEVEL=0` can make OpenVPN accept TLS 1.0 or 1.1 (the behavior of upstream OpenVPN; import only configurations you trust). For FortiGate the helper writes none of the TLS options, and openfortivpn disables insecure protocols unless asked with `--insecure-ssl`, which PassTunnel never passes. The tools verify the gateway certificate against the system CA bundle (`/etc/ssl/cert.pem`, fixed by the helper) or a trusted SHA-256 certificate digest in the profile | [How FortiGate is started](#how-fortigate-is-started) |
+| VPN tunnels | TLS and the data channel are done by the bundled `openvpn` and `openfortivpn` with their OpenSSL. OpenVPN's control channel uses TLS 1.2 or later: the helper passes `--tls-version-min 1.2` after the configuration (1.3 when the configuration asks for it), and the [sanitizer](#openvpn-configuration-sanitizer) refuses a configuration that sets `tls-version-min` or `tls-version-max` below 1.2, lowers OpenSSL's security level to 0 (`@SECLEVEL=0` in `tls-cipher`, `tls-cert-profile insecure`) or selects suites without encryption or authentication. Within that, the configuration's cipher settings and OpenSSL's defaults decide. For FortiGate the helper writes none of the TLS options, and openfortivpn disables insecure protocols unless asked with `--insecure-ssl`, which PassTunnel never passes. The tools verify the gateway certificate against the system CA bundle (`/etc/ssl/cert.pem`, fixed by the helper) or a trusted SHA-256 certificate digest in the profile | [How OpenVPN is started](#how-openvpn-is-started), [How FortiGate is started](#how-fortigate-is-started) |
 | Gateway clock probe, *Fetch fingerprint* | TLS through Network.framework with the system's default protocol versions (the code sets none). The clock probe accepts the certificate only when its SHA-256 digest is the profile's trusted one or the system trusts it for that name, and sends no credentials, user name or cookie. *Fetch fingerprint* trusts nothing: it aborts the handshake right after reading the digest, which you confirm before saving | [Network connections](#network-connections) |
 | App updates | HTTPS download of the feed and archives from GitHub (Sparkle's URLSession under App Transport Security, which is on with no exceptions in `Info.plist`, so TLS 1.2 or later); the feed and each archive are also signed with an EdDSA (Ed25519) key and refused without a valid signature | [Updates](#updates) |
 | Releases | Developer ID code signatures with the hardened runtime, notarization, build provenance attestations (Sigstore) | [docs/RELEASING.md](docs/RELEASING.md) |
@@ -594,7 +620,7 @@ where the server supports them. There is no CBC mode, MD5 or SSL in PassTunnel's
 
 **Algorithm agility.** Choices that can be broken are not hard-wired in a way that needs a rewrite:
 the TOTP algorithm, digits and period are per profile; the VPN ciphers and TLS settings belong to the
-tools and the configuration, and bundled tools are updated like any release; secret envelopes carry
+tools and the configuration (above the TLS 1.2 floor), and bundled tools are updated like any release; secret envelopes carry
 a version prefix (`ptse1:`), and the Linux file store a version and a KDF identifier, so a stronger
 format can be introduced and old data read; a new hash for pins would be a new release of the
 helper.

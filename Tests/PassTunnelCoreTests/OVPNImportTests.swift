@@ -126,6 +126,24 @@ final class OVPNImportTests: CoreTestCase {
                        "line 1: management-external-key (the private key would come from another program)")
     }
 
+    /// A line that lowers TLS below 1.2 blocks the file: leaving it out would change which servers the
+    /// profile can reach, so the user decides. Safe values import unchanged.
+    func testTLSFloorLinesBlock() throws {
+        for line in ["tls-version-min 1.0", "tls-version-min 1.1 or-highest", "tls-version-max 1.1",
+                     "tls-cipher DEFAULT:@SECLEVEL=0", "tls-cipher eNULL", "tls-ciphersuites TLS_SHA256_SHA256",
+                     "tls-cert-profile insecure", "setenv opt tls-version-min 1.0"] {
+            let r = try report("client\n\(line)\nremote vpn.example.com\n")
+            XCTAssertEqual(r.skipped, [], line)
+            XCTAssertEqual(r.blocking.map(\.line), [2], line)
+            XCTAssertNil(r.config, line)
+        }
+        XCTAssertEqual(try report("client\ntls-version-min 1.0\nremote vpn.example.com\n").blocking.first?.description,
+                       "line 2: tls-version-min (\(OVPNSanitizer.tlsVersionReason))")
+        let safe = "client\ntls-version-min 1.2 or-highest\ntls-cipher DEFAULT:@SECLEVEL=2\ntls-cert-profile preferred\n"
+            + "remote vpn.example.com\n"
+        XCTAssertEqual(try report(safe).config, safe)
+    }
+
     func testScriptSecurity() throws {
         for keep in ["script-security 1", "script-security 0", "script-security -1"] {
             let r = try report("client\n\(keep)\nremote vpn.example.com\n")

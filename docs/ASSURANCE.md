@@ -41,7 +41,7 @@ release files.
 | Attacker | Goal | Handled by |
 |---|---|---|
 | Another local program or user, not root | Get root through the helper or daemon; steer the tools; read another user's tunnel | helper checks: [SECURITY.md](../SECURITY.md#the-privileged-helper) |
-| A configuration file from an untrusted source (downloaded `.ovpn`, shared `.passtunnel`) | Run code or read files as root at connect | [sanitizer](../SECURITY.md#openvpn-configuration-sanitizer), [import review](../SECURITY.md#importing-an-openvpn-configuration) |
+| A configuration file from an untrusted source (downloaded `.ovpn`, shared `.passtunnel`) | Run code or read files as root at connect; lower the control channel below TLS 1.2 | [sanitizer](../SECURITY.md#openvpn-configuration-sanitizer), [import review](../SECURITY.md#importing-an-openvpn-configuration) |
 | A malicious or compromised VPN server or gateway | Push options that raise log levels or change local behavior; return hostile data | fixed flags and `--pull-filter` ([SECURITY.md](../SECURITY.md#how-openvpn-is-started)), typed FortiGate fields, certificate pinning by digest |
 | A network attacker | Impersonate the gateway, the update feed or a release download | TLS verification in the tools; signed feed and archives; [provenance](RELEASING.md#checking-the-provenance) |
 | A person at the unlocked Mac | Connect or read codes with one click | [Confirm with Touch ID](../SECURITY.md#confirm-with-touch-id-secure-enclave) |
