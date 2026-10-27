@@ -13,7 +13,8 @@
 #
 # An SDK's stubs (.tbd) tell what a library exports on the SDK's own macOS version, not since when. So
 # the lists for VERSION come from the SDK of exactly that version or, when there is none at hand, from
-# the SDKs just before and just after it: what both export is there on VERSION too. A list holds the
+# the SDKs just before and just after it: what both export is there on VERSION too. An SDK for VERSION
+# or older is required (one older alone gives a list that is merely short). A list holds the
 # library's exports and those of the libraries it re-exports (libSystem: libsystem_c, libsystem_kernel,
 # …), one symbol per line, sorted, linker directives ($ld$hide$…) left out. VERSION/SOURCES records the
 # SDKs and the checksums of the stubs read. Needs llvm-readtapi (Xcode 16 or later) and jq.
@@ -21,6 +22,14 @@ set -euo pipefail
 export LC_ALL=C
 
 die() { echo "error: $*" >&2; exit 1; }
+# True when version $1 is lower than $2 (13.0 < 13.1, 13.1 < 13.1.1).
+version_lt() {
+    awk -v a="$1" -v b="$2" 'BEGIN {
+        n = split(a, x, "."); m = split(b, y, ".")
+        for (i = 1; i <= 3; i++) { p = (i <= n) ? x[i] + 0 : 0; q = (i <= m) ? y[i] + 0 : 0; if (p != q) exit !(p < q) }
+        exit 1
+    }'
+}
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VERSION="${1:-}"
@@ -91,11 +100,17 @@ for sdk in "${SDKS[@]}"; do
     [[ -n "$sdk_version" ]] || die "$sdk/SDKSettings.json has no Version"
     echo "$(basename "$sdk") (${name:-?}, macOS $sdk_version)" >> "$WORK/SOURCES"
 done
-if ((${#SDKS[@]} == 1)); then
-    v="$(jq -r .Version "${SDKS[0]}/SDKSettings.json")"
-    [[ "$v" == "$VERSION" || "$v" == "$VERSION.0" ]] \
-        || die "the SDK is for macOS $v, not $VERSION; give the SDKs just before and after $VERSION instead"
-fi
+# A list must not hold a symbol VERSION may lack: at least one SDK must be for VERSION or older (what an
+# older SDK exports is there on VERSION too; a newer one alone may add symbols). A newer SDK only
+# narrows the list to what both export.
+oldest=""
+for sdk in "${SDKS[@]}"; do
+    v="$(jq -r .Version "$sdk/SDKSettings.json")"
+    [[ "$v" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] || die "$sdk/SDKSettings.json: unexpected Version $v"
+    if [[ -z "$oldest" ]] || version_lt "$v" "$oldest"; then oldest="$v"; fi
+done
+version_lt "$VERSION" "$oldest" \
+    && die "every SDK is newer than macOS $VERSION (the oldest is $oldest): give one for $VERSION or older (with the next one after it, both are read)"
 
 rm -rf "$OUT"
 mkdir -p "$OUT"

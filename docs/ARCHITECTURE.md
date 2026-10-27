@@ -38,11 +38,14 @@ A bundle without `dns-updown` pins an empty set for it, so the helper refuses an
 for that; it stops a tool at launch (`dyld[…]: Symbol not found: _x … (built for macOS 26.0 which is
 newer than running OS)`, exit 134) when the tool or one of its dylibs imports a symbol the running macOS
 lacks. So `bundle-tools.sh` ends with `scripts/check-tool-symbols.sh`: every symbol a bundled tool or
-dylib imports from a macOS library (`nm -m`, two-level namespace) must be in that library's list in
+dylib imports from a macOS library (what dyld binds, `dyld_info -imports`: the chained fixups or bind
+opcodes, plus `nm -m`'s undefined symbols; two-level namespace) must be in that library's list in
 `scripts/system-symbols/<version>/` for the file's minimum, or the build fails. A tool's minimum is the
 app's, or a later one in `TOOL_MINIMUMS` for a tool the app refuses below it (openconnect: 15.4, below);
-a dylib's is the lowest of the tools that load it. Weak imports of macOS symbols are refused unless
-listed (`WEAK_IMPORTS`, empty), and so are flat-namespace lookups and macOS libraries without a list.
+a dylib's is the lowest of the tools that load it. Also refused: weak imports of macOS symbols unless
+listed (`WEAK_IMPORTS`, empty), flat-namespace lookups, a macOS library loaded (not weakly) without a
+list even when nothing is imported from it, a bundled dylib that re-exports a macOS library or symbol
+(none does, also in the openconnect closure), and any bundled load path other than the layout above.
 The lists are what each library and the libraries it re-exports export for `arm64` (libSystem with
 `libsystem_c`, `libsystem_kernel`, …), taken once from older SDKs' stubs (`.tbd`), since the current
 SDK's stubs say what exists now, not since when: 13.0 from the macOS 12.3 and 13.1 SDKs (Xcode 13.3
@@ -52,8 +55,9 @@ version's directory names the SDKs and the stubs' checksums; `scripts/make-syste
 writes them again (docs/RELEASING.md, Bundled tools). CI's `Bundled tools on macOS 15` job also runs
 each bundled tool with `--version` on the oldest arm64 runner.
 
-At run time the same failure is recognized in the session log (`VPNLog.toolLoadFailure`, a fatal
-marker): the connect ends at once with `PTError.toolUnsupported` ("This VPN tool does not run on this
+At run time the same failure is recognized in the session log (`VPNLog.toolLoadFailure`): dyld's
+line as the log's first (it comes before anything the tool writes; later lines can be a server's words,
+which openfortivpn prints) and the tool gone. The connect then ends with `PTError.toolUnsupported` ("This VPN tool does not run on this
 version of macOS (Symbol not found: _strchrnul). Check for a PassTunnel update.") and the failure
 kind `tool_unsupported`, not the generic "could not be established". On the Mac, `diagnose` (CLI and
 MCP) runs each tool of the app bundle with `--version` (`BundledTools`: as the user, not through the

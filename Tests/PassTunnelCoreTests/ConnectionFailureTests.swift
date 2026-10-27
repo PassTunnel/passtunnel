@@ -232,12 +232,17 @@ final class ConnectionFailureTests: XCTestCase {
         XCTAssertEqual(kind("openfortivpn macOS, refused"), kind("openfortivpn Linux, timed out"))
     }
 
-    /// dyld stopping the tool is fatal (the connect ends at once) and tells nothing about the server.
-    func testDyldStoppingTheToolIsFatal() {
+    /// dyld's lines count only as the log's first (it writes them before the tool can write anything):
+    /// later ones can be a server's words, which openfortivpn prints. Not a fatal marker either: the
+    /// connect takes it only once the tool is gone (`ConnectionManagerTests`).
+    func testDyldStoppingTheToolIsTheFirstLine() {
         let symbol = Self.fixtures.first { $0.name == "dyld, a symbol this macOS lacks" }!.log
-        XCTAssertTrue(VPNLog.isFatal(symbol))
+        XCTAssertFalse(VPNLog.isFatal(symbol))
         XCTAssertFalse(VPNLog.attempted(symbol) && VPNLog.credentialsSent(symbol))
-        XCTAssertEqual(VPNLog.toolLoadFailure("PassTunnel: started\n" + symbol), "Symbol not found: _strchrnul")
+        XCTAssertEqual(VPNLog.toolLoadFailure("\n  \n" + symbol), "Symbol not found: _strchrnul")
+        XCTAssertNil(VPNLog.toolLoadFailure("INFO:   Connected to gateway.\n" + symbol), "a server's words")
+        XCTAssertNotEqual(VPNLog.verdict("INFO:   Connected to gateway.\n" + symbol)?.kind, .toolUnsupported)
+        XCTAssertNil(VPNLog.toolLoadFailure("PassTunnel: something\n" + symbol))
         XCTAssertNil(VPNLog.toolLoadFailure("dyld[12]: some other note\n"))
         XCTAssertNil(VPNLog.toolLoadFailure("dyld[x]: Symbol not found: _a\n"), "not dyld's prefix")
         XCTAssertNil(VPNLog.toolLoadFailure("libdyld: Symbol not found: _a\n"))

@@ -434,7 +434,8 @@ on the oldest arm64 runner.
 The symbol lists in `scripts/system-symbols/<version>/` come from SDKs of that macOS version
 (`SOURCES` names them, with the checksums of the stubs read). When a tool starts to load another macOS
 library ("has no symbol list"), or a tool needs a list for another version, write them with an SDK of
-that version, or with the SDKs just before and after it (a symbol is then listed when both export it):
+that version, or with the SDKs just before and after it (a symbol is then listed when both export it;
+the script refuses a set of SDKs that are all newer than the version):
 
 ```sh
 scripts/make-system-symbols.sh 13.0 MacOSX12.3.sdk MacOSX13.1.sdk -- /usr/lib/libSystem.B.dylib \

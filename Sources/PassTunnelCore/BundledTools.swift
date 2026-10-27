@@ -71,7 +71,8 @@ public enum BundledTools {
             return ToolCheck(name: name, ok: false, problem: String(localized: "It could not be started."))
         }
         let text = String(decoding: result.output + result.errorOutput, as: UTF8.self)
-        if let reason = VPNLog.toolLoadFailure(text) {
+        // dyld aborts the tool (SIGABRT, 128 + 6) after its lines.
+        if result.status > 128, let reason = VPNLog.toolLoadFailure(String(decoding: result.errorOutput, as: UTF8.self)) {
             return ToolCheck(name: name, ok: false, problem: PTError.toolUnsupported(reason: reason, log: "").localizedDescription)
         }
         let first = text.split(whereSeparator: \.isNewline).lazy

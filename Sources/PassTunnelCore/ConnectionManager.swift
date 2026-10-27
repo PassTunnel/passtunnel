@@ -1366,10 +1366,11 @@ public final class ConnectionManager: ObservableObject {
             log: tail)
     }
 
-    /// Why a tool that stopped on its own (or with a fatal error) ended: dyld did not let it start on this
-    /// macOS (`toolUnsupported`), the server was not reached (`unreached`), else `connectFailed`.
-    private func ended(_ p: Profile, log: String) -> PTError {
-        if let reason = VPNLog.toolLoadFailure(log) { return .toolUnsupported(reason: reason, log: VPNLog.tail(log)) }
+    /// Why a tool that stopped on its own (`exited`) or showed a fatal error ended: dyld did not let it
+    /// start on this macOS (`toolUnsupported`, only once it is gone: dyld aborts it), the server was not
+    /// reached (`unreached`), else `connectFailed`.
+    private func ended(_ p: Profile, log: String, exited: Bool) -> PTError {
+        if exited, let reason = VPNLog.toolLoadFailure(log) { return .toolUnsupported(reason: reason, log: VPNLog.tail(log)) }
         return unreached(p, log: log) ?? .connectFailed(VPNLog.tail(log))
     }
 
@@ -1408,7 +1409,7 @@ public final class ConnectionManager: ObservableObject {
             }
             if VPNLog.isFatal(log) {
                 if owned { await stopQuietly(id) }
-                throw ended(p, log: log)
+                throw ended(p, log: log, exited: false)
             }
             try await checkSetup(p, log: log, owned: owned)
             if VPNLog.authAccepted(log) { noteAccepted() }
@@ -1448,7 +1449,7 @@ public final class ConnectionManager: ObservableObject {
                     if hasUserStoppedMarker(id) { throw PTError.connectCancelled }
                     let final = VPNLog.read(logURL)
                     if VPNLog.isAuthFailure(final) { throw PTError.authFailed(VPNLog.tail(final)) }
-                    throw ended(p, log: final)
+                    throw ended(p, log: final, exited: true)
                 }
             }
             if clock.now().timeIntervalSince(started) >= timeout {

@@ -99,6 +99,8 @@ final class FakeHelper: HelperClienting, @unchecked Sendable {
     var openVPNStateLine: ((Date) -> String)? = { LoopingManagementServer.connectedLine(since: $0) }
     /// Log written when a tool starts.
     var startLog = ""
+    /// A started tool is gone at once (as one dyld aborts at launch).
+    var exitAtStart = false
     /// Delays (seconds) for the next `status` calls, consumed in order.
     var statusDelays: [TimeInterval] = []
     /// Runs when a start request arrives, before the tool "starts" (e.g. to edit files meanwhile).
@@ -174,6 +176,10 @@ final class FakeHelper: HelperClienting, @unchecked Sendable {
                 let server = LoopingManagementServer(path: sock, stateLine: line(Date()), onStateQuery: onQuery)
                 locked { servers[s.profileID] = server }
             }
+            if locked({ exitAtStart }) {
+                simulateExit(s.profileID)
+                return .success(pid: 4242, mgmtSocket: sock)
+            }
             locked {
                 _running[s.profileID] = 4242; sockets[s.profileID] = sock
             }
@@ -181,7 +187,7 @@ final class FakeHelper: HelperClienting, @unchecked Sendable {
         case .startForti(let s):
             if let failure = takeFailure() { return failure }
             write(startLog, to: s.logPath)
-            locked { _running[s.profileID] = 4343 }
+            if !locked({ exitAtStart }) { locked { _running[s.profileID] = 4343 } }
             return .success(pid: 4343)
         case .stop(let id):
             // Like the helper: the pid only when something was running.
@@ -1797,6 +1803,7 @@ final class ConnectionManagerTests: XCTestCase {
     /// with its own error and failure kind, for OpenVPN and openfortivpn alike, and nothing counts as sent.
     func testAToolThatDoesNotRunOnThisMacOS() async throws {
         helper.openVPNStateLine = nil
+        helper.exitAtStart = true
         helper.startLog = """
             dyld[4242]: Symbol not found: _strchrnul
               Referenced from: <3C3A9F0E-1D6B-3C2E-9E4A-0B6E1C9A7F21> /var/run/passtunnel/run/Frameworks/libidn2.0.dylib (built for macOS 26.0 which is newer than running OS)
@@ -1826,6 +1833,32 @@ final class ConnectionManagerTests: XCTestCase {
                 p.name)
             XCTAssertEqual(m.state(p.id), .disconnected, p.name)
         }
+    }
+
+    /// dyld's words where a server could have put them (after the tool's own output), or a tool that keeps
+    /// running: not a reason to fail a connect.
+    func testDyldLinesFromElsewhereDoNotFailAConnect() async throws {
+        let dyld = "dyld[4242]: Symbol not found: _strchrnul\n"
+        let m = makeManager()
+        let p = try makeOpenVPN()
+        for log in [
+            "2026-10-25 09:41:00 OpenVPN 2.7.8 aarch64-apple-darwin25.6.0 [SSL (OpenSSL)]\n" + dyld,
+            dyld + "2026-10-25 09:41:00 OpenVPN 2.7.8 aarch64-apple-darwin25.6.0 [SSL (OpenSSL)]\n"
+        ] {
+            helper.startLog = log
+            try await m.connect(p.id)
+            XCTAssertTrue(m.state(p.id).isConnected, log)
+            XCTAssertNil(m.failures[p.id], log)
+            _ = try await m.disconnect(p.id)
+        }
+        // A tool that exits with dyld's words after its own: a plain failure.
+        helper.openVPNStateLine = nil
+        helper.exitAtStart = true
+        helper.startLog = "2026-10-25 09:41:00 OpenVPN 2.7.8 aarch64-apple-darwin25.6.0\n" + dyld
+        do { try await m.connect(p.id); XCTFail("connected") } catch {
+            XCTAssertEqual(error as? PTError, .connectFailed(VPNLog.tail(helper.startLog)))
+        }
+        XCTAssertEqual(m.failures[p.id]?.kind, .failed)
     }
 
     /// The tool tried and nothing answered within the connect's limit: unreachable, not a plain timeout.

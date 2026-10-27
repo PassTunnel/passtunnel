@@ -586,30 +586,32 @@ public enum VPNLog {
 
     /// True when the log shows a non-authentication error the tool will not recover from.
     public static func isFatal(_ text: String) -> Bool {
-        fatalMarkers.contains { text.contains($0) } || toolLoadFailure(text) != nil
+        fatalMarkers.contains { text.contains($0) }
     }
 
     /// dyld stopped the tool before it ran (exit 134), as it writes on its standard error, which the
     /// helper sends to the log: "dyld[123]: Symbol not found: _strchrnul" (followed by "Referenced from:
     /// … (built for macOS 26.0 which is newer than running OS)") for a symbol this macOS lacks, or
     /// "dyld[123]: Library not loaded: /usr/lib/…" for a library; "dyld: …" before macOS 12. → "Symbol
-    /// not found: _strchrnul". dlopen errors (OpenVPN plugins) do not start with "dyld".
+    /// not found: _strchrnul". Only as the log's first line: dyld writes it before the tool can write
+    /// anything, and later lines can be a server's words (openfortivpn prints the gateway's prompts).
+    /// Callers also need the tool to have exited (dyld aborts it): it is not a fatal marker. dlopen errors
+    /// (OpenVPN plugins) do not start with "dyld".
     public static func toolLoadFailure(_ text: String) -> String? {
-        for raw in text.split(whereSeparator: \.isNewline) {
-            var line = raw.drop { $0 == " " || $0 == "\t" }
-            guard line.hasPrefix("dyld") else { continue }
-            line = line.dropFirst(4)
-            if line.hasPrefix("[") {
-                guard let close = line.firstIndex(of: "]"), line[line.index(after: line.startIndex)..<close].allSatisfy(\.isNumber)
-                else { continue }
-                line = line[line.index(after: close)...]
-            }
-            guard line.hasPrefix(": ") else { continue }
-            let message = line.dropFirst(2).trimmingCharacters(in: .whitespaces)
-            if message.hasPrefix("Symbol not found") || message.hasPrefix("Library not loaded") {
-                return String(message.prefix(300))
-            }
+        guard let first = text.split(whereSeparator: \.isNewline).first(where: { !$0.allSatisfy(\.isWhitespace) }) else {
+            return nil
         }
-        return nil
+        var line = first.drop { $0 == " " || $0 == "\t" }
+        guard line.hasPrefix("dyld") else { return nil }
+        line = line.dropFirst(4)
+        if line.hasPrefix("[") {
+            guard let close = line.firstIndex(of: "]"), line[line.index(after: line.startIndex)..<close].allSatisfy(\.isNumber)
+            else { return nil }
+            line = line[line.index(after: close)...]
+        }
+        guard line.hasPrefix(": ") else { return nil }
+        let message = line.dropFirst(2).trimmingCharacters(in: .whitespaces)
+        guard message.hasPrefix("Symbol not found") || message.hasPrefix("Library not loaded") else { return nil }
+        return String(message.prefix(300))
     }
 }
