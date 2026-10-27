@@ -91,7 +91,10 @@ EOF
 
 cd "$ROOT"
 swift --version
-BUILD=(swift build -c release --static-swift-stdlib -Xswiftc -DPASSTUNNEL_BUILD_VERSION)
+# No debug information (strip removes it below anyway): Swift's named the Clang modules it imports by
+# their signatures in the module cache, which differ from one build to the next, and the linker's build
+# ID, which strip keeps, is a hash over all of it.
+BUILD=(swift build -c release --static-swift-stdlib -debug-info-format none -Xswiftc -DPASSTUNNEL_BUILD_VERSION)
 "${BUILD[@]}" --product passtunnel
 "${BUILD[@]}" --product passtunneld
 BIN="$("${BUILD[@]}" --show-bin-path)"

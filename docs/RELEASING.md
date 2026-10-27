@@ -461,10 +461,14 @@ of every pull request and push, and builds the Linux tarball twice, from two cop
 the two.
 
 The [Linux tarball](#linux-tarball) is repeatable as well: `build-linux.sh` in the documented
-container (the checkout mounted at `/src`, which is part of the binaries' file names) gives the same
-tarball for the same commit, version and build number, with the files in name order, owned by root
-and dated at the commit (or `SOURCE_DATE_EPOCH`), and gzip without a name or time stamp. Check one
-by building it again and comparing the SHA-256 digests.
+container, with the checkout mounted at `/src`, gives the same tarball for the same commit, version
+and build number. The fixed `/src` matters as on the Mac (the path is in BoringSSL's file names and
+its length in Swift's code). The files are in name order, owned by root and dated at the commit (or
+`SOURCE_DATE_EPOCH`), gzip writes no name or time stamp, and the build makes no debug information
+(`-debug-info-format none`): Swift's named the Clang modules by their signatures in the module
+cache, which change from one build to the next, and although `strip --strip-debug` removed it, the
+build ID (a hash the linker computes over everything, debug information included) differed. Check a tarball by building it again and
+comparing the SHA-256 digests.
 
 ## Local test runs
 
