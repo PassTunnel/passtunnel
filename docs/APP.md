@@ -290,6 +290,10 @@ The main window (`MainSplitView`, decision D-23) is a `NavigationSplitView`, abo
   fields, with the TOTP pre-filled when available.
 - **Context menu** of a sidebar row (`ProfileMenuItems`): Edit…, Copy Code, Copy Password + Code, Share… (export
   `.passtunnel`), Show Log, Pin to Menu Bar, Default Profile, Delete….
+- **A profile of a newer VPN type** (`UnsupportedProfile`: its `type` is not one this version knows) is listed under the
+  others with "Needs a newer PassTunnel" in amber (`UnsupportedSidebarRow`). Its detail says so and offers only
+  Delete… (so does its context menu); it is not in the menu bar, cannot be edited, shared, made the default or
+  connected, and its file is kept as it is.
 - **Drag & drop** onto the window: `.ovpn`, `.conf`, `.passtunnel`, or an image containing a QR code (while an import
   is under review, its code secret). A QR code that no profile can take (dropped, or File → Add Code from QR…)
   starts a new profile like "Use a QR image" in the add view (`ScannedCodeTarget`).

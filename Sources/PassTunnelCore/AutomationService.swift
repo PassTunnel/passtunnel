@@ -37,6 +37,7 @@ public final class AutomationService {
         if withState { await manager.refresh() }
         let def = store.defaultID
         return store.list().map { ProfileSummary($0, isDefault: $0.id == def, state: withState ? manager.state($0.id) : nil) }
+            + store.listUnsupported().map { ProfileSummary($0, isDefault: $0.id == def) }
     }
 
     public func summary(_ p: Profile) -> ProfileSummary {
