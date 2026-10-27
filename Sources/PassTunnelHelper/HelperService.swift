@@ -1,6 +1,6 @@
 import Foundation
-import os
 import PassTunnelShared
+import os
 
 /// Exported XPC object; one per connection.
 final class HelperService: NSObject, PassTunnelHelperProtocol {
@@ -57,8 +57,9 @@ final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
         // Messages from clients that do not satisfy the requirement invalidate the connection.
         connection.setCodeSigningRequirement(PT.clientRequirement)
         connection.exportedInterface = NSXPCInterface(with: PassTunnelHelperProtocol.self)
-        connection.exportedObject = HelperService(supervisor: supervisor, callerUID: connection.effectiveUserIdentifier,
-                                                  buildID: buildID, buildNumber: buildNumber)
+        connection.exportedObject = HelperService(
+            supervisor: supervisor, callerUID: connection.effectiveUserIdentifier,
+            buildID: buildID, buildNumber: buildNumber)
         connection.resume()
         log.info("connection from pid \(connection.processIdentifier), uid \(connection.effectiveUserIdentifier)")
         return true

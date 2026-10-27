@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+
 @testable import PassTunnelCore
 @testable import PassTunnelKit
 
@@ -9,10 +10,13 @@ final class CodeCardTests: XCTestCase {
     /// The start of a 30 s window.
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
 
-    private func masked(locked: Bool = false, hidden: Bool = false, protected: Bool = false,
-                        revealed seconds: TimeInterval? = nil) -> Bool {
-        CodeCard.isMasked(locked: locked, hidden: hidden, protected: protected,
-                          revealedUntil: seconds.map { now.addingTimeInterval($0) }, at: now)
+    private func masked(
+        locked: Bool = false, hidden: Bool = false, protected: Bool = false,
+        revealed seconds: TimeInterval? = nil
+    ) -> Bool {
+        CodeCard.isMasked(
+            locked: locked, hidden: hidden, protected: protected,
+            revealedUntil: seconds.map { now.addingTimeInterval($0) }, at: now)
     }
 
     func testShownUnlessHiddenProtectedOrLocked() {
@@ -45,12 +49,14 @@ final class CodeCardTests: XCTestCase {
         XCTAssertEqual(CodeCard.nextWindow(params, after: now.addingTimeInterval(29.9)), next)
         XCTAssertEqual(CodeCard.nextWindow(params, after: next), next.addingTimeInterval(30))
         XCTAssertEqual(CodeCard.nextWindow(TOTPParams(period: 60), after: now), Date(timeIntervalSince1970: 1_800_000_060))
-        XCTAssertEqual(CodeCard.nextWindow(TOTPParams(period: 0), after: now), now.addingTimeInterval(1),
-                       "a period below 1 s counts as 1 s, as for the codes")
+        XCTAssertEqual(
+            CodeCard.nextWindow(TOTPParams(period: 0), after: now), now.addingTimeInterval(1),
+            "a period below 1 s counts as 1 s, as for the codes")
         // The next window's code is the one after the current code.
         let secret = Data("12345678901234567890".utf8)
-        XCTAssertEqual(TOTP.code(secret: secret, params: params, at: CodeCard.nextWindow(params, after: now)),
-                       TOTP.code(secret: secret, params: params, at: now.addingTimeInterval(30)))
+        XCTAssertEqual(
+            TOTP.code(secret: secret, params: params, at: CodeCard.nextWindow(params, after: now)),
+            TOTP.code(secret: secret, params: params, at: now.addingTimeInterval(30)))
     }
 
     func testCopiedShowsOnTheButtonThatCopiedFor1Point6Seconds() {
@@ -67,9 +73,10 @@ final class CodeCardTests: XCTestCase {
     func testCopiedClearsWhenTheCodeChanges() {
         let params = TOTPParams()
         let late = now.addingTimeInterval(29.5)
-        let copy = CodeCard.Copy(profileID: "work", kind: .passwordAndCode, at: late,
-                                 window: TOTP.counter(params: params, at: late))
-        let after = late.addingTimeInterval(0.6)   // still within 1.6 s, but a new window
+        let copy = CodeCard.Copy(
+            profileID: "work", kind: .passwordAndCode, at: late,
+            window: TOTP.counter(params: params, at: late))
+        let after = late.addingTimeInterval(0.6)  // still within 1.6 s, but a new window
         XCTAssertTrue(copy.shows(.passwordAndCode, for: "work", window: TOTP.counter(params: params, at: late), at: late))
         XCTAssertFalse(copy.shows(.passwordAndCode, for: "work", window: TOTP.counter(params: params, at: after), at: after))
     }

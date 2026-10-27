@@ -94,13 +94,14 @@ struct CredentialSheet: View {
                 otp = c.code
                 prefilledOTP = c.code
             }
-            focus = request.needs.first { f in
-                switch f {
-                case .username: return username.isEmpty
-                case .password: return true
-                case .otp: return otp.isEmpty
-                }
-            } ?? request.needs.first
+            focus =
+                request.needs.first { f in
+                    switch f {
+                    case .username: return username.isEmpty
+                    case .password: return true
+                    case .otp: return otp.isEmpty
+                    }
+                } ?? request.needs.first
         }
     }
 
@@ -112,8 +113,11 @@ struct CredentialSheet: View {
         if needs(.otp) {
             // An untouched prefilled code may have rolled over; send the current one.
             // Computed from the stored profile and Keychain item, in case either changed meanwhile.
-            if otp == prefilledOTP, let fresh = model.currentCode(for: profile) { given[.otp] = fresh }
-            else { given[.otp] = otp.filter { !$0.isWhitespace } }
+            if otp == prefilledOTP, let fresh = model.currentCode(for: profile) {
+                given[.otp] = fresh
+            } else {
+                given[.otp] = otp.filter { !$0.isWhitespace }
+            }
         }
         dismiss()
         model.connect(profile, given: given)

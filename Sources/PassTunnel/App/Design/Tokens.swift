@@ -46,40 +46,55 @@ enum Palette {
     /// The tokens as `NSColor`s, for AppKit drawing and the component render.
     enum Raw {
         static let card = dynamic("card", light: .hex(0xFFFFFF), dark: .white(0.043))
-        static let fill = dynamic("fill", light: .black(0.043), dark: .white(0.08),
-                                  contrast: (.black(0.06), .white(0.11)))
-        static let fill2 = dynamic("fill2", light: .black(0.078), dark: .white(0.115),
-                                   contrast: (.black(0.11), .white(0.17)))
-        static let line = dynamic("line", light: .black(0.105), dark: .white(0.15),
-                                  contrast: (.black(0.21), .white(0.23)))
-        static let selection = dynamic("selection", light: .black(0.07), dark: .white(0.10),
-                                       contrast: (.black(0.12), .white(0.16)))
-        static let track = dynamic("track", light: .black(0.094), dark: .white(0.173),
-                                   contrast: (.black(0.16), .white(0.26)))
+        static let fill = dynamic(
+            "fill", light: .black(0.043), dark: .white(0.08),
+            contrast: (.black(0.06), .white(0.11)))
+        static let fill2 = dynamic(
+            "fill2", light: .black(0.078), dark: .white(0.115),
+            contrast: (.black(0.11), .white(0.17)))
+        static let line = dynamic(
+            "line", light: .black(0.105), dark: .white(0.15),
+            contrast: (.black(0.21), .white(0.23)))
+        static let selection = dynamic(
+            "selection", light: .black(0.07), dark: .white(0.10),
+            contrast: (.black(0.12), .white(0.16)))
+        static let track = dynamic(
+            "track", light: .black(0.094), dark: .white(0.173),
+            contrast: (.black(0.16), .white(0.26)))
 
-        static let fg = dynamic("fg", light: .hex(0x0B0B0C), dark: .hex(0xF5F5F7),
-                                contrast: (.hex(0x000000), .hex(0xFFFFFF)))
-        static let fg2 = dynamic("fg2", light: .hex(0x5C5C62), dark: .hex(0xA1A1A8),
-                                 contrast: (.hex(0x404045), .hex(0xC7C7CC)))
-        static let fg3 = dynamic("fg3", light: .hex(0x6B6B70), dark: .hex(0x8E8E95),
-                                 contrast: (.hex(0x4E4E53), .hex(0xB4B4BB)))
-        static let primary = dynamic("primary", light: .hex(0x0B0B0C), dark: .hex(0xF5F5F7),
-                                     contrast: (.hex(0x000000), .hex(0xFFFFFF)))
+        static let fg = dynamic(
+            "fg", light: .hex(0x0B0B0C), dark: .hex(0xF5F5F7),
+            contrast: (.hex(0x000000), .hex(0xFFFFFF)))
+        static let fg2 = dynamic(
+            "fg2", light: .hex(0x5C5C62), dark: .hex(0xA1A1A8),
+            contrast: (.hex(0x404045), .hex(0xC7C7CC)))
+        static let fg3 = dynamic(
+            "fg3", light: .hex(0x6B6B70), dark: .hex(0x8E8E95),
+            contrast: (.hex(0x4E4E53), .hex(0xB4B4BB)))
+        static let primary = dynamic(
+            "primary", light: .hex(0x0B0B0C), dark: .hex(0xF5F5F7),
+            contrast: (.hex(0x000000), .hex(0xFFFFFF)))
         static let onPrimary = dynamic("onPrimary", light: .hex(0xFFFFFF), dark: .hex(0x000000))
 
-        static let green = dynamic("green", light: .hex(0x1C7C3A), dark: .hex(0x42C66A),
-                                   contrast: (.hex(0x136030), .hex(0x5ED27F)))
-        static let amber = dynamic("amber", light: .hex(0x965A00), dark: .hex(0xFFB43A),
-                                   contrast: (.hex(0x754600), .hex(0xFFC766)))
-        static let amberRing = dynamic("amberRing", light: .hex(0xE59A00), dark: .hex(0xFFB43A),
-                                       contrast: (.hex(0xB57800), .hex(0xFFC766)))
-        static let red = dynamic("red", light: .hex(0xC4291C), dark: .hex(0xFF6A5C),
-                                 contrast: (.hex(0x9E1F14), .hex(0xFF9A91)))
-        static let redDot = dynamic("redDot", light: .hex(0xE5483A), dark: .hex(0xFF5A4C),
-                                    contrast: (.hex(0xC4291C), .hex(0xFF7A6E)))
+        static let green = dynamic(
+            "green", light: .hex(0x1C7C3A), dark: .hex(0x42C66A),
+            contrast: (.hex(0x136030), .hex(0x5ED27F)))
+        static let amber = dynamic(
+            "amber", light: .hex(0x965A00), dark: .hex(0xFFB43A),
+            contrast: (.hex(0x754600), .hex(0xFFC766)))
+        static let amberRing = dynamic(
+            "amberRing", light: .hex(0xE59A00), dark: .hex(0xFFB43A),
+            contrast: (.hex(0xB57800), .hex(0xFFC766)))
+        static let red = dynamic(
+            "red", light: .hex(0xC4291C), dark: .hex(0xFF6A5C),
+            contrast: (.hex(0x9E1F14), .hex(0xFF9A91)))
+        static let redDot = dynamic(
+            "redDot", light: .hex(0xE5483A), dark: .hex(0xFF5A4C),
+            contrast: (.hex(0xC4291C), .hex(0xFF7A6E)))
 
-        static let controlEdge = dynamic("controlEdge", light: .black(0), dark: .white(0),
-                                         contrast: (.black(0.21), .white(0.23)))
+        static let controlEdge = dynamic(
+            "controlEdge", light: .black(0), dark: .white(0),
+            contrast: (.black(0.21), .white(0.23)))
         static let glassEdge = dynamic("glassEdge", light: .black(0.10), dark: .white(0.12))
         static let glassShadow = dynamic("glassShadow", light: .black(0.08), dark: .black(0.5))
 
@@ -88,17 +103,22 @@ enum Palette {
             ("card", card), ("fill", fill), ("fill2", fill2), ("line", line), ("selection", selection),
             ("track", track), ("fg", fg), ("fg2", fg2), ("fg3", fg3), ("primary", primary),
             ("onPrimary", onPrimary), ("green", green), ("amber", amber), ("amberRing", amberRing), ("red", red),
-            ("redDot", redDot), ("controlEdge", controlEdge), ("glassEdge", glassEdge), ("glassShadow", glassShadow),
+            ("redDot", redDot), ("controlEdge", controlEdge), ("glassEdge", glassEdge), ("glassShadow", glassShadow)
         ]
 
         /// A color that resolves per appearance; Increase Contrast uses `contrast` (light, dark) when given.
-        private static func dynamic(_ name: String, light: NSColor, dark: NSColor,
-                                    contrast: (light: NSColor, dark: NSColor)? = nil) -> NSColor {
+        private static func dynamic(
+            _ name: String, light: NSColor, dark: NSColor,
+            contrast: (light: NSColor, dark: NSColor)? = nil
+        ) -> NSColor {
             NSColor(name: "PassTunnel.\(name)") { appearance in
-                let match = appearance.bestMatch(from: [.aqua, .darkAqua, .accessibilityHighContrastAqua,
-                                                        .accessibilityHighContrastDarkAqua])
+                let match = appearance.bestMatch(from: [
+                    .aqua, .darkAqua, .accessibilityHighContrastAqua,
+                    .accessibilityHighContrastDarkAqua
+                ])
                 let isDark = match == .darkAqua || match == .accessibilityHighContrastDarkAqua
-                let increased = previewIncreasedContrast || match == .accessibilityHighContrastAqua
+                let increased =
+                    previewIncreasedContrast || match == .accessibilityHighContrastAqua
                     || match == .accessibilityHighContrastDarkAqua
                 guard increased, let contrast else { return isDark ? dark : light }
                 return isDark ? contrast.dark : contrast.light
@@ -109,8 +129,9 @@ enum Palette {
 
 private extension NSColor {
     static func hex(_ value: UInt32) -> NSColor {
-        NSColor(srgbRed: CGFloat((value >> 16) & 0xFF) / 255, green: CGFloat((value >> 8) & 0xFF) / 255,
-                blue: CGFloat(value & 0xFF) / 255, alpha: 1)
+        NSColor(
+            srgbRed: CGFloat((value >> 16) & 0xFF) / 255, green: CGFloat((value >> 8) & 0xFF) / 255,
+            blue: CGFloat(value & 0xFF) / 255, alpha: 1)
     }
 
     static func black(_ alpha: CGFloat) -> NSColor { NSColor(srgbRed: 0, green: 0, blue: 0, alpha: alpha) }

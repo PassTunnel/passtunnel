@@ -1,10 +1,11 @@
+import Foundation
+import PassTunnelVPNConfig
+
 #if canImport(CryptoKit)
 import CryptoKit
 #else
-import Crypto   // swift-crypto: the same API, outside Apple platforms
+import Crypto  // swift-crypto: the same API, outside Apple platforms
 #endif
-import Foundation
-import PassTunnelVPNConfig
 
 /// Validation and file preparation done by the privileged helper before it launches a tool.
 /// Everything here works without root so it can be unit-tested with injected paths and uids;
@@ -131,7 +132,7 @@ public struct HelperCore {
         "OPENSSL_MODULES=\(missingDirectory)",
         "OPENSSL_ENGINES=\(missingDirectory)",
         "SSL_CERT_FILE=\(systemCAFile)",
-        "SSL_CERT_DIR=/var/empty",
+        "SSL_CERT_DIR=/var/empty"
     ]
     #endif
 
@@ -164,9 +165,11 @@ public struct HelperCore {
     public var homeDirectory: (uid_t) -> String?
     public var userName: (uid_t) -> String?
 
-    public init(runRoot: String = PT.helperRunRoot, dnsUpdownSource: String? = nil,
-                homeDirectory: @escaping (uid_t) -> String? = HelperCore.passwdHome,
-                userName: @escaping (uid_t) -> String? = HelperCore.passwdName) {
+    public init(
+        runRoot: String = PT.helperRunRoot, dnsUpdownSource: String? = nil,
+        homeDirectory: @escaping (uid_t) -> String? = HelperCore.passwdHome,
+        userName: @escaping (uid_t) -> String? = HelperCore.passwdName
+    ) {
         self.runRoot = runRoot
         self.dnsUpdownSource = dnsUpdownSource
         self.homeDirectory = homeDirectory
@@ -195,7 +198,8 @@ public struct HelperCore {
     /// they become a path component under the run root.
     public static func isValidProfileID(_ id: String) -> Bool {
         guard (1...64).contains(id.utf8.count), let first = id.unicodeScalars.first, first != ".", first != "-",
-              id.unicodeScalars.last != "." else {
+            id.unicodeScalars.last != "."
+        else {
             return false
         }
         return id.unicodeScalars.allSatisfy { c in
@@ -257,7 +261,8 @@ public struct HelperCore {
         let name = (logPath as NSString).lastPathComponent
         let parent = (logPath as NSString).deletingLastPathComponent
         guard ProfileDirectory.isPlainName(name), name.hasSuffix(".log"), name.count > 4,
-              let realParent = Self.realPath(parent), realParent == dir.path else {
+            let realParent = Self.realPath(parent), realParent == dir.path
+        else {
             throw Failure.invalidLogPath(logPath)
         }
         return name
@@ -306,15 +311,17 @@ public struct HelperCore {
             let dnsPath = try stageDNSScript(in: runDir)
             let hookPath = try dnsPath.map { _ in try writeDNSHook(in: runDir) }
             #endif
-            let args = Self.openVPNArguments(configPath: configPath, mgmtSocket: socketPath, clientUser: clientUser,
-                                             authFile: authPath, dnsUpdown: hookPath,
-                                             verbosity: Self.openVPNVerbosity(sanitized),
-                                             tlsVersionMin: OVPNSanitizer.tlsVersionFloor(of: sanitized),
-                                             hasDNSUpdown: openVPNHasDNSUpdown)
+            let args = Self.openVPNArguments(
+                configPath: configPath, mgmtSocket: socketPath, clientUser: clientUser,
+                authFile: authPath, dnsUpdown: hookPath,
+                verbosity: Self.openVPNVerbosity(sanitized),
+                tlsVersionMin: OVPNSanitizer.tlsVersionFloor(of: sanitized),
+                hasDNSUpdown: openVPNHasDNSUpdown)
             let logFD = try dir.createLogFile(logName)
-            return LaunchPlan(profileID: s.profileID, ownerUID: uid, tool: .openvpn, arguments: args,
-                              runDir: runDir, sessionDir: session, logFD: logFD, dnsUpdownPath: dnsPath,
-                              profileDir: dir, mgmtSocket: socketPath)
+            return LaunchPlan(
+                profileID: s.profileID, ownerUID: uid, tool: .openvpn, arguments: args,
+                runDir: runDir, sessionDir: session, logFD: logFD, dnsUpdownPath: dnsPath,
+                profileDir: dir, mgmtSocket: socketPath)
         } catch {
             removeRunDir(profileID: s.profileID, uid: uid)
             throw error
@@ -331,10 +338,11 @@ public struct HelperCore {
             let configPath = runDir + "/openfortivpn.conf"
             try Self.writeNewFile(configPath, Data(text.utf8), mode: 0o600)
             let logFD = try dir.createLogFile(logName)
-            return LaunchPlan(profileID: s.profileID, ownerUID: uid, tool: .openfortivpn,
-                              arguments: Self.fortiArguments(configPath: configPath),
-                              runDir: runDir, sessionDir: session, logFD: logFD, dnsUpdownPath: nil,
-                              profileDir: dir, mgmtSocket: nil)
+            return LaunchPlan(
+                profileID: s.profileID, ownerUID: uid, tool: .openfortivpn,
+                arguments: Self.fortiArguments(configPath: configPath),
+                runDir: runDir, sessionDir: session, logFD: logFD, dnsUpdownPath: nil,
+                profileDir: dir, mgmtSocket: nil)
         } catch {
             removeRunDir(profileID: s.profileID, uid: uid)
             throw error
@@ -361,22 +369,25 @@ public struct HelperCore {
     /// `--tls-version-min` (`tlsVersionMin`, from `OVPNSanitizer.tlsVersionFloor(of:)`: 1.2, or the config's
     /// own 1.3) holds the TLS floor even for a spelling the sanitizer missed: OpenVPN reads the command line
     /// and the file in order and the last `tls-version-min` wins, so this one, after `--config`, does.
-    public static func openVPNArguments(configPath: String, mgmtSocket: String, clientUser: String,
-                                        authFile: String?, dnsUpdown: String?, verbosity: Int = defaultVerbosity,
-                                        tlsVersionMin: [String] = [OVPNSanitizer.minimumTLSVersion],
-                                        hasDNSUpdown: Bool = true) -> [String] {
+    public static func openVPNArguments(
+        configPath: String, mgmtSocket: String, clientUser: String,
+        authFile: String?, dnsUpdown: String?, verbosity: Int = defaultVerbosity,
+        tlsVersionMin: [String] = [OVPNSanitizer.minimumTLSVersion],
+        hasDNSUpdown: Bool = true
+    ) -> [String] {
         var args = ignoredPushPrefixes.flatMap { ["--pull-filter", "ignore", $0] }
-        args += [
-            "--server-poll-timeout", String(serverPollTimeout),
-            "--config", configPath,
-            "--verb", String(min(max(0, verbosity), maxVerbosity)),
-            "--management", mgmtSocket, "unix",
-            "--management-client-user", clientUser,
-            "--auth-nocache",
-            "--remap-usr1", "SIGTERM",
-            "--connect-retry-max", "3",
-            "--tls-version-min",
-        ] + tlsVersionMin
+        args +=
+            [
+                "--server-poll-timeout", String(serverPollTimeout),
+                "--config", configPath,
+                "--verb", String(min(max(0, verbosity), maxVerbosity)),
+                "--management", mgmtSocket, "unix",
+                "--management-client-user", clientUser,
+                "--auth-nocache",
+                "--remap-usr1", "SIGTERM",
+                "--connect-retry-max", "3",
+                "--tls-version-min"
+            ] + tlsVersionMin
         if let authFile { args += ["--auth-user-pass", authFile] }
         if let dnsUpdown, hasDNSUpdown {
             args += ["--script-security", "2", "--dns-updown", dnsUpdown]
@@ -445,7 +456,8 @@ public struct HelperCore {
     public static func checkLines(_ text: String, count: Int, file: String) throws {
         let bytes = Array(text.utf8)
         guard !bytes.contains(0), !bytes.contains(0x0D), bytes.last == 0x0A,
-              bytes.lazy.filter({ $0 == 0x0A }).count == count else { throw Failure.unsafeFile(file) }
+            bytes.lazy.filter({ $0 == 0x0A }).count == count
+        else { throw Failure.unsafeFile(file) }
     }
 
     /// A path for a C call: anything after a NUL would be silently ignored there.
@@ -453,7 +465,8 @@ public struct HelperCore {
 
     static func checkCredential(_ s: String, field: String, maxBytes: Int) throws {
         guard s.utf8.count <= maxBytes,
-              !s.unicodeScalars.contains(where: { $0 == "\n" || $0 == "\r" || $0.value == 0 }) else {
+            !s.unicodeScalars.contains(where: { $0 == "\n" || $0 == "\r" || $0.value == 0 })
+        else {
             throw Failure.invalidCredential(field)
         }
     }
@@ -579,11 +592,14 @@ public struct HelperCore {
     /// boundaries) is replaced by a marker line. The tool keeps appending through its own descriptor;
     /// lines it writes during the few microseconds of the cut can be lost. Returns true when it trimmed.
     @discardableResult
-    public static func capLog(fd: Int32, maxBytes: Int = maxLogBytes, keepBytes: Int = keptLogBytes,
-                              headBytes: Int = keptLogHeadBytes) -> Bool {
+    public static func capLog(
+        fd: Int32, maxBytes: Int = maxLogBytes, keepBytes: Int = keptLogBytes,
+        headBytes: Int = keptLogHeadBytes
+    ) -> Bool {
         var st = stat()
         guard fstat(fd, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG, st.st_size > maxBytes,
-              headBytes + keepBytes < st.st_size else { return false }
+            headBytes + keepBytes < st.st_size
+        else { return false }
         let size = Int(st.st_size)
         var head = [UInt8](repeating: 0, count: headBytes)
         let h = headBytes > 0 ? pread(fd, &head, headBytes, 0) : 0

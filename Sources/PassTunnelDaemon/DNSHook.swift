@@ -43,7 +43,7 @@ public enum OpenVPNDNS {
                 case "transport":
                     transports[n] = value
                 default:
-                    continue     // dnssec, sni and whatever later versions add
+                    continue  // dnssec, sni and whatever later versions add
                 }
             }
         }
@@ -54,8 +54,9 @@ public enum OpenVPNDNS {
         }
         guard let n = usable else { throw DNSFailure.noUsableServer }
         let routing = ordered(resolveDomains[n] ?? [:])
-        return try DNSSettings(servers: ordered(addresses[n]!), searchDomains: ordered(search), routingDomains: routing,
-                               fullTunnel: routing.isEmpty)
+        return try DNSSettings(
+            servers: ordered(addresses[n]!), searchDomains: ordered(search), routingDomains: routing,
+            fullTunnel: routing.isEmpty)
     }
 
     /// `foreign_option_<i>` = `dhcp-option <TYPE> <value>`; other types (WINS, NTP, …) are not DNS.
@@ -83,7 +84,8 @@ public enum OpenVPNDNS {
     /// An index as OpenVPN writes them: 1 to `limit`, digits only.
     static func index(_ text: String, _ key: String, limit: Int = maxIndex) throws -> Int {
         guard (1...3).contains(text.utf8.count), text.utf8.allSatisfy({ $0 >= 0x30 && $0 <= 0x39 }),
-              let i = Int(text), String(i) == text, (1...limit).contains(i) else {
+            let i = Int(text), String(i) == text, (1...limit).contains(i)
+        else {
             throw DNSFailure.invalid("variable", key)
         }
         return i

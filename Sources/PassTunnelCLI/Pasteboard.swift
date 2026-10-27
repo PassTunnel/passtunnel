@@ -10,8 +10,10 @@ public enum Pasteboard {
 
     /// Copies a secret (`copySecret`) and clears it again after `seconds`, unless something else was
     /// copied meanwhile.
-    public static func copySecret(_ text: String, clearingAfter seconds: TimeInterval,
-                                  on pasteboard: NSPasteboard = .general) {
+    public static func copySecret(
+        _ text: String, clearingAfter seconds: TimeInterval,
+        on pasteboard: NSPasteboard = .general
+    ) {
         let count = copySecret(text, on: pasteboard)
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { clear(ifUnchangedSince: count, on: pasteboard) }
     }

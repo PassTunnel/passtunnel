@@ -21,9 +21,11 @@ struct DetailCodeCards: View {
                 if codes.hasSecret {
                     CurrentCodeCard(profile: profile, codes: codes, date: date)
                 }
-                ServerReceivesCard(profile: profile,
-                                   receives: ServerReceives(profile, codes: codes.receives, waitingForCode: codes.waiting,
-                                                            sentAt: sentAt))
+                ServerReceivesCard(
+                    profile: profile,
+                    receives: ServerReceives(
+                        profile, codes: codes.receives, waitingForCode: codes.waiting,
+                        sentAt: sentAt))
             }
         }
     }
@@ -121,11 +123,15 @@ struct CurrentCodeCard: View {
             .accessibilityAction { click() }
             .accessibilityIdentifier("profile.\(p.id).code")
             HStack(spacing: Spacing.xs) {
-                CopyButton(title: String(localized: "Copy code"), copied: copied(.code), minWidth: 104,
-                           identifier: "profile.\(p.id).copyCode") { model.copyCode(p) }
+                CopyButton(
+                    title: String(localized: "Copy code"), copied: copied(.code), minWidth: 104,
+                    identifier: "profile.\(p.id).copyCode"
+                ) { model.copyCode(p) }
                 if p.passwordMode == .keychain {
-                    CopyButton(title: String(localized: "Copy password + code"), copied: copied(.passwordAndCode),
-                               minWidth: 176, identifier: "profile.\(p.id).copyPasswordCode") {
+                    CopyButton(
+                        title: String(localized: "Copy password + code"), copied: copied(.passwordAndCode),
+                        minWidth: 176, identifier: "profile.\(p.id).copyPasswordCode"
+                    ) {
                         model.copyPasswordAndCode(p)
                     }
                 }
@@ -180,7 +186,7 @@ private struct HeroCodeButton: View {
         configuration.label
             .padding(.horizontal, 6)
             .background(configuration.isPressed ? Palette.fill2 : hover ? Palette.fill : .clear, in: shape)
-            .padding(.horizontal, -6)   // the code stays in line with the card's label
+            .padding(.horizontal, -6)  // the code stays in line with the card's label
             .contentShape(shape)
             .onHover { hover = $0 }
     }
@@ -230,8 +236,9 @@ struct CardColumns: Layout {
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         for (subview, frame) in zip(subviews, arrange(subviews, width: bounds.width)) {
-            subview.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
-                          proposal: ProposedViewSize(frame.size))
+            subview.place(
+                at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
+                proposal: ProposedViewSize(frame.size))
         }
     }
 

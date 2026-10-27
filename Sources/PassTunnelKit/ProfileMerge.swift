@@ -30,22 +30,26 @@ public enum ProfileMerge {
         return dict
     }
 
-    private static func mergeObjects(_ original: [String: Any], _ edited: [String: Any],
-                                     _ current: [String: Any]) -> [String: Any] {
+    private static func mergeObjects(
+        _ original: [String: Any], _ edited: [String: Any],
+        _ current: [String: Any]
+    ) -> [String: Any] {
         var out = current
         for key in Set(original.keys).union(edited.keys) {
             let o = original[key], e = edited[key]
             if let od = o as? [String: Any], let ed = e as? [String: Any], let cd = current[key] as? [String: Any] {
                 out[key] = mergeObjects(od, ed, cd)
             } else if !same(o, e) {
-                out[key] = e          // nil removes the key (an optional field cleared in the editor)
+                out[key] = e  // nil removes the key (an optional field cleared in the editor)
             }
         }
         return out
     }
 
-    private static func collectChanges(_ original: [String: Any], _ edited: [String: Any], prefix: String,
-                                       into out: inout [String]) {
+    private static func collectChanges(
+        _ original: [String: Any], _ edited: [String: Any], prefix: String,
+        into out: inout [String]
+    ) {
         for key in Set(original.keys).union(edited.keys) {
             let o = original[key], e = edited[key]
             if let od = o as? [String: Any], let ed = e as? [String: Any] {

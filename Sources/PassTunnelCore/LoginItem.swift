@@ -48,8 +48,10 @@ public enum LoginItem {
     /// The main window asks "Open PassTunnel at login?" once there is a profile, until the user answers, and only
     /// while the login item is off: not when it is on or waits for approval, nor when it cannot be registered. `status`
     /// is read only when the rest holds.
-    public static func asksAfterFirstProfile(answered: Bool, hasProfiles: Bool,
-                                             status: @autoclosure () -> LoginItemStatus) -> Bool {
+    public static func asksAfterFirstProfile(
+        answered: Bool, hasProfiles: Bool,
+        status: @autoclosure () -> LoginItemStatus
+    ) -> Bool {
         !answered && hasProfiles && status() == .disabled
     }
 
@@ -58,9 +60,10 @@ public enum LoginItem {
     public static func isBackgroundLaunch(arguments: [String], launchEvent: NSAppleEventDescriptor?) -> Bool {
         if arguments.dropFirst().contains(backgroundArgument) { return true }
         guard let event = launchEvent,
-              event.eventClass == AEEventClass(kCoreEventClass),
-              event.eventID == AEEventID(kAEOpenApplication),
-              let property = event.paramDescriptor(forKeyword: AEKeyword(keyAEPropData)) else { return false }
+            event.eventClass == AEEventClass(kCoreEventClass),
+            event.eventID == AEEventID(kAEOpenApplication),
+            let property = event.paramDescriptor(forKeyword: AEKeyword(keyAEPropData))
+        else { return false }
         return property.enumCodeValue == OSType(keyAELaunchedAsLogInItem)
     }
 }

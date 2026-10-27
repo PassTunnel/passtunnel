@@ -1,13 +1,17 @@
-import XCTest
-@testable import PassTunnelCore
 import PassTunnelShared
+import XCTest
+
+@testable import PassTunnelCore
 
 final class HelperAutoUpdateTests: XCTestCase {
-    private func situation(status: HelperStatus = .enabled, outdated: Bool? = true, older: Bool = true,
-                           sessions: Int = 0, updating: Bool = false,
-                           inApplications: Bool = true) -> HelperAutoUpdate.Situation {
-        .init(status: status, outdated: outdated, helperIsOlder: older, activeSessions: sessions, updating: updating,
-              inApplicationsFolder: inApplications)
+    private func situation(
+        status: HelperStatus = .enabled, outdated: Bool? = true, older: Bool = true,
+        sessions: Int = 0, updating: Bool = false,
+        inApplications: Bool = true
+    ) -> HelperAutoUpdate.Situation {
+        .init(
+            status: status, outdated: outdated, helperIsOlder: older, activeSessions: sessions, updating: updating,
+            inApplicationsFolder: inApplications)
     }
 
     func testOutdatedWithoutSessionsUpdatesOnce() {
@@ -112,14 +116,15 @@ final class HelperAutoUpdateTests: XCTestCase {
             P(pid: 201, parent: 1, name: "openvpn", path: "/opt/homebrew/sbin/openvpn"),
             P(pid: 202, parent: 1, name: "openvpn", path: nil),
             // The app itself is not a session.
-            P(pid: 300, parent: 1, name: "PassTunnel", path: "/Applications/PassTunnel.app/Contents/MacOS/PassTunnel"),
+            P(pid: 300, parent: 1, name: "PassTunnel", path: "/Applications/PassTunnel.app/Contents/MacOS/PassTunnel")
         ]
         let ids = [
             "/Applications/PassTunnel.app": PT.bundleID,
-            "/Applications/Other.app": "com.example.other",
+            "/Applications/Other.app": "com.example.other"
         ]
-        let pids = HelperSessions.toolPIDs(in: processes, bundleIdentifier: { ids[$0] },
-                                           exists: { ids[$0] != nil })
+        let pids = HelperSessions.toolPIDs(
+            in: processes, bundleIdentifier: { ids[$0] },
+            exists: { ids[$0] != nil })
         XCTAssertEqual(pids, [101, 102, 103])
     }
 
@@ -129,8 +134,9 @@ final class HelperAutoUpdateTests: XCTestCase {
     }
 
     func testAppPathOfTool() {
-        XCTAssertEqual(HelperSessions.appPath(ofTool: "/Applications/PassTunnel.app/Contents/Resources/bin/openvpn"),
-                       "/Applications/PassTunnel.app")
+        XCTAssertEqual(
+            HelperSessions.appPath(ofTool: "/Applications/PassTunnel.app/Contents/Resources/bin/openvpn"),
+            "/Applications/PassTunnel.app")
         XCTAssertNil(HelperSessions.appPath(ofTool: "/Applications/PassTunnel.app/Contents/Resources/bin/dns-updown"))
         XCTAssertNil(HelperSessions.appPath(ofTool: "/usr/local/bin/openvpn"))
         XCTAssertNil(HelperSessions.appPath(ofTool: "/x/Contents/Resources/bin/openvpn"))
@@ -148,8 +154,9 @@ final class HelperAutoUpdateTests: XCTestCase {
     func testApplicationsFolder() throws {
         XCTAssertTrue(HelperSessions.isInApplicationsFolder("/Applications/PassTunnel.app"))
         XCTAssertTrue(HelperSessions.isInApplicationsFolder("/Applications/Utilities/PassTunnel.app"))
-        XCTAssertFalse(HelperSessions.isInApplicationsFolder(NSHomeDirectory() + "/Applications/PassTunnel.app"),
-                       "~/Applications is writable by any process of the user")
+        XCTAssertFalse(
+            HelperSessions.isInApplicationsFolder(NSHomeDirectory() + "/Applications/PassTunnel.app"),
+            "~/Applications is writable by any process of the user")
         XCTAssertFalse(HelperSessions.isInApplicationsFolder("/Users/alice/Applications/PassTunnel.app"))
         XCTAssertFalse(HelperSessions.isInApplicationsFolder("/Users/alice/src/build/PassTunnel.app"))
         XCTAssertFalse(HelperSessions.isInApplicationsFolder("/Volumes/PassTunnel/PassTunnel.app"))

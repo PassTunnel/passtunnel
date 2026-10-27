@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+
 @testable import PassTunnelCore
 @testable import PassTunnelKit
 @testable import PassTunnelVPNConfig
@@ -27,7 +28,7 @@ final class OVPNImportTests: CoreTestCase {
     func testEveryForbiddenDirectiveIsDecided() {
         let skipped: Set<String> = [
             "up", "down", "route-up", "route-pre-down", "ipchange", "iproute", "dns-updown",
-            "daemon", "cd", "chroot", "user", "group", "writepid", "status", "tmp-dir", "tls-export-cert",
+            "daemon", "cd", "chroot", "user", "group", "writepid", "status", "tmp-dir", "tls-export-cert"
         ]
         let blocking: Set<String> = [
             "tls-verify", "auth-user-pass-verify", "tls-crypt-v2-verify",
@@ -39,7 +40,7 @@ final class OVPNImportTests: CoreTestCase {
             "mktun", "rmtun", "help", "version", "test-crypto",
             "show-ciphers", "show-digests", "show-engines", "show-tls", "show-curves", "show-groups",
             "show-gateway", "show-net", "show-net-up", "show-adapters", "show-valid-subnets", "allow-nonadmin",
-            "win-sys", "service", "msg-channel",
+            "win-sys", "service", "msg-channel"
         ]
         XCTAssertEqual(skipped.union(blocking), OVPNSanitizer.forbiddenDirectives)
         XCTAssertTrue(skipped.isDisjoint(with: blocking))
@@ -58,7 +59,7 @@ final class OVPNImportTests: CoreTestCase {
             "client-crresponse /tmp/x", "--CLIENT-CRRESPONSE \"/tmp/x y\"", "setenv opt client-crresponse /tmp/x",
             "mode server", "mode", "setenv opt mode server", "server 10.8.0.0 255.255.255.0", "tls-server",
             "server-bridge", "server-ipv6 2001:db8::/64", "mktun", "rmtun", "version", "test-crypto",
-            "show-ciphers", "dev ../tmp/x1", "dev disk2", "memstats /tmp/x",
+            "show-ciphers", "dev ../tmp/x1", "dev disk2", "memstats /tmp/x"
         ]
         for line in lines {
             let r = try report("client\n\(line)\nremote vpn.example.com\n")
@@ -66,18 +67,23 @@ final class OVPNImportTests: CoreTestCase {
             XCTAssertEqual(r.blocking.map(\.line), [2], line)
             XCTAssertNil(r.config, line)
             for v in r.blocking {
-                XCTAssertNil(OVPNSkipRules.skipReason(OVPNSanitizer.Violation(line: v.line, directive: v.directive,
-                                                                              reason: v.reason)), line)
+                XCTAssertNil(
+                    OVPNSkipRules.skipReason(
+                        OVPNSanitizer.Violation(
+                            line: v.line, directive: v.directive,
+                            reason: v.reason)), line)
             }
         }
         // Inside a <connection> block, and next to lines that would be skipped: the file still blocks.
         let r = try report("client\n<connection>\nremote vpn.example.com\ntls-server\n</connection>\nup /tmp/x\n")
         XCTAssertEqual(r.blocking.map(\.description), ["line 4: tls-server (not allowed)"])
         XCTAssertNil(r.config)
-        XCTAssertEqual(try report("client\nmode server\nremote vpn.example.com\n").blocking.first?.description,
-                       "line 2: mode (only mode p2p is allowed)")
-        XCTAssertEqual(try report("client\ndev tap/../../x1\nremote vpn.example.com\n").blocking.first?.reason,
-                       "must be tun, tap, utun or null, optionally followed by letters, digits, - or _")
+        XCTAssertEqual(
+            try report("client\nmode server\nremote vpn.example.com\n").blocking.first?.description,
+            "line 2: mode (only mode p2p is allowed)")
+        XCTAssertEqual(
+            try report("client\ndev tap/../../x1\nremote vpn.example.com\n").blocking.first?.reason,
+            "must be tun, tap, utun or null, optionally followed by letters, digits, - or _")
         // What client profiles use stays.
         for keep in ["mode p2p", "dev tun", "dev tap0", "dev utun", "dev tun-work", "dev-type tap\ndev tap_lab"] {
             let text = "client\n\(keep)\nremote vpn.example.com\n"
@@ -88,8 +94,10 @@ final class OVPNImportTests: CoreTestCase {
     /// A file that would make OpenVPN wait for incoming connections blocks: a listening protocol at its line,
     /// a file without any `remote` as a whole (line 0, listed without a line), whatever else is skipped.
     func testListeningModesBlock() throws {
-        for line in ["proto tcp-server", "remote vpn.example.com 443 tcp6-server", "setenv opt proto tcp4-server",
-                     "local 192.0.2.1 1194 tcp-server", "proto-force tcp-server"] {
+        for line in [
+            "proto tcp-server", "remote vpn.example.com 443 tcp6-server", "setenv opt proto tcp4-server",
+            "local 192.0.2.1 1194 tcp-server", "proto-force tcp-server"
+        ] {
             let r = try report("client\n\(line)\nremote vpn.example.com\n")
             XCTAssertEqual(r.skipped, [], line)
             XCTAssertEqual(r.blocking.map(\.line), [2], line)
@@ -98,8 +106,13 @@ final class OVPNImportTests: CoreTestCase {
         }
         let missing = try report("client\nproto udp\nup /tmp/x\n")
         XCTAssertEqual(missing.skipped.map(\.line), [3])
-        XCTAssertEqual(missing.blocking, [OVPNSkipRules.Blocking(line: 0, directive: "remote", text: "",
-                                                                reason: OVPNSanitizer.missingRemote.reason)])
+        XCTAssertEqual(
+            missing.blocking,
+            [
+                OVPNSkipRules.Blocking(
+                    line: 0, directive: "remote", text: "",
+                    reason: OVPNSanitizer.missingRemote.reason)
+            ])
         XCTAssertEqual(missing.blocking.map(\.description), ["remote (\(OVPNSanitizer.missingRemote.reason))"])
         XCTAssertNil(missing.config)
         XCTAssertNil(OVPNSkipRules.skipReason(OVPNSanitizer.missingRemote))
@@ -109,37 +122,46 @@ final class OVPNImportTests: CoreTestCase {
     }
 
     func testLogAndManagementFamilies() throws {
-        for name in ["log", "log-append", "management", "management-hold", "management-query-passwords",
-                     "management-client-user", "management-up-down", "--management-signal"] {
+        for name in [
+            "log", "log-append", "management", "management-hold", "management-query-passwords",
+            "management-client-user", "management-up-down", "--management-signal"
+        ] {
             let r = try report("client\n\(name) x\nremote vpn.example.com\n")
             XCTAssertEqual(r.blocking, [], name)
             XCTAssertEqual(r.skipped.count, 1, name)
         }
-        for name in ["management-external-key", "management-external-cert", "management-client-auth", "logfile",
-                     "management-something-new"] {
+        for name in [
+            "management-external-key", "management-external-cert", "management-client-auth", "logfile",
+            "management-something-new"
+        ] {
             let r = try report("client\n\(name)\nremote vpn.example.com\n")
             XCTAssertEqual(r.skipped, [], name)
             XCTAssertEqual(r.blocking.map(\.directive), [name], name)
             XCTAssertNil(r.config, name)
         }
-        XCTAssertEqual(try report("management-external-key\nremote vpn.example.com\n").blocking.first?.description,
-                       "line 1: management-external-key (the private key would come from another program)")
+        XCTAssertEqual(
+            try report("management-external-key\nremote vpn.example.com\n").blocking.first?.description,
+            "line 1: management-external-key (the private key would come from another program)")
     }
 
     /// A line that lowers TLS below 1.2 blocks the file: leaving it out would change which servers the
     /// profile can reach, so the user decides. Safe values import unchanged.
     func testTLSFloorLinesBlock() throws {
-        for line in ["tls-version-min 1.0", "tls-version-min 1.1 or-highest", "tls-version-max 1.1",
-                     "tls-cipher DEFAULT:@SECLEVEL=0", "tls-cipher eNULL", "tls-ciphersuites TLS_SHA256_SHA256",
-                     "tls-cert-profile insecure", "setenv opt tls-version-min 1.0"] {
+        for line in [
+            "tls-version-min 1.0", "tls-version-min 1.1 or-highest", "tls-version-max 1.1",
+            "tls-cipher DEFAULT:@SECLEVEL=0", "tls-cipher eNULL", "tls-ciphersuites TLS_SHA256_SHA256",
+            "tls-cert-profile insecure", "setenv opt tls-version-min 1.0"
+        ] {
             let r = try report("client\n\(line)\nremote vpn.example.com\n")
             XCTAssertEqual(r.skipped, [], line)
             XCTAssertEqual(r.blocking.map(\.line), [2], line)
             XCTAssertNil(r.config, line)
         }
-        XCTAssertEqual(try report("client\ntls-version-min 1.0\nremote vpn.example.com\n").blocking.first?.description,
-                       "line 2: tls-version-min (\(OVPNSanitizer.tlsVersionReason))")
-        let safe = "client\ntls-version-min 1.2 or-highest\ntls-cipher DEFAULT:+aNULL:@SECLEVEL=2\ntls-cert-profile preferred\n"
+        XCTAssertEqual(
+            try report("client\ntls-version-min 1.0\nremote vpn.example.com\n").blocking.first?.description,
+            "line 2: tls-version-min (\(OVPNSanitizer.tlsVersionReason))")
+        let safe =
+            "client\ntls-version-min 1.2 or-highest\ntls-cipher DEFAULT:+aNULL:@SECLEVEL=2\ntls-cert-profile preferred\n"
             + "remote vpn.example.com\n"
         XCTAssertEqual(try report(safe).config, safe)
     }
@@ -150,8 +172,10 @@ final class OVPNImportTests: CoreTestCase {
             XCTAssertEqual(r.skipped, [], keep)
             XCTAssertEqual(r.config, "client\n\(keep)\nremote vpn.example.com\n", keep)
         }
-        for skip in ["script-security 2", "script-security 3 system", "script-security", "script-security x",
-                     "setenv opt script-security 2", "--script-security \"2\""] {
+        for skip in [
+            "script-security 2", "script-security 3 system", "script-security", "script-security x",
+            "setenv opt script-security 2", "--script-security \"2\""
+        ] {
             let r = try report("client\n\(skip)\nremote vpn.example.com\n")
             XCTAssertEqual(r.skipped.map(\.reason), [.scriptSecurity], skip)
             XCTAssertEqual(r.blocking, [], skip)
@@ -160,17 +184,21 @@ final class OVPNImportTests: CoreTestCase {
     }
 
     func testSetenv() throws {
-        let metadata = "client\nsetenv CLIENT_CERT 0\nsetenv IV_GUI_VER \"Acme 1.0\"\nsetenv UV_X y\nsetenv FRIENDLY_NAME Work\n"
+        let metadata =
+            "client\nsetenv CLIENT_CERT 0\nsetenv IV_GUI_VER \"Acme 1.0\"\nsetenv UV_X y\nsetenv FRIENDLY_NAME Work\n"
             + "remote vpn.example.com\n"
         XCTAssertEqual(try report(metadata).config, metadata)
         XCTAssertEqual(try report(metadata).skipped, [])
 
-        let r = try report("client\nsetenv PATH /tmp\nsetenv BASH_ENV /tmp/x\nsetenv opt up /tmp/x.sh\nsetenv opt block-outside-dns\n"
-                           + "remote vpn.example.com\n")
+        let r = try report(
+            "client\nsetenv PATH /tmp\nsetenv BASH_ENV /tmp/x\nsetenv opt up /tmp/x.sh\nsetenv opt block-outside-dns\n"
+                + "remote vpn.example.com\n")
         XCTAssertEqual(r.skipped.map(\.directive), ["setenv PATH", "setenv BASH_ENV", "up"])
         XCTAssertEqual(r.skipped.map(\.reason), [.environment, .environment, .program])
-        XCTAssertEqual(r.config, "client\n# PassTunnel skipped: setenv PATH /tmp\n# PassTunnel skipped: setenv BASH_ENV /tmp/x\n"
-                       + "# PassTunnel skipped: setenv opt up /tmp/x.sh\nsetenv opt block-outside-dns\nremote vpn.example.com\n")
+        XCTAssertEqual(
+            r.config,
+            "client\n# PassTunnel skipped: setenv PATH /tmp\n# PassTunnel skipped: setenv BASH_ENV /tmp/x\n"
+                + "# PassTunnel skipped: setenv opt up /tmp/x.sh\nsetenv opt block-outside-dns\nremote vpn.example.com\n")
     }
 
     func testInlineBlocks() throws {
@@ -191,17 +219,24 @@ final class OVPNImportTests: CoreTestCase {
     }
 
     func testConnectionBlocks() throws {
-        let text = "client\n<connection>\nremote vpn.example.com 443 tcp\nup /tmp/x.sh\n</connection>\n"
+        let text =
+            "client\n<connection>\nremote vpn.example.com 443 tcp\nup /tmp/x.sh\n</connection>\n"
             + "<connection>\nremote vpn2.example.com\n  route-up \"/tmp/y z\"\n</connection>\n"
         let r = try report(text)
         XCTAssertEqual(r.skipped.map(\.line), [4, 8])
         XCTAssertEqual(r.skipped.map(\.text), ["up /tmp/x.sh", "route-up \"/tmp/y z\""])
         let config = try XCTUnwrap(r.config)
-        XCTAssertEqual(config, "client\n<connection>\nremote vpn.example.com 443 tcp\n# PassTunnel skipped: up /tmp/x.sh\n</connection>\n"
-                       + "<connection>\nremote vpn2.example.com\n# PassTunnel skipped: route-up \"/tmp/y z\"\n</connection>\n")
+        XCTAssertEqual(
+            config,
+            "client\n<connection>\nremote vpn.example.com 443 tcp\n# PassTunnel skipped: up /tmp/x.sh\n</connection>\n"
+                + "<connection>\nremote vpn2.example.com\n# PassTunnel skipped: route-up \"/tmp/y z\"\n</connection>\n")
         XCTAssertNoThrow(try OVPNSanitizer.sanitize(config))
-        XCTAssertEqual(r.servers, [OVPNAnalyzer.Server(host: "vpn.example.com", port: "443", tcp: true),
-                                   OVPNAnalyzer.Server(host: "vpn2.example.com", port: "1194", tcp: false)])
+        XCTAssertEqual(
+            r.servers,
+            [
+                OVPNAnalyzer.Server(host: "vpn.example.com", port: "443", tcp: true),
+                OVPNAnalyzer.Server(host: "vpn2.example.com", port: "1194", tcp: false)
+            ])
     }
 
     func testCRLFAndBOM() throws {
@@ -222,8 +257,13 @@ final class OVPNImportTests: CoreTestCase {
     func testBOMOnlyAtTheStartOfTheFile() throws {
         let r = try report("\u{FEFF}up /tmp/x.sh\n\u{FEFF}down /tmp/y\nremote vpn.example.com\n")
         XCTAssertEqual(r.skipped.map(\.line), [1])
-        XCTAssertEqual(r.blocking, [OVPNSkipRules.Blocking(line: 2, directive: "(line)", text: "\u{FFFD}down /tmp/y",
-                                                          reason: OVPNSanitizer.misplacedBOM)])
+        XCTAssertEqual(
+            r.blocking,
+            [
+                OVPNSkipRules.Blocking(
+                    line: 2, directive: "(line)", text: "\u{FFFD}down /tmp/y",
+                    reason: OVPNSanitizer.misplacedBOM)
+            ])
         XCTAssertNil(r.config)
 
         let url = try folder("\u{FEFF}client\r\nca ca.crt\r\nremote vpn.example.com\r\n", files: ["ca.crt": "\u{FEFF}" + caPEM])
@@ -252,13 +292,16 @@ final class OVPNImportTests: CoreTestCase {
     }
 
     func testBlockingAndSkippedTogether() throws {
-        let r = try report("client\nscript-security 2\nup /tmp/x.sh\ntls-verify /tmp/check.sh\nplugin /tmp/p.so\nca /etc/ssl/ca.pem\n"
-                           + "remote vpn.example.com\n")
+        let r = try report(
+            "client\nscript-security 2\nup /tmp/x.sh\ntls-verify /tmp/check.sh\nplugin /tmp/p.so\nca /etc/ssl/ca.pem\n"
+                + "remote vpn.example.com\n")
         XCTAssertEqual(r.skipped.map(\.line), [2, 3])
-        XCTAssertEqual(r.blocking.map(\.description), [
-            "line 4: tls-verify (not allowed)", "line 5: plugin (not allowed)",
-            "line 6: ca (references an external file; embed it inline as <ca>…</ca>)",
-        ])
+        XCTAssertEqual(
+            r.blocking.map(\.description),
+            [
+                "line 4: tls-verify (not allowed)", "line 5: plugin (not allowed)",
+                "line 6: ca (references an external file; embed it inline as <ca>…</ca>)"
+            ])
         XCTAssertEqual(r.blocking.map(\.text), ["tls-verify /tmp/check.sh", "plugin /tmp/p.so", "ca /etc/ssl/ca.pem"])
         XCTAssertNil(r.config)
     }
@@ -266,15 +309,18 @@ final class OVPNImportTests: CoreTestCase {
     // MARK: report
 
     func testLineNumbersAreTheFilesAfterEmbedding() throws {
-        let url = try folder("client\nca ca.crt\ntls-auth ta.key 1\nup /tmp/x.sh\nplugin /tmp/p.so\nremote vpn.example.com\n",
-                             files: ["ca.crt": caPEM, "ta.key": "-----BEGIN OpenVPN Static key V1-----\nab\n-----END OpenVPN Static key V1-----\n"])
+        let url = try folder(
+            "client\nca ca.crt\ntls-auth ta.key 1\nup /tmp/x.sh\nplugin /tmp/p.so\nremote vpn.example.com\n",
+            files: ["ca.crt": caPEM, "ta.key": "-----BEGIN OpenVPN Static key V1-----\nab\n-----END OpenVPN Static key V1-----\n"])
         let draft = try store.analyzeOVPN(url)
         XCTAssertEqual(draft.skipped.map(\.line), [4])
         XCTAssertEqual(draft.blocking.map(\.description), ["line 5: plugin (not allowed)"])
-        XCTAssertEqual(draft.report.certificates, [
-            OVPNImportReport.Certificate(name: "ca", file: "ca.crt"),
-            OVPNImportReport.Certificate(name: "tls-auth", file: "ta.key"),
-        ])
+        XCTAssertEqual(
+            draft.report.certificates,
+            [
+                OVPNImportReport.Certificate(name: "ca", file: "ca.crt"),
+                OVPNImportReport.Certificate(name: "tls-auth", file: "ta.key")
+            ])
     }
 
     func testAnEmbeddedFileWithLongLinesBlocksAtItsLine() throws {
@@ -287,31 +333,35 @@ final class OVPNImportTests: CoreTestCase {
 
     func testCertificatesServersAndSignIn() throws {
         let text = """
-        client
-        remote vpn.example.com 1194
-        remote 2001:db8::1 443 tcp-client
-        proto tcp
-        <ca>
-        x
-        </ca>
-        <cert>
-        x
-        </cert>
-        <key>
-        x
-        </key>
-        <ca>
-        y
-        </ca>
-        peer-fingerprint AB:CD
-        auth-user-pass
-        static-challenge "Code" 1
-        """
+            client
+            remote vpn.example.com 1194
+            remote 2001:db8::1 443 tcp-client
+            proto tcp
+            <ca>
+            x
+            </ca>
+            <cert>
+            x
+            </cert>
+            <key>
+            x
+            </key>
+            <ca>
+            y
+            </ca>
+            peer-fingerprint AB:CD
+            auth-user-pass
+            static-challenge "Code" 1
+            """
         let r = try report(text)
         XCTAssertEqual(r.certificates.map(\.name), ["ca", "cert", "key", "peer-fingerprint"])
         XCTAssertTrue(r.certificates.allSatisfy { $0.file == nil })
-        XCTAssertEqual(r.servers, [OVPNAnalyzer.Server(host: "vpn.example.com", port: "1194", tcp: true),
-                                   OVPNAnalyzer.Server(host: "2001:db8::1", port: "443", tcp: true)])
+        XCTAssertEqual(
+            r.servers,
+            [
+                OVPNAnalyzer.Server(host: "vpn.example.com", port: "1194", tcp: true),
+                OVPNAnalyzer.Server(host: "2001:db8::1", port: "443", tcp: true)
+            ])
         XCTAssertEqual(r.passwordMode, .keychain)
         XCTAssertEqual(r.otpMode, .ask)
         XCTAssertEqual(r.otpDelivery, .separate)
@@ -357,7 +407,7 @@ final class OVPNImportTests: CoreTestCase {
             "tls-verify /x", "<ca>", "</ca>", "<connection>", "</connection>", "log /tmp/l", "management 127.0.0.1 1",
             "management-external-key", "ca /etc/x", "# up /tmp/x", "static-challenge \"c\" 1", "auth-user-pass",
             "<auth-user-pass>", "</auth-user-pass>", "alice", "user nobody", "daemon", "up\\q", "up 'x", "\r", "",
-            "\u{FEFF}up /x", "dns-updown force", "\tchroot /tmp", "config /etc/x", "iproute /x",
+            "\u{FEFF}up /x", "dns-updown force", "\tchroot /tmp", "config /etc/x", "iproute /x"
         ]
         var rng = SystemRandomNumberGenerator()
         for _ in 0..<3000 {
@@ -396,8 +446,9 @@ final class OVPNImportTests: CoreTestCase {
 
     /// The review reads the file and the ones it refers to; it creates no file, folder or Keychain item.
     func testAnalyzeWritesNothing() throws {
-        let url = try folder("client\nca ca.crt\nremote vpn.example.com\n<auth-user-pass>\nalice\ns3cret\n</auth-user-pass>\nup /x\n",
-                             files: ["ca.crt": caPEM])
+        let url = try folder(
+            "client\nca ca.crt\nremote vpn.example.com\n<auth-user-pass>\nalice\ns3cret\n</auth-user-pass>\nup /x\n",
+            files: ["ca.crt": caPEM])
         let before = try snapshot(home)
         let draft = try store.analyzeOVPN(url)
         XCTAssertEqual(try snapshot(home), before)
@@ -417,8 +468,9 @@ final class OVPNImportTests: CoreTestCase {
     }
 
     func testCommitStoresWhatWasReviewed() throws {
-        let url = try folder("client\nremote vpn.example.com\nscript-security 2\nup /etc/openvpn/update-dns\n"
-                             + "<auth-user-pass>\nalice\ns3cret\n</auth-user-pass>\n")
+        let url = try folder(
+            "client\nremote vpn.example.com\nscript-security 2\nup /etc/openvpn/update-dns\n"
+                + "<auth-user-pass>\nalice\ns3cret\n</auth-user-pass>\n")
         let draft = try store.analyzeOVPN(url)
         XCTAssertEqual(draft.skipped.map(\.text), ["script-security 2", "up /etc/openvpn/update-dns"])
         let when = Date(timeIntervalSince1970: 1_800_000_000.7)
@@ -432,8 +484,10 @@ final class OVPNImportTests: CoreTestCase {
         XCTAssertEqual(p.configImportedAt, Date(timeIntervalSince1970: 1_800_000_000))
         XCTAssertEqual(Secrets.get(p.id, .password), "s3cret")
         let stored = try String(contentsOf: store.ovpnURL(p.id))
-        XCTAssertEqual(stored, "client\nremote vpn.example.com\n# PassTunnel skipped: script-security 2\n"
-                       + "# PassTunnel skipped: up /etc/openvpn/update-dns\nauth-user-pass\n")
+        XCTAssertEqual(
+            stored,
+            "client\nremote vpn.example.com\n# PassTunnel skipped: script-security 2\n"
+                + "# PassTunnel skipped: up /etc/openvpn/update-dns\nauth-user-pass\n")
         XCTAssertNoThrow(try OVPNSanitizer.sanitize(stored))
         XCTAssertEqual(try mode(store.ovpnURL(p.id)), 0o600)
         XCTAssertEqual(try store.get(p.id), p)
@@ -479,8 +533,9 @@ final class OVPNImportTests: CoreTestCase {
 
     func testImportSkipsAndRefusesLikeTheReview() throws {
         let p = try store.importOVPN(try folder("client\nremote vpn.example.com\ndaemon\nlog /var/log/x\n"), name: nil)
-        XCTAssertEqual(try String(contentsOf: store.ovpnURL(p.id)),
-                       "client\nremote vpn.example.com\n# PassTunnel skipped: daemon\n# PassTunnel skipped: log /var/log/x\n")
+        XCTAssertEqual(
+            try String(contentsOf: store.ovpnURL(p.id)),
+            "client\nremote vpn.example.com\n# PassTunnel skipped: daemon\n# PassTunnel skipped: log /var/log/x\n")
         XCTAssertThrowsError(try store.importOVPN(try folder("client\nconfig other.ovpn\n", name: "b.ovpn"), name: nil))
         XCTAssertEqual(store.list().map(\.id), [p.id])
     }

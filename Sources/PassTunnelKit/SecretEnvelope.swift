@@ -1,9 +1,10 @@
+import Foundation
+
 #if canImport(CryptoKit)
 import CryptoKit
 #else
-import Crypto   // swift-crypto: the same API, outside Apple platforms
+import Crypto  // swift-crypto: the same API, outside Apple platforms
 #endif
-import Foundation
 
 /// A secret encrypted to a profile's protection key (a Secure Enclave P-256 key-agreement key),
 /// ECIES-style:
@@ -63,12 +64,14 @@ public enum SecretEnvelope {
 
     package static func parse(_ text: String) -> Parsed? {
         guard text.hasPrefix(marker), let blob = Data(base64Encoded: String(text.dropFirst(marker.count))),
-              blob.count >= 1 + publicKeyLength + nonceLength + tagLength, blob.first == version else { return nil }
+            blob.count >= 1 + publicKeyLength + nonceLength + tagLength, blob.first == version
+        else { return nil }
         let bytes = [UInt8](blob)
         var i = 1
         func take(_ n: Int) -> Data { defer { i += n }; return Data(bytes[i..<(i + n)]) }
         guard let ephemeral = try? P256.KeyAgreement.PublicKey(x963Representation: take(publicKeyLength)),
-              let nonce = try? AES.GCM.Nonce(data: take(nonceLength)) else { return nil }
+            let nonce = try? AES.GCM.Nonce(data: take(nonceLength))
+        else { return nil }
         let ciphertext = take(bytes.count - i - tagLength)
         let tag = take(tagLength)
         guard let box = try? AES.GCM.SealedBox(nonce: nonce, ciphertext: ciphertext, tag: tag) else { return nil }
@@ -77,21 +80,27 @@ public enum SecretEnvelope {
 
     /// Decrypts with the shared secret the protection key computed for `parsed.ephemeral`.
     /// Throws `PTError.protectedSecretUnreadable` when the data was changed or belongs elsewhere.
-    package static func open(_ parsed: Parsed, shared: SharedSecret, recipient: P256.KeyAgreement.PublicKey,
-                     account: String, kind: SecretKind) throws -> String {
+    package static func open(
+        _ parsed: Parsed, shared: SharedSecret, recipient: P256.KeyAgreement.PublicKey,
+        account: String, kind: SecretKind
+    ) throws -> String {
         let key = symmetricKey(shared, ephemeral: parsed.ephemeral, recipient: recipient)
         guard let data = try? AES.GCM.open(parsed.box, using: key, authenticating: Data(account.utf8)),
-              let text = String(data: data, encoding: .utf8) else {
+            let text = String(data: data, encoding: .utf8)
+        else {
             throw PTError.protectedSecretUnreadable(kind)
         }
         return text
     }
 
-    private static func symmetricKey(_ shared: SharedSecret, ephemeral: P256.KeyAgreement.PublicKey,
-                                     recipient: P256.KeyAgreement.PublicKey) -> SymmetricKey {
-        shared.hkdfDerivedSymmetricKey(using: SHA256.self,
-                                       salt: ephemeral.x963Representation + recipient.x963Representation,
-                                       sharedInfo: info, outputByteCount: 32)
+    private static func symmetricKey(
+        _ shared: SharedSecret, ephemeral: P256.KeyAgreement.PublicKey,
+        recipient: P256.KeyAgreement.PublicKey
+    ) -> SymmetricKey {
+        shared.hkdfDerivedSymmetricKey(
+            using: SHA256.self,
+            salt: ephemeral.x963Representation + recipient.x963Representation,
+            sharedInfo: info, outputByteCount: 32)
     }
 }
 

@@ -1,4 +1,9 @@
 import Foundation
+import XCTest
+
+@testable import PassTunnelCore
+@testable import PassTunnelKit
+
 #if canImport(Network)
 import Network
 import Security
@@ -6,9 +11,6 @@ import Security
 #if canImport(Glibc)
 import Glibc
 #endif
-import XCTest
-@testable import PassTunnelCore
-@testable import PassTunnelKit
 
 /// Stands in for `ServerClock`: records what it was asked and answers what it is told; never the network.
 final class FakeServerClock: ClockChecking, @unchecked Sendable {
@@ -88,12 +90,14 @@ final class ServerClockTests: XCTestCase {
         XCTAssertEqual(reply.received, t, accuracy: 1e-6)
         XCTAssertEqual(reply.transmitted, t + 0.5, accuracy: 1e-6)
         XCTAssertNotNil(SNTP.parse(bytes + [0, 0, 0, 0], nonce: nonce), "extension fields after the header")
-        XCTAssertNotNil(SNTP.parse(Self.reply(origin: nonce, received: Self.ntp(t), transmitted: Self.ntp(t), first: 0x1C), nonce: nonce),
-                        "version 3")
+        XCTAssertNotNil(
+            SNTP.parse(Self.reply(origin: nonce, received: Self.ntp(t), transmitted: Self.ntp(t), first: 0x1C), nonce: nonce),
+            "version 3")
 
         // T1 = 1000, T2 = 1050, T3 = 1050.5, T4 = 1001: the server is 49.75 s ahead.
-        let offset = SNTP.offset(sent: Date(timeIntervalSince1970: 1000), reply: SNTP.Reply(received: 1050, transmitted: 1050.5),
-                                 received: Date(timeIntervalSince1970: 1001))
+        let offset = SNTP.offset(
+            sent: Date(timeIntervalSince1970: 1000), reply: SNTP.Reply(received: 1050, transmitted: 1050.5),
+            received: Date(timeIntervalSince1970: 1001))
         XCTAssertEqual(offset, 49.75)
     }
 
@@ -111,7 +115,7 @@ final class ServerClockTests: XCTestCase {
             ("stratum 16", Self.reply(origin: nonce, received: t, transmitted: t, stratum: 16)),
             ("no receive time", Self.reply(origin: nonce, received: 0, transmitted: t)),
             ("no transmit time", Self.reply(origin: nonce, received: t, transmitted: 0)),
-            ("sent before received", Self.reply(origin: nonce, received: t, transmitted: t - (1 << 32))),
+            ("sent before received", Self.reply(origin: nonce, received: t, transmitted: t - (1 << 32)))
         ]
         for (name, bytes) in cases { XCTAssertNil(SNTP.parse(bytes, nonce: nonce), name) }
     }
@@ -185,8 +189,10 @@ final class ServerClockTests: XCTestCase {
             request = r
             let now = Date().timeIntervalSince1970 + 100
             let nonce = Self.nonce(of: r)
-            return [Self.reply(origin: nonce &+ 1, received: Self.ntp(now - 500), transmitted: Self.ntp(now - 500)),
-                    Self.reply(origin: nonce, received: Self.ntp(now), transmitted: Self.ntp(now))]
+            return [
+                Self.reply(origin: nonce &+ 1, received: Self.ntp(now - 500), transmitted: Self.ntp(now - 500)),
+                Self.reply(origin: nonce, received: Self.ntp(now), transmitted: Self.ntp(now))
+            ]
         }
         defer { server.stop() }
         let measured = try await SNTP.query(host: "127.0.0.1", port: server.port, timeout: 3)
@@ -214,7 +220,7 @@ final class ServerClockTests: XCTestCase {
     func testAPortNothingListensOnFails() async throws {
         let server = try LocalSNTPServer(wait: 0) { _ in [] }
         let port = server.port
-        server.stop()   // closed: the request is answered with "port unreachable", or not at all
+        server.stop()  // closed: the request is answered with "port unreachable", or not at all
         do {
             _ = try await SNTP.query(host: "127.0.0.1", port: port, timeout: 1)
             XCTFail("expected a failure")
@@ -230,8 +236,10 @@ final class ServerClockTests: XCTestCase {
 
     func testTheGatewayRequestIsAHeadWithNothingElse() {
         let request = ServerClock.headRequest(host: "vpn.example.com", port: 10443)
-        XCTAssertEqual(request, "HEAD / HTTP/1.1\r\nHost: vpn.example.com:10443\r\nUser-Agent: PassTunnel\r\nAccept: */*\r\n"
-            + "Connection: close\r\n\r\n")
+        XCTAssertEqual(
+            request,
+            "HEAD / HTTP/1.1\r\nHost: vpn.example.com:10443\r\nUser-Agent: PassTunnel\r\nAccept: */*\r\n"
+                + "Connection: close\r\n\r\n")
         for word in ["cookie", "authorization", "alice", "SVPNCOOKIE"] {
             XCTAssertFalse(request.lowercased().contains(word.lowercased()), word)
         }
@@ -245,14 +253,19 @@ final class ServerClockTests: XCTestCase {
         let sent = Date(timeIntervalSince1970: 1_792_921_200)
         let received = sent.addingTimeInterval(1)
         let head = Data("HTTP/1.1 302 Found\r\nDate: Sun, 25 Oct 2026 09:41:02 GMT\r\nLocation: /remote/login".utf8)
-        XCTAssertEqual(try ServerClock.gatewayResult(head: head, sent: sent, received: received, host: "vpn.example.com").get(),
-                       ClockOffset(offsetSeconds: 62, source: .gateway, server: "vpn.example.com", checkedAt: received))
-        XCTAssertEqual(ServerClock.gatewayResult(head: Data("HTTP/1.1 200 OK\r\nServer: x".utf8), sent: sent, received: received,
-                                                 host: "vpn.example.com"), .failure(.noDate))
-        XCTAssertEqual(ServerClock.gatewayResult(head: Data([0x15, 0x03, 0x03]), sent: sent, received: received, host: "vpn.example.com"),
-                       .failure(.invalidReply))
-        XCTAssertEqual(ServerClock.gatewayResult(head: Data(), sent: sent, received: received, host: "vpn.example.com"),
-                       .failure(.invalidReply))
+        XCTAssertEqual(
+            try ServerClock.gatewayResult(head: head, sent: sent, received: received, host: "vpn.example.com").get(),
+            ClockOffset(offsetSeconds: 62, source: .gateway, server: "vpn.example.com", checkedAt: received))
+        XCTAssertEqual(
+            ServerClock.gatewayResult(
+                head: Data("HTTP/1.1 200 OK\r\nServer: x".utf8), sent: sent, received: received,
+                host: "vpn.example.com"), .failure(.noDate))
+        XCTAssertEqual(
+            ServerClock.gatewayResult(head: Data([0x15, 0x03, 0x03]), sent: sent, received: received, host: "vpn.example.com"),
+            .failure(.invalidReply))
+        XCTAssertEqual(
+            ServerClock.gatewayResult(head: Data(), sent: sent, received: received, host: "vpn.example.com"),
+            .failure(.invalidReply))
     }
 
     // MARK: the system's time server
@@ -264,19 +277,23 @@ final class ServerClockTests: XCTestCase {
         XCTAssertEqual(ServerClock.timeServerHost(read: { _ in nil }, list: { _ in [] }), "time.apple.com")
         #endif
 
-        let files = ["/etc/systemd/timesyncd.conf": "[Time]\n#NTP=\n#FallbackNTP=ntp.example.org\n",
-                     "/etc/systemd/timesyncd.conf.d/20-site.conf": "[Time]\nNTP=ntp1.example.com ntp2.example.com\n",
-                     "/etc/systemd/timesyncd.conf.d/10-old.conf": "[Time]\nNTP=old.example.com\n",
-                     "/etc/chrony/chrony.conf": "pool 2.pool.example.org iburst\n"]
+        let files = [
+            "/etc/systemd/timesyncd.conf": "[Time]\n#NTP=\n#FallbackNTP=ntp.example.org\n",
+            "/etc/systemd/timesyncd.conf.d/20-site.conf": "[Time]\nNTP=ntp1.example.com ntp2.example.com\n",
+            "/etc/systemd/timesyncd.conf.d/10-old.conf": "[Time]\nNTP=old.example.com\n",
+            "/etc/chrony/chrony.conf": "pool 2.pool.example.org iburst\n"
+        ]
         func read(_ path: String) -> String? { files[path] }
         func list(_ path: String) -> [String] {
             path == ServerClock.timesyncdDropIns ? ["20-site.conf", "10-old.conf", "README"] : []
         }
         XCTAssertEqual(ServerClock.configuredTimeServer(read: read, list: list), "ntp1.example.com", "the last drop-in wins")
-        XCTAssertEqual(ServerClock.configuredTimeServer(read: { $0 == "/etc/chrony/chrony.conf" ? files[$0] : nil }, list: { _ in [] }),
-                       "2.pool.example.org")
-        XCTAssertNil(ServerClock.configuredTimeServer(read: { $0 == "/etc/systemd/timesyncd.conf" ? files[$0] : nil }, list: { _ in [] }),
-                     "only commented out")
+        XCTAssertEqual(
+            ServerClock.configuredTimeServer(read: { $0 == "/etc/chrony/chrony.conf" ? files[$0] : nil }, list: { _ in [] }),
+            "2.pool.example.org")
+        XCTAssertNil(
+            ServerClock.configuredTimeServer(read: { $0 == "/etc/systemd/timesyncd.conf" ? files[$0] : nil }, list: { _ in [] }),
+            "only commented out")
     }
 
     func testTimesyncdAndNTPConfigurations() {
@@ -285,8 +302,9 @@ final class ServerClockTests: XCTestCase {
         XCTAssertEqual(ServerClock.timesyncdServer(["[Time]\nFallbackNTP=f.example.com\n"]), "f.example.com")
         XCTAssertEqual(ServerClock.timesyncdServer(["[Other]\nNTP=a.example.com\n"]), nil, "outside [Time]")
         XCTAssertEqual(ServerClock.timesyncdServer(["[Time]\n NTP = -bad a.example.com\n"]), "a.example.com", "never an option")
-        XCTAssertEqual(ServerClock.ntpConfServer("# server old.example.com\nserver 127.127.1.0\nserver ntp.example.com iburst\n"),
-                       "ntp.example.com")
+        XCTAssertEqual(
+            ServerClock.ntpConfServer("# server old.example.com\nserver 127.127.1.0\nserver ntp.example.com iburst\n"),
+            "ntp.example.com")
         XCTAssertEqual(ServerClock.ntpConfServer("driftfile /var/lib/ntp/drift\npool 198.51.100.123\n"), "198.51.100.123")
         XCTAssertNil(ServerClock.ntpConfServer("servers ntp.example.com\nserver\nserver bad/name\n"))
     }
@@ -317,8 +335,9 @@ final class ServerClockTests: XCTestCase {
         defer { server.stop() }
         let port = Int(try await server.start())
 
-        let measured = try await ServerClock().gateway(host: "127.0.0.1", port: port, trustedCert: TLSFingerprint.display(digest),
-                                                       timeout: 5)
+        let measured = try await ServerClock().gateway(
+            host: "127.0.0.1", port: port, trustedCert: TLSFingerprint.display(digest),
+            timeout: 5)
         XCTAssertEqual(Double(measured.offsetSeconds), 120, accuracy: 2)
         XCTAssertEqual(measured.source, .gateway)
         XCTAssertEqual(measured.server, "127.0.0.1")
@@ -346,8 +365,10 @@ final class ServerClockTests: XCTestCase {
     }
 
     func testRejectsBadGatewayInputWithoutConnecting() async {
-        for (host, port, expected) in [("https://vpn.example.com", 443, ServerClock.Failure.invalidHost), ("", 443, .invalidHost),
-                                       ("127.0.0.1", 0, .invalidPort), ("127.0.0.1", 70000, .invalidPort)] {
+        for (host, port, expected) in [
+            ("https://vpn.example.com", 443, ServerClock.Failure.invalidHost), ("", 443, .invalidHost),
+            ("127.0.0.1", 0, .invalidPort), ("127.0.0.1", 70000, .invalidPort)
+        ] {
             do {
                 _ = try await ServerClock().gateway(host: host, port: port, trustedCert: nil, timeout: 1)
                 XCTFail("expected \(expected)")

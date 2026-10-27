@@ -8,7 +8,8 @@ import PassTunnelShared
 // no translations, Info.plist or helper plist. Run the real executable inside the app instead,
 // keeping argv[0] so the CLI mode is still recognized.
 if Bundle.main.bundleURL.pathExtension != "app", let current = Bundle.main.executablePath,
-   let resolved = realpath(current, nil) {
+    let resolved = realpath(current, nil)
+{
     let real = String(cString: resolved)
     free(resolved)
     if real != current, real.contains(".app/Contents/MacOS/") {
@@ -26,17 +27,20 @@ if let dir = ProcessInfo.processInfo.environment["PASSTUNNEL_RENDER"], !dir.isEm
     // PASSTUNNEL_RENDER_LANG=tr renders in that language: restart with `-AppleLanguages (tr)` so the
     // bundle picks the localization before any string is looked up (nothing is written to defaults).
     if let lang = ProcessInfo.processInfo.environment["PASSTUNNEL_RENDER_LANG"], !lang.isEmpty,
-       !CommandLine.arguments.contains("-AppleLanguages"), let executable = Bundle.main.executablePath {
+        !CommandLine.arguments.contains("-AppleLanguages"), let executable = Bundle.main.executablePath
+    {
         // An unbundled build (`swift build`) has no compiled `<lang>.lproj`: its catalog sits uncompiled in the
         // resource bundle, so every lookup would silently fall back to English.
         let base = lang.split(whereSeparator: { "-_".contains($0) }).first.map(String.init) ?? lang
         if Bundle.main.url(forResource: "Localizable", withExtension: "strings", subdirectory: nil, localization: base) == nil {
-            FileHandle.standardError.write(Data(("""
-                render: no compiled \(base) strings in \(Bundle.main.bundlePath); the render would be in English.
-                Render from the app (scripts/build-app.sh), or compile the catalog next to the binary:
-                xcrun xcstringstool compile Sources/PassTunnel/Resources/Localizable.xcstrings --output-directory "$(dirname \(executable))"
+            FileHandle.standardError.write(
+                Data(
+                    ("""
+                    render: no compiled \(base) strings in \(Bundle.main.bundlePath); the render would be in English.
+                    Render from the app (scripts/build-app.sh), or compile the catalog next to the binary:
+                    xcrun xcstringstool compile Sources/PassTunnel/Resources/Localizable.xcstrings --output-directory "$(dirname \(executable))"
 
-                """).utf8))
+                    """).utf8))
             exit(1)
         }
         let argv = [executable] + CommandLine.arguments.dropFirst() + ["-AppleLanguages", "(\(lang))"]
@@ -52,7 +56,8 @@ if let dir = ProcessInfo.processInfo.environment["PASSTUNNEL_RENDER"], !dir.isEm
 if let bundleID = Bundle.main.bundleIdentifier {
     let me = ProcessInfo.processInfo.processIdentifier
     if let other = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
-        .first(where: { $0.processIdentifier != me && !$0.isTerminated }) {
+        .first(where: { $0.processIdentifier != me && !$0.isTerminated })
+    {
         // A background start (login item) never pulls the running copy forward.
         if CommandLine.arguments.dropFirst().contains(LoginItem.backgroundArgument) { exit(0) }
         other.activate(options: [.activateAllWindows])

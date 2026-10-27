@@ -1,8 +1,9 @@
 import Foundation
+import PassTunnelKit
+
 #if canImport(Glibc)
 import Glibc
 #endif
-import PassTunnelKit
 
 /// A minimal SNTP client (RFC 4330, NTP version 4 packets): one request, one valid reply. The request
 /// carries nothing but a random number where the client's time would go, so the server learns
@@ -144,8 +145,9 @@ enum SNTP {
                 continue
             }
             guard let reply = parse(Array(buffer[0..<n]), nonce: nonce) else { continue }
-            return ClockOffset(offset: offset(sent: sent, reply: reply, received: received), source: .timeServer,
-                               server: host, checkedAt: received)
+            return ClockOffset(
+                offset: offset(sent: sent, reply: reply, received: received), source: .timeServer,
+                server: host, checkedAt: received)
         }
     }
 }

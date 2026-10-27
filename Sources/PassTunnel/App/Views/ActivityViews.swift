@@ -48,7 +48,7 @@ final class ActivityFeed: ObservableObject {
 
     private func currentStamp() -> Stamp? {
         guard model.previewStates == nil,
-              let attributes = try? FileManager.default.attributesOfItem(atPath: model.store.activityURL(profileID).path)
+            let attributes = try? FileManager.default.attributesOfItem(atPath: model.store.activityURL(profileID).path)
         else { return nil }
         return Stamp(modified: attributes[.modificationDate] as? Date, size: (attributes[.size] as? NSNumber)?.intValue)
     }
@@ -296,7 +296,8 @@ struct ActivityLogContent: View {
         var items: [Item] = []
         var day: Date?
         for event in events {
-            if let last = day, calendar.isDate(event.at, inSameDayAs: last) {} else {
+            if let last = day, calendar.isDate(event.at, inSameDayAs: last) {
+            } else {
                 day = event.at
                 items.append(.day(ActivityEvent.dayTitle(event.at, now: model.now)))
             }

@@ -1,6 +1,6 @@
 import Foundation
-import os
 import PassTunnelShared
+import os
 
 // Privileged helper: launched on demand by launchd (SMAppService daemon) as root.
 
@@ -39,5 +39,6 @@ let delegate = ListenerDelegate(supervisor: supervisor, buildID: buildID, buildN
 let listener = NSXPCListener(machServiceName: PT.helperLabel)
 listener.delegate = delegate
 listener.resume()
-log.info("listening on \(PT.helperLabel, privacy: .public), version \(PT.helperProtocolVersion), build \(buildID, privacy: .public) (\(buildNumber ?? 0))")
+log.info(
+    "listening on \(PT.helperLabel, privacy: .public), version \(PT.helperProtocolVersion), build \(buildID, privacy: .public) (\(buildNumber ?? 0))")
 dispatchMain()

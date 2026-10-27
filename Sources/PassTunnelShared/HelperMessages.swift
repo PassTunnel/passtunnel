@@ -8,7 +8,8 @@ import PassTunnelVPNConfig
 /// the app checked (`ProfileDestination`): the helper refuses to start any other file
 /// (`HelperResponse.ErrorCode.configChanged`). Optional, so requests of older apps still decode.
 public struct OpenVPNStart: Codable, Equatable, CustomStringConvertible, CustomDebugStringConvertible,
-                            CustomReflectable {
+    CustomReflectable
+{
     public var profileID: String
     public var profileDir: String
     public var mgmtPort: Int?
@@ -17,8 +18,10 @@ public struct OpenVPNStart: Codable, Equatable, CustomStringConvertible, CustomD
     public var logPath: String
     public var configSHA256: String?
 
-    public init(profileID: String, profileDir: String, mgmtPort: Int? = nil,
-                username: String? = nil, secret: String? = nil, logPath: String, configSHA256: String? = nil) {
+    public init(
+        profileID: String, profileDir: String, mgmtPort: Int? = nil,
+        username: String? = nil, secret: String? = nil, logPath: String, configSHA256: String? = nil
+    ) {
         self.profileID = profileID
         self.profileDir = profileDir
         self.mgmtPort = mgmtPort
@@ -42,15 +45,20 @@ public struct OpenVPNStart: Codable, Equatable, CustomStringConvertible, CustomD
 
     /// Keeps `dump()` and other Mirror-based printing from revealing the secret.
     public var customMirror: Mirror {
-        Mirror(self, children: ["profileID": profileID, "profileDir": profileDir, "username": username as Any,
-                                "secret": secret == nil ? "nil" : "<redacted>", "logPath": logPath,
-                                "configSHA256": configSHA256 as Any])
+        Mirror(
+            self,
+            children: [
+                "profileID": profileID, "profileDir": profileDir, "username": username as Any,
+                "secret": secret == nil ? "nil" : "<redacted>", "logPath": logPath,
+                "configSHA256": configSHA256 as Any
+            ])
     }
 }
 
 /// Start a FortiGate SSL VPN profile through openfortivpn.
 public struct FortiStart: Codable, Equatable, CustomStringConvertible, CustomDebugStringConvertible,
-                          CustomReflectable {
+    CustomReflectable
+{
     public var profileID: String
     public var profileDir: String
     public var host: String
@@ -63,9 +71,11 @@ public struct FortiStart: Codable, Equatable, CustomStringConvertible, CustomDeb
     public var setRoutes: Bool
     public var logPath: String
 
-    public init(profileID: String, profileDir: String, host: String, port: Int = 443,
-                username: String, password: String, otp: String? = nil, trustedCert: String = "",
-                setDNS: Bool = false, setRoutes: Bool = true, logPath: String) {
+    public init(
+        profileID: String, profileDir: String, host: String, port: Int = 443,
+        username: String, password: String, otp: String? = nil, trustedCert: String = "",
+        setDNS: Bool = false, setRoutes: Bool = true, logPath: String
+    ) {
         self.profileID = profileID
         self.profileDir = profileDir
         self.host = host
@@ -92,17 +102,22 @@ public struct FortiStart: Codable, Equatable, CustomStringConvertible, CustomDeb
     public var debugDescription: String { description }
 
     public var customMirror: Mirror {
-        Mirror(self, children: ["profileID": profileID, "profileDir": profileDir, "host": host, "port": port,
-                                "username": username, "password": "<redacted>",
-                                "otp": otp == nil ? "nil" : "<redacted>", "trustedCert": trustedCert,
-                                "setDNS": setDNS, "setRoutes": setRoutes, "logPath": logPath])
+        Mirror(
+            self,
+            children: [
+                "profileID": profileID, "profileDir": profileDir, "host": host, "port": port,
+                "username": username, "password": "<redacted>",
+                "otp": otp == nil ? "nil" : "<redacted>", "trustedCert": trustedCert,
+                "setDNS": setDNS, "setRoutes": setRoutes, "logPath": logPath
+            ])
     }
 }
 
 extension FortiConfig {
     public init(_ start: FortiStart) {
-        self.init(host: start.host, port: start.port, username: start.username, password: start.password,
-                  otp: start.otp, trustedCert: start.trustedCert, setDNS: start.setDNS, setRoutes: start.setRoutes)
+        self.init(
+            host: start.host, port: start.port, username: start.username, password: start.password,
+            otp: start.otp, trustedCert: start.trustedCert, setDNS: start.setDNS, setRoutes: start.setRoutes)
     }
 }
 
@@ -185,8 +200,10 @@ public struct HelperResponse: Codable, Equatable {
         case helperBuild = "helper_build"
     }
 
-    public init(ok: Bool, error: String? = nil, pid: Int32? = nil, running: [String: Int32]? = nil,
-                mgmtSocket: String? = nil, mgmtSockets: [String: String]? = nil) {
+    public init(
+        ok: Bool, error: String? = nil, pid: Int32? = nil, running: [String: Int32]? = nil,
+        mgmtSocket: String? = nil, mgmtSockets: [String: String]? = nil
+    ) {
         self.ok = ok
         self.error = error
         self.pid = pid
@@ -195,8 +212,10 @@ public struct HelperResponse: Codable, Equatable {
         self.mgmtSockets = mgmtSockets
     }
 
-    public static func success(pid: Int32? = nil, running: [String: Int32]? = nil,
-                               mgmtSocket: String? = nil, mgmtSockets: [String: String]? = nil) -> HelperResponse {
+    public static func success(
+        pid: Int32? = nil, running: [String: Int32]? = nil,
+        mgmtSocket: String? = nil, mgmtSockets: [String: String]? = nil
+    ) -> HelperResponse {
         HelperResponse(ok: true, pid: pid, running: running, mgmtSocket: mgmtSocket, mgmtSockets: mgmtSockets)
     }
 

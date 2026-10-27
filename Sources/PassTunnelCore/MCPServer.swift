@@ -40,8 +40,10 @@ public final class MCPServer {
     private var cancelled: Set<String> = []
 
     /// `send` gets each outgoing message (one JSON object, no line break); `log` diagnostics for stderr.
-    public init(service: AutomationService, allowConnect: Bool, serverVersion: String = AppInfo.current.version,
-                send: @escaping (Data) -> Void, log: @escaping (String) -> Void = { _ in }) {
+    public init(
+        service: AutomationService, allowConnect: Bool, serverVersion: String = AppInfo.current.version,
+        send: @escaping (Data) -> Void, log: @escaping (String) -> Void = { _ in }
+    ) {
         tools = MCPTools(service: service, allowConnect: allowConnect, log: log)
         self.serverVersion = serverVersion
         self.send = send
@@ -148,7 +150,7 @@ public final class MCPServer {
     public nonisolated static func isValidID(_ id: JSONValue) -> Bool {
         switch id {
         case .string, .integer: return true
-        case .number(let n): return n.isFinite && n == n.rounded()   // whole, but beyond 64 bits
+        case .number(let n): return n.isFinite && n == n.rounded()  // whole, but beyond 64 bits
         case .null, .bool, .array, .object: return false
         }
     }
@@ -158,7 +160,7 @@ public final class MCPServer {
         case .string(let s): return "s:" + s
         case .integer(let n): return "n:\(n)"
         case .number(let n): return "n:\(n)"
-        case .null, .bool, .array, .object: return "n:0"   // not valid ids, never keyed
+        case .null, .bool, .array, .object: return "n:0"  // not valid ids, never keyed
         }
     }
 
@@ -201,8 +203,9 @@ public final class MCPServer {
                 return errorMessage(id: id, code: ErrorCode.invalidParams, message: "Invalid params: \(Self.versionKey) must be a string")
             }
             guard Self.supportedVersions.contains(version) else {
-                return errorMessage(id: id, code: ErrorCode.unsupportedVersion, message: "Unsupported protocol version",
-                                    data: ["supported": Self.supportedVersions, "requested": version])
+                return errorMessage(
+                    id: id, code: ErrorCode.unsupportedVersion, message: "Unsupported protocol version",
+                    data: ["supported": Self.supportedVersions, "requested": version])
             }
             if Self.modernVersions.contains(version) && meta?[Self.capabilitiesKey]?.objectValue == nil {
                 return errorMessage(id: id, code: ErrorCode.invalidParams, message: "Invalid params: missing _meta \(Self.capabilitiesKey)")
@@ -213,16 +216,19 @@ public final class MCPServer {
         } else if method == "ping" {
             era = .legacy(Self.legacyVersions[0])
         } else {
-            return errorMessage(id: id, code: ErrorCode.invalidParams,
-                                message: "Invalid params: missing _meta \(Self.versionKey) (or send initialize first)")
+            return errorMessage(
+                id: id, code: ErrorCode.invalidParams,
+                message: "Invalid params: missing _meta \(Self.versionKey) (or send initialize first)")
         }
 
         switch method {
         case "ping":
             return result(id: id, [:], era: era)
         case "server/discover":
-            var r: [String: Any] = ["supportedVersions": Self.supportedVersions, "capabilities": capabilities,
-                                    "instructions": instructions]
+            var r: [String: Any] = [
+                "supportedVersions": Self.supportedVersions, "capabilities": capabilities,
+                "instructions": instructions
+            ]
             r["ttlMs"] = 0
             r["cacheScope"] = "private"
             return result(id: id, r, era: .modern(era.version))
@@ -255,16 +261,19 @@ public final class MCPServer {
     /// of `legacyVersions`, else the newest of them (the client disconnects if it cannot use it).
     private func initialize(id: JSONValue, params: [String: JSONValue]) -> Data {
         guard let requested = params["protocolVersion"]?.stringValue else {
-            return errorMessage(id: id, code: ErrorCode.invalidParams, message: "Invalid params: missing protocolVersion",
-                                data: ["supported": Self.supportedVersions])
+            return errorMessage(
+                id: id, code: ErrorCode.invalidParams, message: "Invalid params: missing protocolVersion",
+                data: ["supported": Self.supportedVersions])
         }
         let version = Self.legacyVersions.contains(requested) ? requested : Self.legacyVersions[0]
         sessionVersion = version
         if let client = params["clientInfo"]?.objectValue, let name = client["name"]?.stringValue {
             log("client \(name) \(client["version"]?.stringValue ?? ""), protocol \(version)")
         }
-        let r: [String: Any] = ["protocolVersion": version, "capabilities": capabilities,
-                                "serverInfo": serverInfo, "instructions": instructions]
+        let r: [String: Any] = [
+            "protocolVersion": version, "capabilities": capabilities,
+            "serverInfo": serverInfo, "instructions": instructions
+        ]
         return result(id: id, r, era: .legacy(version))
     }
 
@@ -278,10 +287,10 @@ public final class MCPServer {
 
     private var instructions: String {
         var text = """
-        PassTunnel manages \(MCPWording.thisMachines) VPN connections (OpenVPN and FortiGate SSL VPN). Profiles are \
-        identified by their id (from list_profiles). The tools never return passwords, TOTP secrets, \
-        one-time codes, keys or configuration files, and they cannot create, change or delete profiles.
-        """
+            PassTunnel manages \(MCPWording.thisMachines) VPN connections (OpenVPN and FortiGate SSL VPN). Profiles are \
+            identified by their id (from list_profiles). The tools never return passwords, TOTP secrets, \
+            one-time codes, keys or configuration files, and they cannot create, change or delete profiles.
+            """
         if tools.allowConnect {
             text += " connect and disconnect are enabled. \(MCPWording.instructionsProtected)"
         } else {
@@ -326,14 +335,18 @@ public final class MCPServer {
         let stderr = FileHandle.standardError
         let log: (String) -> Void = { text in try? stderr.write(contentsOf: Data(("passtunnel mcp: " + text + "\n").utf8)) }
         var outputClosed = false
-        let server = MCPServer(service: service, allowConnect: allowConnect, send: { data in
-            guard !outputClosed else { return }
-            do { try FileHandle.standardOutput.write(contentsOf: data + Data([0x0A])) } catch { outputClosed = true }
-        }, log: log)
+        let server = MCPServer(
+            service: service, allowConnect: allowConnect,
+            send: { data in
+                guard !outputClosed else { return }
+                do { try FileHandle.standardOutput.write(contentsOf: data + Data([0x0A])) } catch { outputClosed = true }
+            }, log: log)
         // Confirmations end on screen lock and sleep, as in the app (this process may run for days).
         let expiry = VaultExpiry(vault: service.manager.vault)
         defer { withExtendedLifetime(expiry) {} }
-        log("ready (\(allowConnect ? "connect and disconnect allowed" : "read-only")), protocol \(modernVersions[0]) and \(legacyVersions.joined(separator: ", "))")
+        log(
+            "ready (\(allowConnect ? "connect and disconnect allowed" : "read-only")), protocol \(modernVersions[0]) and \(legacyVersions.joined(separator: ", "))"
+        )
         let lines = AsyncStream<LineReader.Line> { continuation in
             Thread.detachNewThread {
                 var reader = LineReader(maxBytes: maxLineBytes)

@@ -1,6 +1,7 @@
 import Foundation
 import PassTunnelCore
 import PassTunnelKit
+
 #if canImport(AppKit)
 import AppKit
 #endif
@@ -24,7 +25,7 @@ enum CLIClipboard {
         /// Nil for anything else (another number of seconds, a sign, extra arguments).
         init?(arguments: [String]) {
             guard (2...3).contains(arguments.count), arguments[0] == PassTunnelCLI.clearClipboardArgument,
-                  let seconds = Self.number(arguments[1]), Preferences.clearClipboardChoices.contains(seconds)
+                let seconds = Self.number(arguments[1]), Preferences.clearClipboardChoices.contains(seconds)
             else { return nil }
             self.seconds = seconds
             if arguments.count == 3 {
@@ -103,7 +104,9 @@ enum CLIClipboard {
     /// `invalid_argument`.
     static func copyConcealed(_ text: String, clearingAfter seconds: Int) throws {
         guard tool() != nil else {
-            throw AutomationError(.invalidArgument, String(localized: "Copying needs wl-copy (Wayland) or xclip (X11), and neither was found. Run the command without --copy."))
+            throw AutomationError(
+                .invalidArgument,
+                String(localized: "Copying needs wl-copy (Wayland) or xclip (X11), and neither was found. Run the command without --copy."))
         }
         guard let executable = Bundle.main.executablePath else { return }
         // Foundation starts it in its own process group with no other descriptors; it outlives this one.
@@ -122,7 +125,7 @@ enum CLIClipboard {
     /// The process left behind: hands its standard input to the clipboard tool and clears it after
     /// `seconds` (see `serve(_:with:lifetime:)`).
     static func serve(for seconds: Int) -> Int32 {
-        signal(SIGHUP, SIG_IGN)    // a closed terminal does not end it (or the tool) early
+        signal(SIGHUP, SIG_IGN)  // a closed terminal does not end it (or the tool) early
         let text = FileHandle.standardInput.readDataToEndOfFile()
         guard let tool = tool() else { return PassTunnelCLI.Exit.error }
         return serve(text, with: tool, lifetime: TimeInterval(seconds))
@@ -140,8 +143,10 @@ enum CLIClipboard {
     }
 
     /// wl-copy in a Wayland session, else xclip with an X display; found in PATH. Nil without one.
-    static func tool(environment: [String: String] = ProcessInfo.processInfo.environment,
-                     isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }) -> Tool? {
+    static func tool(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
+    ) -> Tool? {
         let directories = (environment["PATH"] ?? "").split(separator: ":").filter { $0.hasPrefix("/") }
         func find(_ name: String) -> String? {
             directories.map { "\($0)/\(name)" }.first(where: isExecutable)
@@ -159,7 +164,7 @@ enum CLIClipboard {
     /// PassTunnel still owns the clipboard and stopping the tool clears it; if it has exited, something
     /// else was copied meanwhile and is left alone.
     static func serve(_ data: Data, with tool: Tool, lifetime: TimeInterval) -> Int32 {
-        signal(SIGPIPE, SIG_IGN)   // a tool that exits at once (no display) must not end this process
+        signal(SIGPIPE, SIG_IGN)  // a tool that exits at once (no display) must not end this process
         let process = Process()
         process.executableURL = URL(fileURLWithPath: tool.path)
         process.arguments = tool.arguments

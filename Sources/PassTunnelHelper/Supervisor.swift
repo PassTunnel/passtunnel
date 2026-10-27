@@ -1,6 +1,6 @@
 import Foundation
-import os
 import PassTunnelShared
+import os
 
 /// Starts, tracks and stops the VPN tool processes. All state is confined to `queue`.
 /// Jobs are keyed by (owner uid, profile ID); see `SessionPolicy`.
@@ -73,8 +73,10 @@ final class Supervisor {
             case .stop(let id):
                 self.stop(profileID: id, uid: uid, reply: reply)
             case .status:
-                reply(.success(running: SessionPolicy.visible(to: uid, sessions: self.sessions),
-                               mgmtSockets: SessionPolicy.sockets(visibleTo: uid, sessions: self.sessions)))
+                reply(
+                    .success(
+                        running: SessionPolicy.visible(to: uid, sessions: self.sessions),
+                        mgmtSockets: SessionPolicy.sockets(visibleTo: uid, sessions: self.sessions)))
             }
         }
     }
@@ -107,15 +109,17 @@ final class Supervisor {
             // Requirement, then the cdhashes this helper was built with, both on the started process
             // (the staged file is root-owned; this also covers whatever posix_spawn actually opened).
             let verifier = RequirementVerifier(requirement: requirement, cdhashes: PinnedTools.allowed(plan.tool.rawValue))
-            let pid = try Spawner.spawnVerified(executable: executable, arguments: plan.arguments,
-                                                environment: HelperCore.fixedEnvironment,
-                                                workingDirectory: plan.runDir, outputFD: plan.logFD,
-                                                verifier: verifier)
+            let pid = try Spawner.spawnVerified(
+                executable: executable, arguments: plan.arguments,
+                environment: HelperCore.fixedEnvironment,
+                workingDirectory: plan.runDir, outputFD: plan.logFD,
+                verifier: verifier)
             writeState(plan: plan, pid: pid, executable: executable)
             let logCopy = fcntl(plan.logFD, F_DUPFD_CLOEXEC, 0)
-            let job = Job(profileID: plan.profileID, ownerUID: plan.ownerUID, pid: pid, executable: executable,
-                          runDir: plan.runDir, isChild: true, sessionDir: plan.sessionDir, mgmtSocket: plan.mgmtSocket,
-                          logFD: logCopy >= 0 ? logCopy : nil)
+            let job = Job(
+                profileID: plan.profileID, ownerUID: plan.ownerUID, pid: pid, executable: executable,
+                runDir: plan.runDir, isChild: true, sessionDir: plan.sessionDir, mgmtSocket: plan.mgmtSocket,
+                logFD: logCopy >= 0 ? logCopy : nil)
             track(job)
             if plan.mgmtSocket != nil { restrictSocketWhenReady(job.key, pid: pid, attempt: 0) }
             log.info("started \(plan.tool.rawValue, privacy: .public) for \(profileID, privacy: .public), uid \(uid), pid \(pid)")
@@ -144,7 +148,8 @@ final class Supervisor {
         dispatchPrecondition(condition: .onQueue(queue))
         let key = Key(uid: uid, profileID: profileID)
         guard case .terminate = SessionPolicy.stopDecision(profileID: profileID, uid: uid, sessions: sessions),
-              let job = jobs[key] else { return reply(.success()) }
+            let job = jobs[key]
+        else { return reply(.success()) }
         jobs[key]?.waiters.append { reply(.success(pid: job.pid)) }
         terminate(job)
     }
@@ -216,10 +221,10 @@ final class Supervisor {
     private func finish(_ job: Job, status: Int32) {
         job.source?.cancel()
         jobs[job.key] = nil
-        kill(-job.pid, SIGTERM)          // leftovers in the group (pppd)
+        kill(-job.pid, SIGTERM)  // leftovers in the group (pppd)
         restoreDNS(runDir: job.runDir, profileID: job.profileID, uid: job.ownerUID, outputFD: job.logFD)
         if let fd = job.logFD { close(fd) }
-        core.removeRunDir(profileID: job.profileID, uid: job.ownerUID)   // config, auth file and socket
+        core.removeRunDir(profileID: job.profileID, uid: job.ownerUID)  // config, auth file and socket
         log.info("\(job.profileID, privacy: .public) of uid \(job.ownerUID) exited (pid \(job.pid), status \(status))")
         job.waiters.forEach { $0() }
     }
@@ -256,10 +261,12 @@ final class Supervisor {
             // Not "PassTunnel: ", which `VPNLog.isFatal` reads as a failed start.
             let line = "PassTunnel helper: OpenVPN did not undo its DNS settings; running dns-down\n"
             _ = line.withCString { write(output, $0, strlen($0)) }
-            let pid = try Spawner.spawn(executable: "/bin/bash", arguments: [script], environment: environment,
-                                        workingDirectory: runDir, outputFD: output)
+            let pid = try Spawner.spawn(
+                executable: "/bin/bash", arguments: [script], environment: environment,
+                workingDirectory: runDir, outputFD: output)
             let status = Self.wait(pid, timeout: Self.dnsRestoreTimeout)
-            log.notice("ran dns-down for \(profileID, privacy: .public) of uid \(uid): \(status.map { "status \($0)" } ?? "timed out", privacy: .public)")
+            log.notice(
+                "ran dns-down for \(profileID, privacy: .public) of uid \(uid): \(status.map { "status \($0)" } ?? "timed out", privacy: .public)")
         } catch {
             log.error("restoring DNS for \(profileID, privacy: .public) of uid \(uid) failed: \(String(describing: error), privacy: .public)")
         }
@@ -311,7 +318,7 @@ final class Supervisor {
             guard lstat(root, &st) == 0, (st.st_mode & S_IFMT) == S_IFDIR, st.st_uid == geteuid() else { return }
             for entry in Self.entries(root) {
                 let path = root + "/" + entry
-                if entry == ToolStager.toolsDirName { continue }   // staged tools (`ToolStager`)
+                if entry == ToolStager.toolsDirName { continue }  // staged tools (`ToolStager`)
                 if let legacy = Self.readState(path + "/state") {
                     if Self.isAlive(legacy) {
                         log.notice("stopping \(entry, privacy: .public) (pid \(legacy.pid)) left by an older helper")
@@ -326,7 +333,8 @@ final class Supervisor {
                 for id in Self.entries(path) {
                     let state = HelperCore.isValidProfileID(id) ? Self.readState(path + "/" + id + "/state") : nil
                     guard let state, state.uid == uid, Self.isAlive(state),
-                          let dir = try? core.openRunDir(profileID: id, uid: uid) else {
+                        let dir = try? core.openRunDir(profileID: id, uid: uid)
+                    else {
                         // A tool that ended while no helper ran: undo what its DNS hook left first.
                         if let state, !Self.isAlive(state), let dir = try? core.openRunDir(profileID: id, uid: uid) {
                             restoreDNS(runDir: dir.path, profileID: id, uid: uid, outputFD: nil)
@@ -334,10 +342,13 @@ final class Supervisor {
                         HelperCore.removeEntry(path + "/" + id); continue
                     }
                     log.notice("adopting \(id, privacy: .public) of uid \(uid) (pid \(state.pid))")
-                    let socket = state.mgmtSocket == PT.mgmtSocketPath(uid: uid, profileID: id, runRoot: root)
+                    let socket =
+                        state.mgmtSocket == PT.mgmtSocketPath(uid: uid, profileID: id, runRoot: root)
                         ? state.mgmtSocket : nil
-                    track(Job(profileID: id, ownerUID: uid, pid: state.pid, executable: state.executable,
-                              runDir: dir.path, isChild: false, sessionDir: dir, mgmtSocket: socket, logFD: nil))
+                    track(
+                        Job(
+                            profileID: id, ownerUID: uid, pid: state.pid, executable: state.executable,
+                            runDir: dir.path, isChild: false, sessionDir: dir, mgmtSocket: socket, logFD: nil))
                 }
             }
         }

@@ -1,15 +1,16 @@
+import Foundation
+import PassTunnelKit
+import PassTunnelShared
+import PassTunnelVPNConfig
+
 #if canImport(Combine)
 import Combine
 #endif
 #if canImport(CryptoKit)
 import CryptoKit
 #else
-import Crypto   // swift-crypto: the same API, outside Apple platforms
+import Crypto  // swift-crypto: the same API, outside Apple platforms
 #endif
-import Foundation
-import PassTunnelKit
-import PassTunnelShared
-import PassTunnelVPNConfig
 #if canImport(AppKit)
 import AppKit
 #endif
@@ -18,7 +19,7 @@ import AppKit
 
 public enum ConnectionState: Equatable, Sendable {
     case disconnected
-    case connecting(String)                    // localized phase, e.g. "Signing in…"
+    case connecting(String)  // localized phase, e.g. "Signing in…"
     case connected(ip: String, since: Date?)
 
     public var isConnected: Bool { if case .connected = self { return true }; return false }
@@ -29,16 +30,16 @@ public enum ConnectionState: Equatable, Sendable {
 
 /// Result of the periodic reachability probe of `Profile.healthHost` while connected.
 public enum HealthState: Equatable, Sendable {
-    case unknown                               // not probed yet, or one failure so far
+    case unknown  // not probed yet, or one failure so far
     case reachable(ms: Int)
-    case unreachable                           // consecutive failures: "connected but unreachable"
+    case unreachable  // consecutive failures: "connected but unreachable"
 }
 
 /// A pending automatic reconnect after a drop.
 public struct ReconnectInfo: Equatable, Sendable {
-    public var attempt: Int                    // 1-based
+    public var attempt: Int  // 1-based
     public var maxAttempts: Int
-    public var at: Date                        // when the attempt starts
+    public var at: Date  // when the attempt starts
 
     public init(attempt: Int, maxAttempts: Int, at: Date) {
         self.attempt = attempt
@@ -61,8 +62,10 @@ public struct UnreachableRetry: Codable, Equatable, Sendable {
     public var firstFailedAt: Date
     public var lastFailedAt: Date
 
-    public init(tries: Int, maxTries: Int, nextTryAt: Date? = nil, waitingForNetwork: Bool = false, firstFailedAt: Date,
-                lastFailedAt: Date) {
+    public init(
+        tries: Int, maxTries: Int, nextTryAt: Date? = nil, waitingForNetwork: Bool = false, firstFailedAt: Date,
+        lastFailedAt: Date
+    ) {
         self.tries = tries
         self.maxTries = maxTries
         self.nextTryAt = nextTryAt
@@ -92,8 +95,8 @@ public enum ConnectionEvent: Equatable, Sendable {
     public var profileID: String {
         switch self {
         case .dropped(let id, _), .reconnected(let id), .reconnectFailed(let id, _), .unreachable(let id),
-             .reachableAgain(let id), .sessionEnding(let id, _), .droppedWhileAsleep(let id),
-             .destinationChanged(let id, _):
+            .reachableAgain(let id), .sessionEnding(let id, _), .droppedWhileAsleep(let id),
+            .destinationChanged(let id, _):
             return id
         }
     }
@@ -148,8 +151,9 @@ public struct ProfileDestination: Equatable, Sendable {
             let cert = p.trustedCert.trimmingCharacters(in: .whitespacesAndNewlines)
             field(TLSFingerprint.normalize(cert) ?? cert.lowercased())
         }
-        return ProfileDestination(fingerprint: hash.finalize().map { String(format: "%02x", $0) }.joined(), host: host,
-                                  configSHA256: configSHA256)
+        return ProfileDestination(
+            fingerprint: hash.finalize().map { String(format: "%02x", $0) }.joined(), host: host,
+            configSHA256: configSHA256)
     }
 }
 
@@ -161,7 +165,10 @@ public struct DestinationChangedError: Error, Equatable, LocalizedError {
     public init(host: String) { self.host = host }
 
     public var errorDescription: String? {
-        String(localized: "The server settings of this profile changed after you confirmed the connection. Connect it again yourself to confirm the new server.")
+        String(
+            localized:
+                "The server settings of this profile changed after you confirmed the connection. Connect it again yourself to confirm the new server."
+        )
     }
 }
 
@@ -344,8 +351,8 @@ public final class ConnectionManager: ObservableObject {
     static let sharedStateFile = ".mgmt-state"
 
     struct SharedState: Codable, Equatable {
-        var pid: Int32             // the OpenVPN process the state belongs to
-        var writer: Int32          // the process that wrote it; ignored once that is gone
+        var pid: Int32  // the OpenVPN process the state belongs to
+        var writer: Int32  // the process that wrote it; ignored once that is gone
         var name: String
         var localIP: String
         var since: Date
@@ -371,8 +378,9 @@ public final class ConnectionManager: ObservableObject {
         }
 
         var state: ManagementState {
-            ManagementState(name: name, localIP: localIP, since: since, detail: detail, remoteIP: remoteIP,
-                            localIPv6: localIPv6)
+            ManagementState(
+                name: name, localIP: localIP, since: since, detail: detail, remoteIP: remoteIP,
+                localIPv6: localIPv6)
         }
     }
 
@@ -435,16 +443,16 @@ public final class ConnectionManager: ObservableObject {
 
     private var pollSeq = 0
     private var appliedSeq = 0
-    private var busy: [String: Int] = [:]                 // actions in flight per profile
-    private var actionToken: [String: Int] = [:]          // bumped by disconnect: cancels a running connect
+    private var busy: [String: Int] = [:]  // actions in flight per profile
+    private var actionToken: [String: Int] = [:]  // bumped by disconnect: cancels a running connect
     private var userStopped: Set<String> = []
-    private var sessionActive: Set<String> = []           // reached "connected" in the current session
+    private var sessionActive: Set<String> = []  // reached "connected" in the current session
     private var connectedAt: [String: Date] = [:]
-    private var mgmtSockets: [String: String] = [:]       // management socket per profile, as the helper reports it
-    private var sharedStates: [String: SharedState] = [:] // last state written to the shared file per profile
+    private var mgmtSockets: [String: String] = [:]  // management socket per profile, as the helper reports it
+    private var sharedStates: [String: SharedState] = [:]  // last state written to the shared file per profile
     private var reconnectGen: [String: Int] = [:]
     private var reconnectTasks: [String: Task<Void, Never>] = [:]
-    private var codeWaits: [String: Task<Void, Error>] = [:]   // waiting for a fresh code; disconnect cancels
+    private var codeWaits: [String: Task<Void, Error>] = [:]  // waiting for a fresh code; disconnect cancels
     /// Decrypted protected secrets of a session the user confirmed, so an automatic reconnect after a
     /// drop needs no prompt. Dropped (overwritten, best effort) when the session ends for good, and
     /// when the profile's destination no longer is the one the session was confirmed for.
@@ -458,30 +466,32 @@ public final class ConnectionManager: ObservableObject {
     private var healthFailures: [String: Int] = [:]
     private var outage: Set<String> = []
     private var forcedReconnectDone: Set<String> = []
-    private var sessionWarned: [String: Date] = [:]       // session start that was already warned about
+    private var sessionWarned: [String: Date] = [:]  // session start that was already warned about
     private var connectedBeforeSleep: Set<String> = []
     private var sleeping = false
     private var loops: [Task<Void, Never>] = []
     private var observers: [NSObjectProtocol] = []
     private let network: NetworkPathWatching
     private var retryGen: [String: Int] = [:]
-    private var retryWaits: [String: Task<Void, Never>] = [:]   // the wait before the next try
-    private var retryRunning: Set<String> = []                  // a try is under way
-    private var retryAfterDrop: Set<String> = []                // the retries continue a drop's reconnects
-    private var retryNetworkChanged: Set<String> = []           // the path changed while a try ran
+    private var retryWaits: [String: Task<Void, Never>] = [:]  // the wait before the next try
+    private var retryRunning: Set<String> = []  // a try is under way
+    private var retryAfterDrop: Set<String> = []  // the retries continue a drop's reconnects
+    private var retryNetworkChanged: Set<String> = []  // the path changed while a try ran
     public private(set) var isRunning = false
 
-    public init(store: ProfileStore = ProfileStore(),
-                helper: HelperClienting = ConnectionManager.defaultHelper,
-                management: ManagementQuerying = SocketManagementQuerier(),
-                clock: ConnectionClock = SystemClock(),
-                healthProbe: @escaping HealthProbe = ConnectionManager.defaultHealthProbe,
-                preferences: @escaping () -> Preferences = { Preferences.load() },
-                routes: @escaping () -> [RoutingTable.Route] = RoutingTable.trafficRoutes,
-                timing: Timing = Timing(),
-                vault: SecretVault? = nil,
-                authenticator: UserAuthenticator? = nil,
-                network: NetworkPathWatching? = nil) {
+    public init(
+        store: ProfileStore = ProfileStore(),
+        helper: HelperClienting = ConnectionManager.defaultHelper,
+        management: ManagementQuerying = SocketManagementQuerier(),
+        clock: ConnectionClock = SystemClock(),
+        healthProbe: @escaping HealthProbe = ConnectionManager.defaultHealthProbe,
+        preferences: @escaping () -> Preferences = { Preferences.load() },
+        routes: @escaping () -> [RoutingTable.Route] = RoutingTable.trafficRoutes,
+        timing: Timing = Timing(),
+        vault: SecretVault? = nil,
+        authenticator: UserAuthenticator? = nil,
+        network: NetworkPathWatching? = nil
+    ) {
         self.store = store
         self.helper = helper
         self.management = management
@@ -491,10 +501,13 @@ public final class ConnectionManager: ObservableObject {
         self.routes = routes
         self.timing = timing
         self.network = network ?? NetworkPath()
-        self.vault = vault ?? SecretVault(authenticator: authenticator ?? PlatformAuthenticator(),
-                                          now: { [clock] in clock.now() },
-                                          reuseWindow: { preferences().authReuseInterval },
-                                          destination: { [store] in ProfileDestination.of($0, store: store) })
+        self.vault =
+            vault
+            ?? SecretVault(
+                authenticator: authenticator ?? PlatformAuthenticator(),
+                now: { [clock] in clock.now() },
+                reuseWindow: { preferences().authReuseInterval },
+                destination: { [store] in ProfileDestination.of($0, store: store) })
     }
 
     /// The helper a manager uses unless it is given one: the privileged helper (XPC) on the Mac,
@@ -522,28 +535,32 @@ public final class ConnectionManager: ObservableObject {
         guard !isRunning else { return }
         isRunning = true
         network.start { [weak self] in self?.networkChanged($0) }
-        loops.append(Task { [weak self] in
-            while !Task.isCancelled {
-                guard let self else { return }
-                if !self.sleeping { await self.refresh() }
-                do { try await self.clock.sleep(self.timing.pollInterval) } catch { return }
-            }
-        })
-        loops.append(Task { [weak self] in
-            while !Task.isCancelled {
-                guard let self else { return }
-                do { try await self.clock.sleep(self.timing.healthInterval) } catch { return }
-                if !self.sleeping { await self.runHealthChecks() }
-            }
-        })
+        loops.append(
+            Task { [weak self] in
+                while !Task.isCancelled {
+                    guard let self else { return }
+                    if !self.sleeping { await self.refresh() }
+                    do { try await self.clock.sleep(self.timing.pollInterval) } catch { return }
+                }
+            })
+        loops.append(
+            Task { [weak self] in
+                while !Task.isCancelled {
+                    guard let self else { return }
+                    do { try await self.clock.sleep(self.timing.healthInterval) } catch { return }
+                    if !self.sleeping { await self.runHealthChecks() }
+                }
+            })
         #if canImport(AppKit)
         let nc = NSWorkspace.shared.notificationCenter
-        observers.append(nc.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.handleWillSleep() }
-        })
-        observers.append(nc.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in await self?.handleDidWake() }
-        })
+        observers.append(
+            nc.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.handleWillSleep() }
+            })
+        observers.append(
+            nc.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in await self?.handleDidWake() }
+            })
         #endif
     }
 
@@ -595,7 +612,7 @@ public final class ConnectionManager: ObservableObject {
             observed[p.id] = o.state
             if o.unverified { unverified.insert(p.id) }
         }
-        guard seq > appliedSeq else { return }   // stale: a newer poll or an action got in first
+        guard seq > appliedSeq else { return }  // stale: a newer poll or an action got in first
         appliedSeq = seq
         let unavailable = statusUnavailable.filter { observed[$0] == nil }.union(unverified)
         if unavailable != statusUnavailable { statusUnavailable = unavailable }
@@ -642,8 +659,10 @@ public final class ConnectionManager: ObservableObject {
     /// OpenVPN: the last state written for that process, else the log's, marked `unverified`, rather
     /// than "Starting…" for a tunnel that is up. The app reopens the interface on every poll, so it
     /// takes it over as soon as it is free.
-    private func managementState(_ id: String, socketPath: String,
-                                 pid: Int32?) async -> (state: ManagementState, unverified: Bool)? {
+    private func managementState(
+        _ id: String, socketPath: String,
+        pid: Int32?
+    ) async -> (state: ManagementState, unverified: Bool)? {
         // A live holder keeps the interface busy anyway: don't wait for the busy timeout.
         if !management.sharesState, let pid, let shared = sharedState(id, pid: pid) { return (shared, false) }
         do {
@@ -680,7 +699,8 @@ public final class ConnectionManager: ObservableObject {
     /// `requireLiveWriter: false`: also when the process that wrote it has exited (last known state).
     func sharedState(_ id: String, pid: Int32, requireLiveWriter: Bool = true) -> ManagementState? {
         guard let s = try? JSONCoding.read(SharedState.self, from: sharedStateURL(id)), s.pid == pid,
-              ManagementState.isPlausible(s.since) else { return nil }
+            ManagementState.isPlausible(s.since)
+        else { return nil }
         guard !requireLiveWriter || kill(s.writer, 0) == 0 || errno == EPERM else { return nil }
         return s.state
     }
@@ -744,9 +764,11 @@ public final class ConnectionManager: ObservableObject {
     /// (not called when it waits for this manager's own attempt or there was nothing to do).
     /// `interactive` false (connect at login): never asks; protected secrets come only from the reuse
     /// window, else `PTError.confirmationRequired`, as for an automatic reconnect.
-    public func connect(_ id: String, given: [CredentialField: String] = [:], force: Bool = false,
-                        followOnly: Bool = false, interactive: Bool = true,
-                        role: ((ConnectRole) -> Void)? = nil) async throws {
+    public func connect(
+        _ id: String, given: [CredentialField: String] = [:], force: Bool = false,
+        followOnly: Bool = false, interactive: Bool = true,
+        role: ((ConnectRole) -> Void)? = nil
+    ) async throws {
         cancelReconnect(id)
         if let inFlight = connectTasks[id] { return try await inFlight.value }
         let current = state(id).isActive || followOnly ? nil : try? store.get(id)
@@ -767,13 +789,18 @@ public final class ConnectionManager: ObservableObject {
             if let inFlight = connectTasks[id] { return try await inFlight.value }
         }
         let task = Task {
-            try await self.performConnect(id, given: given, force: force, interactive: interactive, followOnly: followOnly,
-                                          role: role)
+            try await self.performConnect(
+                id, given: given, force: force, interactive: interactive, followOnly: followOnly,
+                role: role)
         }
         connectTasks[id] = task
         defer { if connectTasks[id] == task { connectTasks[id] = nil } }
         do {
-            try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+            try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: {
+                task.cancel()
+            }
         } catch {
             if !followOnly { beginRetryIfUnreachable(id, afterDrop: false) }
             throw error
@@ -849,9 +876,11 @@ public final class ConnectionManager: ObservableObject {
     /// `interactive` false (automatic reconnects): protected secrets come from the confirmed session or
     /// the reuse window, never from a prompt (`PTError.confirmationRequired` otherwise), and never for
     /// a destination other than the one they were confirmed for (`DestinationChangedError`).
-    private func performConnect(_ id: String, given: [CredentialField: String], force: Bool = false,
-                                interactive: Bool = true, followOnly: Bool = false,
-                                role: ((ConnectRole) -> Void)? = nil) async throws {
+    private func performConnect(
+        _ id: String, given: [CredentialField: String], force: Bool = false,
+        interactive: Bool = true, followOnly: Bool = false,
+        role: ((ConnectRole) -> Void)? = nil
+    ) async throws {
         guard !isBusy(id), !state(id).isConnected else { return }
         // Before anything changes state: the last error of the attempt that ended stays visible.
         if followOnly, session(id, in: await currentStatus()) == nil { throw NothingToFollow() }
@@ -885,7 +914,7 @@ public final class ConnectionManager: ObservableObject {
             role?(.started)
             progress.owned = true
             if p.type == .openvpn && !force { try checkNoOtherFullTunnel(p, running: status?.running ?? [:]) }
-            vault.reconcile(p)   // a setting edited by hand: encrypt what it protects before use
+            vault.reconcile(p)  // a setting edited by hand: encrypt what it protects before use
             let destination = ProfileDestination.of(p, store: store)
             // An unreadable config.ovpn has no hash for the helper to hold the file to, and no server
             // to show in a prompt: nothing is sent.
@@ -909,21 +938,24 @@ public final class ConnectionManager: ObservableObject {
             try checkToken(id, token)
             setState(id, .connecting(Phase.starting))
 
-            let composed = OTPComposer.compose(password: creds.password ?? "", otp: otp, delivery: p.otpDelivery,
-                                               template: p.otpTemplate, type: p.type)
+            let composed = OTPComposer.compose(
+                password: creds.password ?? "", otp: otp, delivery: p.otpDelivery,
+                template: p.otpTemplate, type: p.type)
             let request: HelperRequest
             switch p.type {
             case .openvpn:
-                request = .startOpenVPN(OpenVPNStart(
-                    profileID: id, profileDir: store.dir(id).path, username: creds.username,
-                    secret: creds.password == nil ? nil : composed.secret, logPath: store.logURL(id).path,
-                    configSHA256: destination.configSHA256))
+                request = .startOpenVPN(
+                    OpenVPNStart(
+                        profileID: id, profileDir: store.dir(id).path, username: creds.username,
+                        secret: creds.password == nil ? nil : composed.secret, logPath: store.logURL(id).path,
+                        configSHA256: destination.configSHA256))
             case .forti:
-                request = .startForti(FortiStart(
-                    profileID: id, profileDir: store.dir(id).path, host: p.host, port: p.port,
-                    username: creds.username ?? "", password: composed.secret, otp: composed.separateOTP,
-                    trustedCert: p.trustedCert, setDNS: p.setDNS, setRoutes: p.setRoutes,
-                    logPath: store.logURL(id).path))
+                request = .startForti(
+                    FortiStart(
+                        profileID: id, profileDir: store.dir(id).path, host: p.host, port: p.port,
+                        username: creds.username ?? "", password: composed.secret, otp: composed.separateOTP,
+                        trustedCert: p.trustedCert, setDNS: p.setDNS, setRoutes: p.setRoutes,
+                        logPath: store.logURL(id).path))
             }
             let response = try await helper.perform(request, timeout: timing.helperTimeout)
             guard response.ok else {
@@ -955,8 +987,9 @@ public final class ConnectionManager: ObservableObject {
             if creds.username != nil { record(id, .sending(sent)) }
 
             if let socket = response.mgmtSocket { mgmtSockets[id] = socket }
-            let result = try await waitUntilConnected(p, token: token, socketPath: response.mgmtSocket ?? socketPath(id),
-                                                      pid: response.pid)
+            let result = try await waitUntilConnected(
+                p, token: token, socketPath: response.mgmtSocket ?? socketPath(id),
+                pid: response.pid)
             let since = result.since ?? clock.now()
             setState(id, .connected(ip: result.ip, since: result.since ?? since))
             record(id, .connected(address: result.ip))
@@ -976,7 +1009,10 @@ public final class ConnectionManager: ObservableObject {
             if cancelled { throw PTError.connectCancelled }
             setState(id, .disconnected)
             if (error as? PTError) == .connectCancelled || (error as? PTError) == .userConfirmationCancelled
-                || error is NothingToFollow { throw error }
+                || error is NothingToFollow
+            {
+                throw error
+            }
             lastError[id] = error.localizedDescription
             lastErrorLog[id] = (error as? PTError)?.logTail ?? ""
             throw error
@@ -1051,7 +1087,8 @@ public final class ConnectionManager: ObservableObject {
     /// Whether the profile redirects is read from its config, else from its last log (pushed option).
     private func checkNoOtherFullTunnel(_ p: Profile, running: [String: Int32]) throws {
         guard let config = try? String(contentsOf: store.ovpnURL(p.id), encoding: .utf8) else { return }
-        let redirects = OVPNAnalyzer.redirectsGateway(config)
+        let redirects =
+            OVPNAnalyzer.redirectsGateway(config)
             ?? VPNLog.pushedRedirectGateway(VPNLog.readHead(store.logURL(p.id)))
         guard redirects else { return }
         let own = Set(running.keys.filter { $0 != p.id }.compactMap { VPNLog.tunnelInterface(VPNLog.readHead(store.logURL($0))) })
@@ -1072,8 +1109,9 @@ public final class ConnectionManager: ObservableObject {
     /// Waits for a session this manager did not start to come up. Failures are reported but the
     /// session is left alone: the process that started it handles them.
     private func follow(_ p: Profile, token: Int, session: (socket: String, pid: Int32)) async throws {
-        let result = try await waitUntilConnected(p, token: token, socketPath: session.socket, pid: session.pid,
-                                                  owned: false)
+        let result = try await waitUntilConnected(
+            p, token: token, socketPath: session.socket, pid: session.pid,
+            owned: false)
         let since = result.since ?? clock.now()
         setState(p.id, .connected(ip: result.ip, since: since))
         sessionActive.insert(p.id)
@@ -1083,16 +1121,18 @@ public final class ConnectionManager: ObservableObject {
 
     struct Credentials {
         var username: String?
-        var password: String?      // nil: certificate only
-        var otp: String?           // `.ask` code
+        var password: String?  // nil: certificate only
+        var otp: String?  // `.ask` code
         var totpSecret: Data?
     }
 
     /// The stored secrets connecting `p` uses: from the vault without asking (plain, or unlocked), from
     /// the confirmed session, or decrypted now (asking) when `interactive`. Decrypted values confirmed
     /// for another destination are dropped first; an automatic reconnect then stops.
-    private func storedSecrets(_ p: Profile, destination: ProfileDestination,
-                               interactive: Bool) async throws -> [SecretKind: String] {
+    private func storedSecrets(
+        _ p: Profile, destination: ProfileDestination,
+        interactive: Bool
+    ) async throws -> [SecretKind: String] {
         dropSecrets(p.id, unlessBoundTo: destination.fingerprint)
         vault.forgetUnlessBound(p.id, to: destination.fingerprint)
         if !interactive && changedDestinations.contains(p.id) && vault.requiresConfirmation(p) {
@@ -1213,8 +1253,11 @@ public final class ConnectionManager: ObservableObject {
         let wait = max(0, left) + 0.25
         codeWaitUntil[p.id] = now.addingTimeInterval(wait)
         defer { codeWaitUntil[p.id] = nil }
-        record(p.id, .waitingForCode(reason: reused ? .used : .expiring, seconds: Int(max(0, left).rounded(.up)),
-                                     codePrefix: ActivityEvent.codePrefix(TOTP.code(secret: secret, params: p.totp, at: now))))
+        record(
+            p.id,
+            .waitingForCode(
+                reason: reused ? .used : .expiring, seconds: Int(max(0, left).rounded(.up)),
+                codePrefix: ActivityEvent.codePrefix(TOTP.code(secret: secret, params: p.totp, at: now))))
         setState(p.id, .connecting(Phase.waitingForCode))
         try await waitCancellably(p.id, wait)
         try checkToken(p.id, token)
@@ -1228,7 +1271,11 @@ public final class ConnectionManager: ObservableObject {
         codeWaits[id] = wait
         defer { if codeWaits[id] == wait { codeWaits[id] = nil } }
         do {
-            try await withTaskCancellationHandler { try await wait.value } onCancel: { wait.cancel() }
+            try await withTaskCancellationHandler {
+                try await wait.value
+            } onCancel: {
+                wait.cancel()
+            }
         } catch {
             throw PTError.connectCancelled
         }
@@ -1296,7 +1343,7 @@ public final class ConnectionManager: ObservableObject {
         switch failure.kind {
         case .authRejected: record(id, .rejected(reply: failure.reply))
         case .unreachable: record(id, .unreachable(tries: failure.tries ?? 1, reason: failure.reason))
-        case .cancelled: break   // `disconnect` records the stop
+        case .cancelled: break  // `disconnect` records the stop
         case .hostNotFound, .configuration, .setup, .timeout, .failed:
             record(id, .failed(kind: failure.kind, reason: failure.reason, credentialsSent: failure.credentialsSent))
         }
@@ -1314,8 +1361,9 @@ public final class ConnectionManager: ObservableObject {
         default: break
         }
         guard let timeout, verdict == nil, !VPNLog.credentialsSent(log), VPNLog.attempted(log) else { return nil }
-        return .serverUnreachable(server: serverAddress(p), reason: String(localized: "no answer within \(Int(timeout)) seconds"),
-                                  log: tail)
+        return .serverUnreachable(
+            server: serverAddress(p), reason: String(localized: "no answer within \(Int(timeout)) seconds"),
+            log: tail)
     }
 
     /// "vpn.example.com:1194", "[2001:db8::1]:443": the server a connect goes to; "" when unknown.
@@ -1327,8 +1375,10 @@ public final class ConnectionManager: ObservableObject {
 
     /// Polls until `p` is connected. When `owned` is false (a session another process started), the
     /// session is never stopped here.
-    private func waitUntilConnected(_ p: Profile, token: Int, socketPath: String, pid: Int32?,
-                                    owned: Bool = true) async throws -> (ip: String, since: Date?) {
+    private func waitUntilConnected(
+        _ p: Profile, token: Int, socketPath: String, pid: Int32?,
+        owned: Bool = true
+    ) async throws -> (ip: String, since: Date?) {
         let id = p.id
         let timeout = p.type == .openvpn ? timing.openVPNTimeout : timing.fortiTimeout
         let started = clock.now()
@@ -1384,7 +1434,8 @@ public final class ConnectionManager: ObservableObject {
             if now.timeIntervalSince(lastProcessCheck) >= timing.processCheckInterval {
                 lastProcessCheck = now
                 if let r = try? await helper.perform(.status, timeout: timing.helperTimeout), r.ok,
-                   (r.running ?? [:])[id] == nil {
+                    (r.running ?? [:])[id] == nil
+                {
                     try checkToken(id, token)
                     // Stopped by a disconnect in another process (app ↔ CLI): a cancel, not a failure.
                     if hasUserStoppedMarker(id) { throw PTError.connectCancelled }
@@ -1477,8 +1528,9 @@ public final class ConnectionManager: ObservableObject {
         cancelReconnect(id)
         let gen = reconnectGen[id]!
         let first = immediate ? 0 : (timing.reconnectDelays.first ?? 0)
-        reconnecting[id] = ReconnectInfo(attempt: 1, maxAttempts: timing.reconnectDelays.count,
-                                         at: clock.now().addingTimeInterval(first))
+        reconnecting[id] = ReconnectInfo(
+            attempt: 1, maxAttempts: timing.reconnectDelays.count,
+            at: clock.now().addingTimeInterval(first))
         reconnectTasks[id] = Task { [weak self] in
             await self?.runReconnect(id, gen: gen, immediate: immediate)
         }
@@ -1487,7 +1539,7 @@ public final class ConnectionManager: ObservableObject {
     private func runReconnect(_ id: String, gen: Int, immediate: Bool) async {
         let delays = timing.reconnectDelays
         var reason = ""
-        var unreachableTries = 0   // of the attempts in a row that found the server unreachable
+        var unreachableTries = 0  // of the attempts in a row that found the server unreachable
         defer {
             if reconnectGen[id] == gen {
                 reconnecting[id] = nil
@@ -1497,8 +1549,9 @@ public final class ConnectionManager: ObservableObject {
         for (i, delay) in delays.enumerated() {
             guard reconnectGen[id] == gen else { return }
             let wait = (i == 0 && immediate) ? 0 : delay
-            reconnecting[id] = ReconnectInfo(attempt: i + 1, maxAttempts: delays.count,
-                                             at: clock.now().addingTimeInterval(wait))
+            reconnecting[id] = ReconnectInfo(
+                attempt: i + 1, maxAttempts: delays.count,
+                at: clock.now().addingTimeInterval(wait))
             // After a failed attempt; before the first one, the drop says it reconnects.
             if i > 0 && wait > 0 { record(id, .nextTry(at: clock.now().addingTimeInterval(wait))) }
             do { try await clock.sleep(wait) } catch { return }
@@ -1548,14 +1601,15 @@ public final class ConnectionManager: ObservableObject {
     /// Wrong credentials or missing secrets will not fix themselves; retrying could lock the account.
     static func isRetryable(_ error: Error) -> Bool {
         if error is DestinationChangedError || error is ProtectionKeyMismatch || error is KeychainItemNotReplaced
-            || error is SecretStoreUnavailable {
+            || error is SecretStoreUnavailable
+        {
             return false
         }
         switch error as? PTError {
         case .authFailed, .missingPassword, .missingTOTPSecret, .missingCredential, .missingConfig,
-             .missingHost, .usernameTooLong, .invalidSecret, .profileNotFound, .otherVPNActive, .setupFailed,
-             .userConfirmationCancelled, .userConfirmationFailed, .confirmationRequired, .protectedSecretUnreadable,
-             .protectionUnavailable:
+            .missingHost, .usernameTooLong, .invalidSecret, .profileNotFound, .otherVPNActive, .setupFailed,
+            .userConfirmationCancelled, .userConfirmationFailed, .confirmationRequired, .protectedSecretUnreadable,
+            .protectionUnavailable:
             return false
         default:
             return true
@@ -1568,7 +1622,7 @@ public final class ConnectionManager: ObservableObject {
     static let sharedRetryFile = ".retry"
 
     struct SharedRetry: Codable, Equatable {
-        var writer: Int32          // the process that runs the retries; ignored once that is gone
+        var writer: Int32  // the process that runs the retries; ignored once that is gone
         var retry: UnreachableRetry
     }
 
@@ -1580,11 +1634,15 @@ public final class ConnectionManager: ObservableObject {
     @discardableResult
     private func beginRetryIfUnreachable(_ id: String, afterDrop: Bool, tries: Int? = nil) -> Bool {
         guard retriesUnreachable, let failure = failures[id], failure.kind == .unreachable, unreachableRetries[id] == nil,
-              !hasUserStoppedMarker(id) else { return false }
+            !hasUserStoppedMarker(id)
+        else { return false }
         retryGen[id, default: 0] += 1
         if afterDrop { retryAfterDrop.insert(id) } else { retryAfterDrop.remove(id) }
-        setRetry(id, UnreachableRetry(tries: max(1, tries ?? failure.tries ?? 1), maxTries: max(1, timing.unreachableMaxTries),
-                                      firstFailedAt: failure.at, lastFailedAt: failure.at))
+        setRetry(
+            id,
+            UnreachableRetry(
+                tries: max(1, tries ?? failure.tries ?? 1), maxTries: max(1, timing.unreachableMaxTries),
+                firstFailedAt: failure.at, lastFailedAt: failure.at))
         scheduleRetry(id, after: timing.unreachableRetryDelay)
         return true
     }
@@ -1686,7 +1744,7 @@ public final class ConnectionManager: ObservableObject {
         let old = networkStatus
         guard new != old else { return }
         networkStatus = new
-        guard old.online != nil else { return }   // the first answer, not a change
+        guard old.online != nil else { return }  // the first answer, not a change
         for id in Array(unreachableRetries.keys) {
             guard var retry = unreachableRetries[id] else { continue }
             if new.online == false {
@@ -1726,7 +1784,8 @@ public final class ConnectionManager: ObservableObject {
     public func unreachableRetry(_ id: String) -> UnreachableRetry? {
         if let own = unreachableRetries[id] { return own }
         guard let shared = try? JSONCoding.read(SharedRetry.self, from: sharedRetryURL(id)), shared.writer != getpid(),
-              kill(shared.writer, 0) == 0 || errno == EPERM else { return nil }
+            kill(shared.writer, 0) == 0 || errno == EPERM
+        else { return nil }
         return shared.retry
     }
 
@@ -1736,8 +1795,9 @@ public final class ConnectionManager: ObservableObject {
         guard let p = try? store.get(id), let failure = failures[id] else { return nil }
         var server = serverAddress(p)
         if case let .connecting(_, _, transport) = connectingEvent(p), !server.isEmpty { server += " (\(transport.uppercased()))" }
-        return FailureDetails(profileName: p.name, server: server, failure: AutomationService.redacted(failure, id: id),
-                              retry: unreachableRetry(id), network: networkStatus, app: app, at: clock.now())
+        return FailureDetails(
+            profileName: p.name, server: server, failure: AutomationService.redacted(failure, id: id),
+            retry: unreachableRetry(id), network: networkStatus, app: app, at: clock.now())
     }
 
     // MARK: health
@@ -1873,14 +1933,17 @@ public final class ConnectionManager: ObservableObject {
         let checker = serverClock
         clockCheckSeq += 1
         let seq = clockCheckSeq
-        clockChecks[id] = (seq, Task { [weak self] in
-            let measured = try? await checker.gateway(host: host, port: port, trustedCert: pin, timeout: ServerClock.gatewayTimeout)
-            guard let self else { return }
-            if self.clockChecks[id]?.seq == seq { self.clockChecks[id] = nil }
-            guard let measured else { return }
-            self.noteClock(id, measured)
-            if self.failures[id] == failure { self.failures[id]?.clock = measured }
-        })
+        clockChecks[id] = (
+            seq,
+            Task { [weak self] in
+                let measured = try? await checker.gateway(host: host, port: port, trustedCert: pin, timeout: ServerClock.gatewayTimeout)
+                guard let self else { return }
+                if self.clockChecks[id]?.seq == seq { self.clockChecks[id] = nil }
+                guard let measured else { return }
+                self.noteClock(id, measured)
+                if self.failures[id] == failure { self.failures[id]?.clock = measured }
+            }
+        )
     }
 
     /// Returns once the clock check started after `id`'s last rejected sign-in has finished (at most
@@ -1895,8 +1958,10 @@ public final class ConnectionManager: ObservableObject {
     public func checkClock() async throws -> ClockOffset {
         let measured = try await serverClock.timeServer(timeout: ServerClock.timeServerTimeout)
         timeServerClock = measured
-        for (id, failure) in failures where failure.kind == .authRejected
-            && (failure.clock?.checkedAt ?? .distantPast) <= measured.checkedAt {
+        for (id, failure) in failures
+        where failure.kind == .authRejected
+            && (failure.clock?.checkedAt ?? .distantPast) <= measured.checkedAt
+        {
             failures[id]?.clock = measured
         }
         return measured
@@ -1956,9 +2021,10 @@ public final class ConnectionManager: ObservableObject {
             let end = TimeInterval(TOTP.counter(params: p.totp, at: codeTime) + 1) * period
             left = Int(max(0, end - clock.now().timeIntervalSince1970).rounded(.down))
         }
-        return ActivityEvent.Sending(username: ActivityEvent.clean(username, limit: 256), password: !password.isEmpty, code: code,
-                                     codePrefix: code ? ActivityEvent.codePrefix(otp) : nil, secondsLeft: code ? left : nil,
-                                     format: code ? (p.otpDelivery == .separate ? "separate" : p.otpTemplate) : nil)
+        return ActivityEvent.Sending(
+            username: ActivityEvent.clean(username, limit: 256), password: !password.isEmpty, code: code,
+            codePrefix: code ? ActivityEvent.codePrefix(otp) : nil, secondsLeft: code ? left : nil,
+            format: code ? (p.otpDelivery == .separate ? "separate" : p.otpTemplate) : nil)
     }
 
     // MARK: bookkeeping

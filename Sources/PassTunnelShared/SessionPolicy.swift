@@ -58,8 +58,10 @@ public enum SessionPolicy {
         sessions.filter { $0.ownerUID == uid }
     }
 
-    public static func checkStart(profileID: String, uid: uid_t, sessions: [Session],
-                                  limit: Int = maxSessionsPerUser) throws {
+    public static func checkStart(
+        profileID: String, uid: uid_t, sessions: [Session],
+        limit: Int = maxSessionsPerUser
+    ) throws {
         let own = mine(uid, sessions)
         if let s = own.first(where: { $0.profileID == profileID }) {
             throw Denial.alreadyRunning(profileID, pid: s.pid)
@@ -79,7 +81,8 @@ public enum SessionPolicy {
 
     /// `status` reply: profile ID → management socket of the caller's own OpenVPN sessions.
     public static func sockets(visibleTo uid: uid_t, sessions: [Session]) -> [String: String] {
-        Dictionary(mine(uid, sessions).compactMap { s in s.mgmtSocket.map { (s.profileID, $0) } },
-                   uniquingKeysWith: { a, _ in a })
+        Dictionary(
+            mine(uid, sessions).compactMap { s in s.mgmtSocket.map { (s.profileID, $0) } },
+            uniquingKeysWith: { a, _ in a })
     }
 }

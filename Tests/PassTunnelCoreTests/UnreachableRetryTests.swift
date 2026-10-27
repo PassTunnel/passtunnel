@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+
 @testable import PassTunnelCore
 @testable import PassTunnelKit
 
@@ -98,8 +99,11 @@ extension ConnectionManagerTests {
             XCTAssertEqual(AutomationErrorCode.of(error), .serverUnreachable)
         }
         let first = try XCTUnwrap(m.unreachableRetries[p.id])
-        XCTAssertEqual(first, UnreachableRetry(tries: 1, maxTries: 10, nextTryAt: t0.addingTimeInterval(3),
-                                               firstFailedAt: t0.addingTimeInterval(2), lastFailedAt: t0.addingTimeInterval(2)))
+        XCTAssertEqual(
+            first,
+            UnreachableRetry(
+                tries: 1, maxTries: 10, nextTryAt: t0.addingTimeInterval(3),
+                firstFailedAt: t0.addingTimeInterval(2), lastFailedAt: t0.addingTimeInterval(2)))
         XCTAssertEqual(m.usedCode(p.id), before, "the code never reached the server")
         let shared = try JSONCoding.read(ConnectionManager.SharedRetry.self, from: retryFile(p.id))
         XCTAssertEqual(shared, ConnectionManager.SharedRetry(writer: getpid(), retry: first))
@@ -115,10 +119,19 @@ extension ConnectionManagerTests {
         XCTAssertEqual(Set(secrets).count, 1, "the same window's code each time, never a wait for a fresh one")
         XCTAssertEqual(secrets.first, "pw" + (try code(at: t0)))
         let kinds = m.activity(p.id).map(\.kind)
-        XCTAssertFalse(kinds.contains { if case .waitingForCode = $0 { return true }; return false })
-        XCTAssertEqual(kinds.filter { if case .unreachable = $0 { return true }; return false },
-                       [.unreachable(tries: 1, reason: "Connection refused"), .unreachable(tries: 2, reason: "Connection refused")])
-        XCTAssertEqual(kinds.filter { if case .nextTry = $0 { return true }; return false }.count, 2)
+        XCTAssertFalse(
+            kinds.contains {
+                if case .waitingForCode = $0 { return true }; return false
+            })
+        XCTAssertEqual(
+            kinds.filter {
+                if case .unreachable = $0 { return true }; return false
+            },
+            [.unreachable(tries: 1, reason: "Connection refused"), .unreachable(tries: 2, reason: "Connection refused")])
+        XCTAssertEqual(
+            kinds.filter {
+                if case .nextTry = $0 { return true }; return false
+            }.count, 2)
         XCTAssertEqual(kinds.last, .connected(address: "10.8.0.6"))
         XCTAssertTrue(events.isEmpty, "a manual connect's retries tell nothing: \(events)")
     }
@@ -189,7 +202,7 @@ extension ConnectionManagerTests {
         let p = try makeOpenVPN()
         let hold = HoldingClock(clock, holding: 30)
         let m = makeRetryingManager(clock: hold)
-        m.networkChanged(NetworkStatus(online: true, interface: .wifi))   // the first answer
+        m.networkChanged(NetworkStatus(online: true, interface: .wifi))  // the first answer
         makeServerUnreachable()
         do { try await m.connect(p.id); XCTFail("connected") } catch {}
         XCTAssertEqual(m.unreachableRetries[p.id]?.tries, 1)
@@ -274,8 +287,9 @@ extension ConnectionManagerTests {
     func testAnotherProcessSeesAndStopsTheRetries() async throws {
         let p = try makeOpenVPN()
         let cli = makeManager()
-        let retry = UnreachableRetry(tries: 3, maxTries: 10, nextTryAt: t0.addingTimeInterval(18),
-                                     firstFailedAt: t0.addingTimeInterval(-62), lastFailedAt: t0.addingTimeInterval(-12))
+        let retry = UnreachableRetry(
+            tries: 3, maxTries: 10, nextTryAt: t0.addingTimeInterval(18),
+            firstFailedAt: t0.addingTimeInterval(-62), lastFailedAt: t0.addingTimeInterval(-12))
         try JSONCoding.write(ConnectionManager.SharedRetry(writer: getppid(), retry: retry), to: retryFile(p.id), mode: 0o600)
         XCTAssertEqual(cli.unreachableRetry(p.id), retry)
         let status = AutomationService(store: store, manager: cli).status(p)
@@ -320,7 +334,9 @@ extension ConnectionManagerTests {
         XCTAssertEqual(details.server, "vpn.example.com:1194 (UDP)")
         XCTAssertEqual(details.network, NetworkStatus(online: true, interface: .wifi))
         let text = details.text(timeZone: TimeZone(identifier: "UTC")!)
-        XCTAssertEqual(text, """
+        XCTAssertEqual(
+            text,
+            """
             PassTunnel 1.2.0 (45)
             Profile: Acme
             Server: vpn.example.com:1194 (UDP)
@@ -345,8 +361,9 @@ final class NetworkPathTests: XCTestCase {
         XCTAssertEqual(NetworkStatus(online: false).summary, "Offline")
         XCTAssertEqual(NetworkStatus.unknown.summary, "Unknown")
         let encoder = AutomationJSON.encoder(pretty: false)
-        XCTAssertEqual(String(decoding: try encoder.encode(NetworkStatus(online: true, interface: .ethernet)), as: UTF8.self),
-                       #"{"interface":"ethernet","online":true}"#)
+        XCTAssertEqual(
+            String(decoding: try encoder.encode(NetworkStatus(online: true, interface: .ethernet)), as: UTF8.self),
+            #"{"interface":"ethernet","online":true}"#)
         XCTAssertEqual(String(decoding: try encoder.encode(NetworkStatus.unknown), as: UTF8.self), "{}")
     }
 
@@ -354,8 +371,9 @@ final class NetworkPathTests: XCTestCase {
     /// tunnel is `other`, so Wi-Fi under a VPN still reads Wi-Fi).
     func testApplePath() {
         XCTAssertEqual(NetworkPath.status(satisfied: false) { _ in true }, NetworkStatus(online: false))
-        XCTAssertEqual(NetworkPath.status(satisfied: true) { [.wifi, .other].contains($0) },
-                       NetworkStatus(online: true, interface: .wifi))
+        XCTAssertEqual(
+            NetworkPath.status(satisfied: true) { [.wifi, .other].contains($0) },
+            NetworkStatus(online: true, interface: .wifi))
         XCTAssertEqual(NetworkPath.status(satisfied: true) { $0 == .cellular }, NetworkStatus(online: true, interface: .cellular))
         XCTAssertEqual(NetworkPath.status(satisfied: true) { _ in false }, NetworkStatus(online: true, interface: .other))
     }
@@ -365,8 +383,9 @@ final class NetworkPathTests: XCTestCase {
         typealias Route = RoutingTable.Route
         let state = ["wlp2s0": "up", "eth0": "up", "enp3s0": "down", "tun0": "unknown", "wwan0": "dormant"]
         func status(_ routes: [Route]) -> NetworkStatus {
-            NetworkPath.linuxStatus(routes: routes, operstate: { state[$0] }, isWireless: { $0.hasPrefix("wl") },
-                                    linkType: { $0.hasPrefix("e") ? 1 : 65534 })
+            NetworkPath.linuxStatus(
+                routes: routes, operstate: { state[$0] }, isWireless: { $0.hasPrefix("wl") },
+                linkType: { $0.hasPrefix("e") ? 1 : 65534 })
         }
         let wifi = Route(destination: "0.0.0.0", prefixLength: 0, interface: "wlp2s0")
         let ethernet = Route(destination: "::", prefixLength: 0, interface: "eth0")
@@ -379,8 +398,9 @@ final class NetworkPathTests: XCTestCase {
         XCTAssertEqual(status([vpnHalf, unplugged, wifi]), NetworkStatus(online: true, interface: .wifi), "the link under the VPN")
         XCTAssertEqual(status([vpnHalf]), NetworkStatus(online: true, interface: .other))
         XCTAssertEqual(status([Route(destination: "0.0.0.0", prefixLength: 0, interface: "wwan0")]), NetworkStatus(online: false))
-        XCTAssertEqual(status([Route(destination: "10.0.0.0", prefixLength: 8, interface: "eth0")]), NetworkStatus(online: false),
-                       "not a route for all traffic")
+        XCTAssertEqual(
+            status([Route(destination: "10.0.0.0", prefixLength: 8, interface: "eth0")]), NetworkStatus(online: false),
+            "not a route for all traffic")
     }
 
     @MainActor
@@ -394,11 +414,15 @@ final class NetworkPathTests: XCTestCase {
     func testFailureDetailsWording() {
         let at = Date(timeIntervalSince1970: 1_700_000_000)
         let app = AppInfo(version: "1.2.0", build: nil, appPath: "")
-        var details = FailureDetails(profileName: "Work", server: "",
-                                     failure: ConnectionFailure(kind: .authRejected, at: at, reply: "AUTH_FAILED", credentialsSent: true,
-                                                                codeSent: true, codeSecondsLeft: 22),
-                                     network: .unknown, app: app, at: at)
-        XCTAssertEqual(details.text(timeZone: TimeZone(identifier: "UTC")!), """
+        var details = FailureDetails(
+            profileName: "Work", server: "",
+            failure: ConnectionFailure(
+                kind: .authRejected, at: at, reply: "AUTH_FAILED", credentialsSent: true,
+                codeSent: true, codeSecondsLeft: 22),
+            network: .unknown, app: app, at: at)
+        XCTAssertEqual(
+            details.text(timeZone: TimeZone(identifier: "UTC")!),
+            """
             PassTunnel 1.2.0
             Profile: Work
             Result: The server rejected the sign-in (AUTH_FAILED)
@@ -408,10 +432,13 @@ final class NetworkPathTests: XCTestCase {
             Network: Unknown
             """)
         details.failure = ConnectionFailure(kind: .unreachable, at: at, reason: "Server poll timeout", tries: 3)
-        details.retry = UnreachableRetry(tries: 3, maxTries: 10, waitingForNetwork: true, firstFailedAt: at.addingTimeInterval(-60),
-                                         lastFailedAt: at)
+        details.retry = UnreachableRetry(
+            tries: 3, maxTries: 10, waitingForNetwork: true, firstFailedAt: at.addingTimeInterval(-60),
+            lastFailedAt: at)
         details.network = NetworkStatus(online: false)
-        XCTAssertEqual(details.text(timeZone: TimeZone(identifier: "Europe/Istanbul")!), """
+        XCTAssertEqual(
+            details.text(timeZone: TimeZone(identifier: "Europe/Istanbul")!),
+            """
             PassTunnel 1.2.0
             Profile: Work
             Result: The server did not answer (Server poll timeout)

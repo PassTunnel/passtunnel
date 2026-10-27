@@ -23,8 +23,10 @@ struct GeneralSettings: View {
     /// The page's height in the Settings window; it scrolls below that.
     static let height: CGFloat = 600
 
-    init(previewLoginStatus: LoginItemStatus? = nil, fullHeight: Bool = false,
-         licensesAvailable: Bool = !BundledTools.licenseFiles().isEmpty) {
+    init(
+        previewLoginStatus: LoginItemStatus? = nil, fullHeight: Bool = false,
+        licensesAvailable: Bool = !BundledTools.licenseFiles().isEmpty
+    ) {
         self.previewLoginStatus = previewLoginStatus
         self.fullHeight = fullHeight
         self.licensesAvailable = licensesAvailable
@@ -67,9 +69,11 @@ struct GeneralSettings: View {
     // MARK: cards
 
     private var general: some View {
-        SettingsGroup(String(localized: "General"),
-                      footer: String(localized: "A click shows a hidden code for \(Int(CodeCard.revealDuration)) seconds; copying never shows it.")
-                          + " " + String(localized: "The clipboard is cleared only if it still holds what PassTunnel copied.")) {
+        SettingsGroup(
+            String(localized: "General"),
+            footer: String(localized: "A click shows a hidden code for \(Int(CodeCard.revealDuration)) seconds; copying never shows it.")
+                + " " + String(localized: "The clipboard is cleared only if it still holds what PassTunnel copied.")
+        ) {
             SettingsRow {
                 SettingsSwitch(String(localized: "Open at login, in the menu bar"), isOn: launchAtLogin)
                     .disabled(loginStatus == .unavailable)
@@ -84,8 +88,10 @@ struct GeneralSettings: View {
                 SettingsSwitch(String(localized: "Hide codes until clicked"), isOn: $model.prefs.hideCodes)
             }
             SettingsDivider()
-            SettingsPickerRow(String(localized: "Clear copied code"), selection: $model.prefs.clearClipboardAfter,
-                              identifier: "settings.clearClipboard") {
+            SettingsPickerRow(
+                String(localized: "Clear copied code"), selection: $model.prefs.clearClipboardAfter,
+                identifier: "settings.clearClipboard"
+            ) {
                 ForEach(Preferences.clearClipboardChoices, id: \.self) { seconds in
                     Text(Self.clearLabel(seconds)).tag(seconds)
                 }
@@ -94,12 +100,15 @@ struct GeneralSettings: View {
     }
 
     private var connection: some View {
-        SettingsGroup(String(localized: "Connection"),
-                      footer: String(localized: "A code that was already sent is never sent again: PassTunnel always waits for the next one.")) {
+        SettingsGroup(
+            String(localized: "Connection"),
+            footer: String(localized: "A code that was already sent is never sent again: PassTunnel always waits for the next one.")
+        ) {
             SettingsRow {
-                SettingsSwitch(String(localized: "Wait for a fresh code"),
-                               String(localized: "If the current code has \(Preferences.freshCodeSeconds) s or less left"),
-                               isOn: $model.prefs.waitForFreshCode, identifier: "settings.waitForFreshCode")
+                SettingsSwitch(
+                    String(localized: "Wait for a fresh code"),
+                    String(localized: "If the current code has \(Preferences.freshCodeSeconds) s or less left"),
+                    isOn: $model.prefs.waitForFreshCode, identifier: "settings.waitForFreshCode")
             }
             SettingsDivider()
             SettingsRow {
@@ -109,18 +118,22 @@ struct GeneralSettings: View {
     }
 
     private var notifications: some View {
-        SettingsGroup(String(localized: "Notifications"),
-                      footer: String(localized: "PassTunnel asks for permission the first time it needs to show a notification.")) {
+        SettingsGroup(
+            String(localized: "Notifications"),
+            footer: String(localized: "PassTunnel asks for permission the first time it needs to show a notification.")
+        ) {
             SettingsRow {
-                SettingsSwitch(String(localized: "Health check failures"),
-                               String(localized: "When a connected VPN stops reaching its health check host."),
-                               isOn: $model.prefs.notifyHealth)
+                SettingsSwitch(
+                    String(localized: "Health check failures"),
+                    String(localized: "When a connected VPN stops reaching its health check host."),
+                    isOn: $model.prefs.notifyHealth)
             }
             SettingsDivider()
             SettingsRow {
-                SettingsSwitch(String(localized: "Session limit"),
-                               String(localized: "Before a profile’s session limit ends the connection."),
-                               isOn: sessionEnabled)
+                SettingsSwitch(
+                    String(localized: "Session limit"),
+                    String(localized: "Before a profile’s session limit ends the connection."),
+                    isOn: sessionEnabled)
             }
             if model.prefs.sessionNotifyMin > 0 {
                 SettingsDivider()
@@ -147,10 +160,17 @@ struct GeneralSettings: View {
     }
 
     private var security: some View {
-        SettingsGroup(String(localized: "Security"),
-                      footer: String(localized: "For profiles set to “\(ConfirmationWording.settingName)”, one confirmation with Touch ID or your Mac password is valid this long for the same profile. Sleep and locking the screen end it.")) {
-            SettingsPickerRow(String(localized: "Ask again after"), selection: $model.prefs.authReuseMinutes,
-                              identifier: "settings.authReuse") {
+        SettingsGroup(
+            String(localized: "Security"),
+            footer: String(
+                localized:
+                    "For profiles set to “\(ConfirmationWording.settingName)”, one confirmation with Touch ID or your Mac password is valid this long for the same profile. Sleep and locking the screen end it."
+            )
+        ) {
+            SettingsPickerRow(
+                String(localized: "Ask again after"), selection: $model.prefs.authReuseMinutes,
+                identifier: "settings.authReuse"
+            ) {
                 ForEach(Preferences.authReuseChoices, id: \.self) { minutes in
                     Text(Self.reuseLabel(minutes)).tag(minutes)
                 }
@@ -177,8 +197,10 @@ struct GeneralSettings: View {
     }
 
     private var other: some View {
-        SettingsGroup(String(localized: "Other"),
-                      footer: String(localized: "Use “passtunnel connect”, “passtunnel code” and more from Terminal.")) {
+        SettingsGroup(
+            String(localized: "Other"),
+            footer: String(localized: "Use “passtunnel connect”, “passtunnel code” and more from Terminal.")
+        ) {
             SettingsRow {
                 HStack(spacing: Spacing.s) {
                     SettingsRowTitle(String(localized: "Appearance"))
@@ -197,11 +219,13 @@ struct GeneralSettings: View {
                 HStack(spacing: Spacing.s) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(String(localized: "Command-line tool")).typography(.body).foregroundStyle(Palette.fg)
-                        Text(cliLocation.map { String(localized: "Installed at \($0.path)") }
-                             ?? String(localized: "Not installed"))
-                            .typography(.hint)
-                            .foregroundStyle(Palette.fg2)
-                            .fixedSize(horizontal: false, vertical: true)
+                        Text(
+                            cliLocation.map { String(localized: "Installed at \($0.path)") }
+                                ?? String(localized: "Not installed")
+                        )
+                        .typography(.hint)
+                        .foregroundStyle(Palette.fg2)
+                        .fixedSize(horizontal: false, vertical: true)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     Button(cliLocation == nil ? String(localized: "Install…") : String(localized: "Reinstall")) { installCLI() }
@@ -262,20 +286,22 @@ struct GeneralSettings: View {
     }
 
     private var launchAtLogin: Binding<Bool> {
-        Binding(get: { loginStatus == .enabled || loginStatus == .requiresApproval }, set: { on in
-            loginItemError = nil
-            guard previewLoginStatus == nil else {
-                loginStatus = on ? .enabled : .disabled
-                return
-            }
-            do {
-                loginStatus = try LoginItem.setEnabled(on)
-            } catch {
-                loginItemError = String(localized: "Could not change the login item: \(error.localizedDescription)")
-                loginStatus = LoginItem.status
-            }
-            model.prefs.launchAtLogin = loginStatus == .enabled || loginStatus == .requiresApproval
-        })
+        Binding(
+            get: { loginStatus == .enabled || loginStatus == .requiresApproval },
+            set: { on in
+                loginItemError = nil
+                guard previewLoginStatus == nil else {
+                    loginStatus = on ? .enabled : .disabled
+                    return
+                }
+                do {
+                    loginStatus = try LoginItem.setEnabled(on)
+                } catch {
+                    loginItemError = String(localized: "Could not change the login item: \(error.localizedDescription)")
+                    loginStatus = LoginItem.status
+                }
+                model.prefs.launchAtLogin = loginStatus == .enabled || loginStatus == .requiresApproval
+            })
     }
 
     private func refreshLoginStatus() {
@@ -288,8 +314,9 @@ struct GeneralSettings: View {
     }
 
     private var sessionEnabled: Binding<Bool> {
-        Binding(get: { model.prefs.sessionNotifyMin > 0 },
-                set: { model.prefs.sessionNotifyMin = $0 ? 10 : 0 })
+        Binding(
+            get: { model.prefs.sessionNotifyMin > 0 },
+            set: { model.prefs.sessionNotifyMin = $0 ? 10 : 0 })
     }
 
     // MARK: labels and actions
@@ -320,7 +347,10 @@ struct GeneralSettings: View {
                 cliLocation = url
             case .installedNeedsPath(let url):
                 cliLocation = url
-                cliMessage = String(localized: "Installed in \(url.deletingLastPathComponent().path), which is not on your PATH yet. Add this line to ~/.zprofile:\nexport PATH=\"$HOME/.local/bin:$PATH\"")
+                cliMessage = String(
+                    localized:
+                        "Installed in \(url.deletingLastPathComponent().path), which is not on your PATH yet. Add this line to ~/.zprofile:\nexport PATH=\"$HOME/.local/bin:$PATH\""
+                )
             }
         } catch {
             cliMessage = String(localized: "Could not install the command-line tool: \(error.localizedDescription)")

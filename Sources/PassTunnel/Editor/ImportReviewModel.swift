@@ -97,10 +97,11 @@ final class ImportReviewModel: ObservableObject {
     func add(store: ProfileStore = ProfileStore()) -> String? {
         guard canAdd else { return nil }
         do {
-            let p = try store.commit(draft, name: name,
-                                     username: signsIn ? username : nil,
-                                     password: signsIn ? password : nil,
-                                     totpSecret: signsIn ? codeSecret : nil, totp: totp)
+            let p = try store.commit(
+                draft, name: name,
+                username: signsIn ? username : nil,
+                password: signsIn ? password : nil,
+                totpSecret: signsIn ? codeSecret : nil, totp: totp)
             addError = nil
             return p.id
         } catch {

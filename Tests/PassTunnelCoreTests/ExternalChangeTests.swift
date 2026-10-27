@@ -1,9 +1,11 @@
+import XCTest
+
+@testable import PassTunnelCore
+@testable import PassTunnelKit
+
 #if canImport(CoreServices)
 import CoreServices
 #endif
-import XCTest
-@testable import PassTunnelCore
-@testable import PassTunnelKit
 
 /// Changes made by another process (the CLI) while the app runs: read-modify-write saves, the
 /// support-directory watcher, and the helper hand-off arguments.
@@ -12,9 +14,9 @@ final class ExternalChangeTests: CoreTestCase {
     // MARK: ProfileStore.update
 
     func testUpdateKeepsFieldsChangedElsewhere() throws {
-        let loaded = try store.create(name: "Acme", type: .openvpn)   // the app's copy
+        let loaded = try store.create(name: "Acme", type: .openvpn)  // the app's copy
 
-        var cli = try ProfileStore().get(loaded.id)                    // the CLI, later
+        var cli = try ProfileStore().get(loaded.id)  // the CLI, later
         cli.otpMode = .totp
         cli.totp.period = 60
         cli.username = "alice"
@@ -30,7 +32,9 @@ final class ExternalChangeTests: CoreTestCase {
 
     func testUpdateValidatesAndKeepsTheID() throws {
         let p = try store.create(name: "Acme", type: .openvpn)
-        let saved = try store.update(p.id) { $0.id = "other"; $0.pinned = true }
+        let saved = try store.update(p.id) {
+            $0.id = "other"; $0.pinned = true
+        }
         XCTAssertEqual(saved.id, p.id)
         XCTAssertFalse(store.exists("other"))
         XCTAssertTrue(try store.get(p.id).pinned)
@@ -55,9 +59,11 @@ final class ExternalChangeTests: CoreTestCase {
         XCTAssertFalse(ProfilesWatcher.isRelevant(path: dir + "/.user-stopped"))
         XCTAssertFalse(ProfilesWatcher.isRelevant(path: home.appendingPathComponent("profiles/.lock").path))
         XCTAssertFalse(ProfilesWatcher.isRelevant(path: dir + "/.profile.json.0F1E2D3C.tmp"))
-        XCTAssertTrue(ProfilesWatcher.isRelevant(path: dir + "/vpn.log",
-                                                 flags: FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs)),
-                      "dropped events: reload to be safe")
+        XCTAssertTrue(
+            ProfilesWatcher.isRelevant(
+                path: dir + "/vpn.log",
+                flags: FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs)),
+            "dropped events: reload to be safe")
     }
 
     /// Profile edits, imports, deletes and preference changes from another process are reported;
@@ -100,7 +106,7 @@ final class ExternalChangeTests: CoreTestCase {
         let watcher = ProfilesWatcher(paths: store.paths, latency: 0.05, debounce: 0.05) { calls += 1 }
         XCTAssertTrue(watcher.start())
         settle()
-        calls = 0                                       // events from creating the directories
+        calls = 0  // events from creating the directories
         watcher.stop()
         XCTAssertFalse(watcher.isRunning)
         _ = try store.create(name: "Acme", type: .openvpn)
@@ -121,10 +127,14 @@ final class ExternalChangeTests: CoreTestCase {
         XCTAssertEqual(HelperHandoff.update.argument, "--update-helper")
         XCTAssertEqual(HelperHandoff.from(arguments: ["PassTunnel", "--update-helper"]), .update)
         XCTAssertEqual(HelperHandoff(rawValue: "update"), .update)
-        XCTAssertEqual(HelperHandoff.from(arguments: ["/Applications/PassTunnel.app/Contents/MacOS/PassTunnel",
-                                                      "--install-helper"]), .install)
-        XCTAssertEqual(HelperHandoff.from(arguments: ["PassTunnel", "-AppleLanguages", "(tr)", "--uninstall-helper"]),
-                       .uninstall)
+        XCTAssertEqual(
+            HelperHandoff.from(arguments: [
+                "/Applications/PassTunnel.app/Contents/MacOS/PassTunnel",
+                "--install-helper"
+            ]), .install)
+        XCTAssertEqual(
+            HelperHandoff.from(arguments: ["PassTunnel", "-AppleLanguages", "(tr)", "--uninstall-helper"]),
+            .uninstall)
         XCTAssertNil(HelperHandoff.from(arguments: ["--install-helper"]), "argv[0] is the program")
         XCTAssertNil(HelperHandoff.from(arguments: ["PassTunnel", "--background"]))
         // Started with the argument, the binary must run as the app, not as the CLI.
@@ -153,8 +163,9 @@ final class ExternalChangeTests: CoreTestCase {
         XCTAssertTrue(wait.asking)
         XCTAssertNil(wait.result(done: false, now: t0.addingTimeInterval(300)), "the user has not decided yet")
         XCTAssertEqual(wait.result(done: true, now: t0.addingTimeInterval(300)), .done)
-        XCTAssertEqual(wait.result(done: false, now: t0.addingTimeInterval(5 + HelperHandoffWait.confirmationTimeout + 1)),
-                       .timedOut)
+        XCTAssertEqual(
+            wait.result(done: false, now: t0.addingTimeInterval(5 + HelperHandoffWait.confirmationTimeout + 1)),
+            .timedOut)
 
         var declined = wait
         declined.received("update:declined", now: t0.addingTimeInterval(20))

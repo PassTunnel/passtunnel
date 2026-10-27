@@ -38,8 +38,10 @@ public struct UserDatabase {
     public var groups: (uid_t) -> [gid_t]?
     public var groupID: (String) -> gid_t?
 
-    public init(name: @escaping (uid_t) -> String?, home: @escaping (uid_t) -> String?,
-                groups: @escaping (uid_t) -> [gid_t]?, groupID: @escaping (String) -> gid_t?) {
+    public init(
+        name: @escaping (uid_t) -> String?, home: @escaping (uid_t) -> String?,
+        groups: @escaping (uid_t) -> [gid_t]?, groupID: @escaping (String) -> gid_t?
+    ) {
         self.name = name
         self.home = home
         self.groups = groups

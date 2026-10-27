@@ -98,15 +98,18 @@ public final class Daemon {
         self.options = options
         var dns = DNSApplier(system: options.dns, runRoot: options.runRoot)
         dns.lockTimeout = options.dnsLockTimeout
-        let previous = PreviousInstance.cleanUp(runRoot: options.runRoot, keep: [PT.daemonSocketName, Self.lockName],
-                                                grace: options.stopGrace, dns: dns)
-        var core = HelperCore(runRoot: options.runRoot, dnsUpdownSource: nil,
-                              homeDirectory: options.users.home, userName: options.users.name)
+        let previous = PreviousInstance.cleanUp(
+            runRoot: options.runRoot, keep: [PT.daemonSocketName, Self.lockName],
+            grace: options.stopGrace, dns: dns)
+        var core = HelperCore(
+            runRoot: options.runRoot, dnsUpdownSource: nil,
+            homeDirectory: options.users.home, userName: options.users.name)
         core.dnsHook = hook
         core.interfaceExists = options.interfaces.exists
-        supervisor = Supervisor(core: core, tools: options.tools, dns: dns, interfaces: options.interfaces,
-                                reportWait: options.reportWait, stopGrace: options.stopGrace,
-                                pendingDNS: previous.pendingDNS, retryInterval: options.dnsRetryInterval)
+        supervisor = Supervisor(
+            core: core, tools: options.tools, dns: dns, interfaces: options.interfaces,
+            reportWait: options.reportWait, stopGrace: options.stopGrace,
+            pendingDNS: previous.pendingDNS, retryInterval: options.dnsRetryInterval)
     }
 
     deinit {
@@ -134,7 +137,8 @@ public final class Daemon {
 
     static func activationSocket(environment: [String: String]) -> Int32? {
         guard let pid = environment["LISTEN_PID"].flatMap({ pid_t($0) }), pid == getpid(),
-              let count = environment["LISTEN_FDS"].flatMap({ Int($0) }), count >= 1 else { return nil }
+            let count = environment["LISTEN_FDS"].flatMap({ Int($0) }), count >= 1
+        else { return nil }
         let fd: Int32 = 3
         guard isListeningUnixStream(fd) else {
             DaemonLog.info("ignoring descriptor 3 from systemd: not a listening unix stream socket")
@@ -202,8 +206,10 @@ public final class Daemon {
 
     private func acceptLoop() {
         while true {
-            var fds = [pollfd(fd: listener, events: Int16(POLLIN), revents: 0),
-                       pollfd(fd: wakeFDs[0], events: Int16(POLLIN), revents: 0)]
+            var fds = [
+                pollfd(fd: listener, events: Int16(POLLIN), revents: 0),
+                pollfd(fd: wakeFDs[0], events: Int16(POLLIN), revents: 0)
+            ]
             let r = poll(&fds, 2, -1)
             if isStopped { return }
             if r < 0 {

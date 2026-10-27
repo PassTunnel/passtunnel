@@ -1,7 +1,8 @@
+import PassTunnelShared
 import XCTest
+
 @testable import PassTunnelCore
 @testable import PassTunnelKit
-import PassTunnelShared
 
 /// The app keeps one management connection per OpenVPN and follows real-time state; the CLI, which
 /// then finds the interface busy, reads the state the app shares.
@@ -37,8 +38,10 @@ final class PersistentManagementQuerierTests: XCTestCase {
         FakeManagementServer.send(fd, state + "\r\nEND\r\n")
     }
 
-    func eventually(_ q: PersistentManagementQuerier, _ name: String, ip: String = "",
-                    file: StaticString = #filePath, line: UInt = #line) async throws -> ManagementState {
+    func eventually(
+        _ q: PersistentManagementQuerier, _ name: String, ip: String = "",
+        file: StaticString = #filePath, line: UInt = #line
+    ) async throws -> ManagementState {
         let deadline = Date().addingTimeInterval(3)
         while true {
             let s = try await q.state(socketPath: sock, timeout: 2)
@@ -55,22 +58,24 @@ final class PersistentManagementQuerierTests: XCTestCase {
         let push = DispatchSemaphore(value: 0)
         let drop = DispatchSemaphore(value: 0)
         var accepted = 0
-        let server = FakeManagementServer(path: sock, handlers: [
-            { fd in
-                accepted += 1
-                Self.open(fd, state: Self.auth)
-                push.wait()
-                FakeManagementServer.send(fd, ">BYTECOUNT:1,2\r\n>STATE:" + Self.connected + "\r\n")
-                drop.wait()
-            },
-            { fd in
-                accepted += 1
-                Self.open(fd, state: Self.reconnected)
-                // Held until the client releases it.
-                var b: UInt8 = 0
-                while read(fd, &b, 1) == 1 {}
-            },
-        ])
+        let server = FakeManagementServer(
+            path: sock,
+            handlers: [
+                { fd in
+                    accepted += 1
+                    Self.open(fd, state: Self.auth)
+                    push.wait()
+                    FakeManagementServer.send(fd, ">BYTECOUNT:1,2\r\n>STATE:" + Self.connected + "\r\n")
+                    drop.wait()
+                },
+                { fd in
+                    accepted += 1
+                    Self.open(fd, state: Self.reconnected)
+                    // Held until the client releases it.
+                    var b: UInt8 = 0
+                    while read(fd, &b, 1) == 1 {}
+                }
+            ])
         waitForSocket()
         let q = PersistentManagementQuerier()
 
@@ -86,7 +91,7 @@ final class PersistentManagementQuerierTests: XCTestCase {
         XCTAssertEqual(up.since, Date(timeIntervalSince1970: 1_700_000_010))
         XCTAssertEqual(accepted, 1)
 
-        drop.signal()                                    // OpenVPN closed the connection
+        drop.signal()  // OpenVPN closed the connection
         let again = try await eventually(q, "CONNECTED", ip: "10.8.0.9")
         XCTAssertEqual(again.since, Date(timeIntervalSince1970: 1_700_000_020))
         XCTAssertEqual(accepted, 2)
@@ -100,16 +105,18 @@ final class PersistentManagementQuerierTests: XCTestCase {
     func testSendUsesTheHeldConnection() async throws {
         var accepted = 0
         var received: String?
-        let server = FakeManagementServer(path: sock, handlers: [
-            { fd in
-                accepted += 1
-                Self.open(fd, state: Self.connected)
-                received = FakeManagementServer.readLine(fd)
-                FakeManagementServer.send(fd, "SUCCESS: signal SIGTERM thrown\r\n")
-                var b: UInt8 = 0
-                while read(fd, &b, 1) == 1 {}
-            },
-        ])
+        let server = FakeManagementServer(
+            path: sock,
+            handlers: [
+                { fd in
+                    accepted += 1
+                    Self.open(fd, state: Self.connected)
+                    received = FakeManagementServer.readLine(fd)
+                    FakeManagementServer.send(fd, "SUCCESS: signal SIGTERM thrown\r\n")
+                    var b: UInt8 = 0
+                    while read(fd, &b, 1) == 1 {}
+                }
+            ])
         waitForSocket()
         let q = PersistentManagementQuerier()
         _ = try await q.state(socketPath: sock, timeout: 2)
@@ -225,8 +232,9 @@ final class SharedStateTests: XCTestCase {
         let written = try FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date
         try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 0)], ofItemAtPath: url.path)
         await app.refresh()
-        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date,
-                       Date(timeIntervalSince1970: 0))
+        XCTAssertEqual(
+            try FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date,
+            Date(timeIntervalSince1970: 0))
         XCTAssertNotNil(written)
 
         // Gone when the app sees the session end.
@@ -276,8 +284,10 @@ extension SharedStateTests {
         let p = try makeProfile()
         helper.openVPNStateLine = nil
         helper.simulateExternalStart(p.id, profileDir: store.dir(p.id).path, since: since)
-        let cases: [(TimeInterval, Int)] = [(1e300, 0), (.infinity, 0), (.nan, 0), (since.timeIntervalSince1970 + 60, 0),
-                                            (-1e300, Int.max), (-.infinity, 0), (since.timeIntervalSince1970 - 90, 90)]
+        let cases: [(TimeInterval, Int)] = [
+            (1e300, 0), (.infinity, 0), (.nan, 0), (since.timeIntervalSince1970 + 60, 0),
+            (-1e300, Int.max), (-.infinity, 0), (since.timeIntervalSince1970 - 90, 90)
+        ]
         for (epoch, expected) in cases {
             var state = connected
             state.since = Date(timeIntervalSince1970: epoch)
@@ -290,11 +300,11 @@ extension SharedStateTests {
     }
 
     static let upLog = """
-    2026-01-01 10:00:00 UDPv4 link remote: [AF_INET]203.0.113.10:1194
-    2026-01-01 10:00:01 /sbin/ifconfig utun6 10.8.0.6 10.8.0.6 netmask 255.255.255.0 mtu 1500 up
-    2026-01-01 10:00:02 Initialization Sequence Completed
+        2026-01-01 10:00:00 UDPv4 link remote: [AF_INET]203.0.113.10:1194
+        2026-01-01 10:00:01 /sbin/ifconfig utun6 10.8.0.6 10.8.0.6 netmask 255.255.255.0 mtu 1500 up
+        2026-01-01 10:00:02 Initialization Sequence Completed
 
-    """
+        """
 
     func reapedPID() throws -> Int32 {
         let child = Process()
@@ -370,15 +380,17 @@ extension PersistentManagementQuerierTests {
     /// Two callers at once (a poll and a connect) share one open instead of queueing a second client.
     func testConcurrentQueriesOpenOnce() async throws {
         var accepted = 0
-        let server = FakeManagementServer(path: sock, handlers: [
-            { fd in
-                accepted += 1
-                Self.open(fd, state: Self.connected)
-                var b: UInt8 = 0
-                while read(fd, &b, 1) == 1 {}
-            },
-            { _ in accepted += 1 },
-        ])
+        let server = FakeManagementServer(
+            path: sock,
+            handlers: [
+                { fd in
+                    accepted += 1
+                    Self.open(fd, state: Self.connected)
+                    var b: UInt8 = 0
+                    while read(fd, &b, 1) == 1 {}
+                },
+                { _ in accepted += 1 }
+            ])
         waitForSocket()
         let q = PersistentManagementQuerier()
         async let a = q.state(socketPath: sock, timeout: 2)

@@ -30,7 +30,8 @@ enum ImportActions {
     @MainActor static func importOVPN() {
         let panel = NSOpenPanel()
         panel.title = String(localized: "Import OpenVPN Configuration")
-        panel.message = String(localized: "Choose an .ovpn file. Certificates and keys it refers to are embedded automatically when they are in the same folder.")
+        panel.message = String(
+            localized: "Choose an .ovpn file. Certificates and keys it refers to are embedded automatically when they are in the same folder.")
         panel.allowedContentTypes = ovpnTypes
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
@@ -118,12 +119,14 @@ enum ImportActions {
             importOVPN(at: url)
         case .tooMany:
             NSApp.activate(ignoringOtherApps: true)
-            showMessage(String(localized: "Open one file at a time"),
-                        String(localized: "Nothing was imported. Open the files one by one."))
+            showMessage(
+                String(localized: "Open one file at a time"),
+                String(localized: "Nothing was imported. Open the files one by one."))
         case .unsupported(let name):
             NSApp.activate(ignoringOtherApps: true)
-            showMessage(String(localized: "PassTunnel cannot open “\(name)”"),
-                        String(localized: "PassTunnel opens OpenVPN configurations (.ovpn or .conf) and shared profiles (.passtunnel)."))
+            showMessage(
+                String(localized: "PassTunnel cannot open “\(name)”"),
+                String(localized: "PassTunnel opens OpenVPN configurations (.ovpn or .conf) and shared profiles (.passtunnel)."))
         }
     }
 
@@ -217,9 +220,11 @@ enum ImportActions {
         let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 260, height: 26), pullsDown: false)
         popup.addItems(withTitles: profiles.map(\.name))
         let issuer = uri.issuer.lowercased()
-        if !issuer.isEmpty, let match = profiles.firstIndex(where: {
-            $0.name.lowercased().contains(issuer) || issuer.contains($0.name.lowercased())
-        }) {
+        if !issuer.isEmpty,
+            let match = profiles.firstIndex(where: {
+                $0.name.lowercased().contains(issuer) || issuer.contains($0.name.lowercased())
+            })
+        {
             popup.selectItem(at: match)
         }
         popup.setAccessibilityLabel(String(localized: "VPN profile"))
@@ -312,8 +317,10 @@ enum ImportActions {
     /// Loads file URLs and images from drop providers and delivers each on the main actor.
     /// Returns false when nothing usable is offered.
     @discardableResult
-    static func loadItems(from providers: [NSItemProvider],
-                          _ handler: @escaping @MainActor (DroppedItem) -> Void) -> Bool {
+    static func loadItems(
+        from providers: [NSItemProvider],
+        _ handler: @escaping @MainActor (DroppedItem) -> Void
+    ) -> Bool {
         var accepted = false
         for provider in providers {
             if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
@@ -334,8 +341,10 @@ enum ImportActions {
     }
 
     /// Editor drop zone: image files or image data; the QR decoder reports anything else.
-    static func loadImages(from providers: [NSItemProvider],
-                           _ handler: @escaping @MainActor (DroppedItem) -> Void) -> Bool {
+    static func loadImages(
+        from providers: [NSItemProvider],
+        _ handler: @escaping @MainActor (DroppedItem) -> Void
+    ) -> Bool {
         loadItems(from: providers, handler)
     }
 

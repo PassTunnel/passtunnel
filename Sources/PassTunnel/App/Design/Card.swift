@@ -11,8 +11,9 @@ struct Card<Content: View>: View {
 
         var radius: CGFloat { self == .regular ? Radius.card : Radius.compactCard }
         var insets: EdgeInsets {
-            self == .regular ? EdgeInsets(top: 16, leading: 18, bottom: 16, trailing: 18)
-                             : EdgeInsets(top: 14, leading: 16, bottom: 14, trailing: 16)
+            self == .regular
+                ? EdgeInsets(top: 16, leading: 18, bottom: 16, trailing: 18)
+                : EdgeInsets(top: 14, leading: 16, bottom: 14, trailing: 16)
         }
         var spacing: CGFloat { self == .regular ? 8 : 10 }
     }

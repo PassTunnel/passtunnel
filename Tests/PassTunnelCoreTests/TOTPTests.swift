@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+
 @testable import PassTunnelCore
 @testable import PassTunnelKit
 
@@ -14,7 +15,7 @@ final class TOTPTests: CoreTestCase {
         (1111111111, "14050471", "67062674", "99943326"),
         (1234567890, "89005924", "91819424", "93441116"),
         (2000000000, "69279037", "90698825", "38618901"),
-        (20000000000, "65353130", "77737706", "47863826"),
+        (20000000000, "65353130", "77737706", "47863826")
     ]
 
     func testRFC6238Vectors() {
@@ -74,7 +75,8 @@ final class TOTPTests: CoreTestCase {
 
 final class OTPAuthURITests: CoreTestCase {
     func testFullURI() throws {
-        let u = try OTPAuthURI("otpauth://totp/Acme:alice@example.com?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&issuer=Acme&digits=8&period=60&algorithm=SHA256")
+        let u = try OTPAuthURI(
+            "otpauth://totp/Acme:alice@example.com?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&issuer=Acme&digits=8&period=60&algorithm=SHA256")
         XCTAssertEqual(u.label, "Acme:alice@example.com")
         XCTAssertEqual(u.account, "alice@example.com")
         XCTAssertEqual(u.issuer, "Acme")
@@ -120,15 +122,17 @@ final class OTPAuthURITests: CoreTestCase {
 }
 
 final class OTPComposerTests: CoreTestCase {
-    func compose(_ pw: String, _ otp: String?, _ d: OTPDelivery, _ t: String = "{password}{otp}",
-                 _ type: VPNType = .openvpn) -> (String, String?) {
+    func compose(
+        _ pw: String, _ otp: String?, _ d: OTPDelivery, _ t: String = "{password}{otp}",
+        _ type: VPNType = .openvpn
+    ) -> (String, String?) {
         let r = OTPComposer.compose(password: pw, otp: otp, delivery: d, template: t, type: type)
         return (r.secret, r.separateOTP)
     }
 
     func testPresets() throws {
         let expected: [OTPTemplatePreset: String] = [
-            .append: "s3cret123456", .prepend: "123456s3cret", .colon: "s3cret:123456", .comma: "s3cret,123456",
+            .append: "s3cret123456", .prepend: "123456s3cret", .colon: "s3cret:123456", .comma: "s3cret,123456"
         ]
         for preset in OTPTemplatePreset.allCases {
             try OTPComposer.validate(template: preset.rawValue)

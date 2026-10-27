@@ -1,12 +1,14 @@
-#if canImport(AppKit)
-import AppKit
-#endif
 import Foundation
+import PassTunnelShared
 import XCTest
+
 @testable import PassTunnelCLI
 @testable import PassTunnelCore
 @testable import PassTunnelKit
-import PassTunnelShared
+
+#if canImport(AppKit)
+import AppKit
+#endif
 
 // The seams between the Mac and Linux (docs/LINUX.md): each platform's values and stand-ins, and the
 // parts of the other platform's that build everywhere.
@@ -39,16 +41,19 @@ final class JSONValueTests: XCTestCase {
         XCTAssertEqual(try parse(#""true""#), .string("true"))
         XCTAssertEqual(try parse(#""1""#), .string("1"))
         XCTAssertEqual(try parse("null"), .null)
-        XCTAssertEqual(try parse(#"{"a":{"b":[null,"x"]},"c":{}}"#),
-                       .object(["a": .object(["b": .array([.null, .string("x")])]), "c": .object([:])]))
+        XCTAssertEqual(
+            try parse(#"{"a":{"b":[null,"x"]},"c":{}}"#),
+            .object(["a": .object(["b": .array([.null, .string("x")])]), "c": .object([:])]))
         XCTAssertEqual(try parse(#"{"a":1}"#).objectValue?["a"], .integer(1))
         XCTAssertNil(try parse("[]").objectValue)
         XCTAssertEqual(try parse(#""ç\n""#).stringValue, "ç\n")
     }
 
     func testInvalidJSONThrows() {
-        for text in ["", "{", "{not json", "tru", "'a'", "{\"a\" 1}", "NaN", "\u{FF}", "1e999",
-                     String(repeating: "[", count: 600) + String(repeating: "]", count: 600)] {
+        for text in [
+            "", "{", "{not json", "tru", "'a'", "{\"a\" 1}", "NaN", "\u{FF}", "1e999",
+            String(repeating: "[", count: 600) + String(repeating: "]", count: 600)
+        ] {
             XCTAssertThrowsError(try parse(text), text.debugDescription)
         }
     }
@@ -79,8 +84,10 @@ final class JSONValueTests: XCTestCase {
         for id: JSONValue in [.string("a"), .integer(1), .integer(-5), .number(1e19)] {
             XCTAssertTrue(MCPServer.isValidID(id), "\(id)")
         }
-        for id: JSONValue in [.null, .bool(true), .bool(false), .number(1.5), .number(.infinity), .number(.nan),
-                              .array([]), .object([:])] {
+        for id: JSONValue in [
+            .null, .bool(true), .bool(false), .number(1.5), .number(.infinity), .number(.nan),
+            .array([]), .object([:])
+        ] {
             XCTAssertFalse(MCPServer.isValidID(id), "\(id)")
         }
         XCTAssertEqual(MCPServer.key(.integer(7)), "n:7")
@@ -129,7 +136,8 @@ final class SecretStoreTests: CoreTestCase {
     /// could select, so `passtunnel secret` can never report a secret saved that is gone at exit.
     func testTheMemoryStoreIsInDebugBuildsOnly() throws {
         let sources = LocalizationTests.root.appendingPathComponent("Sources")
-        let files = FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil)?
+        let files =
+            FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil)?
             .compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" } ?? []
         var mentions = 0
         var outside: [String] = []
@@ -192,8 +200,9 @@ final class SecretStoreTests: CoreTestCase {
         XCTAssertEqual(report.secretStore?.available, false)
         XCTAssertEqual(report.secretStore?.chosenBy, "environment")
         XCTAssertEqual(report.secretStore?.error, SecretStoreUnavailable.noPassphrase.message)
-        XCTAssertEqual(report.profiles[0].problems.filter { $0.code == AutomationErrorCode.credentialsMissing.rawValue }.count, 2,
-                       "no file yet: both secrets are simply missing")
+        XCTAssertEqual(
+            report.profiles[0].problems.filter { $0.code == AutomationErrorCode.credentialsMissing.rawValue }.count, 2,
+            "no file yet: both secrets are simply missing")
         try store.delete(p.id)
     }
 
@@ -382,8 +391,9 @@ final class PlatformValueTests: XCTestCase {
     /// Linux cannot ask for a confirmation: a secret the setting protects is refused, never used
     /// without it. On the Mac nothing changes here.
     @MainActor func testProtectedProfilesWithoutAConfirmation() throws {
-        let vault = SecretVault(authenticator: UnavailableAuthenticator(), reuseWindow: { 60 },
-                                destination: { _ in ProfileDestination(fingerprint: "f", host: "") })
+        let vault = SecretVault(
+            authenticator: UnavailableAuthenticator(), reuseWindow: { 60 },
+            destination: { _ in ProfileDestination(fingerprint: "f", host: "") })
         var p = Profile(id: "acme", name: "Acme", type: .openvpn)
         p.passwordMode = .keychain
         p.otpMode = .totp
@@ -418,14 +428,18 @@ final class CLIPlatformTests: XCTestCase {
         let tools: Set = ["/usr/bin/wl-copy", "/usr/bin/xclip"]
         let exists: (String) -> Bool = { tools.contains($0) }
         let path = "relative:/usr/local/bin:/usr/bin"
-        XCTAssertEqual(CLIClipboard.tool(environment: ["PATH": path, "WAYLAND_DISPLAY": "wayland-0", "DISPLAY": ":0"],
-                                         isExecutable: exists),
-                       CLIClipboard.Tool(path: "/usr/bin/wl-copy", arguments: ["--foreground"]))
-        XCTAssertEqual(CLIClipboard.tool(environment: ["PATH": path, "DISPLAY": ":0"], isExecutable: exists),
-                       CLIClipboard.Tool(path: "/usr/bin/xclip", arguments: ["-quiet", "-selection", "clipboard"]))
+        XCTAssertEqual(
+            CLIClipboard.tool(
+                environment: ["PATH": path, "WAYLAND_DISPLAY": "wayland-0", "DISPLAY": ":0"],
+                isExecutable: exists),
+            CLIClipboard.Tool(path: "/usr/bin/wl-copy", arguments: ["--foreground"]))
+        XCTAssertEqual(
+            CLIClipboard.tool(environment: ["PATH": path, "DISPLAY": ":0"], isExecutable: exists),
+            CLIClipboard.Tool(path: "/usr/bin/xclip", arguments: ["-quiet", "-selection", "clipboard"]))
         XCTAssertNil(CLIClipboard.tool(environment: ["PATH": path], isExecutable: exists), "no display")
-        XCTAssertNil(CLIClipboard.tool(environment: ["PATH": "relative", "DISPLAY": ":0"], isExecutable: { _ in true }),
-                     "only absolute PATH entries")
+        XCTAssertNil(
+            CLIClipboard.tool(environment: ["PATH": "relative", "DISPLAY": ":0"], isExecutable: { _ in true }),
+            "only absolute PATH entries")
         XCTAssertNil(CLIClipboard.tool(environment: ["DISPLAY": ":0", "WAYLAND_DISPLAY": "w"], isExecutable: exists))
     }
 
@@ -441,7 +455,7 @@ final class CLIPlatformTests: XCTestCase {
         let bad: [[String]] = [
             [], [arg], [arg, ""], [arg, "45"], [arg, "0"], [arg, "3600"], [arg, "-60"], [arg, "+60"], [arg, " 60"],
             [arg, "60s"], [arg, "６０"], [arg, "0x3c"], [arg, "60", ""], [arg, "60", "-1"], [arg, "60", "1", "2"],
-            [arg, "60", "99999999999999999999"], [arg, "60;rm -rf ~"], ["code", "60"], ["60", arg],
+            [arg, "60", "99999999999999999999"], [arg, "60;rm -rf ~"], ["code", "60"], ["60", arg]
         ]
         for arguments in bad {
             XCTAssertNil(Order(arguments: arguments), "\(arguments)")
@@ -546,8 +560,9 @@ final class CLIPlatformTests: XCTestCase {
             XCTAssertTrue(script.contains("secret-store"))
             XCTAssertTrue(script.contains("auto secret-service systemd-creds file"), script)
         }
-        XCTAssertEqual(PassTunnelCLI.secretStoreInteraction(CLIInvocation(command: .mcp(allowConnect: false))).interactive, false,
-                       "the MCP server never asks")
+        XCTAssertEqual(
+            PassTunnelCLI.secretStoreInteraction(CLIInvocation(command: .mcp(allowConnect: false))).interactive, false,
+            "the MCP server never asks")
         #else
         XCTAssertFalse(CLICommand.commandNames.contains("secret-store"), "the Mac has the Keychain only")
         XCTAssertThrowsError(try CLICommand.parse(["secret-store"]))

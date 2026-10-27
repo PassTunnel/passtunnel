@@ -1,4 +1,5 @@
 import Foundation
+
 #if canImport(Glibc)
 import Glibc
 #endif
@@ -31,8 +32,10 @@ public enum JSONCoding {
     }
 
     /// Encodes and writes atomically (temp file + rename) with the given permissions.
-    public static func write<T: Encodable>(_ value: T, to url: URL, mode: mode_t = 0o644,
-                                           userInfo: [CodingUserInfoKey: Any] = [:]) throws {
+    public static func write<T: Encodable>(
+        _ value: T, to url: URL, mode: mode_t = 0o644,
+        userInfo: [CodingUserInfoKey: Any] = [:]
+    ) throws {
         var data = try encode(value, userInfo: userInfo)
         data.append(0x0A)
         try FileIO.writeAtomically(data, to: url, mode: mode)
@@ -66,8 +69,9 @@ package enum FileIO {
 
     package static func makeDirectory(_ url: URL, mode: Int = 0o700) throws {
         do {
-            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true,
-                                                    attributes: [.posixPermissions: mode])
+            try FileManager.default.createDirectory(
+                at: url, withIntermediateDirectories: true,
+                attributes: [.posixPermissions: mode])
         } catch {
             throw PTError.fileError(url.path)
         }

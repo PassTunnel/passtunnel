@@ -1,8 +1,9 @@
 import Foundation
+import PassTunnelShared
+
 #if os(macOS)
 import ServiceManagement
 #endif
-import PassTunnelShared
 
 public enum HelperStatus: String, Sendable {
     case notRegistered, enabled, requiresApproval, notFound
@@ -83,8 +84,10 @@ public enum HelperInstaller {
     /// Registers the daemon, retrying while macOS refuses with "Operation not permitted": right after
     /// an unregister, launchd may still be tearing the old job down and refuses for a few seconds.
     /// Throws `HelperInstallError.notPermitted` when every retry failed, `.deniedByUser` at once.
-    public static func register(using registrar: HelperRegistrar, retryDelays: [TimeInterval] = retryDelays,
-                                sleep: Sleeper = realSleep) async throws {
+    public static func register(
+        using registrar: HelperRegistrar, retryDelays: [TimeInterval] = retryDelays,
+        sleep: Sleeper = realSleep
+    ) async throws {
         var attempt = 0
         while true {
             do {
@@ -123,9 +126,11 @@ public enum HelperInstaller {
     /// SIGTERM, which stops its tunnels), registering again points launchd at this copy. Waits for the
     /// old registration to go away, then registers with `register(using:)`'s retries. Callers decide
     /// whether this copy may take over (`HelperAutoUpdate`, or the user's confirmation).
-    public static func update(using registrar: HelperRegistrar = SMAppServiceRegistrar(),
-                              retryDelays: [TimeInterval] = retryDelays, unregisterWait: TimeInterval = unregisterWait,
-                              sleep: Sleeper = realSleep) async throws {
+    public static func update(
+        using registrar: HelperRegistrar = SMAppServiceRegistrar(),
+        retryDelays: [TimeInterval] = retryDelays, unregisterWait: TimeInterval = unregisterWait,
+        sleep: Sleeper = realSleep
+    ) async throws {
         do {
             try await registrar.unregister()
         } catch let error where classify(error) == .jobNotFound {

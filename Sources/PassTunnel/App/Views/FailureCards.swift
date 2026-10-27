@@ -35,7 +35,8 @@ extension AppModel {
 
     /// The last clock measurement of any profile or the time server, when it is recent and off.
     var clockWarning: ClockOffset? {
-        let measurements = previewStates != nil
+        let measurements =
+            previewStates != nil
             ? previewFailures.clocks
             : Array(connections.clockOffsets.values) + [connections.timeServerClock].compactMap { $0 }
         return ClockOffset.recentWarning(in: measurements, now: now)
@@ -172,9 +173,11 @@ struct RejectedCard: View {
             codeRow
             clockRow
             if profile.passwordMode == .keychain {
-                DiagnosisRow(symbol: .info, title: Text(String(localized: "Changed your password at work?")),
-                             link: (String(localized: "Update it in PassTunnel"), { model.edit(profile) }))
-                    .accessibilityIdentifier("profile.\(profile.id).failure.password")
+                DiagnosisRow(
+                    symbol: .info, title: Text(String(localized: "Changed your password at work?")),
+                    link: (String(localized: "Update it in PassTunnel"), { model.edit(profile) })
+                )
+                .accessibilityIdentifier("profile.\(profile.id).failure.password")
             }
             ClockCheckButton(check: check)
         }
@@ -194,11 +197,13 @@ struct RejectedCard: View {
     @ViewBuilder private var codeRow: some View {
         if failure.codeSent, let left = failure.codeSecondsLeft {
             if left > Preferences.freshCodeSeconds {
-                DiagnosisRow(symbol: .check, title: Text(String(localized: "The code was fresh")),
-                             detail: Text(String(localized: "Sent with \(left) s left")))
+                DiagnosisRow(
+                    symbol: .check, title: Text(String(localized: "The code was fresh")),
+                    detail: Text(String(localized: "Sent with \(left) s left")))
             } else {
-                DiagnosisRow(symbol: .warning, title: Text(String(localized: "The code was about to expire")),
-                             detail: Text(String(localized: "Sent with \(left) s left, so it may have run out on the way.")))
+                DiagnosisRow(
+                    symbol: .warning, title: Text(String(localized: "The code was about to expire")),
+                    detail: Text(String(localized: "Sent with \(left) s left, so it may have run out on the way.")))
             }
         }
     }
@@ -206,11 +211,13 @@ struct RejectedCard: View {
     @ViewBuilder private var clockRow: some View {
         if let clock = failure.clock {
             if clock.isWrong {
-                DiagnosisRow(symbol: .warning, title: Text(String(localized: "The clock is off by \(clock.offBy)")),
-                             detail: Text(String(localized: "Most likely cause. Fix the clock, then try again.")))
+                DiagnosisRow(
+                    symbol: .warning, title: Text(String(localized: "The clock is off by \(clock.offBy)")),
+                    detail: Text(String(localized: "Most likely cause. Fix the clock, then try again.")))
             } else {
-                DiagnosisRow(symbol: .check, title: Text(String(localized: "The clock is right")),
-                             detail: Text(Self.checked(clock)))
+                DiagnosisRow(
+                    symbol: .check, title: Text(String(localized: "The clock is right")),
+                    detail: Text(Self.checked(clock)))
             }
         }
     }
@@ -242,14 +249,19 @@ struct UnreachableCard: View {
             Lead(text: Text(lead))
             networkRow(network)
             DiagnosisRow(symbol: .rejected, title: Self.title(server), detail: failure?.reason.flatMap { $0.isEmpty ? nil : Text($0) })
-            DiagnosisRow(symbol: .info, title: Text(String(localized: "On a guest or hotel network?")),
-                         detail: Text(String(localized: "Some networks block VPN traffic. Try another network or ask your IT team.")))
+            DiagnosisRow(
+                symbol: .info, title: Text(String(localized: "On a guest or hotel network?")),
+                detail: Text(String(localized: "Some networks block VPN traffic. Try another network or ask your IT team.")))
             HStack(spacing: Spacing.xs) {
                 if let retry {
-                    Button { model.connections.retryNow(profile.id) } label: { Text(String(localized: "Try now")) }
-                        .buttonStyle(.primaryCapsule(.compact))
-                        .disabled(retry.nextTryAt == nil && !retry.waitingForNetwork)
-                        .accessibilityIdentifier("profile.\(profile.id).failure.tryNow")
+                    Button {
+                        model.connections.retryNow(profile.id)
+                    } label: {
+                        Text(String(localized: "Try now"))
+                    }
+                    .buttonStyle(.primaryCapsule(.compact))
+                    .disabled(retry.nextTryAt == nil && !retry.waitingForNetwork)
+                    .accessibilityIdentifier("profile.\(profile.id).failure.tryNow")
                 }
                 Button(action: copyDetails) {
                     Text(copied ? String(localized: "Copied ✓") : String(localized: "Copy details"))
@@ -278,9 +290,10 @@ struct UnreachableCard: View {
             let interface = network.interface.map { " · " + $0.name } ?? ""
             DiagnosisRow(symbol: .check, title: Text(String(localized: "This Mac is online") + interface))
         case false?:
-            DiagnosisRow(symbol: .rejected, title: Text(String(localized: "This Mac is offline")),
-                         detail: retry?.waitingForNetwork == true
-                             ? Text(String(localized: "The next try starts when the network is back.")) : nil)
+            DiagnosisRow(
+                symbol: .rejected, title: Text(String(localized: "This Mac is offline")),
+                detail: retry?.waitingForNetwork == true
+                    ? Text(String(localized: "The next try starts when the network is back.")) : nil)
         case nil:
             EmptyView()
         }
@@ -288,8 +301,9 @@ struct UnreachableCard: View {
 
     /// "203.0.113.10:443 didn’t answer".
     static func title(_ server: String) -> Text {
-        server.isEmpty ? Text(String(localized: "The server didn’t answer"))
-                       : Text.mono(String(localized: "\(server) didn’t answer"), part: server)
+        server.isEmpty
+            ? Text(String(localized: "The server didn’t answer"))
+            : Text.mono(String(localized: "\(server) didn’t answer"), part: server)
     }
 
     private func copyDetails() {
@@ -320,8 +334,9 @@ struct MessageCard: View {
             Card(style: .compact) {
                 ForEach(lines, id: \.self) { Lead(text: Text(verbatim: $0)) }
                 if editsAddress {
-                    DiagnosisRow(symbol: .info, title: Text(String(localized: "Is the server’s address right?")),
-                                 link: (String(localized: "Check it in PassTunnel"), { model.edit(profile) }))
+                    DiagnosisRow(
+                        symbol: .info, title: Text(String(localized: "Is the server’s address right?")),
+                        link: (String(localized: "Check it in PassTunnel"), { model.edit(profile) }))
                 }
             }
             .accessibilityElement(children: .contain)

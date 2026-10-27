@@ -34,8 +34,8 @@ final class EditorModel: ObservableObject {
     @Published var saveErrors: [Field: String] = [:]
 
     // OpenVPN configuration
-    @Published var configURL: URL?          // chosen, not yet copied
-    @Published var configServer = ""        // "vpn.example.com:1194 · UDP"
+    @Published var configURL: URL?  // chosen, not yet copied
+    @Published var configServer = ""  // "vpn.example.com:1194 · UDP"
     @Published var hasConfig = false
     @Published var configError: String?
 
@@ -46,7 +46,7 @@ final class EditorModel: ObservableObject {
     // One-time code
     @Published var totpInput = ""
     @Published var newTOTPSecret: Data?
-    @Published var totpSourceLabel = ""     // "Acme · alice" from a scanned link
+    @Published var totpSourceLabel = ""  // "Acme · alice" from a scanned link
     /// The secret typed under Advanced is not usable.
     @Published var totpInputError: String?
     /// "Choose image…", "Paste secret" or a drop found no usable code.
@@ -108,10 +108,14 @@ final class EditorModel: ObservableObject {
     }
 
     /// For `EditorPreviewRenderer`: a fixed state with no store or Keychain access.
-    init(preview profile: Profile, isNew: Bool, passwordStored: Bool = false, storedTOTP: Data? = nil,
-         storedTOTPProtected: Bool = false, configServer: String = "", opensAtLogin: Bool = true, now: Date? = nil) {
-        self.store = ProfileStore(paths: AppPaths(root: FileManager.default.temporaryDirectory
-            .appendingPathComponent("PassTunnelPreview-\(UUID().uuidString)")))
+    init(
+        preview profile: Profile, isNew: Bool, passwordStored: Bool = false, storedTOTP: Data? = nil,
+        storedTOTPProtected: Bool = false, configServer: String = "", opensAtLogin: Bool = true, now: Date? = nil
+    ) {
+        self.store = ProfileStore(
+            paths: AppPaths(
+                root: FileManager.default.temporaryDirectory
+                    .appendingPathComponent("PassTunnelPreview-\(UUID().uuidString)")))
         self.vault = SecretVault()
         self.storedTOTPProtected = storedTOTPProtected
         self.isPreview = true
@@ -260,8 +264,9 @@ final class EditorModel: ObservableObject {
 
         switch p.type {
         case .openvpn:
-            if let configError { e[.config] = configError }
-            else if attemptedSave && !hasConfig && configURL == nil {
+            if let configError {
+                e[.config] = configError
+            } else if attemptedSave && !hasConfig && configURL == nil {
                 e[.config] = String(localized: "Choose the OpenVPN configuration file (.ovpn).")
             }
         case .forti:
@@ -290,8 +295,9 @@ final class EditorModel: ObservableObject {
         }
 
         if p.otpMode == .totp {
-            if let message = totpInputError ?? scanError { e[.totpSecret] = message }
-            else if attemptedSave && effectiveTOTPSecret == nil && !storedTOTPProtected {
+            if let message = totpInputError ?? scanError {
+                e[.totpSecret] = message
+            } else if attemptedSave && effectiveTOTPSecret == nil && !storedTOTPProtected {
                 e[.totpSecret] = String(localized: "Scan the QR code or paste the secret to generate codes.")
             }
         }
@@ -308,8 +314,10 @@ final class EditorModel: ObservableObject {
     func error(_ field: Field) -> String? { errors[field] }
 
     /// Order used to scroll to the first problem: the cards from the top, then Advanced.
-    static let fieldOrder: [Field] = [.name, .config, .host, .port, .trustedCert, .username, .password,
-                                      .totpSecret, .template, .general, .sessionLimit, .healthHost]
+    static let fieldOrder: [Field] = [
+        .name, .config, .host, .port, .trustedCert, .username, .password,
+        .totpSecret, .template, .general, .sessionLimit, .healthHost
+    ]
 
     var firstErrorField: Field? {
         let e = errors
@@ -380,7 +388,8 @@ final class EditorModel: ObservableObject {
                 throw PTError.fileTooLarge(url.lastPathComponent)
             }
             guard let data = try? Data(contentsOf: url),
-                  let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else {
+                let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1)
+            else {
                 throw PTError.invalidFile(url.lastPathComponent)
             }
             let inlined = try OVPNInliner.prepare(text, baseDir: url.deletingLastPathComponent())
@@ -453,7 +462,7 @@ final class EditorModel: ObservableObject {
         draft.totp = uri.params
         draft.otpMode = .totp
         if !totpInput.isEmpty {
-            clearingInput = true   // the field's change handler must not drop the scanned secret
+            clearingInput = true  // the field's change handler must not drop the scanned secret
             totpInput = ""
         }
         totpInputError = nil
@@ -557,7 +566,8 @@ final class EditorModel: ObservableObject {
         healthResult = nil
         Task {
             let result = await Task.detached(priority: .userInitiated) { HealthCheck.check(host) }.value
-            healthResult = result.ok
+            healthResult =
+                result.ok
                 ? (true, String(localized: "Reachable · \(result.ms) ms"))
                 : (false, String(localized: "Not reachable"))
             testingHealth = false

@@ -1,4 +1,5 @@
 import Foundation
+
 #if canImport(Glibc)
 import Glibc
 #endif
@@ -24,7 +25,8 @@ enum Sys {
         var raw = [Int32](repeating: 0, count: 3)
         var length = socklen_t(MemoryLayout<Int32>.size * 3)
         guard getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &raw, &length) == 0,
-              length == socklen_t(MemoryLayout<Int32>.size * 3) else { return nil }
+            length == socklen_t(MemoryLayout<Int32>.size * 3)
+        else { return nil }
         return (raw[0], uid_t(bitPattern: raw[1]), gid_t(bitPattern: raw[2]))
     }
 
@@ -151,8 +153,10 @@ enum Sys {
 
     /// `posix_spawn` in a new process group: stdin from `inputFD` (else /dev/null), stdout and stderr to
     /// `outputFD`, every other descriptor closed, all signals at their default action, an empty signal mask.
-    static func spawn(executable: String, arguments: [String], environment: [String],
-                      workingDirectory: String?, outputFD: Int32, inputFD: Int32? = nil) throws -> pid_t {
+    static func spawn(
+        executable: String, arguments: [String], environment: [String],
+        workingDirectory: String?, outputFD: Int32, inputFD: Int32? = nil
+    ) throws -> pid_t {
         var actions = posix_spawn_file_actions_t()
         guard posix_spawn_file_actions_init(&actions) == 0 else { throw SpawnFailure(code: ENOMEM) }
         defer { posix_spawn_file_actions_destroy(&actions) }

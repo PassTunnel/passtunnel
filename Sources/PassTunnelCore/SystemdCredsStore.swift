@@ -1,5 +1,6 @@
 import Foundation
 import PassTunnelKit
+
 #if canImport(Glibc)
 import Glibc
 #endif
@@ -126,7 +127,8 @@ struct SystemdCredsStore: SecretStore {
     /// Test cleanup: only under a `PASSTUNNEL_HOME`, never in the real support directory.
     func removeAll() {
         guard system.environment["PASSTUNNEL_HOME"]?.isEmpty == false,
-              let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else { return }
+            let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path)
+        else { return }
         for name in names where name.hasSuffix(".cred") { unlink(directory.appendingPathComponent(name).path) }
     }
 

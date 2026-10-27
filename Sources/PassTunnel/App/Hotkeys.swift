@@ -32,7 +32,7 @@ final class Hotkeys {
     private var refs: [EventHotKeyRef] = []
     private var eventHandler: EventHandlerRef?
     private(set) var failed: [Action] = []
-    private static let signature: OSType = 0x5054_4E4C   // "PTNL"
+    private static let signature: OSType = 0x5054_4E4C  // "PTNL"
 
     var isEnabled: Bool { !refs.isEmpty }
 
@@ -57,15 +57,18 @@ final class Hotkeys {
     private func installHandlerIfNeeded() {
         guard eventHandler == nil else { return }
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        InstallEventHandler(GetApplicationEventTarget(), { _, event, _ -> OSStatus in
-            var id = EventHotKeyID()
-            let status = GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
-                                           nil, MemoryLayout<EventHotKeyID>.size, nil, &id)
-            guard status == noErr, id.signature == Hotkeys.signature, let action = Hotkeys.Action(rawValue: id.id) else {
-                return OSStatus(eventNotHandledErr)
-            }
-            DispatchQueue.main.async { MainActor.assumeIsolated { Hotkeys.shared.handler?(action) } }
-            return noErr
-        }, 1, &spec, nil, &eventHandler)
+        InstallEventHandler(
+            GetApplicationEventTarget(),
+            { _, event, _ -> OSStatus in
+                var id = EventHotKeyID()
+                let status = GetEventParameter(
+                    event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
+                    nil, MemoryLayout<EventHotKeyID>.size, nil, &id)
+                guard status == noErr, id.signature == Hotkeys.signature, let action = Hotkeys.Action(rawValue: id.id) else {
+                    return OSStatus(eventNotHandledErr)
+                }
+                DispatchQueue.main.async { MainActor.assumeIsolated { Hotkeys.shared.handler?(action) } }
+                return noErr
+            }, 1, &spec, nil, &eventHandler)
     }
 }

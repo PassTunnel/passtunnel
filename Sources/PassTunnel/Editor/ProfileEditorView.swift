@@ -28,8 +28,10 @@ struct ProfileEditorView: View {
     @FocusState private var focus: Field?
 
     init(profileID: String?, newType: VPNType?, onClose: @escaping () -> Void) {
-        _model = StateObject(wrappedValue: EditorModel(profileID: profileID, newType: newType,
-                                                       vault: AppModel.shared?.vault ?? SecretVault()))
+        _model = StateObject(
+            wrappedValue: EditorModel(
+                profileID: profileID, newType: newType,
+                vault: AppModel.shared?.vault ?? SecretVault()))
         self.onClose = onClose
     }
 
@@ -89,7 +91,9 @@ struct ProfileEditorView: View {
             Button("Trust Certificate") { model.acceptFetchedFingerprint() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("The gateway \(p.host) presented a certificate with this SHA-256 fingerprint:\n\n\(TLSFingerprint.display(model.fetchedFingerprint ?? ""))\n\nTrust it only if it matches the fingerprint your administrator gave you.")
+            Text(
+                "The gateway \(p.host) presented a certificate with this SHA-256 fingerprint:\n\n\(TLSFingerprint.display(model.fetchedFingerprint ?? ""))\n\nTrust it only if it matches the fingerprint your administrator gave you."
+            )
         }
         .profileDeleteConfirmation($pendingDelete) { profile in
             onClose()
@@ -151,7 +155,7 @@ struct ProfileEditorView: View {
         let anchor = field == .totpSecret && advanced ? Self.secretFieldAnchor : Self.anchor(field)
         if advanced && !showAdvanced {
             showAdvanced = true
-            DispatchQueue.main.async { scrollTarget = anchor }   // once the rows exist
+            DispatchQueue.main.async { scrollTarget = anchor }  // once the rows exist
         } else {
             scrollTarget = anchor
         }
@@ -234,8 +238,12 @@ struct ProfileEditorView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text("Configuration"))
-                .accessibilityValue(model.configFileName.map { Text(verbatim: [$0, model.configServer]
-                    .filter { !$0.isEmpty }.joined(separator: ", ")) } ?? Text("No configuration chosen"))
+                .accessibilityValue(
+                    model.configFileName.map {
+                        Text(
+                            verbatim: [$0, model.configServer]
+                                .filter { !$0.isEmpty }.joined(separator: ", "))
+                    } ?? Text("No configuration chosen"))
                 Button(model.hasConfig || model.configURL != nil ? LocalizedStringKey("Replace…") : LocalizedStringKey("Choose…")) {
                     chooseConfig()
                 }
@@ -275,8 +283,9 @@ struct ProfileEditorView: View {
             HStack(spacing: Spacing.xs) {
                 Button("Fetch Fingerprint") { model.fetchFingerprint() }
                     .buttonStyle(.secondaryCapsule(.compact))
-                    .disabled(model.fetchingFingerprint
-                              || !FortiConfig.isValidHost(p.host.trimmingCharacters(in: .whitespaces)))
+                    .disabled(
+                        model.fetchingFingerprint
+                            || !FortiConfig.isValidHost(p.host.trimmingCharacters(in: .whitespaces)))
                 if model.fetchingFingerprint {
                     ProgressView().controlSize(.small)
                     Text("Connecting to the gateway…").typography(.hint).foregroundStyle(Palette.fg2)
@@ -301,10 +310,12 @@ struct ProfileEditorView: View {
     @ViewBuilder private var passwordContent: some View {
         switch p.passwordMode {
         case .keychain:
-            SecureField("Password", text: $model.newPassword,
-                        prompt: model.passwordStored ? Text("Saved in Keychain") : Text("Required"))
-                .focused($focus, equals: .password)
-                .editorField(focused: focus == .password)
+            SecureField(
+                "Password", text: $model.newPassword,
+                prompt: model.passwordStored ? Text("Saved in Keychain") : Text("Required")
+            )
+            .focused($focus, equals: .password)
+            .editorField(focused: focus == .password)
             EditorInlineError(message: model.error(.password))
         case .ask:
             VStack(alignment: .leading, spacing: 1) {
@@ -324,7 +335,8 @@ struct ProfileEditorView: View {
     private func chooseConfig() {
         let panel = NSOpenPanel()
         panel.title = String(localized: "Choose OpenVPN Configuration")
-        panel.message = String(localized: "Files the configuration refers to (certificates, keys) are embedded automatically when they are in the same folder.")
+        panel.message = String(
+            localized: "Files the configuration refers to (certificates, keys) are embedded automatically when they are in the same folder.")
         panel.allowedContentTypes = ImportActions.ovpnTypes
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
@@ -420,8 +432,10 @@ struct ProfileEditorView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text("One-time code"))
-                .accessibilityValue(Text(verbatim: [model.secretSummary, model.totpSourceLabel]
-                    .filter { !$0.isEmpty }.joined(separator: ", ")))
+                .accessibilityValue(
+                    Text(
+                        verbatim: [model.secretSummary, model.totpSourceLabel]
+                            .filter { !$0.isEmpty }.joined(separator: ", ")))
                 if let secret = model.effectiveTOTPSecret {
                     EditorLiveCode(secret: secret, params: p.totp, now: model.previewNow)
                 } else if let original = model.original {
@@ -495,9 +509,10 @@ struct ProfileEditorView: View {
             }
             if let parts = model.sentParts {
                 EditorRow(Text("Server receives"), secondary: true) {
-                    EditorServerPreview(username: model.normalized.username, parts: parts.secret,
-                                        separateCode: parts.separateCode, digits: p.totp.digits,
-                                        code: previewCode, now: model.previewNow)
+                    EditorServerPreview(
+                        username: model.normalized.username, parts: parts.secret,
+                        separateCode: parts.separateCode, digits: p.totp.digits,
+                        code: previewCode, now: model.previewNow)
                 }
             }
         }
@@ -514,8 +529,9 @@ struct ProfileEditorView: View {
         guard p.otpMode == .totp else { return nil }
         if let secret = model.effectiveTOTPSecret { return TOTP.code(secret: secret, params: p.totp, at: date) }
         guard let original = model.original, model.storedCodeNeedsConfirmation,
-              model.vault.isUnlocked(original.id, .totp),
-              let secret = model.vault.available(original.id, .totp).flatMap({ try? TOTP.decodeSecret($0) }) else {
+            model.vault.isUnlocked(original.id, .totp),
+            let secret = model.vault.available(original.id, .totp).flatMap({ try? TOTP.decodeSecret($0) })
+        else {
             return nil
         }
         return TOTP.code(secret: secret, params: p.totp, at: date)
@@ -535,21 +551,30 @@ struct ProfileEditorView: View {
     private var switchCard: some View {
         EditorCard(spacing: 0, insets: EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0)) {
             if model.normalized.usesStoredSecrets {
-                EditorSwitchRow(title: requireAuthTitle, isOn: $model.requireAuthOn, footnote: requireAuthFootnote,
-                                identifier: "editor.requireAuth")
-                    .disabled(p.requireAuth == .off && !model.isPreview && !model.vault.isAvailable)
+                EditorSwitchRow(
+                    title: requireAuthTitle, isOn: $model.requireAuthOn, footnote: requireAuthFootnote,
+                    identifier: "editor.requireAuth"
+                )
+                .disabled(p.requireAuth == .off && !model.isPreview && !model.vault.isAvailable)
                 switchDivider
             }
-            EditorSwitchRow(title: String(localized: "Connect at login"), isOn: $model.draft.connectAtLogin,
-                            footnote: connectAtLoginFootnote, identifier: "editor.connectAtLogin")
+            EditorSwitchRow(
+                title: String(localized: "Connect at login"), isOn: $model.draft.connectAtLogin,
+                footnote: connectAtLoginFootnote, identifier: "editor.connectAtLogin")
             switchDivider
             EditorSwitchRow(
                 title: String(localized: "Reconnect automatically if the link drops"),
-                isOn: Binding(get: { p.autoReconnect && model.normalized.unattended },
-                              set: { model.draft.autoReconnect = $0 }),
-                footnote: model.normalized.unattended ? nil
-                    : String(localized: "Available only when PassTunnel can connect without asking you: a saved username, the password in the Keychain, and a generated code (or none)."))
-                .disabled(!model.normalized.unattended)
+                isOn: Binding(
+                    get: { p.autoReconnect && model.normalized.unattended },
+                    set: { model.draft.autoReconnect = $0 }),
+                footnote: model.normalized.unattended
+                    ? nil
+                    : String(
+                        localized:
+                            "Available only when PassTunnel can connect without asking you: a saved username, the password in the Keychain, and a generated code (or none)."
+                    )
+            )
+            .disabled(!model.normalized.unattended)
         }
     }
 
@@ -566,14 +591,16 @@ struct ProfileEditorView: View {
         }
         let saved = model.normalized
         let asks = !saved.unattended || !SecretVault.protectedKinds(saved).isDisjoint(with: SecretVault.usedKinds(saved))
-        return asks ? String(localized: "Connecting asks you first, so at login PassTunnel shows a notification you click to connect.")
-                    : nil
+        return asks
+            ? String(localized: "Connecting asks you first, so at login PassTunnel shows a notification you click to connect.")
+            : nil
     }
 
     /// "Require Touch ID before connecting", or the Mac password on a Mac without Touch ID.
     private var requireAuthTitle: String {
-        ConfirmationWording.hasTouchID ? String(localized: "Require Touch ID before connecting")
-                                       : String(localized: "Require your Mac password before connecting")
+        ConfirmationWording.hasTouchID
+            ? String(localized: "Require Touch ID before connecting")
+            : String(localized: "Require your Mac password before connecting")
     }
 
     /// What the switch protects, when that is not what its words say.
@@ -584,11 +611,20 @@ struct ProfileEditorView: View {
         case .off:
             return nil
         case .connect where !model.codesAskFirst:
-            return String(localized: "Set to ask only before connecting: showing, copying or typing the code does not ask. Turn the switch off and on again to ask for the code too.")
+            return String(
+                localized:
+                    "Set to ask only before connecting: showing, copying or typing the code does not ask. Turn the switch off and on again to ask for the code too."
+            )
         case .connect:
-            return String(localized: "The TOTP secret is encrypted with a key in this Mac’s Secure Enclave. PassTunnel asks for Touch ID or your Mac password before it connects or shows the code.")
+            return String(
+                localized:
+                    "The TOTP secret is encrypted with a key in this Mac’s Secure Enclave. PassTunnel asks for Touch ID or your Mac password before it connects or shows the code."
+            )
         case .always:
-            return String(localized: "The password and the TOTP secret are encrypted. PassTunnel asks for Touch ID or your Mac password before it connects and before it shows, copies or types the code; codes stay hidden until you confirm.")
+            return String(
+                localized:
+                    "The password and the TOTP secret are encrypted. PassTunnel asks for Touch ID or your Mac password before it connects and before it shows, copies or types the code; codes stay hidden until you confirm."
+            )
         }
     }
 
@@ -816,8 +852,9 @@ struct ProfileEditorView: View {
     // MARK: alerts
 
     private var fingerprintAlertShown: Binding<Bool> {
-        Binding(get: { model.fetchedFingerprint != nil },
-                set: { if !$0 { model.fetchedFingerprint = nil } })
+        Binding(
+            get: { model.fetchedFingerprint != nil },
+            set: { if !$0 { model.fetchedFingerprint = nil } })
     }
 
     private struct ContentHeight: PreferenceKey {
@@ -834,7 +871,7 @@ struct ProfileEditorView: View {
 
     static func typeName(_ type: VPNType) -> String {
         switch type {
-        case .openvpn: return "OpenVPN"   // product names stay untranslated
+        case .openvpn: return "OpenVPN"  // product names stay untranslated
         case .forti: return "FortiGate SSL VPN"
         }
     }

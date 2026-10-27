@@ -24,15 +24,16 @@ final class AppUpdater: NSObject, ObservableObject {
     /// Starts the updater when this is a bundled app with a feed URL. GUI mode only.
     static func start() {
         guard shared == nil, Bundle.main.bundleURL.pathExtension == "app",
-              Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") != nil,
-              Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") != nil else { return }
+            Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") != nil,
+            Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") != nil
+        else { return }
         shared = AppUpdater(starting: true)
     }
 
     private init(starting: Bool) {
         super.init()
         guard starting else {
-            automaticallyChecksForUpdates = true   // the shipped default, for screenshots
+            automaticallyChecksForUpdates = true  // the shipped default, for screenshots
             return
         }
         let controller = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: self)
@@ -67,8 +68,10 @@ extension AppUpdater: SPUStandardUserDriverDelegate {
     /// PassTunnel often runs in the menu bar only; a scheduled update is shown when it gets attention.
     nonisolated var supportsGentleScheduledUpdateReminders: Bool { true }
 
-    nonisolated func standardUserDriverWillHandleShowingUpdate(_ handleShowingUpdate: Bool, forUpdate update: SUAppcastItem,
-                                                               state: SPUUserUpdateState) {
+    nonisolated func standardUserDriverWillHandleShowingUpdate(
+        _ handleShowingUpdate: Bool, forUpdate update: SUAppcastItem,
+        state: SPUUserUpdateState
+    ) {
         guard handleShowingUpdate else { return }
         // The update window needs a regular app (Dock icon) while it is open; a scheduled check does
         // not take the focus away from what the user is doing.

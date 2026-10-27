@@ -22,13 +22,17 @@ public struct DNSSettings: Equatable, Sendable {
 
     /// Checks and normalizes every value, dropping repeats: addresses must parse (`inet_pton`), domains
     /// be plain host names. More than `maxServers` servers or `maxDomains` domains of a kind is refused.
-    public init(servers: [String], searchDomains: [String] = [], routingDomains: [String] = [],
-                fullTunnel: Bool) throws {
+    public init(
+        servers: [String], searchDomains: [String] = [], routingDomains: [String] = [],
+        fullTunnel: Bool
+    ) throws {
         self.servers = try Self.unique(servers.map(Self.address), limit: Self.maxServers, kind: "DNS servers")
-        self.searchDomains = try Self.unique(searchDomains.map(Self.domain), limit: Self.maxDomains,
-                                             kind: "search domains")
-        self.routingDomains = try Self.unique(routingDomains.map(Self.domain), limit: Self.maxDomains,
-                                              kind: "DNS routing domains")
+        self.searchDomains = try Self.unique(
+            searchDomains.map(Self.domain), limit: Self.maxDomains,
+            kind: "search domains")
+        self.routingDomains = try Self.unique(
+            routingDomains.map(Self.domain), limit: Self.maxDomains,
+            kind: "DNS routing domains")
         self.fullTunnel = fullTunnel
     }
 
@@ -45,9 +49,11 @@ public struct DNSSettings: Equatable, Sendable {
     /// and anything else is refused.
     public static func address(_ text: String) throws -> String {
         // Hex digits, dots and colons only: some inet_pton accept a scope, none of them needs more.
-        guard (2...45).contains(text.utf8.count), text.utf8.allSatisfy({ c in
-            (c >= 0x30 && c <= 0x39) || (c >= 0x61 && c <= 0x66) || (c >= 0x41 && c <= 0x46) || c == 0x2E || c == 0x3A
-        }) else {
+        guard (2...45).contains(text.utf8.count),
+            text.utf8.allSatisfy({ c in
+                (c >= 0x30 && c <= 0x39) || (c >= 0x61 && c <= 0x66) || (c >= 0x41 && c <= 0x46) || c == 0x2E || c == 0x3A
+            })
+        else {
             throw DNSFailure.invalid("DNS server", text)
         }
         // in6_addr is large enough for either family.
@@ -56,7 +62,8 @@ public struct DNSSettings: Equatable, Sendable {
             let length = family == AF_INET ? MemoryLayout<in_addr>.size : MemoryLayout<in6_addr>.size
             var buffer = [CChar](repeating: 0, count: 64)
             guard bytes.prefix(length).contains(where: { $0 != 0 }),
-                  inet_ntop(family, bytes, &buffer, socklen_t(buffer.count)) != nil else { break }
+                inet_ntop(family, bytes, &buffer, socklen_t(buffer.count)) != nil
+            else { break }
             return String(cString: buffer)
         }
         throw DNSFailure.invalid("DNS server", text)
@@ -78,7 +85,7 @@ public struct DNSSettings: Equatable, Sendable {
     private static func isLabel(_ label: Substring) -> Bool {
         guard (1...63).contains(label.utf8.count), label.first != "-", label.last != "-" else { return false }
         return label.utf8.allSatisfy { c in
-            (c >= 0x61 && c <= 0x7A) || (c >= 0x30 && c <= 0x39) || c == 0x2D || c == 0x5F   // a-z 0-9 - _
+            (c >= 0x61 && c <= 0x7A) || (c >= 0x30 && c <= 0x39) || c == 0x2D || c == 0x5F  // a-z 0-9 - _
         }
     }
 
@@ -88,8 +95,9 @@ public struct DNSSettings: Equatable, Sendable {
     public static func interface(_ text: String) throws -> String {
         let bytes = Array(text.utf8)
         guard (1...15).contains(bytes.count), let first = bytes.first, isAlphanumeric(first),
-              !bytes.allSatisfy({ $0 >= 0x30 && $0 <= 0x39 }),
-              bytes.allSatisfy({ isAlphanumeric($0) || $0 == 0x5F || $0 == 0x2D || $0 == 0x2E }) else {
+            !bytes.allSatisfy({ $0 >= 0x30 && $0 <= 0x39 }),
+            bytes.allSatisfy({ isAlphanumeric($0) || $0 == 0x5F || $0 == 0x2D || $0 == 0x2E })
+        else {
             throw DNSFailure.invalid("interface", text)
         }
         return text

@@ -1,10 +1,12 @@
+import PassTunnelShared
+import XCTest
+
+@testable import PassTunnelCore
+@testable import PassTunnelKit
+
 #if canImport(Combine)
 import Combine
 #endif
-import XCTest
-@testable import PassTunnelCore
-@testable import PassTunnelKit
-import PassTunnelShared
 
 /// Virtual time where `sleep` blocks until the test releases it (or the sleeping task is cancelled),
 /// so a test can act while the manager is in the middle of a wait.
@@ -28,7 +30,9 @@ final class GateClock: ConnectionClock, @unchecked Sendable {
     var sleeps: [TimeInterval] { lock.lock(); defer { lock.unlock() }; return _sleeps }
 
     func sleep(_ seconds: TimeInterval) async throws {
-        let id: Int = { lock.lock(); defer { lock.unlock() }; nextID += 1; return nextID }()
+        let id: Int = {
+            lock.lock(); defer { lock.unlock() }; nextID += 1; return nextID
+        }()
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
                 lock.lock()
@@ -95,16 +99,19 @@ final class ConnectionStressTests: XCTestCase {
     }
 
     func makeManager(clock: ConnectionClock? = nil, healthProbe: ConnectionManager.HealthProbe? = nil) -> ConnectionManager {
-        let m = ConnectionManager(store: store, helper: helper, clock: clock ?? self.clock,
-                                  healthProbe: healthProbe ?? { _ in (true, 1) },
-                                  preferences: { Preferences() })
+        let m = ConnectionManager(
+            store: store, helper: helper, clock: clock ?? self.clock,
+            healthProbe: healthProbe ?? { _ in (true, 1) },
+            preferences: { Preferences() })
         m.events.sink { [weak self] in self?.events.append($0) }.store(in: &bag)
         return m
     }
 
     @discardableResult
-    func makeOpenVPN(_ name: String = "Acme", otp: OTPMode = .totp, autoReconnect: Bool = false,
-                     period: Int = 30, healthHost: String = "") throws -> Profile {
+    func makeOpenVPN(
+        _ name: String = "Acme", otp: OTPMode = .totp, autoReconnect: Bool = false,
+        period: Int = 30, healthHost: String = ""
+    ) throws -> Profile {
         var p = try store.create(name: name, type: .openvpn)
         p.username = "alice"
         p.otpMode = otp
@@ -123,13 +130,17 @@ final class ConnectionStressTests: XCTestCase {
     }
 
     func secrets() -> [String?] {
-        helper.starts.map { if case .startOpenVPN(let s) = $0 { return s.secret }; return nil }
+        helper.starts.map {
+            if case .startOpenVPN(let s) = $0 { return s.secret }; return nil
+        }
     }
 
     func usedCodeURL(_ id: String) -> URL { store.dir(id).appendingPathComponent(ConnectionManager.usedOTPFile) }
 
-    func waitUntil(timeout: TimeInterval = 3, file: StaticString = #filePath, line: UInt = #line,
-                   _ condition: () -> Bool) async {
+    func waitUntil(
+        timeout: TimeInterval = 3, file: StaticString = #filePath, line: UInt = #line,
+        _ condition: () -> Bool
+    ) async {
         let deadline = Date().addingTimeInterval(timeout)
         while !condition() {
             if Date() > deadline { return XCTFail("condition not met in time", file: file, line: line) }
@@ -150,7 +161,7 @@ final class ConnectionStressTests: XCTestCase {
         try await m.disconnect(p.id)
         seen.removeAll()
 
-        try await m.connect(p.id)                                   // same window, 10 s left
+        try await m.connect(p.id)  // same window, 10 s left
         XCTAssertEqual(clock.sleeps.count, 1)
         XCTAssertEqual(clock.sleeps.first ?? 0, 10.25, accuracy: 0.01)
         XCTAssertTrue(seen.contains(.connecting(ConnectionManager.Phase.waitingForCode)), "\(seen)")
@@ -173,7 +184,7 @@ final class ConnectionStressTests: XCTestCase {
         XCTAssertEqual(cli.usedCode(p.id), .init(counter: TOTP.counter(params: TOTPParams(), at: t0), period: 30))
         XCTAssertEqual(try store.get(p.id).id, p.id, "profile.json untouched")
 
-        let app = makeManager()                                     // a separate process: no shared memory
+        let app = makeManager()  // a separate process: no shared memory
         try await app.connect(p.id)
         XCTAssertEqual(clock.sleeps.count, 1)
         XCTAssertEqual(clock.sleeps.first ?? 0, 10.25, accuracy: 0.01)
@@ -196,7 +207,7 @@ final class ConnectionStressTests: XCTestCase {
         try await makeManager().connect(p.id)
         helper.simulateExit(p.id)
 
-        clock = FakeClock(t0.addingTimeInterval(15))                // next window, 25 s left
+        clock = FakeClock(t0.addingTimeInterval(15))  // next window, 25 s left
         let m = makeManager()
         try await m.connect(p.id)
         XCTAssertEqual(clock.sleeps, [])
@@ -256,8 +267,10 @@ final class ConnectionStressTests: XCTestCase {
         try await m.disconnect(p.id)
 
         // Another period (the profile was edited), or a window from the future (the clock went back).
-        for record in [ConnectionManager.UsedOTPWindow(counter: now, period: 60),
-                       ConnectionManager.UsedOTPWindow(counter: now + 100, period: 30)] {
+        for record in [
+            ConnectionManager.UsedOTPWindow(counter: now, period: 60),
+            ConnectionManager.UsedOTPWindow(counter: now + 100, period: 30)
+        ] {
             try JSONCoding.write(record, to: usedCodeURL(p.id), mode: 0o600)
             try await m.connect(p.id)
             try await m.disconnect(p.id)
@@ -267,7 +280,7 @@ final class ConnectionStressTests: XCTestCase {
     }
 
     func testLongPeriodWaitIsBoundedByOneWindow() async throws {
-        let p = try makeOpenVPN(period: 60)                         // t0 is 20 s into a 60 s window
+        let p = try makeOpenVPN(period: 60)  // t0 is 20 s into a 60 s window
         let m = makeManager()
         try await m.connect(p.id)
         try await m.disconnect(p.id)
@@ -303,7 +316,7 @@ final class ConnectionStressTests: XCTestCase {
     /// connecting again right away has to work.
     func testDisconnectEndsTheCodeWaitAtOnce() async throws {
         let p = try makeOpenVPN()
-        let gate = GateClock(t0.addingTimeInterval(7))              // 3 s left: waits for a fresh code
+        let gate = GateClock(t0.addingTimeInterval(7))  // 3 s left: waits for a fresh code
         let m = makeManager(clock: gate)
         defer { gate.releaseAll() }
 
@@ -351,7 +364,7 @@ final class ConnectionStressTests: XCTestCase {
             do { try await m.connect(p.id) } catch { outcome = error }
             finished = true
         }
-        await waitUntil { gate.pending == 1 }                       // polling the management socket
+        await waitUntil { gate.pending == 1 }  // polling the management socket
         XCTAssertTrue(m.state(p.id).isConnecting)
         try await m.disconnect(p.id)
         gate.releaseAll()
@@ -401,7 +414,7 @@ final class ConnectionStressTests: XCTestCase {
         try await m.connect(p.id)
         helper.simulateExit(p.id)
         await m.refresh()
-        await waitUntil { gate.pending == 1 }                       // backoff of attempt 1
+        await waitUntil { gate.pending == 1 }  // backoff of attempt 1
         XCTAssertEqual(m.reconnecting[p.id]?.attempt, 1)
 
         try await m.connect(p.id)
@@ -421,7 +434,7 @@ final class ConnectionStressTests: XCTestCase {
         helper.simulateExit(p.id)
         await m.refresh()
         await waitUntil { gate.pending == 1 }
-        try ProfileStore().delete(p.id)                             // e.g. `passtunnel rm`
+        try ProfileStore().delete(p.id)  // e.g. `passtunnel rm`
         await m.refresh()
         XCTAssertNil(m.reconnecting[p.id])
         XCTAssertNil(m.states[p.id])
@@ -435,7 +448,7 @@ final class ConnectionStressTests: XCTestCase {
         let m = makeManager()
         try await m.connect(p.id)
         m.handleWillSleep()
-        try await makeManager().disconnect(p.id)                    // the CLI, while the app sleeps
+        try await makeManager().disconnect(p.id)  // the CLI, while the app sleeps
         await m.handleDidWake()
         try await Task.sleep(nanoseconds: 50_000_000)
         XCTAssertEqual(m.state(p.id), .disconnected)

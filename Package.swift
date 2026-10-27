@@ -20,14 +20,14 @@ let package = Package(
         .library(name: "PassTunnelShared", targets: ["PassTunnelShared"]),
         .library(name: "PassTunnelCore", targets: ["PassTunnelCore"]),
         // The portable logic (macOS 13, iOS 17), for the iPhone app and the fuzzers.
-        .library(name: "PassTunnelKit", targets: ["PassTunnelKit", "PassTunnelVPNConfig"]),
+        .library(name: "PassTunnelKit", targets: ["PassTunnelKit", "PassTunnelVPNConfig"])
     ],
     // Declared on every platform, so one Package.resolved (and Dependabot, which runs on Linux) covers them all.
     dependencies: [
         // App updates. The `passtunnel` CLI never starts the updater.
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0"),
         // CryptoKit's API on Linux (`crypto` above); Apple platforms use CryptoKit and never build it.
-        .package(url: "https://github.com/apple/swift-crypto", exact: "5.0.3"),
+        .package(url: "https://github.com/apple/swift-crypto", exact: "5.0.3")
     ],
     targets: [
         // The OpenVPN config sanitizer and the openfortivpn config renderer: the only portable code the
@@ -47,15 +47,21 @@ let package = Package(
         // Root helper registered with SMAppService; starts/stops the bundled VPN tools.
         .executableTarget(name: "PassTunnelHelper", dependencies: ["PassTunnelShared"]),
         // The app (SwiftUI) and the `passtunnel` CLI are the same binary.
-        .executableTarget(name: "PassTunnel",
-                          dependencies: ["PassTunnelCLI", "PassTunnelCore", "PassTunnelKit", "PassTunnelVPNConfig",
-                                         "PassTunnelShared", .product(name: "Sparkle", package: "Sparkle")],
-                          resources: [.process("Resources")]),
-        .testTarget(name: "PassTunnelCoreTests",
-                    dependencies: ["PassTunnelCLI", "PassTunnelCore", "PassTunnelKit", "PassTunnelVPNConfig",
-                                   "PassTunnelShared", crypto]),
+        .executableTarget(
+            name: "PassTunnel",
+            dependencies: [
+                "PassTunnelCLI", "PassTunnelCore", "PassTunnelKit", "PassTunnelVPNConfig",
+                "PassTunnelShared", .product(name: "Sparkle", package: "Sparkle")
+            ],
+            resources: [.process("Resources")]),
+        .testTarget(
+            name: "PassTunnelCoreTests",
+            dependencies: [
+                "PassTunnelCLI", "PassTunnelCore", "PassTunnelKit", "PassTunnelVPNConfig",
+                "PassTunnelShared", crypto
+            ]),
         // The golden cases in fixtures/ (also read by the Android port), against PassTunnelKit alone.
-        .testTarget(name: "PassTunnelKitTests", dependencies: ["PassTunnelKit", "PassTunnelVPNConfig"]),
+        .testTarget(name: "PassTunnelKitTests", dependencies: ["PassTunnelKit", "PassTunnelVPNConfig"])
     ]
 )
 
@@ -63,8 +69,10 @@ let package = Package(
 // Linux builds the portable targets, the `passtunnel` command and the tests that build there (the Linux
 // jobs in .github/workflows/ci.yml), none of the macOS app and helper targets. The dependencies stay as
 // declared above; no target uses Sparkle here.
-let linuxTargets: Set = ["PassTunnelVPNConfig", "PassTunnelKit", "PassTunnelShared", "PassTunnelCore", "PassTunnelCLI",
-                         "PassTunnelKitTests", "PassTunnelCoreTests"]
+let linuxTargets: Set = [
+    "PassTunnelVPNConfig", "PassTunnelKit", "PassTunnelShared", "PassTunnelCore", "PassTunnelCLI",
+    "PassTunnelKitTests", "PassTunnelCoreTests"
+]
 package.targets.removeAll { !linuxTargets.contains($0.name) }
 package.products.removeAll { !["PassTunnelKit", "PassTunnelShared", "PassTunnelCore"].contains($0.name) }
 // Linux only: on the Mac the app binary is the command. The product names the binary.
@@ -76,6 +84,8 @@ package.products.append(.executable(name: "passtunnel", targets: ["PassTunnelCom
 package.targets.append(.target(name: "PassTunnelDaemon", dependencies: ["PassTunnelShared", "PassTunnelVPNConfig"]))
 package.targets.append(.executableTarget(name: "PassTunnelDaemonCommand", dependencies: ["PassTunnelDaemon", "PassTunnelShared"]))
 package.products.append(.executable(name: "passtunneld", targets: ["PassTunnelDaemonCommand"]))
-package.targets.append(.testTarget(name: "PassTunnelDaemonTests",
-                                   dependencies: ["PassTunnelDaemon", "PassTunnelShared", "PassTunnelCore", "PassTunnelVPNConfig"]))
+package.targets.append(
+    .testTarget(
+        name: "PassTunnelDaemonTests",
+        dependencies: ["PassTunnelDaemon", "PassTunnelShared", "PassTunnelCore", "PassTunnelVPNConfig"]))
 #endif

@@ -75,8 +75,9 @@ struct SecretServiceStore: SecretStore {
     func write(_ account: String, _ data: Data) throws {
         guard data.count <= Self.maxValueSize else { throw SecretStoreUnavailable.secretServiceValueTooLong }
         guard String(data: data, encoding: .utf8) != nil else { throw SecretStoreUnavailable.secretServiceTextOnly }
-        var result = try run(["store", "--label=PassTunnel (\(account))", "service", service, "account", account],
-                             input: data, timeout: timeout)
+        var result = try run(
+            ["store", "--label=PassTunnel (\(account))", "service", service, "account", account],
+            input: data, timeout: timeout)
         defer { result.wipe() }
         guard result.status == 0 else { throw SecretStoreUnavailable.secretServiceFailed(result.failure) }
     }

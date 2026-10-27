@@ -297,10 +297,13 @@ final class AppModel: ObservableObject {
     /// automatic update, if one is due) and the network are ready.
     func connectAtLogin() {
         // The manager watches the network path (`NWPathMonitor`) while it runs.
-        let connector = LoginConnector(manager: connections, readiness: { [weak self] in
-            LoginConnector.Readiness(helper: self?.helperReady ?? false,
-                                     network: self?.connections.networkStatus.online == true)
-        }, notify: { Notifier.shared.post($0) })
+        let connector = LoginConnector(
+            manager: connections,
+            readiness: { [weak self] in
+                LoginConnector.Readiness(
+                    helper: self?.helperReady ?? false,
+                    network: self?.connections.networkStatus.online == true)
+            }, notify: { Notifier.shared.post($0) })
         Task { await connector.run() }
     }
 
@@ -311,7 +314,8 @@ final class AppModel: ObservableObject {
     private func autoUpdateHelperIfIdle() {
         guard previewHelperStatus == nil, Bundle.main.bundleURL.pathExtension == "app" else { return }
         let outdated = helperStatus == .enabled && helperOutdated
-        let sessions = outdated
+        let sessions =
+            outdated
             ? connections.states.values.filter(\.isActive).count + HelperSessions.runningToolCount()
             : 0
         let situation = HelperAutoUpdate.Situation(
@@ -324,9 +328,10 @@ final class AppModel: ObservableObject {
         case .none, .wait(notify: false):
             break
         case .wait(notify: true):
-            Notifier.shared.post(title: String(localized: "The helper needs an update"),
-                                 body: String(localized: "It updates itself when all VPN connections are disconnected. Until then, new connections cannot start."),
-                                 profileID: nil)
+            Notifier.shared.post(
+                title: String(localized: "The helper needs an update"),
+                body: String(localized: "It updates itself when all VPN connections are disconnected. Until then, new connections cannot start."),
+                profileID: nil)
         case .update:
             Task { await updateHelper() }
         }
@@ -372,10 +377,12 @@ final class AppModel: ObservableObject {
 
     /// The pinned profiles and those that are active or dropped unseen (`MenuBarProfiles.badged`).
     var menuBarProfiles: [Profile] {
-        MenuBarProfiles.badged(in: profiles, isIdle: { p in
-            if case .disconnected = state(p.id) { return true }
-            return false
-        }, droppedUnseen: droppedUnseen)
+        MenuBarProfiles.badged(
+            in: profiles,
+            isIdle: { p in
+                if case .disconnected = state(p.id) { return true }
+                return false
+            }, droppedUnseen: droppedUnseen)
     }
 
     /// Profiles listed in the menu bar panel: `menuBarProfiles`, or all while none is pinned.
@@ -423,7 +430,8 @@ final class AppModel: ObservableObject {
     /// Keychain item as they are now, bypassing every cache.
     func currentCode(for p: Profile, at date: Date = Date()) -> String? {
         guard let stored = storedProfile(p), stored.otpMode != .none,
-              let raw = vault.available(stored.id, .totp), let secret = try? TOTP.decodeSecret(raw) else { return nil }
+            let raw = vault.available(stored.id, .totp), let secret = try? TOTP.decodeSecret(raw)
+        else { return nil }
         return TOTP.code(secret: secret, params: stored.totp, at: date)
     }
 
@@ -458,8 +466,9 @@ final class AppModel: ObservableObject {
 
     /// The window shows bullets instead of the codes of `p` at `date` (`CodeCard.isMasked`).
     func codesMasked(_ p: Profile, at date: Date) -> Bool {
-        CodeCard.isMasked(locked: isCodeLocked(p), hidden: prefs.hideCodes, protected: isCodeProtected(p),
-                          revealedUntil: revealedCodes[p.id], at: date)
+        CodeCard.isMasked(
+            locked: isCodeLocked(p), hidden: prefs.hideCodes, protected: isCodeProtected(p),
+            revealedUntil: revealedCodes[p.id], at: date)
     }
 
     /// A click on the code card's masked code: shows the codes of `p` there for 20 s, after the confirmation when
@@ -479,8 +488,10 @@ final class AppModel: ObservableObject {
     /// Runs `body` once the secrets `kinds` of `p` are readable: at once when they are stored in plain
     /// text or unlocked, else after the user confirms (which decrypts them). `body` gets whether a
     /// prompt was shown. A cancel does nothing; a failure is shown.
-    private func whenUnlocked(_ p: Profile, _ kinds: Set<SecretKind>, _ action: UserPresenceAction,
-                              _ body: @escaping (_ prompted: Bool) -> Void) {
+    private func whenUnlocked(
+        _ p: Profile, _ kinds: Set<SecretKind>, _ action: UserPresenceAction,
+        _ body: @escaping (_ prompted: Bool) -> Void
+    ) {
         guard vault.needsPrompt(p, kinds) else { return body(false) }
         Task {
             do {
@@ -570,7 +581,8 @@ final class AppModel: ObservableObject {
     /// "Connected to <Profile>" (`ConnectionNotice.announcesConnect`); reconnects come as events instead.
     private func announceConnected(_ id: String, _ origin: ConnectionNotice.ConnectOrigin) {
         guard state(id).isConnected,
-              ConnectionNotice.announcesConnect(origin, mainWindowVisible: mainWindowVisible) else { return }
+            ConnectionNotice.announcesConnect(origin, mainWindowVisible: mainWindowVisible)
+        else { return }
         Notifier.shared.post(ConnectionNotice.connected(noticeSubject(id), profileID: id))
     }
 
@@ -601,8 +613,9 @@ final class AppModel: ObservableObject {
             switch h {
             case .notInstalled, .requiresApproval, .notFound, .versionMismatch, .buildMismatch:
                 if h.meansOutdatedHelper { helperOutdated = true }
-                alert = AppAlert(title: String(localized: "The helper is not ready"),
-                                 message: h.localizedDescription, opensHelperSettings: true)
+                alert = AppAlert(
+                    title: String(localized: "The helper is not ready"),
+                    message: h.localizedDescription, opensHelperSettings: true)
                 return
             default: break
             }
@@ -611,8 +624,9 @@ final class AppModel: ObservableObject {
         if (error as? PTError) == .userConfirmationCancelled { return }
         // Other failures are shown in the row (ConnectionManager.lastError); surface them when no window is open.
         if !mainWindowVisible {
-            Notifier.shared.post(title: String(localized: "Could not connect \(p.name)"),
-                                 body: error.localizedDescription, profileID: p.id)
+            Notifier.shared.post(
+                title: String(localized: "Could not connect \(p.name)"),
+                body: error.localizedDescription, profileID: p.id)
         }
     }
 
@@ -624,8 +638,9 @@ final class AppModel: ObservableObject {
                 return
             }
             copySecret(c)
-            lastCopy = CodeCard.Copy(profileID: stored.id, kind: .code, at: Date(),
-                                     window: TOTP.counter(params: stored.totp))
+            lastCopy = CodeCard.Copy(
+                profileID: stored.id, kind: .code, at: Date(),
+                window: TOTP.counter(params: stored.totp))
             showToast(String(localized: "Code copied"))
         }
     }
@@ -644,19 +659,23 @@ final class AppModel: ObservableObject {
                 return
             }
             let otp = currentCode(for: p)
-            let composed = OTPComposer.compose(password: password, otp: otp, delivery: .combined,
-                                               template: p.otpTemplate, type: p.type)
+            let composed = OTPComposer.compose(
+                password: password, otp: otp, delivery: .combined,
+                template: p.otpTemplate, type: p.type)
             copySecret(composed.secret)
-            lastCopy = CodeCard.Copy(profileID: p.id, kind: .passwordAndCode, at: Date(),
-                                     window: TOTP.counter(params: p.totp))
+            lastCopy = CodeCard.Copy(
+                profileID: p.id, kind: .passwordAndCode, at: Date(),
+                window: TOTP.counter(params: p.totp))
             showToast(String(localized: "Password and code copied"))
         }
     }
 
     /// Hotkey / menu action: types the code when auto-type is on and permitted, else copies it.
     func copyOrTypeDefaultCode() {
-        guard let p = profiles.first(where: { $0.id == prefs.defaultProfile && hasCode($0) })
-            ?? profiles.first(where: hasCode) else {
+        guard
+            let p = profiles.first(where: { $0.id == prefs.defaultProfile && hasCode($0) })
+                ?? profiles.first(where: hasCode)
+        else {
             NSSound.beep()
             return
         }
@@ -676,9 +695,10 @@ final class AppModel: ObservableObject {
         guard let c = currentCode(for: p) else { NSSound.beep(); return }
         guard AutoType.isTrusted else {
             AutoType.requestTrust()
-            Notifier.shared.post(title: String(localized: "Allow PassTunnel to type codes"),
-                                 body: String(localized: "Turn on PassTunnel in System Settings → Privacy & Security → Accessibility."),
-                                 profileID: nil)
+            Notifier.shared.post(
+                title: String(localized: "Allow PassTunnel to type codes"),
+                body: String(localized: "Turn on PassTunnel in System Settings → Privacy & Security → Accessibility."),
+                profileID: nil)
             copySecret(c)
             return
         }
@@ -705,7 +725,7 @@ final class AppModel: ObservableObject {
     }
 
     func togglePin(_ p: Profile) {
-        let pinned = !p.pinned   // what the user sees flipped, even if the file changed meanwhile
+        let pinned = !p.pinned  // what the user sees flipped, even if the file changed meanwhile
         update(p) { $0.pinned = pinned }
     }
 
@@ -778,9 +798,10 @@ final class AppModel: ObservableObject {
             let status = try LoginItem.setEnabled(true)
             if status != .unavailable { prefs.launchAtLogin = status == .enabled || status == .requiresApproval }
         } catch {
-            alert = AppAlert(title: String(localized: "Launch at login could not be turned on"),
-                             message: error.localizedDescription + "\n\n"
-                                 + String(localized: "You can turn it on later in Settings → General."))
+            alert = AppAlert(
+                title: String(localized: "Launch at login could not be turned on"),
+                message: error.localizedDescription + "\n\n"
+                    + String(localized: "You can turn it on later in Settings → General."))
         }
     }
 

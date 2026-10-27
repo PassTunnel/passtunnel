@@ -15,8 +15,9 @@ extension AppModel {
     /// The profile the panel's copy items are for (`CopyTarget`): the default profile, else the one that sent a code
     /// last, else the first with a code.
     var copyTarget: Profile? {
-        CopyTarget.profile(in: profiles, defaultID: prefs.defaultProfile, hasCode: { hasCode($0) },
-                           lastCodeSent: { previewStates == nil ? connections.lastCodeSent($0) : nil })
+        CopyTarget.profile(
+            in: profiles, defaultID: prefs.defaultProfile, hasCode: { hasCode($0) },
+            lastCodeSent: { previewStates == nil ? connections.lastCodeSent($0) : nil })
     }
 }
 
@@ -125,8 +126,10 @@ struct MenuBarPanel: View {
     /// The status item's VoiceOver label: "PassTunnel, 2 connected", and the drop the dot stands for.
     static func statusItemLabel(_ model: AppModel) -> String {
         let connected = model.connectedCount
-        let label = connected == 0 ? String(localized: "PassTunnel, not connected")
-                                   : String(localized: "PassTunnel, \(connected) connected")
+        let label =
+            connected == 0
+            ? String(localized: "PassTunnel, not connected")
+            : String(localized: "PassTunnel, \(connected) connected")
         return model.droppedUnseen.isEmpty ? label : String(localized: "\(label), a connection dropped")
     }
 
@@ -227,8 +230,10 @@ struct MenuBarPanel: View {
 
     /// What rows and items share: the 8 pt rounded highlight under the pointer, a click, and keyboard focus with
     /// the system focus ring (arrow keys and Tab).
-    private func chrome<Content: View>(_ item: PanelItem, minHeight: CGFloat,
-                                       @ViewBuilder _ content: () -> Content) -> some View {
+    private func chrome<Content: View>(
+        _ item: PanelItem, minHeight: CGFloat,
+        @ViewBuilder _ content: () -> Content
+    ) -> some View {
         let shape = RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
         return content()
             .padding(.horizontal, 10)
@@ -520,7 +525,8 @@ private struct PanelKeys: NSViewRepresentable {
             guard window != nil else { return }
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self, let window = self.window, event.window === window, window.isKeyWindow,
-                      let key = PanelKey(event), self.handle?(key) == true else { return event }
+                    let key = PanelKey(event), self.handle?(key) == true
+                else { return event }
                 return nil
             }
         }
@@ -555,8 +561,10 @@ struct MenuBarPanelPreview: View {
                 .frame(maxWidth: .infinity, minHeight: 30, alignment: .trailing)
                 .background(.bar)
             MenuBarPanel(now: now)
-                .materialGlass(in: RoundedRectangle(cornerRadius: Radius.panel, style: .continuous),
-                               shadow: Elevation.floating)
+                .materialGlass(
+                    in: RoundedRectangle(cornerRadius: Radius.panel, style: .continuous),
+                    shadow: Elevation.floating
+                )
                 .padding(.trailing, 24)
         }
         .padding(.bottom, Spacing.xl)

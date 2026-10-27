@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import PassTunnelCLI
 @testable import PassTunnelCore
 @testable import PassTunnelKit
@@ -59,8 +60,9 @@ final class CLICommandTests: XCTestCase {
     func testFoundationLanguageArgumentsAreIgnored() throws {
         let args = CLICommand.strippingSystemArguments(["help", "-AppleLanguages", "(tr)", "-AppleLocale", "tr_TR"])
         XCTAssertEqual(args, ["help"])
-        XCTAssertEqual(try CLICommand.parse(CLICommand.strippingSystemArguments(["-AppleLanguages", "(tr)", "list", "--json"])),
-                       .list(json: true, quiet: false))
+        XCTAssertEqual(
+            try CLICommand.parse(CLICommand.strippingSystemArguments(["-AppleLanguages", "(tr)", "list", "--json"])),
+            .list(json: true, quiet: false))
         // Ordinary options and a trailing key without a value stay.
         XCTAssertEqual(CLICommand.strippingSystemArguments(["code", "-c", "-AppleLanguages"]), ["code", "-c", "-AppleLanguages"])
     }
@@ -94,10 +96,15 @@ final class CLICommandTests: XCTestCase {
     }
 
     func testSetAddImportExport() throws {
-        XCTAssertEqual(try CLICommand.parse(["set", "acme", "username=alice", "otp_template={password}:{otp}", "badge="]),
-                       .set(id: "acme", assignments: [.init(key: "username", value: "alice"),
-                                                      .init(key: "otp_template", value: "{password}:{otp}"),
-                                                      .init(key: "badge", value: "")]))
+        XCTAssertEqual(
+            try CLICommand.parse(["set", "acme", "username=alice", "otp_template={password}:{otp}", "badge="]),
+            .set(
+                id: "acme",
+                assignments: [
+                    .init(key: "username", value: "alice"),
+                    .init(key: "otp_template", value: "{password}:{otp}"),
+                    .init(key: "badge", value: "")
+                ]))
         assertUsage("set acme")
         assertUsage("set acme username")
         assertUsage("set acme =x")
@@ -162,11 +169,13 @@ final class CLICommandTests: XCTestCase {
 final class ProfileFieldsTests: XCTestCase {
     func testSetValues() throws {
         var p = Profile(id: "acme", name: "Acme", type: .forti)
-        let pairs = [("name", "Acme Prod"), ("username", "alice"), ("otp_mode", "TOTP"), ("totp.digits", "8"),
-                     ("period", "60"), ("algorithm", "SHA-256"), ("otp-delivery", "combined"), ("template", "colon"),
-                     ("session_limit", "480"), ("auto_reconnect", "yes"), ("health_host", "10.0.0.5:443"),
-                     ("host", "vpn.example.com"), ("port", "10443"), ("set_dns", "on"), ("routes", "0"),
-                     ("pinned", "true"), ("badge_style", "both"), ("connect-at-login", "on")]
+        let pairs = [
+            ("name", "Acme Prod"), ("username", "alice"), ("otp_mode", "TOTP"), ("totp.digits", "8"),
+            ("period", "60"), ("algorithm", "SHA-256"), ("otp-delivery", "combined"), ("template", "colon"),
+            ("session_limit", "480"), ("auto_reconnect", "yes"), ("health_host", "10.0.0.5:443"),
+            ("host", "vpn.example.com"), ("port", "10443"), ("set_dns", "on"), ("routes", "0"),
+            ("pinned", "true"), ("badge_style", "both"), ("connect-at-login", "on")
+        ]
         for (k, v) in pairs { try ProfileFields.set(&p, key: k, value: v) }
         XCTAssertEqual(p.name, "Acme Prod")
         XCTAssertEqual(p.username, "alice")
@@ -215,12 +224,12 @@ final class ProfileFieldsTests: XCTestCase {
 final class VPNLogAndBase32Tests: XCTestCase {
     func testFortiLog() {
         let log = """
-        INFO:   Connected to gateway.
-        INFO:   Authenticated.
-        INFO:   Got addresses: [10.212.134.200], ns [10.0.0.1, 10.0.0.2], ns_suffix [example.com]
-        INFO:   Negotiation complete.
-        INFO:   Tunnel is up and running.
-        """
+            INFO:   Connected to gateway.
+            INFO:   Authenticated.
+            INFO:   Got addresses: [10.212.134.200], ns [10.0.0.1, 10.0.0.2], ns_suffix [example.com]
+            INFO:   Negotiation complete.
+            INFO:   Tunnel is up and running.
+            """
         XCTAssertTrue(VPNLog.fortiIsUp(log))
         XCTAssertEqual(VPNLog.fortiAddress(log), "10.212.134.200")
         XCTAssertFalse(VPNLog.fortiIsUp("INFO:   Connected to gateway."))

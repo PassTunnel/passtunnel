@@ -79,17 +79,29 @@ struct OverlapSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: Spacing.xs) {
                 Spacer(minLength: 0)
-                Button { model.overlapRequest = nil } label: { Text(String(localized: "Cancel")) }
-                    .buttonStyle(.secondaryCapsule)
-                    .keyboardShortcut(.cancelAction)
-                    .accessibilityIdentifier("overlap.cancel")
-                Button { model.connectBoth(request) } label: { Text(String(localized: "Connect both")) }
-                    .buttonStyle(.secondaryCapsule)
-                    .accessibilityIdentifier("overlap.both")
-                Button { model.switchToOverlapping(request) } label: { Text(String(localized: "Switch to \(mine)")) }
-                    .buttonStyle(.primaryCapsule)
-                    .keyboardShortcut(.defaultAction)
-                    .accessibilityIdentifier("overlap.switch")
+                Button {
+                    model.overlapRequest = nil
+                } label: {
+                    Text(String(localized: "Cancel"))
+                }
+                .buttonStyle(.secondaryCapsule)
+                .keyboardShortcut(.cancelAction)
+                .accessibilityIdentifier("overlap.cancel")
+                Button {
+                    model.connectBoth(request)
+                } label: {
+                    Text(String(localized: "Connect both"))
+                }
+                .buttonStyle(.secondaryCapsule)
+                .accessibilityIdentifier("overlap.both")
+                Button {
+                    model.switchToOverlapping(request)
+                } label: {
+                    Text(String(localized: "Switch to \(mine)"))
+                }
+                .buttonStyle(.primaryCapsule)
+                .keyboardShortcut(.defaultAction)
+                .accessibilityIdentifier("overlap.switch")
             }
             .padding(.top, 2)
         }
@@ -103,7 +115,8 @@ struct OverlapSheet: View {
     private var explanation: String {
         let mine = request.profile.name
         let others = request.otherNames
-        let sentence = request.overlaps.count == 1
+        let sentence =
+            request.overlaps.count == 1
             ? String(localized: "\(others) is connected and sends some of the same traffic as \(mine) through its tunnel.")
             : String(localized: "\(others) are connected and send some of the same traffic as \(mine) through their tunnels.")
         return sentence + " " + String(localized: "With both on, that traffic can go through only one of the two tunnels.")
@@ -136,7 +149,8 @@ private struct OverlapTable: View {
         let yes = String(localized: "Yes")
         let none = Self.none
         if summary.firstTakesAllTraffic || summary.secondTakesAllTraffic {
-            add(String(localized: "All traffic"), mono: false, theirs: summary.secondTakesAllTraffic ? yes : none,
+            add(
+                String(localized: "All traffic"), mono: false, theirs: summary.secondTakesAllTraffic ? yes : none,
                 mine: summary.firstTakesAllTraffic ? yes : none)
         }
         for route in summary.routes { add(route.description, theirs: yes, mine: yes) }

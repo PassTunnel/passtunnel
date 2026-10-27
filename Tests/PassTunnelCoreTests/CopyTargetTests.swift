@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+
 @testable import PassTunnelCore
 @testable import PassTunnelKit
 
@@ -19,13 +20,16 @@ final class CopyTargetTests: XCTestCase {
     private var all: [Profile] { [profile("home", code: false), profile("work"), profile("lab"), profile("travel")] }
 
     /// The target's id, with codes sent `sent` seconds before `now`.
-    private func target(_ profiles: [Profile]? = nil, defaultID: String? = nil,
-                        sent: [String: TimeInterval] = [:]) -> String? {
-        CopyTarget.profile(in: profiles ?? all, defaultID: defaultID, hasCode: { $0.otpMode == .totp },
-                           lastCodeSent: { id in
-                               self.asked.append(id)
-                               return sent[id].map { self.now.addingTimeInterval(-$0) }
-                           })?.id
+    private func target(
+        _ profiles: [Profile]? = nil, defaultID: String? = nil,
+        sent: [String: TimeInterval] = [:]
+    ) -> String? {
+        CopyTarget.profile(
+            in: profiles ?? all, defaultID: defaultID, hasCode: { $0.otpMode == .totp },
+            lastCodeSent: { id in
+                self.asked.append(id)
+                return sent[id].map { self.now.addingTimeInterval(-$0) }
+            })?.id
     }
 
     func testTheDefaultProfileWhenItHasACode() {

@@ -26,7 +26,7 @@ public struct Preferences: Codable, Equatable {
     // Notifications
     public var notifyOnDrop = true
     public var notifyHealth = true
-    public var sessionNotifyMin = 10        // minutes before the session limit; 0 = off
+    public var sessionNotifyMin = 10  // minutes before the session limit; 0 = off
     public var sessionWarnMin = 30
     // Shortcuts
     public var hotkeys = false
@@ -60,14 +60,15 @@ public struct Preferences: Codable, Equatable {
         case launchAtLogin, waitForFreshCode, notifyOnDrop, notifyHealth, sessionNotifyMin, sessionWarnMin
         case hotkeys, autoType, authReuseMinutes
         case secretStore, secretStoreUsed
-        case theme   // legacy, read only
+        case theme  // legacy, read only
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = Preferences()
         defaultProfile = c.lenient(String.self, .defaultProfile).flatMap { $0.isEmpty ? nil : $0 }
-        appearance = c.lenientEnum(AppAppearance.self, .appearance)
+        appearance =
+            c.lenientEnum(AppAppearance.self, .appearance)
             ?? c.lenientEnum(AppAppearance.self, .theme) ?? d.appearance
         badgePalette = c.lenientEnum(BadgePalette.self, .badgePalette) ?? d.badgePalette
         hideCodes = c.lenient(Bool.self, .hideCodes) ?? d.hideCodes

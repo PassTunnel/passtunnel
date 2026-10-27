@@ -24,7 +24,10 @@ public enum QRDecoder {
             case .notOTPAuth:
                 return String(localized: "The QR code does not contain an otpauth:// link.")
             case .migrationExport:
-                return String(localized: "This is an authenticator export code with several accounts. Export a single account, or use the QR code your VPN provider showed when you set up the code.")
+                return String(
+                    localized:
+                        "This is an authenticator export code with several accounts. Export a single account, or use the QR code your VPN provider showed when you set up the code."
+                )
             }
         }
     }
@@ -88,8 +91,9 @@ public enum QRDecoder {
 
     static func cgImage(from data: Data) throws -> CGImage {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              CGImageSourceGetCount(source) > 0,
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            CGImageSourceGetCount(source) > 0,
+            let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+        else {
             throw Failure.unreadableImage
         }
         return image

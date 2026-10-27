@@ -29,7 +29,8 @@ public struct ShareFile: Codable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         guard let version = c.lenient(Int.self, .passtunnelProfile), version >= 1,
-              version <= Self.currentVersion else { throw PTError.unsupportedShareFile }
+            version <= Self.currentVersion
+        else { throw PTError.unsupportedShareFile }
         passtunnelProfile = version
         guard let p = c.lenient(Profile.self, .profile) else { throw PTError.unsupportedShareFile }
         profile = p

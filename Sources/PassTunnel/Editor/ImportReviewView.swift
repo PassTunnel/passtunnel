@@ -78,8 +78,9 @@ struct ImportReviewView: View {
             Card(style: .compact) {
                 SectionLabel(String(localized: "Found in the file"))
                 FoundRow(title: String(localized: "Server"), found: !report.servers.isEmpty, detail: serverText)
-                FoundRow(title: String(localized: "Certificates"), found: certificates != nil,
-                         detail: Text(verbatim: certificates ?? String(localized: "None in the file")))
+                FoundRow(
+                    title: String(localized: "Certificates"), found: certificates != nil,
+                    detail: Text(verbatim: certificates ?? String(localized: "None in the file")))
                 FoundRow(title: String(localized: "Sign-in"), found: true, detail: Text(verbatim: signIn))
             }
             if !report.skipped.isEmpty { skippedCard }
@@ -89,8 +90,9 @@ struct ImportReviewView: View {
     /// "vpn.example.com:1194 · UDP" with the address in SF Mono; "+1 more" with other `remote` lines.
     private var serverText: Text {
         guard let first = report.servers.first else { return Text(String(localized: "No server in the file")) }
-        let endpoint = OVPNAnalyzer.Endpoint(host: first.host, port: first.port, tcp: first.tcp,
-                                             others: report.servers.count - 1)
+        let endpoint = OVPNAnalyzer.Endpoint(
+            host: first.host, port: first.port, tcp: first.tcp,
+            others: report.servers.count - 1)
         // Protocol names stay untranslated.
         return Text(verbatim: endpoint.server).font(.system(size: 12, design: .monospaced))
             + Text(verbatim: " · \(first.tcp ? "TCP" : "UDP")")
@@ -203,11 +205,13 @@ struct ImportReviewView: View {
             }
             if review.signsIn {
                 ReviewRow(String(localized: "User name")) {
-                    TextField(String(localized: "User name"), text: $review.username,
-                              prompt: Text(verbatim: "alice"))
-                        .focused($focus, equals: .username)
-                        .editorField(focused: focus == .username)
-                        .accessibilityIdentifier("import.username")
+                    TextField(
+                        String(localized: "User name"), text: $review.username,
+                        prompt: Text(verbatim: "alice")
+                    )
+                    .focused($focus, equals: .username)
+                    .editorField(focused: focus == .username)
+                    .accessibilityIdentifier("import.username")
                 }
                 ReviewRow(String(localized: "Password")) {
                     SecureField(String(localized: "Password"), text: $review.password)
@@ -265,7 +269,9 @@ struct ImportReviewView: View {
             .buttonStyle(.secondaryCapsule(.compact))
             .help(String(localized: "Paste the secret, an otpauth:// link or a screenshot of the QR code"))
             .accessibilityIdentifier("import.pasteSecret")
-        Button { chooseImage() } label: {
+        Button {
+            chooseImage()
+        } label: {
             Image(systemName: "photo").font(.system(size: 13, weight: .medium))
         }
         .buttonStyle(.secondaryCapsule(.compact))
@@ -279,15 +285,21 @@ struct ImportReviewView: View {
         if let error = review.codeError {
             EditorInlineError(message: error)
         } else if review.codeSecret != nil {
-            Text(verbatim: [String(localized: "Secret added · \(review.totp.digits) digits · \(review.totp.period) s"),
-                            review.codeSource].filter { !$0.isEmpty }.joined(separator: " · "))
-                .typography(.hint)
-                .foregroundStyle(Palette.fg)
-                .fixedSize(horizontal: false, vertical: true)
-            Text(String(localized: "It should match the code in your authenticator app. The secret is saved in the Keychain when you add the profile."))
-                .typography(.hint)
-                .foregroundStyle(Palette.fg2)
-                .fixedSize(horizontal: false, vertical: true)
+            Text(
+                verbatim: [
+                    String(localized: "Secret added · \(review.totp.digits) digits · \(review.totp.period) s"),
+                    review.codeSource
+                ].filter { !$0.isEmpty }.joined(separator: " · ")
+            )
+            .typography(.hint)
+            .foregroundStyle(Palette.fg)
+            .fixedSize(horizontal: false, vertical: true)
+            Text(
+                String(localized: "It should match the code in your authenticator app. The secret is saved in the Keychain when you add the profile.")
+            )
+            .typography(.hint)
+            .foregroundStyle(Palette.fg2)
+            .fixedSize(horizontal: false, vertical: true)
         } else if review.codeRequired {
             Text(String(localized: "Missing. Paste the secret or choose an image of the QR code."))
                 .typography(.hint)
@@ -310,7 +322,9 @@ struct ImportReviewView: View {
             if let secret = review.codeSecret {
                 EditorLiveCode(secret: secret, params: review.totp, now: review.previewNow)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Button { review.removeSecret() } label: {
+                Button {
+                    review.removeSecret()
+                } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(Palette.fg3)
                 }
                 .buttonStyle(.plain)

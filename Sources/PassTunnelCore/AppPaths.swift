@@ -18,10 +18,12 @@ public struct AppPaths: Equatable {
             return AppPaths(root: URL(fileURLWithPath: (home as NSString).expandingTildeInPath, isDirectory: true))
         }
         #if os(Linux)
-        return AppPaths(root: URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
-            .appendingPathComponent(linuxSubpath, isDirectory: true))
+        return AppPaths(
+            root: URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent(linuxSubpath, isDirectory: true))
         #else
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        let base =
+            FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
         return AppPaths(root: base.appendingPathComponent("PassTunnel", isDirectory: true))
         #endif

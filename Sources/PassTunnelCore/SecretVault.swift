@@ -1,10 +1,11 @@
+import Foundation
+import PassTunnelKit
+
 #if canImport(CryptoKit)
 import CryptoKit
 #else
-import Crypto   // swift-crypto: the same API, outside Apple platforms
+import Crypto  // swift-crypto: the same API, outside Apple platforms
 #endif
-import Foundation
-import PassTunnelKit
 #if canImport(AppKit)
 import AppKit
 #endif
@@ -30,7 +31,7 @@ public final class SecretVault: ObservableObject {
     private struct Entry {
         var bytes: [UInt8]
         var at: Date
-        var destination: String        // `ProfileDestination.fingerprint` when the user confirmed
+        var destination: String  // `ProfileDestination.fingerprint` when the user confirmed
     }
 
     private let authenticator: UserAuthenticator
@@ -45,10 +46,12 @@ public final class SecretVault: ObservableObject {
 
     /// `reuseWindow` is read on every check, so a changed preference applies at once. `destination`
     /// reads where a profile sends its secrets (shown in the prompt and bound to what is decrypted).
-    public init(authenticator: UserAuthenticator = PlatformAuthenticator(),
-                now: @escaping () -> Date = Date.init,
-                reuseWindow: @escaping () -> TimeInterval = { Preferences.load().authReuseInterval },
-                destination: @escaping (Profile) -> ProfileDestination = { ProfileDestination.of($0, store: ProfileStore()) }) {
+    public init(
+        authenticator: UserAuthenticator = PlatformAuthenticator(),
+        now: @escaping () -> Date = Date.init,
+        reuseWindow: @escaping () -> TimeInterval = { Preferences.load().authReuseInterval },
+        destination: @escaping (Profile) -> ProfileDestination = { ProfileDestination.of($0, store: ProfileStore()) }
+    ) {
         self.authenticator = authenticator
         self.now = now
         self.reuseWindow = reuseWindow
@@ -180,7 +183,7 @@ public final class SecretVault: ObservableObject {
         guard !encrypted.isEmpty || requireKey else { return }
         guard let record = Secrets.protectionKey(id).flatMap(ProtectionKeyRecord.decode), let recipient = record.publicKey else {
             if let first = encrypted.first { throw PTError.protectedSecretUnreadable(first.0) }
-            return   // no key and nothing encrypted: nothing to protect
+            return  // no key and nothing encrypted: nothing to protect
         }
         // The record names the key secrets were encrypted to; a key that is not the one it names
         // (record replaced or damaged) is never used: checked before asking when the key data can
@@ -207,16 +210,19 @@ public final class SecretVault: ObservableObject {
         for (kind, raw) in encrypted {
             guard let parsed = SecretEnvelope.parse(raw) else { throw PTError.protectedSecretUnreadable(kind) }
             let shared = try await sharedSecret(unlocked, parsed.ephemeral, id: id, kinds: encrypted.map(\.0))
-            let text = try SecretEnvelope.open(parsed, shared: shared, recipient: recipient,
-                                               account: Secrets.account(id, kind), kind: kind)
+            let text = try SecretEnvelope.open(
+                parsed, shared: shared, recipient: recipient,
+                account: Secrets.account(id, kind), kind: kind)
             values[kind] = Entry(bytes: Array(text.utf8), at: at, destination: target.fingerprint)
         }
         cache[id] = values
         revision += 1
     }
 
-    private func sharedSecret(_ key: UnlockedProtectionKey, _ peer: P256.KeyAgreement.PublicKey, id: String,
-                              kinds: [SecretKind]) async throws -> SharedSecret {
+    private func sharedSecret(
+        _ key: UnlockedProtectionKey, _ peer: P256.KeyAgreement.PublicKey, id: String,
+        kinds: [SecretKind]
+    ) async throws -> SharedSecret {
         do { return try await key.sharedSecret(with: peer) } catch is ProtectionKeyUnusable {
             throw discardUnusableKey(id, kinds)
         }
@@ -312,7 +318,8 @@ public final class SecretVault: ObservableObject {
     private func ensureKey(_ id: String) throws -> P256.KeyAgreement.PublicKey {
         if let record = Secrets.protectionKey(id).flatMap(ProtectionKeyRecord.decode), let pub = record.publicKey {
             if let actual = try? authenticator.publicKey(keyData: record.key),
-               actual.x963Representation != record.pub {
+                actual.x963Representation != record.pub
+            {
                 throw ProtectionKeyMismatch(profileID: id)
             }
             return pub
@@ -373,7 +380,10 @@ public struct ProtectionKeyMismatch: Error, Equatable, LocalizedError {
     public var profileID: String
 
     public var errorDescription: String? {
-        String(localized: "The protection key of profile “\(profileID)” does not match its Keychain record, so PassTunnel did not use it. Another app may have replaced the record. Delete the profile and set it up again.")
+        String(
+            localized:
+                "The protection key of profile “\(profileID)” does not match its Keychain record, so PassTunnel did not use it. Another app may have replaced the record. Delete the profile and set it up again."
+        )
     }
 }
 
@@ -393,16 +403,21 @@ public final class VaultExpiry {
     /// `sources`: the notifications that reset the vault.
     public init(vault: SecretVault, sources: [Source] = VaultExpiry.systemSources) {
         observers = sources.map { center, name in
-            (center, center.addObserver(forName: name, object: nil, queue: .main) { [weak vault] _ in
-                MainActor.assumeIsolated { vault?.reset() }
-            })
+            (
+                center,
+                center.addObserver(forName: name, object: nil, queue: .main) { [weak vault] _ in
+                    MainActor.assumeIsolated { vault?.reset() }
+                }
+            )
         }
     }
 
     /// `screenLock`: where `screenLockedNotification` arrives; `sleep`: where `sleepNotification` does.
-    public convenience init(vault: SecretVault, screenLock: NotificationCenter,
-                            sleep: NotificationCenter = VaultExpiry.workspaceCenter,
-                            sleepNotification: Notification.Name = VaultExpiry.willSleepNotification) {
+    public convenience init(
+        vault: SecretVault, screenLock: NotificationCenter,
+        sleep: NotificationCenter = VaultExpiry.workspaceCenter,
+        sleepNotification: Notification.Name = VaultExpiry.willSleepNotification
+    ) {
         self.init(vault: vault, sources: [(screenLock, Self.screenLockedNotification), (sleep, sleepNotification)])
     }
 

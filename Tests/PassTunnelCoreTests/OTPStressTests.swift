@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+
 @testable import PassTunnelCore
 @testable import PassTunnelKit
 
@@ -16,7 +17,7 @@ final class TOTPEdgeTests: CoreTestCase {
     func testRFCVectorsAcrossDigitsAndPeriods() {
         let rows: [(TimeInterval, TOTPAlgorithm, Data, String)] = [
             (59, .sha1, seed1, "94287082"), (1111111109, .sha256, seed256, "68084774"),
-            (1234567890, .sha512, seed512, "93441116"), (2000000000, .sha1, seed1, "69279037"),
+            (1234567890, .sha512, seed512, "93441116"), (2000000000, .sha1, seed1, "69279037")
         ]
         for (t, alg, seed, eight) in rows {
             for digits in 6...8 {
@@ -24,8 +25,9 @@ final class TOTPEdgeTests: CoreTestCase {
                 XCTAssertEqual(code, String(eight.suffix(digits)), "\(alg) \(digits) @\(t)")
             }
             let doubled = TOTP.code(secret: seed, params: TOTPParams(digits: 8, period: 60, algorithm: alg), at: at(t * 2))
-            XCTAssertEqual(doubled, TOTP.code(secret: seed, params: TOTPParams(digits: 8, algorithm: alg), at: at(t)),
-                           "period 60 at 2T == period 30 at T (\(alg))")
+            XCTAssertEqual(
+                doubled, TOTP.code(secret: seed, params: TOTPParams(digits: 8, algorithm: alg), at: at(t)),
+                "period 60 at 2T == period 30 at T (\(alg))")
         }
     }
 
@@ -52,8 +54,9 @@ final class TOTPEdgeTests: CoreTestCase {
         let params = TOTPParams()
         // Before 1970 the counter stays at 0 and the countdown keeps its 1...period contract.
         XCTAssertEqual(TOTP.counter(params: params, at: at(-1)), 0)
-        XCTAssertEqual(TOTP.code(secret: seed1, params: params, at: at(-12345)),
-                       TOTP.code(secret: seed1, params: params, at: at(0)))
+        XCTAssertEqual(
+            TOTP.code(secret: seed1, params: params, at: at(-12345)),
+            TOTP.code(secret: seed1, params: params, at: at(0)))
         for t in [-1.0, -29, -30, -31, -1e9] {
             XCTAssertTrue((1...30).contains(TOTP.remaining(params: params, at: at(t))), "remaining @\(t)")
         }
@@ -72,8 +75,9 @@ final class TOTPEdgeTests: CoreTestCase {
 
     func testDegenerateParamsAreClamped() {
         let date = at(1111111109)
-        XCTAssertEqual(TOTP.code(secret: seed1, params: TOTPParams(period: 0), at: date),
-                       TOTP.code(secret: seed1, params: TOTPParams(period: 1), at: date))
+        XCTAssertEqual(
+            TOTP.code(secret: seed1, params: TOTPParams(period: 0), at: date),
+            TOTP.code(secret: seed1, params: TOTPParams(period: 1), at: date))
         XCTAssertEqual(TOTP.code(secret: seed1, params: TOTPParams(period: -30), at: date).count, 6)
         XCTAssertEqual(TOTP.remaining(params: TOTPParams(period: 0), at: date), 1)
         XCTAssertEqual(TOTP.code(secret: Data(), params: TOTPParams(), at: date).count, 6, "empty key does not crash")
@@ -82,16 +86,20 @@ final class TOTPEdgeTests: CoreTestCase {
 
     func testSecretFormatsUsersPaste() throws {
         let hello = Data("Hello!".utf8) + Data([0xDE, 0xAD, 0xBE, 0xEF])
-        for text in ["JBSWY3DPEHPK3PXP", "jbswy3dpehpk3pxp", "JBSW Y3DP EHPK 3PXP", "jbsw-y3dp-ehpk-3pxp",
-                     "  JBSWY3DPEHPK3PXP\n", "JBSWY3DP\tEHPK3PXP", "JBSWY3DPEHPK3PXP====",
-                     "JBSW\u{00A0}Y3DP\u{2003}EHPK3PXP", "JbSwY3dPeHpK3pXp\r\n"] {
+        for text in [
+            "JBSWY3DPEHPK3PXP", "jbswy3dpehpk3pxp", "JBSW Y3DP EHPK 3PXP", "jbsw-y3dp-ehpk-3pxp",
+            "  JBSWY3DPEHPK3PXP\n", "JBSWY3DP\tEHPK3PXP", "JBSWY3DPEHPK3PXP====",
+            "JBSW\u{00A0}Y3DP\u{2003}EHPK3PXP", "JbSwY3dPeHpK3pXp\r\n"
+        ] {
             XCTAssertEqual(try TOTP.decodeSecret(text), hello, text.debugDescription)
         }
     }
 
     func testInvalidSecretsAreRejected() {
-        for text in ["", " ", "====", "=", "0x", "0X", "0xABC", "0xGG", "JBSWY3DP!EHPK3PXP", "MF=RGG", "A",
-                     "JBSWY3DPEHPK3PXP\u{200B}", "ünïcödé", "189", "🔑🔑🔑🔑"] {
+        for text in [
+            "", " ", "====", "=", "0x", "0X", "0xABC", "0xGG", "JBSWY3DP!EHPK3PXP", "MF=RGG", "A",
+            "JBSWY3DPEHPK3PXP\u{200B}", "ünïcödé", "189", "🔑🔑🔑🔑"
+        ] {
             assertThrows(.invalidSecret) { _ = try TOTP.decodeSecret(text) }
         }
     }
@@ -106,8 +114,9 @@ final class OTPComposerEdgeTests: CoreTestCase {
     func scrv1Parts(_ secret: String) -> (String, String)? {
         let parts = secret.split(separator: ":", omittingEmptySubsequences: false)
         guard parts.count == 3, parts[0] == "SCRV1",
-              let pw = Data(base64Encoded: String(parts[1])).flatMap({ String(data: $0, encoding: .utf8) }),
-              let code = Data(base64Encoded: String(parts[2])).flatMap({ String(data: $0, encoding: .utf8) }) else { return nil }
+            let pw = Data(base64Encoded: String(parts[1])).flatMap({ String(data: $0, encoding: .utf8) }),
+            let code = Data(base64Encoded: String(parts[2])).flatMap({ String(data: $0, encoding: .utf8) })
+        else { return nil }
         return (pw, code)
     }
 
@@ -116,8 +125,10 @@ final class OTPComposerEdgeTests: CoreTestCase {
             for type in VPNType.allCases {
                 let combined = compose("pw", "123456", .combined, preset.rawValue, type)
                 XCTAssertNil(combined.1)
-                XCTAssertEqual(combined.0, preset.rawValue.replacingOccurrences(of: "{password}", with: "pw")
-                    .replacingOccurrences(of: "{otp}", with: "123456"))
+                XCTAssertEqual(
+                    combined.0,
+                    preset.rawValue.replacingOccurrences(of: "{password}", with: "pw")
+                        .replacingOccurrences(of: "{otp}", with: "123456"))
                 let separate = compose("pw", "123456", .separate, preset.rawValue, type)
                 switch type {
                 case .openvpn:
@@ -134,14 +145,14 @@ final class OTPComposerEdgeTests: CoreTestCase {
 
     func testCustomTemplates() throws {
         let cases: [(String, String)] = [
-            ("pin{otp}", "pin123456"),                         // no {password}
-            ("{otp}{otp}", "123456123456"),                    // duplicated
+            ("pin{otp}", "pin123456"),  // no {password}
+            ("{otp}{otp}", "123456123456"),  // duplicated
             ("{password}{password}{otp}", "pwpw123456"),
-            ("{{otp}}", "{123456}"),                           // literal braces around a placeholder
+            ("{{otp}}", "{123456}"),  // literal braces around a placeholder
             ("{otp}}", "123456}"),
             ("{ {otp}", "{ 123456"),
             ("a{b{otp}", "a{b123456"),
-            ("🔐{password}·{otp}✓", "🔐pw·123456✓"),
+            ("🔐{password}·{otp}✓", "🔐pw·123456✓")
         ]
         for (template, expected) in cases {
             XCTAssertNoThrow(try OTPComposer.validate(template: template), template)
@@ -165,17 +176,20 @@ final class OTPComposerEdgeTests: CoreTestCase {
                 }
             }.joined()
         }
-        let templates = OTPTemplatePreset.allCases.map(\.rawValue)
+        let templates =
+            OTPTemplatePreset.allCases.map(\.rawValue)
             + ["pin{otp}", "{otp}{otp}", "{{otp}}", "a{b{otp}", "🔐{password}·{otp}✓", "{password}", "{x}{otp}", ""]
         for template in templates {
             let parts = OTPComposer.parts(delivery: .combined, template: template)
             XCTAssertFalse(parts.separateCode, template)
             XCTAssertEqual(joined(parts.secret), compose("pw", "123456", .combined, template).0, template)
         }
-        XCTAssertEqual(OTPComposer.parts(delivery: .combined, template: "{password}:{otp}").secret,
-                       [.password, .text(":"), .code])
-        XCTAssertEqual(OTPComposer.parts(delivery: .combined, template: "{password}").secret, [.password, .code],
-                       "an invalid template falls back to append")
+        XCTAssertEqual(
+            OTPComposer.parts(delivery: .combined, template: "{password}:{otp}").secret,
+            [.password, .text(":"), .code])
+        XCTAssertEqual(
+            OTPComposer.parts(delivery: .combined, template: "{password}").secret, [.password, .code],
+            "an invalid template falls back to append")
         for template in templates {
             let parts = OTPComposer.parts(delivery: .separate, template: template)
             XCTAssertEqual(parts.secret, [.password], template)
@@ -186,8 +200,9 @@ final class OTPComposerEdgeTests: CoreTestCase {
     func testHostilePasswordsAndCodes() {
         let long = String(repeating: "ş🔥x", count: 5000)
         XCTAssertEqual(compose(long, "1", .combined, "{password}:{otp}").0, long + ":1")
-        XCTAssertEqual(compose("{otp}{password}", "9", .combined, "{password}{otp}").0, "{otp}{password}9",
-                       "values are inserted literally")
+        XCTAssertEqual(
+            compose("{otp}{password}", "9", .combined, "{password}{otp}").0, "{otp}{password}9",
+            "values are inserted literally")
         XCTAssertEqual(compose("pw", "{password}", .combined, "{otp}-{password}").0, "{password}-pw")
         XCTAssertEqual(compose("", "123456", .combined, "{password}{otp}").0, "123456", "empty password")
         XCTAssertEqual(compose("pw", "", .combined, "{otp}:{password}").0, "pw", "empty code: plain password")
@@ -222,7 +237,7 @@ final class OTPAuthURIEdgeTests: CoreTestCase {
             uri("secret=\(secret)&period=99999999999999999999999"), uri("secret=\(secret)&period=30.5"),
             uri("secret=\(secret)&algorithm=MD5"), uri("secret=\(secret)&algorithm="),
             "otpauth:/totp/Acme?secret=\(secret)", "otpauth://steam/Acme?secret=\(secret)",
-            "otpauth-migration://offline?data=AAAA", "otpauth://", "", "   ",
+            "otpauth-migration://offline?data=AAAA", "otpauth://", "", "   "
         ]
         for text in bad {
             XCTAssertThrowsError(try OTPAuthURI(text), text) { XCTAssertNotNil($0 as? PTError, text) }

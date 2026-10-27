@@ -53,17 +53,21 @@ final class ToolStagerTests: XCTestCase {
         let dl = "#include <dlfcn.h>\n"
         try (dl + "const char *base_path(void) { Dl_info i; dladdr((void *)base_path, &i); return i.dli_fname; }\n")
             .write(toFile: dir + "/base.c", atomically: true, encoding: .utf8)
-        try (dl + "const char *base_path(void);\nconst char *acme_path(void) { Dl_info i; dladdr((void *)acme_path, &i); return i.dli_fname; }\n"
+        try
+            (dl + "const char *base_path(void);\nconst char *acme_path(void) { Dl_info i; dladdr((void *)acme_path, &i); return i.dli_fname; }\n"
             + "const char *acme_base(void) { return base_path(); }\n")
             .write(toFile: dir + "/acme.c", atomically: true, encoding: .utf8)
-        try "#include <stdio.h>\nconst char *acme_path(void); const char *acme_base(void);\nint main(void) { printf(\"%s\\n%s\\n\", acme_path(), acme_base()); return 0; }\n"
+        try
+            "#include <stdio.h>\nconst char *acme_path(void); const char *acme_base(void);\nint main(void) { printf(\"%s\\n%s\\n\", acme_path(), acme_base()); return 0; }\n"
             .write(toFile: dir + "/tool.c", atomically: true, encoding: .utf8)
         let steps: [[String]] = [
             ["clang", "-dynamiclib", "-o", dir + "/libbase.1.dylib", dir + "/base.c", "-install_name", "@loader_path/libbase.1.dylib"],
-            ["clang", "-dynamiclib", "-o", dir + "/libacme.1.dylib", dir + "/acme.c", dir + "/libbase.1.dylib",
-             "-install_name", "@executable_path/../../Frameworks/libacme.1.dylib"],
+            [
+                "clang", "-dynamiclib", "-o", dir + "/libacme.1.dylib", dir + "/acme.c", dir + "/libbase.1.dylib",
+                "-install_name", "@executable_path/../../Frameworks/libacme.1.dylib"
+            ],
             ["clang", "-o", dir + "/openvpn", dir + "/tool.c", dir + "/libacme.1.dylib"],
-            ["clang", "-o", dir + "/openfortivpn", dir + "/tool.c", dir + "/libacme.1.dylib"],
+            ["clang", "-o", dir + "/openfortivpn", dir + "/tool.c", dir + "/libacme.1.dylib"]
         ]
         for step in steps where run("/usr/bin/xcrun", step) != 0 { throw XCTSkip("no C compiler available") }
         for name in ["openvpn", "openfortivpn", "libacme.1.dylib", "libbase.1.dylib"] {
@@ -99,16 +103,20 @@ final class ToolStagerTests: XCTestCase {
     static let libraryRequirement = "identifier \"com.example.acme.libacme\" or identifier \"com.example.acme.libbase\""
 
     func stager(id: String? = nil, toolPins: [String: Set<String>] = [:], libraryPins: [String: Set<String>] = [:]) -> ToolStager {
-        ToolStager(bundleContents: contents, runRoot: runRoot, buildID: id ?? buildID, toolPins: toolPins,
-                   libraryPins: libraryPins, toolRequirement: Self.toolRequirement, libraryRequirement: Self.libraryRequirement)
+        ToolStager(
+            bundleContents: contents, runRoot: runRoot, buildID: id ?? buildID, toolPins: toolPins,
+            libraryPins: libraryPins, toolRequirement: Self.toolRequirement, libraryRequirement: Self.libraryRequirement)
     }
 
     /// The pins build-app.sh would generate for the fake bundle.
     func pins() throws -> (tools: [String: Set<String>], libraries: [String: Set<String>]) {
         var tools: [String: Set<String>] = [:], libs: [String: Set<String>] = [:]
         for tool in HelperCore.Tool.allCases {
-            tools[tool.rawValue] = [try CodeSignature.verify(path: contents + "/Resources/bin/" + tool.rawValue,
-                                                             requirement: Self.toolRequirement(tool))]
+            tools[tool.rawValue] = [
+                try CodeSignature.verify(
+                    path: contents + "/Resources/bin/" + tool.rawValue,
+                    requirement: Self.toolRequirement(tool))
+            ]
         }
         tools["dns-updown"] = []
         for lib in Self.libraries {
@@ -149,14 +157,18 @@ final class ToolStagerTests: XCTestCase {
         XCTAssertEqual(entries(staged.directory), ["Frameworks", "Resources"])
         XCTAssertEqual(entries(staged.directory + "/Resources/bin"), ["openfortivpn", "openvpn"], "dns-updown is copied per session")
         XCTAssertEqual(entries(staged.directory + "/Frameworks"), Self.libraries, "no Sparkle, nothing else")
-        for dir in [realRoot + "/tools", staged.directory, staged.directory + "/Resources",
-                    staged.directory + "/Resources/bin", staged.directory + "/Frameworks"] {
+        for dir in [
+            realRoot + "/tools", staged.directory, staged.directory + "/Resources",
+            staged.directory + "/Resources/bin", staged.directory + "/Frameworks"
+        ] {
             XCTAssertEqual(mode(dir), 0o755, dir)
         }
         for tool in HelperCore.Tool.allCases {
             XCTAssertEqual(mode(staged.executable(tool)), 0o555)
-            XCTAssertTrue(FileManager.default.contentsEqual(atPath: staged.executable(tool),
-                                                            andPath: contents + "/Resources/bin/" + tool.rawValue))
+            XCTAssertTrue(
+                FileManager.default.contentsEqual(
+                    atPath: staged.executable(tool),
+                    andPath: contents + "/Resources/bin/" + tool.rawValue))
         }
         for lib in Self.libraries { XCTAssertEqual(mode(staged.directory + "/Frameworks/" + lib), 0o444) }
 
@@ -176,8 +188,9 @@ final class ToolStagerTests: XCTestCase {
         let first = try stager().stage()
         let inode = try FileManager.default.attributesOfItem(atPath: first.executable(.openvpn))[.systemFileNumber] as? Int
         XCTAssertEqual(try stager().stage(), first)
-        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: first.executable(.openvpn))[.systemFileNumber] as? Int,
-                       inode, "a valid copy is not copied again")
+        XCTAssertEqual(
+            try FileManager.default.attributesOfItem(atPath: first.executable(.openvpn))[.systemFileNumber] as? Int,
+            inode, "a valid copy is not copied again")
 
         let other = String(repeating: "cd", count: 32), third = String(repeating: "ef", count: 32)
         _ = try stager(id: other).stage()
@@ -221,8 +234,10 @@ final class ToolStagerTests: XCTestCase {
     func testSymlinkedSourceIsRefused() throws {
         let p = try pins()
         let fixture = try Self.fixture()
-        for (path, target) in [(contents + "/Frameworks/libbase.1.dylib", fixture + "/libbase.1.dylib"),
-                               (contents + "/Resources/bin/openvpn", fixture + "/openvpn")] {
+        for (path, target) in [
+            (contents + "/Frameworks/libbase.1.dylib", fixture + "/libbase.1.dylib"),
+            (contents + "/Resources/bin/openvpn", fixture + "/openvpn")
+        ] {
             let saved = base.appendingPathComponent("saved").path
             try FileManager.default.moveItem(atPath: path, toPath: saved)
             try FileManager.default.createSymbolicLink(atPath: path, withDestinationPath: target)
@@ -262,8 +277,13 @@ final class ToolStagerTests: XCTestCase {
         let fixture = try Self.fixture()
         let other = base.appendingPathComponent("libbase.1.dylib").path
         try FileManager.default.copyItem(atPath: fixture + "/libbase.1.dylib", toPath: other)
-        XCTAssertEqual(run("/usr/bin/codesign", ["-f", "-s", "-", "-i", "com.example.acme.libbase",
-                                                 "--options", "runtime", other]), 0)
+        XCTAssertEqual(
+            run(
+                "/usr/bin/codesign",
+                [
+                    "-f", "-s", "-", "-i", "com.example.acme.libbase",
+                    "--options", "runtime", other
+                ]), 0)
         try FileManager.default.removeItem(atPath: contents + "/Frameworks/libbase.1.dylib")
         try FileManager.default.copyItem(atPath: other, toPath: contents + "/Frameworks/libbase.1.dylib")
         XCTAssertThrowsError(try stager(toolPins: p.tools, libraryPins: p.libraries).stage()) {
@@ -274,8 +294,9 @@ final class ToolStagerTests: XCTestCase {
         var extra = p.libraries
         extra["libmissing.1.dylib"] = ["1111111111111111111111111111111111111111"]
         XCTAssertThrowsError(try stager(toolPins: p.tools, libraryPins: extra).stage()) {
-            XCTAssertEqual($0 as? HelperCore.Failure,
-                           .system("open \(self.contents)/Frameworks/libmissing.1.dylib", ENOENT), "\($0)")
+            XCTAssertEqual(
+                $0 as? HelperCore.Failure,
+                .system("open \(self.contents)/Frameworks/libmissing.1.dylib", ENOENT), "\($0)")
         }
         // A tool pin mismatch as well.
         var tools = p.tools

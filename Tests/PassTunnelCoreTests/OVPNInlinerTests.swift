@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+
 @testable import PassTunnelCore
 @testable import PassTunnelKit
 @testable import PassTunnelVPNConfig
@@ -16,7 +17,7 @@ final class OVPNInlinerTests: CoreTestCase {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let files: [String: Data] = [
             "ca.crt": Data(caPEM.utf8), "client.crt": Data(certPEM.utf8),
-            "client key.pem": Data(keyPEM.utf8), "ta.key": Data(taKey.utf8),
+            "client key.pem": Data(keyPEM.utf8), "ta.key": Data(taKey.utf8)
         ].merging(extra) { $1 }
         for (name, data) in files { try data.write(to: dir.appendingPathComponent(name)) }
         let url = dir.appendingPathComponent("client.ovpn")
@@ -25,19 +26,20 @@ final class OVPNInlinerTests: CoreTestCase {
     }
 
     func testMultiFileConfigIsInlined() throws {
-        let url = try makeFolder("""
-        client\r
-        dev tun\r
-        remote vpn.example.com 1194 udp\r
-        # ca commented.crt\r
-        ca ca.crt\r
-        cert client.crt\r
-        key "client key.pem"\r
-        tls-auth ta.key 1\r
-        auth-user-pass creds.txt\r
-        askpass pass.txt\r
-        dh none\r
-        """)
+        let url = try makeFolder(
+            """
+            client\r
+            dev tun\r
+            remote vpn.example.com 1194 udp\r
+            # ca commented.crt\r
+            ca ca.crt\r
+            cert client.crt\r
+            key "client key.pem"\r
+            tls-auth ta.key 1\r
+            auth-user-pass creds.txt\r
+            askpass pass.txt\r
+            dh none\r
+            """)
         let p = try store.importOVPN(url, name: "Acme")
         XCTAssertEqual(p.passwordMode, .keychain)
         let text = try String(contentsOf: store.ovpnURL(p.id))
@@ -115,8 +117,9 @@ final class OVPNInlinerTests: CoreTestCase {
     }
 
     func testForbiddenDirectiveIsRejectedWithClearError() throws {
-        let url = try makeFolder("client\nca ca.crt\nscript-security 2\nup /tmp/x.sh\nplugin /tmp/x.so\ntls-verify /tmp/v.sh\n"
-                                 + "remote vpn.example.com\n")
+        let url = try makeFolder(
+            "client\nca ca.crt\nscript-security 2\nup /tmp/x.sh\nplugin /tmp/x.so\ntls-verify /tmp/v.sh\n"
+                + "remote vpn.example.com\n")
         XCTAssertThrowsError(try store.importOVPN(url, name: "Acme")) { error in
             guard case .ovpnNotAllowed(let violations) = error as? PTError else { return XCTFail("\(error)") }
             // Line numbers of the file as written (ca.crt is embedded above them); skipped lines are not listed.
@@ -128,7 +131,8 @@ final class OVPNInlinerTests: CoreTestCase {
     }
 
     func testInlineConfigIsKeptAsIs() throws {
-        let original = "client\nremote vpn.example.com\n<ca>\nca ca.crt\n</ca>\n<connection>\nremote vpn2.example.com\n</connection>\nauth-user-pass\n"
+        let original =
+            "client\nremote vpn.example.com\n<ca>\nca ca.crt\n</ca>\n<connection>\nremote vpn2.example.com\n</connection>\nauth-user-pass\n"
         XCTAssertEqual(try OVPNInliner.inline(original, baseDir: home), original)
         XCTAssertEqual(try OVPNInliner.inline("ca [inline]\n<ca>\nx\n</ca>\n", baseDir: home), "ca [inline]\n<ca>\nx\n</ca>\n")
     }
@@ -145,8 +149,9 @@ final class OVPNInlinerTests: CoreTestCase {
 
     func testShareImportRejectsUnsafeConfig() throws {
         let ovpn = Data("client\nca /etc/ssl/cert.pem\n".utf8).base64EncodedString()
-        let url = try write(#"{"passtunnel_profile":1,"profile":{"name":"Acme","type":"openvpn"},"files":{"config.ovpn":"\#(ovpn)"}}"#,
-                            name: "acme.passtunnel")
+        let url = try write(
+            #"{"passtunnel_profile":1,"profile":{"name":"Acme","type":"openvpn"},"files":{"config.ovpn":"\#(ovpn)"}}"#,
+            name: "acme.passtunnel")
         XCTAssertThrowsError(try store.importShare(url, name: nil)) { error in
             guard case .ovpnNotAllowed = error as? PTError else { return XCTFail("\(error)") }
         }
