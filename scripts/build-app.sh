@@ -179,11 +179,13 @@ for exe in PassTunnel PassTunnelHelper; do
 done
 cp "$ROOT/Resources/com.furkanprlk.passtunnel.helper.plist" "$C/Library/LaunchDaemons/"
 
-# A release is tagged after its build (release.sh), so its own tag is left out: rebuilt at the tag,
-# the app says what the release says. A fixed abbreviation, as the default one grows with the
-# repository.
+# A release is tagged after its build (release.sh), so the tag of this version is left out when it is
+# on this commit: rebuilt at the tag, the app says what the release says. A fixed abbreviation, as the
+# default one grows with the repository.
 DESCRIBE_ARGS=(--tags --always --dirty --abbrev=12)
-[[ -n "$VERSION" ]] && DESCRIBE_ARGS+=(--exclude "v$VERSION")
+if [[ -n "$VERSION" && "$(git rev-parse -q --verify "refs/tags/v$VERSION^{commit}" 2>/dev/null)" == "$(git rev-parse HEAD 2>/dev/null)" ]]; then
+    DESCRIBE_ARGS+=(--exclude "v$VERSION")
+fi
 DESCRIBE="$(git describe "${DESCRIBE_ARGS[@]}" 2>/dev/null || echo unknown)"
 BUILD_NUMBER="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
 if [[ -n "$VERSION" ]]; then

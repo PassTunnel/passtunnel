@@ -1,0 +1,110 @@
+# Checks that the release builds are repeatable (docs/RELEASING.md, Verifying a release). Not a
+# required status check: a failure here is a regression to fix, not a broken build.
+#
+#   Repeatable build (macOS)   build-app.sh (ad-hoc signed, as the release minus the Developer ID),
+#                              then verify-build.sh: the same commit built again in a second worktree
+#                              at another path of the same length, with the first build's signed tools,
+#                              must give the same bundle apart from the code signatures
+#   Repeatable build (Linux)   build-linux.sh twice in the release container, from two copies of the
+#                              checkout, must give the same tarball; on x86_64 only, the script and the
+#                              toolchain being the same on aarch64
+name: Repeatable build
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repeatable-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  macos:
+    name: Repeatable build (macOS)
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0    # the build number is the commit count, as in a release
+          persist-credentials: false
+
+      - name: Show the toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      # As in release.yml. The versions are not held to the pins here (PASSTUNNEL_ALLOW_UNPINNED_TOOLS
+      # below): this checks the build, and the release workflow checks the pins.
+      - name: Install the bundled tools
+        env:
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+          HOMEBREW_VERIFY_ATTESTATIONS: 1
+          HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          brew install openvpn openfortivpn
+          brew list --versions openvpn openfortivpn openssl@4 lz4 lzo pkcs11-helper
+
+      - name: Build
+        env:
+          PASSTUNNEL_ALLOW_UNPINNED_TOOLS: 1
+        run: scripts/build-app.sh
+
+      - name: Build again and compare
+        env:
+          PASSTUNNEL_ALLOW_UNPINNED_TOOLS: 1
+        run: scripts/verify-build.sh build/PassTunnel.app --path-length "${#GITHUB_WORKSPACE}"
+
+  linux:
+    name: Repeatable build (Linux)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      # The image of the Linux release job in ci.yml (swift:6.4.1-jammy, pinned by digest).
+      BUILD_IMAGE: swift:6.4.1-jammy@sha256:51729e0f6ed2f477490cd1e1132e5eddbf011b81092f4998fc8d88e5435e33cb
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0    # the build number is the commit count
+          persist-credentials: false
+
+      # Two copies of the checkout, each mounted at /src as docs/LINUX.md builds it; the tarballs go to
+      # out-1 and out-2.
+      - name: Build twice
+        run: |
+          set -euo pipefail
+          for n in 1 2; do
+            cp -a "$PWD" "$RUNNER_TEMP/clone-$n"
+            mkdir -p "$RUNNER_TEMP/out-$n"
+            docker run --rm -v "$RUNNER_TEMP/clone-$n:/src" -v "$RUNNER_TEMP/out-$n:/out" -w /src "$BUILD_IMAGE" \
+              bash -c "git config --global --add safe.directory '*' && scripts/build-linux.sh --output /out"
+          done
+
+      - name: Compare
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          sha256sum out-1/*.tar.gz out-2/*.tar.gz
+          name="$(basename out-1/*.tar.gz)"
+          if cmp "out-1/$name" "out-2/$name"; then
+            echo "same tarball: $name"
+            exit 0
+          fi
+          mkdir x-1 x-2
+          tar -xzf "out-1/$name" -C x-1
+          tar -xzf "out-2/$name" -C x-2
+          diff -r x-1 x-2 || true
+          echo "::error title=Repeatable build::the two Linux tarballs differ"
+          exit 1

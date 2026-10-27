@@ -402,6 +402,70 @@ container, once per architecture), with the commit count as its build number, as
 gives the app; the CI jobs `Linux release` build it for every pull request with the development
 version `0.0.0-dev` and keep it as a workflow artifact. See [docs/LINUX.md](LINUX.md#distribution).
 
+## Verifying a release
+
+The build is repeatable: building the same commit again, with the same Xcode and the same Homebrew
+bottles of the bundled tools, gives the same `PassTunnel.app` byte for byte apart from the code
+signatures. The signatures cannot be repeated (only the maintainer's Developer ID key makes them, and
+they carry a secure time stamp), and neither can what contains them: the disk image and the zip
+hold the signed and stapled app, and the disk image is signed and notarized itself. What is compared
+is therefore the app inside them, with every signature removed: `codesign --remove-signature` on
+copies of each Mach-O file, and the `_CodeSignature/CodeResources` files and the stapled ticket
+(`Contents/CodeResources`) left out. `scripts/compare-app.sh A.app B.app` does exactly that.
+
+To check a release (from the first one made with this script; earlier versions lack `--tools-from`):
+
+```sh
+git clone https://github.com/PassTunnel/passtunnel && cd passtunnel
+git checkout v1.2.0
+ditto -x -k PassTunnel-1.2.0.zip /tmp/release     # or copy PassTunnel.app out of the disk image
+plutil -extract DTXcodeBuild raw /tmp/release/PassTunnel.app/Contents/Info.plist   # the Xcode to use
+brew install openvpn openfortivpn                  # the versions in scripts/release.env
+scripts/verify-build.sh /tmp/release/PassTunnel.app
+```
+
+`verify-build.sh` refuses to run with another Xcode than the one in `DTXcodeBuild` (choose one with
+`xcode-select -s` or `DEVELOPER_DIR`). It builds the checked-out commit in a new worktree with
+`build-app.sh --version <the app's version> --tools-from <the app>` and compares the result with
+`compare-app.sh`; it prints each file that differs and fails, or ends with `same apart from the code
+signatures`. A difference in `Contents/Resources/bin` or `Contents/Frameworks` stops the build
+earlier, at `--tools-from`. What it relies on:
+
+- **The tools and the pins.** The helper and the app have the cdhashes of the signed tools compiled
+  in ([Tool cdhash pins](#tool-cdhash-pins)), which depend on the Developer ID signature.
+  `--tools-from` checks that each tool and dylib of the release is this build's apart from its
+  signature and then uses the release's signed copies instead of signing its own, so the rebuild
+  pins the same cdhashes.
+- **The bundled tools** are Homebrew's bottles for the macOS version of the build (the release
+  workflow runs on `macos-26`), copied unmodified apart from their load paths. They are the same
+  only if the bottle is the same: Homebrew can publish a new bottle of the same version (a new
+  `rebuild`), and bottles for other macOS versions are other builds. The build of the tools
+  themselves is Homebrew's, outside this repository.
+- **The length of the build path.** Swift (6.4.1 and earlier) compiles the length of each source
+  file's absolute path, though not the path itself, into optimized code: the file-name length
+  passed to `swift_isEscapingClosureAtFileLocation`, for example at every inlined
+  `DispatchQueue.sync` (the Swift main branch no longer does it, swiftlang/swift `3cb4db3`). The
+  rebuild must therefore run in a directory whose path has as many characters as the original
+  build's. `verify-build.sh` makes its worktree at such a path in `/private/tmp`, by default 40
+  characters, the length of the release workflow's `/Users/runner/work/passtunnel/passtunnel`; a
+  release built on a Mac needs `--path-length` with the length of its checkout's path.
+- **The version stamps.** `CFBundleVersion` is the commit count (a full clone, not a shallow one).
+  `PTGitDescribe` is `git describe` of the commit with a 12-digit hash and without the release's own
+  tag, which `release.sh` creates only after the build. `DTXcodeBuild` is the Xcode build.
+
+`build-app.sh` links without a debug map (`-Xlinker -S`): the map named every object file by its
+absolute path in `.build` with its modification time, so two builds of the same checkout differed.
+No dSYM is made from it, and the symbol table stays. The workflow **Repeatable build**
+(`.github/workflows/repeatable.yml`, not a required check) runs `verify-build.sh` on an ad-hoc build
+of every pull request and push, and builds the Linux tarball twice, from two copies of the checkout, and compares
+the two.
+
+The [Linux tarball](#linux-tarball) is repeatable as well: `build-linux.sh` in the documented
+container (the checkout mounted at `/src`, which is part of the binaries' file names) gives the same
+tarball for the same commit, version and build number, with the files in name order, owned by root
+and dated at the commit (or `SOURCE_DATE_EPOCH`), and gzip without a name or time stamp. Check one
+by building it again and comparing the SHA-256 digests.
+
 ## Local test runs
 
 `scripts/release.sh 1.2.0-rc.1 --allow-branch` builds from the current branch (still needs a
