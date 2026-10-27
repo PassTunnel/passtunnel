@@ -16,6 +16,7 @@ enum MCPWording {
     static let instructionsProtected = "A protected profile cannot be connected on Linux yet: connect refuses it with auth_unavailable."
     static let timeout = "How long to wait for the connection."
     static let timeServer = "the NTP server this computer is set up with"
+    static let diagnoseTools = ""
     #else
     static let thisMachines = "this Mac's"
     static let theMachines = "the Mac's"
@@ -26,6 +27,8 @@ enum MCPWording {
         "A protected profile shows a Touch ID prompt on the Mac that the user must confirm; tell the user to look for it."
     static let timeout = "How long to wait for the connection (after the Touch ID confirmation)."
     static let timeServer = "Apple's time server (time.apple.com)"
+    static let diagnoseTools =
+        "; also whether each VPN tool bundled with the app starts on this macOS version (run with --version; nothing is contacted)"
     #endif
 }
 
@@ -126,7 +129,7 @@ final class MCPTools {
         Tool(
             name: "diagnose", title: "Diagnose PassTunnel",
             description:
-                "Checks the PassTunnel installation and every profile without connecting: app version and location, helper installed/enabled/outdated, whether \(MCPWording.theMachine) is online and over what kind of network (from the system's own view, nothing is contacted), and per profile whether the configuration, server and saved credentials are in place (never their values) and the last clock measurement (a FortiGate gateway's time, taken after it rejected a sign-in); on a Mac also whether each VPN tool bundled with the app starts on this macOS version (run with --version; nothing is contacted). Start here when something does not work. A clock off by \(ClockOffset.warnSeconds) s or more makes one-time codes fail.",
+                "Checks the PassTunnel installation and every profile without connecting: app version and location, helper installed/enabled/outdated, whether \(MCPWording.theMachine) is online and over what kind of network (from the system's own view, nothing is contacted), and per profile whether the configuration, server and saved credentials are in place (never their values) and the last clock measurement (a FortiGate gateway's time, taken after it rejected a sign-in)\(MCPWording.diagnoseTools). Start here when something does not work. A clock off by \(ClockOffset.warnSeconds) s or more makes one-time codes fail.",
             input: Schema.object([
                 "check_clock": Schema.boolean(
                     default: false,
