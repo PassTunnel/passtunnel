@@ -105,7 +105,7 @@ jobs:
       - name: Self-test of check-tool-symbols.sh
         run: scripts/test-check-tool-symbols.sh
 
-      # As in release.yml.
+      # As in release.yml: the current bottles of exactly the bundled formulas.
       - name: Install the bundled tools
         env:
           HOMEBREW_NO_INSTALL_CLEANUP: 1
@@ -113,13 +113,16 @@ jobs:
           HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ github.token }}
         run: |
+          brew update
           brew install openvpn openfortivpn
+          brew upgrade openvpn openfortivpn openssl@4 lz4 lzo pkcs11-helper
           brew list --versions openvpn openfortivpn openssl@4 lz4 lzo pkcs11-helper
 
       # Only the tools and their libraries, in a bundle of their own; bundle-tools.sh ends with
-      # check-tool-symbols.sh. The versions are not held to the pins (PASSTUNNEL_ALLOW_UNPINNED_TOOLS):
-      # what Homebrew has now is what the next pin update brings. tar keeps the modes and the ad-hoc
-      # signatures.
+      # check-tool-symbols.sh. The versions are not held to the pins (PASSTUNNEL_ALLOW_UNPINNED_TOOLS;
+      # release.yml and repeatable.yml are): what Homebrew has now is what the next pin update brings,
+      # so a bottle that would not start on an older macOS shows up here first. tar keeps the modes and
+      # the ad-hoc signatures.
       - name: Bundle the tools
         env:
           PASSTUNNEL_ALLOW_UNPINNED_TOOLS: 1
