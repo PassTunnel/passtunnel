@@ -1,0 +1,5 @@
+COOKIE='a'b'
+HOST='192.0.2.10'
+CONNECT_URL='https://vpn.example.com:8443/'
+FINGERPRINT='pin-sha256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk='
+RESOLVE='vpn.example.com:192.0.2.10'

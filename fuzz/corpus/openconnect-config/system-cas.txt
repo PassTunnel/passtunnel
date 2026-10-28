@@ -1,0 +1,1 @@
+vpn.example.com443aliceRemote Staffwebvpn=AB12; x=y2001:db8::10/private/var/run/passtunnel/tools/0123abcd/Resources/bin/vpn-hooktn

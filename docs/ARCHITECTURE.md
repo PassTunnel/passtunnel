@@ -1063,16 +1063,19 @@ code, nor parses the server's login forms (the most complex server-controlled pa
    below, a timeout), the app bundle's `openconnect` (Linux: the daemon's candidate paths, never
    `PATH`) with `--authenticate --config=<file>` and nothing else in argv, which every local user can
    read (`ps`). The file is a descriptor (`/dev/fd/N`) or a 0600 file in a directory only the user
-   can read, removed after the run, rendered and checked like the root file (below): `protocol
-   anyconnect`, `server https://<host>[:<port>][/<usergroup>]`, `user <name>` (the user name never
-   goes in argv), `authgroup <group>` when set, the trust lines, `non-inter`, `passwd-on-stdin`, and
-   `no-external-auth` where the tool has it (below). Standard input holds the answers, one per line:
-   `.combined` → line 1 the composed secret; `.separate` (this type's default) → line 1 the password,
-   line 2 the code. openconnect gives line 1 to the first password field (read at option parsing,
-   `main.c` 2023) and the next line to every later prompt (`secondary_password` in the same form, a
-   `challenge` form, ocserv's second "OTP" form; `prompt_for_input`, `main.c` 2706–2722); with no line
-   left it fails with "User input required in non-interactive mode". Each line is at most 4,095 bytes
-   (`MAX_READ_STDIN_SIZE` with its newline) and holds no LF or NUL. Answers are positional: a server
+   can read, removed after the run, rendered and checked like the root file (below;
+   `OpenConnectAuthConfig`, VPNConfig): `protocol anyconnect`,
+   `server https://<host>[:<port>][/<usergroup>]`, `user <name>` (the user name never goes in argv),
+   `authgroup <group>` when set, the trust lines, `non-inter`, `passwd-on-stdin`, and
+   `no-external-auth` where the tool has it (below). Standard input holds the answers, one per line
+   (`OpenConnectAnswers`): `.combined` → line 1 the composed secret; `.separate` (this type's
+   default) → line 1 the password, line 2 the code. openconnect gives line 1 to the first password
+   field (read at option parsing, `main.c` 2023) and the next line to every later prompt
+   (`secondary_password` in the same form, a `challenge` form, ocserv's second "OTP" form;
+   `prompt_for_input`, `main.c` 2706–2722); with no line left it fails with "User input required in
+   non-interactive mode". Each line is 1–4,095 bytes (`MAX_READ_STDIN_SIZE` with its newline) and
+   holds no LF, CR or NUL (`fgets` stops at the LF and removes only it, a CR would stay in the
+   answer, a NUL ends it; `main.c` 767–806). Answers are positional: a server
    that answers a wrong password with a retry form gets the code as the second password (the code is
    spent), and a text field before the password other than the user name would get the code; both
    end as a failed sign-in. openconnect's own TOTP (`--token-mode=totp`) is not used: it computes the
@@ -1084,22 +1087,46 @@ code, nor parses the server's login forms (the most complex server-controlled pa
      URL with the default browser (`/usr/bin/open`, `xdg-open`) as the user, and the run ends at its
      timeout. `--non-inter` does not change that. The Mac's bundled 9.21 always gets the option; on
      Linux the client renders it when `openconnect --help` lists it (a capability check, #184/#187).
-2. **Its output** is parsed strictly (`OpenConnectAuthResult`, VPNConfig, #180): exactly
+2. **Its output** is parsed strictly (`OpenConnectAuthResult.parse`, VPNConfig, #180): exactly
    `COOKIE='…'`, `HOST='…'`, `CONNECT_URL='…'`, `FINGERPRINT='pin-sha256:…'` and
-   `RESOLVE='<host>:<address>'` or `RESOLVE=` (`main.c` 2403–2425), each once, values printable ASCII
-   without `'`, the cookie 1–4,096 bytes; anything else fails. Without a proxy (PassTunnel never sets
-   one) openconnect prints the address it connected to: `HOST` is that numeric address (in brackets
-   for IPv6; `openconnect_get_hostname`, `library.c` 985–988, set in `ssl.c` 489–500), not a name.
+   `RESOLVE='<host>:<address>'`, each on its own line and in this order, or a last `RESOLVE=` that
+   openconnect prints without a line break (`main.c` 2403–2425; its progress messages go to standard
+   error in this mode, `main.c` 2556–2563). Values are printable ASCII without `'` (nothing is
+   escaped); the cookie is 1–4,096 bytes and starts with neither a blank nor `=` and ends without a
+   blank (it must survive the root file), `FINGERPRINT` is a full pin, `CONNECT_URL` at most 300 bytes,
+   the whole output at most 8 KiB; anything else (an unknown, repeated, missing or reordered key, a CR)
+   fails. The server chooses every value, so it could repeat the cookie in any of them: no
+   description, mirror or error shows any value of the output, only fixed text and key names.
+   Without a proxy (PassTunnel never sets one) openconnect prints the address it connected to: `HOST`
+   is that numeric address (in brackets for IPv6; `openconnect_get_hostname`, `library.c` 985–988, set
+   in `ssl.c` 489–500), not a name.
    - `CONNECT_URL` (`library.c` 953–980) must be exactly `https://<host>[:<port>]/`: no user info,
      query, fragment, path or control character, at most 300 bytes, its host the profile's host
-     (lowercased; an IPv6 literal in brackets) and its port the profile's port. Another host (ASA
-     load balancing) is refused in Phase 1, since `ProfileDestination` binds the profile's host (a
-     per-profile switch may come later).
+     (compared without regard to case; an IPv6 literal in brackets, as the URL openconnect was given
+     has it) and its port the profile's port, left out when it is 443 as openconnect prints it (a
+     `:443` fails). The profile's usergroup is not in it: AnyConnect connects without the path.
+     Another host (ASA load balancing) is refused in Phase 1, since `ProfileDestination` binds the
+     profile's host (a per-profile switch may come later).
    - For a host name, `RESOLVE` must be `<that host>:<IP literal>` (`inet_pton`) and `HOST` that same
      address; the root run gets it as `resolve`, so DNS cannot move the tunnel to another address
-     between the runs. For an IP-literal host both must be that literal and no `resolve` is rendered
-     (openconnect splits `resolve` at the first `:`, `main.c` 1983–2000). An empty `RESOLVE` fails.
+     between the runs. For an IP-literal host openconnect prints `<host as in the URL>:<address>`
+     (`[2001:db8::1]:2001:db8::1` for IPv6); the address and `HOST` must be the profile's address (any
+     spelling of it) and no `resolve` is rendered (openconnect splits `resolve` at the first `:`,
+     `main.c` 1983–2000). An empty `RESOLVE` fails; so does an address with a zone id.
    - `FINGERPRINT` must equal the profile's pin when it has one.
+   - `OpenConnectAuthResult.checkDestination` makes these checks and returns the address for
+     `resolve`; `tunnelConfig` builds the root configuration from them. The helper repeats them on the
+     request's fields (`OpenConnectAuthResult.tunnelConfig(host:port:connectURL:resolve:cookie:
+     serverCert:profileServerCert:…)`; the request carries no `HOST`): `CONNECT_URL` for the profile's
+     host and port (an IP-literal host compared as an address), `resolve` exactly for a host name, and,
+     when the profile has a pin (`profileServerCert`, normalized), the accepted `serverCert` equal to it.
+   - *Trust model.* `HOST`, `RESOLVE` and `FINGERPRINT` are written by openconnect itself, from the
+     address it connected to and the key its TLS check verified; neither the server nor a network
+     attacker can set them. Binding the tunnel run to them protects against DNS or a key changing
+     between the two runs. It does not protect against the requesting user: the start request comes
+     from the user's own process, which can already define a profile for any host, so the address it
+     reports cannot be verified independently in pure code. No address range is refused (the ocserv
+     tests run on loopback).
    - *What this does not cover:* these are checks of where the sign-in **ended**. openconnect
      follows every `https://` redirect during the sign-in, to any host and port (`handle_redirect`,
      `http.c` 646–690), and submits the forms there; the openconnect command line has no option or
@@ -1127,7 +1154,10 @@ i.e. no credentials left the machine; a failure after that is `ConnectionFailure
 ### Server trust
 
 - `server_cert` is optional. Only `pin-sha256:` followed by the full base64 SHA-256 of the server's
-  public key (SubjectPublicKeyInfo; 44 characters, the last `=`) is accepted, stored normalized.
+  public key (SubjectPublicKeyInfo; 44 characters, the last `=`, and the one before it one that
+  openconnect's own base64 of a 32-byte digest can end in) is accepted, stored normalized
+  (`OpenConnectPin.normalize`: surrounding blanks and line breaks dropped, the prefix lowercased; the
+  base64 is case-sensitive and kept as it is).
   openconnect would also take any prefix of 4 or more characters, `sha256:`/`sha1:` hex and a bare
   SHA-1 of the whole certificate (`library.c` 1694–1745); PassTunnel refuses all of them.
 - With `servercert`, openconnect turns system trust off (`main.c` 1968–1980): the pin is the only
@@ -1170,12 +1200,26 @@ no-dtls                                       (only with tls_only)
 ```
 
 - openconnect reads one `option value` per line, skipping leading blanks and one `=` after the name,
-  `#` lines are comments (`next_option`, `main.c` 1199–1300). So every value has no NUL, CR, LF or
-  other control byte, no leading or trailing whitespace and no leading `=`; `checkRendered` checks
-  the expected number of lines, only the keys above, each once and in this order.
+  `#` lines are comments (`next_option`, `main.c` 1199–1300); the value is the rest of the line up
+  to a NUL, trailing blanks included, and an option is recognized only when its whole name is
+  followed by a blank, `=` or the end. So every value has no NUL, CR, LF or other control byte, no
+  leading or trailing whitespace and no leading `=`; `checkRendered` checks the expected number of
+  lines, the header first and no other comment, only the keys above, each once and in this order,
+  the required ones present, each written `key value` with one space (or the key alone), and the
+  values of `protocol`, `servercert`, `script` and `reconnect-timeout` again. `server` is parsed by
+  the typed rules (`https://` only; a lowercase host by the host rule, an IPv6 literal in brackets; a
+  port of 1–65535 without leading zeros, never an explicit 443; the path the renderer writes: empty
+  here, a user group by its rule in the sign-in file; so no user info, query or fragment), and
+  `resolve` must be there exactly when that host is a name (without it the root run would resolve the
+  name again), name that host, and be absent for an IP literal. The sign-in file
+  (`OpenConnectAuthConfig.checkRendered`) is checked the same way, and its trust must be `servercert`
+  alone or `no-system-trust` with `cafile` naming the bundle the caller passed.
+- The host has no IPv6 zone id (a URL cannot carry one the way openconnect reads it); `server` and
+  `resolve` both have it lowercased, since openconnect matches `resolve` byte for byte.
 - `script` is always rendered: without it openconnect runs its compiled-in `DEFAULT_VPNCSCRIPT`
   (`main.c` 2439). openconnect passes it to `/bin/sh -c` (`script.c` 660–695), so the path must be
-  only `A–Z a–z 0–9 / . _ -` (the staged build directory is hex digits).
+  absolute, only `A–Z a–z 0–9 / . _ -` (the staged build directory is hex digits), at most 1,023
+  bytes, with no empty, `.` or `..` component.
 - `server` is the checked `CONNECT_URL`, rendered from the profile's own host and port, never the
   server's text (for AnyConnect openconnect puts no usergroup path in it, `library.c` 973).
 - `reconnect-timeout 60` (openconnect's default is 300) is a retry budget, not a deadline: after a
@@ -1186,14 +1230,23 @@ no-dtls                                       (only with tls_only)
 - DTLS (UDP) is on by default; the per-profile `tls_only` renders `no-dtls`.
 - Not rendered: `useragent` (openconnect's default string; no field in Phase 1) and `-v` (INFO is
   the default; higher levels and `dump-http-traffic` would log the cookie).
-- Refused, never rendered (there is no raw option input at all; #180's tests list them): `script-tun`,
-  `csd-wrapper`, `csd-user`, `external-browser`, `setuid`, `background`, `pid-file`, `syslog`,
-  `interface` (a named device could attach to another user's persistent tun on Linux, as OpenVPN's
-  `dev`), `certificate`, `sslkey`, `mca-*`, `key-password*`, `token-*`, `config`, `xmlconfig`
+- Refused, never rendered (there is no raw option input at all). `OpenConnectOptions` lists every
+  long option of openconnect 9.21 (`long_options`, `main.c` 235–326) and gives each one neither file
+  renders a reason (`OpenConnectOptions.refused`); the tests check that table covers all 81 and that
+  both final checks refuse each refused option in every form openconnect would read. Among them:
+  `script-tun`, `csd-wrapper`, `csd-user`, `external-browser`, `setuid`, `background`, `pid-file`,
+  `syslog`, `interface` (a named device could attach to another user's persistent tun on Linux, as
+  OpenVPN's `dev`), `certificate`, `sslkey`, `mca-*`, `key-password*`, `token-*`, `config`, `xmlconfig`
   (openconnect writes the server's XML profile to that path, as root), `proxy*`, `libproxy`,
   `dump-http-traffic`, `gnutls-debug`, `gnutls-priority`, `dtls*-ciphers`, `allow-insecure-crypto`,
   `no-cert-check`, `force-*`, `cafile` other than the system bundle, `os`, `version-string`,
-  `local-hostname`.
+  `local-hostname`, `useragent`; and also `form-entry` (submits arbitrary sign-in form values),
+  `sni` (another server name), `dtls-local-port` (binds a chosen UDP port as root), `verbose`,
+  `quiet`, `timestamp` (the log the parser reads), `authenticate`, `cookieonly`, `printcookie`,
+  `cookie-on-stdin` (print or read the cookie elsewhere), `passtos`, `http-auth`, `no-proxy`,
+  `juniper`, `usergroup`, `no-passwd`, `no-xmlpost`, `compression`, `deflate` and the others that are
+  not needed. Each file's own keys are refused in the other (the root run never signs in; the
+  sign-in never gets the cookie, the hook or `resolve`).
 - CSD host scan (and in later phases GlobalProtect's HIP report and Pulse's TNCC) is refused in every
   phase: without `csd-wrapper` or `csd-user` openconnect refuses a server that asks for it ("Server
   asked us to run CSD hostscan", "… 'Cisco Secure Desktop' trojan …", `auth.c` 1176–1187), and the
@@ -1385,13 +1438,16 @@ with `versionMismatch` and is replaced as today, and `passtunneld`'s `hello` rep
 ```swift
 case startOpenConnect(OpenConnectStart)   // profileID, profileDir, logPath, host, port, usergroup,
                                           // connectURL, resolve?, cookie, serverCert (the accepted
-                                          // FINGERPRINT), tlsOnly, setDNS, setRoutes
+                                          // FINGERPRINT), profileServerCert (the profile's pin or
+                                          // empty), tlsOnly, setDNS, setRoutes
 ```
 
-The helper checks every field again (`OpenConnectConfig.validate`: the profile rules below,
-`connectURL` exactly `https://<host>[:<port>]/` for the request's `host` and `port`, `resolve`
-required as `<host>:<IP literal>` for a host name and absent for an IP literal, the pin's form, the
-cookie's length and characters) before anything is written, and renders `server` from `host` and
+The helper checks every field again (`OpenConnectAuthResult.tunnelConfig(host:port:connectURL:
+resolve:cookie:serverCert:profileServerCert:…)` and `OpenConnectConfig.validate`: the profile rules
+below, `connectURL` exactly `https://<host>[:<port>]/` for the request's `host` and `port`, `resolve`
+required as `<host>:<IP literal>` for a host name and absent for an IP literal, `serverCert` equal to
+`profileServerCert` when that is set, the pins' form, the cookie's length and characters) before
+anything is written, and renders `server` from `host` and
 `port`, not from the text it was sent. `setDNS` and `setRoutes` go into the session's `policy`
 file for the hook. The request stays under the
 64 KiB limit (the cookie is at most 4 KiB).
@@ -1403,7 +1459,7 @@ New keys (JSON snake_case), FortiGate's reused where the meaning is the same:
 
 | Key | Rule |
 |---|---|
-| `host` | `FortiConfig.isValidHost`; rendered in brackets when IPv6 |
+| `host` | `FortiConfig.isValidHost` without an IPv6 zone id; rendered in brackets when IPv6 |
 | `port` | 1–65535, default 443 |
 | `usergroup` | empty or 1–255 bytes of `A–Z a–z 0–9 - _ . ~ /`, no `..`, no leading `/` (the URL path) |
 | `authgroup` | empty or 1–255 bytes, no control characters, no leading or trailing whitespace, no leading `=` (matched against the server's group list) |
@@ -1411,7 +1467,7 @@ New keys (JSON snake_case), FortiGate's reused where the meaning is the same:
 | `tls_only` | boolean, default false: `no-dtls` |
 | `set_dns`, `set_routes` | as for FortiGate |
 | `username` | at most 255 bytes, no control characters, no leading or trailing whitespace, no leading `=` (a config file value) |
-| password, TOTP, `otp_delivery`, `otp_template` | as today; `otp_delivery` defaults to `.separate`; the password and each composed line at most 4,095 bytes, no LF or NUL |
+| password, TOTP, `otp_delivery`, `otp_template` | as today; `otp_delivery` defaults to `.separate`; the password and each composed line 1–4,095 bytes, no LF, CR or NUL |
 
 There is no user agent field and no raw option. Each rule is `PTError.invalidField`, enforced in
 `ProfileStore.save`, `ConnectionManager` and again by the helper. `ProfileDestination.of` covers the

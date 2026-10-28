@@ -1,0 +1,5 @@
+COOKIE='EXAMPLE-COOKIE@1@AB'
+HOST='192.0.2.10'
+CONNECT_URL='https://vpn.example.com:8443/'
+FINGERPRINT='(null)'
+RESOLVE='vpn.example.com:192.0.2.10'

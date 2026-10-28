@@ -1,0 +1,5 @@
+COOKIE='EXAMPLE-COOKIE@1@AB'
+HOST='[2001:db8::10]'
+CONNECT_URL='https://vpn.example.com:8443/'
+FINGERPRINT='pin-sha256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk='
+RESOLVE='vpn.example.com:2001:db8::10'
