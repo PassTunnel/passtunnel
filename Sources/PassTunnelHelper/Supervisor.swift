@@ -96,9 +96,21 @@ final class Supervisor {
                 reply(
                     .success(
                         running: SessionPolicy.visible(to: uid, sessions: self.sessions),
-                        mgmtSockets: SessionPolicy.sockets(visibleTo: uid, sessions: self.sessions)))
+                        mgmtSockets: SessionPolicy.sockets(visibleTo: uid, sessions: self.sessions),
+                        tunnels: self.tunnels(visibleTo: uid)))
             }
         }
+    }
+
+    /// The network of each of `uid`'s openconnect sessions, from its root-owned record
+    /// (`HelperCore.tunnelStatus`), for the `status` reply.
+    private func tunnels(visibleTo uid: uid_t) -> [String: TunnelStatus] {
+        dispatchPrecondition(condition: .onQueue(queue))
+        var out: [String: TunnelStatus] = [:]
+        for job in jobs.values where job.ownerUID == uid && Self.isOpenConnect(job.executable) {
+            out[job.profileID] = HelperCore.tunnelStatus(runDir: job.runDir)
+        }
+        return out
     }
 
     /// `prepare` checks the request and writes the session's files; it is given `stage`, which stages the
@@ -151,13 +163,31 @@ final class Supervisor {
             // Requirement, then the cdhashes this helper was built with, both on the started process
             // (the staged file is root-owned; this also covers whatever posix_spawn actually opened).
             let verifier = RequirementVerifier(requirement: requirement, cdhashes: PinnedTools.allowed(plan.tool.rawValue))
+            // openconnect's output goes through `MaskingCopier`, which keeps the cookie out of the log; the
+            // others' straight into it.
+            let output = try plan.maskedSecrets.map { _ in try Self.outputPipe() }
+            defer { if let output { close(output.write) } }
             // `state` is written before the tool runs, so openconnect's hook always finds it (`VPNHook.session`).
-            let pid = try Spawner.spawnVerified(
-                executable: executable, arguments: plan.arguments,
-                environment: HelperCore.environment(for: plan.tool),
-                workingDirectory: plan.runDir, outputFD: plan.logFD,
-                verifier: verifier,
-                beforeResume: { pid in try self.writeState(plan: plan, pid: pid, executable: executable, launching: true) })
+            let pid: pid_t
+            do {
+                pid = try Spawner.spawnVerified(
+                    executable: executable, arguments: plan.arguments,
+                    environment: HelperCore.environment(for: plan.tool),
+                    workingDirectory: plan.runDir, outputFD: output?.write ?? plan.logFD,
+                    verifier: verifier,
+                    beforeResume: { pid in try self.writeState(plan: plan, pid: pid, executable: executable, launching: true) })
+            } catch {
+                if let output { close(output.read) }
+                throw error
+            }
+            if let output, let secrets = plan.maskedSecrets {
+                let logFD = fcntl(plan.logFD, F_DUPFD_CLOEXEC, 0)
+                if logFD >= 0 {
+                    MaskingCopier(readFD: output.read, logFD: logFD, secrets: secrets).start(name: "output \(plan.profileID)")
+                } else {
+                    close(output.read)  // the tool's output is lost, never the tool (it ignores SIGPIPE)
+                }
+            }
             // Resumed: the state no longer says `launching`, so a restarted helper adopts the tool.
             try? writeState(plan: plan, pid: pid, executable: executable, launching: false)
             let logCopy = fcntl(plan.logFD, F_DUPFD_CLOEXEC, 0)
@@ -177,6 +207,15 @@ final class Supervisor {
             log.error("start \(profileID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             return .failure(String(describing: error))
         }
+    }
+
+    /// A pipe for a tool's output, both ends close-on-exec (`Spawner` dups the write end onto the tool's
+    /// standard output and error).
+    private static func outputPipe() throws -> (read: Int32, write: Int32) {
+        var fds: [Int32] = [-1, -1]
+        guard pipe(&fds) == 0 else { throw HelperCore.Failure.system("pipe", errno) }
+        for fd in fds { _ = fcntl(fd, F_SETFD, FD_CLOEXEC) }
+        return (fds[0], fds[1])
     }
 
     /// OpenVPN binds the socket with umask 0 (it relies on --management-client-user); once it exists,

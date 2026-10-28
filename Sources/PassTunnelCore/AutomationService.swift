@@ -313,7 +313,14 @@ public final class AutomationService {
             }
             do { try Profile.checkUsername(p.username, type: p.type) } catch { problems.append(error) }
         case .anyconnect:
-            problems.append(PTError.unsupportedProfileType(p.type.rawValue))  // not connected yet
+            if let refusal = manager.connectRefusal(p.type) { problems.append(refusal) }  // macOS 15.4, Linux
+            if p.host.trimmingCharacters(in: .whitespaces).isEmpty {
+                problems.append(PTError.missingHost(p.id))
+            } else if !Profile.isValidHost(p.host, type: p.type) {
+                problems.append(PTError.invalidField("host"))
+            }
+            do { try Profile.checkUsername(p.username, type: p.type) } catch { problems.append(error) }
+            do { try p.checkAnyConnectFields() } catch { problems.append(error) }
         }
         /// Whether `kind` is saved; nil, and the store's error once, when the store cannot be read.
         func saved(_ kind: SecretKind, missing: PTError) -> Bool? {
@@ -338,8 +345,9 @@ public final class AutomationService {
 
 /// Removes anything that looks like a credential from log lines before they leave the process. The
 /// VPN tools get credentials through files, not on the command line, and do not log them or key
-/// material at the verbosity the helper allows (OpenVPN `--verb` capped at 4); this is a second line
-/// of defence for unusual configs and servers.
+/// material at the verbosity the helper allows (OpenVPN `--verb` capped at 4; openconnect at its default
+/// INFO, which prints no cookie); this is a second line of defence for unusual configs and servers.
+/// Cisco AnyConnect's pins (`pin-sha256:…`) are public key digests, not secrets, and stay.
 public struct LogRedactor {
     public static let mask = "<redacted>"
     private let secrets: [String]
@@ -386,7 +394,9 @@ public struct LogRedactor {
         for (regex, template) in Self.patterns {
             out = regex.stringByReplacingMatches(in: out, range: NSRange(out.startIndex..., in: out), withTemplate: template)
         }
-        return out
+        // Cisco AnyConnect's session cookie in any of its forms (`COOKIE=`, `webvpn=`, `Cookie:` headers, a
+        // `cookie` configuration line): the helper masks it as it writes the tunnel's log, this again.
+        return OutputMask.apply(out)
     }
 }
 

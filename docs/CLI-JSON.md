@@ -84,7 +84,7 @@ human confirmation, and a script cannot answer it.
 | `other_vpn_active` | Another VPN already routes all traffic (`connect --force` overrides) |
 | `destination_changed` | The server settings changed after you confirmed: connect again and confirm |
 | `timeout` | `--timeout` passed, or the VPN tool's own limit |
-| `config_invalid` | Missing or rejected OpenVPN configuration, missing FortiGate server, unreadable file, a profile or share file of a VPN type that needs a newer PassTunnel |
+| `config_invalid` | Missing or rejected OpenVPN configuration, missing FortiGate server, unreadable file, a profile or share file of a VPN type that needs a newer PassTunnel, a Cisco AnyConnect profile on macOS older than 15.4 ("Cisco AnyConnect requires macOS 15.4 or later.") or on Linux ("Cisco AnyConnect is not supported on Linux yet.") |
 | `file_error` | A file could not be read or written |
 | `keychain_error` | The secret store (the Keychain on the Mac; on Linux secret-service, systemd-creds or the passphrase-encrypted file) refused or cannot be used, or a protected secret cannot be decrypted; `message` says why |
 | `internal` | Anything else |
@@ -229,20 +229,24 @@ and MCP).
 | `auth_rejected` | `credentials_rejected` | The server refused the sign-in (OpenVPN `AUTH_FAILED`, openfortivpn "Could not authenticate"). It is never retried, also not by the automatic reconnect: retrying could lock the account |
 | `host_not_found` | `host_not_found` | The server's name could not be resolved |
 | `unreachable` | `server_unreachable` | The server did not answer: connection refused or timed out, no route, no TLS answer in time. The sign-in was not sent |
-| `configuration` | `config_invalid`, `connect_failed`, `credentials_missing`, … | The configuration, a key or the server's certificate was refused (OpenVPN `Options error`, `VERIFY ERROR`; openfortivpn's gateway certificate), or something the profile needs is missing |
+| `configuration` | `config_invalid`, `connect_failed`, `credentials_missing`, … | The configuration, a key or the server's certificate was refused (OpenVPN `Options error`, `VERIFY ERROR`; openfortivpn's gateway certificate; Cisco AnyConnect: the certificate or the pinned key, with `server_cert`), or something the profile needs is missing (Cisco AnyConnect: also a group the server does not offer, or a server that asks for more than the password and the code) |
 | `setup` | `connect_failed` | The tunnel came up, but its network setup failed |
 | `timeout` | `timeout` | The sign-in was sent, but the tunnel did not come up in time |
 | `cancelled` | `cancelled`, `auth_cancelled`, `connect_failed` | Stopped before it finished |
-| `tool_unsupported` | `connect_failed` | The VPN tool does not run on this version of macOS: dyld stopped it at launch (`reason`: `Symbol not found: _strchrnul`, `Library not loaded: …`). Nothing was sent |
+| `tool_unsupported` | `connect_failed`, `config_invalid` | The VPN tool does not run on this version of macOS: dyld stopped it at launch (`reason`: `Symbol not found: _strchrnul`, `Library not loaded: …`), or it needs a later macOS than this one (Cisco AnyConnect: `reason` `requires macOS 15.4 or later`). Nothing was sent |
+| `host_scan_required` | `connect_failed` | Cisco AnyConnect: the server requires a host scan (Cisco Secure Desktop), which PassTunnel never runs. Nothing was sent; not retried |
 | `failed` | `connect_failed`, `helper_*`, … | Anything else |
 
 `credentials_sent`: the sign-in reached the server (OpenVPN finished the TLS handshake, which sends
-it; openfortivpn connected to the gateway; or the server answered it). `code_sent`: a one-time code
+it; openfortivpn connected to the gateway; or the server answered it; Cisco AnyConnect: openconnect
+made a request after its first one, which is when a form with them can have been submitted). `code_sent`: a one-time code
 went with it, so that code's period is used up; when it did not, PassTunnel gives the period back and
 the next connect sends a code at once (not after `cancelled`). Present only when they apply: `reply` (the server's answer,
 `auth_rejected`), `reason` (the VPN tool's words, e.g. `Connection refused`, `Name or service not
 known`, `certificate has expired`), `code_seconds_left` (the code's seconds left when it was sent),
-`tries` (`unreachable`), `clock` (`auth_rejected`: a [ClockOffset](#clockoffset), how far the clock was
+`tries` (`unreachable`), `server_cert` (`configuration`, Cisco AnyConnect: the `pin-sha256:…` of the key
+whose certificate was not trusted, as openconnect reported it, to trust it in the profile's `server_cert`
+after checking it), `clock` (`auth_rejected`: a [ClockOffset](#clockoffset), how far the clock was
 off when it was measured after the rejection or checked on request since; see below). `reply` and
 `reason` pass through the same redaction as `log --json`. New kinds may be added.
 
@@ -419,7 +423,7 @@ One event of the activity log (`profiles/<id>/activity.jsonl`, the last 500 even
 | `unreachable` | `tries`, `reason` (the tool's words, e.g. `Connection refused`) | The server did not answer; the sign-in was not sent |
 | `next_try` | `next_at` | The next automatic attempt starts then |
 | `rejected` | `reply` (what the server answered, e.g. `AUTH_FAILED`; absent when it said nothing) | The server refused the sign-in; not retried |
-| `failed` | `failure` (a [ConnectionFailure](#connectionfailure) `kind`: `host_not_found`, `configuration`, `setup`, `timeout`, `tool_unsupported` or `failed`), `reason`, `credentials_sent` | The attempt failed otherwise |
+| `failed` | `failure` (a [ConnectionFailure](#connectionfailure) `kind`: `host_not_found`, `configuration`, `setup`, `timeout`, `tool_unsupported`, `host_scan_required` or `failed`), `reason`, `credentials_sent` | The attempt failed otherwise |
 | `stopped_by_user` | | A connect, a code wait or the automatic reconnects were stopped |
 | `disconnected_by_user` | | A connection that was up was ended |
 

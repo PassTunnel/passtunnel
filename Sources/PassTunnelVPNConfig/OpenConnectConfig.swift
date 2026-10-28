@@ -183,7 +183,7 @@ public struct OpenConnectConfig: Equatable, CustomStringConvertible, CustomDebug
 /// The configuration of the user's own `openconnect --authenticate` run (the sign-in), rendered from typed
 /// fields like `OpenConnectConfig`. It carries no secret: the password and the code go on standard input
 /// (`OpenConnectAnswers`). The user name is here and never in argv, which every local user can read.
-public struct OpenConnectAuthConfig: Equatable {
+public struct OpenConnectAuthConfig: Equatable, Sendable {
     public var host: String
     public var port: Int
     /// The URL path of the sign-in (`https://host/usergroup`): empty, or letters, digits and `- _ . ~ /`.

@@ -425,9 +425,10 @@ section is the threat model the pull requests #179–#189 are reviewed against; 
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#cisco-anyconnect-backend-planned). In place so far: the
 bundled tool (#179), the configuration checks (#180), the profile (#181), the helper's side of a
 session (#182: the helper accepts a start request, checks every field of it again and runs
-`openconnect` as described below, but nothing in the app sends that request yet, #184) and the Mac's
-hook that sets up and undoes the network (#183), tested against a simulated Mac; what only a real
-tunnel shows is checked against a test server (#188).
+`openconnect` as described below), the Mac's hook that sets up and undoes the network (#183), tested
+against a simulated Mac, and the sign-in and connect in PassTunnel's core (#184, macOS 15.4 and later;
+the app and the command line do not offer the type yet, #185 and #186); what only a real server and
+tunnel show is checked against a test server (#188).
 
 ### What changes
 
@@ -437,14 +438,32 @@ tunnel shows is checked against a test server (#188).
   copied, signature-checked and pinned by cdhash exactly like `openvpn` and its libraries, and their
   own vulnerabilities apply as root once the helper runs it. Since #179 they are in the app bundle and
   in the helper's root-owned copy, pinned; since #182 the helper starts `openconnect` for a Cisco
-  AnyConnect start request (macOS 15.4 and later only), which nothing in the app sends yet. `diagnose`
-  runs `openconnect --version` as you (macOS 15.4 and later only).
+  AnyConnect start request (macOS 15.4 and later only), which PassTunnel sends since #184. `diagnose`
+  runs `openconnect --version` as you (macOS 15.4 and later only). Below macOS 15.4 a Cisco AnyConnect
+  profile is refused before anything is asked, read or run ("Cisco AnyConnect requires macOS 15.4 or
+  later."); on Linux it is refused the same way until passtunneld runs openconnect (#187).
 - **Signing in runs as you, not as root.** Your password and one-time code go to an `openconnect
   --authenticate` run under your own account, on its standard input. The helper receives only what
   that run returns: the session cookie, the server's public key fingerprint and the address it
   connected to. It never sees your password or code, and the root process never reads the server's
   login pages. Your user name goes to that run in a file, never on its command line, which every
-  account on the machine can read.
+  account on the machine can read: the command line is exactly `--config=<file> --authenticate`, the
+  file is `0600` in a directory of its own (`0700`) in your temporary folder and is removed when the
+  run ends, and the run gets a fixed environment (no proxy, key log or debug variable of yours). It is
+  the app bundle's own `openconnect`, run with your privileges, so it is trusted as much as the app's
+  own code is; it is stopped after 60 seconds, or when you disconnect. Its progress messages (never its
+  output with the cookie) become the profile's log after passing the log filter, with your password,
+  code and the cookie masked literally.
+- **The one-time code.** It counts as sent once the sign-in run starts (the next connect waits for a
+  fresh code). It is given back only when the run's messages, all of them, show that no form was
+  submitted: only one request, the first, which carries no credentials. A redirect counts as a second
+  request, and a run stopped at its time limit or with more messages than are kept counts as sent, so a
+  code that may have reached any server is never reused. After a form may have been sent, a failure is
+  always a refused sign-in, never retried, whatever the server's text says.
+- **What the server writes into the log decides nothing.** Its text appears among openconnect's
+  messages. Whether the tunnel is up, or its network set-up failed, comes from the helper, which reads
+  the hook's root-owned record; openconnect's messages are read only as whole lines in its exact wording,
+  and certificate and network failures only from before the server's first answer.
 - **Where the sign-in may go.** A server may send the sign-in to another server (load balancing).
   PassTunnel refuses to build a tunnel when the sign-in **ended** on another host or port than the
   profile's (Phase 1), or when the sign-in's log shows a form sent to one; the tunnel run is pinned
@@ -475,8 +494,14 @@ The cookie is a bearer secret: whoever holds it can use your VPN session until t
   encoding the request or by the runtime are not guaranteed to be erased. It is never written to
   your profile folder.
 - **Not logged:** the sign-in run's output, which carries it, is read only by PassTunnel's parser,
-  and neither run gets `-v` or an HTTP dump option, the levels that would print it. The log filter
-  is not relied on for it.
+  and neither run gets `-v` or an HTTP dump option, the levels that would print it. A server can still
+  make the tunnel run print text of its choosing (the status line of its CONNECT reply), so the helper
+  copies that run's output into the log through a filter that removes the cookie, whole lines at a time.
+  The filter applied when a log is read masks the cookie's forms as well (`COOKIE=`, `webvpn=`, `Cookie:`
+  headers, a `cookie` configuration line). No error message, activity entry or description of the
+  start request contains it: a sign-in that cannot be used (it ended on another server, or its output
+  is not in the expected form) is reported with a fixed text, since the server chooses every value
+  of that output.
 - **How long it lives:** the file goes with the run directory when the tunnel stops. On a disconnect
   openconnect tries to tell the server goodbye; whether the server then invalidates the cookie is up
   to the server, and nothing is sent after a forced kill, a crash or a broken connection. Treat the
@@ -611,7 +636,7 @@ Some servers require the client to download and run a host scan (Cisco Secure De
 phases GlobalProtect's HIP report and Pulse's Host Checker). PassTunnel never runs such code,
 neither the server's nor the scripts Homebrew ships for it: openconnect refuses the request when it
 is not given a wrapper, PassTunnel never gives one, and the connection fails saying the server
-requires a host scan PassTunnel does not run.
+requires a host scan PassTunnel does not run (`host_scan_required`). It is not retried.
 
 ### Linux
 
