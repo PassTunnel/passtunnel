@@ -261,6 +261,38 @@ public enum HelperRequest: Codable, Equatable {
 /// (`CFBundleVersion`) of the app the answering helper was started from, in every reply; helpers
 /// before it was added omit it (an optional key, so the protocol version stays the same).
 /// `errorCode` names failures the app handles specially (`ErrorCode`); also optional.
+/// The network of an openconnect session as its hook recorded it (`HelperCore.tunnelStatus`): in the
+/// `status` reply, the only source a client takes "connected" and "the set-up failed" from. Protocol 4
+/// (no released helper speaks it yet), an optional key: a reply without it is read as before.
+public struct TunnelStatus: Codable, Equatable, Sendable {
+    public enum State: String, Codable, Sendable {
+        /// openconnect runs, the hook has not reported yet.
+        case settingUp = "setting_up"
+        case up
+        /// openconnect re-establishes the connection; up again after the hook verified the network.
+        case reconnecting
+        /// The hook's set-up failed; it reverted it, and the session is being stopped.
+        case failed
+        /// The record could not be read right now (the hook is writing it).
+        case unknown
+    }
+
+    public var state: State
+    /// failed: the hook's reason (printable ASCII, names variables and rules, never values).
+    public var reason: String?
+    /// The tunnel interface the hook set up ("utun5").
+    public var interface: String?
+
+    public init(state: State, reason: String? = nil, interface: String? = nil) {
+        self.state = state
+        self.reason = reason
+        self.interface = interface
+    }
+
+    /// up or reconnecting: the network was set up and is held.
+    public var isUp: Bool { state == .up || state == .reconnecting }
+}
+
 public struct HelperResponse: Codable, Equatable {
     public var ok: Bool
     public var error: String?
@@ -270,6 +302,8 @@ public struct HelperResponse: Codable, Equatable {
     public var mgmtSocket: String?
     public var mgmtSockets: [String: String]?
     public var helperBuild: Int?
+    /// `status`: profile ID → the network of the caller's own openconnect sessions (`TunnelStatus`).
+    public var tunnels: [String: TunnelStatus]?
 
     public enum ErrorCode {
         /// config.ovpn is not the file the app checked (`OpenVPNStart.configSHA256`). Not retryable:
@@ -279,7 +313,7 @@ public struct HelperResponse: Codable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case ok, error, errorCode = "error_code", pid, running, mgmtSocket = "mgmt_socket", mgmtSockets = "mgmt_sockets"
-        case helperBuild = "helper_build"
+        case helperBuild = "helper_build", tunnels
     }
 
     public init(
@@ -296,9 +330,11 @@ public struct HelperResponse: Codable, Equatable {
 
     public static func success(
         pid: Int32? = nil, running: [String: Int32]? = nil,
-        mgmtSocket: String? = nil, mgmtSockets: [String: String]? = nil
+        mgmtSocket: String? = nil, mgmtSockets: [String: String]? = nil, tunnels: [String: TunnelStatus]? = nil
     ) -> HelperResponse {
-        HelperResponse(ok: true, pid: pid, running: running, mgmtSocket: mgmtSocket, mgmtSockets: mgmtSockets)
+        var response = HelperResponse(ok: true, pid: pid, running: running, mgmtSocket: mgmtSocket, mgmtSockets: mgmtSockets)
+        response.tunnels = tunnels
+        return response
     }
 
     public static func failure(_ message: String, code: String? = nil) -> HelperResponse {

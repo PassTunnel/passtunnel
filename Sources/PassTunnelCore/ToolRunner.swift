@@ -13,6 +13,8 @@ struct ToolOutput: Equatable {
     var status: Int32
     var output: Data
     var errorOutput: Data
+    /// Standard error went past `SystemToolRunner.maxOutput`, and the rest of it was dropped.
+    var errorOutputCut = false
 
     /// The first line of the error output, without the tool's "name: " prefix, for messages.
     var errorLine: String {
@@ -167,7 +169,8 @@ struct SystemToolRunner: ToolRunning {
             process.terminationReason == .uncaughtSignal
             ? 128 + process.terminationStatus
             : process.terminationStatus
-        return ToolOutput(status: status, output: streams.output, errorOutput: streams.errorOutput)
+        return ToolOutput(
+            status: status, output: streams.output, errorOutput: streams.errorOutput, errorOutputCut: streams.errorOutputCut)
     }
 
     /// Feeds standard input and collects both outputs with `poll`, until both outputs are closed or
@@ -183,6 +186,8 @@ struct SystemToolRunner: ToolRunning {
         var errorOpen = true
         var output = Data()
         var errorOutput = Data()
+        /// More came on standard error than `SystemToolRunner.maxOutput`; the rest was dropped.
+        var errorOutputCut = false
 
         init(input: Int32, output: Int32, errorOutput: Int32, pending: Data) {
             self.input = input
@@ -213,8 +218,9 @@ struct SystemToolRunner: ToolRunning {
                     if entry.fd == input {
                         writeInput()
                     } else if entry.fd == outputFD {
-                        if !read(outputFD, into: &output, buffer: &buffer) { outputOpen = false }
-                    } else if !read(errorFD, into: &errorOutput, buffer: &buffer) {
+                        var cut = false
+                        if !read(outputFD, into: &output, buffer: &buffer, cut: &cut) { outputOpen = false }
+                    } else if !read(errorFD, into: &errorOutput, buffer: &buffer, cut: &errorOutputCut) {
                         errorOpen = false
                     }
                 }
@@ -244,7 +250,7 @@ struct SystemToolRunner: ToolRunning {
         }
 
         /// Reads what is there; false at end of file or on an error.
-        private func read(_ fd: Int32, into data: inout Data, buffer: inout [UInt8]) -> Bool {
+        private func read(_ fd: Int32, into data: inout Data, buffer: inout [UInt8], cut: inout Bool) -> Bool {
             let n = buffer.withUnsafeMutableBytes { raw -> Int in
                 #if canImport(Darwin)
                 Darwin.read(fd, raw.baseAddress, raw.count)
@@ -253,9 +259,9 @@ struct SystemToolRunner: ToolRunning {
                 #endif
             }
             if n > 0 {
-                if data.count < SystemToolRunner.maxOutput {
-                    data.append(contentsOf: buffer[0..<min(n, SystemToolRunner.maxOutput - data.count)])
-                }
+                let room = SystemToolRunner.maxOutput - data.count
+                if n > room { cut = true }
+                if room > 0 { data.append(contentsOf: buffer[0..<min(n, room)]) }
                 return true
             }
             return n < 0 && (errno == EAGAIN || errno == EINTR)

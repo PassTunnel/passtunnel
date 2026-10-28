@@ -1,5 +1,4 @@
 import Foundation
-import PassTunnelShared
 
 /// Reads the per-profile `vpn.log` written by openvpn / openfortivpn. The helper creates a fresh
 /// log for every start, so the whole file describes the current (or last) session.
@@ -47,14 +46,10 @@ public enum VPNLog {
 
     /// The tunnel interface the tool opened: OpenVPN "Opened utun device utun5" (macOS), "TUN/TAP
     /// device tun0 opened" or, with data channel offload, "DCO device tun0 opened" (Linux);
-    /// openfortivpn "Interface ppp0 is UP"; Cisco AnyConnect: the hook's success line
-    /// ("passtunnel vpn-hook: utun5 up: …", `VPNHook.Report`; openconnect does not name it at INFO).
+    /// openfortivpn "Interface ppp0 is UP". (Cisco AnyConnect's comes from the helper's `status`,
+    /// `TunnelStatus.interface`: its log is not trusted for it.)
     public static func tunnelInterface(_ text: String) -> String? {
         for line in text.split(whereSeparator: \.isNewline) {
-            if line.hasPrefix(VPNHook.linePrefix) {
-                if let report = VPNHook.Report.parse(line) { return report.interface }
-                continue
-            }
             for (marker, prefix) in [("Opened utun device ", "utun"), ("Interface ", "ppp")] {
                 guard let r = line.range(of: marker) else { continue }
                 let name = line[r.upperBound...].prefix { $0.isLetter || $0.isNumber }

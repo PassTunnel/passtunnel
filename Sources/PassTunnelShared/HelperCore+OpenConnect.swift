@@ -103,11 +103,13 @@ extension HelperCore {
             try Self.writeNewFile(configPath, bytes, mode: 0o600)
             try Self.writeNewFile(runDir + "/" + OpenConnectPolicy.fileName, Data(policy.utf8), mode: 0o600)
             let logFD = try dir.createLogFile(logName)
+            // A server can make openconnect print what it chooses (the CONNECT status line, say), so its output
+            // goes through the masker, which removes the cookie, before it reaches the user's log.
             return LaunchPlan(
                 profileID: s.profileID, ownerUID: uid, tool: .openconnect,
                 arguments: Self.openConnectArguments(configPath: configPath),
                 runDir: runDir, sessionDir: session, logFD: logFD, dnsUpdownPath: nil,
-                profileDir: dir, mgmtSocket: nil)
+                profileDir: dir, mgmtSocket: nil, maskedSecrets: [s.cookie])
         } catch {
             removeRunDir(profileID: s.profileID, uid: uid)
             throw error
@@ -117,5 +119,29 @@ extension HelperCore {
     /// Overwrites `data` with zeros.
     static func wipe(_ data: inout Data) {
         _ = data.withUnsafeMutableBytes { $0.initializeMemory(as: UInt8.self, repeating: 0) }
+    }
+}
+
+// MARK: - Tunnel status
+
+extension HelperCore {
+    /// The state of an openconnect session's network as its hook recorded it (the root-owned `network`
+    /// record, `OpenConnectJournal`), for the `status` reply: what the client decides "connected" and
+    /// "failed" by. The session log is not: a server can make openconnect print text of its choosing into it.
+    /// `.unknown` when the record cannot be read right now (the hook is appending to it).
+    public static func tunnelStatus(runDir: String) -> TunnelStatus {
+        let record: OpenConnectRecord?
+        do {
+            record = try OpenConnectJournal.read(OpenConnectJournal.path(runDir: runDir))
+        } catch {
+            return TunnelStatus(state: .unknown)
+        }
+        guard let record else { return TunnelStatus(state: .settingUp) }
+        switch record.status {
+        case nil: return TunnelStatus(state: .settingUp, interface: record.interface)
+        case .up?: return TunnelStatus(state: .up, interface: record.interface)
+        case .reconnecting?: return TunnelStatus(state: .reconnecting, interface: record.interface)
+        case .failed(let reason)?: return TunnelStatus(state: .failed, reason: VPNHook.oneLine(reason), interface: record.interface)
+        }
     }
 }

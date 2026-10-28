@@ -139,6 +139,9 @@ public struct HelperCore {
         public let profileDir: ProfileDirectory
         /// Full path of the OpenVPN management socket inside `runDir` (OpenVPN only).
         public let mgmtSocket: String?
+        /// Literal values the tool's output must never write to the log (openconnect: the session cookie). When
+        /// set, the output goes through a pipe and `MaskingCopier` (`OutputMask`) instead of straight into the log.
+        public var maskedSecrets: [String]? = nil
     }
 
     public static let configFileName = "config.ovpn"

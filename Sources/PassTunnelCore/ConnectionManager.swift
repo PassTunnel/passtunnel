@@ -481,6 +481,8 @@ public final class ConnectionManager: ObservableObject {
     private var sessionActive: Set<String> = []  // reached "connected" in the current session
     private var connectedAt: [String: Date] = [:]
     private var mgmtSockets: [String: String] = [:]  // management socket per profile, as the helper reports it
+    /// The network of each openconnect session, as the helper reports it from the hook's record.
+    private var tunnelStates: [String: TunnelStatus] = [:]
     private var sharedStates: [String: SharedState] = [:]  // last state written to the shared file per profile
     private var reconnectGen: [String: Int] = [:]
     private var reconnectTasks: [String: Task<Void, Never>] = [:]
@@ -629,6 +631,7 @@ public final class ConnectionManager: ObservableObject {
             if r.ok {
                 running = r.running ?? [:]
                 mgmtSockets = r.mgmtSockets ?? [:]
+                tunnelStates = r.tunnels ?? [:]
                 helperError = nil
             } else {
                 helperError = r.error ?? ""
@@ -678,12 +681,14 @@ public final class ConnectionManager: ObservableObject {
             guard fortiIsConnected(p, log: log) else { return (.connecting(Phase.connecting), false) }
             return (.connected(ip: VPNLog.fortiAddress(log) ?? "", since: connectedAt[p.id] ?? logCreated(p.id)), false)
         case .anyconnect:
-            // Connected once the hook reported the network up (its last line is the success line).
+            // Connected once the helper reports the network up from the hook's root-owned record, never from
+            // the log, part of which the server writes. The address shown is the log's, for that interface.
             guard isRunning else { return (.disconnected, false) }
-            guard let report = VPNLog.openConnectReport(VPNLog.read(store.logURL(p.id))) else {
-                return (.connecting(Phase.configuring), false)
-            }
-            return (.connected(ip: report.addresses.first?.description ?? "", since: connectedAt[p.id] ?? logCreated(p.id)), false)
+            let tunnel = tunnelStates[p.id]
+            if tunnel?.state == .unknown, case .connected = state(p.id) { return (state(p.id), false) }
+            guard let tunnel, tunnel.isUp else { return (.connecting(Phase.configuring), false) }
+            let ip = VPNLog.openConnectAddress(VPNLog.read(store.logURL(p.id)), interface: tunnel.interface)
+            return (.connected(ip: ip, since: connectedAt[p.id] ?? logCreated(p.id)), false)
         }
     }
 
@@ -1164,6 +1169,7 @@ public final class ConnectionManager: ObservableObject {
     /// The helper's `status` reply, nil when it failed.
     private func currentStatus() async -> HelperResponse? {
         guard let r = try? await helper.perform(.status, timeout: timing.helperTimeout), r.ok else { return nil }
+        tunnelStates = r.tunnels ?? [:]
         return r
     }
 
@@ -1270,7 +1276,9 @@ public final class ConnectionManager: ObservableObject {
             OVPNAnalyzer.redirectsGateway(config)
             ?? VPNLog.pushedRedirectGateway(VPNLog.readHead(store.logURL(p.id)))
         guard redirects else { return }
+        // Cisco AnyConnect sessions: the interface the helper reports from the hook's record.
         let own = Set(running.keys.filter { $0 != p.id }.compactMap { VPNLog.tunnelInterface(VPNLog.readHead(store.logURL($0))) })
+            .union(tunnelStates.filter { $0.key != p.id && running[$0.key] != nil }.compactMap(\.value.interface))
         if let other = FullTunnelCheck.foreignFullTunnel(in: routes(), own: own) {
             throw PTError.otherVPNActive(other)
         }
@@ -1602,10 +1610,23 @@ public final class ConnectionManager: ObservableObject {
             try checkToken(id, token)
             let log = VPNLog.read(logURL)
             if p.type == .anyconnect {
-                // The sign-in is over (`signIn` recorded it accepted); this is the tunnel run's log.
-                if let error = anyConnectFailure(log, exited: false) {
-                    if owned { await stopQuietly(id) }
-                    throw error
+                // The sign-in is over (`signIn` recorded it accepted). Up or failed is what the helper reads in
+                // the hook's record; the log only gives the address shown and the failure's tail.
+                if let r = try? await helper.perform(.status, timeout: timing.helperTimeout), r.ok {
+                    try checkToken(id, token)
+                    guard (r.running ?? [:])[id] != nil else {
+                        if hasUserStoppedMarker(id) { throw PTError.connectCancelled }
+                        throw anyConnectEnded(VPNLog.read(logURL))
+                    }
+                    let tunnel = r.tunnels?[id]
+                    if let tunnel { tunnelStates[id] = tunnel }
+                    if tunnel?.state == .failed {
+                        if owned { await stopQuietly(id) }
+                        throw PTError.setupFailed(reason: tunnel?.reason ?? "", log: VPNLog.tail(VPNLog.read(logURL)))
+                    }
+                    if let tunnel, tunnel.isUp {
+                        return (VPNLog.openConnectAddress(VPNLog.read(logURL), interface: tunnel.interface), clock.now())
+                    }
                 }
             } else {
                 if VPNLog.isAuthFailure(log) {
@@ -1643,7 +1664,7 @@ public final class ConnectionManager: ObservableObject {
                     return (VPNLog.fortiAddress(log) ?? "", clock.now())
                 }
             case .anyconnect:
-                if let report = VPNLog.openConnectReport(log) { return (report.addresses.first?.description ?? "", clock.now()) }
+                break  // above
             }
 
             let now = clock.now()
@@ -1656,7 +1677,7 @@ public final class ConnectionManager: ObservableObject {
                     // Stopped by a disconnect in another process (app ↔ CLI): a cancel, not a failure.
                     if hasUserStoppedMarker(id) { throw PTError.connectCancelled }
                     let final = VPNLog.read(logURL)
-                    if p.type == .anyconnect { throw anyConnectFailure(final, exited: true) ?? PTError.connectFailed(VPNLog.tail(final)) }
+                    if p.type == .anyconnect { throw anyConnectEnded(final) }
                     if VPNLog.isAuthFailure(final) { throw PTError.authFailed(VPNLog.tail(final)) }
                     throw ended(p, log: final, exited: true)
                 }
@@ -1671,15 +1692,13 @@ public final class ConnectionManager: ObservableObject {
         }
     }
 
-    /// Why the tunnel run of a Cisco AnyConnect session failed, from its log: the hook's failure line
-    /// (`PTError.setupFailed`: it reverted the network and stopped openconnect), the server ending the session
-    /// ("Cookie was rejected by server", "Session terminated by server"), and, once the tool has `exited`,
-    /// dyld having stopped it (`toolUnsupported`). nil when the log shows none of them.
-    private func anyConnectFailure(_ log: String, exited: Bool) -> PTError? {
-        if case .failed(let reason) = VPNLog.openConnectHook(log) { return .setupFailed(reason: reason, log: VPNLog.tail(log)) }
-        if exited, let reason = VPNLog.toolLoadFailure(log) { return .toolUnsupported(reason: reason, log: VPNLog.tail(log)) }
-        if VPNLog.openConnectServerEnd(log) != nil { return .connectFailed(VPNLog.tail(log)) }
-        return nil
+    /// Why the tunnel run of a Cisco AnyConnect session ended before it was up: dyld stopped it
+    /// (`toolUnsupported`; its line comes first, before the tool could write anything), else `connectFailed`
+    /// with the log's tail (the server ended the session, the cookie was refused, the helper stopped a set-up
+    /// that failed or took too long).
+    private func anyConnectEnded(_ log: String) -> PTError {
+        if let reason = VPNLog.toolLoadFailure(log) { return .toolUnsupported(reason: reason, log: VPNLog.tail(log)) }
+        return .connectFailed(VPNLog.tail(log))
     }
 
     /// An OpenVPN session whose DNS hook or all-traffic routes failed is unusable (another VPN is in

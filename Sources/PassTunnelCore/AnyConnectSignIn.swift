@@ -26,8 +26,10 @@ import Glibc
 ///   `SystemToolRunner.maxOutput` per stream; standard output is parsed only when it is at most
 ///   `OpenConnectAuthResult.maxOutputBytes`.
 /// - **Output:** standard output, which holds the cookie, is read only by `OpenConnectAuthResult.parse` and
-///   overwritten after it; it is never logged. Standard error (openconnect's progress in this mode) becomes
-///   the log, passed through `LogRedactor` with the answers and the cookie as literal secrets first.
+///   overwritten after it; it is never logged. Standard error (openconnect's progress in this mode) is read
+///   whole for whether a form was submitted (`VPNLog.openConnectCredentialsSent`; when the run timed out or
+///   standard error went past what is kept, the code counts as sent), then passed through `LogRedactor`
+///   with the answers and the cookie as literal secrets, and only then cut to `maxLogBytes` for the log.
 ///
 /// `@unchecked Sendable`: `run` is called once, on a background queue; the runner it holds
 /// (`SystemToolRunner`, or a test's fake) keeps no state between runs.
@@ -135,25 +137,24 @@ struct AnyConnectSignIn: @unchecked Sendable {
         } catch is ToolCancelled {
             return failed(PTError.connectCancelled)
         } catch let timedOut as ToolTimeout {
-            let log = Self.log(timedOut.errorOutput, secrets: secrets)
-            let sent = VPNLog.openConnectCredentialsSent(log)
-            // Nothing answered the first request (no TLS session): the server was not reached.
-            if !sent, !log.contains("Connected to HTTPS on ") {
-                let reason = String(localized: "no answer within \(timedOut.seconds) seconds")
-                return failed(PTError.serverUnreachable(server: server, reason: reason, log: VPNLog.tail(log)), log: log)
-            }
-            return failed(PTError.connectTimeout(timedOut.seconds), log: log, sent: sent)
+            // Stopped part-way: what it did last is not known, so the code counts as sent.
+            let log = Self.log(Self.redacted(timedOut.errorOutput, secrets: secrets))
+            return failed(PTError.connectTimeout(timedOut.seconds), log: log, sent: true)
         } catch {
             return failed(PTError.fileError(toolPath))
         }
         defer { output.wipe() }
 
+        // Over the whole of standard error as it came, before redaction and the log's limit; output beyond what
+        // was kept is evidence missing, so the code counts as sent.
+        let sent = output.errorOutputCut || VPNLog.openConnectCredentialsSent(String(decoding: output.errorOutput, as: UTF8.self))
         var stdout = [UInt8](output.output)
         defer { stdout.wipe() }
         guard output.status == 0 else {
-            let log = Self.log(output.errorOutput, secrets: secrets)
-            let error = VPNLog.openConnectSignInError(log, status: output.status, server: server)
-            return failed(error, log: log, sent: VPNLog.openConnectCredentialsSent(log))
+            let text = Self.redacted(output.errorOutput, secrets: secrets)
+            let error = VPNLog.openConnectSignInError(
+                text, status: output.status, credentialsSent: sent, authgroup: config.authgroup, server: server)
+            return failed(error, log: Self.log(text), sent: sent)
         }
         // A cookie was handed out: the credentials reached the server whatever happens next.
         let result: OpenConnectAuthResult
@@ -161,9 +162,10 @@ struct AnyConnectSignIn: @unchecked Sendable {
             result = try OpenConnectAuthResult.parse(stdout)
         } catch {
             // Its description names keys and rules, never a value.
-            return failed(PTError.signInUnusable(String(describing: error)), log: Self.log(output.errorOutput, secrets: secrets), sent: true)
+            let log = Self.log(Self.redacted(output.errorOutput, secrets: secrets))
+            return failed(PTError.signInUnusable(String(describing: error)), log: log, sent: true)
         }
-        let log = Self.log(output.errorOutput, secrets: secrets + [result.cookie])
+        let log = Self.log(Self.redacted(output.errorOutput, secrets: secrets + [result.cookie]))
         do {
             let address = try result.checkDestination(host: config.host, port: config.port, profileServerCert: config.serverCert)
             return .success(Success(result: result, resolve: address == nil ? nil : result.resolve, log: log))
@@ -172,13 +174,24 @@ struct AnyConnectSignIn: @unchecked Sendable {
         }
     }
 
-    /// Standard error as the log: at most `maxLogBytes`, each line through `LogRedactor` with `secrets`.
-    static func log(_ errorOutput: Data, secrets: [String]) -> String {
-        let text = String(decoding: errorOutput.prefix(maxLogBytes), as: UTF8.self)
+    /// The whole of standard error, each line (split at LF) through `LogRedactor` with `secrets` as literal
+    /// values: before anything is cut, so a secret is never left in part at a cut.
+    static func redacted(_ errorOutput: Data, secrets: [String]) -> String {
         let redactor = LogRedactor(secrets: secrets)
-        var lines = text.split(separator: "\n", omittingEmptySubsequences: false).map { redactor.redact(String($0)) }
-        if lines.last == "" { lines.removeLast() }
-        return lines.isEmpty ? "" : lines.joined(separator: "\n") + "\n"
+        return String(decoding: errorOutput, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: false)
+            .map { redactor.redact(String($0)) }.joined(separator: "\n")
+    }
+
+    /// Redacted text as the log: at most `maxLogBytes`, whole lines only (an incomplete last line is dropped),
+    /// ending with a line break.
+    static func log(_ redacted: String) -> String {
+        var bytes = Array(redacted.utf8)
+        if bytes.count > maxLogBytes {
+            bytes = Array(bytes[..<maxLogBytes])
+            bytes = Array(bytes[..<(bytes.lastIndex(of: 0x0A) ?? 0)])
+        }
+        while bytes.last == 0x0A { bytes.removeLast() }
+        return bytes.isEmpty ? "" : String(decoding: bytes, as: UTF8.self) + "\n"
     }
 
     /// The profile field a config error is about.

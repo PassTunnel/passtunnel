@@ -363,15 +363,7 @@ public struct LogRedactor {
         // OpenVPN static/dynamic challenge responses
         (#"\b((?:SC|C)?RV1:)\S+"#, "$1" + mask),
         // "password = …", "otp: …", "token=…"
-        (#"(?i)\b(pass(?:word|wd|phrase)?|secret|otp|token|response)(\s*[=:]\s*)\S+"#, "$1$2" + mask),
-        // Cisco AnyConnect's session cookie, a bearer secret: openconnect's `COOKIE='…'` (the sign-in's standard
-        // output, never logged), the `webvpn` cookies and the strap key in it, an HTTP `Cookie:`/`Set-Cookie:`
-        // header (to the end of the line), and the root config's `cookie …` line. Not openconnect's own
-        // "Cookie was rejected by server" (no colon, no lowercase option).
-        (#"(?i)\b(COOKIE=)\S+"#, "$1" + mask),
-        (#"(?i)\b((?:set-)?cookie\s*:\s*).+"#, "$1" + mask),
-        (#"(?i)\b(webvpn[a-z_]*=|openconnect_strapkey=)[^;\s]+"#, "$1" + mask),
-        (#"^(\s*cookie)([ \t=]+)\S+"#, "$1$2" + mask)
+        (#"(?i)\b(pass(?:word|wd|phrase)?|secret|otp|token|response)(\s*[=:]\s*)\S+"#, "$1$2" + mask)
     ].map { (try! NSRegularExpression(pattern: $0.0), $0.1) }
 
     /// Hex digits, alone or in groups split by single spaces or colons: OpenVPN prints keys and
@@ -402,7 +394,9 @@ public struct LogRedactor {
         for (regex, template) in Self.patterns {
             out = regex.stringByReplacingMatches(in: out, range: NSRange(out.startIndex..., in: out), withTemplate: template)
         }
-        return out
+        // Cisco AnyConnect's session cookie in any of its forms (`COOKIE=`, `webvpn=`, `Cookie:` headers, a
+        // `cookie` configuration line): the helper masks it as it writes the tunnel's log, this again.
+        return OutputMask.apply(out)
     }
 }
 
