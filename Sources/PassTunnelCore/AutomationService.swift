@@ -14,6 +14,8 @@ public final class AutomationService {
     public let appInfo: AppInfo
     /// The network path for `diagnose`; read once per call, nothing is contacted.
     private let network: () async -> NetworkStatus
+    /// `diagnose`: the app's VPN tools run with `--version` (`BundledTools`); nil without them.
+    private let tools: (AppInfo) async -> [ToolCheck]?
 
     /// Most lines `logs` returns, and the longest line it keeps.
     public static let maxLogLines = 500
@@ -21,13 +23,15 @@ public final class AutomationService {
 
     public init(
         store: ProfileStore, manager: ConnectionManager, helperInspector: HelperInspecting = SystemHelperInspector(),
-        appInfo: AppInfo = .current, network: @escaping () async -> NetworkStatus = { await NetworkPath.current() }
+        appInfo: AppInfo = .current, network: @escaping () async -> NetworkStatus = { await NetworkPath.current() },
+        tools: @escaping (AppInfo) async -> [ToolCheck]? = { await BundledTools.check(app: $0) }
     ) {
         self.store = store
         self.manager = manager
         self.helperInspector = helperInspector
         self.appInfo = appInfo
         self.network = network
+        self.tools = tools
     }
 
     // MARK: profiles and state
@@ -37,6 +41,7 @@ public final class AutomationService {
         if withState { await manager.refresh() }
         let def = store.defaultID
         return store.list().map { ProfileSummary($0, isDefault: $0.id == def, state: withState ? manager.state($0.id) : nil) }
+            + store.listUnsupported().map { ProfileSummary($0, isDefault: $0.id == def) }
     }
 
     public func summary(_ p: Profile) -> ProfileSummary {
@@ -257,14 +262,15 @@ public final class AutomationService {
     // MARK: diagnose
 
     /// `checkClock`: also asks the time server how far the clock is off (`ConnectionManager.checkClock`);
-    /// only on request, as it contacts that server.
+    /// only on request, as it contacts that server. On the Mac, each VPN tool of the app is run with
+    /// `--version` (`BundledTools`), which contacts nothing.
     public func diagnose(checkClock: Bool = false) async -> DiagnoseReport {
         let helper = await helperInspector.report()
         var report = DiagnoseReport(
             version: appInfo.version, build: appInfo.build, appPath: appInfo.appPath,
             inApplications: appInfo.inApplications, helper: helper,
             profiles: store.list().map(check), secretStore: await Self.secretStoreReport(),
-            network: await network())
+            network: await network(), tools: await tools(appInfo))
         if checkClock {
             do { report.clock = try await manager.checkClock() } catch { report.clockError = error.localizedDescription }
         }

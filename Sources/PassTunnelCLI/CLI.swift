@@ -179,7 +179,7 @@ enum CLIHelp {
         case "diagnose":
             return String(
                 localized:
-                    "Check the installation and every profile without connecting, with the last clock measurement. --check-clock also asks Apple’s time server (time.apple.com) how far the clock is off."
+                    "Check the installation, the VPN tools and every profile without connecting, with the last clock measurement. --check-clock also asks Apple’s time server (time.apple.com) how far the clock is off."
             )
         #endif
         case "helper": return String(localized: "Show, install or remove the privileged helper.")

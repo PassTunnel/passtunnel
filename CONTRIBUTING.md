@@ -29,7 +29,8 @@ backends, localized strings, no third-party dependencies besides Sparkle and swi
    PassTunnelKit built for iOS), `Linux (x86_64)` and `Linux (aarch64)` (the Linux targets built and
    tested, and the `passtunnel` command tried, see [Linux](#linux)), `Release scripts`, `Site` (the
    website's static checks) and `PR title`. `Linux release` and `Docker image` (the Linux tarball and
-   the Dockerfile, built and tried on both architectures) run as well. Review comments must be
+   the Dockerfile, built and tried on both architectures), `Bundled tools` and `Bundled tools on
+   macOS 15` (the bundled VPN tools checked against the app's minimum macOS, and run there) run as well. Review comments must be
    resolved.
 6. The pull request is **squash-merged**: its title becomes the one commit on `dev`.
 

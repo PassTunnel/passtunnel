@@ -11,6 +11,7 @@ public enum PTError: Error, Equatable, LocalizedError {
     case emptyName
     case invalidField(String)  // field name, e.g. "totp.digits"
     case wrongProfileType(String)  // profile id
+    case unsupportedProfileType(String)  // the `type` of a profile written by a newer version
     case fileError(String)  // path or short reason
     case fileTooLarge(String)
     case invalidFile(String)  // unreadable / malformed JSON or text
@@ -32,6 +33,7 @@ public enum PTError: Error, Equatable, LocalizedError {
     case helperFailed(String)  // the helper refused the request
     case authFailed(String)  // log tail
     case connectFailed(String)  // the VPN tool exited; log tail
+    case toolUnsupported(reason: String, log: String)  // dyld stopped the VPN tool ("Symbol not found: _x"); log tail
     case serverUnreachable(server: String, reason: String, log: String)  // no answer, refused, no route: nothing sent; log tail
     case hostNotFound(server: String, log: String)  // the server's name did not resolve; log tail
     case connectTimeout(Int)  // seconds
@@ -57,6 +59,11 @@ public enum PTError: Error, Equatable, LocalizedError {
             return String(localized: "The value of “\(field)” is not valid.")
         case .wrongProfileType(let id):
             return String(localized: "This action is not available for the VPN type of profile “\(id)”.")
+        case .unsupportedProfileType(let type):
+            return String(
+                localized:
+                    "This profile uses the VPN type “\(type)”, which needs a newer PassTunnel. Update PassTunnel to use it. It can still be deleted."
+            )
         case .fileError(let detail):
             return String(localized: "A file operation failed: \(detail)")
         case .fileTooLarge(let name):
@@ -110,6 +117,9 @@ public enum PTError: Error, Equatable, LocalizedError {
             return String(localized: "The server rejected the sign-in. Check the user name, password and one-time code.")
         case .connectFailed:
             return String(localized: "The VPN connection could not be established. See the log for details.")
+        case .toolUnsupported(let reason, _):
+            return String(
+                localized: "This VPN tool does not run on this version of macOS (\(reason)). Check for a PassTunnel update.")
         case let .serverUnreachable(server, reason, _):
             if server.isEmpty { return String(localized: "The server could not be reached: \(reason). Your sign-in was not sent.") }
             return String(localized: "The server \(server) could not be reached: \(reason). Your sign-in was not sent.")
@@ -162,7 +172,7 @@ extension PTError {
     public var logTail: String {
         switch self {
         case .authFailed(let tail), .connectFailed(let tail), .setupFailed(_, let tail), .serverUnreachable(_, _, let tail),
-            .hostNotFound(_, let tail):
+            .hostNotFound(_, let tail), .toolUnsupported(_, let tail):
             return tail
         default: return ""
         }

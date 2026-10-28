@@ -71,6 +71,14 @@ until then the Kotlin port is simpler and safer.
   same rule as unattended profiles on the Mac.
 - **Import**: `.passtunnel` and `.ovpn` files (share sheet and file picker), and `otpauth://` QR
   codes from the camera or from an image.
+- **Profiles of an unknown VPN type**: a stored profile or a share file whose `type` is not one the
+  app knows (a VPN type a newer version added) is never read as OpenVPN. The store keeps the
+  profile's original JSON object and writes it back unchanged whenever it saves, unknown keys
+  included; it is listed with its name and "Needs a newer PassTunnel", and connecting, editing,
+  duplicating, sharing and exporting it are refused with that message (delete stays possible). Importing
+  a share file with such a type is refused the same way instead of creating an OpenVPN profile. A
+  missing `type` is still an old OpenVPN profile. The Mac app and `PassTunnelKit` do this
+  (`UnsupportedProfile`, `PTError.unsupportedProfileType`); the Kotlin model must match.
 - **Play**: the listing states that the app uses `VpnService`; the VPN declaration and its demo
   video are filed when the VPN ships (phase 2), not before.
 
@@ -82,6 +90,8 @@ until then the Kotlin port is simpler and safer.
 - **Import**: `.passtunnel` and `.ovpn` files (Files, AirDrop from the Mac, Mail), `otpauth://` QR
   codes from the camera or a photo. The Mac app exports the `.passtunnel` type (see phase 0); the
   iPhone imports it. Share files carry no secrets, so the TOTP QR is scanned again on the phone.
+  A profile or share file of a VPN type this version does not know is handled as described for Android
+  (kept as it is, listed as needing a newer version, refused everywhere but delete).
 - **Handing off**: "Open in OpenVPN Connect" shares the profile's configuration (no credentials)
   through the share sheet. FortiClient has no documented import format, so none is generated.
 - **Phase 3 additions**: an AutoFill credential provider that offers password-plus-code as the

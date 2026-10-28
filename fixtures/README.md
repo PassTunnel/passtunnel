@@ -33,6 +33,7 @@ A failure is the output `error`: `{"kind": "…", "detail": "…"}`, `detail` on
 | `invalid_field` | the field (canonical key) |
 | `empty_name` | — |
 | `wrong_profile_type` | the profile id (always `acme` here) |
+| `unsupported_profile_type` | the `type` as stored (a VPN type a newer version added) |
 
 Conventions: times are seconds since 1970 (fractions and negative values allowed); bytes are lower-case
 hex (`secret_hex`, `hex`) or Base64 (`binary_files`); profiles use the keys of `profile.json`

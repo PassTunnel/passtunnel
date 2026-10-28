@@ -84,7 +84,7 @@ human confirmation, and a script cannot answer it.
 | `other_vpn_active` | Another VPN already routes all traffic (`connect --force` overrides) |
 | `destination_changed` | The server settings changed after you confirmed: connect again and confirm |
 | `timeout` | `--timeout` passed, or the VPN tool's own limit |
-| `config_invalid` | Missing or rejected OpenVPN configuration, missing FortiGate server, unreadable file |
+| `config_invalid` | Missing or rejected OpenVPN configuration, missing FortiGate server, unreadable file, a profile or share file of a VPN type that needs a newer PassTunnel |
 | `file_error` | A file could not be read or written |
 | `keychain_error` | The secret store (the Keychain on the Mac; on Linux secret-service, systemd-creds or the passphrase-encrypted file) refused or cannot be used, or a protected secret cannot be decrypted; `message` says why |
 | `internal` | Anything else |
@@ -117,6 +117,10 @@ From `list`, `add`, `import`, `pin`, `unpin` and the MCP tool `list_profiles`.
 `off`, `connect` or `always`. `connect_at_login`: the app connects the profile when it opens at login
 (one that asks first gets a notification instead). The MCP tool adds `state` (as in ProfileStatus); `list` does not ask
 the helper and leaves it out.
+
+A profile whose VPN type this version does not know (made by a newer PassTunnel) is listed with its stored `type` and
+`"needs_newer_version" : true` (left out otherwise); its settings read as empty. Commands and tools that use it fail with
+`config_invalid`, except `rm`, which deletes it.
 
 ### ProfileStatus
 
@@ -224,6 +228,7 @@ and MCP).
 | `setup` | `connect_failed` | The tunnel came up, but its network setup failed |
 | `timeout` | `timeout` | The sign-in was sent, but the tunnel did not come up in time |
 | `cancelled` | `cancelled`, `auth_cancelled`, `connect_failed` | Stopped before it finished |
+| `tool_unsupported` | `connect_failed` | The VPN tool does not run on this version of macOS: dyld stopped it at launch (`reason`: `Symbol not found: _strchrnul`, `Library not loaded: …`). Nothing was sent |
 | `failed` | `connect_failed`, `helper_*`, … | Anything else |
 
 `credentials_sent`: the sign-in reached the server (OpenVPN finished the TLS handshake, which sends
@@ -329,6 +334,10 @@ connecting, without connecting and without any secret's value.
       "type" : "forti"
     }
   ],
+  "tools" : [
+    { "name" : "openvpn", "ok" : true, "version" : "OpenVPN 2.7.8 aarch64-apple-darwin25.6.0 [SSL (OpenSSL)] [LZO] [LZ4] [PKCS11] [MH/RECVDA] [AEAD]" },
+    { "name" : "openfortivpn", "ok" : true, "version" : "1.24.1" }
+  ],
   "version" : "1.2.0"
 }
 ```
@@ -343,7 +352,11 @@ server is asked as well: `clock` is its ClockOffset, or `clock_error` says why i
 measured. Without it, `diagnose` contacts nothing. `network`: whether the computer is online
 (`online`) and over what kind of interface (`interface`: `wifi`, `ethernet`, `cellular` or `other`), as the
 system sees its network path (macOS `NWPathMonitor`; Linux the routes and links); both absent when it is
-not known. Finding out contacts nothing either.
+not known. Finding out contacts nothing either. `tools` (the Mac, in an app bundle): each VPN tool of the
+app run with `--version` as the user (no input, an empty environment, at most 10 s, nothing contacted):
+`ok` and `version` (the first line it printed), or `problem` saying why it did not start, such as
+"This VPN tool does not run on this version of macOS (Symbol not found: _strchrnul). …" when dyld
+stopped it.
 
 ### LogReport
 
@@ -398,7 +411,7 @@ One event of the activity log (`profiles/<id>/activity.jsonl`, the last 500 even
 | `unreachable` | `tries`, `reason` (the tool's words, e.g. `Connection refused`) | The server did not answer; the sign-in was not sent |
 | `next_try` | `next_at` | The next automatic attempt starts then |
 | `rejected` | `reply` (what the server answered, e.g. `AUTH_FAILED`; absent when it said nothing) | The server refused the sign-in; not retried |
-| `failed` | `failure` (a [ConnectionFailure](#connectionfailure) `kind`: `host_not_found`, `configuration`, `setup`, `timeout` or `failed`), `reason`, `credentials_sent` | The attempt failed otherwise |
+| `failed` | `failure` (a [ConnectionFailure](#connectionfailure) `kind`: `host_not_found`, `configuration`, `setup`, `timeout`, `tool_unsupported` or `failed`), `reason`, `credentials_sent` | The attempt failed otherwise |
 | `stopped_by_user` | | A connect, a code wait or the automatic reconnects were stopped |
 | `disconnected_by_user` | | A connection that was up was ended |
 

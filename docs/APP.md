@@ -290,6 +290,10 @@ The main window (`MainSplitView`, decision D-23) is a `NavigationSplitView`, abo
   fields, with the TOTP pre-filled when available.
 - **Context menu** of a sidebar row (`ProfileMenuItems`): Edit…, Copy Code, Copy Password + Code, Share… (export
   `.passtunnel`), Show Log, Pin to Menu Bar, Default Profile, Delete….
+- **A profile of a newer VPN type** (`UnsupportedProfile`: its `type` is not one this version knows) is listed under the
+  others with "Needs a newer PassTunnel" in amber (`UnsupportedSidebarRow`). Its detail says so and offers only
+  Delete… (so does its context menu); it is not in the menu bar, cannot be edited, shared, made the default or
+  connected, and its file is kept as it is.
 - **Drag & drop** onto the window: `.ovpn`, `.conf`, `.passtunnel`, or an image containing a QR code (while an import
   is under review, its code secret). A QR code that no profile can take (dropped, or File → Add Code from QR…)
   starts a new profile like "Use a QR image" in the add view (`ScannedCodeTarget`).
@@ -576,7 +580,7 @@ passtunnel secret ID password|totp           reads from TTY (no echo) or stdin; 
 passtunnel secret-store [STORE]              Linux only: the secret store in use; STORE sets it (below)
 passtunnel default ID / pin ID / unpin ID
 passtunnel log ID [-f] [-n N] [--activity]   --activity: the activity log, worded (no code digits)
-passtunnel diagnose [--check-clock]          installation, helper, each profile's problems and last clock
+passtunnel diagnose [--check-clock]          installation, helper, VPN tools, each profile's problems and last clock
                                              measurement; --check-clock also asks the time server
 passtunnel helper status|install|uninstall
 passtunnel mcp [--allow-connect]             MCP server on stdio (below)

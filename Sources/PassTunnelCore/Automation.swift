@@ -97,11 +97,11 @@ public enum AutomationErrorCode: String, Codable, CaseIterable, Sendable {
             .hotpNotSupported, .invalidTemplate, .usernameTooLong:
             return .invalidArgument
         case .fileError, .fileTooLarge: return .fileError
-        case .invalidFile, .unsupportedShareFile, .ovpnReferencedFile, .ovpnNotAllowed, .missingConfig, .missingHost:
+        case .invalidFile, .unsupportedShareFile, .unsupportedProfileType, .ovpnReferencedFile, .ovpnNotAllowed, .missingConfig, .missingHost:
             return .configInvalid
         case .keychain, .protectedSecretUnreadable: return .keychainError
         case .missingPassword, .missingTOTPSecret, .missingCredential: return .credentialsMissing
-        case .helperFailed, .connectFailed, .setupFailed, .connectCancelled: return .connectFailed
+        case .helperFailed, .connectFailed, .setupFailed, .connectCancelled, .toolUnsupported: return .connectFailed
         case .serverUnreachable: return .serverUnreachable
         case .hostNotFound: return .hostNotFound
         case .authFailed: return .credentialsRejected
@@ -191,6 +191,26 @@ public struct ProfileSummary: Codable, Equatable {
     public var connectAtLogin: Bool
     /// disconnected / connecting / connected; only when the caller asked the helper (MCP).
     public var state: String?
+    /// true for a profile of a VPN type this version does not know (`type` is then the stored value): it needs
+    /// a newer PassTunnel and can only be deleted. Left out otherwise.
+    public var needsNewerVersion: Bool?
+
+    /// A profile of an unknown type: only what the file says about it; every setting reads as off.
+    public init(_ p: UnsupportedProfile, isDefault: Bool) {
+        id = p.id
+        name = p.name
+        type = p.type
+        self.isDefault = isDefault
+        pinned = false
+        username = ""
+        passwordMode = ""
+        otpMode = ""
+        requireAuth = ""
+        protected = false
+        autoReconnect = false
+        connectAtLogin = false
+        needsNewerVersion = true
+    }
 
     public init(_ p: Profile, isDefault: Bool, state: ConnectionState? = nil) {
         id = p.id
@@ -414,6 +434,9 @@ public struct DiagnoseReport: Codable, Equatable {
     public var clockError: String?
     /// Whether the computer is online, as the system sees its network path (nothing is contacted).
     public var network: NetworkStatus?
+    /// The Mac: whether each VPN tool of the app starts on this macOS (run with `--version`, nothing is
+    /// contacted); nil outside an app bundle and on Linux.
+    public var tools: [ToolCheck]?
 }
 
 public struct ProfileCheck: Codable, Equatable {

@@ -4,6 +4,12 @@
 #   Build and test    swift format lint, swift build and swift test on macOS (Apple silicon) with our
 #                     targets' warnings as errors, a statement coverage report in the job summary
 #                     (not gating), and the PassTunnelKit library built for iOS (the iPhone app uses it)
+#   Bundled tools     the self-test of scripts/check-tool-symbols.sh, then Homebrew's openvpn and
+#                     openfortivpn bundled by scripts/bundle-tools.sh (which checks that what they and
+#                     their libraries import from macOS is there on the app's minimum macOS) into a
+#                     bundle of their own, kept as an artifact; not held to the pins (release.yml is)
+#   Bundled tools on  each of those tools run with --version on the oldest arm64 macOS runner: dyld
+#   macOS 15          stops a tool there when it imports a symbol that macOS lacks
 #   Linux (x86_64)    the Linux targets (Package.swift: the portable code, the CLI, the `passtunnel`
 #   Linux (aarch64)   command and the `passtunneld` daemon) built, with warnings as errors, and the
 #                     tests that build there run
@@ -17,8 +23,8 @@
 #                     its README says, `passtunnel` and, as root, `passtunneld` with their build number
 #   Docker image      the Dockerfile built, and an MCP session with the image
 #   (x86_64, aarch64)
-#   Release scripts   shellcheck of next-version.sh, its test, build-linux.sh, coverage-report.sh, compare-app.sh
-#                     and verify-build.sh, and the self-test of
+#   Release scripts   shellcheck of next-version.sh, its test, build-linux.sh, coverage-report.sh, compare-app.sh,
+#                     verify-build.sh, check-tool-symbols.sh, its test and make-system-symbols.sh, and the self-test of
 #                     scripts/next-version.sh (in a temporary repository)
 #   Site              shellcheck of the site scripts and scripts/check-site.sh, the static checks
 #                     of the website in site/ (docs/WEBSITE.md)
@@ -84,6 +90,87 @@ jobs:
       # The portable library must keep building for the iPhone app (docs/MOBILE.md).
       - name: Build PassTunnelKit for iOS
         run: xcodebuild -scheme PassTunnelKit -destination 'generic/platform=iOS Simulator' -quiet build
+
+  tools:
+    name: Bundled tools
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Small tools compiled here (never run): strchrnul (macOS 15.4) refused on 13.0, accepted for a
+      # tool whose minimum is 15.4; libraries, weak imports and macOS libraries without a list.
+      - name: Self-test of check-tool-symbols.sh
+        run: scripts/test-check-tool-symbols.sh
+
+      # As in release.yml: the current bottles of exactly the bundled formulas.
+      - name: Install the bundled tools
+        env:
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+          HOMEBREW_VERIFY_ATTESTATIONS: 1
+          HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          brew update
+          brew install openvpn openfortivpn
+          brew upgrade openvpn openfortivpn openssl@4 lz4 lzo pkcs11-helper
+          brew list --versions openvpn openfortivpn openssl@4 lz4 lzo pkcs11-helper
+
+      # Only the tools and their libraries, in a bundle of their own; bundle-tools.sh ends with
+      # check-tool-symbols.sh. The versions are not held to the pins (PASSTUNNEL_ALLOW_UNPINNED_TOOLS;
+      # release.yml and repeatable.yml are): what Homebrew has now is what the next pin update brings,
+      # so a bottle that would not start on an older macOS shows up here first. tar keeps the modes and
+      # the ad-hoc signatures.
+      - name: Bundle the tools
+        env:
+          PASSTUNNEL_ALLOW_UNPINNED_TOOLS: 1
+        run: |
+          set -euo pipefail
+          mkdir -p tools/PassTunnel.app/Contents
+          scripts/bundle-tools.sh tools/PassTunnel.app
+          tar -C tools -czf bundled-tools.tar.gz PassTunnel.app/Contents/Resources/bin PassTunnel.app/Contents/Frameworks
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bundled-tools
+          path: bundled-tools.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  # macos-15 is the oldest arm64 macOS runner. Only `--version`: nothing is configured, nothing
+  # contacted. A tool that imports a symbol this macOS lacks is stopped by dyld before it prints
+  # anything ("Symbol not found", SIGABRT). The exit status is not checked otherwise: some openvpn
+  # builds exit with 1 after printing their version.
+  tools-macos-15:
+    name: Bundled tools on macOS 15
+    needs: tools
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: bundled-tools
+
+      - name: Run each tool with --version
+        run: |
+          set -euo pipefail
+          sw_vers
+          tar -xzf bundled-tools.tar.gz
+          failed=0
+          for tool in PassTunnel.app/Contents/Resources/bin/*; do
+            lipo -archs "$tool" >/dev/null 2>&1 || continue    # dns-updown is a script
+            status=0
+            out="$(perl -e 'alarm 10; exec @ARGV or die "exec: $!"' "$tool" --version 2>&1)" || status=$?
+            echo "--- $(basename "$tool") (exit $status)"
+            head -n 5 <<<"$out"
+            if [ "$status" -gt 128 ] || [ -z "$out" ] || grep -qE '^dyld\[|Symbol not found|Library not loaded' <<<"$out"; then
+              echo "::error title=Bundled tools::$(basename "$tool") does not run on macOS $(sw_vers -productVersion)"
+              failed=1
+            fi
+          done
+          exit "$failed"
 
   linux:
     name: Linux (${{ matrix.arch }})
@@ -677,7 +764,11 @@ jobs:
           persist-credentials: false
 
       - name: Shellcheck
-        run: shellcheck --version && shellcheck scripts/next-version.sh scripts/test-next-version.sh scripts/build-linux.sh scripts/coverage-report.sh scripts/compare-app.sh scripts/verify-build.sh
+        run: |
+          shellcheck --version
+          shellcheck scripts/next-version.sh scripts/test-next-version.sh scripts/build-linux.sh scripts/coverage-report.sh \
+            scripts/compare-app.sh scripts/verify-build.sh scripts/check-tool-symbols.sh scripts/test-check-tool-symbols.sh \
+            scripts/make-system-symbols.sh
 
       - name: Self-test of next-version.sh
         run: scripts/test-next-version.sh

@@ -963,12 +963,12 @@
         }
       }
     },
-    "Check the installation and every profile without connecting, with the last clock measurement. --check-clock also asks Apple’s time server (time.apple.com) how far the clock is off." : {
+    "Check the installation, the VPN tools and every profile without connecting, with the last clock measurement. --check-clock also asks Apple’s time server (time.apple.com) how far the clock is off." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kurulumu ve her profili bağlanmadan denetler, son saat ölçümünü de gösterir. --check-clock, saatin ne kadar saptığını Apple’ın zaman sunucusuna (time.apple.com) da sorar."
+            "value" : "Kurulumu, VPN araçlarını ve her profili bağlanmadan denetler, son saat ölçümünü de gösterir. --check-clock, saatin ne kadar saptığını Apple’ın zaman sunucusuna (time.apple.com) da sorar."
           }
         }
       }
@@ -1603,12 +1603,52 @@
         }
       }
     },
+    "It could not be started." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Başlatılamadı."
+          }
+        }
+      }
+    },
+    "It did not answer within %lld seconds." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld saniye içinde yanıt vermedi."
+          }
+        }
+      }
+    },
+    "It is missing from the app. Reinstall PassTunnel." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uygulamanın içinde yok. PassTunnel’ı yeniden yükleyin."
+          }
+        }
+      }
+    },
     "It should match the code in your authenticator app. The secret is saved in the Keychain when you add the profile." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kod, doğrulayıcı uygulamanızdaki kodla aynı olmalı. Gizli anahtar, profili eklediğinizde Anahtar Zinciri’ne kaydedilir."
+          }
+        }
+      }
+    },
+    "It stopped without printing its version (exit status %lld)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sürümünü yazmadan durdu (çıkış durumu %lld)."
           }
         }
       }
@@ -1689,6 +1729,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "En olası neden. Saati düzeltip tekrar deneyin."
+          }
+        }
+      }
+    },
+    "Needs a newer PassTunnel" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daha yeni bir PassTunnel gerekli"
           }
         }
       }
@@ -3113,6 +3163,16 @@
         }
       }
     },
+    "The VPN tool does not run on this macOS" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VPN aracı bu macOS sürümünde çalışmıyor"
+          }
+        }
+      }
+    },
     "There is no activity for this profile yet." : {
       "localizations" : {
         "tr" : {
@@ -3179,6 +3239,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bu profil şunları soruyor: %@."
+          }
+        }
+      }
+    },
+    "This profile uses a VPN type this version of PassTunnel does not know. It is kept as it is. Update PassTunnel to connect, edit or share it." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu profil, PassTunnel’in bu sürümünün tanımadığı bir VPN türünü kullanıyor. Olduğu gibi saklanır. Bağlanmak, düzenlemek veya paylaşmak için PassTunnel’i güncelleyin."
+          }
+        }
+      }
+    },
+    "This profile uses the VPN type “%@”, which needs a newer PassTunnel. Update PassTunnel to use it. It can still be deleted." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu profil, daha yeni bir PassTunnel gerektiren “%@” VPN türünü kullanıyor. Kullanmak için PassTunnel’i güncelleyin. Yine de silinebilir."
+          }
+        }
+      }
+    },
+    "This VPN tool does not run on this version of macOS (%@). Check for a PassTunnel update." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu VPN aracı bu macOS sürümünde çalışmıyor (%@). PassTunnel için bir güncelleme olup olmadığına bakın."
           }
         }
       }
@@ -4359,6 +4449,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kullanıcı adı ve parola, ayrıca tek kullanımlık kod"
+          }
+        }
+      }
+    },
+    "VPN tools:" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VPN araçları:"
           }
         }
       }

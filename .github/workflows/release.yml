@@ -144,7 +144,12 @@ jobs:
           HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ github.token }}
         run: |
+          # The runner image ships Homebrew formulae of its own (openssl@4 among them) that
+          # `brew install` leaves alone, so bring the index up to date and upgrade exactly the
+          # bundled formulas; bundle-tools.sh then checks the result against release.env.
+          brew update
           brew install openvpn openfortivpn
+          brew upgrade openvpn openfortivpn openssl@4 lz4 lzo pkcs11-helper
           brew list --versions openvpn openfortivpn openssl@4 lz4 lzo pkcs11-helper
 
       - name: Set up the signing keychain

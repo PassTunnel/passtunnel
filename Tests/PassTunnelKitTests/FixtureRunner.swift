@@ -181,6 +181,7 @@ enum FixtureRunner {
         case .invalidField(let field): return kind("invalid_field", field)
         case .emptyName: return kind("empty_name")
         case .wrongProfileType(let id): return kind("wrong_profile_type", id)
+        case .unsupportedProfileType(let type): return kind("unsupported_profile_type", type)
         case .ovpnNotAllowed(let violations):
             return ["error": .object(["kind": .string("ovpn_not_allowed"), "violations": .array(violations.map { .string($0) })])]
         default: return kind("other: \(pt)")

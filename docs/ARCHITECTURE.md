@@ -2,7 +2,8 @@
 
 PassTunnel is a macOS app (13+) that connects VPNs **without ever typing a one-time code**: it keeps
 TOTP secrets in the Keychain and fills the code (and password) automatically when it connects.
-Supported VPN types: OpenVPN, FortiGate SSL VPN (openfortivpn). More types = new backend.
+Supported VPN types: OpenVPN, FortiGate SSL VPN (openfortivpn). More types = new backend; Cisco
+AnyConnect (openconnect) is designed but not implemented yet ([below](#cisco-anyconnect-backend-planned)).
 
 ```
 PassTunnel.app/Contents/
@@ -32,12 +33,43 @@ cdhashes); the script checks that each bundled tool's and dylib's cdhashes are i
 bundled dylib has no pin (or there is no dylib at all).
 A bundle without `dns-updown` pins an empty set for it, so the helper refuses any `dns-updown`.
 
+**Minimum macOS of the tools.** Homebrew's bottles are built for the release runner's macOS
+(`minos 26.0`), above the app's minimum (`LSMinimumSystemVersion`, 13.0). dyld does not refuse a binary
+for that; it stops a tool at launch (`dyld[…]: Symbol not found: _x … (built for macOS 26.0 which is
+newer than running OS)`, exit 134) when the tool or one of its dylibs imports a symbol the running macOS
+lacks. So `bundle-tools.sh` ends with `scripts/check-tool-symbols.sh`: every symbol a bundled tool or
+dylib imports from a macOS library (what dyld binds, `dyld_info -imports`: the chained fixups or bind
+opcodes, plus `nm -m`'s undefined symbols; two-level namespace) must be in that library's list in
+`scripts/system-symbols/<version>/` for the file's minimum, or the build fails. A tool's minimum is the
+app's, or a later one in `TOOL_MINIMUMS` for a tool the app refuses below it (openconnect: 15.4, below);
+a dylib's is the lowest of the tools that load it. Also refused: weak imports of macOS symbols unless
+listed (`WEAK_IMPORTS`, empty), flat-namespace lookups, a macOS library loaded (not weakly) without a
+list even when nothing is imported from it, a bundled dylib that re-exports a macOS library or symbol
+(none does, also in the openconnect closure), and any bundled load path other than the layout above.
+The lists are what each library and the libraries it re-exports export for `arm64` (libSystem with
+`libsystem_c`, `libsystem_kernel`, …), taken once from older SDKs' stubs (`.tbd`), since the current
+SDK's stubs say what exists now, not since when: 13.0 from the macOS 12.3 and 13.1 SDKs (Xcode 13.3
+and 14.2; a symbol is listed when both export it, no 13.0 SDK being at hand), for `libSystem.B`,
+`libresolv.9` and `libutil`, the only macOS libraries the bundled tools load. `SOURCES` in each
+version's directory names the SDKs and the stubs' checksums; `scripts/make-system-symbols.sh`
+writes them again (docs/RELEASING.md, Bundled tools). CI's `Bundled tools on macOS 15` job also runs
+each bundled tool with `--version` on the oldest arm64 runner.
+
+At run time the same failure is recognized in the session log (`VPNLog.toolLoadFailure`): dyld's
+line as the log's first (it comes before anything the tool writes; later lines can be a server's words,
+which openfortivpn prints) and the tool gone. The connect then ends with `PTError.toolUnsupported` ("This VPN tool does not run on this
+version of macOS (Symbol not found: _strchrnul). Check for a PassTunnel update.") and the failure
+kind `tool_unsupported`, not the generic "could not be established". On the Mac, `diagnose` (CLI and
+MCP) runs each tool of the app bundle with `--version` (`BundledTools`: as the user, not through the
+helper, with an empty environment and no input, at most 10 s each, nothing contacted) and reports each
+one's version or why it did not start (`tools`).
+
 ## Targets
 
 | Target | Owns | Depends on |
 |---|---|---|
 | `PassTunnelVPNConfig` | `OVPNSanitizer`, `FortiConfig`: the configurations the helper runs as root | — |
-| `PassTunnelKit` | the portable logic (Foundation, CryptoKit and Security only; builds for macOS 13, iOS 17 and Linux): model, `PTError`, `JSONCoding`, `TOTP`, `OTPAuthURI`, `OTPComposer`, `OVPNAnalyzer`, `OVPNInliner`, `OVPNSkipRules`, `OVPNImportReport`, `ShareFile`, `Slug`, `ProfileFields`, `ProfileMerge`, `SecretEnvelope`, `HealthCheck` (parsing), `ClockOffset` (clock offset, HTTP dates) | VPNConfig (and swift-crypto on Linux) |
+| `PassTunnelKit` | the portable logic (Foundation, CryptoKit and Security only; builds for macOS 13, iOS 17 and Linux): model, `PTError`, `JSONCoding`, `TOTP`, `OTPAuthURI`, `OTPComposer`, `OVPNAnalyzer`, `OVPNInliner`, `OVPNSkipRules`, `OVPNImportReport`, `ShareFile`, `UnsupportedProfile`, `Slug`, `ProfileFields`, `ProfileMerge`, `SecretEnvelope`, `HealthCheck` (parsing), `ClockOffset` (clock offset, HTTP dates) | VPNConfig (and swift-crypto on Linux) |
 | `PassTunnelShared` | XPC protocol, request/response types, `HelperCore` (request decoding, path checks, tool environment; `HelperCore+DNSHook`: the Mac's DNS script wrapper and its record), `SessionPolicy`, `CodeSignature`, `Spawner` (verified, suspended launch), `PinnedTools`, `ToolStager` (root-owned copy of the tools and their dylibs), `HelperBuild`, identifiers | VPNConfig (and swift-crypto on Linux) |
 | `PassTunnelCore` | `ProfileStore` + `ImportDraft`, `ProfilesWatcher`, `Secrets` + `SecretStore` (Keychain; on Linux `SecretStores`: secret-service, systemd-creds, file), `SecretVault` + `UserAuthenticator` (Secure Enclave protection), `Preferences`, `HealthCheck.check` (the probe), `QRDecoder`, `OpenedFiles` (files the app is asked to open), `ScannedCodeTarget` (where a scanned code goes), `TLSFingerprint`, `ServerClock` + `SNTP` (clock checks), `HelperClient`, `HelperAutoUpdate`, `ConnectionManager` + `ProfileDestination`, `ConnectionFailure`, `UnreachableRetry`, `FailureDetails` ("Copy details"), `NetworkPath` + `NetworkStatus`, `ActivityLog` + `ActivityEvent`, `LoginConnector` (connect at login), CLI parsing (`CLICommand`, `CLIInvocation`), automation objects + `AutomationService`, `MCPServer` + `MCPTools` + `JSONValue` | Kit, VPNConfig, Shared (and swift-crypto's Crypto and CryptoExtras on Linux) |
 | `PassTunnelCLI` | the `passtunnel` command: `PassTunnelCLI.run` (entry, `CLIHelp`), `CLIRunner`, `CLICompletions`, `CLITerminal`, `CLIClipboard`; `Pasteboard` (macOS: the app's too) | Core, Kit, Shared |
@@ -262,13 +294,28 @@ Decoding must tolerate missing keys (defaults) so older/newer files load (no `re
 unknown values → `off`; no `connect_at_login` → false). Share files leave `require_auth` and `connect_at_login` out
 (per-user choices, like `pinned`).
 
+An unknown `type` is the exception: a profile written by a newer version (a VPN type added later) is never read as
+OpenVPN, which would show it as something it is not and rewrite it without its new fields on the next save.
+`Profile.init(from:)` throws `PTError.unsupportedProfileType(type)` for a `type` string that is not a `VPNType` (no
+`type` at all is still an old OpenVPN profile). `ProfileStore` keeps such a profile beside the known ones as an
+`UnsupportedProfile` (id, name, order, the stored type): `listUnsupported()` lists them, `list()` leaves them out, and
+`get`, `update`, `save`, `setDefault`, `exportShare` and `setOVPN` throw `unsupportedProfileType`, so nothing connects,
+edits, duplicates, shares or exports it. Its `profile.json` is never read into a `Profile` and never rewritten (every
+profile has its own file, so saving another profile cannot touch it: the object, unknown keys included, stays
+byte-equal; `save` fails closed: it also refuses to replace an existing `profile.json` that is of an unknown type, too large or
+unreadable, or not a JSON object, because a newer version may have written it since the profile was read); only `delete` works. Importing a share file with an unknown `type` throws the same error before anything
+is created. The error is `config_invalid` in the CLI and MCP tools, and its message says the profile needs a newer
+PassTunnel. `list` and `list_profiles` show the profile with its stored `type` and `needs_newer_version: true`.
+
 ## Core APIs
 
 ```swift
 public struct ProfileStore {                       // all methods throw PTError on bad input
     public init(paths: AppPaths = .default)
     public func list() -> [Profile]                // sorted by (order, name)
-    public func get(_ id: String) throws -> Profile
+    public func listUnsupported() -> [UnsupportedProfile]   // VPN type of a newer version: listed, refused, deletable
+    public func unsupportedProfile(_ id: String) -> UnsupportedProfile?
+    public func get(_ id: String) throws -> Profile        // throws unsupportedProfileType for those
     public func create(name: String, type: VPNType) throws -> Profile   // slug id (Turkish chars folded), unique; deletes Keychain items left under the id
     public func save(_ p: Profile) throws
     public func update(_ id: String, _ change: (inout Profile) throws -> Void) throws -> Profile   // re-read, change, save (locked)
@@ -284,7 +331,7 @@ public struct ProfileStore {                       // all methods throw PTError 
         // nil values come from the file; ovpnNotAllowed while the draft has blocking lines; the config is checked
         // with the sanitizer again before it is written; <auth-user-pass> → username + Keychain password
     public func exportShare(_ id: String, to: URL) throws                 // ShareFile, 0600; config without credential blocks
-    public func importShare(_ url: URL, name: String?) throws -> Profile  // drops an <auth-user-pass> block
+    public func importShare(_ url: URL, name: String?) throws -> Profile  // drops an <auth-user-pass> block; an unknown `type` throws unsupportedProfileType
 }
 public enum OVPNInliner {
     public static func prepare(_ text: String, baseDir: URL?) throws -> String   // referenced files inlined, then OVPNSanitizer
@@ -909,6 +956,450 @@ tunnel. Hence:
   with …" / "Peer Connection Initiated with …") via the default gateway from `ROUTE_GATEWAY`, and the
   "route add command failed" line after it. A session killed without cleanup (e.g. the helper was
   unregistered while connected) leaves that route behind; it is the route OpenVPN wanted anyway.
+
+## Cisco AnyConnect backend (planned)
+
+**Not implemented yet.** This is the design of Phase 1 of #2: Cisco AnyConnect through OpenConnect,
+with a password and a TOTP code (no SAML or other single sign-on), on the Mac and on Linux. The
+issues #179–#189 implement it, each named below where its part lands; until they do, everything
+above is all PassTunnel runs (`openvpn`, `openfortivpn`). Before any of it, #177 makes `Profile`
+keep a profile of an unknown `type` intact instead of decoding it as OpenVPN (`Model.swift`,
+`lenientEnum(…) ?? .openvpn`), so an older or a companion build cannot rewrite an AnyConnect
+profile. Phase 2 (GlobalProtect) and Phase 3 (Pulse/Ivanti) get their own issues. References like
+`main.c 1593` are to the openconnect 9.21 sources, from which the tool's behavior below was read;
+the pull requests confirm it against the running tool (#188). Linux specifics:
+[LINUX.md](LINUX.md#cisco-anyconnect-planned); the threat model: [SECURITY.md](../SECURITY.md#cisco-anyconnect-planned).
+
+```
+passtunnel / app (the user)                          PassTunnelHelper / passtunneld (root)
+  openconnect --authenticate --config=<file>
+    stdin: password, code ─▶ server
+    stdout: COOKIE, HOST, CONNECT_URL,
+            FINGERPRINT, RESOLVE
+  HelperRequest.startOpenConnect ── cookie, pin ──▶ <run>/openconnect.conf (0600)
+                                                    openconnect --config=<run>/openconnect.conf
+                                                      └─ script: vpn-hook (address, routes, DNS)
+```
+
+### Bundling and pins (macOS, #179)
+
+- Homebrew's `openconnect` bottle, bundled unchanged like `openvpn`: `Contents/Resources/bin/openconnect`
+  (Homebrew installs it in `bin`) and its closure in `Contents/Frameworks`: `libopenconnect.5`,
+  `libgnutls.30`, `libnettle.9`, `libhogweed.7`, `libgmp.10`, `libp11-kit.0`, `libtasn1.6`,
+  `libidn2.0`, `libunistring.5`, `libintl.8`, `libstoken.1`, `libtomcrypt.1`, `libtommath.1`
+  (`.dylib`; about 9 MB, `arm64`). Like the `openvpn` and `openfortivpn` bundled today (Homebrew's
+  bottles for the release runner's macOS 26), they carry `minos 26.0`. `libopenconnect` and `libidn2`
+  import `strchrnul` (macOS 15.4 and later), so Cisco AnyConnect needs macOS 15.4 (the app stays on
+  13): `check-tool-symbols.sh` holds `openconnect`, and the dylibs only it loads, to 15.4
+  (`TOOL_MINIMUMS`), and #179 adds the 15.4 symbol lists for the macOS libraries this closure loads
+  (`make-system-symbols.sh 15.4 MacOSX15.4.sdk -- /usr/lib/libSystem.B.dylib /usr/lib/libz.1.dylib
+  /usr/lib/libxml2.2.dylib /usr/lib/libiconv.2.dylib /usr/lib/libffi.dylib` and the CoreFoundation,
+  CoreServices, Kerberos, PCSC and Security frameworks). `libstoken`,
+  `libtomcrypt`, `libtommath` (RSA SecurID soft tokens, never used) and `libintl` (message catalogs,
+  unused with `LC_ALL=C`) are accepted dead weight rather than building openconnect ourselves. The
+  rest stays system (`libz`, `libxml2`, `libiconv`, `libffi`, Kerberos, PCSC, Security,
+  CoreFoundation). `bundle-tools.sh` takes nothing else of the formula: not `etc/vpnc/vpnc-script`,
+  nothing from `libexec/openconnect` (`csd-wrapper.sh`, `hipreport.sh`, `tncc-*`). Its generic
+  closure walk resolves both load styles (`/opt/homebrew/opt/<formula>/lib/…` and, in `libhogweed`,
+  `libnettle`'s Cellar path); no name clashes with the OpenVPN closure. License `case` entries for
+  every formula.
+- `scripts/release.env` pins `OPENCONNECT_VERSION`, `GNUTLS_VERSION`, `NETTLE_VERSION`, `GMP_VERSION`,
+  `P11_KIT_VERSION`, `LIBTASN1_VERSION`, `LIBIDN2_VERSION`, `LIBUNISTRING_VERSION`,
+  `GETTEXT_VERSION`, `STOKEN_VERSION`, `LIBTOMCRYPT_VERSION`, `LIBTOMMATH_VERSION` (names from
+  `pin_var`), set to what the release runner's Homebrew provides when #179 lands (on 2026-10-27:
+  openconnect 9.21, gnutls 3.8.13_2, nettle 4.0, …). `release.yml` and `repeatable.yml` install
+  `openconnect` with the other tools.
+- `build-app.sh` signs it with `--identifier com.furkanprlk.passtunnel.openconnect`
+  (`PT.openconnectIdentifier`), adds its cdhashes to `generatedCDHashes`, and a signed build fails
+  without them, as for `openvpn`; the dylibs are pinned by the existing `generatedLibraryCDHashes`.
+- `HelperCore.Tool.openconnect`. `ToolStager.check` then expects exactly
+  `Resources/bin/{openvpn,openfortivpn,openconnect,vpn-hook}` and the pinned dylibs, so the closure is
+  staged for every user (about 9 MB per helper build), used or not. `vpn-hook` (#182) is a copy of the
+  helper's own executable: no new target and no pin; it is accepted only when its SHA-256 is
+  `HelperBuild.digest` (byte-identical to the running helper) and it satisfies the helper's requirement
+  (`PT.toolRequirement(identifier: "com.furkanprlk.passtunnel.helper")`). `HelperSessions` counts
+  `openconnect` like `openvpn` and `openfortivpn`.
+- `THIRD_PARTY_NOTICES.md` (#179) lists the LGPL libraries, says where their sources are and that
+  unpinned local builds (`PASSTUNNEL_ALLOW_UNPINNED_TOOLS=1`) can run a modified library; there is
+  no further mechanism. OpenConnect code stays out of the mobile apps ([MOBILE.md](MOBILE.md)); the
+  Swift written for this backend is our own, not a translation of openconnect's C.
+
+### Authentication, split from the tunnel (#184)
+
+The user's process signs in; root gets only the session cookie and never holds the password or the
+code, nor parses the server's login forms (the most complex server-controlled parsing).
+
+1. **Sign-in, unprivileged.** Core runs, through `ToolRunning` (fixed path, the fixed environment
+   below, a timeout), the app bundle's `openconnect` (Linux: the daemon's candidate paths, never
+   `PATH`) with `--authenticate --config=<file>` and nothing else in argv, which every local user can
+   read (`ps`). The file is a descriptor (`/dev/fd/N`) or a 0600 file in a directory only the user
+   can read, removed after the run, rendered and checked like the root file (below): `protocol
+   anyconnect`, `server https://<host>[:<port>][/<usergroup>]`, `user <name>` (the user name never
+   goes in argv), `authgroup <group>` when set, the trust lines, `non-inter`, `passwd-on-stdin`, and
+   `no-external-auth` where the tool has it (below). Standard input holds the answers, one per line:
+   `.combined` → line 1 the composed secret; `.separate` (this type's default) → line 1 the password,
+   line 2 the code. openconnect gives line 1 to the first password field (read at option parsing,
+   `main.c` 2023) and the next line to every later prompt (`secondary_password` in the same form, a
+   `challenge` form, ocserv's second "OTP" form; `prompt_for_input`, `main.c` 2706–2722); with no line
+   left it fails with "User input required in non-interactive mode". Each line is at most 4,095 bytes
+   (`MAX_READ_STDIN_SIZE` with its newline) and holds no LF or NUL. Answers are positional: a server
+   that answers a wrong password with a retry form gets the code as the second password (the code is
+   spent), and a text field before the password other than the user name would get the code; both
+   end as a failed sign-in. openconnect's own TOTP (`--token-mode=totp`) is not used: it computes the
+   code itself, past the fresh-code wait and `.last-otp`, and needs the TOTP secret.
+   - *Single sign-on.* Phase 1 has none. `no-external-auth` (openconnect 9.10 and later; 9.01, the
+     release before it, does not know it and always offers SSO) only stops openconnect from
+     *offering* the SSO methods (`auth.c` 860–869); it does not stop a server that sends an
+     external-browser SSO form anyway (`library.c` 1860–1868): openconnect then opens the server's
+     URL with the default browser (`/usr/bin/open`, `xdg-open`) as the user, and the run ends at its
+     timeout. `--non-inter` does not change that. The Mac's bundled 9.21 always gets the option; on
+     Linux the client renders it when `openconnect --help` lists it (a capability check, #184/#187).
+2. **Its output** is parsed strictly (`OpenConnectAuthResult`, VPNConfig, #180): exactly
+   `COOKIE='…'`, `HOST='…'`, `CONNECT_URL='…'`, `FINGERPRINT='pin-sha256:…'` and
+   `RESOLVE='<host>:<address>'` or `RESOLVE=` (`main.c` 2403–2425), each once, values printable ASCII
+   without `'`, the cookie 1–4,096 bytes; anything else fails. Without a proxy (PassTunnel never sets
+   one) openconnect prints the address it connected to: `HOST` is that numeric address (in brackets
+   for IPv6; `openconnect_get_hostname`, `library.c` 985–988, set in `ssl.c` 489–500), not a name.
+   - `CONNECT_URL` (`library.c` 953–980) must be exactly `https://<host>[:<port>]/`: no user info,
+     query, fragment, path or control character, at most 300 bytes, its host the profile's host
+     (lowercased; an IPv6 literal in brackets) and its port the profile's port. Another host (ASA
+     load balancing) is refused in Phase 1, since `ProfileDestination` binds the profile's host (a
+     per-profile switch may come later).
+   - For a host name, `RESOLVE` must be `<that host>:<IP literal>` (`inet_pton`) and `HOST` that same
+     address; the root run gets it as `resolve`, so DNS cannot move the tunnel to another address
+     between the runs. For an IP-literal host both must be that literal and no `resolve` is rendered
+     (openconnect splits `resolve` at the first `:`, `main.c` 1983–2000). An empty `RESOLVE` fails.
+   - `FINGERPRINT` must equal the profile's pin when it has one.
+   - *What this does not cover:* these are checks of where the sign-in **ended**. openconnect
+     follows every `https://` redirect during the sign-in, to any host and port (`handle_redirect`,
+     `http.c` 646–690), and submits the forms there; the openconnect command line has no option or
+     callback to refuse one, so a redirect away and back cannot be stopped from outside. With a pin,
+     only a server holding the pinned key gets the credentials (the pin is checked for every host,
+     `main.c` 2589–2600); without one, any server with a certificate the system CA bundle trusts for
+     its own name does. The client also fails the connect, after the fact, when a `POST https://…`
+     line of the run names another host or port than the profile's. Refusing each redirect before
+     anything is sent would need libopenconnect's API or a patched build, not the bundled command.
+3. **The cookie** is a bearer secret. The user's process keeps it in memory only, in a bounded byte
+   buffer that is overwritten once the start request is sent or the connect fails (best effort: the
+   encoded request and any copy the runtime made are not guaranteed to be erased). Neither run's
+   output that carries it is logged: the sign-in run's standard output is read only by the parser,
+   and neither run gets `-v` or `dump-http-traffic` (#184 adds a log fixture check that the cookie
+   is absent). `HelperRequest`'s descriptions, mirrors and error texts never include it. Literal
+   masking by `LogRedactor` is not relied on: it runs when a log is read, after the value is gone.
+4. **The tunnel, as root:** `HelperRequest.startOpenConnect` (below). Costs of the split: the cookie
+   crosses XPC (or the daemon socket) and sits in a root-only file for the session's life; two runs
+   per connect.
+
+`.last-otp` is recorded when the sign-in run starts and given back when its output shows that no
+form was submitted after the initial request (each submission logs `POST https://…`, `http.c` 894),
+i.e. no credentials left the machine; a failure after that is `ConnectionFailure.Kind.authRejected`.
+
+### Server trust
+
+- `server_cert` is optional. Only `pin-sha256:` followed by the full base64 SHA-256 of the server's
+  public key (SubjectPublicKeyInfo; 44 characters, the last `=`) is accepted, stored normalized.
+  openconnect would also take any prefix of 4 or more characters, `sha256:`/`sha1:` hex and a bare
+  SHA-1 of the whole certificate (`library.c` 1694–1745); PassTunnel refuses all of them.
+- With `servercert`, openconnect turns system trust off (`main.c` 1968–1980): the pin is the only
+  trust. Without a pin the sign-in run gets `no-system-trust` and `cafile /etc/ssl/cert.pem` (Linux:
+  the checked distribution bundle, `SystemTools.caBundle`), never GnuTLS's compiled-in Homebrew
+  store.
+- The root run always gets `servercert` = the `FINGERPRINT` the sign-in run accepted (the profile's
+  pin, or the key the CA check passed), so the tunnel cannot reach another key than the one the
+  credentials went to.
+- With `non-inter` a failed check never prompts (`main.c` 2600–2630); the log's `Server certificate
+  verify failed: …` and `--servercert pin-sha256:…` lines become "Trust this server" in the editor
+  (#186), as openfortivpn's `--trusted-cert` hint does. "Fetch fingerprint" needs the SPKI digest
+  (`TLSFingerprint` hashes the whole certificate today): #186 parses the certificate's DER with
+  bounds checks (tbsCertificate's optional `[0]` version, then serial number, signature algorithm,
+  issuer, validity and subject) and hashes the complete DER of the SubjectPublicKeyInfo that
+  follows, tested with fixtures with and without the version field. Linux has no fetch; the pin
+  comes from the log hint.
+
+### The root configuration (#180, #182)
+
+`OpenConnectConfig` (VPNConfig, the `FortiConfig` pattern: typed fields, `validate`, `render`,
+`checkRendered`). The helper renders `<run>/openconnect.conf` (0600, root) and runs
+`openconnect --config=<run>/openconnect.conf`, nothing else in argv, stdin `/dev/null`, working
+directory the session directory; the cookie is an option in the file, as openfortivpn's password
+is in its file, so `Spawner` needs no change apart from writing `state` before `SIGCONT` (step 1
+of the hook). Next to it the helper writes `policy` (the hook's step 2); the hook adds `network`
+(its record), `hook` (while one runs) and the supervisor `stopping`.
+
+```
+# Generated by PassTunnel. Do not edit.
+protocol anyconnect
+server https://vpn.example.com:8443/
+cookie <cookie>
+servercert pin-sha256:<44 characters>
+resolve vpn.example.com:192.0.2.10            (only for a host name)
+script <staged build directory>/Resources/bin/vpn-hook
+non-inter
+reconnect-timeout 60
+no-dtls                                       (only with tls_only)
+```
+
+- openconnect reads one `option value` per line, skipping leading blanks and one `=` after the name,
+  `#` lines are comments (`next_option`, `main.c` 1199–1300). So every value has no NUL, CR, LF or
+  other control byte, no leading or trailing whitespace and no leading `=`; `checkRendered` checks
+  the expected number of lines, only the keys above, each once and in this order.
+- `script` is always rendered: without it openconnect runs its compiled-in `DEFAULT_VPNCSCRIPT`
+  (`main.c` 2439). openconnect passes it to `/bin/sh -c` (`script.c` 660–695), so the path must be
+  only `A–Z a–z 0–9 / . _ -` (the staged build directory is hex digits).
+- `server` is the checked `CONNECT_URL`, rendered from the profile's own host and port, never the
+  server's text (for AnyConnect openconnect puts no usergroup path in it, `library.c` 973).
+- `reconnect-timeout 60` (openconnect's default is 300) is a retry budget, not a deadline: after a
+  dropped connection openconnect retries with the cookie and subtracts only its sleeps between tries
+  from the 60 (`ssl.c` 1203–1235), not the time each try or the hook takes. The supervisor's own
+  reconnect deadline (below) bounds the elapsed time; after either, `ConnectionManager`'s own
+  reconnect (a new sign-in with a fresh code) takes over.
+- DTLS (UDP) is on by default; the per-profile `tls_only` renders `no-dtls`.
+- Not rendered: `useragent` (openconnect's default string; no field in Phase 1) and `-v` (INFO is
+  the default; higher levels and `dump-http-traffic` would log the cookie).
+- Refused, never rendered (there is no raw option input at all; #180's tests list them): `script-tun`,
+  `csd-wrapper`, `csd-user`, `external-browser`, `setuid`, `background`, `pid-file`, `syslog`,
+  `interface` (a named device could attach to another user's persistent tun on Linux, as OpenVPN's
+  `dev`), `certificate`, `sslkey`, `mca-*`, `key-password*`, `token-*`, `config`, `xmlconfig`
+  (openconnect writes the server's XML profile to that path, as root), `proxy*`, `libproxy`,
+  `dump-http-traffic`, `gnutls-debug`, `gnutls-priority`, `dtls*-ciphers`, `allow-insecure-crypto`,
+  `no-cert-check`, `force-*`, `cafile` other than the system bundle, `os`, `version-string`,
+  `local-hostname`.
+- CSD host scan (and in later phases GlobalProtect's HIP report and Pulse's TNCC) is refused in every
+  phase: without `csd-wrapper` or `csd-user` openconnect refuses a server that asks for it ("Server
+  asked us to run CSD hostscan", "… 'Cisco Secure Desktop' trojan …", `auth.c` 1176–1187), and the
+  client turns those lines into a failure that says the server requires a host scan PassTunnel does
+  not run.
+
+### Fixed environment (#182, #184)
+
+Both runs on the Mac (the sign-in run through `ToolRunning`, the tunnel through `Spawner`) get
+`HelperCore.fixedEnvironment` plus `GNUTLS_SYSTEM_PRIORITY_FILE=/dev/null` and
+`P11_KIT_NO_USER_CONFIG=1` (the OpenSSL variables do nothing to GnuTLS). openconnect sets the first
+itself (`main.c` 1855, without overwriting), but only in `main`; setting it in the spawn
+environment makes it hold before any library code runs. None of `https_proxy` (`main.c` 1781),
+`SSLKEYLOGFILE`, `GNUTLS_DEBUG_LEVEL`, `TPM_INTERFACE_TYPE` is ever set. On Linux the environment is
+`PATH`, `LC_ALL` and `P11_KIT_NO_USER_CONFIG=1` (LINUX.md). What the Homebrew build has compiled in,
+and how each is kept out of the root run:
+
+| Compiled-in path | Read when | Neutralized by |
+|---|---|---|
+| `/opt/homebrew/etc/vpnc/vpnc-script` (`DEFAULT_VPNCSCRIPT`) | no `script` given (`main.c` 2439), run with `/bin/sh -c` | `script` always rendered, `checkRendered` |
+| `/opt/homebrew/etc/gnutls/config` (system priority file; may name a PKCS#11 provider to load) | GnuTLS initialization | `GNUTLS_SYSTEM_PRIORITY_FILE=/dev/null` in the spawn environment |
+| `/opt/homebrew/etc/gnutls/cert.pem` (`--with-default-trust-store-file`) | system trust (`gnutls.c` 2277) unless turned off | `no-system-trust` + `cafile /etc/ssl/cert.pem`, or `servercert` |
+| `/opt/homebrew/etc/pkcs11/pkcs11.conf`, `…/pkcs11/modules/*.module`, p11-kit's Cellar module directory; `~/.config/pkcs11/…` | when p11-kit loads modules: `pkcs11:` certificate or key URLs (`gnutls.c` 1062–1330), GnuTLS PKCS#11 trust or providers | no `certificate`, `sslkey`, `mca-*`, `token-*`; `P11_KIT_NO_USER_CONFIG=1`. p11-kit has no variable for its system configuration; the remaining guard is library validation (the tools are signed with the hardened runtime, which admits only code signed by Apple or with our Team ID); #182 checks on a release build that a module placed in the Homebrew prefix is not loaded |
+| `…/share/locale` of openconnect and GnuTLS | message lookup | `LC_ALL=C` |
+| `/usr/bin/open` (`DEFAULT_EXTERNAL_BROWSER`, spawned by `hpke.c` 63–71) | a server sends an "external browser" sign-in form | the root run never signs in (it has the cookie); in the sign-in run, as the user, `no-external-auth` stops offering it but does not prevent it (above) |
+| `/bin/sh`, `/var/tmp` (CSD) | a server requests a host scan | refused (above) |
+
+### The hook: `vpn-hook` (#182 stub, #183 macOS, #187 Linux)
+
+openconnect configures neither the interface nor routes nor DNS; its `script` does, as root, with
+server values in its environment. vpnc-script is never run: on the Mac it rewrites `/etc/resolv.conf`,
+sets the primary service's DNS persistently with `networksetup` (and to `Empty` on disconnect,
+deleting servers the user had set), replaces the default route, and passes unchecked server values to
+`route`, `ifconfig` and `scutil` as shell words; on Linux it writes DNS outside `DNSApplier`'s record
+and revert. Instead the hook is PassTunnel's own code:
+
+- **macOS:** the staged copy of the helper (above). `PassTunnelHelper`'s `main` branches on the last
+  component of `argv[0]` being `vpn-hook` before it touches XPC, as `passtunneld` does for `dns-hook`.
+  #182 stages it as a stub that fails closed; #183 makes it work.
+- **Linux:** `<run>/<uid>/<id>/vpn-hook`, a link to `passtunneld` (as `dns-hook`).
+- The validation is shared (`OpenConnectNetwork`, PassTunnelShared, pure), the system actions sit
+  behind a protocol, so both are tested everywhere against fakes and the golden cases in
+  `fixtures/openconnect-env.json` (an environment → the expected actions or the refusal; read by the
+  Shared and Daemon tests, not by the mobile apps).
+
+openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top of its own, then
+`execl("/bin/sh", "/bin/sh", "-c", script)` and a `waitpid` **without a time limit** (`script.c`
+660–695), for the reasons `pre-init`, `connect` (`library.c` 1576, 1593), `disconnect` (`tun.c`
+579), `attempt-reconnect` and `reconnect` (`ssl.c` 1214, 1241).
+
+1. **Session check** (as `DNSHook.session`): euid 0, its own executable trusted, the working
+   directory a session directory whose `state` names the session's tool. The parent must be that
+   openconnect, or a `/bin/sh` (checked by its executable path) whose parent is that openconnect: the
+   hook does not rely on the shell replacing itself with the command. The helper writes `state`
+   before the tool can run a hook: on the Mac while it is still suspended (`Spawner.spawnVerified`
+   writes it after the signature check and before `SIGCONT`; failing to write it kills the tool);
+   the Linux daemon has no suspended start and writes it right after `posix_spawn`, so there the hook
+   waits up to 5 s for a `state` that names its parent before it refuses.
+2. **Policy from root only.** What the hook may do comes from `policy` (0600, root), which the
+   helper writes into the session directory with `openconnect.conf`, before the start, from the
+   checked request: uid, profile ID, `set_routes`, `set_dns` (`HelperCore.checkLines`). The hook
+   never reads the user's profile, and nothing in openconnect's environment can change the policy.
+3. **Validation.** Every value the hook uses is checked; one bad value fails the set-up. The
+   validators are family-specific (`OpenConnectNetwork`): a *host address* goes through `inet_pton`,
+   is written as `inet_ntop` gives it back and is never the unspecified address; a *network* may be
+   `0.0.0.0` or `::`, its host bits are cleared (as openconnect does for IPv4 split routes); a
+   *mask* is a contiguous dotted IPv4 mask or a length (0–32, 0–128).
+
+   | Variable | From | Rule |
+   |---|---|---|
+   | `reason` | openconnect | one of the five above |
+   | `TUNDEV` | the kernel | `^utun[0-9]{1,3}$` (macOS), `^tun[0-9]{1,5}$` (Linux); must exist; its index is noted |
+   | `VPNGATEWAY` | the address openconnect connected to | a host address |
+   | `INTERNAL_IP4_ADDRESS` | server (`X-CSTP-Address`, raw text) | absent, or a host address |
+   | `INTERNAL_IP4_NETMASK`, `INTERNAL_IP4_NETMASKLEN`, `INTERNAL_IP4_NETADDR` | openconnect, only when the server's netmask parsed and is contiguous (`script.c` 313–340) | all three or none; consistent with each other and the address; none: the address alone (`/32`) |
+   | `INTERNAL_IP6_NETMASK` | server (`X-CSTP-Netmask` with `:`, raw) | absent, or `<host address>/<0–128>` |
+   | `INTERNAL_IP6_ADDRESS` | server, or the address part of `INTERNAL_IP6_NETMASK` (`script.c` 343–353) | absent, or a host address equal to the address in `INTERNAL_IP6_NETMASK` when both are set; alone: `/128` |
+   | `INTERNAL_IP4_MTU` | negotiated | 576–9000; 1280 or more when IPv6 is assigned |
+   | `INTERNAL_IP4_DNS` | server (`X-CSTP-DNS`, `-DNS-IP6`; IPv4 and IPv6 mixed) | at most 3 words, each a host address |
+   | `CISCO_DEF_DOMAIN` (split on spaces), `CISCO_SPLIT_DNS` (split on commas) | server | each a plain host name (the rules of the Linux `DNSSettings.domain`), at most 16 of each |
+   | `CISCO_SPLIT_INC`, `CISCO_SPLIT_EXC` and their `_<n>_ADDR`, `_MASK`, `_MASKLEN` | server (normalized by openconnect) | at most 1,024 of each kind, indexes contiguous from 0, each a network with a mask and length that agree |
+   | `CISCO_IPV6_SPLIT_INC`, `CISCO_IPV6_SPLIT_EXC` and their `_<n>_ADDR`, `_MASKLEN` | server (`_ADDR` raw text, `script.c` 138–142) | as above, IPv6 networks, length 0–128 |
+
+   At least one of the IPv4 and IPv6 addresses must be set. Ignored, never used: `CISCO_BANNER`
+   (decoded `%XX`, may hold line breaks), `CISCO_PROXY_PAC`, `CISCO_CSTP_OPTIONS` (every `X-CSTP-*`
+   header), `IDLE_TIMEOUT`, `INTERNAL_IP4_NBNS`. A header value cannot hold CR or LF but may hold
+   spaces, quotes, `$`, backquotes, `;` and bytes from 0x80; variable names are openconnect's own
+   (fixed or built from counters), so a server cannot set `BASH_ENV` or the like.
+4. **Record, then apply**, one change at a time under the run root's lock. Each change is journaled
+   in the session's record (`network`, 0600) before it is made, and its outcome after: a change is
+   the session's own only when it succeeded. A route or address that already existed ("File
+   exists") is recorded as not owned and never removed, except that a full-tunnel route that already
+   exists fails the set-up (another tunnel holds that traffic, as for OpenVPN). Every program runs
+   from a fixed path with an argument list (no shell) for at most 10 s; macOS: `/sbin/ifconfig`,
+   `/sbin/route`, DNS through the SystemConfiguration API; Linux: `ip` and `DNSApplier` (LINUX.md).
+   - `pre-init`: nothing.
+   - `connect`: the interface's addresses, MTU and up (`ifconfig utunN inet A A netmask
+     255.255.255.255 mtu M up`, and `inet6 A prefixlen L`). With `set_routes`, decided per family:
+     first a host route to `VPNGATEWAY` through the original gateway of its family, so the transport
+     stays reachable whatever follows; IPv4 with split includes: each include through the interface
+     and each exclude through the original gateway; without: `0/1` and `128/1` through the
+     interface, never replacing `default` (so `RoutingTable.trafficRoutes` and the other-VPN check
+     see it as they see OpenVPN's `def1`); IPv6 the same with its own split lists, or `::/1` and
+     `8000::/1`, when an IPv6 address is assigned. When IPv4 is a full tunnel and no IPv6 address
+     is assigned, IPv6 is blocked with reject routes for `::/1` and `8000::/1`. What that does and
+     does not do: it takes away IPv6's default path, so destinations without a more specific route
+     are refused; routes that are more specific stay and win (the local network's on-link prefixes,
+     link-local, other interfaces' and other VPNs' routes), so IPv6 to those still leaves outside
+     the tunnel. It is not a packet filter; a complete block would need pf or nftables, which Phase 1
+     does not use. With IPv4 split, IPv6 without an address is left alone. With `set_dns`: macOS writes
+     the dynamic keys `State:/Network/Service/passtunnel-<uid>-<profile id>/IPv4` and `/DNS` through
+     `SCDynamicStore` (`ServerAddresses`, `SearchDomains`, `SupplementalMatchDomains` for split DNS,
+     `OverridePrimary` only for a full tunnel): never a `Setup:` key, never `networksetup`, never
+     `/etc/resolv.conf`, no `scutil` text. Linux uses `DNSApplier`.
+   - `attempt-reconnect`: the gateway host route is set again (the network under the tunnel may have
+     changed).
+   - `reconnect`: openconnect refuses a different address or netmask (`library.c` 676–712) but
+     installs whatever else the server now sends (DNS, split routes, MTU; `install_vpn_opts`,
+     `library.c` 652). The hook validates the new environment like a `connect` and compares what it
+     would apply with the record; any difference fails the reconnect ("the server changed the
+     network settings"), and the session is stopped (below), for a new connect to set up afresh.
+   - `disconnect`: everything the record owns is reverted, newest first. Reverting is idempotent (a
+     change already gone counts as reverted).
+5. **Bounded.** openconnect waits for the hook without a limit, and the hook runs in its own process
+   group, which `kill(-pid)` does not reach. So the whole hook run, the lock wait included, has a
+   limit of 30 s; the hook writes its pid and start time to `hook` in the session directory under the
+   lock when it starts and removes it when it ends, and it checks for the `stopping` mark (below)
+   before each change: once that is set it applies nothing more.
+6. **Report and enforcement.** The hook records its outcome in the record (`up`, or `failed` and why)
+   and writes one line to the session log: `passtunnel vpn-hook: utun5 up: 10.0.0.2, 3 routes, DNS …`
+   or, after reverting what it applied, `passtunnel vpn-hook: setting up the network failed: …`.
+   openconnect ignores the result of the `connect` call (`library.c` 1593) and keeps running, so the
+   failure must be acted on by PassTunnel, and not only by a client that may be gone: the hook sends
+   SIGTERM to its openconnect (the pid the session check proved), and the supervisor, which checks its
+   openconnect sessions every 5 s, stops a session whose record says `failed`, has no `up` within 60 s
+   of the start (`openConnectSetupDeadline`), or has no successful `reconnect` within 120 s of an
+   `attempt-reconnect` (`openConnectReconnectDeadline`). The client reads the same lines: `failed` is
+   `PTError.setupFailed`, the success line the "connected" marker. openconnect's own `Configured as
+   …` (`main.c` 1660) is printed before the hook runs and marks nothing.
+7. **Stop and revert.** When a session stops or its tool has exited (`Supervisor.finish`, `stopAll`,
+   `adoptOrphans`; on Linux the daemon's exit handling and the previous-instance cleanup), the
+   supervisor sets `stopping` in the session directory under the lock, waits for a running hook (by
+   its recorded pid and start time) to end, at most 30 s, then kills it, and then runs the hook's
+   revert in-process under the lock, as `pendingDNSDown` does for OpenVPN. Routes through a vanished
+   interface go with it; the gateway host route, the reject routes and the `State:` keys do not, hence
+   the record. A revert that fails keeps the record (and only the record) in the session directory:
+   the profile cannot start over it, and the helper or daemon tries again every 15 s, as the Linux
+   daemon does for DNS (LINUX.md, "Supervision").
+
+### Supervision and log (#182, #184)
+
+- **Start:** `ToolStager` stages `openconnect` and `vpn-hook`; `Spawner.spawnVerified` with
+  `PT.toolRequirement(identifier: PT.openconnectIdentifier)` and the cdhash pins; output (INFO on
+  stdout, errors on stderr) to the log descriptor. No `interface`: openconnect opens the first free
+  `utun` (`tun.c` 299–370).
+- **Stop:** SIGTERM; openconnect cancels (`main.c` 815–835), tries to send BYE to the server
+  (`cstp_bye`, `cstp.c` 1237), runs the hook's `disconnect` and exits 0 ("User cancelled
+  (SIGINT/SIGTERM); exiting."). A BYE that was sent does not prove the server invalidated the
+  cookie, and none is sent over a broken connection or after SIGKILL: the cookie is treated as
+  valid until the server's own expiry. SIGKILL after 5 s as today; a hook still running is handled
+  as in step 7 above.
+- **Adoption** unchanged (`state`: pid, uid, staged executable; `proc_pidpath`); sessions count
+  against `SessionPolicy.maxSessionsPerUser`.
+- **Exit codes** (`main.c` 2479–2521): 0 cancelled or detached; 1 authentication, I/O, "Session
+  terminated by server; exiting."; 2 "Cookie was rejected by server; exiting.".
+- **Log** (`VPNLog`, #184):
+
+  | Line | Meaning |
+  |---|---|
+  | `POST https://vpn.example.com/` (`http.c` 894) | sign-in run: a form was submitted |
+  | `Failed to complete authentication` (stderr, `main.c` 2399) | sign-in run failed |
+  | `User input required in non-interactive mode` | the server asked for more than was answered |
+  | `Server certificate verify failed: …`, `None of the 1 fingerprint(s) specified via --servercert match …` | trust failure; nothing was sent |
+  | `getaddrinfo failed for host '…'`, `Failed to connect to host …`, `Failed to open HTTPS connection to …` | `host_not_found` / `unreachable` |
+  | `Got CONNECT response: HTTP/1.1 200 OK`, `CSTP connected. DPD …` | root run: tunnel negotiated |
+  | `passtunnel vpn-hook: utun5 up: …` | connected; the interface name (openconnect does not print it at INFO) |
+  | `passtunnel vpn-hook: setting up the network failed: …` | `PTError.setupFailed`; stopped |
+  | `Cookie was rejected by server; exiting.`, `Session terminated by server; exiting.` | dropped; a reconnect signs in again |
+
+  `NetworkClaims` reads the session's routes from the routing table through its interface (as for
+  openfortivpn) and its DNS from the hook's line.
+
+### Helper protocol 4 (#182)
+
+`PT.helperProtocolVersion` becomes 4 for the new request; an older helper fails `ensureCompatible()`
+with `versionMismatch` and is replaced as today, and `passtunneld`'s `hello` reports 4 as well.
+
+```swift
+case startOpenConnect(OpenConnectStart)   // profileID, profileDir, logPath, host, port, usergroup,
+                                          // connectURL, resolve?, cookie, serverCert (the accepted
+                                          // FINGERPRINT), tlsOnly, setDNS, setRoutes
+```
+
+The helper checks every field again (`OpenConnectConfig.validate`: the profile rules below,
+`connectURL` exactly `https://<host>[:<port>]/` for the request's `host` and `port`, `resolve`
+required as `<host>:<IP literal>` for a host name and absent for an IP literal, the pin's form, the
+cookie's length and characters) before anything is written, and renders `server` from `host` and
+`port`, not from the text it was sent. `setDNS` and `setRoutes` go into the session's `policy`
+file for the hook. The request stays under the
+64 KiB limit (the cookie is at most 4 KiB).
+
+### Profile (#181)
+
+`VPNType.anyconnect` (`--type anyconnect`; later phases add their own types for the same backend).
+New keys (JSON snake_case), FortiGate's reused where the meaning is the same:
+
+| Key | Rule |
+|---|---|
+| `host` | `FortiConfig.isValidHost`; rendered in brackets when IPv6 |
+| `port` | 1–65535, default 443 |
+| `usergroup` | empty or 1–255 bytes of `A–Z a–z 0–9 - _ . ~ /`, no `..`, no leading `/` (the URL path) |
+| `authgroup` | empty or 1–255 bytes, no control characters, no leading or trailing whitespace, no leading `=` (matched against the server's group list) |
+| `server_cert` | empty or `pin-sha256:` + 44 base64 characters (not `trusted_cert`: another hash) |
+| `tls_only` | boolean, default false: `no-dtls` |
+| `set_dns`, `set_routes` | as for FortiGate |
+| `username` | at most 255 bytes, no control characters, no leading or trailing whitespace, no leading `=` (a config file value) |
+| password, TOTP, `otp_delivery`, `otp_template` | as today; `otp_delivery` defaults to `.separate`; the password and each composed line at most 4,095 bytes, no LF or NUL |
+
+There is no user agent field and no raw option. Each rule is `PTError.invalidField`, enforced in
+`ProfileStore.save`, `ConnectionManager` and again by the helper. `ProfileDestination.of` covers the
+version tag, the type, the lowercased host, the port, `usergroup` and the normalized `server_cert`.
+Phase 1 imports by manual entry and by pasting a URL (`https://vpn.example.com/group` fills host,
+port and usergroup). `ShareFile`'s version is raised for the new type, so an older PassTunnel
+refuses such a share file instead of importing it as OpenVPN. The CLI and MCP (#185), the editor
+(#186) and the user docs (#189) follow; `passtunneld` on Linux is #187.
+
+### Tests (#188)
+
+The Mac path is tested with unit tests (`OpenConnectConfig` render and check, the sign-in output
+parser, the hook's validation and its actions against a fake system, log fixtures from real runs
+with example hosts and documentation addresses) and a manual connect against the ocserv image on a
+developer machine (GitHub's macOS runners have no Docker). The Linux jobs sign in against ocserv
+(`plain` with an OTP file: a password form, then a second form for the code) with the
+distribution's `openconnect --authenticate`, no tunnel; an opt-in job (`PASSTUNNEL_TEST_OCSERV=1`)
+connects a real tunnel on the runner VM, sets and reverts routes and DNS, and kills openconnect to
+check the daemon's revert — an exception to "tests never start a tunnel", marked as such.
 
 ## Rules for all code
 

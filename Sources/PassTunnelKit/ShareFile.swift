@@ -32,8 +32,14 @@ public struct ShareFile: Codable {
             version <= Self.currentVersion
         else { throw PTError.unsupportedShareFile }
         passtunnelProfile = version
-        guard let p = c.lenient(Profile.self, .profile) else { throw PTError.unsupportedShareFile }
-        profile = p
+        // A profile of a type this version does not know is refused as such, never imported as OpenVPN.
+        do {
+            profile = try c.decode(Profile.self, forKey: .profile)
+        } catch let e as PTError {
+            throw e
+        } catch {
+            throw PTError.unsupportedShareFile
+        }
         files = c.lenient([String: Data].self, .files) ?? [:]
     }
 

@@ -28,7 +28,13 @@ public enum JSONCoding {
     }
 
     public static func decode<T: Decodable>(_ type: T.Type, from data: Data, name: String = "") throws -> T {
-        do { return try decoder().decode(type, from: data) } catch { throw PTError.invalidFile(name) }
+        do {
+            return try decoder().decode(type, from: data)
+        } catch let e as PTError {
+            throw e  // a decoder's own verdict, e.g. `unsupportedProfileType`
+        } catch {
+            throw PTError.invalidFile(name)
+        }
     }
 
     /// Encodes and writes atomically (temp file + rename) with the given permissions.
