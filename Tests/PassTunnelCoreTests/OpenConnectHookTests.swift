@@ -70,6 +70,10 @@ final class FakeOpenConnectSystem: OpenConnectSystem {
         return true
     }
 
+    func hasDNS(_ settings: OpenConnectDNSSettings) -> Bool {
+        settings.values.allSatisfy { dns[$0.key] == $0.value }
+    }
+
     func removeDNS(service: String) -> Bool {
         log.append("dns remove " + service)
         guard dnsWritable else { return false }
@@ -85,7 +89,6 @@ final class OpenConnectHookTests: XCTestCase {
     var runDir: String { root + "/501/acme" }
     var otherDir: String { root + "/501/other" }
     var system: FakeOpenConnectSystem!
-    var live: Set<String> = []
     var clock = Date(timeIntervalSince1970: 1_000_000)
 
     static let policy = OpenConnectPolicy(uid: 501, profileID: "acme", setRoutes: true, setDNS: true)
@@ -112,7 +115,6 @@ final class OpenConnectHookTests: XCTestCase {
         try FileManager.default.createDirectory(atPath: runDir, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(atPath: otherDir, withIntermediateDirectories: true)
         system = FakeOpenConnectSystem()
-        live = []
     }
 
     override func tearDownWithError() throws {
@@ -120,9 +122,8 @@ final class OpenConnectHookTests: XCTestCase {
     }
 
     func hook(dir: String? = nil, deadline: TimeInterval = OpenConnectHook.runLimit) -> OpenConnectHook {
-        let live = live
         var hook = OpenConnectHook(
-            runRoot: root, runDir: dir ?? runDir, system: system, deadline: clock.addingTimeInterval(deadline), isLive: { live.contains($0) },
+            runRoot: root, runDir: dir ?? runDir, system: system, deadline: clock.addingTimeInterval(deadline),
             identity: (4242, ProcessStart(seconds: 1_000_000, microseconds: 5)))
         let clock = clock
         hook.now = { clock }
@@ -616,6 +617,77 @@ final class OpenConnectHookTests: XCTestCase {
         XCTAssertEqual(system.log, [])
     }
 
+    func testReconnectPutsBackWhatTheSystemLost() throws {
+        XCTAssertFalse(run(.connect(Self.full)).stopTool)
+        XCTAssertFalse(run(.attemptReconnect(Self.full)).stopTool)
+        // During the network change a route into the tunnel went, and so did the DNS keys.
+        system.table.removeAll { $0.network == IPNetwork("0.0.0.0/1")! }
+        system.dns = [:]
+        system.log = []
+        let outcome = run(.reconnect(Self.full))
+        XCTAssertFalse(outcome.stopTool)
+        XCTAssertEqual(
+            system.log, ["/sbin/route -n add -inet -net 0.0.0.0 -netmask 128.0.0.0 -interface utun5", "dns set passtunnel-501-acme"])
+        XCTAssertEqual(system.dns["State:/Network/Service/passtunnel-501-acme/IPv4"]?["OverridePrimary"], .number(1))
+        let text = try recordText()
+        XCTAssertTrue(
+            text.contains("- route 0.0.0.0/1 interface utun5\n+ route 0.0.0.0/1 interface utun5\n= route 0.0.0.0/1 interface utun5\n"), text)
+        XCTAssertTrue(text.hasSuffix("status up\n"))
+        XCTAssertEqual(try record().status, .up)
+        // All of it is the session's again: a disconnect removes it.
+        XCTAssertEqual(run(.disconnect), OpenConnectHook.Outcome())
+        XCTAssertEqual(system.table, originalTable.filter { !$0.cloned })
+        XCTAssertEqual(system.dns, [:])
+    }
+
+    func testAttemptReconnectPutsBackAMissingRouteAroundTheTunnel() throws {
+        XCTAssertFalse(run(.connect(Self.full)).stopTool)
+        // The same gateway, but the server's route went with the link (refresh adds nothing: it is recorded).
+        system.table.removeAll { $0.network == IPNetwork("192.0.2.10/32")! }
+        system.log = []
+        XCTAssertEqual(run(.attemptReconnect(Self.full)), OpenConnectHook.Outcome())
+        XCTAssertEqual(system.log, ["/sbin/route -n add -inet -host 192.0.2.10 198.51.100.1"])
+        // A reject route that went is put back as well.
+        system.table.removeAll { $0.network == IPNetwork("::/1")! }
+        system.log = []
+        XCTAssertFalse(run(.reconnect(Self.full)).stopTool)
+        XCTAssertEqual(system.log, ["/sbin/route -n add -inet6 -net :: -prefixlen 1 ::1 -reject"])
+    }
+
+    func testWithoutAGatewayTheRoutesAroundTheTunnelWait() throws {
+        XCTAssertFalse(run(.connect(Self.full)).stopTool)
+        // The network is down while openconnect retries: no default route, the server's route gone with it.
+        system.table.removeAll { $0.network == IPNetwork("0.0.0.0/0")! || $0.network == IPNetwork("192.0.2.10/32")! }
+        system.log = []
+        XCTAssertEqual(run(.attemptReconnect(Self.full)), OpenConnectHook.Outcome())
+        XCTAssertEqual(system.log, [])
+        XCTAssertEqual(try record().status, .reconnecting)
+    }
+
+    func testWhatCannotBePutBackFailsTheReconnect() throws {
+        XCTAssertFalse(run(.connect(Self.full)).stopTool)
+        XCTAssertFalse(run(.attemptReconnect(Self.full)).stopTool)
+        // Another VPN took 128.0.0.0/1 meanwhile: not replaced, the session stops.
+        system.interfaces["utun3"] = 18
+        system.table.removeAll { $0.network == IPNetwork("128.0.0.0/1")! }
+        system.table.append(KernelRoute(network: IPNetwork("128.0.0.0/1")!, interface: "utun3"))
+        let outcome = run(.reconnect(Self.full))
+        XCTAssertEqual(
+            outcome,
+            OpenConnectHook.Outcome(
+                lines: [VPNHook.failureLine("another route for 128.0.0.0/1 exists already, through utun3")], stopTool: true))
+        XCTAssertTrue(system.table.contains { $0.network == IPNetwork("128.0.0.0/1")! && $0.interface == "utun3" })
+        XCTAssertFalse(system.table.contains { $0.interface == "utun5" })
+        XCTAssertEqual(system.dns, [:])
+        // DNS that cannot be written again fails it too.
+        try FileManager.default.removeItem(atPath: OpenConnectJournal.path(runDir: runDir))
+        system = FakeOpenConnectSystem()
+        XCTAssertFalse(run(.connect(Self.full)).stopTool)
+        system.dns = [:]
+        system.dnsWritable = false
+        XCTAssertEqual(run(.reconnect(Self.full)).lines.last, VPNHook.failureLine("the DNS settings could not be written"))
+    }
+
     func testAReconnectWithOtherSettingsFails() throws {
         XCTAssertFalse(run(.connect(Self.full)).stopTool)
         XCTAssertFalse(run(.attemptReconnect(Self.full)).stopTool)
@@ -636,12 +708,11 @@ final class OpenConnectHookTests: XCTestCase {
 
     // MARK: - Other sessions
 
-    /// Another live session of the run root with `entries` in its record.
+    /// Another session of the run root with `entries` in its record.
     func otherSession(_ entries: [OpenConnectRecord.Entry], interface: String = "utun6") throws {
         var record = try XCTUnwrap(OpenConnectRecord(interface: interface))
         for entry in entries { try record.append(entry) }
         try record.text().write(toFile: OpenConnectJournal.path(runDir: otherDir), atomically: false, encoding: .utf8)
-        live.insert(otherDir)
     }
 
     func testWhatAnotherLiveSessionHoldsIsSpared() throws {
@@ -660,19 +731,48 @@ final class OpenConnectHookTests: XCTestCase {
         XCTAssertTrue(text.contains("? route 192.0.2.10/32 gateway 198.51.100.1 en0\n"))
     }
 
-    func testARecordOfASessionThatEndedSparesNothing() throws {
+    func testARecordWhoseRevertRanSparesNothing() throws {
         XCTAssertFalse(run(.connect(Self.full)).stopTool)
         let reject = OpenConnectPlan.Change.route(.init(IPNetwork("::/1")!, via: .reject))
-        try otherSession([.begin(reject), .existed(reject)])
-        live = []
+        // The other session shared it, and its revert has run (it spared it to this one).
+        try otherSession([.shared(reject), .spared(reject)])
         XCTAssertEqual(run(.disconnect), OpenConnectHook.Outcome())
         XCTAssertTrue(system.log.contains("/sbin/route -n delete -inet6 -net :: -prefixlen 1"))
     }
 
-    func testAnUnreadableRecordOfALiveSessionSparesWhatCanBeShared() throws {
+    func testARecordThatOnlyFoundAChangeThereSparesNothing() throws {
+        XCTAssertFalse(run(.connect(Self.full)).stopTool)
+        let reject = OpenConnectPlan.Change.route(.init(IPNetwork("::/1")!, via: .reject))
+        try otherSession([.existed(reject)])
+        XCTAssertEqual(run(.disconnect), OpenConnectHook.Outcome())
+        XCTAssertTrue(system.log.contains("/sbin/route -n delete -inet6 -net :: -prefixlen 1"))
+    }
+
+    /// A session that ended (killed) still holds what its record holds until the helper's revert has run: a
+    /// session that connects meanwhile shares what it finds, and that revert leaves it to the new session.
+    func testASessionThatEndedHoldsItsRoutesUntilItsRevert() throws {
+        system.interfaces["utun6"] = 21
+        XCTAssertFalse(run(.connect(Self.full)).stopTool)
+        // A's openconnect is killed: its utun goes, its record stays until the helper reverts it.
+        system.interfaces["utun5"] = nil
+        system.table.removeAll { $0.interface == "utun5" }
+        // B connects before that revert: the server's route A made is shared, not nobody's.
+        system.log = []
+        XCTAssertFalse(run(.connect(Self.second), policy: Self.secondPolicy, dir: otherDir).stopTool)
+        XCTAssertTrue(try recordText(otherDir).contains("& route 192.0.2.10/32 gateway 198.51.100.1 en0\n"))
+        // A's revert spares it for B; B's disconnect then removes it.
+        var killed = 0
+        XCTAssertEqual(restore(killed: &killed), .done)
+        XCTAssertTrue(system.table.contains { $0.network == IPNetwork("192.0.2.10/32")! && $0.holdsDestination })
+        XCTAssertTrue(try recordText().contains("? route 192.0.2.10/32 gateway 198.51.100.1 en0\n"))
+        system.log = []
+        XCTAssertEqual(run(.disconnect, policy: Self.secondPolicy, dir: otherDir), OpenConnectHook.Outcome())
+        XCTAssertEqual(system.log.filter { $0.contains("192.0.2.10") }, ["/sbin/route -n delete -inet -host 192.0.2.10"])
+    }
+
+    func testAnUnreadableRecordOfAnotherSessionSparesWhatCanBeShared() throws {
         XCTAssertFalse(run(.connect(Self.full)).stopTool)
         try "garbage\n".write(toFile: OpenConnectJournal.path(runDir: otherDir), atomically: false, encoding: .utf8)
-        live.insert(otherDir)
         system.log = []
         XCTAssertEqual(run(.disconnect), OpenConnectHook.Outcome())
         XCTAssertEqual(
@@ -717,7 +817,6 @@ final class OpenConnectHookTests: XCTestCase {
     func testTheLastSessionToEndRemovesWhatTwoShare() throws {
         system.interfaces["utun6"] = 21
         XCTAssertFalse(run(.connect(Self.full)).stopTool)
-        live.insert(runDir)
         // B finds the server's route A made: shared, not made again.
         system.log = []
         XCTAssertFalse(run(.connect(Self.second), policy: Self.secondPolicy, dir: otherDir).stopTool)
@@ -727,14 +826,11 @@ final class OpenConnectHookTests: XCTestCase {
         XCTAssertFalse(b.contains("+ route 192.0.2.10/32"), b)
 
         // A ends first: B still runs, so the route stays (A journals it as spared).
-        live.insert(otherDir)
-        live.remove(runDir)
         system.log = []
         XCTAssertEqual(run(.disconnect), OpenConnectHook.Outcome())
         XCTAssertFalse(system.log.contains { $0.contains("192.0.2.10") })
         XCTAssertTrue(try recordText().contains("? route 192.0.2.10/32 gateway 198.51.100.1 en0\n"))
         // B ends last: nobody holds it any more, and B removes it.
-        live = []
         system.log = []
         XCTAssertEqual(run(.disconnect, policy: Self.secondPolicy, dir: otherDir), OpenConnectHook.Outcome())
         XCTAssertEqual(system.log.filter { $0.contains("192.0.2.10") }, ["/sbin/route -n delete -inet -host 192.0.2.10"])
@@ -864,10 +960,9 @@ final class OpenConnectHookTests: XCTestCase {
     // MARK: - The helper's revert
 
     func restore(dir: String? = nil, killed: inout Int) -> OpenConnectHook.Restore {
-        let live = live
         let clock = clock
         return OpenConnectHook.restoreAfterExit(
-            runRoot: root, runDir: dir ?? runDir, system: system, isLive: { live.contains($0) }, killHook: { killed += 1 }, now: { clock })
+            runRoot: root, runDir: dir ?? runDir, system: system, killHook: { killed += 1 }, now: { clock })
     }
 
     func testTheHelperRevertsAfterTheToolWasKilled() throws {
@@ -964,7 +1059,7 @@ final class OpenConnectHookTests: XCTestCase {
         var killed = 0
         var tick = 0
         let result = OpenConnectHook.restoreAfterExit(
-            runRoot: root, runDir: runDir, system: system, isLive: { _ in false }, killHook: { killed += 1 },
+            runRoot: root, runDir: runDir, system: system, killHook: { killed += 1 },
             now: {
                 tick += 1
                 return self.clock.addingTimeInterval(Double(tick) * 10)

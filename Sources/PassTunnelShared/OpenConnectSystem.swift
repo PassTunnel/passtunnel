@@ -18,6 +18,8 @@ public protocol OpenConnectSystem: AnyObject {
     func run(_ command: OpenConnectCommand, timeout: TimeInterval) -> OpenConnectCommand.Result
     /// Writes a session's dynamic DNS keys (and removes those `settings` leaves out), all at once.
     func setDNS(_ settings: OpenConnectDNSSettings) -> Bool
+    /// Whether the system has a session's dynamic DNS keys as `settings` writes them.
+    func hasDNS(_ settings: OpenConnectDNSSettings) -> Bool
     /// Removes a session's dynamic DNS keys; true also when there were none.
     func removeDNS(service: String) -> Bool
 }

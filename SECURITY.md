@@ -548,8 +548,11 @@ names are openconnect's own, so a server cannot set `BASH_ENV` or similar.
   own route is more specific and still wins. A full tunnel is not affected by this.
 - **Shared routes are not pulled from under another session, nor left behind.** When two sessions need
   the same route (a block, or the route to a VPN server both use), the one that ends first leaves it in
-  place while the other still runs, and the last one removes it. A route that was there before any
-  PassTunnel session is never removed.
+  place while the other still runs (also when the first one was killed and is still being cleaned up),
+  and the last one removes it. A route that was there before any PassTunnel session is never removed.
+- **A network change does not leave holes.** When the connection is re-established, the hook checks that
+  every route and the DNS settings it made are still there as it made them, puts back what went, and
+  stops the session if it cannot.
 - **A late hook cannot touch a newer session.** Once it holds the lock, the hook proves its session again,
   including its generation (the start time of its `openconnect`), before it reads or changes anything: a
   hook of a session that has ended meanwhile does nothing.

@@ -1516,9 +1516,9 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
    for under the lock before anything is journaled for it, so the record never shows as begun (`+`, which a
    revert would undo) something the system had before. **What "File exists" means:** a route already there
    counts only when it has exactly the planned next hop (the same interface, the same gateway on its
-   interface, a reject route); it is journaled without a `+` as shared (`&`) when another live session's
+   interface, a reject route); it is journaled without a `+` as shared (`&`) when another session's
    record holds it (own, shared or pending), or as not PassTunnel's (`~`, never removed by anyone) when
-   none does (a live session whose record cannot be read counts as none: `~` may leave a route behind, but
+   none does (a session whose record cannot be read counts as none: `~` may leave a route behind, but
    never removes one that is not PassTunnel's). Any other route of that destination fails the set-up
    ("another route for 10.20.0.0/16 exists already, through utun3"), for every kind of route: traffic the
    set-up claims (an include, the assigned network, a DNS server, a full tunnel's half, the server's own
@@ -1634,21 +1634,27 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
      `up` or `reconnecting`. The record's status becomes `reconnecting`, then the routes around the
      tunnel follow the default gateway, which may have changed (another network). For each family that
      has a usable gateway now, the session's own and shared routes through another gateway are removed,
-     newest first (one another live session's record holds is left and journaled as spared, `?`), then the
+     newest first (one another session's record holds is left and journaled as spared, `?`), then the
      ones `connect` would add now and the record does not hold are added, looked for first as in `connect`
      (so a route another session still uses through the old gateway fails the attempt: the session stops
      and signs in afresh rather than replacing it). A family without a gateway right
-     now (the network is down while openconnect retries) is left as it is. Nothing is written to the log.
+     now (the network is down while openconnect retries) is left as it is. Then what the record holds is
+     checked against the system (`repair`, as for `reconnect`). Nothing is written to the log.
    - `reconnect` (`OpenConnectPlan.matches`): openconnect refuses a different address or netmask
      itself (`library.c` 676–712). openconnect 9.21 does not rebuild the hook's environment after a
      reconnect (`prepare_script_env` runs once, in `openconnect_setup_tun_device`, `library.c` 1567),
      so the hook sees the values of `connect`; it still checks them again and compares the plan, but for
      the routes around the tunnel, with what the record holds. Any difference fails the reconnect ("the
      server changed the network settings"), and the session is stopped (below), for a new connect to
-     set up afresh. Otherwise nothing is changed, the status is `up` again and the success line is
+     set up afresh. Then what the record holds is checked against the system (`OpenConnectHook.repair`): every
+     route (into the tunnel, around it, reject; those around it only for a family with a usable gateway
+     now) must be there with its planned next hop, and the DNS keys as written (`OpenConnectSystem.hasDNS`).
+     One that went during the network change is made again, journaled as usual (`-` for the session's, then
+     `+` and `=`); one that cannot be (another route in the way, a failing command) fails the set-up
+     (failure line, stop). Otherwise the status is `up` again and the success line is
      written again.
    - `disconnect`: everything the record owns is reverted, newest first, and so is a change that was
-     begun but has no outcome (it may have been made), except what another live session holds (below).
+     begun but has no outcome (it may have been made), except what another session holds (below).
      Reverting is idempotent (a change already gone counts as reverted). openconnect still holds its
      `utun` while it runs the hook for `disconnect`, so the interface's index is looked up then. A revert
      that does not finish writes `passtunnel vpn-hook: restoring the network failed: <reason>`
@@ -1668,12 +1674,12 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
    interface utun5
    + route 192.0.2.10/32 gateway 198.51.100.1 en0        begun: written before the change is made
    = route 192.0.2.10/32 gateway 198.51.100.1 en0        the session's own: reverted later
-   & route ::/1 reject                                   found there, held by another live session: shared
+   & route ::/1 reject                                   found there, held by another session: shared
    ~ route 192.168.1.0/24 gateway 198.51.100.1 en0       found there, held by no session: never removed
    + dns passtunnel-501-acme utun5 primary servers=… search=… match=-
    ! dns passtunnel-501-acme utun5 primary servers=… search=… match=-   failed: nothing changed
    - route 192.0.2.10/32 gateway 198.51.100.1 en0        reverted
-   ? route ::/1 reject                                   spared: left to another live session at the revert
+   ? route ::/1 reject                                   spared: left to another session at the revert
    status up | status reconnecting | status failed <reason>
    ```
 
@@ -1684,12 +1690,13 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
    `compacted()` keeps a pending change after the status (a status cannot follow one).
 
    **What to revert** (`toRevert(sparing:)`, pure, called under the run root's lock with the records of
-   every other live session of the run root, a session whose `state` names a process that still runs,
-   `MacOpenConnectSystem.isLive`; the record of a session whose tool has ended claims nothing, and a live
-   session's record that cannot be read claims every change of this session two sessions can share, the
-   routes around the tunnel and the reject routes): every change that is the session's own, shared or
-   pending, newest first, but none that another live session's record lists as its own, shared or pending
-   (one it found there with no session holding it, `~`, claims nothing). The
+   every other session of the run root: not only those whose tool still runs, since a session that ended
+   holds what its record holds until its revert has run (the helper's, after the tool exited; a record
+   whose revert ran holds nothing more), so a session that connects in between shares what it finds (`&`)
+   and that revert spares it; a record that cannot be read claims every change of this session two
+   sessions can share, the routes around the tunnel and the reject routes): every change that is the
+   session's own, shared or pending, newest first, but none that another session's record lists as its
+   own, shared or pending (one it found there with no session holding it, `~`, claims nothing). The
    revert starts with `beginRevert(sparing:)`, which journals each change so left alone as spared (`?`,
    which also settles a pending one, so the rest of the revert can be journaled) and returns the list;
    each change on it is then journaled as reverted once undone. Some
@@ -1739,12 +1746,15 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
 7. **Stop and revert.** When the helper stops a session it sets `stopping` first (`terminate`), so a
    hook running now applies nothing more. When a session's tool has exited (`Supervisor.finish`;
    `stopAll` after the kill; `adoptOrphans` for a session that is not adopted, and for a record a
-   previous helper could not restore; on Linux the daemon's exit handling and the previous-instance
+   previous helper could not restore, and an openconnect a restarted helper finds recorded without its start
+   time, `SessionRecovery.Decision.stopUnidentified`: its hooks cannot prove their generation and would
+   neither set up nor revert anything, so it is killed while it is still the recorded process (pid and
+   executable) instead of adopted; on Linux the daemon's exit handling and the previous-instance
    cleanup), the helper runs `OpenConnectHook.restoreAfterExit` in-process, as `pendingDNSDown` does for
    OpenVPN: it sets `stopping`, waits for the run root's lock, which a running hook holds, at most 32 s
    (the hook's limit and its `SIGALRM`), then kills the hook the `hook` mark names (only if it is still
    that process, by pid and start time, a root process of a staged `vpn-hook`) and waits 2 s more, and
-   then reverts under the lock, sparing what another live session holds. The tunnel interface went with
+   then reverts under the lock, sparing what another session holds. The tunnel interface went with
    the tool, and with it its link, its addresses and the routes through it, which are journaled as
    reverted without a command: a `utun` of that name may be another session's by now. The gateway host
    route, the reject routes and the `State:` keys do not go with it, hence the record. A revert that fails

@@ -4,11 +4,11 @@ import Foundation
 /// docs/ARCHITECTURE.md, "The hook", steps 4–7. A journal, one entry per line: every change is written
 /// before it is made (`+`) and its outcome after (`=` the session's own, `!` it failed and nothing was
 /// changed), a revert after it succeeded (`-`), and the set-up's outcome (`status`). A change the hook finds
-/// there already is journaled without a `+`, since nothing is made: `&` when another live session of the run
+/// there already is journaled without a `+`, since nothing is made: `&` when another session of the run
 /// root holds it as its own or shared (the two share it, and the last one of them to end removes it), `~`
 /// when no session does (it is not PassTunnel's and is never removed); either can also be the outcome of a
 /// change begun when someone else made it meanwhile. A change that was begun and has no outcome (the hook was killed during it)
-/// may have been made, so it is reverted like one of the session's own, unless another live session's record
+/// may have been made, so it is reverted like one of the session's own, unless another session's record
 /// lists the same change (`toRevert(sparing:)`). Reverting is idempotent: a change already gone counts as
 /// reverted.
 ///
@@ -46,13 +46,13 @@ public struct OpenConnectRecord: Equatable, Sendable {
     public enum Entry: Equatable, Sendable {
         case begin(Change)
         case owned(Change)
-        /// There already, held by another live session: shared with it.
+        /// There already, held by another session: shared with it.
         case shared(Change)
         /// There already, held by no session: never removed.
         case existed(Change)
         case failed(Change)
         case reverted(Change)
-        /// Left in place at the revert: another live session holds it (`beginRevert(sparing:)`).
+        /// Left in place at the revert: another session holds it (`beginRevert(sparing:)`).
         case spared(Change)
         case status(Status)
 
@@ -106,12 +106,12 @@ public struct OpenConnectRecord: Equatable, Sendable {
         /// Begun, no outcome: it may have been made.
         case pending
         case owned
-        /// Found there, held by another live session too: reverted by whichever of them ends last.
+        /// Found there, held by another session too: reverted by whichever of them ends last.
         case shared
         case existed
         case failed
         case reverted
-        /// The session's or pending, left to another live session at the revert: no longer this one's.
+        /// The session's or pending, left to another session at the revert: no longer this one's.
         case spared
     }
 
@@ -203,8 +203,9 @@ public struct OpenConnectRecord: Equatable, Sendable {
     static func held(_ state: State?) -> Bool { state == .owned || state == .shared }
 
     /// The changes to undo, newest first: the session's own and shared ones and those begun without an outcome
-    /// (they may have been made), but none that another live session's record (`others`, every other session of
-    /// the run root whose tool still runs, read under its lock) holds as its own, shared or begun. Some changes
+    /// (they may have been made), but none that another session's record (`others`, every other session of
+    /// the run root whose record is there, read under its lock: one that ended holds what it holds until its
+    /// revert has run) holds as its own, shared or begun. Some changes
     /// can be the same in two sessions: a reject route, the host route to a VPN server two sessions share, an
     /// exclude through the same gateway; the session that set one up first owns it, the other shares it (`&`),
     /// and the last of them to end removes it, so it neither goes from under a running session nor stays after

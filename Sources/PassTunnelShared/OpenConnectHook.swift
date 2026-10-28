@@ -10,10 +10,10 @@ import Foundation
 ///   (the routing table's default gateways and the interfaces' networks), applied in order.
 /// - `attempt-reconnect`: the routes around the tunnel follow the default gateway (`OpenConnectPlan.refresh`).
 /// - `reconnect`: the network must be what the record holds (`OpenConnectPlan.matches`).
-/// - `disconnect`: everything the record holds is reverted, but what another live session holds.
+/// - `disconnect`: everything the record holds is reverted, but what another session holds.
 ///
 /// Every change is looked for before anything is journaled for it. A route already there with exactly the
-/// planned next hop is shared (`&`) when another live session holds it, and the last of them to end removes
+/// planned next hop is shared (`&`) when another session holds it, and the last of them to end removes
 /// it, or not PassTunnel's (`~`) and never removed; any other route of that destination fails the set-up
 /// (`finding`): the hook replaces nobody's route.
 ///
@@ -55,8 +55,6 @@ public struct OpenConnectHook {
     public let runDir: String
     public let system: OpenConnectSystem
     public let deadline: Date
-    /// Whether a session directory holds a tool that still runs (its `state` names a live process).
-    public let isLive: (String) -> Bool
     /// The pid and start time the `hook` mark records.
     public let identity: (pid: pid_t, start: ProcessStart?)
     public var now: () -> Date = Date.init
@@ -67,14 +65,13 @@ public struct OpenConnectHook {
     public var stillOurs: () -> Bool = { true }
 
     public init(
-        runRoot: String, runDir: String, system: OpenConnectSystem, deadline: Date, isLive: @escaping (String) -> Bool,
+        runRoot: String, runDir: String, system: OpenConnectSystem, deadline: Date,
         identity: (pid: pid_t, start: ProcessStart?) = (getpid(), nil)
     ) {
         self.runRoot = runRoot
         self.runDir = runDir
         self.system = system
         self.deadline = deadline
-        self.isLive = isLive
         self.identity = identity
     }
 
@@ -161,7 +158,8 @@ public struct OpenConnectHook {
         return Outcome(lines: [VPNHook.Report(plan).line])
     }
 
-    /// `attempt-reconnect`: the routes around the tunnel follow the default gateway as it is now.
+    /// `attempt-reconnect`: the routes around the tunnel follow the default gateway as it is now, and what the
+    /// record holds is checked against the system (`repair`).
     func attemptReconnect(_ n: OpenConnectNetwork, policy: OpenConnectPolicy) -> Outcome {
         if let stop = interruption() { return fail(stop, interface: n.interface) }
         let journal: OpenConnectJournal
@@ -200,10 +198,13 @@ public struct OpenConnectHook {
         if let failure = self.add(add, context: context, table: &rows, journal: journal) {
             return fail(failure, journal: journal, tunnel: tunnel)
         }
+        if let failure = repair(journal, context: context, underlay: underlay, interface: n.interface, table: &rows) {
+            return fail(failure, journal: journal, tunnel: tunnel)
+        }
         return Outcome()
     }
 
-    /// `reconnect`: nothing changes, but the network must be what the record holds.
+    /// `reconnect`: the network must be what the record holds, and the system must still have it (`repair`).
     func reconnect(_ n: OpenConnectNetwork, policy: OpenConnectPolicy) -> Outcome {
         if let stop = interruption() { return fail(stop, interface: n.interface) }
         let journal: OpenConnectJournal
@@ -213,10 +214,14 @@ public struct OpenConnectHook {
         }
         guard let index = system.interfaceIndex(n.interface) else { return fail("TUNDEV is not an interface of this Mac", journal: journal) }
         let tunnel = Tunnel.index(index)
-        guard let table = system.routes() else { return fail("the routing table cannot be read", journal: journal, tunnel: tunnel) }
+        guard var table = system.routes() else { return fail("the routing table cannot be read", journal: journal, tunnel: tunnel) }
         let underlay = OpenConnectPlan.Underlay(routes: table, attached: system.attachedNetworks(), tunnel: n.interface)
         guard OpenConnectPlan.matches(n, policy: policy, underlay: underlay, record: journal.record) else {
             return fail("the server changed the network settings", journal: journal, tunnel: tunnel)
+        }
+        let context = context(index: index, addresses: journal.record.applied.compactMap(Self.address))
+        if let failure = repair(journal, context: context, underlay: underlay, interface: n.interface, table: &table) {
+            return fail(failure, journal: journal, tunnel: tunnel)
         }
         do {
             try journal.append(.status(.up))
@@ -226,7 +231,7 @@ public struct OpenConnectHook {
         return Outcome(lines: [VPNHook.Report(OpenConnectPlan.build(n, policy: policy, underlay: underlay).plan).line])
     }
 
-    /// `disconnect`: everything the record holds is reverted, but what another live session holds.
+    /// `disconnect`: everything the record holds is reverted, but what another session holds.
     func disconnect() -> Outcome {
         let journal: OpenConnectJournal
         do {
@@ -288,7 +293,7 @@ public struct OpenConnectHook {
     // MARK: - Applying
 
     /// What one run's changes are made with: the tunnel interface's index noted when it started, the tunnel's
-    /// addresses (for DNS), the changes another live session holds, the Mac's attached networks.
+    /// addresses (for DNS), the changes another session holds, the Mac's attached networks.
     struct Context {
         var index: UInt32
         var addresses: [IPAddress]
@@ -403,9 +408,40 @@ public struct OpenConnectHook {
 
     static let interfaceGone = "the tunnel interface went away"
 
+    /// Checks what the record says is set up against the system, after a network change (attempt-reconnect,
+    /// reconnect): every route (into the tunnel, around it, reject) and the DNS keys. One the system no longer
+    /// has as planned is made again, journaled as usual (a change of the session's is journaled as reverted
+    /// first, since it is gone, then begun and made); one that cannot be (another route in the way, a command
+    /// that fails) fails the set-up. Routes around the tunnel of a family that has no usable gateway right now
+    /// (the network is down while openconnect retries) are left for a later run. Links and addresses go with
+    /// the interface, which openconnect keeps. The reason of the first failure, nil when all is in place.
+    func repair(
+        _ journal: OpenConnectJournal, context: Context, underlay: OpenConnectPlan.Underlay, interface: String, table: inout [KernelRoute]
+    ) -> String? {
+        for change in journal.record.applied {
+            switch change {
+            case .route(let route):
+                if case .gateway = route.via, underlay.usable(route.network.family, tunnel: interface) == nil { continue }
+                if case .there = Self.finding(route, in: table, claimed: [], attached: context.attached) { continue }
+            case .dns(let dns):
+                if system.hasDNS(OpenConnectDNSSettings(dns, addresses: context.addresses)) { continue }
+            case .link, .address:
+                continue
+            }
+            if let stop = interruption() { return stop }
+            do {
+                if OpenConnectRecord.held(journal.record.states[change]) { try journal.append(.reverted(change)) }
+            } catch {
+                return "the network record cannot be written (\(error))"
+            }
+            if let failure = add([change], context: context, table: &table, journal: journal) { return failure }
+        }
+        return nil
+    }
+
     /// What the routes in `table` mean for `route`: absent when no route holds its destination; there when one
     /// has exactly the planned next hop (the same interface, the same gateway on its interface, a reject route),
-    /// shared when another live session holds it (`claimed`); there as well for a route around the tunnel (an
+    /// shared when another session holds it (`claimed`); there as well for a route around the tunnel (an
     /// exclude) whose destination is a network the Mac is attached to, held by that network's own on-link route
     /// (that traffic leaves outside every tunnel already). Any other route in the way is a conflict: traffic the
     /// set-up would claim goes elsewhere (another VPN, another gateway), and the hook replaces nobody's route.
@@ -455,7 +491,7 @@ public struct OpenConnectHook {
         case gone
     }
 
-    /// Reverts what `journal` holds (`OpenConnectRecord.beginRevert(sparing:)` with the other live sessions'
+    /// Reverts what `journal` holds (`OpenConnectRecord.beginRevert(sparing:)` with the other sessions'
     /// records), newest first, each journaled once undone; the reasons of the changes that could not be undone.
     /// What belongs to the tunnel interface is undone only on the interface `tunnel` names; once that has gone,
     /// so have its link, its addresses and the routes through it.
@@ -521,15 +557,17 @@ public struct OpenConnectHook {
         }
     }
 
-    /// The records of the other sessions of the run root whose tool still runs, read under the lock, and
-    /// whether one of them could not be read.
+    /// The records of the other sessions of the run root, read under the lock, and whether one of them could
+    /// not be read. Not only those whose tool still runs: a session that ended holds what its record holds until
+    /// its revert has run (the helper's, after the tool exited), so a session that connects meanwhile shares a
+    /// route it finds there (`&`) rather than taking it for nobody's, and that revert spares it.
     func otherRecords() -> (records: [OpenConnectRecord], unreadable: Bool) {
         var out: [OpenConnectRecord] = []
         var unreadable = false
         for uid in Self.entries(runRoot) where UInt32(uid).map({ String($0) == uid }) ?? false {
             for id in Self.entries(runRoot + "/" + uid) where HelperCore.isValidProfileID(id) {
                 let dir = runRoot + "/" + uid + "/" + id
-                guard dir != runDir, isLive(dir) else { continue }
+                guard dir != runDir else { continue }
                 do {
                     if let record = try OpenConnectJournal.read(OpenConnectJournal.path(runDir: dir)) { out.append(record) }
                 } catch {
@@ -540,7 +578,7 @@ public struct OpenConnectHook {
         return (out, unreadable)
     }
 
-    /// The records a revert of `own` spares: the other live sessions', and when one of them cannot be read, a
+    /// The records a revert of `own` spares: the other sessions', and when one of them cannot be read, a
     /// record that holds every change of `own` two sessions can share (routes around the tunnel, reject
     /// routes): nothing is taken from under a running session.
     func sparing(_ own: OpenConnectRecord) -> [OpenConnectRecord] {
@@ -581,11 +619,11 @@ public struct OpenConnectHook {
 
     /// The helper's revert once a session's tool has ended (docs/ARCHITECTURE.md, "The hook", step 7): marks
     /// the session as stopping, waits for a hook still running to end (the lock; `killHook` after `runLimit`
-    /// and a second), then, under the lock, reverts what the record holds but what another live session holds.
+    /// and a second), then, under the lock, reverts what the record holds but what another session holds.
     /// The tunnel interface has gone with the tool, and with it its link, its addresses and the routes through
     /// it; the routes around the tunnel, the reject routes and the DNS keys have not.
     public static func restoreAfterExit(
-        runRoot: String, runDir: String, system: OpenConnectSystem, isLive: @escaping (String) -> Bool, killHook: () -> Void,
+        runRoot: String, runDir: String, system: OpenConnectSystem, killHook: () -> Void,
         now: @escaping () -> Date = Date.init
     ) -> Restore {
         guard OpenConnectJournal.exists(runDir: runDir) else { return .done }
@@ -597,7 +635,7 @@ public struct OpenConnectHook {
         }
         guard let lock else { return .failed("the network lock was not free") }
         defer { withExtendedLifetime(lock) {} }
-        var hook = OpenConnectHook(runRoot: runRoot, runDir: runDir, system: system, deadline: now().addingTimeInterval(runLimit), isLive: isLive)
+        var hook = OpenConnectHook(runRoot: runRoot, runDir: runDir, system: system, deadline: now().addingTimeInterval(runLimit))
         hook.now = now
         let journal: OpenConnectJournal
         do {

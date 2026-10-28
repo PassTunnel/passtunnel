@@ -319,8 +319,8 @@ public enum VPNHook {
         }
         let environment = OpenConnectNetwork.Environment(entries: rawEnvironment())
         var hook = OpenConnectHook(
-            runRoot: runRoot, runDir: session.runDir, system: MacOpenConnectSystem(), deadline: started.addingTimeInterval(OpenConnectHook.runLimit),
-            isLive: MacOpenConnectSystem.isLive(runDir:), identity: (getpid(), SessionRecovery.facts(of: getpid())?.start))
+            runRoot: runRoot, runDir: session.runDir, system: MacOpenConnectSystem(),
+            deadline: started.addingTimeInterval(OpenConnectHook.runLimit), identity: (getpid(), SessionRecovery.facts(of: getpid())?.start))
         hook.stillOurs = stillOurs
         let outcome = hook.run(
             event: { try OpenConnectNetwork.parse(environment, platform: .macOS) }, policy: { try policy(of: session) })

@@ -411,7 +411,7 @@ final class Supervisor {
         }
         let runRoot = core.runRoot
         let result = OpenConnectHook.restoreAfterExit(
-            runRoot: runRoot, runDir: runDir, system: MacOpenConnectSystem(), isLive: MacOpenConnectSystem.isLive(runDir:),
+            runRoot: runRoot, runDir: runDir, system: MacOpenConnectSystem(),
             killHook: { Self.killHook(runDir: runDir, runRoot: runRoot) })
         switch result {
         case .done:
@@ -522,6 +522,13 @@ final class Supervisor {
                         // set DNS already).
                         log.notice("stopping \(id, privacy: .public) of uid \(uid) (pid \(current.pid)): its launch was not finished")
                         SessionRecovery.signal(current, SIGKILL, read: SessionRecovery.facts(of:), send: kill)
+                    }
+                    if decision == .stopUnidentified, let state {
+                        // Its hooks cannot prove their generation: it would run on with nothing to set up or
+                        // revert its network. Killed while it is still the recorded process (pid and executable;
+                        // there is no start time to compare), then its network is reverted below.
+                        log.notice("stopping \(id, privacy: .public) of uid \(uid) (pid \(state.pid)): recorded without its start time")
+                        if SessionRecovery.matches(state, SessionRecovery.facts(of: state.pid)) { kill(state.pid, SIGKILL) }
                     }
                     guard let state, state.uid == uid, decision == .adopt,
                         let dir = try? core.openRunDir(profileID: id, uid: uid)

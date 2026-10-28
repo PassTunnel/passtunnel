@@ -38,6 +38,18 @@ final class SessionRecoveryTests: XCTestCase {
         XCTAssertEqual(SessionRecovery.decide(old, current: facts(start: later)), .adopt)
         XCTAssertEqual(SessionRecovery.decide(old.launching(true), current: facts(stopped: true)), .adopt, "unverifiable: not killed")
         XCTAssertEqual(SessionRecovery.decide(old, current: nil), .cleanUp)
+
+        // An openconnect without a start time: its hook cannot prove its generation and would neither set up
+        // nor revert anything, so it is stopped (still the recorded process) and cleaned up, never adopted.
+        let openconnect = tools + "/" + String(repeating: "ab", count: 32) + "/Resources/bin/openconnect"
+        let unidentified = SessionState(pid: 4242, uid: 501, executable: openconnect, profileDir: "/p", mgmtSocket: nil)
+        XCTAssertEqual(SessionRecovery.decide(unidentified, current: facts(path: openconnect, start: later)), .stopUnidentified)
+        XCTAssertEqual(SessionRecovery.decide(unidentified.launching(true), current: facts(path: openconnect)), .stopUnidentified)
+        XCTAssertEqual(SessionRecovery.decide(unidentified, current: nil), .cleanUp, "gone: nothing to stop")
+        XCTAssertEqual(SessionRecovery.decide(unidentified, current: facts(path: "/bin/sleep")), .cleanUp, "another process: never killed")
+        // With its start time it is adopted as before.
+        let identified = SessionState(pid: 4242, uid: 501, executable: openconnect, profileDir: "/p", mgmtSocket: nil, startTime: start)
+        XCTAssertEqual(SessionRecovery.decide(identified, current: facts(path: openconnect)), .adopt)
     }
 
     func testRecordRoundTripAndOlderRecords() throws {

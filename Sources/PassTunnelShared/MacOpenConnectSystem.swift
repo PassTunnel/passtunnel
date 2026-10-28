@@ -55,16 +55,20 @@ public final class MacOpenConnectSystem: OpenConnectSystem {
         return SCDynamicStoreSetMultiple(store, values, present.isEmpty ? nil : present as CFArray, nil)
     }
 
+    public func hasDNS(_ settings: OpenConnectDNSSettings) -> Bool {
+        guard OpenConnectPlan.Change.isService(settings.service), let store = Self.store(),
+            let present = SCDynamicStoreCopyMultiple(store, Array(settings.values.keys) as CFArray, nil) as? [String: Any]
+        else { return false }
+        return settings.values.allSatisfy { key, entity in
+            (present[key] as? NSDictionary)?.isEqual(to: Self.propertyList(entity) as? [AnyHashable: Any] ?? [:]) ?? false
+        }
+    }
+
     public func removeDNS(service: String) -> Bool {
         guard OpenConnectPlan.Change.isService(service), let store = Self.store() else { return false }
         let present = Self.presentKeys(store, OpenConnectDNSSettings.keys(service: service))
         guard !present.isEmpty else { return true }
         return SCDynamicStoreSetMultiple(store, nil, present as CFArray, nil) && Self.presentKeys(store, present).isEmpty
-    }
-
-    /// Whether the session directory's tool still runs: its `state` names a live process (`SessionRecovery`).
-    public static func isLive(runDir: String) -> Bool {
-        SessionState.read(runDir + "/" + SessionState.fileName).map(SessionRecovery.isAlive) ?? false
     }
 
     // MARK: Routing table
