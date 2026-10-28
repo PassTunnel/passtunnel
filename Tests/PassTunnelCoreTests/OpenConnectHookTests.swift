@@ -617,75 +617,126 @@ final class OpenConnectHookTests: XCTestCase {
         XCTAssertEqual(system.log, [])
     }
 
-    func testReconnectPutsBackWhatTheSystemLost() throws {
+    func testReconnectFindsEverythingInPlace() throws {
         XCTAssertFalse(run(.connect(Self.full)).stopTool)
         XCTAssertFalse(run(.attemptReconnect(Self.full)).stopTool)
-        // During the network change a route into the tunnel went, and so did the DNS keys.
-        system.table.removeAll { $0.network == IPNetwork("0.0.0.0/1")! }
-        system.dns = [:]
         system.log = []
-        let outcome = run(.reconnect(Self.full))
-        XCTAssertFalse(outcome.stopTool)
         XCTAssertEqual(
-            system.log, ["/sbin/route -n add -inet -net 0.0.0.0 -netmask 128.0.0.0 -interface utun5", "dns set passtunnel-501-acme"])
-        XCTAssertEqual(system.dns["State:/Network/Service/passtunnel-501-acme/IPv4"]?["OverridePrimary"], .number(1))
-        let text = try recordText()
-        XCTAssertTrue(
-            text.contains("- route 0.0.0.0/1 interface utun5\n+ route 0.0.0.0/1 interface utun5\n= route 0.0.0.0/1 interface utun5\n"), text)
-        XCTAssertTrue(text.hasSuffix("status up\n"))
-        XCTAssertEqual(try record().status, .up)
-        // All of it is the session's again: a disconnect removes it.
-        XCTAssertEqual(run(.disconnect), OpenConnectHook.Outcome())
-        XCTAssertEqual(system.table, originalTable.filter { !$0.cloned })
-        XCTAssertEqual(system.dns, [:])
-    }
-
-    func testAttemptReconnectPutsBackAMissingRouteAroundTheTunnel() throws {
-        XCTAssertFalse(run(.connect(Self.full)).stopTool)
-        // The same gateway, but the server's route went with the link (refresh adds nothing: it is recorded).
-        system.table.removeAll { $0.network == IPNetwork("192.0.2.10/32")! }
-        system.log = []
-        XCTAssertEqual(run(.attemptReconnect(Self.full)), OpenConnectHook.Outcome())
-        XCTAssertEqual(system.log, ["/sbin/route -n add -inet -host 192.0.2.10 198.51.100.1"])
-        // A reject route that went is put back as well.
-        system.table.removeAll { $0.network == IPNetwork("::/1")! }
-        system.log = []
-        XCTAssertFalse(run(.reconnect(Self.full)).stopTool)
-        XCTAssertEqual(system.log, ["/sbin/route -n add -inet6 -net :: -prefixlen 1 ::1 -reject"])
-    }
-
-    func testWithoutAGatewayTheRoutesAroundTheTunnelWait() throws {
-        XCTAssertFalse(run(.connect(Self.full)).stopTool)
-        // The network is down while openconnect retries: no default route, the server's route gone with it.
-        system.table.removeAll { $0.network == IPNetwork("0.0.0.0/0")! || $0.network == IPNetwork("192.0.2.10/32")! }
-        system.log = []
-        XCTAssertEqual(run(.attemptReconnect(Self.full)), OpenConnectHook.Outcome())
+            run(.reconnect(Self.full)),
+            OpenConnectHook.Outcome(
+                lines: ["passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, full tunnel, IPv6 blocked, DNS 10.11.0.53, search example.com\n"]))
         XCTAssertEqual(system.log, [])
-        XCTAssertEqual(try record().status, .reconnecting)
+        XCTAssertEqual(try record().status, .up)
     }
 
-    func testWhatCannotBePutBackFailsTheReconnect() throws {
-        XCTAssertFalse(run(.connect(Self.full)).stopTool)
-        XCTAssertFalse(run(.attemptReconnect(Self.full)).stopTool)
-        // Another VPN took 128.0.0.0/1 meanwhile: not replaced, the session stops.
-        system.interfaces["utun3"] = 18
-        system.table.removeAll { $0.network == IPNetwork("128.0.0.0/1")! }
-        system.table.append(KernelRoute(network: IPNetwork("128.0.0.0/1")!, interface: "utun3"))
+    /// What reconnect finds changed it never repairs: it reverts what the session holds and stops, for a new
+    /// connection to set up afresh.
+    func reconnectFails(_ reason: String, file: StaticString = #filePath, line: UInt = #line) throws {
         let outcome = run(.reconnect(Self.full))
         XCTAssertEqual(
             outcome,
             OpenConnectHook.Outcome(
-                lines: [VPNHook.failureLine("another route for 128.0.0.0/1 exists already, through utun3")], stopTool: true))
-        XCTAssertTrue(system.table.contains { $0.network == IPNetwork("128.0.0.0/1")! && $0.interface == "utun3" })
-        XCTAssertFalse(system.table.contains { $0.interface == "utun5" })
-        XCTAssertEqual(system.dns, [:])
-        // DNS that cannot be written again fails it too.
-        try FileManager.default.removeItem(atPath: OpenConnectJournal.path(runDir: runDir))
-        system = FakeOpenConnectSystem()
+                lines: [VPNHook.failureLine("the network changed while the connection was re-established: " + reason)], stopTool: true),
+            file: file, line: line)
+        XCTAssertEqual(try record().held, [], file: file, line: line)
+        XCTAssertEqual(try record().status, .failed("the network changed while the connection was re-established: " + reason), file: file, line: line)
+        XCTAssertFalse(system.table.contains { $0.interface == "utun5" || $0.reject }, file: file, line: line)
+        XCTAssertEqual(system.dns, [:], file: file, line: line)
+    }
+
+    func testReconnectWithOneDNSKeyGoneFailsAndRemovesTheRest() throws {
         XCTAssertFalse(run(.connect(Self.full)).stopTool)
-        system.dns = [:]
+        XCTAssertFalse(run(.attemptReconnect(Self.full)).stopTool)
+        // Only the IPv4 entity went: the DNS entity that survived is still the session's, and is removed.
+        system.dns["State:/Network/Service/passtunnel-501-acme/IPv4"] = nil
+        XCTAssertNotNil(system.dns["State:/Network/Service/passtunnel-501-acme/DNS"])
+        try reconnectFails("the DNS settings are no longer as they were set up")
+        XCTAssertTrue(try recordText().contains("- dns passtunnel-501-acme utun5 primary"))
+    }
+
+    func testAChangeIsJournaledRevertedOnlyOnceItIsGone() throws {
+        XCTAssertFalse(run(.connect(Self.full)).stopTool)
+        system.dns["State:/Network/Service/passtunnel-501-acme/IPv4"] = nil
+        // The DNS keys cannot be removed now: the change stays the session's, for the next revert.
         system.dnsWritable = false
-        XCTAssertEqual(run(.reconnect(Self.full)).lines.last, VPNHook.failureLine("the DNS settings could not be written"))
+        let outcome = run(.reconnect(Self.full))
+        XCTAssertTrue(outcome.stopTool)
+        let dns = try XCTUnwrap(try record().held.first { if case .dns = $0 { return true } else { return false } })
+        XCTAssertEqual(try record().states[dns], .owned)
+        system.dnsWritable = true
+        var killed = 0
+        XCTAssertEqual(restore(killed: &killed), .done)
+        XCTAssertEqual(system.dns, [:])
+        XCTAssertEqual(try record().states[dns], .reverted)
+    }
+
+    func testReconnectWithARouteGoneFails() throws {
+        XCTAssertFalse(run(.connect(Self.full)).stopTool)
+        XCTAssertFalse(run(.attemptReconnect(Self.full)).stopTool)
+        system.table.removeAll { $0.network == IPNetwork("0.0.0.0/1")! }
+        try reconnectFails("the route for 0.0.0.0/1 is no longer as it was set up")
+    }
+
+    func testReconnectWithARouteTakenByAnotherVPNFails() throws {
+        XCTAssertFalse(run(.connect(Self.full)).stopTool)
+        system.interfaces["utun3"] = 18
+        system.table.removeAll { $0.network == IPNetwork("128.0.0.0/1")! }
+        let other = KernelRoute(network: IPNetwork("128.0.0.0/1")!, interface: "utun3")
+        system.table.append(other)
+        let outcome = run(.reconnect(Self.full))
+        XCTAssertTrue(outcome.stopTool)
+        XCTAssertEqual(
+            outcome.lines,
+            [
+                VPNHook.failureLine(
+                    "the network changed while the connection was re-established: the route for 128.0.0.0/1 is no longer as it was set up")
+            ])
+        // The other VPN's route is not touched.
+        XCTAssertTrue(system.table.contains(other))
+        XCTAssertFalse(system.log.contains("/sbin/route -n delete -inet -net 128.0.0.0 -netmask 128.0.0.0"))
+    }
+
+    func testReconnectWithoutAGatewayAndAnExcludeGoneFails() throws {
+        try FileManager.default.removeItem(atPath: runDir)
+        try FileManager.default.createDirectory(atPath: runDir, withIntermediateDirectories: true)
+        XCTAssertFalse(run(.connect(Self.split)).stopTool)
+        // The network is down: no default route, and the exclude went with it.
+        system.table.removeAll { $0.network == IPNetwork("0.0.0.0/0")! || $0.network == IPNetwork("10.99.0.0/16")! }
+        system.log = []
+        XCTAssertEqual(run(.attemptReconnect(Self.split)), OpenConnectHook.Outcome())
+        XCTAssertEqual(system.log, [], "attempt-reconnect leaves a family without a gateway alone")
+        let outcome = run(.reconnect(Self.split))
+        XCTAssertEqual(
+            outcome.lines,
+            [
+                VPNHook.failureLine(
+                    "the network changed while the connection was re-established: the route for 10.99.0.0/16 is no longer as it was set up")
+            ])
+        XCTAssertNotEqual(try record().status, .up)
+        XCTAssertEqual(try record().held, [])
+    }
+
+    func testRoamingReplacesTheServerRouteNotFoundThere() throws {
+        // The server's route was there before the session (not its own: `~`).
+        let wifi = OpenConnectPlan.Gateway(address: IPAddress("198.51.100.1"), interface: "en0")!
+        let old = OpenConnectPlan.Route(IPNetwork("192.0.2.10/32")!, via: .gateway(wifi))
+        system.table.append(KernelRoute(old))
+        XCTAssertFalse(run(.connect(Self.full)).stopTool)
+        XCTAssertTrue(try recordText().contains("~ route 192.0.2.10/32 gateway 198.51.100.1 en0\n"))
+        // Roaming to another network: the default gateway moved, the old route went with the Wi-Fi.
+        system.table.removeAll { $0.network == IPNetwork("0.0.0.0/0")! || $0.network == IPNetwork("192.0.2.10/32")! }
+        system.table.append(KernelRoute(network: IPNetwork("0.0.0.0/0")!, gateway: IPAddress("203.0.113.1"), interface: "en7"))
+        system.log = []
+        XCTAssertEqual(run(.attemptReconnect(Self.full)), OpenConnectHook.Outcome())
+        XCTAssertEqual(system.log, ["/sbin/route -n add -inet -host 192.0.2.10 203.0.113.1"])
+        // The route found there is not expected any more: the reconnect is up.
+        XCTAssertFalse(run(.reconnect(Self.full)).stopTool)
+        XCTAssertEqual(try record().status, .up)
+        // The new route is the session's: the disconnect removes it.
+        system.log = []
+        XCTAssertEqual(run(.disconnect), OpenConnectHook.Outcome())
+        XCTAssertTrue(system.log.contains("/sbin/route -n delete -inet -host 192.0.2.10"))
+        XCTAssertFalse(system.table.contains { $0.network == IPNetwork("192.0.2.10/32")! && $0.holdsDestination })
     }
 
     func testAReconnectWithOtherSettingsFails() throws {

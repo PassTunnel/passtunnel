@@ -1638,20 +1638,24 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
      ones `connect` would add now and the record does not hold are added, looked for first as in `connect`
      (so a route another session still uses through the old gateway fails the attempt: the session stops
      and signs in afresh rather than replacing it). A family without a gateway right
-     now (the network is down while openconnect retries) is left as it is. Then what the record holds is
-     checked against the system (`repair`, as for `reconnect`). Nothing is written to the log.
+     now (the network is down while openconnect retries) is left as it is. A route around the tunnel the
+     session found there (`~`) was never its own: it is neither removed nor expected afterwards. Nothing is
+     written to the log.
    - `reconnect` (`OpenConnectPlan.matches`): openconnect refuses a different address or netmask
      itself (`library.c` 676–712). openconnect 9.21 does not rebuild the hook's environment after a
      reconnect (`prepare_script_env` runs once, in `openconnect_setup_tun_device`, `library.c` 1567),
      so the hook sees the values of `connect`; it still checks them again and compares the plan, but for
      the routes around the tunnel, with what the record holds. Any difference fails the reconnect ("the
      server changed the network settings"), and the session is stopped (below), for a new connect to
-     set up afresh. Then what the record holds is checked against the system (`OpenConnectHook.repair`): every
-     route (into the tunnel, around it, reject; those around it only for a family with a usable gateway
-     now) must be there with its planned next hop, and the DNS keys as written (`OpenConnectSystem.hasDNS`).
-     One that went during the network change is made again, journaled as usual (`-` for the session's, then
-     `+` and `=`); one that cannot be (another route in the way, a failing command) fails the set-up
-     (failure line, stop). Otherwise the status is `up` again and the success line is
+     set up afresh. Then the system must still have everything the session holds (`OpenConnectHook.verify`):
+     every change it owns or shares (`=`, `&`; not `~`, which was never its) exactly as made: the tunnel
+     interface with the index noted when the run started, its addresses, every route with its planned next
+     hop (into the tunnel, around it, reject), the DNS keys with their contents
+     (`OpenConnectSystem.hasDNS`). It is checked, never repaired: any difference ("the network changed while
+     the connection was re-established: …") reverts what the session holds and stops it like any failure,
+     and `ConnectionManager` (#184) connects afresh with a new sign-in. A change is journaled as reverted
+     only once the system no longer has it, so one that cannot be removed stays the session's for the
+     helper's revert. Otherwise the status is `up` again and the success line is
      written again.
    - `disconnect`: everything the record owns is reverted, newest first, and so is a change that was
      begun but has no outcome (it may have been made), except what another session holds (below).

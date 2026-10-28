@@ -158,8 +158,7 @@ public struct OpenConnectHook {
         return Outcome(lines: [VPNHook.Report(plan).line])
     }
 
-    /// `attempt-reconnect`: the routes around the tunnel follow the default gateway as it is now, and what the
-    /// record holds is checked against the system (`repair`).
+    /// `attempt-reconnect`: the routes around the tunnel follow the default gateway as it is now.
     func attemptReconnect(_ n: OpenConnectNetwork, policy: OpenConnectPolicy) -> Outcome {
         if let stop = interruption() { return fail(stop, interface: n.interface) }
         let journal: OpenConnectJournal
@@ -198,13 +197,11 @@ public struct OpenConnectHook {
         if let failure = self.add(add, context: context, table: &rows, journal: journal) {
             return fail(failure, journal: journal, tunnel: tunnel)
         }
-        if let failure = repair(journal, context: context, underlay: underlay, interface: n.interface, table: &rows) {
-            return fail(failure, journal: journal, tunnel: tunnel)
-        }
         return Outcome()
     }
 
-    /// `reconnect`: the network must be what the record holds, and the system must still have it (`repair`).
+    /// `reconnect`: the network must be what the record holds, and the system must still have it (`verify`); it
+    /// is checked, never repaired: any difference stops the session, and a new connection sets up afresh.
     func reconnect(_ n: OpenConnectNetwork, policy: OpenConnectPolicy) -> Outcome {
         if let stop = interruption() { return fail(stop, interface: n.interface) }
         let journal: OpenConnectJournal
@@ -214,14 +211,13 @@ public struct OpenConnectHook {
         }
         guard let index = system.interfaceIndex(n.interface) else { return fail("TUNDEV is not an interface of this Mac", journal: journal) }
         let tunnel = Tunnel.index(index)
-        guard var table = system.routes() else { return fail("the routing table cannot be read", journal: journal, tunnel: tunnel) }
+        guard let table = system.routes() else { return fail("the routing table cannot be read", journal: journal, tunnel: tunnel) }
         let underlay = OpenConnectPlan.Underlay(routes: table, attached: system.attachedNetworks(), tunnel: n.interface)
         guard OpenConnectPlan.matches(n, policy: policy, underlay: underlay, record: journal.record) else {
             return fail("the server changed the network settings", journal: journal, tunnel: tunnel)
         }
-        let context = context(index: index, addresses: journal.record.applied.compactMap(Self.address))
-        if let failure = repair(journal, context: context, underlay: underlay, interface: n.interface, table: &table) {
-            return fail(failure, journal: journal, tunnel: tunnel)
+        if let mismatch = verify(journal.record, index: index, table: table) {
+            return fail("the network changed while the connection was re-established: " + mismatch, journal: journal, tunnel: tunnel)
         }
         do {
             try journal.append(.status(.up))
@@ -408,33 +404,27 @@ public struct OpenConnectHook {
 
     static let interfaceGone = "the tunnel interface went away"
 
-    /// Checks what the record says is set up against the system, after a network change (attempt-reconnect,
-    /// reconnect): every route (into the tunnel, around it, reject) and the DNS keys. One the system no longer
-    /// has as planned is made again, journaled as usual (a change of the session's is journaled as reverted
-    /// first, since it is gone, then begun and made); one that cannot be (another route in the way, a command
-    /// that fails) fails the set-up. Routes around the tunnel of a family that has no usable gateway right now
-    /// (the network is down while openconnect retries) are left for a later run. Links and addresses go with
-    /// the interface, which openconnect keeps. The reason of the first failure, nil when all is in place.
-    func repair(
-        _ journal: OpenConnectJournal, context: Context, underlay: OpenConnectPlan.Underlay, interface: String, table: inout [KernelRoute]
-    ) -> String? {
-        for change in journal.record.applied {
+    /// What `reconnect` checks: every change the session holds (its own and shared ones; not those it found
+    /// there, which were never its) is still on the system exactly as made: the tunnel interface (the index noted
+    /// when the run started) with its addresses, every route with its planned next hop, the DNS keys with their
+    /// contents. The first difference, nil when there is none.
+    func verify(_ record: OpenConnectRecord, index: UInt32, table: [KernelRoute]) -> String? {
+        let addresses = record.applied.compactMap(Self.address)
+        for change in record.held {
             switch change {
+            case .link(let interface, _):
+                if system.interfaceIndex(interface) != index { return Self.interfaceGone }
+            case .address(let interface, let address):
+                guard system.interfaceIndex(interface) == index, system.interfaceAddresses(interface).contains(address) else {
+                    return "the address \(address) is no longer on \(interface)"
+                }
             case .route(let route):
-                if case .gateway = route.via, underlay.usable(route.network.family, tunnel: interface) == nil { continue }
-                if case .there = Self.finding(route, in: table, claimed: [], attached: context.attached) { continue }
+                if !table.contains(where: { $0.is(route) }) { return "the route for \(route.network) is no longer as it was set up" }
             case .dns(let dns):
-                if system.hasDNS(OpenConnectDNSSettings(dns, addresses: context.addresses)) { continue }
-            case .link, .address:
-                continue
+                if !system.hasDNS(OpenConnectDNSSettings(dns, addresses: addresses)) {
+                    return "the DNS settings are no longer as they were set up"
+                }
             }
-            if let stop = interruption() { return stop }
-            do {
-                if OpenConnectRecord.held(journal.record.states[change]) { try journal.append(.reverted(change)) }
-            } catch {
-                return "the network record cannot be written (\(error))"
-            }
-            if let failure = add([change], context: context, table: &table, journal: journal) { return failure }
         }
         return nil
     }
