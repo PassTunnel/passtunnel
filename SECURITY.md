@@ -548,6 +548,10 @@ your Mac may exist and belong to whoever installed Homebrew. Each is kept out of
   with `/var/empty/none` in the bundled `libgnutls` the same way. On top of that the helper starts the
   tool with `GNUTLS_SYSTEM_PRIORITY_FILE=/dev/null`, and the CA store would not be used anyway (pin,
   or `--no-system-trust` with the system bundle).
+- **GnuTLS's `/etc/gnutls/pkcs11.conf`** (a fixed path, not under the Homebrew prefix, which can
+  name PKCS#11 provider libraries): left as it is. Only root can create it in `/etc`, so it gives
+  no one more than they have, and library validation refuses a provider library not signed by Apple
+  or with the project's Team ID.
 - **Message catalogs:** not opened (`LC_ALL=C`).
 - **A web browser for single sign-on** (`/usr/bin/open`): never started by the root run, which
   never signs in; see "No single sign-on" above for the sign-in run.

@@ -1023,6 +1023,10 @@ passtunnel / app (the user)                          PassTunnelHelper / passtunn
   `script`), the `share/locale` catalogs of openconnect, GnuTLS and libintl (`LC_ALL=C`), OpenSSL's
   `OPENSSLDIR` and `MODULESDIR` (the fixed environment, below), openvpn's plugin directory and
   `dns-updown` (sanitizer, `--dns-updown`), openfortivpn's default configuration (always `-c`).
+  Not a Homebrew path, and left as it is: GnuTLS 3.8.13 also reads the fixed `/etc/gnutls/pkcs11.conf`
+  when PKCS#11 is initialized (`compat_load(NULL)`, which can name provider libraries). On macOS `/etc`
+  is root's, so only root can create that file (no escalation from the Homebrew prefix's owner), and a
+  provider library not signed by Apple or with our Team ID is refused by library validation.
   `bundle-tools.sh` takes nothing else of the formula: not `etc/vpnc/vpnc-script`,
   nothing from `libexec/openconnect` (`csd-wrapper.sh`, `hipreport.sh`, `tncc-*`). Its generic
   closure walk resolves both load styles (`/opt/homebrew/opt/<formula>/lib/…` and, in `libhogweed`,
@@ -1213,6 +1217,7 @@ and how each is kept out of the root run:
 | `/opt/homebrew/etc/gnutls/config` (system priority file; may name a PKCS#11 provider to load) | GnuTLS initialization | overwritten with `/var/empty/none` in the bundled `libgnutls` (#179, below); also `GNUTLS_SYSTEM_PRIORITY_FILE=/dev/null` in the spawn environment |
 | `/opt/homebrew/etc/gnutls/cert.pem` (`--with-default-trust-store-file`) | system trust (`gnutls.c` 2277) unless turned off | overwritten with `/var/empty/none` (#179), so system trust is empty; and always `no-system-trust` + `cafile /etc/ssl/cert.pem`, or `servercert` |
 | `/opt/homebrew/etc/pkcs11.conf` (system configuration), `/opt/homebrew/etc/modules` (system modules), `/opt/homebrew/etc/pkcs11/modules` (package modules), `/opt/homebrew/Cellar/p11-kit/<version>/lib/pkcs11` (module path); `~/.config/pkcs11/…` | at every start: openconnect calls `gnutls_pkcs11_init(GNUTLS_PKCS11_FLAG_AUTO)` in `openconnect_init_ssl` (`gnutls.c` 2586–2603) before parsing options, also for `--version`, and p11-kit loads every registered module then. A module file names a library (`module:`) or a command p11-kit runs itself (`remote: \|command`) | the system paths overwritten with `/var/empty/none` in the bundled `libp11-kit` (#179, below); library validation does not cover `remote:` commands, and p11-kit has no variable for its system paths (`P11_ENV_OVERRIDE_PATHS` is not built in). `P11_KIT_NO_USER_CONFIG=1` for the user's files; no `certificate`, `sslkey`, `mca-*`, `token-*` |
+| `/etc/gnutls/pkcs11.conf` (fixed in GnuTLS 3.8.13, not under the prefix; may name PKCS#11 provider libraries) | PKCS#11 initialization (`compat_load(NULL)`) | left as it is: root-owned `/etc` (only root can create it), and library validation refuses a provider library not signed by Apple or with our Team ID |
 | `…/share/locale` of openconnect and GnuTLS | message lookup | `LC_ALL=C` |
 | `/usr/bin/open` (`DEFAULT_EXTERNAL_BROWSER`, spawned by `hpke.c` 63–71) | a server sends an "external browser" sign-in form | the root run never signs in (it has the cookie); in the sign-in run, as the user, `no-external-auth` stops offering it but does not prevent it (above) |
 | `/bin/sh`, `/var/tmp` (CSD) | a server requests a host scan | refused (above) |
