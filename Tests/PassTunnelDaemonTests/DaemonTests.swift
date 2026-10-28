@@ -838,7 +838,7 @@ final class UnixSocketClientTests: DaemonTestCase {
 
         let daemon = try makeDaemon()
         let current = await SystemHelperInspector(socketPath: daemon.socketPath, expectedBuild: "test-build").report()
-        XCTAssertEqual(current, HelperReport(state: "enabled", responding: true, protocolVersion: 3, outdated: false))
+        XCTAssertEqual(current, HelperReport(state: "enabled", responding: true, protocolVersion: 4, outdated: false))
         XCTAssertTrue(current.isUsable)
         let outdated = await SystemHelperInspector(socketPath: daemon.socketPath, expectedBuild: "older").report()
         XCTAssertEqual(outdated.outdated, true)

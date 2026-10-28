@@ -90,10 +90,10 @@ final class DaemonCallTests: XCTestCase {
         let hello = DaemonHello(build: "ab12", buildNumber: 214)
         XCTAssertEqual(
             String(decoding: try hello.jsonData(), as: UTF8.self),
-            #"{"build":"ab12","build_number":214,"protocol":3}"#)
+            #"{"build":"ab12","build_number":214,"protocol":4}"#)
         XCTAssertEqual(
             String(decoding: try DaemonHello(build: "ab12").jsonData(), as: UTF8.self),
-            #"{"build":"ab12","protocol":3}"#, "no number in development builds")
+            #"{"build":"ab12","protocol":4}"#, "no number in development builds")
         XCTAssertEqual(
             try DaemonHello(jsonData: Data(#"{"protocol":4,"build":"x"}"#.utf8)),
             DaemonHello(protocolVersion: 4, build: "x"))
