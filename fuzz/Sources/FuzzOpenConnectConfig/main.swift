@@ -8,7 +8,8 @@ import PassTunnelVPNConfig
 // openconnect would read differently (blanks or `=` it skips, a NUL it stops at). Property: whatever
 // either renderer agrees to write, read back the way openconnect 9.21 reads it (`readLikeOpenConnect`),
 // is exactly the expected options in order, with each field recovered byte for byte. Anything that
-// cannot be represented must be refused, not emitted. The harness never crashes or hangs on any bytes.
+// cannot be represented must be refused, not emitted, and anything the validators accept must pass the
+// final check. The harness never crashes or hangs on any bytes.
 @_cdecl("LLVMFuzzerTestOneInput")
 func LLVMFuzzerTestOneInput(_ data: UnsafePointer<UInt8>?, _ size: Int) -> CInt {
     // Fields split on 0x1F (Unit Separator), each decoded as (lossy) UTF-8, as in FuzzFortiConfig.
@@ -38,6 +39,8 @@ func LLVMFuzzerTestOneInput(_ data: UnsafePointer<UInt8>?, _ size: Int) -> CInt 
     let root = OpenConnectConfig(
         host: host, port: port, cookie: cookie, serverCert: serverCert, resolveAddress: resolveAddress, scriptPath: scriptPath,
         tlsOnly: flags.contains("t"))
+    // The final check is as strict as the validators, never stricter: whatever validates must render.
+    if (try? root.validate()) != nil { precondition((try? root.render()) != nil, "a valid root config failed its final check") }
     if let text = try? root.render() {
         guard let read = readLikeOpenConnect(Array(text.utf8), table: table) else { preconditionFailure("openconnect would refuse the root file") }
         var expected = ["protocol", "server", "cookie", "servercert"]
@@ -65,6 +68,9 @@ func LLVMFuzzerTestOneInput(_ data: UnsafePointer<UInt8>?, _ size: Int) -> CInt 
     let auth = OpenConnectAuthConfig(
         host: host, port: port, usergroup: usergroup, username: username, authgroup: authgroup, serverCert: serverCert)
     let noExternalAuth = flags.contains("n")
+    if (try? auth.validate()) != nil, (try? auth.render(noExternalAuth: noExternalAuth)) == nil {
+        preconditionFailure("a valid sign-in config failed its final check")
+    }
     if let text = try? auth.render(caFile: caFile, noExternalAuth: noExternalAuth) {
         guard let read = readLikeOpenConnect(Array(text.utf8), table: table) else { preconditionFailure("openconnect would refuse the sign-in file") }
         var expected = ["protocol", "server", "user"]

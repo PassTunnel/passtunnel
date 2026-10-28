@@ -1095,9 +1095,11 @@ code, nor parses the server's login forms (the most complex server-controlled pa
    escaped); the cookie is 1–4,096 bytes and starts with neither a blank nor `=` and ends without a
    blank (it must survive the root file), `FINGERPRINT` is a full pin, `CONNECT_URL` at most 300 bytes,
    the whole output at most 8 KiB; anything else (an unknown, repeated, missing or reordered key, a CR)
-   fails, and no error or description includes the cookie. Without a proxy (PassTunnel never sets
-   one) openconnect prints the address it connected to: `HOST` is that numeric address (in brackets
-   for IPv6; `openconnect_get_hostname`, `library.c` 985–988, set in `ssl.c` 489–500), not a name.
+   fails. The server chooses every value, so it could repeat the cookie in any of them: no
+   description, mirror or error shows any value of the output, only fixed text and key names.
+   Without a proxy (PassTunnel never sets one) openconnect prints the address it connected to: `HOST`
+   is that numeric address (in brackets for IPv6; `openconnect_get_hostname`, `library.c` 985–988, set
+   in `ssl.c` 489–500), not a name.
    - `CONNECT_URL` (`library.c` 953–980) must be exactly `https://<host>[:<port>]/`: no user info,
      query, fragment, path or control character, at most 300 bytes, its host the profile's host
      (compared without regard to case; an IPv6 literal in brackets, as the URL openconnect was given
@@ -1113,9 +1115,18 @@ code, nor parses the server's login forms (the most complex server-controlled pa
      `main.c` 1983–2000). An empty `RESOLVE` fails; so does an address with a zone id.
    - `FINGERPRINT` must equal the profile's pin when it has one.
    - `OpenConnectAuthResult.checkDestination` makes these checks and returns the address for
-     `resolve`; `tunnelConfig` builds the root configuration from them. The helper repeats the
-     `CONNECT_URL` and `RESOLVE` part on the request's fields (`OpenConnectAuthResult.tunnelConfig(host:
-     port:connectURL:resolve:…)`; the request carries no `HOST`).
+     `resolve`; `tunnelConfig` builds the root configuration from them. The helper repeats them on the
+     request's fields (`OpenConnectAuthResult.tunnelConfig(host:port:connectURL:resolve:cookie:
+     serverCert:profileServerCert:…)`; the request carries no `HOST`): `CONNECT_URL` for the profile's
+     host and port (an IP-literal host compared as an address), `resolve` exactly for a host name, and,
+     when the profile has a pin (`profileServerCert`, normalized), the accepted `serverCert` equal to it.
+   - *Trust model.* `HOST`, `RESOLVE` and `FINGERPRINT` are written by openconnect itself, from the
+     address it connected to and the key its TLS check verified; neither the server nor a network
+     attacker can set them. Binding the tunnel run to them protects against DNS or a key changing
+     between the two runs. It does not protect against the requesting user: the start request comes
+     from the user's own process, which can already define a profile for any host, so the address it
+     reports cannot be verified independently in pure code. No address range is refused (the ocserv
+     tests run on loopback).
    - *What this does not cover:* these are checks of where the sign-in **ended**. openconnect
      follows every `https://` redirect during the sign-in, to any host and port (`handle_redirect`,
      `http.c` 646–690), and submits the forms there; the openconnect command line has no option or
@@ -1195,10 +1206,14 @@ no-dtls                                       (only with tls_only)
   leading or trailing whitespace and no leading `=`; `checkRendered` checks the expected number of
   lines, the header first and no other comment, only the keys above, each once and in this order,
   the required ones present, each written `key value` with one space (or the key alone), and the
-  values of `protocol`, `server`, `servercert`, `resolve` (naming `server`'s host), `script` and
-  `reconnect-timeout` again. The sign-in file (`OpenConnectAuthConfig.checkRendered`) is checked the
-  same way, and its trust must be `servercert` alone or `no-system-trust` with `cafile` naming the
-  bundle the caller passed.
+  values of `protocol`, `servercert`, `script` and `reconnect-timeout` again. `server` is parsed by
+  the typed rules (`https://` only; a lowercase host by the host rule, an IPv6 literal in brackets; a
+  port of 1–65535 without leading zeros, never an explicit 443; the path the renderer writes: empty
+  here, a user group by its rule in the sign-in file; so no user info, query or fragment), and
+  `resolve` must be there exactly when that host is a name (without it the root run would resolve the
+  name again), name that host, and be absent for an IP literal. The sign-in file
+  (`OpenConnectAuthConfig.checkRendered`) is checked the same way, and its trust must be `servercert`
+  alone or `no-system-trust` with `cafile` naming the bundle the caller passed.
 - The host has no IPv6 zone id (a URL cannot carry one the way openconnect reads it); `server` and
   `resolve` both have it lowercased, since openconnect matches `resolve` byte for byte.
 - `script` is always rendered: without it openconnect runs its compiled-in `DEFAULT_VPNCSCRIPT`
@@ -1423,13 +1438,16 @@ with `versionMismatch` and is replaced as today, and `passtunneld`'s `hello` rep
 ```swift
 case startOpenConnect(OpenConnectStart)   // profileID, profileDir, logPath, host, port, usergroup,
                                           // connectURL, resolve?, cookie, serverCert (the accepted
-                                          // FINGERPRINT), tlsOnly, setDNS, setRoutes
+                                          // FINGERPRINT), profileServerCert (the profile's pin or
+                                          // empty), tlsOnly, setDNS, setRoutes
 ```
 
-The helper checks every field again (`OpenConnectConfig.validate`: the profile rules below,
-`connectURL` exactly `https://<host>[:<port>]/` for the request's `host` and `port`, `resolve`
-required as `<host>:<IP literal>` for a host name and absent for an IP literal, the pin's form, the
-cookie's length and characters) before anything is written, and renders `server` from `host` and
+The helper checks every field again (`OpenConnectAuthResult.tunnelConfig(host:port:connectURL:
+resolve:cookie:serverCert:profileServerCert:…)` and `OpenConnectConfig.validate`: the profile rules
+below, `connectURL` exactly `https://<host>[:<port>]/` for the request's `host` and `port`, `resolve`
+required as `<host>:<IP literal>` for a host name and absent for an IP literal, `serverCert` equal to
+`profileServerCert` when that is set, the pins' form, the cookie's length and characters) before
+anything is written, and renders `server` from `host` and
 `port`, not from the text it was sent. `setDNS` and `setRoutes` go into the session's `policy`
 file for the hook. The request stays under the
 64 KiB limit (the cookie is at most 4 KiB).

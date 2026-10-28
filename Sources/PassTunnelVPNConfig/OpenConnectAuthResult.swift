@@ -13,7 +13,18 @@ import Foundation
 /// messages go to standard error in this mode. The values are not escaped, so each must be printable ASCII
 /// without `'`. Anything else, an unknown, repeated, missing or reordered key, fails.
 ///
-/// The cookie is a bearer secret: no description, mirror or error of this type includes it.
+/// The cookie is a bearer secret, and the server chooses every other value too, so it could repeat the
+/// cookie in any of them: no description, mirror or error of this type includes any value of the output,
+/// only fixed text, key names and whether a value is present.
+///
+/// Trust model: `HOST`, `RESOLVE` and `FINGERPRINT` are written by openconnect itself, from the address it
+/// connected to and the key it verified (`RESOLVE` from the `getaddrinfo` result it used, `FINGERPRINT`
+/// from the certificate the TLS handshake checked); neither the server nor a network attacker can set them.
+/// The checks below bind the tunnel run to that address and that key, so DNS or a key change between the
+/// two runs cannot move the tunnel elsewhere. They do not protect against the requesting user: the start
+/// request comes from the user's own process, which can already define a profile for any host, so the
+/// address it reports cannot be verified independently in pure code (and no address range is refused:
+/// tests run against a server on loopback).
 public struct OpenConnectAuthResult: Equatable, CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
     public let cookie: String
     /// `HOST`: the numeric address the run connected to (an IPv6 address in brackets).
@@ -50,15 +61,16 @@ public struct OpenConnectAuthResult: Equatable, CustomStringConvertible, CustomD
     /// Why a sign-in that succeeded cannot be used for the profile's tunnel.
     public enum DestinationError: Error, Equatable, LocalizedError, CustomStringConvertible {
         /// The sign-in ended on another server (another host or port, or a path): refused in Phase 1.
-        case otherServer(connectURL: String)
+        case otherServer
+        /// The key the sign-in accepted is not the profile's pinned key.
         case fingerprintMismatch
         case noResolvedAddress
         case addressMismatch
 
         public var description: String {
             switch self {
-            case .otherServer(let url):
-                return "The server sent the sign-in to another server (\(url)); PassTunnel connects only to the profile's server."
+            case .otherServer:
+                return "The server sent the sign-in to another server; PassTunnel connects only to the profile's server."
             case .fingerprintMismatch: return "The sign-in reached a server key other than the profile's pinned key."
             case .noResolvedAddress: return "The sign-in did not report the address it connected to."
             case .addressMismatch: return "The sign-in reported an address that does not belong to the profile's server."
@@ -87,16 +99,18 @@ public struct OpenConnectAuthResult: Equatable, CustomStringConvertible, CustomD
         self.resolve = resolve
     }
 
+    /// Fixed placeholders only (see the type's note): every value came from the server's side.
     public var description: String {
-        "OpenConnectAuthResult(cookie: <redacted>, host: \(host), connectURL: \(connectURL), fingerprint: \(fingerprint), "
-            + "resolve: \(resolve))"
+        "OpenConnectAuthResult(cookie: <redacted>, host: <redacted>, connectURL: <redacted>, fingerprint: <redacted>, "
+            + "resolve: \(resolve.isEmpty ? "<none>" : "<redacted>"))"
     }
     public var debugDescription: String { description }
     public var customMirror: Mirror {
         Mirror(
             self,
             children: [
-                "cookie": "<redacted>", "host": host, "connectURL": connectURL, "fingerprint": fingerprint, "resolve": resolve
+                "cookie": "<redacted>", "host": "<redacted>", "connectURL": "<redacted>", "fingerprint": "<redacted>",
+                "resolve": resolve.isEmpty ? "<none>" : "<redacted>"
             ])
     }
 
@@ -148,19 +162,19 @@ public struct OpenConnectAuthResult: Equatable, CustomStringConvertible, CustomD
     /// Checks that the sign-in ended at the profile's server, and returns the address for the tunnel run's
     /// `resolve` (nil when the profile's host is an IP address).
     ///
-    /// - `CONNECT_URL` must be exactly `https://<host>[:<port>]/` for the profile's host (compared without
-    ///   regard to case; an IPv6 literal in brackets) and port (left out when it is 443, as openconnect prints
-    ///   it). No user info, query, fragment or path: AnyConnect connects without the user group, which only
-    ///   the sign-in URL carries. Another host (load balancing) is refused in Phase 1.
-    /// - `FINGERPRINT` must equal `serverCert` when the profile has a pin.
+    /// - `CONNECT_URL` must be `https://<host>[:<port>]/` as openconnect prints it: the profile's host
+    ///   (a name compared without regard to case; an IP literal compared as an address, an IPv6 literal in
+    ///   brackets), the profile's port (left out when it is 443), and no user info, query, fragment or path
+    ///   (AnyConnect connects without the user group, which only the sign-in URL carries). Another host
+    ///   (load balancing) is refused in Phase 1.
+    /// - `FINGERPRINT` must equal `profileServerCert` when the profile has a pin.
     /// - For a host name, `RESOLVE` must be `<that host>:<IP address>` and `HOST` that same address (in
     ///   brackets for IPv6). For an IP-address host, `RESOLVE`'s address and `HOST` must be that address
     ///   (any spelling of it). An empty `RESOLVE` fails.
-    public func checkDestination(host profileHost: String, port: Int, serverCert: String) throws -> String? {
-        guard serverCert.isEmpty || OpenConnectPin.isValid(serverCert) else { throw OpenConnectConfig.ValidationError.invalidServerCert }
+    public func checkDestination(host profileHost: String, port: Int, profileServerCert: String) throws -> String? {
         let (resolveAddress, address) = try Self.checkDestination(
-            host: profileHost, port: port, connectURL: connectURL, resolve: resolve.isEmpty ? nil : resolve, requireResolve: true)
-        guard serverCert.isEmpty || fingerprint == serverCert else { throw DestinationError.fingerprintMismatch }
+            host: profileHost, port: port, connectURL: connectURL, resolve: resolve.isEmpty ? nil : resolve,
+            fingerprint: fingerprint, profileServerCert: profileServerCert, client: true)
         // HOST is the address openconnect connected to, as RESOLVE has it (an IPv6 address in brackets).
         guard let address, host == (OpenConnectSyntax.isIPv6Literal(address) ? "[\(address)]" : address) else {
             throw DestinationError.addressMismatch
@@ -168,32 +182,46 @@ public struct OpenConnectAuthResult: Equatable, CustomStringConvertible, CustomD
         return resolveAddress
     }
 
-    /// The shared part of the check, also run by the helper on a start request (which carries no `HOST`,
-    /// and no `resolve` for an IP-address host): `connectURL` and `resolve` for the profile's host and port.
-    /// Returns the address for the root file's `resolve` (nil for an IP-address host) and the address
-    /// `resolve` named (nil when there was none).
+    /// The check shared by the client (`checkDestination`) and the helper (the static `tunnelConfig`, whose
+    /// request carries no `HOST`, and no `resolve` for an IP-address host). Returns the address for the
+    /// root file's `resolve` (nil for an IP-address host) and the address `resolve` named (nil when none).
     static func checkDestination(
-        host profileHost: String, port: Int, connectURL: String, resolve: String?, requireResolve: Bool
+        host profileHost: String, port: Int, connectURL: String, resolve: String?, fingerprint: String, profileServerCert: String,
+        client: Bool
     ) throws -> (resolveAddress: String?, address: String?) {
-        guard OpenConnectSyntax.isValidHost(profileHost) else { throw OpenConnectConfig.ValidationError.invalidHost }
-        guard (1...65535).contains(port) else { throw OpenConnectConfig.ValidationError.invalidPort(port) }
-        let expected = OpenConnectSyntax.serverURL(host: profileHost, port: port, usergroup: "")
-        guard connectURL.lowercased() == expected else { throw DestinationError.otherServer(connectURL: connectURL) }
+        typealias E = OpenConnectConfig.ValidationError
+        guard OpenConnectSyntax.isValidHost(profileHost) else { throw E.invalidHost }
+        guard (1...65535).contains(port) else { throw E.invalidPort(port) }
+        guard profileServerCert.isEmpty || OpenConnectPin.isValid(profileServerCert) else { throw E.invalidServerCert }
+        guard OpenConnectPin.isValid(fingerprint) else { throw E.invalidServerCert }
 
         let literalHost = OpenConnectSyntax.isIPLiteral(profileHost)
+        guard let url = OpenConnectSyntax.parseServerURL(connectURL.lowercased()), url.port == port, url.path.isEmpty else {
+            throw DestinationError.otherServer
+        }
+        if literalHost {
+            guard let want = OpenConnectSyntax.ipBytes(profileHost), OpenConnectSyntax.ipBytes(url.host) == want else {
+                throw DestinationError.otherServer
+            }
+        } else {
+            guard url.host == profileHost.lowercased() else { throw DestinationError.otherServer }
+        }
+        guard profileServerCert.isEmpty || fingerprint == profileServerCert else { throw DestinationError.fingerprintMismatch }
+
         guard let resolve else {
-            guard literalHost && !requireResolve else { throw DestinationError.noResolvedAddress }
+            // The client always has openconnect's RESOLVE; the helper gets none for an IP-address host.
+            guard literalHost && !client else { throw DestinationError.noResolvedAddress }
             return (nil, nil)
         }
+        // The helper is sent a resolve only for a host name.
+        guard client || !literalHost else { throw DestinationError.addressMismatch }
         // openconnect prints its host name as the URL has it (an IPv6 literal in brackets), then the address.
         let namePrefix = OpenConnectSyntax.urlHost(profileHost) + ":"
         guard resolve.lowercased().hasPrefix(namePrefix) else { throw DestinationError.addressMismatch }
         let address = String(resolve.dropFirst(namePrefix.count))
         guard OpenConnectSyntax.isIPLiteral(address) else { throw DestinationError.addressMismatch }
         if literalHost {
-            guard let want = OpenConnectSyntax.ipBytes(profileHost), OpenConnectSyntax.ipBytes(address) == want else {
-                throw DestinationError.addressMismatch
-            }
+            guard OpenConnectSyntax.ipBytes(address) == OpenConnectSyntax.ipBytes(profileHost) else { throw DestinationError.addressMismatch }
             return (nil, address)
         }
         return (address, address)
@@ -201,8 +229,10 @@ public struct OpenConnectAuthResult: Equatable, CustomStringConvertible, CustomD
 
     /// The root run's configuration for this sign-in (`checkDestination` first): the profile's host and port,
     /// this cookie, this `FINGERPRINT` as the only trusted key, and the address the sign-in used.
-    public func tunnelConfig(host: String, port: Int, serverCert: String, scriptPath: String, tlsOnly: Bool) throws -> OpenConnectConfig {
-        let address = try checkDestination(host: host, port: port, serverCert: serverCert)
+    public func tunnelConfig(host: String, port: Int, profileServerCert: String, scriptPath: String, tlsOnly: Bool) throws
+        -> OpenConnectConfig
+    {
+        let address = try checkDestination(host: host, port: port, profileServerCert: profileServerCert)
         let config = OpenConnectConfig(
             host: host, port: port, cookie: cookie, serverCert: fingerprint, resolveAddress: address, scriptPath: scriptPath,
             tlsOnly: tlsOnly)
@@ -210,20 +240,20 @@ public struct OpenConnectAuthResult: Equatable, CustomStringConvertible, CustomD
         return config
     }
 
-    /// The helper's side of `tunnelConfig`: the root configuration from a start request's fields, with
-    /// `connectURL` and `resolve` checked as `checkDestination` does (`resolve` is the sign-in's `RESOLVE`
-    /// for a host name and nil for an IP-address host; `serverCert` the `FINGERPRINT` the sign-in accepted).
+    /// The helper's side of `tunnelConfig`: the root configuration from a start request's fields, checked as
+    /// `checkDestination` does. `resolve` is the sign-in's `RESOLVE` for a host name and nil for an
+    /// IP-address host; `serverCert` the `FINGERPRINT` the sign-in accepted; `profileServerCert` the
+    /// profile's own pin (normalized) or empty, which `serverCert` must then equal. See the type's note for
+    /// what this binding does and does not protect against.
     public static func tunnelConfig(
-        host: String, port: Int, connectURL: String, resolve: String?, cookie: String, serverCert: String, scriptPath: String,
-        tlsOnly: Bool
+        host: String, port: Int, connectURL: String, resolve: String?, cookie: String, serverCert: String, profileServerCert: String,
+        scriptPath: String, tlsOnly: Bool
     ) throws -> OpenConnectConfig {
         try checkPrintable(connectURL, key: "CONNECT_URL", maxBytes: maxConnectURLBytes, allowEmpty: false)
         if let resolve { try checkPrintable(resolve, key: "RESOLVE", maxBytes: maxResolveBytes, allowEmpty: false) }
-        let (address, _) = try checkDestination(host: host, port: port, connectURL: connectURL, resolve: resolve, requireResolve: false)
-        if OpenConnectSyntax.isIPLiteral(host), resolve != nil {
-            // The client sends no resolve for an IP-address host.
-            throw DestinationError.addressMismatch
-        }
+        let (address, _) = try checkDestination(
+            host: host, port: port, connectURL: connectURL, resolve: resolve, fingerprint: serverCert,
+            profileServerCert: profileServerCert, client: false)
         let config = OpenConnectConfig(
             host: host, port: port, cookie: cookie, serverCert: serverCert, resolveAddress: address, scriptPath: scriptPath,
             tlsOnly: tlsOnly)

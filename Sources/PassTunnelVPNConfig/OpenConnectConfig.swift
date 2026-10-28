@@ -76,17 +76,19 @@ public struct OpenConnectConfig: Equatable, CustomStringConvertible, CustomDebug
         self.tlsOnly = tlsOnly
     }
 
+    /// The profile's own fields only: the cookie is redacted, and the values the sign-in output supplied
+    /// (the accepted key, the resolved address) are shown only as set or not.
     public var description: String {
-        "OpenConnectConfig(host: \(host), port: \(port), cookie: <redacted>, serverCert: \(serverCert), "
-            + "resolveAddress: \(resolveAddress ?? "nil"), scriptPath: \(scriptPath), tlsOnly: \(tlsOnly))"
+        "OpenConnectConfig(host: \(host), port: \(port), cookie: <redacted>, serverCert: \(serverCert.isEmpty ? "<none>" : "<set>"), "
+            + "resolveAddress: \(resolveAddress == nil ? "nil" : "<set>"), scriptPath: \(scriptPath), tlsOnly: \(tlsOnly))"
     }
     public var debugDescription: String { description }
     public var customMirror: Mirror {
         Mirror(
             self,
             children: [
-                "host": host, "port": port, "cookie": "<redacted>", "serverCert": serverCert,
-                "resolveAddress": resolveAddress ?? "nil", "scriptPath": scriptPath, "tlsOnly": tlsOnly
+                "host": host, "port": port, "cookie": "<redacted>", "serverCert": serverCert.isEmpty ? "<none>" : "<set>",
+                "resolveAddress": resolveAddress == nil ? "nil" : "<set>", "scriptPath": scriptPath, "tlsOnly": tlsOnly
             ])
     }
 
@@ -150,7 +152,8 @@ public struct OpenConnectConfig: Equatable, CustomStringConvertible, CustomDebug
     public static func checkRendered(_ text: String, lineCount: Int) throws {
         let specs: [OpenConnectSyntax.Spec] = [
             .init("protocol", required: true) { $0 == "anyconnect" },
-            .init("server", required: true) { OpenConnectSyntax.isPlausibleServerURL($0) && OpenConnectSyntax.authority(ofServerURL: $0) != nil },
+            // The tunnel run connects without the user group: the path is empty.
+            .init("server", required: true) { OpenConnectSyntax.parseServerURL($0)?.path == "" },
             .init("cookie", required: true, value: OpenConnectSyntax.isValidCookie),
             .init("servercert", required: true, value: OpenConnectPin.isValid),
             .init("resolve", required: false, value: OpenConnectSyntax.isValidResolveOption),
@@ -160,13 +163,17 @@ public struct OpenConnectConfig: Equatable, CustomStringConvertible, CustomDebug
             .init("no-dtls", required: false, value: nil)
         ]
         let options = try OpenConnectSyntax.check(text, lineCount: lineCount, specs: specs)
-        // `resolve` names the host `server` connects to: openconnect compares the two byte for byte.
-        if let resolve = options.first(where: { $0.key == "resolve" })?.value,
-            let server = options.first(where: { $0.key == "server" })?.value,
-            let authority = OpenConnectSyntax.authority(ofServerURL: server)
-        {
-            let name = resolve.prefix { $0 != ":" }
-            guard authority == name || authority.hasPrefix(name + ":") else {
+        // `resolve` is there exactly when `server` names a host (without it the root run would resolve the
+        // name again), and names that host: openconnect compares the two byte for byte.
+        guard let server = options.first(where: { $0.key == "server" })?.value, let url = OpenConnectSyntax.parseServerURL(server) else {
+            throw ValidationError.unsafeOutput("no server")
+        }
+        let resolve = options.first(where: { $0.key == "resolve" })?.value
+        if OpenConnectSyntax.isIPLiteral(url.host) {
+            guard resolve == nil else { throw ValidationError.unsafeOutput("resolve for a server given as an IP address") }
+        } else {
+            guard let resolve else { throw ValidationError.unsafeOutput("no resolve for a server given as a host name") }
+            guard OpenConnectSyntax.resolveName(resolve) == url.host else {
                 throw ValidationError.unsafeOutput("resolve names another host than server")
             }
         }
@@ -257,7 +264,7 @@ public struct OpenConnectAuthConfig: Equatable {
     public static func checkRendered(_ text: String, lineCount: Int, caFile: String) throws {
         let specs: [OpenConnectSyntax.Spec] = [
             .init("protocol", required: true) { $0 == "anyconnect" },
-            .init("server", required: true, value: OpenConnectSyntax.isPlausibleServerURL),
+            .init("server", required: true) { OpenConnectSyntax.parseServerURL($0) != nil },
             .init("user", required: true) { OpenConnectSyntax.isValidText($0, maxBytes: maxUsernameBytes) },
             .init("authgroup", required: false) { OpenConnectSyntax.isValidText($0, maxBytes: maxAuthgroupBytes) },
             .init("servercert", required: false, value: OpenConnectPin.isValid),
@@ -371,23 +378,45 @@ enum OpenConnectSyntax {
         "https://\(urlHost(host))\(port == 443 ? "" : ":\(port)")/\(usergroup)"
     }
 
-    /// The shape of a rendered `server` value: `https://`, then only the characters a valid host, port and
-    /// user group can produce.
-    static func isPlausibleServerURL(_ s: String) -> Bool {
-        let rest = s.utf8.dropFirst("https://".utf8.count)
-        return s.hasPrefix("https://") && rest.count <= 600 && rest.first != UInt8(ascii: "/")
-            && rest.contains(UInt8(ascii: "/"))
-            && rest.allSatisfy {
-                FortiConfig.isASCIIAlphanumeric($0) || "-._~/:[]".utf8.contains($0)
+    /// A server URL exactly as `serverURL` writes it, split into its parts: `https://`, a host by the
+    /// typed rule (lowercase; an IPv6 literal in brackets, an IPv4 literal or a host name), an optional
+    /// `:port` (1–65535, digits without a leading zero, never 443, which is left out), `/`, and a path that
+    /// is empty or a user group by its typed rule. No user info, query or fragment can pass: none of `@`,
+    /// `?`, `#` is allowed in any part. Nil for anything else.
+    static func parseServerURL(_ s: String) -> (host: String, port: Int, path: String)? {
+        let scheme = "https://"
+        guard s.hasPrefix(scheme) else { return nil }
+        let rest = s.dropFirst(scheme.count)
+        guard let slash = rest.firstIndex(of: "/") else { return nil }
+        let authority = rest[..<slash]
+        let path = String(rest[rest.index(after: slash)...])
+        var host: Substring
+        var portText: Substring?
+        if authority.hasPrefix("[") {
+            guard let close = authority.firstIndex(of: "]") else { return nil }
+            host = authority[authority.index(after: authority.startIndex)..<close]
+            let after = authority[authority.index(after: close)...]
+            if !after.isEmpty {
+                guard after.hasPrefix(":") else { return nil }
+                portText = after.dropFirst()
             }
-    }
-
-    /// For a `server` value with the path `/` and nothing after it: the host and port between `https://`
-    /// and that `/`. Nil when there is a path.
-    static func authority(ofServerURL s: String) -> Substring? {
-        guard s.hasPrefix("https://"), s.hasSuffix("/") else { return nil }
-        let authority = s.dropFirst("https://".count).dropLast()
-        return authority.isEmpty || authority.contains("/") ? nil : authority
+            guard isIPv6Literal(String(host)) else { return nil }
+        } else {
+            let parts = authority.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            host = parts[0]
+            if parts.count == 2 { portText = parts[1] }
+            guard !host.contains(":"), isValidHost(String(host)) else { return nil }
+        }
+        guard host == host.lowercased() else { return nil }
+        var port = 443
+        if let portText {
+            guard let first = portText.first, first != "0", portText.count <= 5, portText.utf8.allSatisfy(FortiConfig.isASCIIDigit),
+                let p = Int(portText), (1...65535).contains(p), p != 443
+            else { return nil }
+            port = p
+        }
+        guard path.isEmpty || isValidUsergroup(path) else { return nil }
+        return (String(host), port, path)
     }
 
     static func isValidUsergroup(_ s: String) -> Bool {
@@ -402,6 +431,9 @@ enum OpenConnectSyntax {
         let name = String(s[..<colon]), address = String(s[s.index(after: colon)...])
         return isValidHost(name) && !isIPLiteral(name) && name == name.lowercased() && isIPLiteral(address)
     }
+
+    /// `resolve`'s host name (before the first ':').
+    static func resolveName(_ s: String) -> Substring { s.prefix { $0 != ":" } }
 
     // MARK: Values
 

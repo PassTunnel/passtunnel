@@ -348,6 +348,67 @@ final class OpenConnectRenderedCheckTests: XCTestCase {
         assertRootUnsafe(root.replacingOccurrences(of: "EXAMPLE-COOKIE", with: "EXAMPLE'COOKIE"))
     }
 
+    /// `resolve` is required exactly when `server` names a host, refused for an IP address, and names
+    /// `server`'s host: without it the root run would resolve the name again.
+    func testResolveMatchesTheServer() throws {
+        assertRootUnsafe(root.replacingOccurrences(of: "resolve vpn.example.com:192.0.2.10\n", with: ""))
+        assertRootUnsafe(root.replacingOccurrences(of: "resolve vpn.example.com:", with: "resolve vpn.example.net:"))
+        assertRootUnsafe(root.replacingOccurrences(of: "resolve vpn.example.com:", with: "resolve vpn:"))
+        for host in ["192.0.2.10", "2001:db8::1"] {
+            let literal = try OpenConnectConfig(
+                host: host, port: 8443, cookie: "EXAMPLE-COOKIE", serverCert: examplePin, resolveAddress: nil, scriptPath: exampleHook
+            ).render()
+            XCTAssertNoThrow(try OpenConnectConfig.checkRendered(literal, lineCount: lineCount(literal)))
+            assertRootUnsafe(literal.replacingOccurrences(of: "\nscript ", with: "\nresolve \(host):192.0.2.10\nscript "))
+            assertRootUnsafe(literal.replacingOccurrences(of: "\nscript ", with: "\nresolve vpn.example.com:192.0.2.10\nscript "))
+        }
+    }
+
+    /// `server` is parsed by the typed rules: https only, a typed host (lowercase; IPv6 in brackets), a port
+    /// without leading zeros and never an explicit 443, and the path the renderer writes.
+    func testTheServerURLIsTyped() {
+        let server = "server https://vpn.example.com:8443/"
+        for bad in [
+            "http://vpn.example.com:8443/", "HTTPS://vpn.example.com:8443/", "https:/vpn.example.com:8443/", "https://vpn.example.com:8443",
+            "https://alice@vpn.example.com:8443/", "https://vpn.example.com:8443@evil.example/", "https://vpn.example.com:8443/?x=1",
+            "https://vpn.example.com:8443/#x", "https://vpn.example.com:8443/engineering", "https://vpn.example.com:8443//",
+            "https://vpn.example.com:443/", "https://vpn.example.com:08443/", "https://vpn.example.com:0/", "https://vpn.example.com:65536/",
+            "https://vpn.example.com:/", "https://vpn.example.com:84a3/", "https://VPN.example.com:8443/", "https://vpn_example.com:8443/",
+            "https://-vpn.example.com:8443/", "https://[vpn.example.com]:8443/", "https://[192.0.2.10]:8443/", "https://2001:db8::1/",
+            "https://[2001:db8::1%en0]:8443/", "https://[2001:db8::1]x/", "https://:8443/", "https:///"
+        ] {
+            assertRootUnsafe(root.replacingOccurrences(of: server, with: "server \(bad)"))
+        }
+        // The sign-in file's path is a user group by its typed rule.
+        for bad in [
+            "https://vpn.example.com/../../x", "https://vpn.example.com//x", "https://vpn.example.com/eng/../x",
+            "https://vpn.example.com/eng?x=1", "https://vpn.example.com/eng#x", "https://vpn.example.com/eng%2fx",
+            "https://vpn.example.com/eng@x", "https://vpn.example.com/eng:x", "https://alice@vpn.example.com/eng",
+            "https://vpn.example.com:443/eng", "https://vpn.example.com"
+        ] {
+            assertAuthUnsafe(auth.replacingOccurrences(of: "server https://vpn.example.com/eng", with: "server \(bad)"))
+        }
+    }
+
+    func testTheServerURLParser() {
+        XCTAssertEqual(OpenConnectSyntax.parseServerURL("https://vpn.example.com/")?.port, 443)
+        XCTAssertEqual(OpenConnectSyntax.parseServerURL("https://vpn.example.com:8443/eng/remote")?.path, "eng/remote")
+        XCTAssertEqual(OpenConnectSyntax.parseServerURL("https://[2001:db8::1]:8443/")?.host, "2001:db8::1")
+        XCTAssertEqual(OpenConnectSyntax.parseServerURL("https://192.0.2.10:1/")?.port, 1)
+        XCTAssertEqual(OpenConnectSyntax.parseServerURL("https://vpn.example.com:65535/")?.port, 65535)
+        for host in ["vpn.example.com", "VPN.Example.com", "192.0.2.10", "2001:DB8::1"] {
+            for port in [443, 8443] {
+                for group in ["", "eng"] {
+                    let url = OpenConnectSyntax.serverURL(host: host, port: port, usergroup: group)
+                    let parsed = OpenConnectSyntax.parseServerURL(url)
+                    XCTAssertEqual(parsed?.host, host.lowercased(), url)
+                    XCTAssertEqual(parsed?.port, port, url)
+                    XCTAssertEqual(parsed?.path, group, url)
+                }
+            }
+        }
+    }
+
     func testTheSignInTrustIsAPinOrTheGivenBundleAlone() {
         assertAuthUnsafe(auth.replacingOccurrences(of: "no-system-trust\n", with: ""))
         assertAuthUnsafe(auth.replacingOccurrences(of: "cafile /etc/ssl/cert.pem\n", with: ""))
@@ -586,7 +647,7 @@ final class OpenConnectAuthResultTests: XCTestCase {
     // MARK: Where the sign-in ended
 
     func check(_ text: String, host: String = "vpn.example.com", port: Int = 8443, pin: String = "") throws -> String? {
-        try OpenConnectAuthResult.parse(text).checkDestination(host: host, port: port, serverCert: pin)
+        try OpenConnectAuthResult.parse(text).checkDestination(host: host, port: port, profileServerCert: pin)
     }
 
     func assertRefused(
@@ -621,9 +682,9 @@ final class OpenConnectAuthResultTests: XCTestCase {
             "https://vpn.example.com:8443/#x", "https://vpn.example.com:8443", "http://vpn.example.com:8443/",
             "https://vpn.example.com:8443//", "https://192.0.2.10:8443/", "https://vpn.example.com.evil.example:8443/"
         ] {
-            assertRefused(output(url: url), .otherServer(connectURL: url))
+            assertRefused(output(url: url), .otherServer)
         }
-        assertRefused(output(url: "https://vpn.example.com/"), port: 8443, .otherServer(connectURL: "https://vpn.example.com/"))
+        assertRefused(output(url: "https://vpn.example.com/"), port: 8443, .otherServer)
     }
 
     func testTheKeyMustBeThePinnedOne() {
@@ -676,7 +737,7 @@ final class OpenConnectAuthResultTests: XCTestCase {
 
     func testTheTunnelConfig() throws {
         let r = try OpenConnectAuthResult.parse(output(fingerprint: otherExamplePin))
-        let text = try r.tunnelConfig(host: "vpn.example.com", port: 8443, serverCert: "", scriptPath: exampleHook, tlsOnly: true).render()
+        let text = try r.tunnelConfig(host: "vpn.example.com", port: 8443, profileServerCert: "", scriptPath: exampleHook, tlsOnly: true).render()
         XCTAssertEqual(
             text,
             """
@@ -693,8 +754,8 @@ final class OpenConnectAuthResultTests: XCTestCase {
 
             """, "the root run trusts the key the sign-in accepted")
         XCTAssertThrowsError(
-            try r.tunnelConfig(host: "vpn.example.com", port: 8443, serverCert: examplePin, scriptPath: exampleHook, tlsOnly: false))
-        XCTAssertThrowsError(try r.tunnelConfig(host: "vpn.example.com", port: 8443, serverCert: "", scriptPath: "vpn-hook", tlsOnly: false))
+            try r.tunnelConfig(host: "vpn.example.com", port: 8443, profileServerCert: examplePin, scriptPath: exampleHook, tlsOnly: false))
+        XCTAssertThrowsError(try r.tunnelConfig(host: "vpn.example.com", port: 8443, profileServerCert: "", scriptPath: "vpn-hook", tlsOnly: false))
     }
 
     /// The helper's side: a start request carries no HOST, and no resolve for an IP-address host.
@@ -702,16 +763,21 @@ final class OpenConnectAuthResultTests: XCTestCase {
         func build(
             host: String = "vpn.example.com", port: Int = 8443, url: String = "https://vpn.example.com:8443/",
             resolve: String? = "vpn.example.com:192.0.2.10", cookie: String = "EXAMPLE-COOKIE", pin: String = examplePin,
-            script: String = exampleHook
+            profilePin: String = "", script: String = exampleHook
         ) throws -> OpenConnectConfig {
             try OpenConnectAuthResult.tunnelConfig(
-                host: host, port: port, connectURL: url, resolve: resolve, cookie: cookie, serverCert: pin, scriptPath: script, tlsOnly: false)
+                host: host, port: port, connectURL: url, resolve: resolve, cookie: cookie, serverCert: pin, profileServerCert: profilePin,
+                scriptPath: script, tlsOnly: false)
         }
         XCTAssertEqual(try build().resolveAddress, "192.0.2.10")
         XCTAssertEqual(try build(resolve: "vpn.example.com:2001:db8::10").resolveAddress, "2001:db8::10")
         XCTAssertNil(try build(host: "192.0.2.10", port: 443, url: "https://192.0.2.10/", resolve: nil).resolveAddress)
         XCTAssertNil(try build(host: "2001:db8::1", url: "https://[2001:db8::1]:8443/", resolve: nil).resolveAddress)
+        // The connect host of an IP-address profile is compared as an address.
+        XCTAssertNil(try build(host: "2001:db8::1", url: "https://[2001:db8:0::1]:8443/", resolve: nil).resolveAddress)
         XCTAssertNoThrow(try build().render())
+        // The profile's own pin: the accepted key must be it.
+        XCTAssertEqual(try build(profilePin: examplePin).serverCert, examplePin)
         let refused: [() throws -> OpenConnectConfig] = [
             { try build(resolve: nil) },  // a host name needs the address
             { try build(host: "192.0.2.10", port: 443, url: "https://192.0.2.10/", resolve: "192.0.2.10:192.0.2.10") },
@@ -724,10 +790,68 @@ final class OpenConnectAuthResultTests: XCTestCase {
             { try build(cookie: "a\nb") },
             { try build(pin: "") },  // the root run always gets the accepted key
             { try build(pin: String(examplePin.prefix(20))) },
-            { try build(script: "/tmp/x y") }
+            { try build(script: "/tmp/x y") },
+            // The profile has a pin: another accepted key is refused, as is a pin not in the stored form.
+            { try build(pin: otherExamplePin, profilePin: examplePin) },
+            { try build(profilePin: "PIN-SHA256:" + examplePin.dropFirst(11)) },
+            { try build(profilePin: String(examplePin.prefix(20))) },
+            // An IP-address profile: no resolve, and the connect host must be that address.
+            { try build(host: "192.0.2.10", port: 443, url: "https://192.0.2.10/", resolve: "192.0.2.10:192.0.2.11") },
+            { try build(host: "2001:db8::1", url: "https://[2001:db8::1]:8443/", resolve: "[2001:db8::1]:2001:db8::1") },
+            { try build(host: "192.0.2.10", port: 443, url: "https://192.0.2.11/", resolve: nil) },
+            { try build(host: "192.0.2.10", port: 443, url: "https://vpn.example.com/", resolve: nil) },
+            { try build(host: "2001:db8::1", url: "https://[2001:db8::2]:8443/", resolve: nil) }
         ]
         for (n, attempt) in refused.enumerated() {
             XCTAssertThrowsError(try attempt(), "case \(n + 1)") { XCTAssertFalse("\($0)".contains("EXAMPLE-COOKIE")) }
+        }
+        XCTAssertThrowsError(try build(pin: otherExamplePin, profilePin: examplePin)) {
+            XCTAssertEqual($0 as? OpenConnectAuthResult.DestinationError, .fingerprintMismatch)
+        }
+    }
+
+    /// The server chooses every value of the output, so it could repeat the cookie in any of them: no
+    /// description, mirror or error shows any of them.
+    func testNoServerValueIsEverShown() throws {
+        let secret = "SESSIONSECRET"
+        // Each field in turn carries the cookie (FINGERPRINT can only be a pin, so there the cookie is one).
+        let outputs: [(cookie: String, text: String)] = [
+            (secret, output(cookie: secret, url: "https://\(secret).evil.test/")),
+            (secret, output(cookie: secret, url: "https://vpn.example.com:8443/\(secret)")),
+            (secret, output(cookie: secret, host: secret)),
+            (secret, output(cookie: secret, host: "[\(secret)]")),
+            (secret, output(cookie: secret, resolve: "'\(secret):192.0.2.10'\n")),
+            (secret, output(cookie: secret, resolve: "'vpn.example.com:\(secret)'\n")),
+            (otherExamplePin, output(cookie: otherExamplePin, fingerprint: otherExamplePin)),
+            (secret, output(cookie: secret, url: "https://\(secret)@vpn.example.com:8443/", resolve: "'\(secret)'\n"))
+        ]
+        for (cookie, text) in outputs {
+            var shown: [String] = []
+            func record(_ error: Error) {
+                shown += ["\(error)", String(reflecting: error), error.localizedDescription]
+            }
+            do {
+                let r = try OpenConnectAuthResult.parse(text)
+                var dumped = ""
+                dump(r, to: &dumped)
+                shown += [r.description, r.debugDescription, String(describing: r), String(reflecting: r), dumped]
+                shown += Mirror(reflecting: r).children.map { "\($0.value)" }
+                for pin in ["", examplePin] {
+                    do {
+                        let config = try r.tunnelConfig(
+                            host: "vpn.example.com", port: 8443, profileServerCert: pin, scriptPath: exampleHook, tlsOnly: false)
+                        var dumpedConfig = ""
+                        dump(config, to: &dumpedConfig)
+                        shown += [config.description, config.debugDescription, dumpedConfig]
+                    } catch { record(error) }
+                    do {
+                        _ = try OpenConnectAuthResult.tunnelConfig(
+                            host: "vpn.example.com", port: 8443, connectURL: r.connectURL, resolve: r.resolve.isEmpty ? nil : r.resolve,
+                            cookie: cookie, serverCert: r.fingerprint, profileServerCert: pin, scriptPath: exampleHook, tlsOnly: false)
+                    } catch { record(error) }
+                }
+            } catch { record(error) }
+            for text in shown { XCTAssertFalse(text.contains(cookie), text) }
         }
     }
 

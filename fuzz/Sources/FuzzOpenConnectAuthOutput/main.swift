@@ -6,9 +6,9 @@ import PassTunnelVPNConfig
 // of where the sign-in ended, then the root file built from it. The output comes from a run that talked
 // to the server, so every value is the server's to choose. Properties: whatever the parser accepts is
 // exactly openconnect's five lines (printing the result again gives the same bytes); the description
-// never depends on the cookie; and when the destination check passes for the profile the output names,
-// the root file renders, and openconnect would read back that cookie, that key and that address. The
-// harness never crashes or hangs on any bytes.
+// never depends on the cookie; the helper's check agrees with the client's; and when the destination
+// check passes for the profile the output names, the root file renders, and openconnect would read back
+// that cookie, that key and that address. The harness never crashes or hangs on any bytes.
 @_cdecl("LLVMFuzzerTestOneInput")
 func LLVMFuzzerTestOneInput(_ data: UnsafePointer<UInt8>?, _ size: Int) -> CInt {
     let bytes = [UInt8](fuzzData(data, size))
@@ -34,9 +34,14 @@ func LLVMFuzzerTestOneInput(_ data: UnsafePointer<UInt8>?, _ size: Int) -> CInt 
     let host = authority.hasPrefix("[") && authority.hasSuffix("]") ? String(authority.dropFirst().dropLast()) : authority
 
     for pin in ["", result.fingerprint] {
-        guard let config = try? result.tunnelConfig(host: host, port: port, serverCert: pin, scriptPath: "/x/vpn-hook", tlsOnly: false)
+        guard let config = try? result.tunnelConfig(host: host, port: port, profileServerCert: pin, scriptPath: "/x/vpn-hook", tlsOnly: false)
         else { continue }
         precondition(url.lowercased().hasPrefix("https://"), "accepted a connect URL that is not https")
+        // The helper's check, on the fields the client sends it, accepts the same and builds the same file.
+        let helper = try? OpenConnectAuthResult.tunnelConfig(
+            host: host, port: port, connectURL: url, resolve: config.resolveAddress == nil ? nil : result.resolve, cookie: result.cookie,
+            serverCert: result.fingerprint, profileServerCert: pin, scriptPath: "/x/vpn-hook", tlsOnly: false)
+        precondition(helper == config, "the helper's check disagrees with the client's")
         guard let text = try? config.render() else { preconditionFailure("a checked sign-in did not render") }
         let table = OpenConnectOptions.all.map { (name: $0.name, takesValue: $0.takesValue) }
         guard let read = readLikeOpenConnect(Array(text.utf8), table: table) else { preconditionFailure("openconnect would refuse the file") }
