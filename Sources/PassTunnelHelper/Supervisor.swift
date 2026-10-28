@@ -336,11 +336,12 @@ final class Supervisor {
     /// `launching`, then again once it was resumed. Read back as root: one field per line, or not written at
     /// all. openconnect never runs without it (its hook proves its session with it), so a failure stops its
     /// launch; for the other tools a failure is only logged. A record left `launching` makes a restarted
-    /// helper stop the tool rather than adopt it (`SessionRecovery`).
+    /// helper stop the tool rather than adopt it (`SessionRecovery`). The tool's start time makes the record
+    /// name this process and no later one with the same pid.
     private func writeState(plan: HelperCore.LaunchPlan, pid: pid_t, executable: String, launching: Bool) throws {
         let state = SessionState(
             pid: pid, uid: plan.ownerUID, executable: executable, profileDir: plan.profileDir.path, mgmtSocket: plan.mgmtSocket,
-            launching: launching)
+            startTime: SessionRecovery.facts(of: pid)?.start, launching: launching)
         do {
             try state.write(runDir: plan.runDir)
         } catch {
@@ -380,16 +381,14 @@ final class Supervisor {
                 for id in Self.entries(path) {
                     let state = HelperCore.isValidProfileID(id) ? Self.readState(path + "/" + id + "/state") : nil
                     if let state { recorded.insert(state.pid) }
-                    let decision = state.map { s in
-                        let alive = Self.isAlive(s)
-                        return SessionRecovery.decide(s, alive: alive, stopped: alive && SessionRecovery.isStopped(s.pid))
-                    }
-                    if decision == .stopInterruptedLaunch, let state {
-                        // Its launch was interrupted: it may never have run. Killed, then cleaned up like a
-                        // tool that ended (a resumed OpenVPN may have set DNS already).
-                        log.notice("stopping \(id, privacy: .public) of uid \(uid) (pid \(state.pid)): its launch was not finished")
-                        kill(state.pid, SIGKILL)
-                        kill(-state.pid, SIGKILL)
+                    let current = state.flatMap { SessionRecovery.facts(of: $0.pid) }
+                    let decision = state.map { SessionRecovery.decide($0, current: current) }
+                    if decision == .stopInterruptedLaunch, let current {
+                        // Its launch was interrupted: it may never have run. Killed (that process alone, checked
+                        // again just before), then cleaned up like a tool that ended (a resumed OpenVPN may have
+                        // set DNS already).
+                        log.notice("stopping \(id, privacy: .public) of uid \(uid) (pid \(current.pid)): its launch was not finished")
+                        SessionRecovery.signal(current, SIGKILL, read: SessionRecovery.facts(of:), send: kill)
                     }
                     guard let state, state.uid == uid, decision == .adopt,
                         let dir = try? core.openRunDir(profileID: id, uid: uid)
@@ -416,15 +415,16 @@ final class Supervisor {
         }
     }
 
-    /// Stopped tools of the staged copy that no state records (a helper died between starting one and
-    /// recording it): they would never run.
+    /// Stopped root orphans of the staged tools that no state records (a helper died between starting one
+    /// and recording it): they would never run. Each is killed alone, and only if it is still the same
+    /// stopped root orphan right before the signal (`SessionRecovery`).
     private func stopStrandedLaunches(recorded: Set<pid_t>) {
         guard let realRoot = HelperCore.realPath(core.runRoot) else { return }
         let toolsRoot = realRoot + "/" + ToolStager.toolsDirName
-        for pid in SessionRecovery.strandedLaunches(processes: SessionRecovery.systemProcesses(), toolsRoot: toolsRoot, recorded: recorded) {
-            log.notice("stopping pid \(pid): a tool whose launch was not finished")
-            kill(pid, SIGKILL)
-            kill(-pid, SIGKILL)
+        for stray in SessionRecovery.strandedLaunches(processes: SessionRecovery.systemProcesses(), toolsRoot: toolsRoot, recorded: recorded) {
+            let sent = SessionRecovery.signal(
+                stray, SIGKILL, still: { SessionRecovery.isStranded($0, toolsRoot: toolsRoot) }, read: SessionRecovery.facts(of:), send: kill)
+            if sent { log.notice("stopped pid \(stray.pid): a tool whose launch was not finished") }
         }
     }
 

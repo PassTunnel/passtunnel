@@ -9,15 +9,19 @@ import Foundation
 /// starting the helper and the helper opening that path, the user could put something else there: a FIFO
 /// (an open or read that never returns would hang the root helper before it serves anything) or a link to a
 /// file only root can read (whose SHA-256 the helper would then report). So the path is opened without
-/// following a link and without blocking, must be a regular file with one link and a bounded size, and,
+/// following a link and without blocking, must be a regular file of a bounded size (more links are fine:
+/// the identity check below decides), and,
 /// what settles it, must be the very file the kernel mapped as this process's executable: the device and
 /// inode of the descriptor are compared with those of the vnode backing the executable's own Mach-O
 /// header in memory (`PROC_PIDREGIONPATHINFO`). The mapping cannot be changed by renaming or replacing the
 /// path, so whatever the path names after a swap fails the comparison. The digest is then read from the
 /// descriptor, bounded.
 ///
-/// When any step fails there is no verified image: the helper still runs the other tools, under a build ID
-/// taken from its own running code (`fallbackBuildID`), and refuses only openconnect (no hook source).
+/// When any step fails there is no verified image. With the checks above that only happens when the path
+/// names another file than the one running (it was replaced between the exec and the open: an app update,
+/// or someone racing the helper), or cannot be opened at all: the helper still runs the other tools, under a
+/// build ID taken from its own running code (`fallbackBuildID`), and refuses only openconnect (no hook
+/// source). The app then treats it as an older helper and replaces it (main.swift).
 public struct HelperImage {
     /// The verified descriptor (kept open for the helper's lifetime).
     public let descriptor: Int32
@@ -30,7 +34,6 @@ public struct HelperImage {
     public enum Failure: Error, Equatable, CustomStringConvertible {
         case open(Int32)
         case notARegularFile
-        case multipleLinks
         case tooLarge
         /// The kernel does not say which file backs the image.
         case unknownImage
@@ -42,7 +45,6 @@ public struct HelperImage {
             switch self {
             case .open(let e): return "cannot open it: \(String(cString: strerror(e)))"
             case .notARegularFile: return "it is not a regular file"
-            case .multipleLinks: return "it is hard-linked"
             case .tooLarge: return "it is too large"
             case .unknownImage: return "the running image's file is unknown"
             case .notTheRunningImage: return "it is not the file that is running"
@@ -59,7 +61,6 @@ public struct HelperImage {
         do {
             var st = stat()
             guard fstat(fd, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG else { throw Failure.notARegularFile }
-            guard st.st_nlink == 1 else { throw Failure.multipleLinks }
             guard st.st_size <= maxBytes else { throw Failure.tooLarge }
             guard let image = mappedFile(at: imageAddress) else { throw Failure.unknownImage }
             guard image.device == UInt32(bitPattern: st.st_dev), image.inode == st.st_ino else { throw Failure.notTheRunningImage }

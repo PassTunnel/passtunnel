@@ -626,14 +626,22 @@ fails with `HelperClientError.versionMismatch`, and one from another build of th
 hashes itself once at launch (a running helper keeps reporting the build it was started from after the
 app bundle is replaced). It opens the path in the bundle, which the bundle's owner can swap, so
 `HelperImage.open` (Shared) opens it with `O_NOFOLLOW | O_NONBLOCK` (a link or a FIFO put there never
-leads it to another file or blocks it), requires a regular, single-link file of at most 256 MB, and
-accepts it only when the descriptor's device and inode are those of the vnode the kernel mapped as the
+leads it to another file or blocks it), requires a regular file of at most 256 MB (hard links are fine:
+the next check decides), and accepts it only when the descriptor's device and inode are those of the vnode the kernel mapped as the
 helper's own Mach-O header (`PROC_PIDREGIONPATHINFO` at `#dsohandle`): the mapping cannot be swapped,
-whatever happens to the path. The digest is read from that descriptor, bounded. Failing any of this, the
-helper still serves OpenVPN and FortiGate under a build ID from the kernel's cdhash of its own code
-(`HelperImage.fallbackBuildID`, `csops`, no file read; never equal to a digest, so the app offers to
-replace it) and refuses openconnect, which has no hook source then. `Info.plist` (the build number) is
-read the same way: no link, no blocking, regular, bounded. The app/CLI hash `Contents/MacOS/PassTunnelHelper` next to their own executable
+whatever happens to the path. The digest is read from that descriptor, bounded. That fails only when the
+path cannot be opened or names another file than the one running, i.e. it was replaced between the exec
+and the open (an app update, or someone racing the helper). Then the helper still stages and runs
+OpenVPN and FortiGate under a build ID from the kernel's cdhash of its own code
+(`HelperImage.fallbackBuildID`, `csops`, no file read, 40 hex digits), refuses openconnect (no hook
+source), and reports no build number (nothing read from the bundle is trusted then). The app compares
+that ID with its own helper's digest like any other: another build, so `ensureCompatible()` fails with
+`.buildMismatch` as it does for any helper that is not the bundled one (after every app update, too), and
+`relation()` gives `.older` (no number), so `HelperAutoUpdate` replaces the helper once on its own (from
+/Applications, when no session runs) and Settings → Helper offers the update until then; the replaced
+helper is started from the bundle and verifies normally. The old code would have hashed whatever the
+path named at that moment and could report a build it is not. `Info.plist` (the build number) is read
+the same way: no link, no blocking, regular, bounded. The app/CLI hash `Contents/MacOS/PassTunnelHelper` next to their own executable
 (no stamping in `build-app.sh` needed; skipped when there is no bundled helper, e.g. tests). `build` is a
 separate call rather than a second `version` reply value so a protocol-2 helper is still recognized as
 outdated. Digests only say "different"; which side is newer comes from build numbers: the helper reads
@@ -707,14 +715,21 @@ tools recorded in `<uid>/<id>/state` (`SessionState`: pid, uid, staged executabl
 socket; read back only from a regular, single-link file the helper owns); tools recorded by a protocol-2
 helper (`<root>/<id>/state`) are stopped, since their socket is in the profile directory. The state is
 written, atomically (a new file renamed over it), before the tool runs, in `Spawner.spawnVerified`'s
-`beforeResume`, with a sixth line `launching`, and again without it once the tool was resumed. A helper
-that died in between leaves a tool that may never run, so `adoptOrphans` adopts nothing that is not
-finished (`SessionRecovery.decide`): a live tool whose state says `launching`, or that the kernel shows
-stopped (`SSTOP`, `proc_pidinfo`), is killed (`SIGKILL`, also its process group) and its session cleaned
-up like one whose tool ended (DNS undone, directory removed); and a stopped process of the staged copy
-(`<run root>/tools/…`) whose parent is launchd and that no state records (the helper died before the
-state existed) is killed too (`strandedLaunches`). A tool killed right after its resume, before the
-second write, ends the same way: nothing can tell whether it ran, and stopping is the safe side.
+`beforeResume`, with the tool's start time (`ProcessStart`, `proc_pidinfo` `pbi_start_tvsec`/`_tvusec`:
+with the pid, the process's identity) and a last line `launching`, and again without that line once the
+tool was resumed. A helper that died in between leaves a tool that may never run, so `adoptOrphans`
+decides by the record (`SessionRecovery.decide`): the process at the recorded pid must run the recorded
+executable and, when the record has one, have the recorded start time, or the record is stale (cleaned
+up: DNS undone, directory removed); a matching record without `launching` is adopted (also when the tool
+is stopped, by a debugger say); one with `launching` is an interrupted launch: that process alone gets
+`SIGKILL`, and the session is cleaned up like one whose tool ended. A record without a start time (older
+helpers) is never killed: the old rule (pid and executable) adopts or cleans up. Strays: a stopped
+process of the staged copy (`<run root>/tools/…`) with effective and real uid 0, inherited by launchd and
+named by no record (the helper died before writing any) is killed too (`strandedLaunches`); a user who
+runs the staged tool gets a process of their own, which is never touched. Every signal re-reads pid,
+start time, executable (and for strays the rest) right before it is sent, and goes to that pid alone,
+never a process group (`SessionRecovery.signal`). A tool killed right after its resume, before the second
+write, ends like one never resumed: nothing can tell whether it ran, and stopping is the safe side.
 
 Security rules (helper):
 - Runs **only** the tools inside its own app bundle (`Contents/Resources/bin/…`), never a path supplied by

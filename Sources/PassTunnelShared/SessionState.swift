@@ -1,50 +1,84 @@
 import Foundation
 
+/// When a process started, as the kernel records it (`proc_bsdinfo`'s `pbi_start_tvsec`/`_tvusec`): with
+/// the pid, the process's identity, which a recycled pid does not have.
+public struct ProcessStart: Equatable {
+    public let seconds: UInt64
+    public let microseconds: UInt64
+
+    public init(seconds: UInt64, microseconds: UInt64) {
+        self.seconds = seconds
+        self.microseconds = microseconds
+    }
+
+    /// `<seconds>.<microseconds, six digits>`.
+    public var text: String { "\(seconds)." + String(format: "%06llu", microseconds) }
+
+    /// Exactly `text`'s form.
+    public static func parse(_ s: String) -> ProcessStart? {
+        let parts = s.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 2, (1...20).contains(parts[0].count), parts[1].count == 6,
+            parts.allSatisfy({ $0.utf8.allSatisfy { (0x30...0x39).contains($0) } }),
+            let seconds = UInt64(parts[0]), String(seconds) == parts[0], let micro = UInt64(parts[1]), micro < 1_000_000
+        else { return nil }
+        return ProcessStart(seconds: seconds, microseconds: micro)
+    }
+}
+
 /// What the helper records in a session directory (`state`, 0600, root) about the tool it started: one
 /// field per line, the pid, the owner's uid, the tool's executable (as `proc_pidpath` reports it), the
-/// profile directory and the OpenVPN management socket (empty for other tools). A restarted helper adopts
-/// a tool from it (`Supervisor.adoptOrphans`), and openconnect's hook proves its session with it
+/// profile directory, the OpenVPN management socket (empty for other tools), the tool's start time
+/// (`ProcessStart`; empty if unknown), and, while the launch is not finished, `launching`. Records of
+/// helpers before #182 have the first five lines only. A restarted helper adopts a tool from it
+/// (`Supervisor.adoptOrphans`, `SessionRecovery`), and openconnect's hook proves its session with it
 /// (`VPNHook.session`). The helper writes it before the tool runs its first instruction
-/// (`Spawner.spawnVerified`'s `beforeResume`), so the tool's hook always finds it, with a sixth line
-/// `launching`, and writes it again without that line once the tool was resumed. A `launching` state a
-/// restarted helper finds is a launch the previous helper did not finish: the tool may still be suspended,
-/// and it is stopped rather than adopted (`SessionRecovery`). Both writes replace the file atomically
-/// (`write(runDir:)`).
+/// (`Spawner.spawnVerified`'s `beforeResume`) with `launching`, so the tool's hook always finds it, and
+/// again without that line once the tool was resumed. A `launching` record a restarted helper finds is a
+/// launch the previous helper did not finish: the tool may still be suspended, and it is stopped rather
+/// than adopted. Both writes replace the file atomically (`write(runDir:)`).
 public struct SessionState: Equatable {
     public let pid: pid_t
     public let uid: uid_t
     public let executable: String
     public let profileDir: String
     public let mgmtSocket: String?
+    /// The tool's start time; nil in records of older helpers (or when the kernel did not say).
+    public let startTime: ProcessStart?
     /// The tool was not resumed yet when this was written.
     public let launching: Bool
 
     public static let fileName = "state"
-    /// Larger files are not read (five short lines).
+    /// Larger files are not read (seven short lines).
     static let maxBytes = 16 << 10
 
     public static let launchingMark = "launching"
 
-    public init(pid: pid_t, uid: uid_t, executable: String, profileDir: String, mgmtSocket: String?, launching: Bool = false) {
+    public init(
+        pid: pid_t, uid: uid_t, executable: String, profileDir: String, mgmtSocket: String?, startTime: ProcessStart? = nil,
+        launching: Bool = false
+    ) {
         self.pid = pid
         self.uid = uid
         self.executable = executable
         self.profileDir = profileDir
         self.mgmtSocket = mgmtSocket
+        self.startTime = startTime
         self.launching = launching
     }
 
     /// The same record, launched or not.
     public func launching(_ launching: Bool) -> SessionState {
-        SessionState(pid: pid, uid: uid, executable: executable, profileDir: profileDir, mgmtSocket: mgmtSocket, launching: launching)
+        SessionState(
+            pid: pid, uid: uid, executable: executable, profileDir: profileDir, mgmtSocket: mgmtSocket, startTime: startTime,
+            launching: launching)
     }
 
-    /// The file's text; throws `HelperCore.Failure.unsafeFile` unless it is exactly five lines, six while
+    /// The file's text; throws `HelperCore.Failure.unsafeFile` unless it is exactly six lines, seven while
     /// launching (a field with a line break would shift the others).
     public func text() throws -> String {
-        var text = "\(pid)\n\(uid)\n\(executable)\n\(profileDir)\n\(mgmtSocket ?? "")\n"
+        var text = "\(pid)\n\(uid)\n\(executable)\n\(profileDir)\n\(mgmtSocket ?? "")\n\(startTime?.text ?? "")\n"
         if launching { text += Self.launchingMark + "\n" }
-        try HelperCore.checkLines(text, count: launching ? 6 : 5, file: Self.fileName)
+        try HelperCore.checkLines(text, count: launching ? 7 : 6, file: Self.fileName)
         return text
     }
 
@@ -63,8 +97,9 @@ public struct SessionState: Equatable {
         }
     }
 
-    /// Reads back `text()`. Lenient about what comes after the executable: a protocol-2 helper wrote only
-    /// pid, uid and executable. A sixth line is `launching` or nothing.
+    /// Reads back `text()`. Lenient about what is missing after the executable (a protocol-2 helper wrote
+    /// only pid, uid and executable; helpers before #182 no start time); a start time or `launching` that
+    /// is there must be well-formed.
     public static func parse(_ text: String) -> SessionState? {
         let parts = text.components(separatedBy: "\n")
         guard parts.count >= 3, let pid = pid_t(parts[0]), let uid = uid_t(parts[1]), pid > 1, !parts[2].isEmpty else {
@@ -72,10 +107,15 @@ public struct SessionState: Equatable {
         }
         let profileDir = parts.count >= 4 ? parts[3] : ""
         let socket = parts.count >= 5 && !parts[4].isEmpty ? parts[4] : nil
-        let sixth = parts.count >= 6 ? parts[5] : ""
-        guard sixth.isEmpty || sixth == launchingMark else { return nil }
+        let startText = parts.count >= 6 ? parts[5] : ""
+        let start = startText.isEmpty ? nil : ProcessStart.parse(startText)
+        guard startText.isEmpty || start != nil else { return nil }
+        let seventh = parts.count >= 7 ? parts[6] : ""
+        guard seventh.isEmpty || seventh == launchingMark, parts.count <= 8 else { return nil }
+        if parts.count == 8 { guard parts[7].isEmpty else { return nil } }
         return SessionState(
-            pid: pid, uid: uid, executable: parts[2], profileDir: profileDir, mgmtSocket: socket, launching: sixth == launchingMark)
+            pid: pid, uid: uid, executable: parts[2], profileDir: profileDir, mgmtSocket: socket, startTime: start,
+            launching: seventh == launchingMark)
     }
 
     /// The state at `path`: a regular, single-link file owned by us (root in the helper), opened without
