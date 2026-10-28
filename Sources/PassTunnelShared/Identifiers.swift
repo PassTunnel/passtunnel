@@ -19,7 +19,7 @@ public enum PT {
     /// Any code signed with our Developer ID.
     public static let teamRequirement = "anchor apple generic and certificate leaf[subject.OU] = \"\(teamID)\""
 
-    /// Requirement for one bundled tool (openvpn, openfortivpn, dns-updown).
+    /// Requirement for one bundled tool (openvpn, openfortivpn, openconnect, dns-updown).
     public static func toolRequirement(identifier: String) -> String {
         "identifier \"\(identifier)\" and \(teamRequirement)"
     }
@@ -27,6 +27,8 @@ public enum PT {
     /// Code-signing identifiers of the bundled tools (set by scripts/build-app.sh).
     public static let openvpnIdentifier = "com.furkanprlk.passtunnel.openvpn"
     public static let openfortivpnIdentifier = "com.furkanprlk.passtunnel.openfortivpn"
+    /// Bundled for Cisco AnyConnect (#2), not run by the helper yet.
+    public static let openconnectIdentifier = "com.furkanprlk.passtunnel.openconnect"
     public static let dnsUpdownIdentifier = "com.furkanprlk.passtunnel.dns-updown"
 
     /// Root-owned directory where the helper keeps per-session runtime files:

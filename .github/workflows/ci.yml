@@ -4,10 +4,12 @@
 #   Build and test    swift format lint, swift build and swift test on macOS (Apple silicon) with our
 #                     targets' warnings as errors, a statement coverage report in the job summary
 #                     (not gating), and the PassTunnelKit library built for iOS (the iPhone app uses it)
-#   Bundled tools     the self-test of scripts/check-tool-symbols.sh, then Homebrew's openvpn and
-#                     openfortivpn bundled by scripts/bundle-tools.sh (which checks that what they and
-#                     their libraries import from macOS is there on the app's minimum macOS) into a
-#                     bundle of their own, kept as an artifact; not held to the pins (release.yml is)
+#   Bundled tools     the self-test of scripts/check-tool-symbols.sh, then Homebrew's openvpn,
+#                     openfortivpn and openconnect bundled by scripts/bundle-tools.sh (which checks
+#                     that what they and their libraries import from macOS is there on each tool's
+#                     minimum macOS: the app's, 15.4 for openconnect) into a bundle of their own, kept
+#                     as an artifact; not held to the pins (release.yml is); and a check that the
+#                     bundled openconnect runs no PKCS#11 module from the Homebrew prefix
 #   Bundled tools on  each of those tools run with --version on the oldest arm64 macOS runner: dyld
 #   macOS 15          stops a tool there when it imports a symbol that macOS lacks
 #   Linux (x86_64)    the Linux targets (Package.swift: the portable code, the CLI, the `passtunnel`
@@ -24,7 +26,8 @@
 #   Docker image      the Dockerfile built, and an MCP session with the image
 #   (x86_64, aarch64)
 #   Release scripts   shellcheck of next-version.sh, its test, build-linux.sh, coverage-report.sh, compare-app.sh,
-#                     verify-build.sh, check-tool-symbols.sh, its test and make-system-symbols.sh, and the self-test of
+#                     verify-build.sh, check-tool-symbols.sh, its test, make-system-symbols.sh and
+#                     test-bundled-config-paths.sh, and the self-test of
 #                     scripts/next-version.sh (in a temporary repository)
 #   Site              shellcheck of the site scripts and scripts/check-site.sh, the static checks
 #                     of the website in site/ (docs/WEBSITE.md)
@@ -114,9 +117,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           brew update
-          brew install openvpn openfortivpn
-          brew upgrade openvpn openfortivpn openssl@4 lz4 lzo pkcs11-helper
-          brew list --versions openvpn openfortivpn openssl@4 lz4 lzo pkcs11-helper
+          # Every bundled formula (the pins in scripts/release.env).
+          formulas=(openvpn openfortivpn openconnect openssl@4 lz4 lzo pkcs11-helper gnutls nettle gmp p11-kit
+            libtasn1 libidn2 libunistring gettext stoken libtomcrypt libtommath)
+          brew install openvpn openfortivpn openconnect
+          brew upgrade "${formulas[@]}"
+          brew list --versions "${formulas[@]}"
 
       # Only the tools and their libraries, in a bundle of their own; bundle-tools.sh ends with
       # check-tool-symbols.sh. The versions are not held to the pins (PASSTUNNEL_ALLOW_UNPINNED_TOOLS;
@@ -132,6 +138,12 @@ jobs:
           scripts/bundle-tools.sh tools/PassTunnel.app
           tar -C tools -czf bundled-tools.tar.gz PassTunnel.app/Contents/Resources/bin PassTunnel.app/Contents/Frameworks
 
+      # bundle-tools.sh overwrites the configuration paths compiled into libp11-kit: with module files in
+      # the runner's Homebrew prefix whose "remote:" line runs a command, Homebrew's openconnect --version
+      # runs them and the bundled one must not.
+      - name: The bundled openconnect reads no PKCS#11 modules from Homebrew
+        run: scripts/test-bundled-config-paths.sh tools/PassTunnel.app
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bundled-tools
@@ -142,7 +154,8 @@ jobs:
   # macos-15 is the oldest arm64 macOS runner. Only `--version`: nothing is configured, nothing
   # contacted. A tool that imports a symbol this macOS lacks is stopped by dyld before it prints
   # anything ("Symbol not found", SIGABRT). The exit status is not checked otherwise: some openvpn
-  # builds exit with 1 after printing their version.
+  # builds exit with 1 after printing their version. openconnect needs macOS 15.4, which the image
+  # has (15.7); it would be left out, with a warning, on an older one.
   tools-macos-15:
     name: Bundled tools on macOS 15
     needs: tools
@@ -161,6 +174,11 @@ jobs:
           failed=0
           for tool in PassTunnel.app/Contents/Resources/bin/*; do
             lipo -archs "$tool" >/dev/null 2>&1 || continue    # dns-updown is a script
+            if [ "$(basename "$tool")" = openconnect ] \
+              && ! awk -v v="$(sw_vers -productVersion)" 'BEGIN { split(v, x, "."); exit !(x[1] > 15 || (x[1] == 15 && x[2] >= 4)) }'; then
+              echo "::warning title=Bundled tools::openconnect not run: it needs macOS 15.4, this is $(sw_vers -productVersion)"
+              continue
+            fi
             status=0
             out="$(perl -e 'alarm 10; exec @ARGV or die "exec: $!"' "$tool" --version 2>&1)" || status=$?
             echo "--- $(basename "$tool") (exit $status)"
@@ -768,7 +786,7 @@ jobs:
           shellcheck --version
           shellcheck scripts/next-version.sh scripts/test-next-version.sh scripts/build-linux.sh scripts/coverage-report.sh \
             scripts/compare-app.sh scripts/verify-build.sh scripts/check-tool-symbols.sh scripts/test-check-tool-symbols.sh \
-            scripts/make-system-symbols.sh
+            scripts/make-system-symbols.sh scripts/test-bundled-config-paths.sh
 
       - name: Self-test of next-version.sh
         run: scripts/test-next-version.sh

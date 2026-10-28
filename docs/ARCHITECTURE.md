@@ -11,7 +11,10 @@ PassTunnel.app/Contents/
   MacOS/PassTunnelHelper        privileged helper (root, launched by launchd via SMAppService)
   Library/LaunchDaemons/com.furkanprlk.passtunnel.helper.plist
   Resources/bin/openvpn, openfortivpn    bundled, signed with the app's Team ID
-  Frameworks/*.dylib            their dependencies (OpenSSL, LZO, LZ4, pkcs11-helper)
+  Resources/bin/openconnect     bundled the same way for Cisco AnyConnect, not run yet (needs macOS 15.4)
+  Frameworks/*.dylib            their dependencies (OpenSSL, LZO, LZ4, pkcs11-helper; openconnect's:
+                                GnuTLS, nettle, GMP, p11-kit, libtasn1, libidn2, libunistring,
+                                libintl, stoken, libtomcrypt, libtommath)
   Frameworks/Sparkle.framework  app updates (Autoupdate, Updater.app, XPCServices signed inside-out)
 ```
 
@@ -23,14 +26,14 @@ resolve inside the bundle. `bundle-tools.sh` bundles only the Homebrew versions 
 `@executable_path/../../Frameworks/<name>`, the dylibs each other by `@loader_path/<name>` (no
 `LC_RPATH`), so the tools and dylibs can be copied elsewhere with the same relative layout (the helper
 does, `ToolStager`). `build-app.sh` signs the tools and their dylibs **before**
-compiling: it writes the cdhash of every architecture of `openvpn`, `openfortivpn` and `dns-updown`
-(`generatedCDHashes`) and of every `Contents/Frameworks/*.dylib` (`generatedLibraryCDHashes`)
+compiling: it writes the cdhash of every architecture of `openvpn`, `openfortivpn`, `openconnect` and
+`dns-updown` (`generatedCDHashes`) and of every `Contents/Frameworks/*.dylib` (`generatedLibraryCDHashes`)
 (`codesign -dvvv`, `CDHash=`) to `Sources/PassTunnelShared/PinnedTools+Generated.swift` (removed on exit,
 never committed) and builds with `-Xswiftc -DPASSTUNNEL_TOOL_PINS`, so the helper carries them in its own
 signed code (`PinnedTools`, below). The tools are not signed again afterwards (that would change the
 cdhashes); the script checks that each bundled tool's and dylib's cdhashes are in the pins and in the
-`PassTunnelHelper` binary, and a signed (non-ad-hoc) build fails when `openvpn`, `openfortivpn` or any
-bundled dylib has no pin (or there is no dylib at all).
+`PassTunnelHelper` binary, and a signed (non-ad-hoc) build fails when `openvpn`, `openfortivpn`,
+`openconnect` or any bundled dylib has no pin (or there is no dylib at all).
 A bundle without `dns-updown` pins an empty set for it, so the helper refuses any `dns-updown`.
 
 **Minimum macOS of the tools.** Homebrew's bottles are built for the release runner's macOS
@@ -50,7 +53,10 @@ The lists are what each library and the libraries it re-exports export for `arm6
 `libsystem_c`, `libsystem_kernel`, …), taken once from older SDKs' stubs (`.tbd`), since the current
 SDK's stubs say what exists now, not since when: 13.0 from the macOS 12.3 and 13.1 SDKs (Xcode 13.3
 and 14.2; a symbol is listed when both export it, no 13.0 SDK being at hand), for `libSystem.B`,
-`libresolv.9` and `libutil`, the only macOS libraries the bundled tools load. `SOURCES` in each
+`libresolv.9` and `libutil`, the only macOS libraries `openvpn` and `openfortivpn` load; 15.4 from the
+macOS 15.4 SDK, for the ones the openconnect closure loads (`libSystem.B`, `libz.1`, `libxml2.2`,
+`libiconv.2`, `libffi`, and the CoreFoundation, CoreServices, Kerberos, PCSC and Security
+frameworks). `SOURCES` in each
 version's directory names the SDKs and the stubs' checksums; `scripts/make-system-symbols.sh`
 writes them again (docs/RELEASING.md, Bundled tools). CI's `Bundled tools on macOS 15` job also runs
 each bundled tool with `--version` on the oldest arm64 runner.
@@ -62,7 +68,9 @@ version of macOS (Symbol not found: _strchrnul). Check for a PassTunnel update."
 kind `tool_unsupported`, not the generic "could not be established". On the Mac, `diagnose` (CLI and
 MCP) runs each tool of the app bundle with `--version` (`BundledTools`: as the user, not through the
 helper, with an empty environment and no input, at most 10 s each, nothing contacted) and reports each
-one's version or why it did not start (`tools`).
+one's version or why it did not start (`tools`). A tool whose `HelperCore.Tool.minimumMacOS` is later
+than the running macOS (openconnect below 15.4) is not run: it is reported `ok` with a `note` ("Not run:
+it needs macOS 15.4 or later."), not as a failure.
 
 ## Targets
 
@@ -983,22 +991,43 @@ passtunnel / app (the user)                          PassTunnelHelper / passtunn
 
 ### Bundling and pins (macOS, #179)
 
-- Homebrew's `openconnect` bottle, bundled unchanged like `openvpn`: `Contents/Resources/bin/openconnect`
+- Homebrew's `openconnect` bottle, bundled like `openvpn`: `Contents/Resources/bin/openconnect`
   (Homebrew installs it in `bin`) and its closure in `Contents/Frameworks`: `libopenconnect.5`,
   `libgnutls.30`, `libnettle.9`, `libhogweed.7`, `libgmp.10`, `libp11-kit.0`, `libtasn1.6`,
   `libidn2.0`, `libunistring.5`, `libintl.8`, `libstoken.1`, `libtomcrypt.1`, `libtommath.1`
   (`.dylib`; about 9 MB, `arm64`). Like the `openvpn` and `openfortivpn` bundled today (Homebrew's
-  bottles for the release runner's macOS 26), they carry `minos 26.0`. `libopenconnect` and `libidn2`
-  import `strchrnul` (macOS 15.4 and later), so Cisco AnyConnect needs macOS 15.4 (the app stays on
-  13): `check-tool-symbols.sh` holds `openconnect`, and the dylibs only it loads, to 15.4
-  (`TOOL_MINIMUMS`), and #179 adds the 15.4 symbol lists for the macOS libraries this closure loads
+  bottles for the release runner's macOS 26), they carry `minos 26.0`. `libopenconnect` imports
+  `strchrnul` (macOS 15.4 and later), so Cisco AnyConnect needs macOS 15.4 (the app stays on 13):
+  `check-tool-symbols.sh` holds `openconnect`, and the dylibs only it loads, to 15.4
+  (`TOOL_MINIMUMS`; a dylib it shared with `openvpn` or `openfortivpn` would stay at 13.0, none does),
+  against the 15.4 symbol lists of the macOS libraries this closure loads
   (`make-system-symbols.sh 15.4 MacOSX15.4.sdk -- /usr/lib/libSystem.B.dylib /usr/lib/libz.1.dylib
   /usr/lib/libxml2.2.dylib /usr/lib/libiconv.2.dylib /usr/lib/libffi.dylib` and the CoreFoundation,
-  CoreServices, Kerberos, PCSC and Security frameworks). `libstoken`,
+  CoreServices, Kerberos, PCSC and Security frameworks). `HelperCore.Tool.minimumMacOS` says the
+  same to the app (`diagnose` does not run it below 15.4). `libstoken`,
   `libtomcrypt`, `libtommath` (RSA SecurID soft tokens, never used) and `libintl` (message catalogs,
   unused with `LC_ALL=C`) are accepted dead weight rather than building openconnect ourselves. The
   rest stays system (`libz`, `libxml2`, `libiconv`, `libffi`, Kerberos, PCSC, Security,
-  CoreFoundation). `bundle-tools.sh` takes nothing else of the formula: not `etc/vpnc/vpnc-script`,
+  CoreFoundation). The bottles are unchanged apart from the load paths and the configuration paths
+  compiled into two libraries: `bundle-tools.sh` overwrites, in place and NUL-padded to the same
+  length, every Homebrew path in `libp11-kit.0.dylib` (`etc/pkcs11.conf`, `etc/modules`,
+  `etc/pkcs11/modules`, `Cellar/p11-kit/<version>/lib/pkcs11`) and the `etc/` paths in
+  `libgnutls.30.dylib` (`etc/gnutls/config`, `etc/gnutls/cert.pem`) with `/var/empty/none` (root-owned
+  `/var/empty`, empty; ENOENT, which p11-kit and GnuTLS treat as "nothing configured"), before signing
+  (`NEUTRALIZE`). The same input gives the same bytes (repeatable build). The build fails when a listed
+  library is missing or has no such string (a renamed library or changed build must be looked at), and
+  when a Homebrew path is left in them; `scripts/test-bundled-config-paths.sh` (CI's `Bundled tools`)
+  puts module files with a `remote:` command into the runner's Homebrew prefix and checks that
+  Homebrew's openconnect runs them and the bundled one does not. Other Homebrew paths left in the
+  bundled tools, all handled where the tools are run: openconnect's `etc/vpnc/vpnc-script` (always
+  `script`), the `share/locale` catalogs of openconnect, GnuTLS and libintl (`LC_ALL=C`), OpenSSL's
+  `OPENSSLDIR` and `MODULESDIR` (the fixed environment, below), openvpn's plugin directory and
+  `dns-updown` (sanitizer, `--dns-updown`), openfortivpn's default configuration (always `-c`).
+  Not a Homebrew path, and left as it is: GnuTLS 3.8.13 also reads the fixed `/etc/gnutls/pkcs11.conf`
+  when PKCS#11 is initialized (`compat_load(NULL)`, which can name provider libraries). On macOS `/etc`
+  is root's, so only root can create that file (no escalation from the Homebrew prefix's owner), and a
+  provider library not signed by Apple or with our Team ID is refused by library validation.
+  `bundle-tools.sh` takes nothing else of the formula: not `etc/vpnc/vpnc-script`,
   nothing from `libexec/openconnect` (`csd-wrapper.sh`, `hipreport.sh`, `tncc-*`). Its generic
   closure walk resolves both load styles (`/opt/homebrew/opt/<formula>/lib/…` and, in `libhogweed`,
   `libnettle`'s Cellar path); no name clashes with the OpenVPN closure. License `case` entries for
@@ -1006,22 +1035,23 @@ passtunnel / app (the user)                          PassTunnelHelper / passtunn
 - `scripts/release.env` pins `OPENCONNECT_VERSION`, `GNUTLS_VERSION`, `NETTLE_VERSION`, `GMP_VERSION`,
   `P11_KIT_VERSION`, `LIBTASN1_VERSION`, `LIBIDN2_VERSION`, `LIBUNISTRING_VERSION`,
   `GETTEXT_VERSION`, `STOKEN_VERSION`, `LIBTOMCRYPT_VERSION`, `LIBTOMMATH_VERSION` (names from
-  `pin_var`), set to what the release runner's Homebrew provides when #179 lands (on 2026-10-27:
-  openconnect 9.21, gnutls 3.8.13_2, nettle 4.0, …). `release.yml` and `repeatable.yml` install
-  `openconnect` with the other tools.
+  `pin_var`), set to what Homebrew provided when #179 landed (2026-10-28: openconnect 9.21, gnutls
+  3.8.13_2, nettle 4.0, libunistring 1.5, …). `release.yml`, `repeatable.yml` and CI's `Bundled
+  tools` install `openconnect` with the other tools and upgrade every pinned formula.
 - `build-app.sh` signs it with `--identifier com.furkanprlk.passtunnel.openconnect`
   (`PT.openconnectIdentifier`), adds its cdhashes to `generatedCDHashes`, and a signed build fails
   without them, as for `openvpn`; the dylibs are pinned by the existing `generatedLibraryCDHashes`.
 - `HelperCore.Tool.openconnect`. `ToolStager.check` then expects exactly
-  `Resources/bin/{openvpn,openfortivpn,openconnect,vpn-hook}` and the pinned dylibs, so the closure is
-  staged for every user (about 9 MB per helper build), used or not. `vpn-hook` (#182) is a copy of the
+  `Resources/bin/{openvpn,openfortivpn,openconnect}` (and `vpn-hook` from #182) and the pinned dylibs,
+  so the closure is staged for every user (about 9 MB per helper build), used or not, on every macOS
+  (it is only copied and checked below 15.4, never run). `vpn-hook` (#182) is a copy of the
   helper's own executable: no new target and no pin; it is accepted only when its SHA-256 is
   `HelperBuild.digest` (byte-identical to the running helper) and it satisfies the helper's requirement
   (`PT.toolRequirement(identifier: "com.furkanprlk.passtunnel.helper")`). `HelperSessions` counts
   `openconnect` like `openvpn` and `openfortivpn`.
-- `THIRD_PARTY_NOTICES.md` (#179) lists the LGPL libraries, says where their sources are and that
-  unpinned local builds (`PASSTUNNEL_ALLOW_UNPINNED_TOOLS=1`) can run a modified library; there is
-  no further mechanism. OpenConnect code stays out of the mobile apps ([MOBILE.md](MOBILE.md)); the
+- `THIRD_PARTY_NOTICES.md` (#179) lists the LGPL libraries, says where their sources are and that a
+  build from source (`PASSTUNNEL_ALLOW_UNPINNED_TOOLS=1 scripts/build-app.sh`, which pins what it
+  bundled, signed with one's own Team ID) can run a modified library; there is no further mechanism. OpenConnect code stays out of the mobile apps ([MOBILE.md](MOBILE.md)); the
   Swift written for this backend is our own, not a translation of openconnect's C.
 
 ### Authentication, split from the tunnel (#184)
@@ -1184,9 +1214,10 @@ and how each is kept out of the root run:
 | Compiled-in path | Read when | Neutralized by |
 |---|---|---|
 | `/opt/homebrew/etc/vpnc/vpnc-script` (`DEFAULT_VPNCSCRIPT`) | no `script` given (`main.c` 2439), run with `/bin/sh -c` | `script` always rendered, `checkRendered` |
-| `/opt/homebrew/etc/gnutls/config` (system priority file; may name a PKCS#11 provider to load) | GnuTLS initialization | `GNUTLS_SYSTEM_PRIORITY_FILE=/dev/null` in the spawn environment |
-| `/opt/homebrew/etc/gnutls/cert.pem` (`--with-default-trust-store-file`) | system trust (`gnutls.c` 2277) unless turned off | `no-system-trust` + `cafile /etc/ssl/cert.pem`, or `servercert` |
-| `/opt/homebrew/etc/pkcs11/pkcs11.conf`, `…/pkcs11/modules/*.module`, p11-kit's Cellar module directory; `~/.config/pkcs11/…` | when p11-kit loads modules: `pkcs11:` certificate or key URLs (`gnutls.c` 1062–1330), GnuTLS PKCS#11 trust or providers | no `certificate`, `sslkey`, `mca-*`, `token-*`; `P11_KIT_NO_USER_CONFIG=1`. p11-kit has no variable for its system configuration; the remaining guard is library validation (the tools are signed with the hardened runtime, which admits only code signed by Apple or with our Team ID); #182 checks on a release build that a module placed in the Homebrew prefix is not loaded |
+| `/opt/homebrew/etc/gnutls/config` (system priority file; may name a PKCS#11 provider to load) | GnuTLS initialization | overwritten with `/var/empty/none` in the bundled `libgnutls` (#179, below); also `GNUTLS_SYSTEM_PRIORITY_FILE=/dev/null` in the spawn environment |
+| `/opt/homebrew/etc/gnutls/cert.pem` (`--with-default-trust-store-file`) | system trust (`gnutls.c` 2277) unless turned off | overwritten with `/var/empty/none` (#179), so system trust is empty; and always `no-system-trust` + `cafile /etc/ssl/cert.pem`, or `servercert` |
+| `/opt/homebrew/etc/pkcs11.conf` (system configuration), `/opt/homebrew/etc/modules` (system modules), `/opt/homebrew/etc/pkcs11/modules` (package modules), `/opt/homebrew/Cellar/p11-kit/<version>/lib/pkcs11` (module path); `~/.config/pkcs11/…` | at every start: openconnect calls `gnutls_pkcs11_init(GNUTLS_PKCS11_FLAG_AUTO)` in `openconnect_init_ssl` (`gnutls.c` 2586–2603) before parsing options, also for `--version`, and p11-kit loads every registered module then. A module file names a library (`module:`) or a command p11-kit runs itself (`remote: \|command`) | the system paths overwritten with `/var/empty/none` in the bundled `libp11-kit` (#179, below); library validation does not cover `remote:` commands, and p11-kit has no variable for its system paths (`P11_ENV_OVERRIDE_PATHS` is not built in). `P11_KIT_NO_USER_CONFIG=1` for the user's files; no `certificate`, `sslkey`, `mca-*`, `token-*` |
+| `/etc/gnutls/pkcs11.conf` (fixed in GnuTLS 3.8.13, not under the prefix; may name PKCS#11 provider libraries) | PKCS#11 initialization (`compat_load(NULL)`) | left as it is: root-owned `/etc` (only root can create it), and library validation refuses a provider library not signed by Apple or with our Team ID |
 | `…/share/locale` of openconnect and GnuTLS | message lookup | `LC_ALL=C` |
 | `/usr/bin/open` (`DEFAULT_EXTERNAL_BROWSER`, spawned by `hpke.c` 63–71) | a server sends an "external browser" sign-in form | the root run never signs in (it has the cookie); in the sign-in run, as the user, `no-external-auth` stops offering it but does not prevent it (above) |
 | `/bin/sh`, `/var/tmp` (CSD) | a server requests a host scan | refused (above) |

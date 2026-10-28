@@ -146,7 +146,13 @@ FortiGate, stop, and status. It enforces the following rules on every request.
 - **Only the tools bundled in its own app, run from a root-owned copy.** The helper takes
   `Contents/Resources/bin/openvpn` and `Contents/Resources/bin/openfortivpn` and the libraries in
   `Contents/Frameworks` that they load (OpenSSL's `libcrypto` and `libssl`, `lzo`, `lz4`,
-  `pkcs11-helper`) from its own app bundle (located through the kernel, not `argv[0]`). The bundle can
+  `pkcs11-helper`) from its own app bundle (located through the kernel, not `argv[0]`). The bundle
+  also holds `Contents/Resources/bin/openconnect` and its libraries (GnuTLS, nettle, GMP, p11-kit,
+  libtasn1, libidn2, libunistring, libintl, stoken, libtomcrypt, libtommath) for Cisco AnyConnect
+  ([below](#cisco-anyconnect-planned)): they are copied and checked with the others, but **nothing
+  starts `openconnect` yet**, and it will need macOS 15.4 or later (dyld stops Homebrew's build on an
+  older macOS). Its p11-kit and GnuTLS read no configuration from the Homebrew prefix
+  ([Paths compiled into the Homebrew build](#paths-compiled-into-the-homebrew-build)). The bundle can
   be changed or renamed by the user who installed it, so the helper does not run the tools from there:
   it copies them, without following symlinks, into `/var/run/passtunnel/tools/<helper build>/`
   (directories `root:wheel` 0755, tools 0555, libraries 0444), with the bundle's layout, so the
@@ -157,7 +163,7 @@ FortiGate, stop, and status. It enforces the following rules on every request.
   path supplied by the client is never executed. System libraries come from macOS.
 - **Signature checked on the copies and on the code that runs.** Each tool must satisfy a
   code-signing requirement with its own identifier (`com.furkanprlk.passtunnel.openvpn`,
-  `…openfortivpn`) and the project's Team ID; each library must be signed with the project's Team ID.
+  `…openfortivpn`, `…openconnect`) and the project's Team ID; each library must be signed with the project's Team ID.
   The helper checks every copied file (strict validation across all architectures), so a file
   replaced in the bundle while it was being copied gives a copy that is refused. It then starts the
   copied tool **suspended**, before its first instruction, checks the code the kernel actually loaded
@@ -170,7 +176,7 @@ FortiGate, stop, and status. It enforces the following rules on every request.
   running process) of the exact tools and libraries it ships with, compiled into its own signed code.
   It copies only those libraries, and refuses a copied tool or library, a started tool, or a
   `dns-updown` copy with any other cdhash. Every app bundle made by `scripts/build-app.sh` is pinned
-  this way, and a signed build fails unless both tools and every bundled library are pinned. Only
+  this way, and a signed build fails unless every tool and every bundled library is pinned. Only
   plain development builds (`swift build`, tests) pin nothing: they copy every `.dylib` in
   `Contents/Frameworks` and accept any tool or library that satisfies the requirement.
 - **DNS script.** OpenVPN's `dns-updown` script is copied into the root-only run directory and the
@@ -422,7 +428,9 @@ section is the threat model the pull requests #179–#189 are reviewed against; 
   GMP, p11-kit, libtasn1, libidn2, libunistring) and three unused libraries Homebrew links in
   (gettext's libintl, and stoken with libtomcrypt and libtommath for RSA SecurID tokens). They are
   copied, signature-checked and pinned by cdhash exactly like `openvpn` and its libraries, and their
-  own vulnerabilities apply as root (#179, #182).
+  own vulnerabilities apply as root once the helper runs it (#182). Since #179 they are in the app
+  bundle and in the helper's root-owned copy, pinned, but not run; `diagnose` runs `openconnect
+  --version` as you (macOS 15.4 and later only), nothing else does.
 - **Signing in runs as you, not as root.** Your password and one-time code go to an `openconnect
   --authenticate` run under your own account, on its standard input. The helper receives only what
   that run returns: the session cookie, the server's public key fingerprint and the address it
@@ -523,15 +531,27 @@ your Mac may exist and belong to whoever installed Homebrew. Each is kept out of
 - **openconnect's default script** (`/opt/homebrew/etc/vpnc/vpnc-script`, run with `/bin/sh` when
   no script is named): the configuration always names the hook, and is checked for it before it is
   written.
+- **p11-kit's configuration and module files** (`/opt/homebrew/etc/pkcs11.conf`,
+  `/opt/homebrew/etc/modules/`, `/opt/homebrew/etc/pkcs11/modules/` and p11-kit's Cellar module
+  directory). openconnect initializes PKCS#11 before it reads its options, even for `--version`, and
+  p11-kit then reads every module file there. A module file can name a library to load or, with
+  `remote: |command`, a command p11-kit runs itself: library validation does not stop that, and no
+  environment variable moves these paths (`P11_KIT_NO_USER_CONFIG=1` covers only
+  `~/.config/pkcs11/`). So the build overwrites these paths in the bundled `libp11-kit` with
+  `/var/empty/none`, a path that does not exist inside the root-owned, empty `/var/empty` (#179):
+  the bundled p11-kit reads no file of the Homebrew prefix. The build fails when any Homebrew path is
+  left in it, and CI checks with module files in the runner's Homebrew prefix that Homebrew's
+  openconnect runs them and the bundled one does not. PassTunnel also passes no option that uses
+  PKCS#11 (no client certificate, key or token) and sets `P11_KIT_NO_USER_CONFIG=1`.
 - **GnuTLS's configuration file** (`/opt/homebrew/etc/gnutls/config`, which may also name a PKCS#11
-  module to load): the helper starts the tool with `GNUTLS_SYSTEM_PRIORITY_FILE=/dev/null`.
-- **GnuTLS's CA store:** never used (pin, or `--no-system-trust` with the system bundle).
-- **p11-kit's module configuration** (`/opt/homebrew/etc/pkcs11/`) and your own
-  (`~/.config/pkcs11/`): PassTunnel passes no option that uses PKCS#11 (no client certificate, key
-  or token) and sets `P11_KIT_NO_USER_CONFIG=1`. p11-kit has no setting for its system
-  configuration path, so the last guard is library validation: the tool is signed with the hardened
-  runtime, which loads only code signed by Apple or with the project's Team ID. #182 adds a check
-  that a module placed in the Homebrew prefix is not loaded.
+  provider library to load) and **its CA store** (`/opt/homebrew/etc/gnutls/cert.pem`): overwritten
+  with `/var/empty/none` in the bundled `libgnutls` the same way. On top of that the helper starts the
+  tool with `GNUTLS_SYSTEM_PRIORITY_FILE=/dev/null`, and the CA store would not be used anyway (pin,
+  or `--no-system-trust` with the system bundle).
+- **GnuTLS's `/etc/gnutls/pkcs11.conf`** (a fixed path, not under the Homebrew prefix, which can
+  name PKCS#11 provider libraries): left as it is. Only root can create it in `/etc`, so it gives
+  no one more than they have, and library validation refuses a provider library not signed by Apple
+  or with the project's Team ID.
 - **Message catalogs:** not opened (`LC_ALL=C`).
 - **A web browser for single sign-on** (`/usr/bin/open`): never started by the root run, which
   never signs in; see "No single sign-on" above for the sign-in run.
@@ -732,7 +752,7 @@ seconds, the host asked and when.
   whose signature does not verify, and anyone can check one with
   `git -c gpg.ssh.allowedSignersFile=.github/allowed_signers tag -v vX.Y.Z` (tags up to 1.5.0 are
   not signed with it; see [docs/RELEASING.md](docs/RELEASING.md#signed-tags)). The bundled `openvpn`,
-  `openfortivpn` and their libraries come in pinned versions (`scripts/release.env`); a release
+  `openfortivpn`, `openconnect` and their libraries come in pinned versions (`scripts/release.env`); a release
   build stops when Homebrew provides any other version. Details: [docs/RELEASING.md](docs/RELEASING.md).
 - **Replacing the helper.** Registering the helper points the root daemon at the copy of PassTunnel
   that registers it, so this is limited:

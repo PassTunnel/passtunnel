@@ -43,7 +43,7 @@ final class ToolStagerTests: XCTestCase {
         super.tearDown()
     }
 
-    /// `openvpn` and `openfortivpn` print where their library and its dependency were loaded from:
+    /// `openvpn`, `openfortivpn` and `openconnect` print where their library and its dependency were loaded from:
     /// `libacme` by `@executable_path/../../Frameworks`, `libbase` by `@loader_path`, as bundle-tools.sh
     /// writes them. Built once per run.
     static func fixture() throws -> String {
@@ -67,10 +67,11 @@ final class ToolStagerTests: XCTestCase {
                 "-install_name", "@executable_path/../../Frameworks/libacme.1.dylib"
             ],
             ["clang", "-o", dir + "/openvpn", dir + "/tool.c", dir + "/libacme.1.dylib"],
-            ["clang", "-o", dir + "/openfortivpn", dir + "/tool.c", dir + "/libacme.1.dylib"]
+            ["clang", "-o", dir + "/openfortivpn", dir + "/tool.c", dir + "/libacme.1.dylib"],
+            ["clang", "-o", dir + "/openconnect", dir + "/tool.c", dir + "/libacme.1.dylib"]
         ]
         for step in steps where run("/usr/bin/xcrun", step) != 0 { throw XCTSkip("no C compiler available") }
-        for name in ["openvpn", "openfortivpn", "libacme.1.dylib", "libbase.1.dylib"] {
+        for name in ["openvpn", "openfortivpn", "openconnect", "libacme.1.dylib", "libbase.1.dylib"] {
             let id = "com.example.acme." + name.replacingOccurrences(of: ".1.dylib", with: "")
             guard run("/usr/bin/codesign", ["-f", "-s", "-", "-i", id, dir + "/" + name]) == 0 else {
                 throw XCTSkip("codesign not available")
@@ -155,7 +156,8 @@ final class ToolStagerTests: XCTestCase {
         XCTAssertEqual(staged.executable(.openvpn), staged.directory + "/Resources/bin/openvpn")
 
         XCTAssertEqual(entries(staged.directory), ["Frameworks", "Resources"])
-        XCTAssertEqual(entries(staged.directory + "/Resources/bin"), ["openfortivpn", "openvpn"], "dns-updown is copied per session")
+        XCTAssertEqual(
+            entries(staged.directory + "/Resources/bin"), ["openconnect", "openfortivpn", "openvpn"], "dns-updown is copied per session")
         XCTAssertEqual(entries(staged.directory + "/Frameworks"), Self.libraries, "no Sparkle, nothing else")
         for dir in [
             realRoot + "/tools", staged.directory, staged.directory + "/Resources",
@@ -303,6 +305,33 @@ final class ToolStagerTests: XCTestCase {
         tools["openfortivpn"] = ["2222222222222222222222222222222222222222"]
         XCTAssertThrowsError(try stager(toolPins: tools, libraryPins: p.libraries).stage()) {
             XCTAssertEqual(($0 as? PinnedTools.Mismatch)?.tool, "openfortivpn", "\($0)")
+        }
+    }
+
+    /// openconnect is staged and checked like the others although nothing runs it yet: a pinned build
+    /// refuses another build of it, and a bundle without it (an older layout) is not staged.
+    func testOpenconnectIsStagedAndPinned() throws {
+        let p = try pins()
+        XCTAssertNotNil(p.tools["openconnect"])
+        let staged = try stager(toolPins: p.tools, libraryPins: p.libraries).stage()
+        XCTAssertEqual(staged.executable(.openconnect), staged.directory + "/Resources/bin/openconnect")
+        XCTAssertEqual(mode(staged.executable(.openconnect)), 0o555)
+
+        var tools = p.tools
+        tools["openconnect"] = ["3333333333333333333333333333333333333333"]
+        XCTAssertThrowsError(try stager(id: String(repeating: "cd", count: 32), toolPins: tools, libraryPins: p.libraries).stage()) {
+            XCTAssertEqual(($0 as? PinnedTools.Mismatch)?.tool, "openconnect", "\($0)")
+        }
+        tools["openconnect"] = nil
+        XCTAssertThrowsError(try stager(id: String(repeating: "ce", count: 32), toolPins: tools, libraryPins: p.libraries).stage()) {
+            XCTAssertEqual(($0 as? PinnedTools.Mismatch)?.tool, "openconnect", "a pinned build without its pin refuses it: \($0)")
+        }
+
+        try FileManager.default.removeItem(atPath: contents + "/Resources/bin/openconnect")
+        XCTAssertThrowsError(try stager(id: String(repeating: "cf", count: 32)).stage()) {
+            XCTAssertEqual(
+                $0 as? HelperCore.Failure,
+                .system("open \(self.contents)/Resources/bin/openconnect", ENOENT), "\($0)")
         }
     }
 

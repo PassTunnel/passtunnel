@@ -1,8 +1,10 @@
 #!/bin/bash
 # Self-test of check-tool-symbols.sh on small tools and libraries compiled here (macOS with Xcode; they
 # are never run): one that imports strchrnul (macOS 15.4 and later) fails against macOS 13.0, also with
-# its symbol table stripped, and passes when its minimum is 15.4; a library inherits the lowest minimum
-# of the tools that load it; refused are weak imports, flat-namespace lookups, a macOS library loaded
+# its symbol table stripped, and passes when its minimum is 15.4 (openconnect's by default, also against
+# the real 15.4 lists); a library inherits the lowest minimum of the tools that load it, also through
+# another library, so one that openconnect shares with a 13.0 tool is held to 13.0, and a macOS library
+# listed only for 15.4 may be loaded by openconnect's closure alone; refused are weak imports, flat-namespace lookups, a macOS library loaded
 # without a symbol list (also with nothing imported from it), re-exports of macOS libraries or symbols
 # and load paths outside bundle-tools.sh's layout; a bundle path with spaces works.
 set -euo pipefail
@@ -60,6 +62,14 @@ cat > "$SRC/flat.c" <<'EOF'
 extern int nowhere(void);
 int main(void) { return nowhere(); }
 EOF
+cat > "$SRC/mid.c" <<'EOF'
+char *find_end(const char *s);
+char *mid_end(const char *s) { return find_end(s); }
+EOF
+cat > "$SRC/usemid.c" <<'EOF'
+char *mid_end(const char *s);
+int main(int argc, char **argv) { return *mid_end(argv[0]) + argc; }
+EOF
 cat > "$SRC/own.c" <<'EOF'
 int own(void) { return 1; }
 EOF
@@ -85,6 +95,19 @@ add_lib_tool() {
     local app="$1" name="$2" path="${3:-@executable_path/../../Frameworks/libnew.dylib}"
     cc -o "$app/Contents/Resources/bin/$name" "$SRC/uselib.c" -L"$app/Contents/Frameworks" -lnew
     install_name_tool -change @rpath/libnew.dylib "$path" "$app/Contents/Resources/bin/$name" 2>/dev/null
+}
+
+# libmid.dylib, which loads libnew.dylib (@loader_path/libnew.dylib), and a tool that loads libmid.
+add_mid_lib() {
+    local fw="$1/Contents/Frameworks"
+    cc -dynamiclib -install_name @rpath/libmid.dylib -o "$fw/libmid.dylib" "$SRC/mid.c" -L"$fw" -lnew
+    install_name_tool -change @rpath/libnew.dylib @loader_path/libnew.dylib "$fw/libmid.dylib" 2>/dev/null
+}
+add_mid_tool() {
+    local app="$1" name="$2"
+    cc -o "$app/Contents/Resources/bin/$name" "$SRC/usemid.c" -L"$app/Contents/Frameworks" -lmid
+    install_name_tool -change @rpath/libmid.dylib @executable_path/../../Frameworks/libmid.dylib \
+        "$app/Contents/Resources/bin/$name" 2>/dev/null
 }
 
 # expect NAME 0|1 [grep pattern] -- check arguments
@@ -123,6 +146,8 @@ cp "$app/Contents/Resources/bin/openvpn" "$app/Contents/Resources/bin/openconnec
 rm "$app/Contents/Resources/bin/openvpn"
 expect "openconnect's minimum is 15.4 (TOOL_MINIMUMS)" 0 "Resources/bin/openconnect +macOS 15.4" \
     -- "$app" --symbols "$SYMS"
+grep -qx _strchrnul "$LISTS/15.4/usr/lib/libSystem.B.dylib.txt" || { echo "error: the 15.4 list lacks _strchrnul" >&2; exit 1; }
+expect "and it passes against the real 15.4 lists" 0 "Resources/bin/openconnect +macOS 15.4" -- "$app"
 
 app="$(new_app weak)"
 add_tool "$app" openvpn weak.c
@@ -190,6 +215,40 @@ expect "a library loaded only by a 15.4 tool is held to 15.4" 0 "Frameworks/libn
 add_lib_tool "$app" openvpn
 expect "a library loaded by a 13.0 tool too is held to 13.0" 1 "Frameworks/libnew.dylib imports _strchrnul" \
     -- "$app" --symbols "$SYMS" --minimum openfortivpn=15.4
+
+# openconnect's closure (15.4) next to a 13.0 tool: what they share is held to 13.0, also when it is
+# reached through another library, and whichever tool is walked first.
+app="$(new_app shared)"
+add_lib "$app"
+add_mid_lib "$app"
+add_mid_tool "$app" openconnect
+expect "a library only openconnect loads, through another one, is held to 15.4" 0 \
+    "Frameworks/libnew.dylib +macOS 15.4" -- "$app" --symbols "$SYMS"
+add_tool "$app" openvpn old.c
+expect "a 13.0 tool beside it changes nothing" 0 "Frameworks/libmid.dylib +macOS 15.4" -- "$app" --symbols "$SYMS"
+add_lib_tool "$app" openvpn
+expect "one it shares with a 13.0 tool is held to 13.0 and fails" 1 \
+    "Frameworks/libnew.dylib imports _strchrnul from /usr/lib/libSystem.B.dylib, which macOS 13.0 does not export" \
+    -- "$app" --symbols "$SYMS"
+expect "while the library only openconnect loads stays at 15.4" 1 "Frameworks/libmid.dylib +macOS 15.4" \
+    -- "$app" --symbols "$SYMS"
+rm "$app/Contents/Resources/bin/openvpn"
+add_mid_tool "$app" aaa
+expect "a 13.0 tool walked first that loads it through another library" 1 \
+    "Frameworks/libnew.dylib imports _strchrnul" -- "$app" --symbols "$SYMS"
+rm "$app/Contents/Resources/bin/aaa"
+add_mid_tool "$app" zzz
+expect "and one walked last" 1 "Frameworks/libnew.dylib imports _strchrnul" -- "$app" --symbols "$SYMS"
+
+# A macOS library with a list for 15.4 only (libz here): openconnect may load it, a 13.0 tool not.
+cp "$LISTS/15.4/usr/lib/libz.1.dylib.txt" "$SYMS/15.4/usr/lib/libz.1.dylib.txt"
+app="$(new_app zlib15)"
+add_tool "$app" openconnect zlib.c -lz
+expect "openconnect may load a macOS library listed only for 15.4" 0 "Resources/bin/openconnect +macOS 15.4" \
+    -- "$app" --symbols "$SYMS"
+add_tool "$app" openvpn zlib.c -lz
+expect "a 13.0 tool may not" 1 "Resources/bin/openvpn loads /usr/lib/libz.1.dylib, which has no symbol list for macOS 13.0" \
+    -- "$app" --symbols "$SYMS"
 
 if ((failures)); then
     echo "$failures test(s) failed" >&2

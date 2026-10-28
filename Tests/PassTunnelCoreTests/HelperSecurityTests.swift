@@ -632,7 +632,7 @@ final class CodeSignatureTests: XCTestCase {
     func testRequirementStringsCompile() {
         XCTAssertTrue(CodeSignature.isValidRequirement(PT.clientRequirement))
         XCTAssertTrue(CodeSignature.isValidRequirement(PT.teamRequirement))
-        for id in [PT.openvpnIdentifier, PT.openfortivpnIdentifier, PT.dnsUpdownIdentifier] {
+        for id in [PT.openvpnIdentifier, PT.openfortivpnIdentifier, PT.openconnectIdentifier, PT.dnsUpdownIdentifier] {
             XCTAssertTrue(CodeSignature.isValidRequirement(PT.toolRequirement(identifier: id)), id)
         }
         XCTAssertFalse(CodeSignature.isValidRequirement("identifier and"))
@@ -644,7 +644,8 @@ final class CodeSignatureTests: XCTestCase {
         XCTAssertEqual(status(tool, ownIdentifier), errSecSuccess)
         for req in [
             PT.toolRequirement(identifier: identifier), PT.toolRequirement(identifier: PT.openvpnIdentifier),
-            PT.toolRequirement(identifier: PT.openfortivpnIdentifier), PT.clientRequirement, PT.teamRequirement
+            PT.toolRequirement(identifier: PT.openfortivpnIdentifier), PT.toolRequirement(identifier: PT.openconnectIdentifier),
+            PT.clientRequirement, PT.teamRequirement
         ] {
             XCTAssertEqual(status(tool, req), errSecCSReqFailed, req)
         }

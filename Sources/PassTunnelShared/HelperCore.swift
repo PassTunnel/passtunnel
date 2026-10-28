@@ -73,14 +73,35 @@ public struct HelperCore {
         }
     }
 
+    /// The VPN tools bundled in `Contents/Resources/bin`, which `ToolStager` stages and checks. openconnect
+    /// (Cisco AnyConnect, #2) is bundled and staged but not started by anything yet.
     public enum Tool: String, CaseIterable {
-        case openvpn, openfortivpn
+        case openvpn, openfortivpn, openconnect
 
         public var signingIdentifier: String {
             switch self {
             case .openvpn: return PT.openvpnIdentifier
             case .openfortivpn: return PT.openfortivpnIdentifier
+            case .openconnect: return PT.openconnectIdentifier
             }
+        }
+
+        /// The macOS the tool needs when it is later than the app's own minimum (nil: the app's). Homebrew's
+        /// libopenconnect imports `strchrnul`, which macOS has from 15.4: dyld stops openconnect at launch
+        /// on anything older. Must match `TOOL_MINIMUMS` in scripts/check-tool-symbols.sh, which holds the
+        /// tool and the libraries only it loads to that version.
+        public var minimumMacOS: OperatingSystemVersion? {
+            switch self {
+            case .openvpn, .openfortivpn: return nil
+            case .openconnect: return OperatingSystemVersion(majorVersion: 15, minorVersion: 4, patchVersion: 0)
+            }
+        }
+
+        /// Whether the tool starts on macOS `version` (`minimumMacOS`).
+        public func runs(on version: OperatingSystemVersion) -> Bool {
+            guard let minimum = minimumMacOS else { return true }
+            return (version.majorVersion, version.minorVersion, version.patchVersion)
+                >= (minimum.majorVersion, minimum.minorVersion, minimum.patchVersion)
         }
     }
 

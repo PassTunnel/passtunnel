@@ -2033,6 +2033,16 @@
         }
       }
     },
+    "Not run: it needs macOS %@ or later." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Çalıştırılmadı: macOS %@ veya üstünü gerektirir."
+          }
+        }
+      }
+    },
     "Nothing missing" : {
       "localizations" : {
         "tr" : {

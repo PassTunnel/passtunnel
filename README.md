@@ -141,14 +141,14 @@ You need Xcode 15.3 or later (Swift 5.10, plus `xcstringstool` for the Turkish s
 [Homebrew](https://brew.sh), which provides the VPN tools that get bundled into the app:
 
 ```sh
-brew install openvpn openfortivpn
+brew install openvpn openfortivpn openconnect
 git clone https://github.com/passtunnel/passtunnel.git
 cd passtunnel
 scripts/build-app.sh                  # → build/PassTunnel.app (ad-hoc signed)
 ```
 
-`build-app.sh` builds a release binary, assembles the bundle, copies `openvpn`, `openfortivpn` and
-their libraries in (`scripts/bundle-tools.sh`, with their license files), compiles the helper with
+`build-app.sh` builds a release binary, assembles the bundle, copies `openvpn`, `openfortivpn`,
+`openconnect` (for the coming Cisco AnyConnect support) and their libraries in (`scripts/bundle-tools.sh`, with their license files), compiles the helper with
 the code-signature hashes of exactly these tools and libraries, and signs everything inside-out with
 the hardened runtime. An ad-hoc build signs the app without library validation: an ad-hoc signature
 has no Team ID, so macOS would otherwise refuse to load `Sparkle.framework` into it.
@@ -559,7 +559,8 @@ PassTunnel is maintained by one person, in the open.
 PassTunnel is released under the [MIT License](LICENSE). Copyright © 2026 Furkanprlk.
 
 The app bundles `openvpn` (GPL-2.0), `openfortivpn` (GPL-3.0) and their libraries (OpenSSL, LZO,
-LZ4, pkcs11-helper). They are separate programs distributed alongside PassTunnel under their own
+LZ4, pkcs11-helper), and `openconnect` (LGPL-2.1, not used yet) with its libraries (GnuTLS, nettle,
+GMP and others, mostly LGPL). They are separate programs distributed alongside PassTunnel under their own
 licenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Their full license texts are inside
 the app in `Contents/Resources/licenses` and under **Settings → Helper → Show Licenses…**.
 
