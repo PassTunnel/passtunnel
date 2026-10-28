@@ -182,7 +182,33 @@ final class ConnectionFailureTests: XCTestCase {
                 ERROR:      --trusted-cert 5f0e8d1c2b3a49586776a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0
                 ERROR:  or add this line to your config file:
                 ERROR:      trusted-cert = 5f0e8d1c2b3a49586776a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0
-                """, kind: .configuration, reason: "Gateway certificate validation failed", credentialsSent: false)
+                """, kind: .configuration, reason: "Gateway certificate validation failed", credentialsSent: false),
+        Fixture(
+            name: "dyld, a symbol this macOS lacks",
+            log: """
+                dyld[4242]: Symbol not found: _strchrnul
+                  Referenced from: <3C3A9F0E-1D6B-3C2E-9E4A-0B6E1C9A7F21> /var/run/passtunnel/run/Frameworks/libidn2.0.dylib (built for macOS 26.0 which is newer than running OS)
+                  Expected in:     <5F2B8E1A-6C4D-3A9B-8E7F-2D1C0B9A8E76> /usr/lib/libSystem.B.dylib
+                """, kind: .toolUnsupported, reason: "Symbol not found: _strchrnul", credentialsSent: false),
+        Fixture(
+            name: "dyld, a library this macOS lacks",
+            log: """
+                dyld[4242]: Library not loaded: /usr/lib/libexample.1.dylib
+                  Referenced from: <3C3A9F0E-1D6B-3C2E-9E4A-0B6E1C9A7F21> /var/run/passtunnel/run/Resources/bin/openvpn
+                  Reason: tried: '/usr/lib/libexample.1.dylib' (no such file)
+                """, kind: .toolUnsupported, reason: "Library not loaded: /usr/lib/libexample.1.dylib", credentialsSent: false),
+        Fixture(
+            name: "dyld before macOS 12",
+            log: """
+                dyld: Symbol not found: _strchrnul
+                  Referenced from: /var/run/passtunnel/run/Resources/bin/openvpn
+                """, kind: .toolUnsupported, reason: "Symbol not found: _strchrnul", credentialsSent: false),
+        Fixture(
+            name: "a plugin dlopen fails (not dyld stopping the tool)",
+            log: openVPNStart + """
+                2026-10-25 09:41:00 PLUGIN_INIT: could not load plugin shared object /tmp/x.so: dlopen(/tmp/x.so, 0x0001): Library not loaded: /usr/lib/libexample.1.dylib
+                2026-10-25 09:41:00 Exiting due to fatal error
+                """, kind: nil, reason: nil, credentialsSent: false)
     ]
 
     func testFixtures() {
@@ -204,6 +230,23 @@ final class ConnectionFailureTests: XCTestCase {
         XCTAssertEqual(kind("macOS, name not found"), kind("Linux, name not found"))
         XCTAssertEqual(kind("openfortivpn macOS, name not found"), kind("openfortivpn Linux, name not found"))
         XCTAssertEqual(kind("openfortivpn macOS, refused"), kind("openfortivpn Linux, timed out"))
+    }
+
+    /// dyld's lines count only as the log's first (it writes them before the tool can write anything):
+    /// later ones can be a server's words, which openfortivpn prints. Not a fatal marker either: the
+    /// connect takes it only once the tool is gone (`ConnectionManagerTests`).
+    func testDyldStoppingTheToolIsTheFirstLine() {
+        let symbol = Self.fixtures.first { $0.name == "dyld, a symbol this macOS lacks" }!.log
+        XCTAssertFalse(VPNLog.isFatal(symbol))
+        XCTAssertFalse(VPNLog.attempted(symbol) && VPNLog.credentialsSent(symbol))
+        XCTAssertEqual(VPNLog.toolLoadFailure("\n  \n" + symbol), "Symbol not found: _strchrnul")
+        XCTAssertNil(VPNLog.toolLoadFailure("INFO:   Connected to gateway.\n" + symbol), "a server's words")
+        XCTAssertNotEqual(VPNLog.verdict("INFO:   Connected to gateway.\n" + symbol)?.kind, .toolUnsupported)
+        XCTAssertNil(VPNLog.toolLoadFailure("PassTunnel: something\n" + symbol))
+        XCTAssertNil(VPNLog.toolLoadFailure("dyld[12]: some other note\n"))
+        XCTAssertNil(VPNLog.toolLoadFailure("dyld[x]: Symbol not found: _a\n"), "not dyld's prefix")
+        XCTAssertNil(VPNLog.toolLoadFailure("libdyld: Symbol not found: _a\n"))
+        XCTAssertFalse(VPNLog.isFatal(Self.openVPNStart))
     }
 
     func testAttemptedTellsAServerThatIsNotThereFromASilentLog() {
@@ -248,6 +291,13 @@ final class ConnectionFailureTests: XCTestCase {
         let options = Self.fixtures.first { $0.name == "options error" }!.log
         XCTAssertEqual(ConnectionFailure.of(PTError.connectFailed("…"), log: options, handed: nil, at: t0).kind, .configuration)
         XCTAssertEqual(ConnectionFailure.of(PTError.connectFailed("…"), log: "something else\n", handed: nil, at: t0).kind, .failed)
+        let dyld = Self.fixtures.first { $0.name == "dyld, a symbol this macOS lacks" }!.log
+        f = ConnectionFailure.of(PTError.toolUnsupported(reason: "Symbol not found: _strchrnul", log: ""), log: dyld, handed: handed, at: t0)
+        XCTAssertEqual(f, ConnectionFailure(kind: .toolUnsupported, at: t0, reason: "Symbol not found: _strchrnul"))
+        XCTAssertNil(f.details)
+        XCTAssertEqual(ConnectionFailure.of(PTError.connectFailed("…"), log: dyld, handed: nil, at: t0).kind, .toolUnsupported)
+        XCTAssertEqual(AutomationErrorCode.of(PTError.toolUnsupported(reason: "x", log: "")), .connectFailed)
+        XCTAssertEqual(PTError.toolUnsupported(reason: "x", log: "tail").logTail, "tail")
         XCTAssertEqual(ConnectionFailure.of(PTError.missingPassword("acme"), log: nil, handed: nil, at: t0).kind, .configuration)
         XCTAssertEqual(ConnectionFailure.of(PTError.connectCancelled, log: nil, handed: nil, at: t0).kind, .cancelled)
         XCTAssertEqual(ConnectionFailure.of(PTError.userConfirmationCancelled, log: nil, handed: nil, at: t0).kind, .cancelled)

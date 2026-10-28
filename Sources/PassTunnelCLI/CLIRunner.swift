@@ -1179,12 +1179,23 @@ final class CLIRunner {
         }
         #endif
         helperLines(report.helper).forEach { CLITerminal.out($0) }
+        let palette = Preferences.load().badgePalette
+        if let tools = report.tools, !tools.isEmpty {
+            CLITerminal.out(String(localized: "VPN tools:"))
+            for tool in tools {
+                if tool.ok {
+                    let mark = CLITerminal.colored("✓", palette.color(.connected))
+                    CLITerminal.out("  \(mark) \(tool.name)  " + CLITerminal.dim(tool.version ?? ""))
+                } else {
+                    CLITerminal.out("  " + CLITerminal.bold("✗") + " \(tool.name)  " + (tool.problem ?? ""))
+                }
+            }
+        }
         if let network = report.network { CLITerminal.out(String(localized: "Network: \(network.summary)")) }
         if let secrets = report.secretStore {
             CLITerminal.out(String(localized: "Secret store: \(secrets.name)"))
             if !secrets.available, let error = secrets.error { CLITerminal.out("  " + String(localized: "It cannot be used here: \(error)")) }
         }
-        let palette = Preferences.load().badgePalette
         for check in report.profiles {
             let mark = check.ok ? CLITerminal.colored("✓", palette.color(.connected)) : CLITerminal.bold("✗")
             let server = check.server.isEmpty ? "" : ", " + check.server

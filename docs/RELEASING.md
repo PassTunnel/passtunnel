@@ -217,7 +217,8 @@ GitHub account behind a passkey or security key, and keep the offline backup of 
 
 The branch rulesets (Settings → Rules): `dev` and `main` refuse direct pushes, force pushes,
 deletion and unsigned commits; `dev` takes squash merges, `main` merge commits; the required checks
-are `Build and test`, `Release scripts`, `Site` and `PR title`, plus `Source branch` on `main`. Actions must be
+are `Build and test`, `Release scripts`, `Site` and `PR title`, plus `Source branch` on `main`
+(`Bundled tools` and `Bundled tools on macOS 15` run as well and are worth adding). Actions must be
 pinned to full commit SHAs.
 
 ## Releasing from a Mac
@@ -410,6 +411,42 @@ and upgrade exactly the bundled formulas (the runner image ships older versions 
 request fixes that. For a local build against other
 versions, `PASSTUNNEL_ALLOW_UNPINNED_TOOLS=1 scripts/build-app.sh` only warns; `release.sh`
 refuses to run with it set.
+
+### Minimum macOS of the tools
+
+The bottles are built for the newest macOS. `bundle-tools.sh` (so every build, the release's
+included) ends with `scripts/check-tool-symbols.sh`, which fails when a bundled tool or dylib imports
+from macOS a symbol its minimum macOS does not export ([ARCHITECTURE.md](ARCHITECTURE.md), Minimum macOS
+of the tools):
+
+```
+error: Frameworks/libidn2.0.dylib imports _strchrnul from /usr/lib/libSystem.B.dylib, which macOS 13.0 does not export (built for macOS 26.0)
+```
+
+A new tool version that does this would abort at launch on older Macs. Keep the old pin and report it
+upstream, build the tool for the older macOS ourselves, or, for a tool the app can refuse below a later
+macOS (as Cisco AnyConnect below 15.4), raise its minimum in `TOOL_MINIMUMS` together with that
+refusal in the app. A weak import (the tool copes with the symbol missing) can be allowed in
+`WEAK_IMPORTS` after reading the tool's code. `scripts/test-check-tool-symbols.sh` is its self-test
+(the `Bundled tools` CI job runs it), and `Bundled tools on macOS 15` runs each tool with `--version`
+on the oldest arm64 runner.
+
+The symbol lists in `scripts/system-symbols/<version>/` come from SDKs of that macOS version
+(`SOURCES` names them, with the checksums of the stubs read). When a tool starts to load another macOS
+library ("has no symbol list"), or a tool needs a list for another version, write them with an SDK of
+that version, or with the SDKs just before and after it (a symbol is then listed when both export it;
+the script refuses a set of SDKs that are all newer than the version):
+
+```sh
+scripts/make-system-symbols.sh 13.0 MacOSX12.3.sdk MacOSX13.1.sdk -- /usr/lib/libSystem.B.dylib \
+    /usr/lib/libresolv.9.dylib /usr/lib/libutil.dylib /usr/lib/libz.1.dylib   # a new library
+scripts/make-system-symbols.sh 15.4 MacOSX15.4.sdk -- /usr/lib/libSystem.B.dylib …
+```
+
+Without install names it rewrites the libraries already listed for that version. An SDK is the
+`Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX*.sdk` of the Xcode that shipped it
+(12.3: Xcode 13.3, 13.1: Xcode 14.2, 15.4: Xcode 16.3); only its `SDKSettings.json` and the `.tbd`
+stubs are read (llvm-readtapi of the current Xcode, and jq).
 
 ### Tool cdhash pins
 

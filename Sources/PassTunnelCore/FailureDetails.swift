@@ -77,6 +77,7 @@ public struct FailureDetails: Equatable {
         case .setup: return String(localized: "Network setup failed")
         case .timeout: return String(localized: "Did not connect in time")
         case .cancelled: return String(localized: "Stopped by you")
+        case .toolUnsupported: return String(localized: "The VPN tool does not run on this macOS")
         case .failed: return String(localized: "Could not connect")
         }
     }

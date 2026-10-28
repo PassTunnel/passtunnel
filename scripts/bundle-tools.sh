@@ -9,7 +9,8 @@
 #   Contents/Frameworks/*.dylib
 #   Contents/Resources/licenses/*
 # Binaries are ad-hoc signed here so they stay runnable; build-app.sh re-signs them. The Homebrew
-# versions must match the pins in scripts/release.env (see "pinned versions" below).
+# versions must match the pins in scripts/release.env (see "pinned versions" below), and what the tools
+# import from macOS must exist on the app's minimum macOS (check-tool-symbols.sh).
 set -euo pipefail
 
 APP="${1:?usage: $0 <App.app>}"
@@ -184,6 +185,11 @@ for f in "$BIN/openvpn" "$BIN/openfortivpn" "$FW"/*.dylib; do
     fi
 done
 ((bad == 0)) || exit 1
+
+# --- minimum macOS ----------------------------------------------------------------------------------
+# What the tools and libraries import from macOS must be there on the app's minimum macOS (or on a
+# tool's own, later one): dyld stops a tool at launch otherwise ("Symbol not found").
+"$(dirname "$0")/check-tool-symbols.sh" "$APP"
 
 # --- licenses -------------------------------------------------------------------------------------
 notice="$LIC/THIRD_PARTY_NOTICES.txt"

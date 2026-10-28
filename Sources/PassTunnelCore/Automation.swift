@@ -101,7 +101,7 @@ public enum AutomationErrorCode: String, Codable, CaseIterable, Sendable {
             return .configInvalid
         case .keychain, .protectedSecretUnreadable: return .keychainError
         case .missingPassword, .missingTOTPSecret, .missingCredential: return .credentialsMissing
-        case .helperFailed, .connectFailed, .setupFailed, .connectCancelled: return .connectFailed
+        case .helperFailed, .connectFailed, .setupFailed, .connectCancelled, .toolUnsupported: return .connectFailed
         case .serverUnreachable: return .serverUnreachable
         case .hostNotFound: return .hostNotFound
         case .authFailed: return .credentialsRejected
@@ -434,6 +434,9 @@ public struct DiagnoseReport: Codable, Equatable {
     public var clockError: String?
     /// Whether the computer is online, as the system sees its network path (nothing is contacted).
     public var network: NetworkStatus?
+    /// The Mac: whether each VPN tool of the app starts on this macOS (run with `--version`, nothing is
+    /// contacted); nil outside an app bundle and on Linux.
+    public var tools: [ToolCheck]?
 }
 
 public struct ProfileCheck: Codable, Equatable {

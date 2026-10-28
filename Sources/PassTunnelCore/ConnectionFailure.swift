@@ -23,6 +23,9 @@ public struct ConnectionFailure: Codable, Equatable, Sendable {
         case timeout
         /// Stopped before it finished (a disconnect, Ctrl-C, a cancelled confirmation).
         case cancelled
+        /// The VPN tool did not start on this version of macOS: dyld stopped it before it ran, for a
+        /// symbol or library this macOS lacks ("Symbol not found: _strchrnul"). Nothing was sent.
+        case toolUnsupported = "tool_unsupported"
         /// Anything else (the helper refused, the tool exited without a reason PassTunnel knows).
         case failed
     }
@@ -104,6 +107,9 @@ public struct ConnectionFailure: Codable, Equatable, Sendable {
             f.kind = sent ? .timeout : verdict?.kind ?? .timeout
         case PTError.connectFailed:
             f.kind = verdict?.kind ?? .failed
+        case PTError.toolUnsupported(let reason, _):
+            f.kind = .toolUnsupported
+            f.reason = reason
         case PTError.connectCancelled, PTError.userConfirmationCancelled, is CancellationError:
             f.kind = .cancelled
         case PTError.missingConfig, PTError.missingHost, PTError.missingPassword, PTError.missingTOTPSecret,
@@ -134,7 +140,7 @@ public struct ConnectionFailure: Codable, Equatable, Sendable {
             if let tries, tries > 1 { parts.append(String(localized: "No answer after \(tries) tries.")) }
         case .failed:
             if !credentialsSent { parts.append(String(localized: "Your sign-in was not sent.")) }
-        case .configuration, .setup, .timeout, .cancelled:
+        case .configuration, .setup, .timeout, .cancelled, .toolUnsupported:
             break
         }
         return parts.isEmpty ? nil : parts.joined(separator: " ")

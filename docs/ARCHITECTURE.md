@@ -33,6 +33,37 @@ cdhashes); the script checks that each bundled tool's and dylib's cdhashes are i
 bundled dylib has no pin (or there is no dylib at all).
 A bundle without `dns-updown` pins an empty set for it, so the helper refuses any `dns-updown`.
 
+**Minimum macOS of the tools.** Homebrew's bottles are built for the release runner's macOS
+(`minos 26.0`), above the app's minimum (`LSMinimumSystemVersion`, 13.0). dyld does not refuse a binary
+for that; it stops a tool at launch (`dyld[…]: Symbol not found: _x … (built for macOS 26.0 which is
+newer than running OS)`, exit 134) when the tool or one of its dylibs imports a symbol the running macOS
+lacks. So `bundle-tools.sh` ends with `scripts/check-tool-symbols.sh`: every symbol a bundled tool or
+dylib imports from a macOS library (what dyld binds, `dyld_info -imports`: the chained fixups or bind
+opcodes, plus `nm -m`'s undefined symbols; two-level namespace) must be in that library's list in
+`scripts/system-symbols/<version>/` for the file's minimum, or the build fails. A tool's minimum is the
+app's, or a later one in `TOOL_MINIMUMS` for a tool the app refuses below it (openconnect: 15.4, below);
+a dylib's is the lowest of the tools that load it. Also refused: weak imports of macOS symbols unless
+listed (`WEAK_IMPORTS`, empty), flat-namespace lookups, a macOS library loaded (not weakly) without a
+list even when nothing is imported from it, a bundled dylib that re-exports a macOS library or symbol
+(none does, also in the openconnect closure), and any bundled load path other than the layout above.
+The lists are what each library and the libraries it re-exports export for `arm64` (libSystem with
+`libsystem_c`, `libsystem_kernel`, …), taken once from older SDKs' stubs (`.tbd`), since the current
+SDK's stubs say what exists now, not since when: 13.0 from the macOS 12.3 and 13.1 SDKs (Xcode 13.3
+and 14.2; a symbol is listed when both export it, no 13.0 SDK being at hand), for `libSystem.B`,
+`libresolv.9` and `libutil`, the only macOS libraries the bundled tools load. `SOURCES` in each
+version's directory names the SDKs and the stubs' checksums; `scripts/make-system-symbols.sh`
+writes them again (docs/RELEASING.md, Bundled tools). CI's `Bundled tools on macOS 15` job also runs
+each bundled tool with `--version` on the oldest arm64 runner.
+
+At run time the same failure is recognized in the session log (`VPNLog.toolLoadFailure`): dyld's
+line as the log's first (it comes before anything the tool writes; later lines can be a server's words,
+which openfortivpn prints) and the tool gone. The connect then ends with `PTError.toolUnsupported` ("This VPN tool does not run on this
+version of macOS (Symbol not found: _strchrnul). Check for a PassTunnel update.") and the failure
+kind `tool_unsupported`, not the generic "could not be established". On the Mac, `diagnose` (CLI and
+MCP) runs each tool of the app bundle with `--version` (`BundledTools`: as the user, not through the
+helper, with an empty environment and no input, at most 10 s each, nothing contacted) and reports each
+one's version or why it did not start (`tools`).
+
 ## Targets
 
 | Target | Owns | Depends on |
@@ -957,8 +988,13 @@ passtunnel / app (the user)                          PassTunnelHelper / passtunn
   `libgnutls.30`, `libnettle.9`, `libhogweed.7`, `libgmp.10`, `libp11-kit.0`, `libtasn1.6`,
   `libidn2.0`, `libunistring.5`, `libintl.8`, `libstoken.1`, `libtomcrypt.1`, `libtommath.1`
   (`.dylib`; about 9 MB, `arm64`). Like the `openvpn` and `openfortivpn` bundled today (Homebrew's
-  bottles for the release runner's macOS 26), they carry `minos 26.0`, above the app's documented
-  macOS 13; this backend does not change that existing gap, which is decided separately. `libstoken`,
+  bottles for the release runner's macOS 26), they carry `minos 26.0`. `libopenconnect` and `libidn2`
+  import `strchrnul` (macOS 15.4 and later), so Cisco AnyConnect needs macOS 15.4 (the app stays on
+  13): `check-tool-symbols.sh` holds `openconnect`, and the dylibs only it loads, to 15.4
+  (`TOOL_MINIMUMS`), and #179 adds the 15.4 symbol lists for the macOS libraries this closure loads
+  (`make-system-symbols.sh 15.4 MacOSX15.4.sdk -- /usr/lib/libSystem.B.dylib /usr/lib/libz.1.dylib
+  /usr/lib/libxml2.2.dylib /usr/lib/libiconv.2.dylib /usr/lib/libffi.dylib` and the CoreFoundation,
+  CoreServices, Kerberos, PCSC and Security frameworks). `libstoken`,
   `libtomcrypt`, `libtommath` (RSA SecurID soft tokens, never used) and `libintl` (message catalogs,
   unused with `LC_ALL=C`) are accepted dead weight rather than building openconnect ourselves. The
   rest stays system (`libz`, `libxml2`, `libiconv`, `libffi`, Kerberos, PCSC, Security,
