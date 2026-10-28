@@ -1241,11 +1241,16 @@ code, nor parses the server's login forms (the most complex server-controlled pa
    output that carries it is logged: the sign-in run's standard output is read only by the parser,
    and neither run gets `-v` or `dump-http-traffic` (the tests check that the cookie is absent from the
    log, the errors, the activity and the request's description). `HelperRequest`'s descriptions,
-   mirrors and error texts never include it. Literal masking by `LogRedactor` is not relied on: it runs
-   when a log is read, after the value is gone; it masks `COOKIE=…`, `webvpn…=`/`openconnect_strapkey=`
-   values, `Cookie:`/`Set-Cookie:` headers and a `cookie …` config line anyway, and the sign-in's
-   standard error is passed through it, with the answers and the cookie as literal secrets, before it
-   is written.
+   mirrors and error texts never include it. A server chooses part of what the tunnel run prints (the
+   CONNECT reply's status line, `cstp.c` 384, is logged as it came) and could reflect the cookie there,
+   so the helper does not give openconnect the log itself: its standard output and error go into a pipe,
+   and `MaskingCopier` (Shared) writes them to the log one whole line at a time (at most 16 KiB; the rest
+   of a longer line is dropped, " …" marks the cut), each through `OutputMask`: the cookie literally, and
+   `COOKIE=…`, `webvpn…=`/`openconnect_strapkey=` values, `Cookie:`/`Set-Cookie:` headers and a `cookie …`
+   config line. openconnect ignores SIGPIPE (`main.c` 2348), so if the helper ends first (an update), the
+   session runs on and only its further output is lost. `LogRedactor` applies `OutputMask` as well, when a
+   log is read; the sign-in's standard error is passed through it, with the answers and the cookie as
+   literal secrets, before it is cut and written.
 4. **The tunnel, as root:** `HelperRequest.startOpenConnect` (below). Costs of the split: the cookie
    crosses XPC (or the daemon socket) and sits in a root-only file for the session's life; two runs
    per connect.
@@ -1270,31 +1275,42 @@ i.e. no credentials left the machine; a failure after that is `ConnectionFailure
   with a line break, CR or NUL fails as `invalidField("password")` before anything runs. The bytes are in one
   buffer (`SecretBytes`), and the tool's input copy is overwritten after the run.
 - **Limits:** `Timing.signInTimeout` (60 s; `ToolTimeout` then, with the standard error so far), output kept up
-  to `SystemToolRunner.maxOutput` (1 MiB) per stream, standard output parsed only up to 8 KiB, at most 64 KiB
-  of standard error logged. `disconnect` (and cancelling the connect's task) cancels the run
-  (`ToolCancellation`: the tool is terminated within a quarter second, then killed).
-- **The log:** the run's standard error, redacted, replaces the profile's log (0600), so "Show log" and
-  `ConnectionFailure` describe the sign-in; the helper replaces it again when it starts the tunnel.
+  to `SystemToolRunner.maxOutput` (1 MiB) per stream (`ToolOutput.errorOutputCut` when standard error went
+  past it), standard output parsed only up to 8 KiB, at most 64 KiB of standard error logged. `disconnect`
+  (and cancelling the connect's task) cancels the run (`ToolCancellation`: the tool is terminated within a
+  quarter second, then killed).
+- **The log:** the whole of the run's standard error is redacted first (`AnyConnectSignIn.redacted`: each LF
+  line through `LogRedactor`, with the answers and the cookie as literal values), then cut to 64 KiB of whole
+  lines (an incomplete last line is dropped), so no secret is left in part at the cut. It replaces the
+  profile's log (0600), so "Show log" and `ConnectionFailure` describe the sign-in; the helper replaces it
+  again when it starts the tunnel.
 - **Success** (exit 0): `OpenConnectAuthResult.parse` of standard output, then `checkDestination` (another
   server, port or path, another key than the pin, an address that does not match: `PTError.signInUnusable`,
   with a fixed text naming no value; the cookie goes nowhere); the activity records the sign-in accepted.
-- **Failure** (`VPNLog.openConnectSignInError`, from the standard error and the exit status, in this order):
-  dyld (`toolUnsupported`); a CSD host scan asked for (`hostScanRequired`, owner decision 10: openconnect
-  refuses it itself without `csd-wrapper`, "Server asked us to run CSD hostscan", "… 'Cisco Secure Desktop'
-  trojan"); from the lines before the first TLS session ("Connected to HTTPS on …", after which the server's
-  own text is printed too and could imitate any line): a certificate or key refused
-  (`serverCertificateRejected`, with openconnect's reason and its `--servercert pin-sha256:…` hint as
-  `ConnectionFailure.serverCert`; "Server certificate verify failed" alone is no failure, as openconnect
-  prints it for a pinned server too), the name not found (`hostNotFound`), no answer (`serverUnreachable`);
-  the profile's group not offered (`invalidField("authgroup")`); "User input required in non-interactive
-  mode" (`authFailed` after a submitted form, `signInNeedsMoreAnswers` before); after a submitted form
-  `authFailed`, unless the run ended on a connection that failed (`connectFailed`); else `connectFailed`. A
-  timeout with no TLS session and no form submitted is `serverUnreachable` ("no answer within 60 seconds"),
-  otherwise `connectTimeout`.
 - **Credentials sent** (`VPNLog.openConnectCredentialsSent`): two or more `POST https://` in the standard
-  error, wherever they stand (a text field's prompt is printed without a line break). A redirect counts as
-  well, so a code is never given back that may have reached a server; the server's own text can only add.
-  The manager passes it to `ConnectionFailure.of(credentialsSent:)`; a cookie means sent.
+  error, wherever they stand (a text field's prompt is printed without a line break), counted over the whole
+  of it as it came, before redaction and the log's limit. A redirect counts as well, so a code is never given
+  back that may have reached a server; the server's own text can only add. Evidence that is not complete
+  counts as sent: a run stopped at the deadline (`connectTimeout`, kind `timeout`) and standard error past
+  what is kept. The manager passes it to `ConnectionFailure.of(credentialsSent:)`; a cookie means sent.
+- **Failure** (`VPNLog.openConnectSignInError`, from the whole redacted standard error and the exit status).
+  The server's text is printed among openconnect's lines (form errors and messages, after the first TLS
+  session) and a CR in it could make part of a line look like another, so only whole LF lines of printable
+  ASCII in openconnect's exact 9.21 wording count (`VPNLog.openConnectLines`). In this order: dyld
+  (`toolUnsupported`; it never ran); once a form may have been submitted (above), `authFailed` whatever the
+  rest says: nothing is reported as unsent or retried that may have used the code (a host scan asked for only
+  then, a rejection that quotes "Failed to open HTTPS connection to", a lost connection all count as a
+  refused sign-in); a CSD host scan asked for (`hostScanRequired`, owner decision 10: openconnect refuses it
+  itself without `csd-wrapper`, as the two lines "Error: Server asked us to run CSD hostscan." / "You need to
+  provide a suitable --csd-wrapper argument.", or "Error: Server asked us to download and run a 'Cisco Secure
+  Desktop' trojan." / "This facility is disabled by default for security reasons, so you may wish to enable
+  it.", `auth.c` 1176–1187); from the lines before the first TLS session ("Connected to HTTPS on …", the only
+  stretch with nothing of the server's in it): a certificate or key refused (`serverCertificateRejected`, with
+  openconnect's reason and its `    --servercert pin-sha256:…` hint as `ConnectionFailure.serverCert`; "Server
+  certificate verify failed" alone is no failure, as openconnect prints it for a pinned server too), the name
+  not found (`hostNotFound`), no answer (`serverUnreachable`); the line `Auth choice "<the profile's group>"
+  not available` (`invalidField("authgroup")`); the line "User input required in non-interactive mode"
+  (`signInNeedsMoreAnswers`); else `connectFailed`.
 - **The start request:** `.startOpenConnect` with the profile's host, port, user group, `tls_only`, `set_dns`
   and `set_routes`, the sign-in's `CONNECT_URL`, `RESOLVE` (nil for an IP-address host), cookie and
   `FINGERPRINT` (`server_cert`), and the profile's normalized pin or "" (`profile_server_cert`). No user name,
@@ -1808,9 +1824,11 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
    session whose record says `failed`, has no `up` within 60 s of the start or adoption
    (`VPNHook.setupDeadline`; `reconnecting` counts as up, it only follows `up`), or stays `reconnecting`
    for 120 s (`VPNHook.reconnectDeadline`, counted from the first check that saw it). A record it cannot
-   read at that moment (the hook is appending to it) is looked at again 5 s later. The client reads the same lines: `failed` is
-   `PTError.setupFailed`, the success line the "connected" marker. openconnect's own `Configured as
-   …` (`main.c` 1660) is printed before the hook runs and marks nothing.
+   read at that moment (the hook is appending to it) is looked at again 5 s later. The client learns the same
+   record's status from the helper's `status` reply (`TunnelStatus`, #184): `failed` is `PTError.setupFailed`,
+   `up` is "connected". The log lines are for people (and the address shown); the server writes part of the
+   log, so they decide nothing. openconnect's own `Configured as …` (`main.c` 1660) is printed before the hook
+   runs and marks nothing.
 7. **Stop and revert.** When the helper stops a session it sets `stopping` first (`terminate`), so a
    hook running now applies nothing more. When a session's tool has exited (`Supervisor.finish`;
    `stopAll` after the kill; `adoptOrphans` for a session that is not adopted, and for a record a
@@ -1862,26 +1880,33 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
   | `Server certificate verify failed: …`, `None of the 1 fingerprint(s) specified via --servercert match …` | trust failure; nothing was sent |
   | `getaddrinfo failed for host '…'`, `Failed to connect to host …`, `Failed to open HTTPS connection to …` | `host_not_found` / `unreachable` |
   | `Got CONNECT response: HTTP/1.1 200 OK`, `CSTP connected. DPD …` | root run: tunnel negotiated |
-  | `passtunnel vpn-hook: utun5 up: …` | connected; the interface name (openconnect does not print it at INFO), the routes' count and DNS (`VPNHook.Report.parse`) |
-  | `passtunnel vpn-hook: setting up the network failed: …` | `PTError.setupFailed`; stopped |
-  | `Cookie was rejected by server; exiting.`, `Session terminated by server; exiting.` | dropped; a reconnect signs in again |
+  | `passtunnel vpn-hook: utun5 up: …` | for display: the address (when the line names the interface the helper reports), the routes' count and DNS (`VPNHook.Report.parse`); "connected" itself is the helper's `TunnelStatus` |
+  | `passtunnel vpn-hook: setting up the network failed: …` | for display; `PTError.setupFailed` comes from the helper's `TunnelStatus` |
+  | `Cookie was rejected by server; exiting.`, `Session terminated by server; exiting.` | the tool exits: a drop, and a reconnect signs in again |
 
   `NetworkClaims` reads the session's routes from the routing table through its interface (as for
   openfortivpn) and its DNS from the hook's line.
 
-  As built: the state of a running session is the hook's last line (`VPNLog.openConnectHook`): the success
-  line is "connected" (`observe`, `waitUntilConnected`; the address shown is the report's first), a later
-  failure line is `PTError.setupFailed` (the session is stopped, kind `setup`, not retried), and openconnect's
-  "Cookie was rejected by server" or "Session terminated by server" is `connectFailed` while connecting. A
-  session that comes up within `Timing.anyConnectTimeout` (90 s) is connected; past it the manager stops it
-  (`connectTimeout`, kind `timeout`: the sign-in had reached the server). The tool's exit after "connected" is a
+  As built: whether a running session is up is never read from its log, part of which the server writes
+  (openconnect logs the CONNECT reply's status line as it came, CR included, so a line could be made to look
+  like the hook's). The helper reports it in its `status` reply (`HelperResponse.tunnels`, profile ID →
+  `TunnelStatus`: `setting_up`, `up`, `reconnecting`, `failed` with the hook's reason, or `unknown` while the
+  record is being written; and the interface), read from the hook's root-owned record
+  (`HelperCore.tunnelStatus`, `OpenConnectJournal`). `up` and `reconnecting` are "connected" (`observe`,
+  `waitUntilConnected`, which asks for the status every half second while connecting; `unknown` keeps a
+  connected session connected), `failed` is `PTError.setupFailed` (the session is stopped, kind `setup`, not
+  retried). The log only gives what is shown: the address, from the hook's success line when it names the
+  interface the helper reported, read as whole LF lines of printable ASCII only (`VPNLog.openConnectLines`), and
+  the failure's tail. The tool's exit while connecting is `connectFailed` (`toolUnsupported` when dyld's line comes
+  first). A session that comes up within `Timing.anyConnectTimeout` (90 s) is connected; past it the manager stops
+  it (`connectTimeout`, kind `timeout`: the sign-in had reached the server). The tool's exit after "connected" is a
   drop, handled as for the other types: with `auto_reconnect`, a new sign-in (`performConnect(interactive:
   false)`), whose code waits for the next window when the last one's was sent (`.last-otp`); a hook that
-  refused openconnect's own reconnect stops it, and so ends the same way. `VPNLog.tunnelInterface` names the
-  hook's interface, so the other-VPN check counts the session as PassTunnel's own, and
-  `ProfileNetwork.observedOptions` keeps what it takes over for the overlap check
-  (`ProfileNetwork.anyConnectOptions`: `redirect-gateway def1` with `ipv6`/`!ipv4` as the addresses go for a full
-  tunnel, `dhcp-option DNS`, `DOMAIN` (search) and `DOMAIN-ROUTE` (split DNS) from the hook's line, and the routes
+  refused openconnect's own reconnect stops it, and so ends the same way. The other-VPN check counts the
+  interface the helper reports as PassTunnel's own, and `ProfileNetwork.observedOptions` keeps what the
+  session takes over for the overlap check (`ProfileNetwork.anyConnectOptions`: `redirect-gateway def1` with
+  `ipv6`/`!ipv4` as the addresses go for a full tunnel, `dhcp-option DNS`, `DOMAIN` (search) and `DOMAIN-ROUTE`
+  (split DNS) from the hook's line, read as above, and the routes
   through the interface but its own addresses). Every failure is a `ConnectionFailure` kind:
   `auth_rejected`, `host_not_found`, `unreachable`, `configuration` (certificate or key, with `server_cert`; more
   answers asked for; an unknown group), `host_scan_required` (new), `setup`, `timeout`, `tool_unsupported` (dyld,
@@ -1893,7 +1918,10 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
 with `versionMismatch` and is replaced as today (`HelperBuild.relation`: a lower protocol is `.older`),
 an older client's requests fail the helper's version check, and `passtunneld`'s `hello` reports 4 as
 well. `passtunneld` refuses `startOpenConnect` ("Cisco AnyConnect is not supported by passtunneld
-yet.") before preparing anything, until #187.
+yet.") before preparing anything, until #187. The `status` reply has an optional `tunnels` key since #184:
+profile ID → `TunnelStatus` (`state`, `reason`, `interface`) for the caller's own openconnect sessions,
+from each one's record (above). It stays within protocol 4, which no released helper speaks, and the app
+only works with the helper of its own build (`ensureCompatible`); a reply without the key reads as before.
 
 ```swift
 case startOpenConnect(OpenConnectStart)   // profileID, profileDir, logPath, host, port, usergroup,

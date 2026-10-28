@@ -455,9 +455,15 @@ tunnel show is checked against a test server (#188).
   output with the cookie) become the profile's log after passing the log filter, with your password,
   code and the cookie masked literally.
 - **The one-time code.** It counts as sent once the sign-in run starts (the next connect waits for a
-  fresh code). It is given back only when the run's messages show that no form was submitted: only one
-  request, the first, which carries no credentials. A redirect counts as a second request, so a code
-  that may have reached any server is never reused.
+  fresh code). It is given back only when the run's messages, all of them, show that no form was
+  submitted: only one request, the first, which carries no credentials. A redirect counts as a second
+  request, and a run stopped at its time limit or with more messages than are kept counts as sent, so a
+  code that may have reached any server is never reused. After a form may have been sent, a failure is
+  always a refused sign-in, never retried, whatever the server's text says.
+- **What the server writes into the log decides nothing.** Its text appears among openconnect's
+  messages. Whether the tunnel is up, or its network set-up failed, comes from the helper, which reads
+  the hook's root-owned record; openconnect's messages are read only as whole lines in its exact wording,
+  and certificate and network failures only from before the server's first answer.
 - **Where the sign-in may go.** A server may send the sign-in to another server (load balancing).
   PassTunnel refuses to build a tunnel when the sign-in **ended** on another host or port than the
   profile's (Phase 1), or when the sign-in's log shows a form sent to one; the tunnel run is pinned
@@ -488,8 +494,10 @@ The cookie is a bearer secret: whoever holds it can use your VPN session until t
   encoding the request or by the runtime are not guaranteed to be erased. It is never written to
   your profile folder.
 - **Not logged:** the sign-in run's output, which carries it, is read only by PassTunnel's parser,
-  and neither run gets `-v` or an HTTP dump option, the levels that would print it. The log filter
-  is not relied on for it; it masks the cookie's forms anyway (`COOKIE=`, `webvpn=`, `Cookie:`
+  and neither run gets `-v` or an HTTP dump option, the levels that would print it. A server can still
+  make the tunnel run print text of its choosing (the status line of its CONNECT reply), so the helper
+  copies that run's output into the log through a filter that removes the cookie, whole lines at a time.
+  The filter applied when a log is read masks the cookie's forms as well (`COOKIE=`, `webvpn=`, `Cookie:`
   headers, a `cookie` configuration line). No error message, activity entry or description of the
   start request contains it: a sign-in that cannot be used (it ended on another server, or its output
   is not in the expected form) is reported with a fixed text, since the server chooses every value
