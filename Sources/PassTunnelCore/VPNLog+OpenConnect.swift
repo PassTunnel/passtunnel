@@ -16,11 +16,12 @@ import PassTunnelVPNConfig
 extension VPNLog {
     // MARK: lines
 
-    /// The log's lines, split at LF only, without the ones that hold any other control byte or anything but
-    /// printable ASCII: those are text a server sent (a CR could make a line look like two), never a line of
-    /// openconnect's or the hook's own that is read here.
+    /// The log's complete lines, split at LF only, without the ones that hold any other control byte or anything
+    /// but printable ASCII: those are text a server sent (a CR could make a line look like two), never a line of
+    /// openconnect's or the hook's own that is read here. What follows the last LF is not a line yet (the
+    /// tool was writing it, or a server's text ends there) and is never read.
     static func openConnectLines(_ text: String) -> [Substring] {
-        text.split(separator: "\n", omittingEmptySubsequences: false).filter { line in
+        text.split(separator: "\n", omittingEmptySubsequences: false).dropLast().filter { line in
             line.utf8.allSatisfy { (0x20...0x7E).contains($0) }
         }
     }

@@ -35,18 +35,34 @@ public enum OutputMask {
 }
 
 /// Copies a tool's output from a pipe into its log one whole line at a time, each through `OutputMask`, so a
-/// secret is never written in part. A line longer than `maxLineBytes` is cut there and the rest of it, up to
-/// the next line break, is dropped (" …" marks the cut): masking always sees the complete text it writes.
-/// The tool ignores SIGPIPE (openconnect does), so if this process ends first its output is lost, never
-/// the tool.
+/// secret is never written in part:
+/// - **Whole lines only.** A line longer than `maxLineBytes` is never written, not even in part: it is replaced
+///   as a whole by `overlongMarker` (masking a cut-off part could leave the start of a secret that runs over
+///   the cut). An unterminated last line (the tool ended mid-line) is dropped too.
+/// - **The tool never waits for the log.** One thread drains the pipe into a bounded queue (`maxQueuedLines`,
+///   `maxQueuedBytes`), another writes from it; when the queue is full (the log's file system stalls) lines
+///   are dropped, and the writer notes how many (`droppedMarker`) before the next line it writes. The tool
+///   ignores SIGPIPE (openconnect does), so if this process ends first its output is lost, never the tool.
 public final class MaskingCopier: @unchecked Sendable {
     public static let maxLineBytes = 16 * 1024
+    public static let maxQueuedLines = 4096
+    public static let maxQueuedBytes = 4 << 20
+    public static let overlongMarker = "[output line over 16 KiB dropped]"
+
+    public static func droppedMarker(_ count: Int) -> String { count == 1 ? "[1 line dropped]" : "[\(count) lines dropped]" }
 
     private let readFD: Int32
     private let logFD: Int32
     private let secrets: [String]
+    private let condition = NSCondition()
+    private var queue: [[UInt8]] = []
+    private var queuedBytes = 0
+    private var dropped = 0
+    private var ended = false
+    /// Replaced in tests: writes one line (with its line break) to the log.
+    var writeLine: (Int32, [UInt8]) -> Void = { MaskingCopier.writeAll($0, $1) }
 
-    /// Takes both descriptors over; `run` closes them.
+    /// Takes both descriptors over; they are closed once the output has ended and been written.
     public init(readFD: Int32, logFD: Int32, secrets: [String]) {
         self.readFD = readFD
         self.logFD = logFD
@@ -54,32 +70,81 @@ public final class MaskingCopier: @unchecked Sendable {
     }
 
     public func start(name: String) {
-        let thread = Thread { self.run() }
-        thread.name = name
-        thread.start()
+        let reader = Thread { self.drain() }
+        reader.name = name
+        reader.start()
+        let writer = Thread { self.writeQueued() }
+        writer.name = name + " (log)"
+        writer.start()
     }
 
-    /// Copies until the end of the output (or a read error), then closes both descriptors.
+    /// Both halves on this thread and one more; returns once everything is written (for the tests).
     public func run() {
+        let done = DispatchSemaphore(value: 0)
+        let writer = Thread {
+            self.writeQueued()
+            done.signal()
+        }
+        writer.start()
+        drain()
+        done.wait()
+    }
+
+    /// Reads the pipe to its end, queueing each complete line, never waiting for the writer.
+    func drain() {
         var splitter = Splitter()
         var buffer = [UInt8](repeating: 0, count: 64 << 10)
         while true {
             let n = read(readFD, &buffer, buffer.count)
             if n < 0, errno == EINTR { continue }
             guard n > 0 else { break }
-            for line in splitter.feed(buffer[0..<n]) { write(line) }
+            for line in splitter.feed(buffer[0..<n]) { enqueue(line) }
         }
-        if let last = splitter.finish() { write(last) }
         _ = buffer.withUnsafeMutableBytes { $0.initializeMemory(as: UInt8.self, repeating: 0) }
         close(readFD)
+        condition.lock()
+        ended = true
+        condition.signal()
+        condition.unlock()
+    }
+
+    private func enqueue(_ line: [UInt8]) {
+        condition.lock()
+        if queue.count >= Self.maxQueuedLines || queuedBytes + line.count > Self.maxQueuedBytes {
+            dropped += 1
+        } else {
+            queue.append(line)
+            queuedBytes += line.count
+            condition.signal()
+        }
+        condition.unlock()
+    }
+
+    /// Masks and writes the queued lines until the output has ended and the queue is empty, then closes the log.
+    func writeQueued() {
+        while true {
+            condition.lock()
+            while queue.isEmpty && dropped == 0 && !ended { condition.wait() }
+            if queue.isEmpty && dropped == 0 && ended {
+                condition.unlock()
+                break
+            }
+            let lines = queue
+            let lost = dropped
+            queue.removeAll()
+            queuedBytes = 0
+            dropped = 0
+            condition.unlock()
+            if lost > 0 { writeLine(logFD, Array((Self.droppedMarker(lost) + "\n").utf8)) }
+            for line in lines { writeLine(logFD, Array(masked(line).utf8)) }
+        }
         close(logFD)
     }
 
-    private func write(_ line: Splitter.Line) {
-        var text = OutputMask.apply(String(decoding: line.bytes, as: UTF8.self), secrets: secrets)
-        if line.cut { text += " …" }
-        if line.ended { text += "\n" }
-        Self.writeAll(logFD, Array(text.utf8))
+    /// One queued line as it is written: the marker for an overlong one, else the line masked, with its break.
+    func masked(_ line: [UInt8]) -> String {
+        guard line.count <= Self.maxLineBytes else { return Self.overlongMarker + "\n" }
+        return OutputMask.apply(String(decoding: line, as: UTF8.self), secrets: secrets) + "\n"
     }
 
     /// The log is the user's file: a write that fails (a full disk) loses that output, never the tool.
@@ -93,24 +158,20 @@ public final class MaskingCopier: @unchecked Sendable {
         }
     }
 
-    /// Splits the output into lines at LF, at most `maxLineBytes` each (pure, for the tests).
+    /// Splits the output into complete lines at LF (pure, for the tests). A line over `maxLineBytes` is not
+    /// kept: it comes out as `maxLineBytes + 1` bytes of nothing (`overlong`), which `masked` replaces with
+    /// the marker, so no byte of it is ever written. What follows the last LF is never returned.
     struct Splitter {
-        struct Line: Equatable {
-            var bytes: [UInt8]
-            /// Ended with a line break (the last one may not).
-            var ended: Bool
-            /// The rest of the line beyond `maxLineBytes` was dropped.
-            var cut: Bool
-        }
+        static let overlong = [UInt8](repeating: 0, count: MaskingCopier.maxLineBytes + 1)
 
         private var pending: [UInt8] = []
         private var dropping = false
 
-        mutating func feed(_ chunk: ArraySlice<UInt8>) -> [Line] {
-            var lines: [Line] = []
+        mutating func feed(_ chunk: ArraySlice<UInt8>) -> [[UInt8]] {
+            var lines: [[UInt8]] = []
             for byte in chunk {
                 if byte == 0x0A {
-                    lines.append(Line(bytes: pending, ended: true, cut: dropping))
+                    lines.append(dropping ? Self.overlong : pending)
                     pending.removeAll(keepingCapacity: true)
                     dropping = false
                 } else if !dropping {
@@ -118,16 +179,11 @@ public final class MaskingCopier: @unchecked Sendable {
                         pending.append(byte)
                     } else {
                         dropping = true
+                        pending.removeAll(keepingCapacity: true)
                     }
                 }
             }
             return lines
-        }
-
-        mutating func finish() -> Line? {
-            guard !pending.isEmpty || dropping else { return nil }
-            defer { pending = [] }
-            return Line(bytes: pending, ended: false, cut: dropping)
         }
     }
 }

@@ -182,16 +182,12 @@ struct AnyConnectSignIn: @unchecked Sendable {
             .map { redactor.redact(String($0)) }.joined(separator: "\n")
     }
 
-    /// Redacted text as the log: at most `maxLogBytes`, whole lines only (an incomplete last line is dropped),
-    /// ending with a line break.
+    /// Redacted text as the log: complete lines only, at most `maxLogBytes`. What follows the last line break
+    /// (a line the tool had not finished, at the end or at the cut) is dropped, never stored.
     static func log(_ redacted: String) -> String {
-        var bytes = Array(redacted.utf8)
-        if bytes.count > maxLogBytes {
-            bytes = Array(bytes[..<maxLogBytes])
-            bytes = Array(bytes[..<(bytes.lastIndex(of: 0x0A) ?? 0)])
-        }
-        while bytes.last == 0x0A { bytes.removeLast() }
-        return bytes.isEmpty ? "" : String(decoding: bytes, as: UTF8.self) + "\n"
+        var bytes = Array(redacted.utf8.prefix(maxLogBytes))
+        bytes = Array(bytes[..<(bytes.lastIndex(of: 0x0A).map { $0 + 1 } ?? 0)])
+        return String(decoding: bytes, as: UTF8.self)
     }
 
     /// The profile field a config error is about.

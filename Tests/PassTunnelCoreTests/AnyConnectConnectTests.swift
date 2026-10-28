@@ -951,9 +951,9 @@ final class OpenConnectLogTests: XCTestCase {
         XCTAssertEqual(OutputMask.apply("passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes"), "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes")
     }
 
-    /// The helper's copy of openconnect's output into the log: whole lines, each masked; a line too long is cut
-    /// and its rest dropped.
-    func testMaskingCopier() throws {
+    /// Writes `parts` into a pipe that a copier drains (writing on another thread, so a test fails rather than
+    /// hangs when the copier stops draining); returns what reached the log.
+    func copy(_ parts: [String], copier configure: (MaskingCopier) -> Void = { _ in }, release: (() -> Void)? = nil) throws -> String {
         var fds: [Int32] = [-1, -1]
         XCTAssertEqual(pipe(&fds), 0)
         let logURL = FileManager.default.temporaryDirectory.appendingPathComponent("mask-\(UUID().uuidString).log")
@@ -961,30 +961,110 @@ final class OpenConnectLogTests: XCTestCase {
         let logFD = open(logURL.path, O_WRONLY | O_CREAT | O_TRUNC, 0o600)
         XCTAssertGreaterThanOrEqual(logFD, 0)
         let copier = MaskingCopier(readFD: fds[0], logFD: logFD, secrets: [Out.cookie])
+        configure(copier)
         let done = expectation(description: "copied")
         Thread {
             copier.run()
             done.fulfill()
         }.start()
+        let written = expectation(description: "the tool's writes all went through")
+        let writeFD = fds[1]
+        Thread {
+            for part in parts {
+                let bytes = Array(part.utf8)
+                var offset = 0
+                while offset < bytes.count {
+                    let n = bytes[offset...].withUnsafeBytes { write(writeFD, $0.baseAddress, $0.count) }
+                    guard n > 0 else { break }
+                    offset += n
+                }
+            }
+            close(writeFD)
+            written.fulfill()
+        }.start()
+        wait(for: [written], timeout: 10)
+        release?()
+        wait(for: [done], timeout: 10)
+        return try String(contentsOf: logURL, encoding: .utf8)
+    }
+
+    /// The helper's copy of openconnect's output into the log: whole lines, each masked; an overlong line is
+    /// replaced as a whole, and an unterminated last line is not written.
+    func testMaskingCopier() throws {
         let long = String(repeating: "z", count: MaskingCopier.maxLineBytes + 100)
-        let parts = [
+        let written = try copy([
             "Got CONNECT response: HTTP/1.1 200 \(Out.cookie)\n" + "a " + String(Out.cookie.prefix(10)),
-            String(Out.cookie.dropFirst(10)) + " b\n", long + "\(Out.cookie)\nend"
-        ]
-        for part in parts {
-            let bytes = Array(part.utf8)
-            XCTAssertEqual(bytes.withUnsafeBytes { write(fds[1], $0.baseAddress, $0.count) }, bytes.count)
-        }
-        close(fds[1])
-        wait(for: [done], timeout: 5)
-        let written = try String(contentsOf: logURL, encoding: .utf8)
+            String(Out.cookie.dropFirst(10)) + " b\n", long + "\(Out.cookie)\nnext\nunfinished \(Out.cookie.prefix(8))"
+        ])
         XCTAssertFalse(written.contains(Out.cookie))
-        XCTAssertFalse(written.contains(String(Out.cookie.prefix(12))), "split across reads, masked whole")
-        let lines = written.components(separatedBy: "\n")
-        XCTAssertEqual(lines[0], "Got CONNECT response: HTTP/1.1 200 <redacted>")
-        XCTAssertEqual(lines[1], "a <redacted> b")
-        XCTAssertEqual(lines[2], String(repeating: "z", count: MaskingCopier.maxLineBytes) + " …")
-        XCTAssertEqual(lines[3], "end")
+        XCTAssertFalse(written.contains(String(Out.cookie.prefix(8))), "split across reads, masked whole; the unfinished line dropped")
+        XCTAssertEqual(
+            written,
+            "Got CONNECT response: HTTP/1.1 200 <redacted>\na <redacted> b\n\(MaskingCopier.overlongMarker)\nnext\n")
+    }
+
+    /// A bare cookie that runs over the 16 KiB limit leaves nothing of itself: the line is replaced whole.
+    func testACookieOverTheLineLimitLeavesNoPrefix() throws {
+        for before in [MaskingCopier.maxLineBytes - 10, MaskingCopier.maxLineBytes - 1, MaskingCopier.maxLineBytes] {
+            let written = try copy([String(repeating: "w", count: before) + Out.cookie + " tail\n", "after\n"])
+            XCTAssertFalse(written.contains(String(Out.cookie.prefix(4))), "\(before)")
+            XCTAssertFalse(written.contains("w"))
+            XCTAssertEqual(written, MaskingCopier.overlongMarker + "\nafter\n")
+        }
+        // Exactly at the limit, the line is kept, and masked.
+        let exact = String(repeating: "v", count: MaskingCopier.maxLineBytes - Out.cookie.utf8.count) + Out.cookie
+        XCTAssertEqual(try copy([exact + "\n"]), String(repeating: "v", count: MaskingCopier.maxLineBytes - Out.cookie.utf8.count) + "<redacted>\n")
+    }
+
+    /// A log that does not take writes (a stalled file system) never holds the tool up: the pipe is drained,
+    /// lines past the queue's bound are dropped, and the log says how many.
+    func testAStalledLogNeverBlocksTheTool() throws {
+        let gate = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var lines: [String] = []
+        let count = MaskingCopier.maxQueuedLines * 3
+        let parts = (0..<count).map { "line \($0) " + String(repeating: "p", count: 100) + "\n" }
+        _ = try copy(
+            parts,
+            copier: { copier in
+                var first = true
+                copier.writeLine = { _, bytes in
+                    if first {
+                        first = false
+                        gate.wait()  // the log stalls until the tool has written everything
+                    }
+                    lock.lock()
+                    lines.append(String(decoding: bytes, as: UTF8.self))
+                    lock.unlock()
+                }
+            },
+            release: { gate.signal() })
+        lock.lock()
+        defer { lock.unlock() }
+        let markers = lines.filter { $0.hasPrefix("[") }
+        XCTAssertEqual(markers.count, 1, "\(markers)")
+        let dropped = Int(markers[0].dropFirst().prefix { $0.isNumber }) ?? 0
+        XCTAssertGreaterThan(dropped, 0)
+        XCTAssertEqual(lines.count - 1 + dropped, count, "every line written or counted")
+        XCTAssertEqual(markers[0], MaskingCopier.droppedMarker(dropped) + "\n")
+    }
+
+    /// Only complete lines are stored or read: an unterminated last line changes nothing.
+    func testAnUnterminatedLastLineIsNeitherStoredNorRead() {
+        XCTAssertEqual(AnyConnectSignIn.log("complete\npartial"), "complete\n")
+        XCTAssertEqual(AnyConnectSignIn.log("complete\n"), "complete\n")
+        XCTAssertEqual(AnyConnectSignIn.log("partial"), "")
+        let start = Out.post + Out.tls + "XML POST enabled\n"
+        let unterminated = start + "User input required in non-interactive mode"
+        XCTAssertEqual(
+            VPNLog.openConnectSignInError(unterminated, status: 1, credentialsSent: false, authgroup: "", server: "vpn.example.com"),
+            .connectFailed(VPNLog.tail(unterminated)))
+        let hostScan = start + "Error: Server asked us to run CSD hostscan.\nYou need to provide a suitable --csd-wrapper argument."
+        XCTAssertEqual(
+            VPNLog.openConnectSignInError(hostScan, status: 1, credentialsSent: false, authgroup: "", server: "vpn.example.com"),
+            .connectFailed(VPNLog.tail(hostScan)))
+        XCTAssertNil(VPNLog.openConnectHook("passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes"))
+        XCTAssertNotNil(VPNLog.openConnectHook("passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes\n"))
     }
 
     /// The helper's report of a session's network, from the hook's record, never from the log.

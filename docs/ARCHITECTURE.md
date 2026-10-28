@@ -1244,8 +1244,12 @@ code, nor parses the server's login forms (the most complex server-controlled pa
    mirrors and error texts never include it. A server chooses part of what the tunnel run prints (the
    CONNECT reply's status line, `cstp.c` 384, is logged as it came) and could reflect the cookie there,
    so the helper does not give openconnect the log itself: its standard output and error go into a pipe,
-   and `MaskingCopier` (Shared) writes them to the log one whole line at a time (at most 16 KiB; the rest
-   of a longer line is dropped, " …" marks the cut), each through `OutputMask`: the cookie literally, and
+   and `MaskingCopier` (Shared) writes them to the log one complete line at a time, each through
+   `OutputMask`. A line over 16 KiB is never written, not even in part (a secret could run over any cut): it
+   is replaced as a whole by `[output line over 16 KiB dropped]`, and an unterminated last line is dropped.
+   One thread drains the pipe into a bounded queue (4,096 lines, 4 MiB), another writes from it, so openconnect
+   never waits for the log: when a stalled file system fills the queue, lines are dropped and
+   `[N lines dropped]` is written before the next one. `OutputMask` masks the cookie literally, and
    `COOKIE=…`, `webvpn…=`/`openconnect_strapkey=` values, `Cookie:`/`Set-Cookie:` headers and a `cookie …`
    config line. openconnect ignores SIGPIPE (`main.c` 2348), so if the helper ends first (an update), the
    session runs on and only its further output is lost. `LogRedactor` applies `OutputMask` as well, when a
@@ -1280,8 +1284,9 @@ i.e. no credentials left the machine; a failure after that is `ConnectionFailure
   (and cancelling the connect's task) cancels the run (`ToolCancellation`: the tool is terminated within a
   quarter second, then killed).
 - **The log:** the whole of the run's standard error is redacted first (`AnyConnectSignIn.redacted`: each LF
-  line through `LogRedactor`, with the answers and the cookie as literal values), then cut to 64 KiB of whole
-  lines (an incomplete last line is dropped), so no secret is left in part at the cut. It replaces the
+  line through `LogRedactor`, with the answers and the cookie as literal values), then cut to 64 KiB of complete
+  lines (what follows the last line break, at the cut or at the end, is dropped), so no secret is left in part
+  at the cut. The classification reads complete lines only too: an unterminated last line is never read. It replaces the
   profile's log (0600), so "Show log" and `ConnectionFailure` describe the sign-in; the helper replaces it
   again when it starts the tunnel.
 - **Success** (exit 0): `OpenConnectAuthResult.parse` of standard output, then `checkDestination` (another
