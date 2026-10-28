@@ -263,9 +263,12 @@ public enum CLICommand: Equatable {
                     throw CLIUsageError(String(localized: "--server is for Cisco AnyConnect profiles (--type anyconnect)."), command: name)
                 }
                 guard let parsed = AnyConnectServer.parse(serverText) else {
+                    // Never echoes the value: it may carry a password (user info) or a token (a query).
                     throw CLIUsageError(
-                        String(localized: "“\(serverText)” is not a server address (use https://vpn.example.com[:port][/group])."),
-                        command: name)
+                        String(
+                            localized:
+                                "--server needs an https:// address like https://vpn.example.com[:port][/group], without user info, a query or a fragment."
+                        ), command: name)
                 }
                 server = parsed
             }
@@ -472,7 +475,9 @@ public enum CLICommand: Equatable {
 
         func rejectUnknownOptions() throws {
             if let unknown = items.first(where: { $0.hasPrefix("-") && $0 != "-" }) {
-                throw CLIUsageError(String(localized: "Unknown option “\(unknown)”."), command: command)
+                // Without a value after "=": it could be a password or a token typed with the wrong option name.
+                let name = unknown.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)[0]
+                throw CLIUsageError(String(localized: "Unknown option “\(String(name))”."), command: command)
             }
         }
 

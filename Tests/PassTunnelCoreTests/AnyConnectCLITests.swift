@@ -114,8 +114,37 @@ final class AnyConnectCLITests: CoreTestCase {
                 let usage = error as? CLIUsageError
                 XCTAssertEqual(usage?.command, "add", server)
                 XCTAssertEqual(AutomationErrorCode.of(error), .invalidArgument)
-                if !server.isEmpty { XCTAssertTrue(usage?.message.contains(server) ?? false, "\(server): \(String(describing: usage?.message))") }
+                if server.count > 8 { XCTAssertFalse(usage?.message.contains(server) ?? true, "\(server) is not echoed") }
             }
+        }
+    }
+
+    /// A refused address may carry a password (user info) or a token (a query): no error repeats it, in text or JSON.
+    func testARefusedServerAddressNeverEchoesItsSecrets() throws {
+        let secrets = ["MyPassword", "tok3n-9f2c", "frag-s3cret"]
+        let lines: [[String]] = [
+            ["add", "Acme", "--type", "anyconnect", "--server", "https://alice:MyPassword@vpn.example.com"],
+            ["add", "Acme", "--type", "anyconnect", "--server=https://alice:MyPassword@vpn.example.com/staff"],
+            ["add", "Acme", "--type", "anyconnect", "--server", "https://vpn.example.com/?token=tok3n-9f2c"],
+            ["add", "Acme", "--type", "anyconnect", "--server", "https://vpn.example.com/staff#frag-s3cret"],
+            ["add", "Acme", "--type", "anyconnect", "--server", "ftp://alice:MyPassword@vpn.example.com"],
+            // The wrong option name: refused as unknown, without what follows the "=".
+            ["add", "Acme", "--type", "anyconnect", "--servr=https://alice:MyPassword@vpn.example.com"],
+            ["add", "Acme", "--type", "forti", "--server", "https://alice:MyPassword@vpn.example.com"]
+        ]
+        for args in lines {
+            XCTAssertThrowsError(try parse(args), args.joined(separator: " ")) { error in
+                XCTAssertTrue(error is CLIUsageError)
+                var shown = error.localizedDescription + ((error as? CLIUsageError)?.message ?? "")
+                shown += String(decoding: (try? AutomationJSON.encoder().encode(ErrorEnvelope(error))) ?? Data(), as: UTF8.self)
+                for secret in secrets { XCTAssertFalse(shown.contains(secret), "\(secret) in: \(shown)") }
+                XCTAssertFalse(shown.contains("alice:"), shown)
+            }
+        }
+        // It says what is wrong instead.
+        XCTAssertThrowsError(try parse(lines[0])) {
+            let message = ($0 as? CLIUsageError)?.message ?? ""
+            XCTAssertTrue(message.contains("without user info, a query or a fragment"), message)
         }
     }
 

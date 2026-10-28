@@ -533,6 +533,16 @@
         }
       }
     },
+    "--server needs an https:// address like https://vpn.example.com[:port][/group], without user info, a query or a fragment." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--server için https://vpn.example.com[:port][/grup] gibi bir https:// adresi gerekir; kullanıcı bilgisi, sorgu veya parça içeremez."
+          }
+        }
+      }
+    },
     "--timeout needs a number of seconds (1–86400)." : {
       "localizations" : {
         "tr" : {
@@ -9423,16 +9433,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "PassTunnel “%@” dosyasını açamıyor"
-          }
-        }
-      }
-    },
-    "“%@” is not a server address (use https://vpn.example.com[:port][/group])." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "“%@” bir sunucu adresi değil (https://vpn.example.com[:port][/grup] biçimini kullanın)."
           }
         }
       }
