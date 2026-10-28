@@ -87,16 +87,20 @@ public enum Spawner {
     /// kernel actually loaded. Checking the file before the spawn alone is not enough: the path is
     /// opened again by posix_spawn, and whoever can write the app bundle could swap the file in between.
     /// If the check fails, the process is killed and reaped before it ran, and the error is rethrown.
+    /// `beforeResume` runs after the check and before the process runs (the helper records the session's
+    /// `state` there, which openconnect's hook relies on); if it throws, the process is killed and reaped
+    /// the same way.
     public static func spawnVerified(
         executable: String, arguments: [String], environment: [String],
         workingDirectory: String, outputFD: Int32,
-        verifier: LaunchVerifier
+        verifier: LaunchVerifier, beforeResume: (pid_t) throws -> Void = { _ in }
     ) throws -> pid_t {
         let pid = try spawn(
             executable: executable, arguments: arguments, environment: environment,
             workingDirectory: workingDirectory, outputFD: outputFD, suspended: true)
         do {
             try verifier.verify(pid: pid, executable: executable)
+            try beforeResume(pid)
         } catch {
             killAndReap(pid)
             throw error

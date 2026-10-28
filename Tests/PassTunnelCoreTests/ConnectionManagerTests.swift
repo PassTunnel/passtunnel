@@ -189,6 +189,9 @@ final class FakeHelper: HelperClienting, @unchecked Sendable {
             write(startLog, to: s.logPath)
             if !locked({ exitAtStart }) { locked { _running[s.profileID] = 4343 } }
             return .success(pid: 4343)
+        case .startOpenConnect:
+            // Nothing sends it before #184.
+            return .failure("unexpected request")
         case .stop(let id):
             // Like the helper: the pid only when something was running.
             let pid = locked { _running[id] }

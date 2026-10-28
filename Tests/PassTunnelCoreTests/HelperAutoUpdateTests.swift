@@ -116,7 +116,12 @@ final class HelperAutoUpdateTests: XCTestCase {
             P(pid: 201, parent: 1, name: "openvpn", path: "/opt/homebrew/sbin/openvpn"),
             P(pid: 202, parent: 1, name: "openvpn", path: nil),
             // The app itself is not a session.
-            P(pid: 300, parent: 1, name: "PassTunnel", path: "/Applications/PassTunnel.app/Contents/MacOS/PassTunnel")
+            P(pid: 300, parent: 1, name: "PassTunnel", path: "/Applications/PassTunnel.app/Contents/MacOS/PassTunnel"),
+            // Cisco AnyConnect: openconnect counts like the others; its hook (a copy of the helper, run by
+            // openconnect) is neither a session nor a helper.
+            P(pid: 104, parent: 100, name: "openconnect", path: "/private/var/run/passtunnel/tools/ab/Resources/bin/openconnect"),
+            P(pid: 105, parent: 1, name: "openconnect", path: "/Applications/PassTunnel.app/Contents/Resources/bin/openconnect"),
+            P(pid: 106, parent: 104, name: "vpn-hook", path: "/private/var/run/passtunnel/tools/ab/Resources/bin/vpn-hook")
         ]
         let ids = [
             "/Applications/PassTunnel.app": PT.bundleID,
@@ -125,7 +130,7 @@ final class HelperAutoUpdateTests: XCTestCase {
         let pids = HelperSessions.toolPIDs(
             in: processes, bundleIdentifier: { ids[$0] },
             exists: { ids[$0] != nil })
-        XCTAssertEqual(pids, [101, 102, 103])
+        XCTAssertEqual(pids, [101, 102, 103, 104, 105])
     }
 
     func testNoHelperNoTools() {

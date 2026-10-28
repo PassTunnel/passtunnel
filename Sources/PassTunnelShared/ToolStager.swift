@@ -17,6 +17,12 @@ import Foundation
 /// root-owned and checked by the helper, and macOS empties `/var/run` when the Mac starts, so a copy
 /// lives no longer than needed and nothing is left behind once PassTunnel is removed. Copying the few
 /// megabytes again on the first connection after a restart is cheap.
+///
+/// The copy also holds openconnect's hook, `Resources/bin/vpn-hook` (`VPNHook`): a copy of the running
+/// helper's own executable, read from the descriptor the helper opened when it started (so an app update
+/// that replaced the file since still gives this helper's bytes). It has no pin of its own: it is accepted
+/// only when its SHA-256 is `buildID` (byte-identical to the running helper) and it satisfies the helper's
+/// signing requirement.
 public struct ToolStager {
     /// The app's `Contents` directory (holds `Resources/bin` and `Frameworks`).
     public var bundleContents: String
@@ -30,6 +36,10 @@ public struct ToolStager {
     public var libraryPins: [String: Set<String>]
     public var toolRequirement: (HelperCore.Tool) -> String
     public var libraryRequirement: String
+    /// Open descriptor of the helper's own executable, staged as the hook; nil: no hook is staged.
+    public var hookSource: Int32?
+    /// The hook's signing requirement (the helper's own).
+    public var hookRequirement: String
     /// Validates a file's static signature against a requirement and returns its cdhash (replaced in tests).
     var validate: (_ path: String, _ requirement: String) throws -> String
 
@@ -45,18 +55,21 @@ public struct ToolStager {
         toolPins: [String: Set<String>] = PinnedTools.cdhashes,
         libraryPins: [String: Set<String>] = PinnedTools.libraryCDHashes,
         toolRequirement: @escaping (HelperCore.Tool) -> String = { PT.toolRequirement(identifier: $0.signingIdentifier) },
-        libraryRequirement: String = PT.teamRequirement
+        libraryRequirement: String = PT.teamRequirement, hookSource: Int32? = nil,
+        hookRequirement: String = PT.toolRequirement(identifier: PT.helperIdentifier)
     ) {
         self.init(
             bundleContents: bundleContents, runRoot: runRoot, buildID: buildID, toolPins: toolPins,
             libraryPins: libraryPins, toolRequirement: toolRequirement, libraryRequirement: libraryRequirement,
+            hookSource: hookSource, hookRequirement: hookRequirement,
             validate: { try CodeSignature.verify(path: $0, requirement: $1) })
     }
 
     init(
         bundleContents: String, runRoot: String, buildID: String, toolPins: [String: Set<String>],
         libraryPins: [String: Set<String>], toolRequirement: @escaping (HelperCore.Tool) -> String,
-        libraryRequirement: String, validate: @escaping (_ path: String, _ requirement: String) throws -> String
+        libraryRequirement: String, hookSource: Int32? = nil, hookRequirement: String = PT.toolRequirement(identifier: PT.helperIdentifier),
+        validate: @escaping (_ path: String, _ requirement: String) throws -> String
     ) {
         self.bundleContents = bundleContents
         self.runRoot = runRoot
@@ -65,6 +78,8 @@ public struct ToolStager {
         self.libraryPins = libraryPins
         self.toolRequirement = toolRequirement
         self.libraryRequirement = libraryRequirement
+        self.hookSource = hookSource
+        self.hookRequirement = hookRequirement
         self.validate = validate
     }
 
@@ -72,7 +87,21 @@ public struct ToolStager {
     public struct Staged: Equatable {
         /// `<runRoot>/tools/<buildID>` with symlinks resolved (as `proc_pidpath` reports the tools).
         public let directory: String
+        /// Whether openconnect's hook was staged and checked with the tools (`hookSource`).
+        public let hasHook: Bool
+
+        public init(directory: String, hasHook: Bool = false) {
+            self.directory = directory
+            self.hasHook = hasHook
+        }
+
         public func executable(_ tool: HelperCore.Tool) -> String { directory + "/Resources/bin/" + tool.rawValue }
+
+        /// openconnect's hook; throws `HookMissing` when this stager has none to stage.
+        public func hook() throws -> String {
+            guard hasHook else { throw HookMissing() }
+            return directory + "/Resources/bin/" + VPNHook.name
+        }
     }
 
     /// Build ID check: it becomes a path component.
@@ -123,7 +152,7 @@ public struct ToolStager {
         where entry != buildID && !inUse.contains(entry) {
             HelperCore.removeEntry(toolsRoot + "/" + entry)
         }
-        return Staged(directory: dir)
+        return Staged(directory: dir, hasHook: hookSource != nil)
     }
 
     /// The build directory name of a staged executable path (for `stage(inUse:)`), nil for any other path.
@@ -144,6 +173,9 @@ public struct ToolStager {
             try Self.copyFile(
                 bundleContents + "/Resources/bin/" + tool.rawValue,
                 to: dir + "/Resources/bin/" + tool.rawValue, mode: Self.toolMode)
+        }
+        if let hookSource {
+            try Self.copyFile(descriptor: hookSource, to: dir + "/Resources/bin/" + VPNHook.name, mode: Self.toolMode)
         }
         for lib in libraries {
             guard ProfileDirectory.isPlainName(lib) else { throw HelperCore.Failure.notARegularFile(lib) }
@@ -176,6 +208,40 @@ public struct ToolStager {
         guard fchmod(dfd, mode) == 0 else { throw HelperCore.Failure.system("chmod \(dst)", errno) }
     }
 
+    /// Copies the data of the regular file open at `descriptor` (from its start, whatever its offset) into a
+    /// new file.
+    static func copyFile(descriptor sfd: Int32, to dst: String, mode: mode_t) throws {
+        var st = stat()
+        guard fstat(sfd, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG else { throw HelperCore.Failure.notARegularFile(dst) }
+        guard st.st_size <= maxFileBytes else { throw HelperCore.Failure.fileTooLarge(dst) }
+        let dfd = open(dst, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard dfd >= 0 else { throw HelperCore.Failure.system("create \(dst)", errno) }
+        defer { close(dfd) }
+        var buffer = [UInt8](repeating: 0, count: 1 << 20)
+        var offset: off_t = 0
+        while true {
+            let n = buffer.withUnsafeMutableBytes { pread(sfd, $0.baseAddress, $0.count, offset) }
+            if n < 0 {
+                if errno == EINTR { continue }
+                throw HelperCore.Failure.system("read \(dst)", errno)
+            }
+            if n == 0 { break }
+            var written = 0
+            while written < n {
+                let w = buffer.withUnsafeBytes { write(dfd, $0.baseAddress! + written, n - written) }
+                if w < 0 {
+                    if errno == EINTR { continue }
+                    throw HelperCore.Failure.system("write \(dst)", errno)
+                }
+                written += w
+            }
+            offset += off_t(n)
+            guard offset <= maxFileBytes else { throw HelperCore.Failure.fileTooLarge(dst) }
+        }
+        if geteuid() == 0, fchown(dfd, 0, 0) != 0 { throw HelperCore.Failure.system("chown \(dst)", errno) }
+        guard fchmod(dfd, mode) == 0 else { throw HelperCore.Failure.system("chmod \(dst)", errno) }
+    }
+
     static func restrict(_ dir: String, mode: mode_t) throws {
         if geteuid() == 0, lchown(dir, 0, 0) != 0 { throw HelperCore.Failure.system("chown \(dir)", errno) }
         guard lchmod(dir, mode) == 0 else { throw HelperCore.Failure.system("chmod \(dir)", errno) }
@@ -191,7 +257,7 @@ public struct ToolStager {
         try Self.checkEntry(dir + "/Resources", type: S_IFDIR, mode: Self.dirMode)
         try Self.checkEntries(dir + "/Resources", ["bin"])
         try Self.checkEntry(dir + "/Resources/bin", type: S_IFDIR, mode: Self.dirMode)
-        try Self.checkEntries(dir + "/Resources/bin", HelperCore.Tool.allCases.map(\.rawValue))
+        try Self.checkEntries(dir + "/Resources/bin", HelperCore.Tool.allCases.map(\.rawValue) + (hookSource == nil ? [] : [VPNHook.name]))
         try Self.checkEntry(dir + "/Frameworks", type: S_IFDIR, mode: Self.dirMode)
         try Self.checkEntries(dir + "/Frameworks", libraries)
         let pinned = !toolPins.isEmpty
@@ -201,11 +267,31 @@ public struct ToolStager {
             let cdhash = try validate(path, toolRequirement(tool))
             try PinnedTools.check(tool.rawValue, cdhash: cdhash, allowed: PinnedTools.allowed(tool.rawValue, pins: toolPins))
         }
+        if hookSource != nil {
+            let path = dir + "/Resources/bin/" + VPNHook.name
+            try Self.checkEntry(path, type: S_IFREG, mode: Self.toolMode)
+            guard HelperBuild.digest(ofFile: path) == buildID else { throw HookMismatch() }
+            _ = try validate(path, hookRequirement)
+        }
         for lib in libraries {
             let path = dir + "/Frameworks/" + lib
             try Self.checkEntry(path, type: S_IFREG, mode: Self.libraryMode)
             let cdhash = try validate(path, libraryRequirement)
             try PinnedTools.check(lib, cdhash: cdhash, allowed: pinned ? libraryPins[lib] ?? [] : nil)
+        }
+    }
+
+    /// The helper could not open its own executable when it started, so there is no hook to stage.
+    public struct HookMissing: Error, Equatable, CustomStringConvertible {
+        public var description: String {
+            "\(VPNHook.name) could not be staged. Restart the PassTunnel helper (or the Mac) and try again."
+        }
+    }
+
+    /// The staged hook is not byte-identical to the running helper.
+    public struct HookMismatch: Error, Equatable, CustomStringConvertible {
+        public var description: String {
+            "\(VPNHook.name) is not this helper's build. Restart the PassTunnel helper (or the Mac) and try again."
         }
     }
 

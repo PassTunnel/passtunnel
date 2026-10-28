@@ -31,6 +31,24 @@ public enum HelperBuild {
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
+    /// Hex SHA-256 of the file open at `fd`, read from its start whatever its offset; nil when it cannot be read.
+    public static func digest(ofDescriptor fd: Int32) -> String? {
+        var hasher = SHA256()
+        var buffer = [UInt8](repeating: 0, count: 1 << 20)
+        var offset: off_t = 0
+        while true {
+            let n = buffer.withUnsafeMutableBytes { pread(fd, $0.baseAddress, $0.count, offset) }
+            if n < 0 {
+                if errno == EINTR { continue }
+                return nil
+            }
+            if n == 0 { break }
+            hasher.update(data: buffer[0..<n])
+            offset += off_t(n)
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
     /// The running process's executable, as the kernel reports it (symlinks resolved); Foundation's
     /// answer elsewhere than on the Mac.
     public static var currentExecutablePath: String? {

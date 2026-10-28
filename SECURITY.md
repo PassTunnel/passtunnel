@@ -149,9 +149,10 @@ FortiGate, stop, and status. It enforces the following rules on every request.
   `pkcs11-helper`) from its own app bundle (located through the kernel, not `argv[0]`). The bundle
   also holds `Contents/Resources/bin/openconnect` and its libraries (GnuTLS, nettle, GMP, p11-kit,
   libtasn1, libidn2, libunistring, libintl, stoken, libtomcrypt, libtommath) for Cisco AnyConnect
-  ([below](#cisco-anyconnect-planned)): they are copied and checked with the others, but **nothing
-  starts `openconnect` yet**, and it will need macOS 15.4 or later (dyld stops Homebrew's build on an
-  older macOS). Its p11-kit and GnuTLS read no configuration from the Homebrew prefix
+  ([below](#cisco-anyconnect-planned)): they are copied and checked with the others. The helper
+  starts `openconnect` only for its Cisco AnyConnect request, which **nothing in the app sends yet**,
+  and only on macOS 15.4 or later (dyld stops Homebrew's build on an older macOS; the helper refuses
+  before it copies or starts anything). Its p11-kit and GnuTLS read no configuration from the Homebrew prefix
   ([Paths compiled into the Homebrew build](#paths-compiled-into-the-homebrew-build)). The bundle can
   be changed or renamed by the user who installed it, so the helper does not run the tools from there:
   it copies them, without following symlinks, into `/var/run/passtunnel/tools/<helper build>/`
@@ -418,9 +419,13 @@ characters in it are replaced.
 ## Cisco AnyConnect (planned)
 
 **Not in any release yet.** Support for Cisco AnyConnect through OpenConnect (issue #2, Phase 1:
-password and one-time code, no single sign-on, Mac and Linux) is designed but not implemented. This
+password and one-time code, no single sign-on, Mac and Linux) is designed and being implemented. This
 section is the threat model the pull requests #179–#189 are reviewed against; the details are in
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#cisco-anyconnect-backend-planned).
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#cisco-anyconnect-backend-planned). In place so far: the
+bundled tool (#179), the configuration checks (#180), the profile (#181) and the helper's side of a
+session (#182): the helper accepts a start request, checks every field of it again and runs
+`openconnect` as described below, but nothing in the app sends that request yet (#184), and the hook
+that would set up the network is a stub that stops the session (#183).
 
 ### What changes
 
@@ -428,9 +433,10 @@ section is the threat model the pull requests #179–#189 are reviewed against; 
   GMP, p11-kit, libtasn1, libidn2, libunistring) and three unused libraries Homebrew links in
   (gettext's libintl, and stoken with libtomcrypt and libtommath for RSA SecurID tokens). They are
   copied, signature-checked and pinned by cdhash exactly like `openvpn` and its libraries, and their
-  own vulnerabilities apply as root once the helper runs it (#182). Since #179 they are in the app
-  bundle and in the helper's root-owned copy, pinned, but not run; `diagnose` runs `openconnect
-  --version` as you (macOS 15.4 and later only), nothing else does.
+  own vulnerabilities apply as root once the helper runs it. Since #179 they are in the app bundle and
+  in the helper's root-owned copy, pinned; since #182 the helper starts `openconnect` for a Cisco
+  AnyConnect start request (macOS 15.4 and later only), which nothing in the app sends yet. `diagnose`
+  runs `openconnect --version` as you (macOS 15.4 and later only).
 - **Signing in runs as you, not as root.** Your password and one-time code go to an `openconnect
   --authenticate` run under your own account, on its standard input. The helper receives only what
   that run returns: the session cookie, the server's public key fingerprint and the address it
@@ -490,8 +496,16 @@ names are openconnect's own, so a server cannot set `BASH_ENV` or similar.
   network service's DNS servers permanently with `networksetup` (and empties them on disconnect,
   deleting servers you had set by hand), replaces the default route, and hands unchecked values to
   shell commands. openconnect always gets PassTunnel's own hook, `vpn-hook`, instead: on the Mac a
-  root-owned copy of the helper itself (checked by hash against the running helper), on Linux
-  `passtunneld`.
+  root-owned copy of the helper itself (checked by hash against the running helper and by its
+  signature), on Linux `passtunneld`. The copy acts as the hook only when both the file the system
+  reports for the process and the name it was started under are `vpn-hook`, so the installed helper
+  can never be made to act as the hook, and the copy never acts as the helper.
+- **Until the hook is finished (#183) it fails closed.** It reads nothing from its environment and
+  changes no network setting: it writes "setting up the network failed: not supported yet" to the
+  session log and, once it has proven from the process tree and the helper's root-only session files
+  (not from anything openconnect or the server passes) which PassTunnel session's `openconnect` ran it,
+  stops that `openconnect`. Independently, the helper stops every Cisco AnyConnect session whose network
+  set-up was not reported within 60 seconds, which before #183 is every one.
 - **Every value it uses is checked first**, as for OpenVPN's DNS on Linux: addresses must parse and
   are written back in canonical form, masks must be consistent, domains must be plain host names,
   the interface must be a tunnel interface that exists, and lists have limits (3 DNS servers, 16

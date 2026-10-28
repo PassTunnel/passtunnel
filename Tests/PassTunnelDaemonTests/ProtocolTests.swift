@@ -39,9 +39,9 @@ final class DaemonCallTests: XCTestCase {
         XCTAssertEqual(data, try request.jsonData())
         XCTAssertEqual(try HelperCore.decodeRequest(data), request)
 
-        let spaced = #"{ "request" : { "type": "status", "protocol_version": 3 } , "op": "perform" }"#
+        let spaced = #"{ "request" : { "type": "status", "protocol_version": 4 } , "op": "perform" }"#
         guard case .perform(let raw) = try parse(spaced) else { return XCTFail("not perform") }
-        XCTAssertEqual(String(decoding: raw, as: UTF8.self), #"{ "type": "status", "protocol_version": 3 }"#)
+        XCTAssertEqual(String(decoding: raw, as: UTF8.self), #"{ "type": "status", "protocol_version": 4 }"#)
         XCTAssertEqual(try HelperCore.decodeRequest(raw), .status)
         // Whatever the request is, it is HelperCore's to judge.
         guard case .perform(let scalar) = try parse(#"{"op":"perform","request":42}"#) else { return XCTFail("not perform") }

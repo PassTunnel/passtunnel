@@ -105,10 +105,10 @@ public enum HelperSessions {
         }
     }
 
-    static let toolNames: Set<String> = ["openvpn", "openfortivpn"]
+    static let toolNames: Set<String> = Set(HelperCore.Tool.allCases.map(\.rawValue))
 
     /// PIDs of VPN tools run for PassTunnel: children of a PassTunnel helper, and the tools inside an
-    /// app bundle (`<app>/Contents/Resources/bin/openvpn|openfortivpn`) whose bundle identifier is
+    /// app bundle (`<app>/Contents/Resources/bin/openvpn|openfortivpn|openconnect`) whose bundle identifier is
     /// PassTunnel's or that is gone from disk (replaced by an update). A restarted helper adopts
     /// tools that are no longer its children, hence the path check.
     public static func toolPIDs(

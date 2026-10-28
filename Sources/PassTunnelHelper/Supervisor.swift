@@ -67,9 +67,15 @@ final class Supervisor {
         queue.async {
             switch request {
             case .startOpenVPN(let s):
-                reply(self.start(profileID: s.profileID, uid: uid) { try self.core.prepareOpenVPN(s, uid: uid) })
+                reply(self.start(profileID: s.profileID, uid: uid) { _ in try self.core.prepareOpenVPN(s, uid: uid) })
             case .startForti(let s):
-                reply(self.start(profileID: s.profileID, uid: uid) { try self.core.prepareForti(s, uid: uid) })
+                reply(self.start(profileID: s.profileID, uid: uid) { _ in try self.core.prepareForti(s, uid: uid) })
+            case .startOpenConnect(let s):
+                // The config names the staged hook, so the tools are staged while it is prepared.
+                reply(
+                    self.start(profileID: s.profileID, uid: uid) { stage in
+                        try self.core.prepareOpenConnect(s, uid: uid) { try stage().hook() }
+                    })
             case .stop(let id):
                 self.stop(profileID: id, uid: uid, reply: reply)
             case .status:
@@ -81,16 +87,31 @@ final class Supervisor {
         }
     }
 
-    private func start(profileID: String, uid: uid_t, prepare: () throws -> HelperCore.LaunchPlan) -> HelperResponse {
+    /// `prepare` checks the request and writes the session's files; it is given `stage`, which stages the
+    /// tools once per start (openconnect's config names the staged hook), and they are staged after it
+    /// otherwise.
+    private func start(
+        profileID: String, uid: uid_t, prepare: (_ stage: () throws -> ToolStager.Staged) throws -> HelperCore.LaunchPlan
+    ) -> HelperResponse {
         dispatchPrecondition(condition: .onQueue(queue))
         do {
             try SessionPolicy.checkStart(profileID: profileID, uid: uid, sessions: sessions)
         } catch {
             return .failure(String(describing: error))
         }
+        // The root-owned copy of the tools and their libraries, each file checked (requirement and pins)
+        // as copied; tools still running from another build's copy keep theirs.
+        var staged: ToolStager.Staged?
+        let stage: () throws -> ToolStager.Staged = {
+            if let staged { return staged }
+            let inUse = Set(self.jobs.values.compactMap { self.stager.buildDirectory(ofExecutable: $0.executable) })
+            let copy = try self.stager.stage(inUse: inUse)
+            staged = copy
+            return copy
+        }
         let plan: HelperCore.LaunchPlan
         do {
-            plan = try prepare()
+            plan = try prepare(stage)
         } catch {
             log.error("start \(profileID, privacy: .public) rejected: \(String(describing: error), privacy: .public)")
             return .failure(error)
@@ -98,10 +119,7 @@ final class Supervisor {
         defer { close(plan.logFD) }
         let requirement = PT.toolRequirement(identifier: plan.tool.signingIdentifier)
         do {
-            // The root-owned copy of the tools and their libraries, each file checked (requirement and
-            // pins) as copied; tools still running from another build's copy keep theirs.
-            let inUse = Set(jobs.values.compactMap { stager.buildDirectory(ofExecutable: $0.executable) })
-            let executable = try stager.stage(inUse: inUse).executable(plan.tool)
+            let executable = try stage().executable(plan.tool)
             if let dns = plan.dnsUpdownPath {
                 // The root-owned copy openvpn runs; the release's own build only (`PinnedTools`).
                 try Self.checkDNSScript(dns)
@@ -109,12 +127,13 @@ final class Supervisor {
             // Requirement, then the cdhashes this helper was built with, both on the started process
             // (the staged file is root-owned; this also covers whatever posix_spawn actually opened).
             let verifier = RequirementVerifier(requirement: requirement, cdhashes: PinnedTools.allowed(plan.tool.rawValue))
+            // `state` is written before the tool runs, so openconnect's hook always finds it (`VPNHook.session`).
             let pid = try Spawner.spawnVerified(
                 executable: executable, arguments: plan.arguments,
-                environment: HelperCore.fixedEnvironment,
+                environment: HelperCore.environment(for: plan.tool),
                 workingDirectory: plan.runDir, outputFD: plan.logFD,
-                verifier: verifier)
-            writeState(plan: plan, pid: pid, executable: executable)
+                verifier: verifier,
+                beforeResume: { pid in try self.writeState(plan: plan, pid: pid, executable: executable) })
             let logCopy = fcntl(plan.logFD, F_DUPFD_CLOEXEC, 0)
             let job = Job(
                 profileID: plan.profileID, ownerUID: plan.ownerUID, pid: pid, executable: executable,
@@ -122,6 +141,7 @@ final class Supervisor {
                 logFD: logCopy >= 0 ? logCopy : nil)
             track(job)
             if plan.mgmtSocket != nil { restrictSocketWhenReady(job.key, pid: pid, attempt: 0) }
+            if plan.tool == .openconnect { enforceOpenConnectSetup(job.key, pid: pid) }
             log.info("started \(plan.tool.rawValue, privacy: .public) for \(profileID, privacy: .public), uid \(uid), pid \(pid)")
             return .success(pid: pid, mgmtSocket: plan.mgmtSocket)
         } catch {
@@ -141,6 +161,23 @@ final class Supervisor {
         if dir.restrictSocket(PT.mgmtSocketName) { return }
         queue.asyncAfter(deadline: .now() + 0.1) { [weak self] in
             self?.restrictSocketWhenReady(key, pid: pid, attempt: attempt + 1)
+        }
+    }
+
+    /// openconnect ignores its hook's result and keeps a tunnel nothing set up, so the helper stops a session
+    /// whose hook did not report the network up within `VPNHook.setupDeadline`, whether or not a client is
+    /// still waiting for it (docs/ARCHITECTURE.md, "Report and enforcement"). No hook reports up before #183.
+    private func enforceOpenConnectSetup(_ key: Key, pid: pid_t) {
+        queue.asyncAfter(deadline: .now() + VPNHook.setupDeadline) { [weak self] in
+            guard let self, let job = self.jobs[key], job.pid == pid, !VPNHook.reportedUp(runDir: job.runDir) else { return }
+            self.log.notice(
+                "stopping \(job.profileID, privacy: .public) of uid \(job.ownerUID) (pid \(pid)): its network was not set up")
+            if let fd = job.logFD {
+                // Not "PassTunnel: ", which `VPNLog.isFatal` reads as a failed start.
+                let line = "PassTunnel helper: the network was not set up within \(Int(VPNHook.setupDeadline)) seconds; stopping\n"
+                _ = line.withCString { write(fd, $0, strlen($0)) }
+            }
+            self.terminate(job)
         }
     }
 
@@ -291,18 +328,19 @@ final class Supervisor {
 
     // MARK: - Crash recovery
 
-    /// Records pid, owner, executable, profile directory and management socket so a restarted
-    /// helper can adopt still-running tools.
-    private func writeState(plan: HelperCore.LaunchPlan, pid: pid_t, executable: String) {
-        let text = "\(pid)\n\(plan.ownerUID)\n\(executable)\n\(plan.profileDir.path)\n\(plan.mgmtSocket ?? "")\n"
-        // Read back by this helper as root (`readState`): one field per line, or not written at all.
+    /// Records pid, owner, executable, profile directory and management socket (`SessionState`) so a
+    /// restarted helper can adopt still-running tools, before the tool runs (`Spawner.spawnVerified`). Read
+    /// back as root: one field per line, or not written at all. openconnect never runs without it: its
+    /// hook proves its session with it; for the other tools a failure is only logged.
+    private func writeState(plan: HelperCore.LaunchPlan, pid: pid_t, executable: String) throws {
+        let state = SessionState(
+            pid: pid, uid: plan.ownerUID, executable: executable, profileDir: plan.profileDir.path, mgmtSocket: plan.mgmtSocket)
         do {
-            try HelperCore.checkLines(text, count: 5, file: "state")
+            try HelperCore.writeNewFile(plan.runDir + "/" + SessionState.fileName, Data(try state.text().utf8), mode: 0o600)
         } catch {
+            if plan.tool == .openconnect { throw error }
             log.error("not recording state for \(plan.profileID, privacy: .public): \(String(describing: error), privacy: .public)")
-            return
         }
-        try? HelperCore.writeNewFile(plan.runDir + "/state", Data(text.utf8), mode: 0o600)
     }
 
     /// Adopts tools left running by a previous helper instance (`<root>/<uid>/<id>/state`) and removes
@@ -349,28 +387,18 @@ final class Supervisor {
                         Job(
                             profileID: id, ownerUID: uid, pid: state.pid, executable: state.executable,
                             runDir: dir.path, isChild: false, sessionDir: dir, mgmtSocket: socket, logFD: nil))
+                    if (state.executable as NSString).lastPathComponent == HelperCore.Tool.openconnect.rawValue {
+                        enforceOpenConnectSetup(Key(uid: uid, profileID: id), pid: state.pid)
+                    }
                 }
             }
         }
     }
 
-    struct State {
-        let pid: pid_t
-        let uid: uid_t
-        let executable: String
-        let mgmtSocket: String?
-    }
-
-    static func readState(_ path: String) -> State? {
-        guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
-        let parts = text.components(separatedBy: "\n")
-        guard parts.count >= 3, let pid = pid_t(parts[0]), let uid = uid_t(parts[1]), pid > 1 else { return nil }
-        let socket = parts.count >= 5 && !parts[4].isEmpty ? parts[4] : nil
-        return State(pid: pid, uid: uid, executable: parts[2], mgmtSocket: socket)
-    }
+    static func readState(_ path: String) -> SessionState? { SessionState.read(path) }
 
     /// The recorded process still runs the recorded executable (not a recycled pid).
-    static func isAlive(_ s: State) -> Bool {
+    static func isAlive(_ s: SessionState) -> Bool {
         kill(s.pid, 0) == 0 && executablePath(of: s.pid) == s.executable
     }
 

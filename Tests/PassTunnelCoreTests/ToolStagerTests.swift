@@ -103,11 +103,18 @@ final class ToolStagerTests: XCTestCase {
     static let toolRequirement: (HelperCore.Tool) -> String = { "identifier \"com.example.acme.\($0.rawValue)\"" }
     static let libraryRequirement = "identifier \"com.example.acme.libacme\" or identifier \"com.example.acme.libbase\""
 
-    func stager(id: String? = nil, toolPins: [String: Set<String>] = [:], libraryPins: [String: Set<String>] = [:]) -> ToolStager {
+    func stager(
+        id: String? = nil, toolPins: [String: Set<String>] = [:], libraryPins: [String: Set<String>] = [:],
+        hookSource: Int32? = nil, hookRequirement: String = ToolStagerTests.hookRequirement
+    ) -> ToolStager {
         ToolStager(
             bundleContents: contents, runRoot: runRoot, buildID: id ?? buildID, toolPins: toolPins,
-            libraryPins: libraryPins, toolRequirement: Self.toolRequirement, libraryRequirement: Self.libraryRequirement)
+            libraryPins: libraryPins, toolRequirement: Self.toolRequirement, libraryRequirement: Self.libraryRequirement,
+            hookSource: hookSource, hookRequirement: hookRequirement)
     }
+
+    /// The fake helper's signing requirement (`helper()` copies the signed openvpn fixture).
+    static let hookRequirement = #"identifier "com.example.acme.openvpn""#
 
     /// The pins build-app.sh would generate for the fake bundle.
     func pins() throws -> (tools: [String: Set<String>], libraries: [String: Set<String>]) {
@@ -308,7 +315,7 @@ final class ToolStagerTests: XCTestCase {
         }
     }
 
-    /// openconnect is staged and checked like the others although nothing runs it yet: a pinned build
+    /// openconnect is staged and checked like the others: a pinned build
     /// refuses another build of it, and a bundle without it (an older layout) is not staged.
     func testOpenconnectIsStagedAndPinned() throws {
         let p = try pins()
@@ -333,6 +340,63 @@ final class ToolStagerTests: XCTestCase {
                 $0 as? HelperCore.Failure,
                 .system("open \(self.contents)/Resources/bin/openconnect", ENOENT), "\($0)")
         }
+    }
+
+    // MARK: - openconnect's hook
+
+    /// A fake running helper: a copy of a signed fixture program, opened as the helper opens its own
+    /// executable, and its SHA-256 (the helper's build ID).
+    func helper() throws -> (path: String, fd: Int32, digest: String) {
+        let path = base.appendingPathComponent("PassTunnelHelper").path
+        try FileManager.default.copyItem(atPath: try Self.fixture() + "/openvpn", toPath: path)
+        let fd = open(path, O_RDONLY | O_CLOEXEC)
+        XCTAssertGreaterThanOrEqual(fd, 0)
+        addTeardownBlock { close(fd) }
+        return (path, fd, try XCTUnwrap(HelperBuild.digest(ofDescriptor: fd)))
+    }
+
+    func testHookIsACopyOfTheRunningHelper() throws {
+        let h = try helper()
+        XCTAssertEqual(HelperBuild.digest(ofFile: h.path), h.digest)
+        let s = stager(id: h.digest, hookSource: h.fd)
+        let staged = try s.stage()
+        let hook = try staged.hook()
+        XCTAssertEqual(hook, staged.directory + "/Resources/bin/vpn-hook")
+        XCTAssertEqual(entries(staged.directory + "/Resources/bin"), ["openconnect", "openfortivpn", "openvpn", "vpn-hook"])
+        XCTAssertEqual(mode(hook), 0o555)
+        XCTAssertTrue(FileManager.default.contentsEqual(atPath: hook, andPath: h.path))
+        let inode = try FileManager.default.attributesOfItem(atPath: hook)[.systemFileNumber] as? Int
+        XCTAssertEqual(try s.stage(), staged)
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: hook)[.systemFileNumber] as? Int, inode, "reused")
+
+        // An app update replaced the helper on disk: the running helper still stages its own bytes.
+        let original = try Data(contentsOf: URL(fileURLWithPath: h.path))
+        let replacement = base.appendingPathComponent("new").path
+        try FileManager.default.copyItem(atPath: try Self.fixture() + "/openfortivpn", toPath: replacement)
+        XCTAssertEqual(rename(replacement, h.path), 0)
+        try corrupt(hook)
+        XCTAssertEqual(try s.stage(), staged, "a modified hook is staged again")
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: hook)), original)
+        XCTAssertEqual(mode(hook), 0o555)
+    }
+
+    func testHookOfAnotherBuildOrSignerIsRefused() throws {
+        let h = try helper()
+        XCTAssertThrowsError(try stager(id: String(repeating: "cd", count: 32), hookSource: h.fd).stage()) {
+            XCTAssertTrue($0 is ToolStager.HookMismatch, "\($0)")
+        }
+        XCTAssertEqual(entries(runRoot + "/tools"), [], "nothing staged, no partial copy left")
+        XCTAssertThrowsError(try stager(id: h.digest, hookSource: h.fd, hookRequirement: "identifier \"com.example.other\"").stage())
+        XCTAssertEqual(entries(runRoot + "/tools"), [])
+
+        // A copy with a hook left from an earlier stage is not accepted by a stager without one, and the
+        // other way round: the layout must match exactly.
+        let hook = try stager(id: h.digest, hookSource: h.fd).stage().hook()
+        let staged = try stager(id: h.digest).stage()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: hook))
+        XCTAssertThrowsError(try staged.hook(), "no hook to name") { XCTAssertTrue($0 is ToolStager.HookMissing) }
+        XCTAssertEqual(try stager(id: h.digest, hookSource: h.fd).stage().hook(), hook)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: hook))
     }
 
     func testBuildIDMustBeHex() {
