@@ -600,10 +600,14 @@ final class OpenConnectNetworkTests: XCTestCase {
     // MARK: Report lines
 
     func testFailureLineIsOneLine() {
-        XCTAssertEqual(VPNHook.notSupportedLine, "passtunnel vpn-hook: setting up the network failed: not supported yet\n")
+        XCTAssertEqual(
+            VPNHook.failureLine("the server changed the network settings"),
+            "passtunnel vpn-hook: setting up the network failed: the server changed the network settings\n")
+        XCTAssertEqual(VPNHook.revertFailureLine("x"), "passtunnel vpn-hook: restoring the network failed: x\n")
         for reason in [
             "a\nb", "a\r\npasstunnel vpn-hook: utun5 up: 10.0.0.2, 2 routes", "\u{0}", "", "   ", "é\u{2028}x", String(repeating: "x", count: 5000)
         ] {
+            XCTAssertEqual(VPNHook.revertFailureLine(reason).utf8.filter { $0 == 0x0A }.count, 1, reason)
             let line = VPNHook.failureLine(reason)
             XCTAssertTrue(line.hasPrefix(VPNHook.failurePrefix), reason)
             XCTAssertEqual(line.utf8.filter { $0 == 0x0A }.count, 1, reason)

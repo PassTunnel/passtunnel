@@ -28,6 +28,10 @@ final class Supervisor {
     static let stopGrace: TimeInterval = 5
     static let dnsRestoreTimeout: TimeInterval = 10
     static let logCheckInterval: TimeInterval = 60
+    /// How often the helper looks at each openconnect session's record (`superviseOpenConnect`).
+    static let openConnectCheckInterval: TimeInterval = 5
+    /// How often a revert of an openconnect session's network that failed is tried again.
+    static let restoreRetryInterval: TimeInterval = 15
 
     let queue = DispatchQueue(label: "com.furkanprlk.passtunnel.helper.supervisor")
     private let core: HelperCore
@@ -35,6 +39,10 @@ final class Supervisor {
     private let log = Logger(subsystem: PT.helperLabel, category: "supervisor")
     private var jobs: [Key: Job] = [:]
     private var logTimer: DispatchSourceTimer?
+    private var restoreTimer: DispatchSourceTimer?
+    /// Sessions whose tool ended but whose network could not be restored yet: only their record is left, the
+    /// profile cannot start over it, and `retryRestores` tries again.
+    private var pendingRestores: Set<Key> = []
 
     private var sessions: [SessionPolicy.Session] {
         jobs.values.map {
@@ -50,6 +58,11 @@ final class Supervisor {
         timer.setEventHandler { [weak self] in self?.capLogs() }
         timer.resume()
         logTimer = timer
+        let retry = DispatchSource.makeTimerSource(queue: queue)
+        retry.schedule(deadline: .now() + Self.restoreRetryInterval, repeating: Self.restoreRetryInterval)
+        retry.setEventHandler { [weak self] in self?.retryRestores() }
+        retry.resume()
+        restoreTimer = retry
     }
 
     /// A long session must not fill the disk: logs above `HelperCore.maxLogBytes` keep only their end.
@@ -100,6 +113,16 @@ final class Supervisor {
         } catch {
             return .failure(String(describing: error))
         }
+        // The session directory still holds the record of a network that could not be restored: a new start
+        // would remove it. Tried once more now.
+        let key = Key(uid: uid, profileID: profileID)
+        if pendingRestores.contains(key) {
+            let dir = PT.sessionDir(uid: uid, profileID: profileID, runRoot: core.runRoot)
+            guard restoreNetwork(key, runDir: dir, outputFD: nil) else {
+                return .failure("The network settings of this profile's last Cisco AnyConnect session are still being restored. Try again shortly.")
+            }
+            core.removeRunDir(profileID: profileID, uid: uid)
+        }
         // The root-owned copy of the tools and their libraries, each file checked (requirement and pins)
         // as copied; tools still running from another build's copy keep theirs.
         var staged: ToolStager.Staged?
@@ -144,7 +167,7 @@ final class Supervisor {
                 logFD: logCopy >= 0 ? logCopy : nil)
             track(job)
             if plan.mgmtSocket != nil { restrictSocketWhenReady(job.key, pid: pid, attempt: 0) }
-            if plan.tool == .openconnect { enforceOpenConnectSetup(job.key, pid: pid) }
+            if plan.tool == .openconnect { superviseOpenConnect(job.key, pid: pid, since: Date()) }
             log.info("started \(plan.tool.rawValue, privacy: .public) for \(profileID, privacy: .public), uid \(uid), pid \(pid)")
             return .success(pid: pid, mgmtSocket: plan.mgmtSocket)
         } catch {
@@ -167,17 +190,51 @@ final class Supervisor {
         }
     }
 
-    /// openconnect ignores its hook's result and keeps a tunnel nothing set up, so the helper stops a session
-    /// whose hook did not report the network up within `VPNHook.setupDeadline`, whether or not a client is
-    /// still waiting for it (docs/ARCHITECTURE.md, "Report and enforcement"). No hook reports up before #183.
-    private func enforceOpenConnectSetup(_ key: Key, pid: pid_t) {
-        queue.asyncAfter(deadline: .now() + VPNHook.setupDeadline) { [weak self] in
-            guard let self, let job = self.jobs[key], job.pid == pid, !VPNHook.reportedUp(runDir: job.runDir) else { return }
-            self.log.notice(
-                "stopping \(job.profileID, privacy: .public) of uid \(job.ownerUID) (pid \(pid)): its network was not set up")
+    /// openconnect ignores its hook's result and keeps a tunnel nothing set up, so every
+    /// `openConnectCheckInterval` the helper reads the session's record and stops a session whose set-up
+    /// failed, that was not reported up within `VPNHook.setupDeadline` of its start (or adoption), or that
+    /// stayed `reconnecting` for `VPNHook.reconnectDeadline`, whether or not a client is still waiting for it
+    /// (docs/ARCHITECTURE.md, "Report and enforcement"). A record that cannot be read right now (the hook is
+    /// writing it) is looked at again next time.
+    private func superviseOpenConnect(_ key: Key, pid: pid_t, since started: Date, reconnectingSince: Date? = nil) {
+        queue.asyncAfter(deadline: .now() + Self.openConnectCheckInterval) { [weak self] in
+            guard let self, let job = self.jobs[key], job.pid == pid else { return }
+            let now = Date()
+            var since = reconnectingSince
+            var reason: (log: String, line: String)?
+            let record: Result<OpenConnectRecord?, Error> = Result { try OpenConnectJournal.read(OpenConnectJournal.path(runDir: job.runDir)) }
+            switch record {
+            case .failure:
+                break
+            case .success(let record):
+                switch record?.status {
+                case .failed?:
+                    reason = ("its network set-up failed", "the network set-up failed; stopping")
+                case .up?:
+                    since = nil
+                case .reconnecting?:
+                    let first = since ?? now
+                    since = first
+                    if now.timeIntervalSince(first) >= VPNHook.reconnectDeadline {
+                        reason = (
+                            "it did not reconnect", "the connection did not come back within \(Int(VPNHook.reconnectDeadline)) seconds; stopping"
+                        )
+                    }
+                case nil:
+                    if now.timeIntervalSince(started) >= VPNHook.setupDeadline {
+                        reason = (
+                            "its network was not set up", "the network was not set up within \(Int(VPNHook.setupDeadline)) seconds; stopping"
+                        )
+                    }
+                }
+            }
+            guard let reason else {
+                return self.superviseOpenConnect(key, pid: pid, since: started, reconnectingSince: since)
+            }
+            self.log.notice("stopping \(job.profileID, privacy: .public) of uid \(job.ownerUID) (pid \(pid)): \(reason.log, privacy: .public)")
             if let fd = job.logFD {
                 // Not "PassTunnel: ", which `VPNLog.isFatal` reads as a failed start.
-                let line = "PassTunnel helper: the network was not set up within \(Int(VPNHook.setupDeadline)) seconds; stopping\n"
+                let line = "PassTunnel helper: \(reason.line)\n"
                 _ = line.withCString { write(fd, $0, strlen($0)) }
             }
             self.terminate(job)
@@ -194,8 +251,10 @@ final class Supervisor {
         terminate(job)
     }
 
-    /// SIGTERM now, SIGKILL to the whole process group after the grace period.
+    /// SIGTERM now, SIGKILL to the whole process group after the grace period. An openconnect session is
+    /// marked as stopping first: a hook running now applies no further change (`OpenConnectMarks`).
     private func terminate(_ job: Job) {
+        if Self.isOpenConnect(job.executable) { OpenConnectMarks.setStopping(runDir: job.runDir) }
         kill(job.pid, SIGTERM)
         queue.asyncAfter(deadline: .now() + Self.stopGrace) { [weak self] in
             guard let self, let current = self.jobs[job.key], current.pid == job.pid else { return }
@@ -222,7 +281,10 @@ final class Supervisor {
             for job in jobs.values {
                 kill(-job.pid, SIGKILL)
                 restoreDNS(runDir: job.runDir, profileID: job.profileID, uid: job.ownerUID, outputFD: job.logFD)
-                core.removeRunDir(profileID: job.profileID, uid: job.ownerUID)
+                // Left for the next helper when it fails (`adoptOrphans`).
+                if restoreNetwork(job.key, runDir: job.runDir, outputFD: job.logFD) {
+                    core.removeRunDir(profileID: job.profileID, uid: job.ownerUID)
+                }
             }
         }
     }
@@ -263,8 +325,9 @@ final class Supervisor {
         jobs[job.key] = nil
         kill(-job.pid, SIGTERM)  // leftovers in the group (pppd)
         restoreDNS(runDir: job.runDir, profileID: job.profileID, uid: job.ownerUID, outputFD: job.logFD)
+        let restored = restoreNetwork(job.key, runDir: job.runDir, outputFD: job.logFD)
         if let fd = job.logFD { close(fd) }
-        core.removeRunDir(profileID: job.profileID, uid: job.ownerUID)  // config, auth file and socket
+        if restored { core.removeRunDir(profileID: job.profileID, uid: job.ownerUID) }  // config, auth file and socket
         log.info("\(job.profileID, privacy: .public) of uid \(job.ownerUID) exited (pid \(job.pid), status \(status))")
         job.waiters.forEach { $0() }
     }
@@ -329,6 +392,73 @@ final class Supervisor {
         return nil
     }
 
+    // MARK: - openconnect's network
+
+    static func isOpenConnect(_ executable: String) -> Bool {
+        (executable as NSString).lastPathComponent == HelperCore.Tool.openconnect.rawValue
+    }
+
+    /// Reverts what an openconnect session's hook left, from its record, once the tool has ended (also killed,
+    /// or when the helper stops or restarts): `OpenConnectHook.restoreAfterExit`, sparing what another live
+    /// session holds. True when nothing is left to undo and the session directory can go; false when a change
+    /// could not be undone: then everything but the record is removed (the configuration with the cookie
+    /// first), the profile cannot start over it, and `retryRestores` tries again.
+    private func restoreNetwork(_ key: Key, runDir: String, outputFD: Int32?) -> Bool {
+        dispatchPrecondition(condition: .onQueue(queue))
+        guard OpenConnectJournal.exists(runDir: runDir) else {
+            pendingRestores.remove(key)
+            return true
+        }
+        let runRoot = core.runRoot
+        let result = OpenConnectHook.restoreAfterExit(
+            runRoot: runRoot, runDir: runDir, system: MacOpenConnectSystem(), isLive: MacOpenConnectSystem.isLive(runDir:),
+            killHook: { Self.killHook(runDir: runDir, runRoot: runRoot) })
+        switch result {
+        case .done:
+            pendingRestores.remove(key)
+            return true
+        case .unreadable:
+            log.error("the network record of \(key.profileID, privacy: .public) of uid \(key.uid) cannot be read; nothing restored")
+            pendingRestores.remove(key)
+            return true
+        case .failed(let reason):
+            log.error(
+                "restoring the network of \(key.profileID, privacy: .public) of uid \(key.uid) failed: \(reason, privacy: .public); trying again")
+            if let fd = outputFD {
+                let line = "PassTunnel helper: restoring the network failed (\(VPNHook.oneLine(reason))); trying again\n"
+                _ = line.withCString { write(fd, $0, strlen($0)) }
+            }
+            OpenConnectHook.keepOnlyRecord(runDir: runDir)
+            pendingRestores.insert(key)
+            return false
+        }
+    }
+
+    /// Tries the reverts that failed again (every `restoreRetryInterval`).
+    private func retryRestores() {
+        for key in pendingRestores where jobs[key] == nil {
+            let dir = PT.sessionDir(uid: key.uid, profileID: key.profileID, runRoot: core.runRoot)
+            if restoreNetwork(key, runDir: dir, outputFD: nil) {
+                core.removeRunDir(profileID: key.profileID, uid: key.uid)
+                log.notice("restored the network of \(key.profileID, privacy: .public) of uid \(key.uid)")
+            }
+        }
+    }
+
+    /// Kills a hook of the session that is still running past its limit: the process its `hook` mark names,
+    /// only if it is still that process (pid, start time) and a root process of a staged `vpn-hook`.
+    static func killHook(runDir: String, runRoot: String) {
+        guard let mark = OpenConnectMarks.runningHook(runDir: runDir), let realRoot = HelperCore.realPath(runRoot),
+            let facts = SessionRecovery.facts(of: mark.pid), facts.start == mark.start
+        else { return }
+        let tools = realRoot + "/" + ToolStager.toolsDirName + "/"
+        func isHook(_ p: SessionRecovery.ProcessFacts) -> Bool {
+            p.uid == 0 && (p.path?.hasPrefix(tools) ?? false) && (p.path.map { ($0 as NSString).lastPathComponent } == VPNHook.name)
+        }
+        guard isHook(facts) else { return }
+        SessionRecovery.signal(facts, SIGKILL, still: isHook, read: SessionRecovery.facts(of:), send: kill)
+    }
+
     // MARK: - Crash recovery
 
     /// Records pid, owner, executable, profile directory and management socket (`SessionState`) so a
@@ -356,6 +486,8 @@ final class Supervisor {
     /// A tool that was killed rather than stopped cleanly (also when launchd stops an unregistered
     /// helper) may leave the host route to its server via the default gateway behind. Nothing to clean
     /// up: the next connect's "File exists" for that route is harmless (`VPNLog.setupProblem` ignores it).
+    /// openconnect's hook keeps a record of what it changed: a session that is not adopted is restored from
+    /// it first (`restoreNetwork`), and one whose revert fails keeps only its record.
     func adoptOrphans() {
         queue.sync {
             let root = core.runRoot
@@ -366,6 +498,7 @@ final class Supervisor {
             for entry in Self.entries(root) {
                 let path = root + "/" + entry
                 if entry == ToolStager.toolsDirName { continue }  // staged tools (`ToolStager`)
+                if entry == OpenConnectLock.fileName { continue }  // openconnect's network lock
                 if let legacy = Self.readState(path + "/state") {
                     recorded.insert(legacy.pid)
                     if Self.isAlive(legacy) {
@@ -397,6 +530,12 @@ final class Supervisor {
                         if let decision, decision != .adopt, let dir = try? core.openRunDir(profileID: id, uid: uid) {
                             restoreDNS(runDir: dir.path, profileID: id, uid: uid, outputFD: nil)
                         }
+                        // openconnect's network, also of a session a previous helper could not restore.
+                        if HelperCore.isValidProfileID(id), Self.isRealDirectory(path + "/" + id),
+                            !restoreNetwork(Key(uid: uid, profileID: id), runDir: path + "/" + id, outputFD: nil)
+                        {
+                            continue
+                        }
                         HelperCore.removeEntry(path + "/" + id); continue
                     }
                     log.notice("adopting \(id, privacy: .public) of uid \(uid) (pid \(state.pid))")
@@ -407,8 +546,8 @@ final class Supervisor {
                         Job(
                             profileID: id, ownerUID: uid, pid: state.pid, executable: state.executable,
                             runDir: dir.path, isChild: false, sessionDir: dir, mgmtSocket: socket, logFD: nil))
-                    if (state.executable as NSString).lastPathComponent == HelperCore.Tool.openconnect.rawValue {
-                        enforceOpenConnectSetup(Key(uid: uid, profileID: id), pid: state.pid)
+                    if Self.isOpenConnect(state.executable) {
+                        superviseOpenConnect(Key(uid: uid, profileID: id), pid: state.pid, since: Date())
                     }
                 }
             }

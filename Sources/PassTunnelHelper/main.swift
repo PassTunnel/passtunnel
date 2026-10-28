@@ -8,7 +8,7 @@ switch VPNHook.mode(executablePath: VPNHook.executablePath(of: getpid()), argv0:
 case .helper:
     break
 case .hook:
-    exit(VPNHook.runStub())
+    exit(VPNHook.run())
 case .refused:
     _ = "PassTunnelHelper: refusing to run under this name\n".withCString { write(STDERR_FILENO, $0, strlen($0)) }
     exit(2)
