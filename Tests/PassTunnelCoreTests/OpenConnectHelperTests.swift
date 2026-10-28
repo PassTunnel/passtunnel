@@ -343,13 +343,13 @@ final class VPNHookTests: XCTestCase {
         }
     }
 
-    func testStubLineIsTheFailureLine() {
-        XCTAssertTrue(VPNHook.notSupportedLine.hasPrefix("passtunnel vpn-hook: setting up the network failed: "))
-        XCTAssertTrue(VPNHook.notSupportedLine.hasSuffix("\n"))
-        XCTAssertEqual(VPNHook.notSupportedLine.filter { $0 == "\n" }.count, 1)
-        // No hook reports a session up before #183: every one is stopped at the deadline.
-        XCTAssertFalse(VPNHook.reportedUp(runDir: "/var/run/passtunnel/501/acme"))
+    func testDeadlines() {
+        // Without a record nothing is up: the session is stopped at the deadline.
+        XCTAssertFalse(VPNHook.reportedUp(runDir: "/var/empty/passtunnel-none"))
         XCTAssertEqual(VPNHook.setupDeadline, 60)
+        XCTAssertEqual(VPNHook.reconnectDeadline, 120)
+        XCTAssertEqual(OpenConnectHook.runLimit, 30)
+        XCTAssertEqual(OpenConnectHook.toolLimit, 10)
     }
 
     // A fake process tree: 1 launchd, 100 the helper, 200 openconnect, 300 /bin/sh, 400 the hook.

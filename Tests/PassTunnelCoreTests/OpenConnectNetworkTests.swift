@@ -417,11 +417,16 @@ final class OpenConnectNetworkTests: XCTestCase {
         var b = OpenConnectRecord(interface: "utun6")!
         try b.append(.begin(reject))
         try b.append(.owned(reject))
-        try b.append(.begin(server))
-        try b.append(.existed(server))
+        try b.append(.shared(server))
 
         XCTAssertEqual(a.toRevert(sparing: []), [reject, mine, server, link])
         XCTAssertEqual(a.toRevert(sparing: [b]), [mine, link])
+        // Found there with no session holding it: not PassTunnel's, it claims nothing.
+        var e = OpenConnectRecord(interface: "utun9")!
+        try e.append(.existed(server))
+        try e.append(.begin(reject))
+        try e.append(.existed(reject))
+        XCTAssertEqual(a.toRevert(sparing: [e]), [reject, mine, server, link])
         var c = OpenConnectRecord(interface: "utun7")!
         try c.append(.begin(server))
         XCTAssertEqual(a.toRevert(sparing: [c]), [reject, mine, link], "pending in another session")
@@ -470,8 +475,7 @@ final class OpenConnectNetworkTests: XCTestCase {
         try c.append(.owned(link))
         try c.append(.begin(reject))
         var d = OpenConnectRecord(interface: "utun8")!
-        try d.append(.begin(link))
-        try d.append(.existed(link))
+        try d.append(.shared(link))
         XCTAssertEqual(try c.beginRevert(sparing: [d]), [reject])
         try c.append(.reverted(reject))
         XCTAssertEqual(c.states[link], .spared)
@@ -600,10 +604,14 @@ final class OpenConnectNetworkTests: XCTestCase {
     // MARK: Report lines
 
     func testFailureLineIsOneLine() {
-        XCTAssertEqual(VPNHook.notSupportedLine, "passtunnel vpn-hook: setting up the network failed: not supported yet\n")
+        XCTAssertEqual(
+            VPNHook.failureLine("the server changed the network settings"),
+            "passtunnel vpn-hook: setting up the network failed: the server changed the network settings\n")
+        XCTAssertEqual(VPNHook.revertFailureLine("x"), "passtunnel vpn-hook: restoring the network failed: x\n")
         for reason in [
             "a\nb", "a\r\npasstunnel vpn-hook: utun5 up: 10.0.0.2, 2 routes", "\u{0}", "", "   ", "é\u{2028}x", String(repeating: "x", count: 5000)
         ] {
+            XCTAssertEqual(VPNHook.revertFailureLine(reason).utf8.filter { $0 == 0x0A }.count, 1, reason)
             let line = VPNHook.failureLine(reason)
             XCTAssertTrue(line.hasPrefix(VPNHook.failurePrefix), reason)
             XCTAssertEqual(line.utf8.filter { $0 == 0x0A }.count, 1, reason)

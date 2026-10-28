@@ -1043,8 +1043,8 @@ tunnel. Hence:
 **Not implemented yet** (connecting): the profile model is in (#181, [Profile](#profile-181)), and
 such a profile is listed but not connected. The helper side is in (#182): the helper accepts
 `startOpenConnect` (protocol 4), checks it, renders the root configuration and runs, supervises, stops
-and adopts `openconnect`; nothing in the app sends the request yet (#184), and the hook is a stub that
-fails closed until #183 ([The hook](#the-hook-vpn-hook-182-stub-183-macos-187-linux)). This is the design of Phase 1 of #2: Cisco AnyConnect through OpenConnect,
+and adopts `openconnect`; nothing in the app sends the request yet (#184). The hook sets up and reverts
+the network on the Mac (#183, [The hook](#the-hook-vpn-hook-182-183-macos-187-linux)). This is the design of Phase 1 of #2: Cisco AnyConnect through OpenConnect,
 with a password and a TOTP code (no SAML or other single sign-on), on the Mac and on Linux. The
 issues #179–#189 implement it, each named below where its part lands; until they do, everything
 above is all PassTunnel runs (`openvpn`, `openfortivpn`). Before any of it, #177 makes `Profile`
@@ -1273,8 +1273,9 @@ as openfortivpn's password is in its file, so the only change to `Spawner` is `s
 `beforeResume`, in which the helper writes `state` after the signature check and before `SIGCONT`
 (step 1 of the hook; failing to write it kills the suspended openconnect). Next to it the helper writes
 `policy` (the hook's step 2, `OpenConnectPolicy`: `uid=<n>`, `profile=<id>`, `set_routes=0|1`,
-`set_dns=0|1`, one per line, `checkLines`, and a strict `parse` for the hook); #183's hook adds
-`network` (its record), `hook` (while one runs) and the supervisor `stopping`. The rendered text lives
+`set_dns=0|1`, one per line, `checkLines`, and a strict `parse` for the hook); the hook adds
+`network` (its record) and `hook` (while one runs), the helper `stopping` (#183), and the run root holds
+`network.lock`. The rendered text lives
 in a `Data` buffer that is overwritten once written (best effort: the request and the rendered text
 are Swift strings, which cannot be erased); the file goes with the session directory when the tool
 exits or is stopped (`Supervisor.finish`, `stopAll`, `adoptOrphans`), and with any start that fails
@@ -1371,7 +1372,7 @@ and how each is kept out of the root run:
 | `/usr/bin/open` (`DEFAULT_EXTERNAL_BROWSER`, spawned by `hpke.c` 63–71) | a server sends an "external browser" sign-in form | the root run never signs in (it has the cookie); in the sign-in run, as the user, `no-external-auth` stops offering it but does not prevent it (above) |
 | `/bin/sh`, `/var/tmp` (CSD) | a server requests a host scan | refused (above) |
 
-### The hook: `vpn-hook` (#182 stub, #183 macOS, #187 Linux)
+### The hook: `vpn-hook` (#182, #183 macOS, #187 Linux)
 
 openconnect configures neither the interface nor routes nor DNS; its `script` does, as root, with
 server values in its environment. vpnc-script is never run: on the Mac it rewrites `/etc/resolv.conf`,
@@ -1387,28 +1388,34 @@ and revert. Instead the hook is PassTunnel's own code:
   (`Contents/MacOS/PassTunnelHelper`, which launchd starts and which serves XPC) therefore never runs
   as the hook whatever its `argv[0]` (`exec -a`), and the staged copy never runs as the helper; a
   mismatch either way exits with status 2. The CLI is another binary and has no hook code.
-- **#182: a stub that fails closed** (`VPNHook.runStub`). It reads no environment variable and never
-  touches an interface, a route or DNS. Every run writes `passtunnel vpn-hook: setting up the network
-  failed: not supported yet` to its standard error, which openconnect shares with the session log
-  (`VPNHook.notSupportedLine`, the failure line of step 6). Then, only as root and only once the session
-  check below (step 1, `VPNHook.session`) proved which PassTunnel openconnect ran it, it sends that
-  openconnect SIGTERM, which ends the session (openconnect runs the stub again for `disconnect`, which
-  signals again, harmlessly) and the helper cleans up when it exits. Exit status 1, which openconnect
-  ignores. The helper does not rely on the stub alone: it stops every openconnect session that no hook
-  reported up within `VPNHook.setupDeadline` (60 s, also for an adopted session, counted from the
-  adoption), and `VPNHook.reportedUp` is false for every session until #183 records success. So no
-  openconnect session outlives a minute before #183, and none is ever reported connected: the client
-  (#184) only takes the hook's success line as connected, and the stub never writes one.
-  #183 makes the hook work, in two parts: the first (in) checks what openconnect hands the hook and
-  computes what it would change, the record and the report lines, all pure and not yet called by the
-  stub; the second applies it.
+- **#183: the hook** (`VPNHook.run`). It proves its session (step 1) before it reads anything; a run
+  that is not one of a PassTunnel session writes `passtunnel vpn-hook: setting up the network failed:
+  this run is not one of a PassTunnel session` and changes nothing. Then it checks the environment
+  (step 3), reads `policy` (step 2) and, under the run root's lock, applies or reverts
+  (`OpenConnectHook`, steps 4–7) through `MacOpenConnectSystem`. **Generation:** once it holds the lock,
+  before it reads the record or changes anything, it proves the session again and compares its
+  generation, the openconnect start time the helper recorded in `state` (with the pid, as the kernel
+  reports it for that pid): a hook that waited for the lock while its openconnect ended, the helper
+  cleaned up and the profile started again in the same session directory finds another generation (or
+  no parent openconnect at all) and does nothing but write `passtunnel vpn-hook: the session this run
+  was started for has ended; nothing was changed` (`VPNHook.endedLine`). It writes its lines to its standard
+  error, which openconnect shares with the session log. After a failure it sends its openconnect
+  SIGTERM, once the session check holds again (the pid is not reused meanwhile): openconnect ends the
+  session, runs the hook once more for `disconnect` and exits, and the helper cleans up. Exit status 1
+  after a failure, otherwise 0; openconnect ignores both. (#182 shipped a stub here that failed every
+  set-up, so no session outlived the 60 s deadline.)
 - **Linux:** `<run>/<uid>/<id>/vpn-hook`, a link to `passtunneld` (as `dns-hook`).
 - The validation and the plan are shared (`OpenConnectNetwork`, `OpenConnectPlan`, `OpenConnectRecord`,
   `VPNHook.Report`, PassTunnelShared, pure; the address and domain rules are `IPAddress` and
-  `DomainName`, which the Linux `DNSSettings` uses too), the system actions sit behind a protocol, so
-  both are tested everywhere against fakes and the golden cases in `Tests/Fixtures/openconnect-env.json`
-  (an environment → the event, the changes and the report line, or the refusal; read by the Core tests
-  and later the Daemon tests, not by the mobile apps, and fuzzed by `FuzzOpenConnectHook`).
+  `DomainName`, which the Linux `DNSSettings` uses too), and so is the run (`OpenConnectHook`: the
+  record on disk `OpenConnectJournal`, the lock `OpenConnectLock`, the marks `OpenConnectMarks`). The
+  system actions sit behind a protocol (`OpenConnectSystem`: the interfaces, the routing table, one
+  program run, the DNS keys), so all of it is tested everywhere against a fake Mac that records every
+  command and every DNS write (`OpenConnectHookTests`), the exact argument lists and keys are golden
+  tests, and the golden cases in `Tests/Fixtures/openconnect-env.json` (an environment → the event, the
+  changes and the report line, or the refusal; read by the Core tests and later the Daemon tests, not by
+  the mobile apps, and fuzzed by `FuzzOpenConnectHook`) cover the validation. The Mac's actions are
+  `MacOpenConnectSystem` (`#if os(macOS)`).
 
 openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top of its own, then
 `execl("/bin/sh", "/bin/sh", "-c", script)` and a `waitpid` **without a time limit** (`script.c`
@@ -1454,7 +1461,7 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
    | Variable | From | Rule |
    |---|---|---|
    | `reason` | openconnect | one of the five above |
-   | `TUNDEV` | the kernel | `utun0`–`utun999` (macOS), `tun0`–`tun99999` (Linux), no leading zeros; must exist and its index is noted (part 2) |
+   | `TUNDEV` | the kernel | `utun0`–`utun999` (macOS), `tun0`–`tun99999` (Linux), no leading zeros; must exist, and its index is noted when the run starts: every change to the interface, its addresses or routes through it checks that the name still has that index (otherwise "the tunnel interface went away"), and so does a revert in that run |
    | `VPNGATEWAY` | the address openconnect connected to | a host address |
    | `INTERNAL_IP4_ADDRESS` | server (`X-CSTP-Address`, raw text) | absent, or a host address |
    | `INTERNAL_IP4_NETMASK`, `INTERNAL_IP4_NETMASKLEN`, `INTERNAL_IP4_NETADDR` | openconnect, only when the server's netmask parsed and is contiguous (`script.c` 313–340) | all three or none; consistent with each other and the address; none: the address alone (`/32`) |
@@ -1472,17 +1479,67 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
    header), `IDLE_TIMEOUT`, `INTERNAL_IP4_NBNS`, `LOG_LEVEL`. A header value cannot hold CR or LF but may hold
    spaces, quotes, `$`, backquotes, `;` and bytes from 0x80; variable names are openconnect's own
    (fixed or built from counters), so a server cannot set `BASH_ENV` or the like.
-4. **Record, then apply**, one change at a time under the run root's lock. Each change is journaled
-   in the session's record (`network`, 0600) before it is made, and its outcome after: a change is
-   the session's own only when it succeeded. A route or address that already existed ("File
-   exists") is recorded as not owned and never removed, except that a full-tunnel route that already
-   exists fails the set-up (another tunnel holds that traffic, as for OpenVPN). Every program runs
-   from a fixed path with an argument list (no shell) for at most 10 s; macOS: `/sbin/ifconfig`,
-   `/sbin/route`, DNS through the SystemConfiguration API; Linux: `ip` and `DNSApplier` (LINUX.md).
+4. **Record, then apply**, one change at a time under the run root's lock (`<run root>/network.lock`,
+   `flock`, 0600, root; held for the whole run, so changes are made one session at a time and a revert
+   reads the other sessions' records while none of them changes). Each change is journaled in the
+   session's record (`network`, 0600) before it is made, and its outcome after: a change is the
+   session's own only when it succeeded. Every entry is one `write` of one line appended to the file
+   (`OpenConnectJournal`), so a hook killed at any point leaves a record that reads back, its last
+   change pending at worst. Every program runs from a fixed path with an argument list (no shell, never
+   the hook's environment: `PATH` and `LC_ALL=C` only, `Spawner.spawn`, its own process group, its output
+   into a pipe of which the first 200 bytes go into a failure's reason) for at most 10 s (and what is left
+   of the run), then it is killed; macOS: `/sbin/ifconfig`, `/sbin/route`, DNS through the
+   SystemConfiguration API; Linux: `ip` and `DNSApplier` (LINUX.md).
+
+   **The commands** (`OpenConnectCommand`, golden-tested to the byte; `route` always with `-n`, the family
+   and the length spelled out, never a class or a name):
+
+   ```
+   ifconfig utun5 mtu 1406 up                                    link; revert: ifconfig utun5 down
+   ifconfig utun5 inet 10.11.0.2 10.11.0.2 netmask 255.255.255.255   revert: ifconfig utun5 inet 10.11.0.2 delete
+   ifconfig utun5 inet6 2001:db8:1::2 prefixlen 128              revert: ifconfig utun5 inet6 2001:db8:1::2 delete
+   route -n add -inet -net 0.0.0.0 -netmask 128.0.0.0 -interface utun5
+   route -n add -inet -host 192.0.2.10 198.51.100.1              (-interface ppp0 for a gateway link without an address)
+   route -n add -inet6 -net 2001:db8:5:: -prefixlen 48 fe80::1%en0   (a link-local next hop names its interface)
+   route -n add -inet6 -net :: -prefixlen 1 ::1 -reject          (IPv4: 127.0.0.1 -reject)
+   route -n delete -inet -net 0.0.0.0 -netmask 128.0.0.0         every route's revert: the destination only
+   ```
+
+   `/sbin/route` rather than a routing socket of our own: the commands are the ones every macOS VPN
+   script has used for years (`-reject`, `-interface`, a scoped link-local next hop), and the outcome is
+   not read from their text. The routing table is read with `sysctl` (`NET_RT_DUMP`, no privileges, both
+   families, `KernelRoute.parseDump`): once before the changes, kept up to date with the routes added, and
+   again after a `route` that failed. A route is in the way of an `add` when an unscoped entry of that
+   destination is there that the kernel did not make itself (`RTF_WASCLONED`, `RTF_LLINFO` entries, such
+   as the one for the connection to the server, are replaced by an added route; `RTF_IFSCOPE` entries are
+   another key). **Looked for first, journaled after** (`OpenConnectHook.finding`): every change is looked
+   for under the lock before anything is journaled for it, so the record never shows as begun (`+`, which a
+   revert would undo) something the system had before. **What "File exists" means:** a route already there
+   counts only when it has exactly the planned next hop (the same interface, the same gateway on its
+   interface, a reject route); it is journaled without a `+` as shared (`&`) when another session's
+   record holds it (own, shared or pending), or as not PassTunnel's (`~`, never removed by anyone) when
+   none does (a session whose record cannot be read counts as none: `~` may leave a route behind, but
+   never removes one that is not PassTunnel's). Any other route of that destination fails the set-up
+   ("another route for 10.20.0.0/16 exists already, through utun3"), for every kind of route: traffic the
+   set-up claims (an include, the assigned network, a DNS server, a full tunnel's half, the server's own
+   route, an exclude, a block) would go elsewhere, and the hook replaces nobody's route. One exception: an
+   exclude whose destination is a network the Mac is attached to, held by that network's own on-link route
+   (the server excludes the LAN the Mac is on), is `~`: that traffic leaves outside every tunnel already. A
+   `route add` that fails is looked at again in a fresh table: exactly the planned route (someone made it
+   meanwhile) is `~` or `&`, anything else is a failure (`!`). An address already on the interface is `~`
+   too; the link change and DNS are always the session's.
+
+   A revert deletes a route only while the table still holds it as the session added it
+   (`KernelRoute.is`): one replaced meanwhile (another next hop) is no longer the session's and stays,
+   one gone counts as reverted, and a `route delete` that fails counts once a fresh table no longer holds
+   it. An address is deleted only while it is on the interface, the link brought down only while the
+   interface is there; DNS keys are removed whether or not they are there.
    - `pre-init`: nothing.
    - `connect` (`OpenConnectPlan.connect(_:policy:underlay:)`, from the checked network, the policy
-     and the default gateway of each family before the tunnel, which part 2 reads from the routing
-     table), in this order:
+     and the default gateway of each family before the tunnel, read from the routing table:
+     `Underlay(routes:attached:tunnel:)`, the unscoped default route of each family unless it leaves
+     through the tunnel itself, then the one scoped default route of an interface that is no `utun` or
+     `ipsec`, if there is exactly one; none otherwise), in this order:
      1. the interface: MTU and up (`ifconfig utunN mtu M up`), then its addresses as host addresses
         (`inet A A netmask 255.255.255.255`, `inet6 A prefixlen 128`); networks are routes of their own,
         so with `set_routes` off the tunnel adds no route at all;
@@ -1499,8 +1556,10 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
         through its original gateway (left out when the family has none).
 
         **Local networks stay local** (owner decision): `Underlay.attached` are the networks attached to the
-        Mac's interfaces (on-link prefixes of the routing table, which part 2 reads; those on the tunnel's
-        own interface, link-local `fe80::/10` and length 0 do not count). A route the server asked for into
+        Mac's interfaces: the network of each address of an interface that is up, not loopback and not
+        point-to-point (`getifaddrs`), which is the prefix the kernel puts on-link for it. Not the
+        routing table's interface routes, which another session's routes into its tunnel would mimic;
+        those on the tunnel's own interface, link-local `fe80::/10` and length 0 do not count. A route the server asked for into
         the tunnel (an include, the assigned network, a DNS server's host route) that lies inside such a
         network, or is one, is left out, so the server cannot take over part of the LAN the Mac is on; it is
         no error, and the success line counts it (`2 routes kept local`). A broader route is kept (`10/8`
@@ -1530,13 +1589,34 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
         the order server host route, reject routes, excludes, routes into the tunnel: so a reject route is
         never dropped, an exclude wins over an include of the same network, and the server's host route
         over an include, the assigned network or a DNS server on that host;
-     3. with `set_dns` and at least one DNS server: macOS writes the dynamic keys
-        `State:/Network/Service/passtunnel-<uid>-<profile id>/IPv4` (and `/IPv6`) and `/DNS` through
-        `SCDynamicStore`: `ServerAddresses`; `SearchDomains` (`CISCO_DEF_DOMAIN`);
-        `OverridePrimary` only for a full tunnel (every family with an address, and `set_routes`), and
-        otherwise `SupplementalMatchDomains`, `CISCO_SPLIT_DNS` then `CISCO_DEF_DOMAIN` (no DNS at all
-        when there are none). Never a `Setup:` key, never `networksetup`, never `/etc/resolv.conf`, no
-        `scutil` text. Linux uses `DNSApplier`.
+     3. with `set_dns` and at least one DNS server: macOS writes dynamic keys of the service
+        `passtunnel-<uid>-<profile id>` through `SCDynamicStore`, all at once (`SCDynamicStoreSetMultiple`,
+        `OpenConnectDNSSettings`, golden-tested), and removes them on revert. Only that service is ever
+        written or removed (checked again right before). Never a `Setup:` key, never `networksetup`, never
+        `/etc/resolv.conf`, no `scutil` text. configd's IPMonitor builds the resolver configuration from the
+        `State:` services:
+        - **split tunnel:** only `State:/Network/Service/<service>/DNS` with `ServerAddresses`,
+          `SupplementalMatchDomains` (`CISCO_SPLIT_DNS` then `CISCO_DEF_DOMAIN`; no DNS at all when there are
+          none) and `SearchDomains` (`CISCO_DEF_DOMAIN`, when there are any): a resolver for those domains,
+          whatever the primary service is, as OpenVPN's own macOS `dns-updown` writes it for split DNS
+          (`State:/Network/Service/openvpn-<dev>/DNS`). No `IPv4`/`IPv6` entity, so the service is never a
+          candidate for primary.
+        - **full tunnel** (every family with an address, and `set_routes`): the service is made the primary
+          one, whose `DNS` (`ServerAddresses`, `SearchDomains`) becomes the default resolver
+          (`State:/Network/Global/DNS`, resolver #1 of `scutil --dns`). IPMonitor elects the primary service
+          among those with a router: `OverridePrimary` = 1 ranks a service first, but a service without
+          `Router` is not eligible and keeps only scoped settings (the system's own `utun` services show
+          `Router` and `PrimaryRank Scoped` in `scutil`). So `State:/Network/Service/<service>/IPv4` has
+          `Addresses`, `SubnetMasks` (`255.255.255.255`), `Router` (the tunnel's own address, on its
+          point-to-point link), `InterfaceName` and `OverridePrimary` = 1, and `/IPv6` likewise with
+          `PrefixLength` (128), for each family the tunnel has an address of. OpenVPN's `dns-updown` reaches
+          the same by rewriting the primary service's `Setup:` DNS, which a crash would leave changed for
+          good; these keys go with a restart. As the primary service with a router, the tunnel also gets the
+          system's `default` route while the keys are there (configd's change, not the hook's: the full
+          tunnel's halves carry that traffic already); the underlay's fallback above is for that case, and
+          the revert ends it with the keys.
+
+        Linux uses `DNSApplier`.
 
      Each change has one line of text, which the record stores and the golden cases compare
      (`OpenConnectPlan.Change.text`; every field a checked value, so no blank or line break in one):
@@ -1550,22 +1630,45 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
      route 0.0.0.0/1 interface utun5
      dns passtunnel-501-acme utun5 primary servers=10.11.0.53,2001:db8::53 search=example.com match=-
      ```
-   - `attempt-reconnect` (`OpenConnectPlan.refresh`): the routes around the tunnel follow the default
-     gateway, which may have changed (another network). For each family that has a usable gateway now,
-     the session's own routes through another gateway are removed, newest first, then the ones
-     `connect` would add now and the record does not hold are added. A family without a gateway right
-     now (the network is down while openconnect retries) is left as it is. The record's status becomes
-     `reconnecting`.
+   - `attempt-reconnect` (`OpenConnectPlan.refresh`): needs a record of this interface whose status is
+     `up` or `reconnecting`. The record's status becomes `reconnecting`, then the routes around the
+     tunnel follow the default gateway, which may have changed (another network). For each family that
+     has a usable gateway now, the session's own and shared routes through another gateway are removed,
+     newest first (one another session's record holds is left and journaled as spared, `?`), then the
+     ones `connect` would add now and the record does not hold are added, looked for first as in `connect`
+     (so a route another session still uses through the old gateway fails the attempt: the session stops
+     and signs in afresh rather than replacing it). A family without a gateway right
+     now (the network is down while openconnect retries) is left as it is. A route around the tunnel the
+     session found there (`~`) was never its own: it is neither removed nor expected afterwards. Nothing is
+     written to the log.
    - `reconnect` (`OpenConnectPlan.matches`): openconnect refuses a different address or netmask
      itself (`library.c` 676–712). openconnect 9.21 does not rebuild the hook's environment after a
      reconnect (`prepare_script_env` runs once, in `openconnect_setup_tun_device`, `library.c` 1567),
      so the hook sees the values of `connect`; it still checks them again and compares the plan, but for
      the routes around the tunnel, with what the record holds. Any difference fails the reconnect ("the
      server changed the network settings"), and the session is stopped (below), for a new connect to
-     set up afresh. Otherwise nothing is changed and the status is `up` again.
+     set up afresh. Then the system must still have everything the session holds (`OpenConnectHook.verify`):
+     every change it owns or shares (`=`, `&`; not `~`, which was never its) exactly as made: the tunnel
+     interface with the index noted when the run started, up and with its MTU (`interfaceLink`: the link
+     entry of `getifaddrs`), its addresses, every route with its planned next
+     hop (into the tunnel, around it, reject), the DNS keys with their contents
+     (`OpenConnectSystem.hasDNS`). It is checked, never repaired: any difference ("the network changed while
+     the connection was re-established: …") reverts what the session holds and stops it like any failure,
+     and `ConnectionManager` (#184) connects afresh with a new sign-in. A change is journaled as reverted
+     only once the system no longer has it, so one that cannot be removed stays the session's for the
+     helper's revert. Otherwise the status is `up` again and the success line is
+     written again.
    - `disconnect`: everything the record owns is reverted, newest first, and so is a change that was
-     begun but has no outcome (it may have been made), except what another live session holds (below).
-     Reverting is idempotent (a change already gone counts as reverted).
+     begun but has no outcome (it may have been made), except what another session holds (below).
+     Reverting is idempotent (a change already gone counts as reverted). openconnect still holds its
+     `utun` while it runs the hook for `disconnect`, so the interface's index is looked up then. A revert
+     that does not finish writes `passtunnel vpn-hook: restoring the network failed: <reason>`
+     (`VPNHook.revertFailureLine`); the helper tries again once openconnect has exited (step 7).
+   - **Any failure** (a refused value, the policy, the lock, the interface, the routing table, the plan, a
+     change, the record, `stopping`, the time limit) reverts what the record holds, with the interface's
+     index noted at the start of the run, records `status failed <reason>`, writes the failure line after
+     the revert and stops openconnect (step 6). A failure before the record exists makes one for a checked
+     `TUNDEV`, so the helper sees the failure too.
 
    **The record** (`OpenConnectRecord`, `network`, 0600, root): a journal, strict like `policy`, read
    back only as a whole (`parse` refuses anything `text()` would not write, or an entry out of the
@@ -1576,39 +1679,49 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
    interface utun5
    + route 192.0.2.10/32 gateway 198.51.100.1 en0        begun: written before the change is made
    = route 192.0.2.10/32 gateway 198.51.100.1 en0        the session's own: reverted later
-   + route ::/1 reject
-   ~ route ::/1 reject                                   was there already: never removed
+   & route ::/1 reject                                   found there, held by another session: shared
+   ~ route 192.168.1.0/24 gateway 198.51.100.1 en0       found there, held by no session: never removed
    + dns passtunnel-501-acme utun5 primary servers=… search=… match=-
    ! dns passtunnel-501-acme utun5 primary servers=… search=… match=-   failed: nothing changed
    - route 192.0.2.10/32 gateway 198.51.100.1 en0        reverted
-   ? route ::/1 reject                                   spared: left to another live session at the revert
+   ? route ::/1 reject                                   spared: left to another session at the revert
    status up | status reconnecting | status failed <reason>
    ```
 
-   One change at a time: an outcome must name the change just begun, a status or a new change needs
-   none pending, a revert names one that is the session's or pending. What the system has as asked is the
-   session's and those that were there already (`applied`); the latest `status` is the set-up's state;
+   One change at a time: an outcome must name the change just begun (`&` and `~` may also stand alone, for a
+   change found there while none is pending), a status or a new change needs none pending, a revert names
+   one that is the session's (own or shared) or pending. What the system has as asked is the session's and
+   those that were there already (`applied`); the latest `status` is the set-up's state;
    `compacted()` keeps a pending change after the status (a status cannot follow one).
 
    **What to revert** (`toRevert(sparing:)`, pure, called under the run root's lock with the records of
-   every other live session of the run root): every change that is the session's own or pending, newest
-   first, but none that another live session's record lists as its own, pending or there already. The
+   every other session of the run root: not only those whose tool still runs, since a session that ended
+   holds what its record holds until its revert has run (the helper's, after the tool exited; a record
+   whose revert ran holds nothing more), so a session that connects in between shares what it finds (`&`)
+   and that revert spares it; a record that cannot be read claims every change of this session two
+   sessions can share, the routes around the tunnel and the reject routes): every change that is the
+   session's own, shared or pending, newest first, but none that another session's record lists as its
+   own, shared or pending (one it found there with no session holding it, `~`, claims nothing). The
    revert starts with `beginRevert(sparing:)`, which journals each change so left alone as spared (`?`,
    which also settles a pending one, so the rest of the revert can be journaled) and returns the list;
    each change on it is then journaled as reverted once undone. Some
    changes can be the same in two sessions: a reject route (`route ::/1 reject`), the host route to a VPN
    server two profiles share, an exclude through the same gateway. The session that made one first owns
-   it, the other finds it there (`~`), and a pending one may be either session's; removing it while the
-   other runs would take away that session's block or its route to the server. Unique to a session, and
-   so never spared in practice: its interface's link and addresses, its routes through that interface,
-   its DNS service key `passtunnel-<uid>-<profile id>`. A spared change outlives the session (a stale
-   reject or host route, which a later revert of the session that holds it does not remove either, as
-   it is not that session's own): the price of never opening a hole in a running session.
+   it, the other finds it held and shares it (`&`), and a pending one may be either session's; removing it
+   while the other runs would take away that session's block or its route to the server, so whichever of
+   them ends first spares it, and the last one removes it: nothing outlives all the sessions that needed
+   it. Unique to a session, and so never spared in practice: its interface's link and addresses, its
+   routes through that interface, its DNS service key `passtunnel-<uid>-<profile id>`.
 5. **Bounded.** openconnect waits for the hook without a limit, and the hook runs in its own process
    group, which `kill(-pid)` does not reach. So the whole hook run, the lock wait included, has a
-   limit of 30 s; the hook writes its pid and start time to `hook` in the session directory under the
-   lock when it starts and removes it when it ends, and it checks for the `stopping` mark (below)
-   before each change: once that is set it applies nothing more.
+   limit of 30 s (`OpenConnectHook.runLimit`: checked before each change, each program gets at most what
+   is left; a change past it fails the set-up, "the network set-up did not finish within 30 seconds", and
+   what the revert has no time left for is reverted by the `disconnect` run or the helper); `SIGALRM` ends
+   the run one second later whatever hangs (set to its default action and unblocked first, since an
+   ignored or blocked signal stays so across `exec`). The hook writes its pid and start time to `hook` in
+   the session directory under the lock when it starts and removes it when it ends, and it checks for the
+   `stopping` mark (below) before each change: once that is set it applies nothing more ("the session is
+   being stopped"), but a revert still runs.
 6. **Report and enforcement.** The hook records its outcome in the record (`up`, or `failed` and why)
    and writes one line to the session log (`VPNHook.Report.line`, `VPNHook.failureLine`):
 
@@ -1627,21 +1740,35 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
    never values. The failure line is written after reverting what was applied.
    openconnect ignores the result of the `connect` call (`library.c` 1593) and keeps running, so the
    failure must be acted on by PassTunnel, and not only by a client that may be gone: the hook sends
-   SIGTERM to its openconnect (the pid the session check proved), and the supervisor, which checks its
-   openconnect sessions every 5 s, stops a session whose record says `failed`, has no `up` within 60 s
-   of the start (`openConnectSetupDeadline`), or has no successful `reconnect` within 120 s of an
-   `attempt-reconnect` (`openConnectReconnectDeadline`). The client reads the same lines: `failed` is
+   SIGTERM to its openconnect (the pid the session check proved), and the supervisor, which reads the
+   record of each of its openconnect sessions every 5 s (`Supervisor.superviseOpenConnect`), stops a
+   session whose record says `failed`, has no `up` within 60 s of the start or adoption
+   (`VPNHook.setupDeadline`; `reconnecting` counts as up, it only follows `up`), or stays `reconnecting`
+   for 120 s (`VPNHook.reconnectDeadline`, counted from the first check that saw it). A record it cannot
+   read at that moment (the hook is appending to it) is looked at again 5 s later. The client reads the same lines: `failed` is
    `PTError.setupFailed`, the success line the "connected" marker. openconnect's own `Configured as
    …` (`main.c` 1660) is printed before the hook runs and marks nothing.
-7. **Stop and revert.** When a session stops or its tool has exited (`Supervisor.finish`, `stopAll`,
-   `adoptOrphans`; on Linux the daemon's exit handling and the previous-instance cleanup), the
-   supervisor sets `stopping` in the session directory under the lock, waits for a running hook (by
-   its recorded pid and start time) to end, at most 30 s, then kills it, and then runs the hook's
-   revert in-process under the lock, as `pendingDNSDown` does for OpenVPN. Routes through a vanished
-   interface go with it; the gateway host route, the reject routes and the `State:` keys do not, hence
-   the record. A revert that fails keeps the record (and only the record) in the session directory:
-   the profile cannot start over it, and the helper or daemon tries again every 15 s, as the Linux
-   daemon does for DNS (LINUX.md, "Supervision").
+7. **Stop and revert.** When the helper stops a session it sets `stopping` first (`terminate`), so a
+   hook running now applies nothing more. When a session's tool has exited (`Supervisor.finish`;
+   `stopAll` after the kill; `adoptOrphans` for a session that is not adopted, and for a record a
+   previous helper could not restore, and an openconnect a restarted helper finds recorded without its start
+   time, `SessionRecovery.Decision.stopUnidentified`: its hooks cannot prove their generation and would
+   neither set up nor revert anything, so it is killed while it is still the recorded process (pid and
+   executable) instead of adopted; on Linux the daemon's exit handling and the previous-instance
+   cleanup), the helper runs `OpenConnectHook.restoreAfterExit` in-process, as `pendingDNSDown` does for
+   OpenVPN: it sets `stopping`, waits for the run root's lock, which a running hook holds, at most 32 s
+   (the hook's limit and its `SIGALRM`), then kills the hook the `hook` mark names (only if it is still
+   that process, by pid and start time, a root process of a staged `vpn-hook`) and waits 2 s more, and
+   then reverts under the lock, sparing what another session holds. The tunnel interface went with
+   the tool, and with it its link, its addresses and the routes through it, which are journaled as
+   reverted without a command: a `utun` of that name may be another session's by now. The gateway host
+   route, the reject routes and the `State:` keys do not go with it, hence the record. A revert that fails
+   keeps the record (and only the record: the configuration with its cookie, the policy, the state and
+   the marks go, `keepOnlyRecord`) in the session directory: the profile cannot start over it (a start
+   tries the revert once more and is refused while it fails), and the helper tries again every 15 s
+   (`restoreRetryInterval`), as the Linux daemon does for DNS (LINUX.md, "Supervision"). A record that
+   cannot be read is logged and removed: nothing can be undone from it. While it waits, the helper's
+   queue waits too, as it does for OpenVPN's `dns-down`.
 
 ### Supervision and log (#182, #184)
 

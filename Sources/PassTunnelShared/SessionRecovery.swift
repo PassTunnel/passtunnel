@@ -30,6 +30,12 @@ public enum SessionRecovery {
         /// The recorded tool is gone (or its pid now belongs to another process): clean up (undo its DNS,
         /// remove the session directory).
         case cleanUp
+        /// An openconnect recorded without its start time: its hook proves its session by that generation and
+        /// would do nothing for it, not even revert, so it is not adopted but killed (it is still the recorded
+        /// process: pid and executable), then cleaned up as for a tool that ended. Every openconnect session is
+        /// recorded with its start time (#182), so this is a record that was damaged or a start time the kernel
+        /// did not give.
+        case stopUnidentified
     }
 
     /// What the kernel says about a process.
@@ -66,6 +72,9 @@ public enum SessionRecovery {
 
     public static func decide(_ state: SessionState, current: ProcessFacts?) -> Decision {
         guard matches(state, current) else { return .cleanUp }
+        if state.startTime == nil, (state.executable as NSString).lastPathComponent == HelperCore.Tool.openconnect.rawValue {
+            return .stopUnidentified
+        }
         // Only a record with a start time identifies the process well enough to kill it.
         return state.launching && state.startTime != nil ? .stopInterruptedLaunch : .adopt
     }

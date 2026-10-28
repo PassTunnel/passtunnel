@@ -423,12 +423,11 @@ characters in it are replaced.
 password and one-time code, no single sign-on, Mac and Linux) is designed and being implemented. This
 section is the threat model the pull requests #179–#189 are reviewed against; the details are in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#cisco-anyconnect-backend-planned). In place so far: the
-bundled tool (#179), the configuration checks (#180), the profile (#181) and the helper's side of a
-session (#182): the helper accepts a start request, checks every field of it again and runs
-`openconnect` as described below, but nothing in the app sends that request yet (#184), and the hook
-that would set up the network is a stub that stops the session (#183). The checks of what openconnect
-hands the hook, and what the hook would change from it, are in place and tested, but not used yet
-(#183, first part).
+bundled tool (#179), the configuration checks (#180), the profile (#181), the helper's side of a
+session (#182: the helper accepts a start request, checks every field of it again and runs
+`openconnect` as described below, but nothing in the app sends that request yet, #184) and the Mac's
+hook that sets up and undoes the network (#183), tested against a simulated Mac; what only a real
+tunnel shows is checked against a test server (#188).
 
 ### What changes
 
@@ -506,12 +505,10 @@ names are openconnect's own, so a server cannot set `BASH_ENV` or similar.
   refused, and OpenVPN and FortiGate connect as before. The copy acts as the hook only when both the file the system
   reports for the process and the name it was started under are `vpn-hook`, so the installed helper
   can never be made to act as the hook, and the copy never acts as the helper.
-- **Until the hook is finished (#183) it fails closed.** It reads nothing from its environment and
-  changes no network setting: it writes "setting up the network failed: not supported yet" to the
-  session log and, once it has proven from the process tree and the helper's root-only session files
-  (not from anything openconnect or the server passes) which PassTunnel session's `openconnect` ran it,
-  stops that `openconnect`. Independently, the helper stops every Cisco AnyConnect session whose network
-  set-up was not reported within 60 seconds, which before #183 is every one.
+- **It first proves which session it serves.** Before it reads anything from its environment, it proves
+  from the process tree and the helper's root-only session files (not from anything openconnect or the
+  server passes) which PassTunnel session's `openconnect` ran it. A run it cannot prove changes nothing
+  and stops nothing.
 - **Every value it uses is checked first**, as for OpenVPN's DNS on Linux, with the same address
   and domain rules: addresses must parse strictly (no leading zeros, which some parsers read as
   octal; no zones, ports or blanks; no IPv4 address written as an IPv6 one, which would slip past the
@@ -524,26 +521,41 @@ names are openconnect's own, so a server cannot set `BASH_ENV` or similar.
 - **Its permissions come from root, not from the server.** Whether it may set routes and DNS is
   written by the helper into the root-only run directory before the tool starts; the hook reads
   nothing from your profile and nothing the server sends can change it.
-- **No shell, no lasting change.** The hook runs fixed programs with argument lists, each for at most
-  10 seconds and the whole run for at most 30. On the Mac DNS goes into dynamic, per-session entries
-  of the system configuration that disappear on restart; it never changes your network service's
-  saved settings and never writes `/etc/resolv.conf`. It records every change in the session's run
-  directory before making it, and whether it succeeded: only what it added itself is removed later,
-  never a route that was already there. It undoes them on disconnect; if `openconnect` is killed
-  before it could, the helper (or the Linux daemon) first lets a running hook finish or stops it,
-  then undoes them from that record, and keeps retrying while that fails.
+- **No shell, no lasting change.** The hook runs fixed programs (`/sbin/ifconfig` and `/sbin/route` on
+  the Mac) with argument lists and none of its own environment, each for at most 10 seconds and the
+  whole run for at most 30. On the Mac DNS goes into dynamic, per-session entries of the system
+  configuration that disappear on restart; it never changes your network service's saved settings and
+  never writes `/etc/resolv.conf`. It records every change in the session's run directory before
+  making it, and whether it succeeded, one session at a time: only what it added itself is removed
+  later, never a route that was already there, nor one that was replaced since. It undoes them on
+  disconnect and after a failed set-up; if `openconnect` is killed before it could, the helper (or the
+  Linux daemon) first lets a running hook finish or stops it, then undoes them from that record (what
+  belonged to the tunnel interface went with it), and keeps retrying every 15 seconds while that fails;
+  the profile cannot connect again until it succeeded.
 - **Reconnects do not change the set-up.** If the server sends different DNS, routes or MTU when
   the connection is re-established, the session is stopped instead of being re-configured.
 - **The default route stays.** A full tunnel adds two half routes (`0/1`, `128/1`), as OpenVPN
-  does, and never replaces or deletes your default route.
+  does; the hook never replaces or deletes your default route. If a route the set-up needs already
+  goes elsewhere (another VPN that sends all traffic or a network the server routes, another gateway
+  to the server), the set-up fails rather than replacing someone else's route. For a full tunnel's DNS,
+  the hook's per-session entries make the tunnel macOS's primary network service, so that every name
+  is resolved through the tunnel; macOS then also points the default route at the tunnel while the
+  session lasts, and returns it when the entries are removed.
 - **Your local network stays local.** A route the server asks for into the tunnel that lies inside a
   network your Mac is attached to (your Wi-Fi or Ethernet subnet), including a DNS server on it, is
   left out and counted in the log ("2 routes kept local"), so the server cannot take over devices on
   your LAN. A broader route (all of `10.0.0.0/8` while your LAN is `10.1.2.0/24`) is kept: your LAN's
   own route is more specific and still wins. A full tunnel is not affected by this.
-- **Shared routes are not pulled from under another session.** When two sessions need the same route
-  (a block, or the route to a VPN server both use), the one that ends leaves it in place while the
-  other still runs, even if it may have been the one that added it.
+- **Shared routes are not pulled from under another session, nor left behind.** When two sessions need
+  the same route (a block, or the route to a VPN server both use), the one that ends first leaves it in
+  place while the other still runs (also when the first one was killed and is still being cleaned up),
+  and the last one removes it. A route that was there before any PassTunnel session is never removed.
+- **A network change does not leave holes.** When the connection is re-established, the hook checks that
+  every route, address and DNS setting it made is still there as it made it; if anything differs, it
+  undoes the rest and stops the session, which then connects afresh.
+- **A late hook cannot touch a newer session.** Once it holds the lock, the hook proves its session again,
+  including its generation (the start time of its `openconnect`), before it reads or changes anything: a
+  hook of a session that has ended meanwhile does nothing.
 - **IPv6 in a full tunnel.** When all IPv4 traffic goes through the tunnel and the server assigns no
   IPv6 address, IPv6's default path is taken away (reject routes), so IPv6 to the internet is refused
   at once rather than sent around the tunnel, and programs fall back to IPv4 without waiting (the same

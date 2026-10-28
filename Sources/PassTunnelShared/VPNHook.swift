@@ -5,20 +5,18 @@ import Foundation
 /// openconnect as root through `/bin/sh -c` with server-controlled values in its environment
 /// (docs/ARCHITECTURE.md, "The hook: vpn-hook").
 ///
-/// Until the hook configures the tunnel (#183) it is a stub that fails closed: it never reads its
-/// environment and never touches an interface, a route or DNS. It writes `notSupportedLine` to its
-/// standard error, which openconnect shares with the session's log, and, once it has proven which
-/// PassTunnel session's openconnect ran it (`session`), sends that openconnect SIGTERM: openconnect ignores
-/// a script's exit status and would otherwise keep a tunnel that nothing set up. The helper does not rely
-/// on that alone: it stops every openconnect session that no hook reported up within
-/// `setupDeadline` (`Supervisor`), and no hook reports up yet.
+/// `run` proves which PassTunnel session's openconnect ran it (`session`), checks the environment
+/// (`OpenConnectNetwork`), reads the session's `policy` and sets up or reverts the network
+/// (`OpenConnectHook`, through `MacOpenConnectSystem`). It writes one line to its standard error, which
+/// openconnect shares with the session's log: the success line (`Report.line`) or the failure line
+/// (`failureLine`). openconnect ignores a script's exit status and would keep a tunnel nothing set up, so after
+/// a failure the hook sends that openconnect SIGTERM, and the helper stops every openconnect session whose
+/// record says failed, that was not reported up within `setupDeadline`, or that did not come back within
+/// `reconnectDeadline` (`Supervisor`).
 public enum VPNHook {
     /// The hook's file name, also the last component of its `argv[0]` (openconnect runs the path as a
     /// `/bin/sh -c` command, so the shell gives the path as `argv[0]`).
     public static let name = "vpn-hook"
-
-    /// The line every run of the stub writes (the failure line #183's hook writes, with the reason).
-    public static let notSupportedLine = failureLine("not supported yet")
 
     // MARK: - Report lines
 
@@ -41,6 +39,15 @@ public enum VPNHook {
     /// `passtunnel vpn-hook: setting up the network failed: <reason>` and a line break. The reason passes
     /// through `oneLine`; the hook's own reasons name variables and rules, never values (`OpenConnectNetwork.Failure`).
     public static func failureLine(_ reason: String) -> String { failurePrefix + oneLine(reason) + "\n" }
+
+    /// What starts the line of a revert that did not finish (the helper tries again once openconnect ended).
+    public static let revertFailurePrefix = linePrefix + "restoring the network failed: "
+
+    /// The line of a run whose session ended while it waited: it changed nothing, and stops nothing.
+    public static let endedLine = linePrefix + "the session this run was started for has ended; nothing was changed\n"
+
+    /// `passtunnel vpn-hook: restoring the network failed: <reason>` and a line break.
+    public static func revertFailureLine(_ reason: String) -> String { revertFailurePrefix + oneLine(reason) + "\n" }
 
     /// What the line of a set-up that succeeded says, the "connected" marker for the client (#184), whose
     /// `NetworkClaims` read the DNS from it:
@@ -158,9 +165,18 @@ public enum VPNHook {
     /// helper stops it (docs/ARCHITECTURE.md, "Report and enforcement").
     public static let setupDeadline: TimeInterval = 60
 
-    /// Whether the hook reported the session's network up. Nothing does before #183, which records it in
-    /// the session directory; until then every openconnect session is stopped at `setupDeadline`.
-    public static func reportedUp(runDir: String) -> Bool { false }
+    /// How long a session may stay `reconnecting` (openconnect re-establishing a dropped connection) before
+    /// the helper stops it, and a new sign-in takes over.
+    public static let reconnectDeadline: TimeInterval = 120
+
+    /// Whether the hook reported the session's network up: the record's latest status is `up`, or
+    /// `reconnecting` (which only follows `up`).
+    public static func reportedUp(runDir: String) -> Bool {
+        switch OpenConnectJournal.status(runDir: runDir) {
+        case .up, .reconnecting: return true
+        case .failed, nil: return false
+        }
+    }
 
     // MARK: - Mode
 
@@ -263,21 +279,83 @@ public enum VPNHook {
         (16...64).contains(s.utf8.count) && s.utf8.allSatisfy { (0x30...0x39).contains($0) || (0x61...0x66).contains($0) }
     }
 
-    // MARK: - The stub
+    // MARK: - The hook
 
     #if os(macOS)
-    /// The stub's whole run (`PassTunnelHelper`'s `main` in hook mode); returns the exit status, 1 (which
-    /// openconnect ignores). Reads no environment variable and changes no network setting.
-    public static func runStub() -> Int32 {
-        _ = notSupportedLine.withCString { write(STDERR_FILENO, $0, strlen($0)) }
+    /// The hook's whole run (`PassTunnelHelper`'s `main` in hook mode); returns the exit status, which
+    /// openconnect ignores. Nothing is read from the environment before the session is proven, and nothing
+    /// but the variables `OpenConnectNetwork` reads after.
+    public static func run() -> Int32 {
+        let started = Date()
         guard geteuid() == 0, let executable = Self.executablePath(of: getpid()),
             let runRoot = HelperCore.realPath(PT.helperRunRoot),
             let session = session(hookExecutable: executable, parent: getppid(), runRoot: runRoot, processes: .system)
-        else { return 1 }
-        // Proven to be the openconnect of a PassTunnel session: it ends the session (`disconnect` runs this
-        // stub once more, harmlessly), and the helper cleans up when it exits.
-        kill(session.toolPID, SIGTERM)
-        return 1
+        else {
+            writeLine(failureLine("this run is not one of a PassTunnel session"))
+            return 1
+        }
+        // The backstop: whatever hangs (a tool past its limit is killed by the hook itself), SIGALRM ends the
+        // run a second after its limit. An ignored or blocked signal stays so across exec: both are undone.
+        signal(SIGALRM, SIG_DFL)
+        var alarmSet = sigset_t()
+        sigemptyset(&alarmSet)
+        sigaddset(&alarmSet, SIGALRM)
+        sigprocmask(SIG_UNBLOCK, &alarmSet, nil)
+        alarm(UInt32(OpenConnectHook.runLimit) + 1)
+        // The session's generation: its openconnect's start time, which the helper recorded in `state` and the
+        // kernel reports for that pid. A later session in the same directory has another one.
+        let generation = SessionState.read(session.runDir + "/" + SessionState.fileName)?.startTime
+        func stillOurs() -> Bool {
+            guard let generation,
+                let again = Self.session(hookExecutable: executable, parent: getppid(), runRoot: runRoot, processes: .system),
+                again == session, SessionState.read(session.runDir + "/" + SessionState.fileName)?.startTime == generation,
+                SessionRecovery.facts(of: session.toolPID)?.start == generation
+            else { return false }
+            return true
+        }
+        guard stillOurs() else {
+            writeLine(failureLine("this run is not one of a PassTunnel session"))
+            return 1
+        }
+        let environment = OpenConnectNetwork.Environment(entries: rawEnvironment())
+        var hook = OpenConnectHook(
+            runRoot: runRoot, runDir: session.runDir, system: MacOpenConnectSystem(),
+            deadline: started.addingTimeInterval(OpenConnectHook.runLimit), identity: (getpid(), SessionRecovery.facts(of: getpid())?.start))
+        hook.stillOurs = stillOurs
+        let outcome = hook.run(
+            event: { try OpenConnectNetwork.parse(environment, platform: .macOS) }, policy: { try policy(of: session) })
+        outcome.lines.forEach(writeLine)
+        // Still that openconnect of that session (it may have ended meanwhile, and its pid been reused): it ends
+        // the session, runs the hook once more for `disconnect`, and the helper cleans up when it exits.
+        if outcome.stopTool, stillOurs() {
+            kill(session.toolPID, SIGTERM)
+        }
+        return outcome.stopTool || outcome.lines.contains(where: { $0.hasPrefix(revertFailurePrefix) }) ? 1 : 0
+    }
+
+    /// The session's `policy` (0600, the helper's), which must name the session's user and profile.
+    static func policy(of session: Session) throws -> OpenConnectPolicy {
+        guard let data = try? HelperCore.readOwnFile(session.runDir + "/" + OpenConnectPolicy.fileName, maxBytes: 4096),
+            let text = String(data: data, encoding: .utf8), let policy = OpenConnectPolicy.parse(text),
+            policy.uid == session.ownerUID, policy.profileID == session.profileID
+        else { throw OpenConnectHook.Failure.policy }
+        return policy
+    }
+
+    /// The process's environment as openconnect left it: raw `NAME=VALUE` bytes, decoded by nobody but
+    /// `OpenConnectNetwork.Environment`.
+    static func rawEnvironment() -> [[UInt8]] {
+        var out: [[UInt8]] = []
+        var cursor: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?> = environ
+        while let entry = cursor.pointee {
+            out.append(Array(UnsafeRawBufferPointer(start: entry, count: strlen(entry))))
+            cursor += 1
+        }
+        return out
+    }
+
+    static func writeLine(_ line: String) {
+        _ = line.withCString { write(STDERR_FILENO, $0, strlen($0)) }
     }
 
     /// The executable of `pid` as the kernel reports it (links resolved), nil when it cannot be read.
