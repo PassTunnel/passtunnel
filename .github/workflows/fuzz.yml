@@ -1,7 +1,8 @@
 # Runs the libFuzzer harnesses in fuzz/ against the code that parses untrusted text (the OpenVPN
-# config sanitizer and the import review built on it, FortiGate config rendering, the
-# management-interface parser, otpauth:// URIs and MCP JSON-RPC decoding). A short pass on every pull
-# request that touches the parsers or the harnesses, a longer one weekly. The job name is not a required status check, so it can be added
+# config sanitizer and the import review built on it, FortiGate and openconnect config rendering, the
+# openconnect sign-in output parser, the management-interface parser, otpauth:// URIs and MCP JSON-RPC
+# decoding). A short pass on every pull request that touches the parsers or the harnesses, a longer
+# one weekly. The job name is not a required status check, so it can be added
 # or renamed without touching the branch rulesets.
 #
 # The open-source Swift toolchain is installed from swift.org because the Xcode toolchain ships no
@@ -21,6 +22,9 @@ on:
       - Sources/PassTunnelKit/OVPNInliner.swift
       - Sources/PassTunnelKit/OVPNAnalyzer.swift
       - Sources/PassTunnelVPNConfig/FortiConfig.swift
+      - Sources/PassTunnelVPNConfig/OpenConnectConfig.swift
+      - Sources/PassTunnelVPNConfig/OpenConnectAuthResult.swift
+      - Sources/PassTunnelVPNConfig/OpenConnectOptions.swift
       - Sources/PassTunnelShared/HelperCore.swift
       - Sources/PassTunnelCore/ManagementSocket.swift
       - Sources/PassTunnelKit/OTPAuthURI.swift

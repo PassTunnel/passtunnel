@@ -20,6 +20,8 @@ fuzzers=(
     "FuzzOVPNSanitizer:ovpn-sanitizer"
     "FuzzOVPNImport:ovpn-import"
     "FuzzFortiConfig:forti-config"
+    "FuzzOpenConnectConfig:openconnect-config"
+    "FuzzOpenConnectAuthOutput:openconnect-auth-output"
     "FuzzManagementParser:management-parser"
     "FuzzOTPAuthURI:otpauth-uri"
     "FuzzMCPDecode:mcp-decode"
