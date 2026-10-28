@@ -35,6 +35,9 @@ let package = Package(
             name: "FuzzOpenConnectAuthOutput",
             dependencies: ["FuzzSupport", .product(name: "PassTunnelKit", package: "PassTunnel")]),
         .executableTarget(
+            name: "FuzzOpenConnectHook",
+            dependencies: ["FuzzSupport", .product(name: "PassTunnelShared", package: "PassTunnel")]),
+        .executableTarget(
             name: "FuzzManagementParser",
             dependencies: ["FuzzSupport", .product(name: "PassTunnelCore", package: "PassTunnel")]),
         .executableTarget(

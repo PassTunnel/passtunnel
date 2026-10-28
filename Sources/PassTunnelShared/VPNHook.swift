@@ -18,7 +18,131 @@ public enum VPNHook {
     public static let name = "vpn-hook"
 
     /// The line every run of the stub writes (the failure line #183's hook writes, with the reason).
-    public static let notSupportedLine = "passtunnel vpn-hook: setting up the network failed: not supported yet\n"
+    public static let notSupportedLine = failureLine("not supported yet")
+
+    // MARK: - Report lines
+
+    /// What starts every line the hook writes to the session's log.
+    public static let linePrefix = "passtunnel vpn-hook: "
+    /// What starts the line of a failed set-up: `PTError.setupFailed` for the client (#184).
+    public static let failurePrefix = linePrefix + "setting up the network failed: "
+    /// The longest reason a failure line carries.
+    public static let maxReasonBytes = 300
+
+    /// `text` as one line of printable ASCII: every byte outside 0x20–0x7E (line breaks, other control
+    /// bytes, UTF-8) becomes `?`, blanks at either end go, at most `maxBytes` bytes are kept; `?` when
+    /// nothing is left. So no text, whatever it holds, can end the line or start another one.
+    public static func oneLine(_ text: String, maxBytes: Int = maxReasonBytes) -> String {
+        let bytes = text.utf8.prefix(maxBytes).map { $0 >= 0x20 && $0 < 0x7F ? $0 : UInt8(ascii: "?") }
+        let line = String(decoding: bytes, as: UTF8.self).trimmingCharacters(in: CharacterSet(charactersIn: " "))
+        return line.isEmpty ? "?" : line
+    }
+
+    /// `passtunnel vpn-hook: setting up the network failed: <reason>` and a line break. The reason passes
+    /// through `oneLine`; the hook's own reasons name variables and rules, never values (`OpenConnectNetwork.Failure`).
+    public static func failureLine(_ reason: String) -> String { failurePrefix + oneLine(reason) + "\n" }
+
+    /// What the line of a set-up that succeeded says, the "connected" marker for the client (#184), whose
+    /// `NetworkClaims` read the DNS from it:
+    ///
+    ///     passtunnel vpn-hook: utun5 up: 10.0.0.2, 2001:db8::5, 2 routes, full tunnel, IPv6 blocked, DNS 10.0.0.53 10.0.0.54, search example.com, split DNS corp.example.com
+    ///
+    /// The interface, then its addresses, the number of routes into the tunnel, `full tunnel` when every
+    /// family with an address sends everything into it, `IPv4 blocked`/`IPv6 blocked` for a family refused
+    /// meanwhile (`OpenConnectPlan.blocked`), and with DNS its servers, search domains and split DNS
+    /// domains. Every item is a checked value or fixed text, none holds `,` or a line break, so `parse` reads
+    /// back exactly what was written.
+    public struct Report: Equatable, Sendable {
+        public var interface: String
+        public var addresses: [IPAddress]
+        public var routes: Int
+        public var fullTunnel: Bool
+        public var blocked: [IPAddress.Family]
+        public var dnsServers: [IPAddress]
+        public var searchDomains: [String]
+        public var splitDNSDomains: [String]
+
+        public init(
+            interface: String, addresses: [IPAddress], routes: Int, fullTunnel: Bool, blocked: [IPAddress.Family] = [],
+            dnsServers: [IPAddress] = [], searchDomains: [String] = [], splitDNSDomains: [String] = []
+        ) {
+            self.interface = interface
+            self.addresses = addresses
+            self.routes = routes
+            self.fullTunnel = fullTunnel
+            self.blocked = blocked
+            self.dnsServers = dnsServers
+            self.searchDomains = searchDomains
+            self.splitDNSDomains = splitDNSDomains
+        }
+
+        /// What `plan` sets up.
+        public init(_ plan: OpenConnectPlan) {
+            let dns = plan.dns
+            self.init(
+                interface: plan.interface, addresses: plan.addresses, routes: plan.tunnelRoutes.count, fullTunnel: plan.fullTunnel,
+                blocked: plan.blocked, dnsServers: dns?.servers ?? [], searchDomains: dns?.searchDomains ?? [],
+                splitDNSDomains: dns?.matchDomains ?? [])
+        }
+
+        /// The line, with its line break.
+        public var line: String {
+            var items = addresses.map(\.description)
+            items.append(routes == 1 ? "1 route" : "\(routes) routes")
+            if fullTunnel { items.append("full tunnel") }
+            for family in blocked { items.append(family == .ipv4 ? "IPv4 blocked" : "IPv6 blocked") }
+            if !dnsServers.isEmpty { items.append("DNS " + dnsServers.map(\.description).joined(separator: " ")) }
+            if !searchDomains.isEmpty { items.append("search " + searchDomains.joined(separator: " ")) }
+            if !splitDNSDomains.isEmpty { items.append("split DNS " + splitDNSDomains.joined(separator: " ")) }
+            return VPNHook.linePrefix + interface + " up: " + items.joined(separator: ", ") + "\n"
+        }
+
+        /// The report a success line (with or without its line break) gives, exactly `line`'s form; nil for any
+        /// other line.
+        public static func parse(_ line: Substring) -> Report? {
+            var text = line
+            if text.hasSuffix("\n") { text = text.dropLast() }
+            guard text.utf8.count <= 16 << 10, text.hasPrefix(VPNHook.linePrefix) else { return nil }
+            text = text.dropFirst(VPNHook.linePrefix.count)
+            guard let up = text.range(of: " up: ") else { return nil }
+            let interface = String(text[..<up.lowerBound])
+            guard OpenConnectRecord.isInterface(interface) else { return nil }
+            var report = Report(interface: interface, addresses: [], routes: -1, fullTunnel: false)
+            for item in text[up.upperBound...].components(separatedBy: ", ") {
+                let words = item.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+                if report.routes < 0 {
+                    if let address = IPAddress(item) {
+                        report.addresses.append(address)
+                    } else if words.count == 2, words[1] == "route" || words[1] == "routes",
+                        let n = OpenConnectNetwork.decimal(words[0], max: 1 << 20)
+                    {
+                        report.routes = n
+                    } else {
+                        return nil
+                    }
+                } else if item == "full tunnel" {
+                    report.fullTunnel = true
+                } else if item == "IPv4 blocked" || item == "IPv6 blocked" {
+                    report.blocked.append(item == "IPv4 blocked" ? .ipv4 : .ipv6)
+                } else if words.count > 1, words[0] == "DNS" {
+                    let servers = words.dropFirst().compactMap(IPAddress.init)
+                    guard servers.count == words.count - 1 else { return nil }
+                    report.dnsServers = servers
+                } else if words.count > 1, words[0] == "search" {
+                    report.searchDomains = Array(words.dropFirst())
+                } else if words.count > 2, words[0] == "split", words[1] == "DNS" {
+                    report.splitDNSDomains = Array(words.dropFirst(2))
+                } else {
+                    return nil
+                }
+            }
+            guard report.routes >= 0,
+                (report.searchDomains + report.splitDNSDomains).allSatisfy({ DomainName.normalize($0) == $0 }),
+                report.line == VPNHook.linePrefix + text + "\n"
+            else { return nil }
+            return report
+        }
+    }
 
     /// How long an openconnect session may run without its hook reporting the network up before the
     /// helper stops it (docs/ARCHITECTURE.md, "Report and enforcement").

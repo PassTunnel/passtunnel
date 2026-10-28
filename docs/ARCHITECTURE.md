@@ -1399,12 +1399,16 @@ and revert. Instead the hook is PassTunnel's own code:
   adoption), and `VPNHook.reportedUp` is false for every session until #183 records success. So no
   openconnect session outlives a minute before #183, and none is ever reported connected: the client
   (#184) only takes the hook's success line as connected, and the stub never writes one.
-  #183 makes the hook work.
+  #183 makes the hook work, in two parts: the first (in) checks what openconnect hands the hook and
+  computes what it would change, the record and the report lines, all pure and not yet called by the
+  stub; the second applies it.
 - **Linux:** `<run>/<uid>/<id>/vpn-hook`, a link to `passtunneld` (as `dns-hook`).
-- The validation is shared (`OpenConnectNetwork`, PassTunnelShared, pure), the system actions sit
-  behind a protocol, so both are tested everywhere against fakes and the golden cases in
-  `fixtures/openconnect-env.json` (an environment → the expected actions or the refusal; read by the
-  Shared and Daemon tests, not by the mobile apps).
+- The validation and the plan are shared (`OpenConnectNetwork`, `OpenConnectPlan`, `OpenConnectRecord`,
+  `VPNHook.Report`, PassTunnelShared, pure; the address and domain rules are `IPAddress` and
+  `DomainName`, which the Linux `DNSSettings` uses too), the system actions sit behind a protocol, so
+  both are tested everywhere against fakes and the golden cases in `Tests/Fixtures/openconnect-env.json`
+  (an environment → the event, the changes and the report line, or the refusal; read by the Core tests
+  and later the Daemon tests, not by the mobile apps, and fuzzed by `FuzzOpenConnectHook`).
 
 openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top of its own, then
 `execl("/bin/sh", "/bin/sh", "-c", script)` and a `waitpid` **without a time limit** (`script.c`
@@ -1429,30 +1433,40 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
    helper writes into the session directory with `openconnect.conf`, before the start, from the
    checked request: uid, profile ID, `set_routes`, `set_dns` (`HelperCore.checkLines`). The hook
    never reads the user's profile, and nothing in openconnect's environment can change the policy.
-3. **Validation.** Every value the hook uses is checked; one bad value fails the set-up. The
-   validators are family-specific (`OpenConnectNetwork`): a *host address* goes through `inet_pton`,
-   is written as `inet_ntop` gives it back and is never the unspecified address; a *network* may be
-   `0.0.0.0` or `::`, its host bits are cleared (as openconnect does for IPv4 split routes); a
-   *mask* is a contiguous dotted IPv4 mask or a length (0–32, 0–128).
+3. **Validation** (`OpenConnectNetwork.parse(_:platform:)`). Every value the hook uses is checked;
+   one bad value fails the set-up. `pre-init` and `disconnect` read nothing but `reason` (a revert must
+   never fail on what the server sent; it works from the record); `connect`, `attempt-reconnect` and
+   `reconnect` need the whole network (openconnect 9.21 builds the environment once, before `connect`,
+   `library.c` 1567, so the later two see the same values). A value the hook reads is at most 8 KiB of
+   printable ASCII (0x20–0x7E: no control byte, no UTF-8), and a name given twice is refused; what it
+   does not read is never decoded. The validators are family-specific: an *address* is parsed by
+   `IPAddress` (dotted decimal without leading zeros, which `inet_aton` would read as octal; IPv6 groups
+   of 1–4 hex digits, one `::`, an IPv4 tail; no zone, port, bracket or blank), cross-checked with
+   `inet_pton` and written as `inet_ntop` gives it back; a *host address* is also not unspecified,
+   loopback, `0.0.0.0/8`, `224.0.0.0/3` or `ff00::/8` (`VPNGATEWAY` may be loopback: a test server on
+   this machine); a *network* may be `0.0.0.0` or `::`; a *mask* is a contiguous dotted IPv4 mask or a
+   length (0–32, 0–128) without leading zeros. Errors name the variable and the rule, never the value
+   (`OpenConnectNetwork.Failure`), since they go to the log.
 
    | Variable | From | Rule |
    |---|---|---|
    | `reason` | openconnect | one of the five above |
-   | `TUNDEV` | the kernel | `^utun[0-9]{1,3}$` (macOS), `^tun[0-9]{1,5}$` (Linux); must exist; its index is noted |
+   | `TUNDEV` | the kernel | `utun0`–`utun999` (macOS), `tun0`–`tun99999` (Linux), no leading zeros; must exist and its index is noted (part 2) |
    | `VPNGATEWAY` | the address openconnect connected to | a host address |
    | `INTERNAL_IP4_ADDRESS` | server (`X-CSTP-Address`, raw text) | absent, or a host address |
    | `INTERNAL_IP4_NETMASK`, `INTERNAL_IP4_NETMASKLEN`, `INTERNAL_IP4_NETADDR` | openconnect, only when the server's netmask parsed and is contiguous (`script.c` 313–340) | all three or none; consistent with each other and the address; none: the address alone (`/32`) |
-   | `INTERNAL_IP6_NETMASK` | server (`X-CSTP-Netmask` with `:`, raw) | absent, or `<host address>/<0–128>` |
+   | `INTERNAL_IP6_NETMASK` | server (`X-CSTP-Netmask` with `:` or `X-CSTP-Address-IP6`, raw) | absent, or `<host address>/<0–128>` (a mask such as `ffff:ffff::` is refused) |
    | `INTERNAL_IP6_ADDRESS` | server, or the address part of `INTERNAL_IP6_NETMASK` (`script.c` 343–353) | absent, or a host address equal to the address in `INTERNAL_IP6_NETMASK` when both are set; alone: `/128` |
-   | `INTERNAL_IP4_MTU` | negotiated | 576–9000; 1280 or more when IPv6 is assigned |
-   | `INTERNAL_IP4_DNS` | server (`X-CSTP-DNS`, `-DNS-IP6`; IPv4 and IPv6 mixed) | at most 3 words, each a host address |
-   | `CISCO_DEF_DOMAIN` (split on spaces), `CISCO_SPLIT_DNS` (split on commas) | server | each a plain host name (the rules of the Linux `DNSSettings.domain`), at most 16 of each |
-   | `CISCO_SPLIT_INC`, `CISCO_SPLIT_EXC` and their `_<n>_ADDR`, `_MASK`, `_MASKLEN` | server (normalized by openconnect) | at most 1,024 of each kind, indexes contiguous from 0, each a network with a mask and length that agree |
-   | `CISCO_IPV6_SPLIT_INC`, `CISCO_IPV6_SPLIT_EXC` and their `_<n>_ADDR`, `_MASKLEN` | server (`_ADDR` raw text, `script.c` 138–142) | as above, IPv6 networks, length 0–128 |
+   | `INTERNAL_IP4_MTU` | negotiated | 576–9000, for both families; 1280 or more when IPv6 is assigned |
+   | `INTERNAL_IP4_DNS` | server (`X-CSTP-DNS`, `-DNS-IP6`; IPv4 and IPv6 mixed) | at most 3 words (split on blanks), each an address, not unspecified (`DNSSettings.address`'s rule); repeats dropped |
+   | `CISCO_DEF_DOMAIN` (split on spaces), `CISCO_SPLIT_DNS` (split on commas) | server | each a plain host name (`DomainName`, the rule of the Linux `DNSSettings.domain`), lowercased, without a final dot, at most 16 of each once repeats are dropped |
+   | `CISCO_SPLIT_INC`, `CISCO_SPLIT_EXC` and their `_<n>_ADDR`, `_MASK`, `_MASKLEN` | server (normalized by openconnect, `script.c` 220–247) | the count at most 1,024 (none: 0); every `n` below it has all three, and no other variable starts with `<count>_` (no gap, no index beyond the count, no other field); the address with its host bits already cleared, mask and length agreeing; an exclude of length 0 is refused, an include of length 0 makes the family a full tunnel |
+   | `CISCO_IPV6_SPLIT_INC`, `CISCO_IPV6_SPLIT_EXC` and their `_<n>_ADDR`, `_MASKLEN` | server (`_ADDR` raw text up to the `/`, `script.c` 138–142; `_MASKLEN` through `strtol`, so possibly negative) | as above, without `_MASK`: an IPv6 address, length 0–128, host bits cleared here |
+   | `VPNPID` | openconnect | absent, or a pid above 1 (not used: the session check proves the pid) |
 
    At least one of the IPv4 and IPv6 addresses must be set. Ignored, never used: `CISCO_BANNER`
    (decoded `%XX`, may hold line breaks), `CISCO_PROXY_PAC`, `CISCO_CSTP_OPTIONS` (every `X-CSTP-*`
-   header), `IDLE_TIMEOUT`, `INTERNAL_IP4_NBNS`. A header value cannot hold CR or LF but may hold
+   header), `IDLE_TIMEOUT`, `INTERNAL_IP4_NBNS`, `LOG_LEVEL`. A header value cannot hold CR or LF but may hold
    spaces, quotes, `$`, backquotes, `;` and bytes from 0x80; variable names are openconnect's own
    (fixed or built from counters), so a server cannot set `BASH_ENV` or the like.
 4. **Record, then apply**, one change at a time under the run root's lock. Each change is journaled
@@ -1463,41 +1477,118 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
    from a fixed path with an argument list (no shell) for at most 10 s; macOS: `/sbin/ifconfig`,
    `/sbin/route`, DNS through the SystemConfiguration API; Linux: `ip` and `DNSApplier` (LINUX.md).
    - `pre-init`: nothing.
-   - `connect`: the interface's addresses, MTU and up (`ifconfig utunN inet A A netmask
-     255.255.255.255 mtu M up`, and `inet6 A prefixlen L`). With `set_routes`, decided per family:
-     first a host route to `VPNGATEWAY` through the original gateway of its family, so the transport
-     stays reachable whatever follows; IPv4 with split includes: each include through the interface
-     and each exclude through the original gateway; without: `0/1` and `128/1` through the
-     interface, never replacing `default` (so `RoutingTable.trafficRoutes` and the other-VPN check
-     see it as they see OpenVPN's `def1`); IPv6 the same with its own split lists, or `::/1` and
-     `8000::/1`, when an IPv6 address is assigned. When IPv4 is a full tunnel and no IPv6 address
-     is assigned, IPv6 is blocked with reject routes for `::/1` and `8000::/1`. What that does and
-     does not do: it takes away IPv6's default path, so destinations without a more specific route
-     are refused; routes that are more specific stay and win (the local network's on-link prefixes,
-     link-local, other interfaces' and other VPNs' routes), so IPv6 to those still leaves outside
-     the tunnel. It is not a packet filter; a complete block would need pf or nftables, which Phase 1
-     does not use. With IPv4 split, IPv6 without an address is left alone. With `set_dns`: macOS writes
-     the dynamic keys `State:/Network/Service/passtunnel-<uid>-<profile id>/IPv4` and `/DNS` through
-     `SCDynamicStore` (`ServerAddresses`, `SearchDomains`, `SupplementalMatchDomains` for split DNS,
-     `OverridePrimary` only for a full tunnel): never a `Setup:` key, never `networksetup`, never
-     `/etc/resolv.conf`, no `scutil` text. Linux uses `DNSApplier`.
-   - `attempt-reconnect`: the gateway host route is set again (the network under the tunnel may have
-     changed).
-   - `reconnect`: openconnect refuses a different address or netmask (`library.c` 676–712) but
-     installs whatever else the server now sends (DNS, split routes, MTU; `install_vpn_opts`,
-     `library.c` 652). The hook validates the new environment like a `connect` and compares what it
-     would apply with the record; any difference fails the reconnect ("the server changed the
-     network settings"), and the session is stopped (below), for a new connect to set up afresh.
-   - `disconnect`: everything the record owns is reverted, newest first. Reverting is idempotent (a
-     change already gone counts as reverted).
+   - `connect` (`OpenConnectPlan.connect(_:policy:underlay:)`, from the checked network, the policy
+     and the default gateway of each family before the tunnel, which part 2 reads from the routing
+     table), in this order:
+     1. the interface: MTU and up (`ifconfig utunN mtu M up`), then its addresses as host addresses
+        (`inet A A netmask 255.255.255.255`, `inet6 A prefixlen 128`); networks are routes of their own,
+        so with `set_routes` off the tunnel adds no route at all;
+     2. with `set_routes`, decided per family that has an address. Without split includes (or with an
+        include of length 0) the family is a full tunnel: `0/1` and `128/1` (`::/1` and `8000::/1`)
+        through the interface, never replacing `default` (so `RoutingTable.trafficRoutes` and the
+        other-VPN check see it as they see OpenVPN's `def1`). With includes: each include through the
+        interface, then the assigned network (`INTERNAL_IP4_NETADDR/NETMASKLEN`, the `INTERNAL_IP6_NETMASK`
+        network; `/1` to `/31` or `/127`) and, with `set_dns`, a host route to each DNS server of the
+        family, each where no include holds it already. Each exclude of a family the tunnel routes or
+        blocks goes through that family's original gateway (left out when the family has none). A family **without an address
+        while the other is a full tunnel is blocked**: reject routes for both halves of its space
+        (owner decision 8 for IPv6; the same for IPv4 in the rare IPv6-only tunnel). The block is a
+        route, not a packet filter: `route add -inet6 -net ::/1 ::1 -reject` (macOS) and
+        `ip -6 route add unreachable ::/1` (Linux), chosen over a blackhole (which drops silently, so a
+        program waits for its timeout before it falls back to IPv4) and over a route into the tunnel
+        (the utun has no address of that family, the server would drop it, again a timeout): a reject
+        route answers at once with "no route to host", and Happy Eyeballs moves to the other family. It
+        takes away the family's default path only; routes that are more specific stay and win (the
+        local network's on-link prefixes, link-local, other interfaces' and other VPNs' routes), so
+        traffic to those still leaves outside the tunnel; a complete block would need pf or nftables,
+        which Phase 1 does not use. A reject route does not go with the interface, hence the record.
+        With split IPv4, a family without an address is left alone. And a host route to `VPNGATEWAY`
+        through the original gateway of its family, which goes **first** of all routes, whenever one of
+        the routes into the tunnel or a reject route would capture it (not for a loopback server); when
+        that family has no usable default gateway (none, or the tunnel itself) the set-up fails ("there
+        is no IPv4 default route to keep the VPN server reachable outside the tunnel"). A destination is
+        routed once, in the order server host route, excludes, reject routes, routes into the tunnel: so
+        an exclude wins over an include of the same network, and the server's host route over an include
+        of that host;
+     3. with `set_dns` and at least one DNS server: macOS writes the dynamic keys
+        `State:/Network/Service/passtunnel-<uid>-<profile id>/IPv4` (and `/IPv6`) and `/DNS` through
+        `SCDynamicStore`: `ServerAddresses`; `SearchDomains` (`CISCO_DEF_DOMAIN`);
+        `OverridePrimary` only for a full tunnel (every family with an address, and `set_routes`), and
+        otherwise `SupplementalMatchDomains`, `CISCO_SPLIT_DNS` then `CISCO_DEF_DOMAIN` (no DNS at all
+        when there are none). Never a `Setup:` key, never `networksetup`, never `/etc/resolv.conf`, no
+        `scutil` text. Linux uses `DNSApplier`.
+
+     Each change has one line of text, which the record stores and the golden cases compare
+     (`OpenConnectPlan.Change.text`; every field a checked value, so no blank or line break in one):
+
+     ```
+     link utun5 mtu 1406
+     address utun5 10.11.0.2
+     route 192.0.2.10/32 gateway 198.51.100.1 en0          (gateway link ppp0: a link without an address)
+     route 192.168.0.0/16 gateway 198.51.100.1 en0
+     route ::/1 reject
+     route 0.0.0.0/1 interface utun5
+     dns passtunnel-501-acme utun5 primary servers=10.11.0.53,2001:db8::53 search=example.com match=-
+     ```
+   - `attempt-reconnect` (`OpenConnectPlan.refresh`): the routes around the tunnel follow the default
+     gateway, which may have changed (another network). For each family that has a usable gateway now,
+     the session's own routes through another gateway are removed, newest first, then the ones
+     `connect` would add now and the record does not hold are added. A family without a gateway right
+     now (the network is down while openconnect retries) is left as it is. The record's status becomes
+     `reconnecting`.
+   - `reconnect` (`OpenConnectPlan.matches`): openconnect refuses a different address or netmask
+     itself (`library.c` 676–712). openconnect 9.21 does not rebuild the hook's environment after a
+     reconnect (`prepare_script_env` runs once, in `openconnect_setup_tun_device`, `library.c` 1567),
+     so the hook sees the values of `connect`; it still checks them again and compares the plan, but for
+     the routes around the tunnel, with what the record holds. Any difference fails the reconnect ("the
+     server changed the network settings"), and the session is stopped (below), for a new connect to
+     set up afresh. Otherwise nothing is changed and the status is `up` again.
+   - `disconnect`: everything the record owns is reverted, newest first, and so is a change that was
+     begun but has no outcome (it may have been made). Reverting is idempotent (a change already gone
+     counts as reverted).
+
+   **The record** (`OpenConnectRecord`, `network`, 0600, root): a journal, strict like `policy`, read
+   back only as a whole (`parse` refuses anything `text()` would not write, or an entry out of the
+   order `append` allows; at most 4 MiB, `compacted()` keeps a long session's small):
+
+   ```
+   passtunnel-network 1
+   interface utun5
+   + route 192.0.2.10/32 gateway 198.51.100.1 en0        begun: written before the change is made
+   = route 192.0.2.10/32 gateway 198.51.100.1 en0        the session's own: reverted later
+   + route ::/1 reject
+   ~ route ::/1 reject                                   was there already: never removed
+   + dns passtunnel-501-acme utun5 primary servers=… search=… match=-
+   ! dns passtunnel-501-acme utun5 primary servers=… search=… match=-   failed: nothing changed
+   - route 192.0.2.10/32 gateway 198.51.100.1 en0        reverted
+   status up | status reconnecting | status failed <reason>
+   ```
+
+   One change at a time: an outcome must name the change just begun, a status or a new change needs
+   none pending, a revert names one that is the session's or pending. What to revert is every change
+   that is the session's own or pending, newest first (`toRevert`); what the system has as asked is the
+   session's and those that were there already (`applied`); the latest `status` is the set-up's state.
 5. **Bounded.** openconnect waits for the hook without a limit, and the hook runs in its own process
    group, which `kill(-pid)` does not reach. So the whole hook run, the lock wait included, has a
    limit of 30 s; the hook writes its pid and start time to `hook` in the session directory under the
    lock when it starts and removes it when it ends, and it checks for the `stopping` mark (below)
    before each change: once that is set it applies nothing more.
 6. **Report and enforcement.** The hook records its outcome in the record (`up`, or `failed` and why)
-   and writes one line to the session log: `passtunnel vpn-hook: utun5 up: 10.0.0.2, 3 routes, DNS …`
-   or, after reverting what it applied, `passtunnel vpn-hook: setting up the network failed: …`.
+   and writes one line to the session log (`VPNHook.Report.line`, `VPNHook.failureLine`):
+
+   ```
+   passtunnel vpn-hook: utun5 up: 10.11.0.2, 2001:db8:1::2, 4 routes, full tunnel, DNS 10.11.0.53, search example.com
+   passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, full tunnel, IPv6 blocked, DNS 10.11.0.53 10.11.0.54, search example.com
+   passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, DNS 10.11.0.53, search example.com, split DNS corp.example.com example.com
+   passtunnel vpn-hook: setting up the network failed: INTERNAL_IP4_DNS is not a list of IPv4 and IPv6 addresses
+   ```
+
+   The success line holds the interface, its addresses, the number of routes into the tunnel, `full
+   tunnel`, a blocked family, and with DNS its servers, search and split DNS domains, every item a
+   checked value or fixed text; `VPNHook.Report.parse` reads back exactly that form (for #184). A
+   failure's reason passes through `VPNHook.oneLine` (printable ASCII, at most 300 bytes; anything else
+   becomes `?`), so no text can end the line or forge another; the hook's own reasons name variables,
+   never values. The failure line is written after reverting what was applied.
    openconnect ignores the result of the `connect` call (`library.c` 1593) and keeps running, so the
    failure must be acted on by PassTunnel, and not only by a client that may be gone: the hook sends
    SIGTERM to its openconnect (the pid the session check proved), and the supervisor, which checks its
@@ -1545,7 +1636,7 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
   | `Server certificate verify failed: …`, `None of the 1 fingerprint(s) specified via --servercert match …` | trust failure; nothing was sent |
   | `getaddrinfo failed for host '…'`, `Failed to connect to host …`, `Failed to open HTTPS connection to …` | `host_not_found` / `unreachable` |
   | `Got CONNECT response: HTTP/1.1 200 OK`, `CSTP connected. DPD …` | root run: tunnel negotiated |
-  | `passtunnel vpn-hook: utun5 up: …` | connected; the interface name (openconnect does not print it at INFO) |
+  | `passtunnel vpn-hook: utun5 up: …` | connected; the interface name (openconnect does not print it at INFO), the routes' count and DNS (`VPNHook.Report.parse`) |
   | `passtunnel vpn-hook: setting up the network failed: …` | `PTError.setupFailed`; stopped |
   | `Cookie was rejected by server; exiting.`, `Session terminated by server; exiting.` | dropped; a reconnect signs in again |
 

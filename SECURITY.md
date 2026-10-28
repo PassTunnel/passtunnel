@@ -426,7 +426,9 @@ section is the threat model the pull requests #179–#189 are reviewed against; 
 bundled tool (#179), the configuration checks (#180), the profile (#181) and the helper's side of a
 session (#182): the helper accepts a start request, checks every field of it again and runs
 `openconnect` as described below, but nothing in the app sends that request yet (#184), and the hook
-that would set up the network is a stub that stops the session (#183).
+that would set up the network is a stub that stops the session (#183). The checks of what openconnect
+hands the hook, and what the hook would change from it, are in place and tested, but not used yet
+(#183, first part).
 
 ### What changes
 
@@ -510,11 +512,14 @@ names are openconnect's own, so a server cannot set `BASH_ENV` or similar.
   (not from anything openconnect or the server passes) which PassTunnel session's `openconnect` ran it,
   stops that `openconnect`. Independently, the helper stops every Cisco AnyConnect session whose network
   set-up was not reported within 60 seconds, which before #183 is every one.
-- **Every value it uses is checked first**, as for OpenVPN's DNS on Linux: addresses must parse and
-  are written back in canonical form, masks must be consistent, domains must be plain host names,
-  the interface must be a tunnel interface that exists, and lists have limits (3 DNS servers, 16
-  domains of each kind, 1,024 routes of each kind). One bad value fails the set-up. What it does not
-  need (the banner, the proxy URL, the raw headers) is never read.
+- **Every value it uses is checked first**, as for OpenVPN's DNS on Linux, with the same address
+  and domain rules: addresses must parse strictly (no leading zeros, which some parsers read as
+  octal; no zones, ports or blanks) and are written back in canonical form, masks must be
+  consistent, domains must be plain host names, the interface must be a tunnel interface that
+  exists, values must be printable ASCII, and lists have limits (3 DNS servers, 16 domains of each
+  kind, 1,024 routes of each kind, with no gaps or extra entries). One bad value fails the set-up, and
+  the message in the log names the setting, never the server's value. What it does not need (the
+  banner, the proxy URL, the raw headers) is never read.
 - **Its permissions come from root, not from the server.** Whether it may set routes and DNS is
   written by the helper into the root-only run directory before the tool starts; the hook reads
   nothing from your profile and nothing the server sends can change it.
@@ -532,7 +537,8 @@ names are openconnect's own, so a server cannot set `BASH_ENV` or similar.
   does, and never replaces or deletes your default route.
 - **IPv6 in a full tunnel.** When all IPv4 traffic goes through the tunnel and the server assigns no
   IPv6 address, IPv6's default path is taken away (reject routes), so IPv6 to the internet is refused
-  rather than sent around the tunnel. This is a routing rule, not a firewall: IPv6 to destinations
+  at once rather than sent around the tunnel, and programs fall back to IPv4 without waiting (the same
+  for IPv4 in a tunnel that assigns only IPv6). This is a routing rule, not a firewall: IPv6 to destinations
   with a more specific route (your local network, link-local addresses, other interfaces or VPNs)
   still leaves outside the tunnel. The route to the VPN server itself is kept.
 - **A failed set-up stops the session,** whether or not the app or the command is still running.
