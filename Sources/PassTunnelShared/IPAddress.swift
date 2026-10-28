@@ -234,6 +234,16 @@ public struct IPNetwork: Hashable, Sendable, CustomStringConvertible {
         other.family == family && other.prefixLength >= prefixLength && other.address.masked(prefixLength) == address
     }
 
+    /// The network's two halves (one bit longer); nil for a host.
+    public func split() -> (IPNetwork, IPNetwork)? {
+        guard prefixLength < family.bits else { return nil }
+        var high = address.bytes
+        high[prefixLength / 8] |= UInt8(0x80 >> (prefixLength % 8))
+        return (
+            IPNetwork(address: address, prefixLength: prefixLength + 1)!, IPNetwork(address: IPAddress(bytes: high)!, prefixLength: prefixLength + 1)!
+        )
+    }
+
     /// The two halves of the family's address space, `0.0.0.0/1` and `128.0.0.0/1` or `::/1` and
     /// `8000::/1`: together every destination, yet never the default route.
     public static func halves(_ family: IPAddress.Family) -> [IPNetwork] {

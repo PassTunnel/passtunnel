@@ -33,15 +33,37 @@ public struct OpenConnectPlan: Equatable, Sendable {
         }
     }
 
-    /// The default gateway of each family before the tunnel, as the routing table says (the hook never
-    /// replaces `default`, so it is still the original gateway on a later run).
+    /// A network directly attached to an interface (an on-link prefix of the routing table).
+    public struct Attached: Hashable, Sendable {
+        public let network: IPNetwork
+        public let interface: String
+
+        public init(_ network: IPNetwork, interface: String) {
+            self.network = network
+            self.interface = interface
+        }
+    }
+
+    /// The network under the tunnel, as the routing table says: the default gateway of each family (the hook
+    /// never replaces `default`, so it is still the original gateway on a later run) and the networks
+    /// attached to the Mac's interfaces (the local networks, which stay local).
     public struct Underlay: Equatable, Sendable {
         public var ipv4: Gateway?
         public var ipv6: Gateway?
+        public var attached: [Attached]
 
-        public init(ipv4: Gateway? = nil, ipv6: Gateway? = nil) {
+        public init(ipv4: Gateway? = nil, ipv6: Gateway? = nil, attached: [Attached] = []) {
             self.ipv4 = ipv4
             self.ipv6 = ipv6
+            self.attached = attached
+        }
+
+        /// The local networks that keep a route of the server's out of the tunnel: not on the tunnel's own
+        /// interface, not link-local (`fe80::/10`, every interface has one) and not of length 0.
+        func local(tunnel: String) -> [IPNetwork] {
+            let linkLocal = IPNetwork("fe80::/10")!
+            return attached.filter { $0.interface != tunnel && $0.network.prefixLength > 0 && !linkLocal.contains($0.network) }
+                .map(\.network)
         }
 
         /// The gateway of `family` if traffic can leave through it: its address (if any) of that family,
@@ -242,6 +264,9 @@ public struct OpenConnectPlan: Equatable, Sendable {
     public let fullTunnel: Bool
     /// Families without an address whose traffic is refused, since the other family is a full tunnel.
     public let blocked: [IPAddress.Family]
+    /// Routes into the tunnel the server asked for that were left out because they lie inside a local
+    /// network (`Underlay.attached`).
+    public let keptLocal: Int
 
     public var addresses: [IPAddress] {
         changes.compactMap { if case .address(_, let a) = $0 { return a } else { return nil } }
@@ -260,21 +285,34 @@ public struct OpenConnectPlan: Equatable, Sendable {
 
     /// What `connect` applies, in this order:
     /// 1. the interface: MTU and up, then its addresses (host addresses only);
-    /// 2. with `set_routes`, per family: a host route to `VPNGATEWAY` through the original gateway of its family
-    ///    when any route below would capture it (not for a server on this machine); every exclude of a family
-    ///    the tunnel routes through that gateway (left out when the family has none); for a family that has no
-    ///    address while the other one is a full tunnel, reject routes for both halves of its space (no traffic
-    ///    of that family leaks around the tunnel; see `Via.reject`); the routes into the tunnel: with split
-    ///    includes, each include, then the assigned network (when the server gave one, `/1` to `/31` or `/127`)
-    ///    and, with `set_dns`, a host route to each DNS server of the family, where no include holds them; or, without includes (or with an include of every
-    ///    address), the two halves of the space (`0/1` and `128/1`, `::/1` and `8000::/1`), never `default`.
-    ///    A destination is routed once: the first of these wins (an exclude over an include of the same network);
-    /// 3. with `set_dns` and DNS servers: DNS, primary for a full tunnel, otherwise for the split DNS and
-    ///    default domains only (none at all when there are no such domains).
+    /// 2. with `set_routes`, decided per family. A family with an address is a full tunnel when the server's
+    ///    includes are none or cover every address together (`0.0.0.0/0`, or `0/1` and `128/1`, …): then the
+    ///    two halves of its space (`0/1` and `128/1`, `::/1` and `8000::/1`, never `default`) go into the tunnel.
+    ///    Otherwise its includes, then the assigned network (when the server gave one, `/1` to `/31` or `/127`)
+    ///    and, with `set_dns`, a host route to each DNS server of the family, where no include holds them; but
+    ///    none of these that lies inside a local network (`Underlay.attached`): local networks stay local, and
+    ///    such a route is counted in `keptLocal` instead. The excludes of the family go through its original
+    ///    gateway (left out when it has none). A family without an address while the other one is a full tunnel
+    ///    is blocked: reject routes for both halves of its space, and every include, exclude and DNS route the
+    ///    server gave for it is ignored, so nothing makes a hole in the block. Then, first of all routes, a host
+    ///    route to `VPNGATEWAY` through the original gateway of its family whenever one of the routes into the
+    ///    tunnel or a reject route would capture it (not for a server on this machine). A destination is routed
+    ///    once, in the order server host route, reject routes, excludes, routes into the tunnel: the first wins
+    ///    (an exclude over an include of the same network);
+    /// 3. with `set_dns` and DNS servers (but those of a blocked family): DNS, primary for a full tunnel,
+    ///    otherwise for the split DNS and default domains only (none at all when there are no such domains).
     public static func connect(_ network: OpenConnectNetwork, policy: OpenConnectPolicy, underlay: Underlay) throws -> OpenConnectPlan {
         let built = build(network, policy: policy, underlay: underlay)
         if let family = built.missingGateway { throw Failure.noGateway(family) }
         return built.plan
+    }
+
+    /// Whether `networks` together hold every address of `space`.
+    static func covers(_ networks: [IPNetwork], _ space: IPNetwork) -> Bool {
+        let relevant = networks.filter { $0.contains(space) || space.contains($0) }
+        if relevant.contains(where: { $0.contains(space) }) { return true }
+        guard !relevant.isEmpty, let (low, high) = space.split() else { return false }
+        return covers(relevant, low) && covers(relevant, high)
     }
 
     /// The plan, and the family of the VPN server's address when its host route is needed but that family
@@ -291,36 +329,43 @@ public struct OpenConnectPlan: Equatable, Sendable {
         let families: [IPAddress.Family] = [.ipv4, .ipv6]
         var full: [IPAddress.Family: Bool] = [:]
         var blocked: [IPAddress.Family] = []
+        var keptLocal = 0
         var missingGateway: IPAddress.Family?
         if policy.setRoutes {
+            let local = underlay.local(tunnel: tunnel)
             var excludes: [Route] = []
             var rejects: [Route] = []
             var inside: [Route] = []
             for family in families {
                 guard let assigned = n.assigned(family) else { continue }
                 let includes = n.includes(family)
-                if includes.isEmpty || includes.contains(where: { $0.prefixLength == 0 }) {
+                let space = IPNetwork(address: IPAddress.mask(family: family, length: 0), prefixLength: 0)!
+                if includes.isEmpty || covers(includes, space) {
                     full[family] = true
                     inside += IPNetwork.halves(family).map { Route($0, via: .interface(tunnel)) }
                 } else {
                     full[family] = false
-                    inside += includes.map { Route($0, via: .interface(tunnel)) }
+                    var wanted = includes
                     // The assigned network and the DNS servers, unless an include holds them already.
                     var more: [IPNetwork] = []
                     if let net = assigned.network, net.prefixLength > 0, net.prefixLength < family.bits { more.append(net) }
                     if policy.setDNS { more += n.dnsServers.filter { $0.family == family }.map(IPNetwork.host) }
-                    for net in more where !includes.contains(where: { $0.contains(net) }) {
-                        inside.append(Route(net, via: .interface(tunnel)))
+                    wanted += more.filter { net in !includes.contains { $0.contains(net) } }
+                    for net in wanted {
+                        if local.contains(where: { $0.contains(net) }) {
+                            keptLocal += 1
+                        } else {
+                            inside.append(Route(net, via: .interface(tunnel)))
+                        }
                     }
+                }
+                if let gateway = underlay.usable(family, tunnel: tunnel) {
+                    excludes += n.excludes(family).map { Route($0, via: .gateway(gateway)) }
                 }
             }
             for family in families where n.assigned(family) == nil && full[family == .ipv4 ? .ipv6 : .ipv4] == true {
                 blocked.append(family)
                 rejects += IPNetwork.halves(family).map { Route($0, via: .reject) }
-            }
-            for family in families where full[family] != nil || blocked.contains(family) {
-                guard let gateway = underlay.usable(family, tunnel: tunnel) else { continue }
-                excludes += n.excludes(family).map { Route($0, via: .gateway(gateway)) }
             }
 
             var routes: [Route] = []
@@ -332,8 +377,9 @@ public struct OpenConnectPlan: Equatable, Sendable {
                     missingGateway = server.family
                 }
             }
+            // Rejects come before anything the server sent, so nothing of the server's removes the block.
             var seen = Set(routes.map(\.network))
-            for route in excludes + rejects + inside where seen.insert(route.network).inserted {
+            for route in rejects + excludes + inside where seen.insert(route.network).inserted {
                 routes.append(route)
             }
             changes += routes.map { .route($0) }
@@ -341,7 +387,9 @@ public struct OpenConnectPlan: Equatable, Sendable {
 
         let assignedFamilies = families.filter { n.assigned($0) != nil }
         let fullTunnel = policy.setRoutes && assignedFamilies.allSatisfy { full[$0] == true }
-        if policy.setDNS, !n.dnsServers.isEmpty {
+        // A blocked family's DNS servers cannot be reached: they are left out.
+        let servers = n.dnsServers.filter { !blocked.contains($0.family) }
+        if policy.setDNS, !servers.isEmpty {
             var match: [String] = []
             if !fullTunnel {
                 for domain in n.splitDNSDomains + n.defaultDomains where !match.contains(domain) { match.append(domain) }
@@ -351,17 +399,21 @@ public struct OpenConnectPlan: Equatable, Sendable {
                     .dns(
                         DNS(
                             service: DNS.service(uid: policy.uid, profileID: policy.profileID), interface: tunnel, primary: fullTunnel,
-                            servers: n.dnsServers, searchDomains: n.defaultDomains, matchDomains: match)))
+                            servers: servers, searchDomains: n.defaultDomains, matchDomains: match)))
             }
         }
-        return (OpenConnectPlan(interface: tunnel, changes: changes, fullTunnel: fullTunnel, blocked: blocked), missingGateway)
+        return (
+            OpenConnectPlan(interface: tunnel, changes: changes, fullTunnel: fullTunnel, blocked: blocked, keptLocal: keptLocal),
+            missingGateway
+        )
     }
 
-    init(interface: String, changes: [Change], fullTunnel: Bool, blocked: [IPAddress.Family]) {
+    init(interface: String, changes: [Change], fullTunnel: Bool, blocked: [IPAddress.Family], keptLocal: Int) {
         self.interface = interface
         self.changes = changes
         self.fullTunnel = fullTunnel
         self.blocked = blocked
+        self.keptLocal = keptLocal
     }
 
     // MARK: attempt-reconnect, reconnect

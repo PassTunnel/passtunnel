@@ -5,8 +5,9 @@ import Foundation
 /// before it is made (`+`) and its outcome after (`=` the session's own, `~` it was there already and is
 /// not the session's, `!` it failed and nothing was changed), a revert after it succeeded (`-`), and the
 /// set-up's outcome (`status`). A change that was begun and has no outcome (the hook was killed during it)
-/// may have been made, so it is reverted like one of the session's own (`toRevert`). Reverting is
-/// idempotent: a change already gone counts as reverted.
+/// may have been made, so it is reverted like one of the session's own, unless another live session's record
+/// lists the same change (`toRevert(sparing:)`). Reverting is idempotent: a change already gone counts as
+/// reverted.
 ///
 ///     passtunnel-network 1
 ///     interface utun5
@@ -172,9 +173,23 @@ public struct OpenConnectRecord: Equatable, Sendable {
         entries.append(entry)
     }
 
-    /// The changes to undo, newest first: the session's own and those begun without an outcome.
-    public var toRevert: [Change] {
-        ordered.reversed().filter { states[$0] == .owned || states[$0] == .pending }
+    /// The changes to undo, newest first: the session's own and those begun without an outcome (they may have
+    /// been made), but none that another live session's record (`others`, every other session of the run
+    /// root, read under its lock) lists as its own, begun or there already. Some changes can be the same in two
+    /// sessions: a reject route, the host route to a VPN server two sessions share, an exclude through the
+    /// same gateway; the session that set one up first owns it, the other finds it there (`existed`), and
+    /// removing it while the other runs would take away that session's block or transport. Others are unique
+    /// to a session and never spared in practice: its interface's link and addresses, its routes through that
+    /// interface, its DNS service key. A spared change stays when this session ends (a stale reject or host
+    /// route rather than a hole in a running session).
+    public func toRevert(sparing others: [OpenConnectRecord]) -> [Change] {
+        var claimed = Set<Change>()
+        for other in others {
+            for (change, state) in other.states where state == .owned || state == .pending || state == .existed {
+                claimed.insert(change)
+            }
+        }
+        return ordered.reversed().filter { (states[$0] == .owned || states[$0] == .pending) && !claimed.contains($0) }
     }
 
     /// Every change, in the order it was last begun.
@@ -193,25 +208,25 @@ public struct OpenConnectRecord: Equatable, Sendable {
         return nil
     }
 
-    /// The same state in as few entries as possible: each applied change begun with its outcome, a pending one
-    /// begun, then the latest status. For a long session whose routes followed the gateway many times.
-    public func compacted() -> OpenConnectRecord {
-        var out = OpenConnectRecord(interface: interface)!
+    /// The same state in as few entries as possible: each applied change begun with its outcome, the latest
+    /// status, then a pending change begun (a status cannot follow it). For a long session whose routes followed
+    /// the gateway many times. Throws only if the record's own state does not allow it, which `append` prevents.
+    public func compacted() throws -> OpenConnectRecord {
+        guard var out = OpenConnectRecord(interface: interface) else { throw Failure.outOfOrder("interface " + interface) }
         for change in ordered {
             switch states[change] {
-            case .owned: out.unchecked(.begin(change), .owned(change))
-            case .existed: out.unchecked(.begin(change), .existed(change))
+            case .owned:
+                try out.append(.begin(change))
+                try out.append(.owned(change))
+            case .existed:
+                try out.append(.begin(change))
+                try out.append(.existed(change))
             default: break
             }
         }
-        if let pending { out.unchecked(.begin(pending)) }
-        if let status { out.unchecked(.status(status)) }
+        if let status { try out.append(.status(status)) }
+        if let pending { try out.append(.begin(pending)) }
         return out
-    }
-
-    /// Appends entries that the record allows by construction.
-    private mutating func unchecked(_ entries: Entry...) {
-        for entry in entries { try! append(entry) }
     }
 
     // MARK: Text

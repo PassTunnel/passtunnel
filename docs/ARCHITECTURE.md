@@ -1483,33 +1483,50 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
      1. the interface: MTU and up (`ifconfig utunN mtu M up`), then its addresses as host addresses
         (`inet A A netmask 255.255.255.255`, `inet6 A prefixlen 128`); networks are routes of their own,
         so with `set_routes` off the tunnel adds no route at all;
-     2. with `set_routes`, decided per family that has an address. Without split includes (or with an
-        include of length 0) the family is a full tunnel: `0/1` and `128/1` (`::/1` and `8000::/1`)
-        through the interface, never replacing `default` (so `RoutingTable.trafficRoutes` and the
-        other-VPN check see it as they see OpenVPN's `def1`). With includes: each include through the
-        interface, then the assigned network (`INTERNAL_IP4_NETADDR/NETMASKLEN`, the `INTERNAL_IP6_NETMASK`
-        network; `/1` to `/31` or `/127`) and, with `set_dns`, a host route to each DNS server of the
-        family, each where no include holds it already. Each exclude of a family the tunnel routes or
-        blocks goes through that family's original gateway (left out when the family has none). A family **without an address
-        while the other is a full tunnel is blocked**: reject routes for both halves of its space
-        (owner decision 8 for IPv6; the same for IPv4 in the rare IPv6-only tunnel). The block is a
-        route, not a packet filter: `route add -inet6 -net ::/1 ::1 -reject` (macOS) and
-        `ip -6 route add unreachable ::/1` (Linux), chosen over a blackhole (which drops silently, so a
-        program waits for its timeout before it falls back to IPv4) and over a route into the tunnel
-        (the utun has no address of that family, the server would drop it, again a timeout): a reject
-        route answers at once with "no route to host", and Happy Eyeballs moves to the other family. It
-        takes away the family's default path only; routes that are more specific stay and win (the
-        local network's on-link prefixes, link-local, other interfaces' and other VPNs' routes), so
-        traffic to those still leaves outside the tunnel; a complete block would need pf or nftables,
-        which Phase 1 does not use. A reject route does not go with the interface, hence the record.
-        With split IPv4, a family without an address is left alone. And a host route to `VPNGATEWAY`
-        through the original gateway of its family, which goes **first** of all routes, whenever one of
-        the routes into the tunnel or a reject route would capture it (not for a loopback server); when
-        that family has no usable default gateway (none, or the tunnel itself) the set-up fails ("there
-        is no IPv4 default route to keep the VPN server reachable outside the tunnel"). A destination is
-        routed once, in the order server host route, excludes, reject routes, routes into the tunnel: so
-        an exclude wins over an include of the same network, and the server's host route over an include
-        of that host;
+     2. with `set_routes`, decided per family that has an address. A family is a **full tunnel** when the
+        server sent no split includes for it, or includes that together hold every address (`0.0.0.0/0`;
+        `0/1` and `128/1`, which openconnect 9.21 passes as they came; any set of prefixes that covers the
+        space, `OpenConnectPlan.covers`): then `0/1` and `128/1` (`::/1` and `8000::/1`) go through the
+        interface instead, never replacing `default` (so `RoutingTable.trafficRoutes` and the other-VPN
+        check see it as they see OpenVPN's `def1`), and the family counts as a full tunnel for the block of
+        the other family, `OverridePrimary` and the server's host route. Otherwise each include goes through
+        the interface, then the assigned network (`INTERNAL_IP4_NETADDR/NETMASKLEN`, the
+        `INTERNAL_IP6_NETMASK` network; `/1` to `/31` or `/127`) and, with `set_dns`, a host route to each
+        DNS server of the family, each where no include holds it already. Each exclude of the family goes
+        through its original gateway (left out when the family has none).
+
+        **Local networks stay local** (owner decision): `Underlay.attached` are the networks attached to the
+        Mac's interfaces (on-link prefixes of the routing table, which part 2 reads; those on the tunnel's
+        own interface, link-local `fe80::/10` and length 0 do not count). A route the server asked for into
+        the tunnel (an include, the assigned network, a DNS server's host route) that lies inside such a
+        network, or is one, is left out, so the server cannot take over part of the LAN the Mac is on; it is
+        no error, and the success line counts it (`2 routes kept local`). A broader route is kept (`10/8`
+        with a LAN `10.1.2.0/24`: the longer on-link prefix still wins), and so are a full tunnel's two
+        halves.
+
+        A family **without an address while the other is a full tunnel is blocked**: reject routes for
+        both halves of its space (owner decision 8 for IPv6; the same for IPv4 in the rare IPv6-only
+        tunnel), and every include, exclude and DNS server the server sent for that family is ignored, so
+        nothing of the server's makes a hole in the block (and DNS does not wait for a server it cannot reach). The block is a route, not a packet filter:
+        `route add -inet6 -net ::/1 ::1 -reject` (macOS) and `ip -6 route add unreachable ::/1` (Linux),
+        chosen over a blackhole (which drops silently, so a program waits for its timeout before it falls
+        back to IPv4) and over a route into the tunnel (the utun has no address of that family, the server
+        would drop it, again a timeout): a reject route answers at once with "no route to host", and Happy
+        Eyeballs moves to the other family. It takes away the family's default path only; routes that are
+        more specific stay and win (the local network's on-link prefixes, link-local, other interfaces' and
+        other VPNs' routes), so traffic to those still leaves outside the tunnel; a complete block would
+        need pf or nftables, which Phase 1 does not use. A reject route does not go with the interface,
+        hence the record. With a split tunnel, a family without an address is left alone.
+
+        And a host route to `VPNGATEWAY` through the original gateway of its family, which goes **first** of
+        all routes, whenever any route the plan sends into the tunnel (an include or half, the assigned
+        network, a DNS server's host route) or a reject route would capture it (not for a loopback server);
+        when that family has no usable default gateway (none, or the tunnel itself) the set-up fails ("there
+        is no IPv4 default route to keep the VPN server reachable outside the tunnel"). An assigned address
+        equal to `VPNGATEWAY` is refused when the environment is checked. A destination is routed once, in
+        the order server host route, reject routes, excludes, routes into the tunnel: so a reject route is
+        never dropped, an exclude wins over an include of the same network, and the server's host route
+        over an include, the assigned network or a DNS server on that host;
      3. with `set_dns` and at least one DNS server: macOS writes the dynamic keys
         `State:/Network/Service/passtunnel-<uid>-<profile id>/IPv4` (and `/IPv6`) and `/DNS` through
         `SCDynamicStore`: `ServerAddresses`; `SearchDomains` (`CISCO_DEF_DOMAIN`);
@@ -1544,8 +1561,8 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
      server changed the network settings"), and the session is stopped (below), for a new connect to
      set up afresh. Otherwise nothing is changed and the status is `up` again.
    - `disconnect`: everything the record owns is reverted, newest first, and so is a change that was
-     begun but has no outcome (it may have been made). Reverting is idempotent (a change already gone
-     counts as reverted).
+     begun but has no outcome (it may have been made), except what another live session holds (below).
+     Reverting is idempotent (a change already gone counts as reverted).
 
    **The record** (`OpenConnectRecord`, `network`, 0600, root): a journal, strict like `policy`, read
    back only as a whole (`parse` refuses anything `text()` would not write, or an entry out of the
@@ -1565,9 +1582,21 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
    ```
 
    One change at a time: an outcome must name the change just begun, a status or a new change needs
-   none pending, a revert names one that is the session's or pending. What to revert is every change
-   that is the session's own or pending, newest first (`toRevert`); what the system has as asked is the
-   session's and those that were there already (`applied`); the latest `status` is the set-up's state.
+   none pending, a revert names one that is the session's or pending. What the system has as asked is the
+   session's and those that were there already (`applied`); the latest `status` is the set-up's state;
+   `compacted()` keeps a pending change after the status (a status cannot follow one).
+
+   **What to revert** (`toRevert(sparing:)`, pure, called under the run root's lock with the records of
+   every other live session of the run root): every change that is the session's own or pending, newest
+   first, but none that another live session's record lists as its own, pending or there already. Some
+   changes can be the same in two sessions: a reject route (`route ::/1 reject`), the host route to a VPN
+   server two profiles share, an exclude through the same gateway. The session that made one first owns
+   it, the other finds it there (`~`), and a pending one may be either session's; removing it while the
+   other runs would take away that session's block or its route to the server. Unique to a session, and
+   so never spared in practice: its interface's link and addresses, its routes through that interface,
+   its DNS service key `passtunnel-<uid>-<profile id>`. A spared change outlives the session (a stale
+   reject or host route, which a later revert of the session that holds it does not remove either, as
+   it is not that session's own): the price of never opening a hole in a running session.
 5. **Bounded.** openconnect waits for the hook without a limit, and the hook runs in its own process
    group, which `kill(-pid)` does not reach. So the whole hook run, the lock wait included, has a
    limit of 30 s; the hook writes its pid and start time to `hook` in the session directory under the
@@ -1584,7 +1613,7 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
    ```
 
    The success line holds the interface, its addresses, the number of routes into the tunnel, `full
-   tunnel`, a blocked family, and with DNS its servers, search and split DNS domains, every item a
+   tunnel`, a blocked family, the routes kept local, and with DNS its servers, search and split DNS domains, every item a
    checked value or fixed text; `VPNHook.Report.parse` reads back exactly that form (for #184). A
    failure's reason passes through `VPNHook.oneLine` (printable ASCII, at most 300 bytes; anything else
    becomes `?`), so no text can end the line or forge another; the hook's own reasons name variables,

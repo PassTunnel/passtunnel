@@ -140,6 +140,8 @@ public struct OpenConnectNetwork: Equatable, Sendable {
         case unexpected(String)
         case noAddress
         case mtuTooSmallForIPv6
+        /// The tunnel's address is the VPN server's (`VPNGATEWAY`).
+        case sameAsGateway(String)
 
         public var description: String {
             switch self {
@@ -152,6 +154,7 @@ public struct OpenConnectNetwork: Equatable, Sendable {
             case .unexpected(let count): return "a variable of the \(count) list has an index the count does not cover"
             case .noAddress: return "neither INTERNAL_IP4_ADDRESS nor INTERNAL_IP6_ADDRESS is set"
             case .mtuTooSmallForIPv6: return "INTERNAL_IP4_MTU is below \(OpenConnectNetwork.minIPv6MTU), too small for IPv6"
+            case .sameAsGateway(let name): return "\(name) is the VPN server's address (VPNGATEWAY)"
             }
         }
     }
@@ -229,6 +232,9 @@ public struct OpenConnectNetwork: Equatable, Sendable {
         let ipv4 = try parseIPv4(env)
         let ipv6 = try parseIPv6(env)
         guard ipv4 != nil || ipv6 != nil else { throw Failure.noAddress }
+        // The tunnel's own address cannot be the server's: the server would then be reached through the tunnel.
+        if ipv4?.address == gateway { throw Failure.sameAsGateway("INTERNAL_IP4_ADDRESS") }
+        if ipv6?.address == gateway { throw Failure.sameAsGateway("INTERNAL_IP6_ADDRESS") }
 
         let mtuText = try env.required("INTERNAL_IP4_MTU")
         guard let mtu = decimal(mtuText, max: mtuRange.upperBound), mtuRange.contains(mtu) else {

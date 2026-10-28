@@ -535,10 +535,20 @@ names are openconnect's own, so a server cannot set `BASH_ENV` or similar.
   the connection is re-established, the session is stopped instead of being re-configured.
 - **The default route stays.** A full tunnel adds two half routes (`0/1`, `128/1`), as OpenVPN
   does, and never replaces or deletes your default route.
+- **Your local network stays local.** A route the server asks for into the tunnel that lies inside a
+  network your Mac is attached to (your Wi-Fi or Ethernet subnet), including a DNS server on it, is
+  left out and counted in the log ("2 routes kept local"), so the server cannot take over devices on
+  your LAN. A broader route (all of `10.0.0.0/8` while your LAN is `10.1.2.0/24`) is kept: your LAN's
+  own route is more specific and still wins. A full tunnel is not affected by this.
+- **Shared routes are not pulled from under another session.** When two sessions need the same route
+  (a block, or the route to a VPN server both use), the one that ends leaves it in place while the
+  other still runs, even if it may have been the one that added it.
 - **IPv6 in a full tunnel.** When all IPv4 traffic goes through the tunnel and the server assigns no
   IPv6 address, IPv6's default path is taken away (reject routes), so IPv6 to the internet is refused
   at once rather than sent around the tunnel, and programs fall back to IPv4 without waiting (the same
-  for IPv4 in a tunnel that assigns only IPv6). This is a routing rule, not a firewall: IPv6 to destinations
+  for IPv4 in a tunnel that assigns only IPv6). Nothing the server sends for the blocked family (routes
+  to include or exclude) is used, so the server cannot open holes in the block. Split includes that
+  together cover every address count as a full tunnel. This is a routing rule, not a firewall: IPv6 to destinations
   with a more specific route (your local network, link-local addresses, other interfaces or VPNs)
   still leaves outside the tunnel. The route to the VPN server itself is kept.
 - **A failed set-up stops the session,** whether or not the app or the command is still running.

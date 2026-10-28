@@ -1,5 +1,5 @@
 {
-  "about": "What openconnect 9.21 hands its hook (prepare_script_env, script.c 294-432; values from cstp.c 396-645), and what the hook makes of it: the event, the changes it applies for connect (OpenConnectPlan.Change text, the record's form) and its report line, or the refusal (OpenConnectNetwork.Failure, OpenConnectPlan.Failure). Each case's env is `base` with the case's variables on top (null removes one; `base_none: true` starts empty); `env_hex` sets raw bytes. Defaults: platform macos, policy uid 501, profile acme, set_routes and set_dns on, underlay ipv4 `198.51.100.1 en0` and no ipv6. Read by Tests/PassTunnelCoreTests/OpenConnectNetworkTests.swift.",
+  "about": "What openconnect 9.21 hands its hook (prepare_script_env, script.c 294-432; values from cstp.c 396-645), and what the hook makes of it: the event, the changes it applies for connect (OpenConnectPlan.Change text, the record's form) and its report line, or the refusal (OpenConnectNetwork.Failure, OpenConnectPlan.Failure). Each case's env is `base` with the case's variables on top (null removes one; `base_none: true` starts empty); `env_hex` sets raw bytes. Defaults: platform macos, policy uid 501, profile acme, set_routes and set_dns on, underlay ipv4 `198.51.100.1 en0`, no ipv6 and no attached (local) networks; `attached` lists `<network> <interface>`. Read by Tests/PassTunnelCoreTests/OpenConnectNetworkTests.swift.",
   "base": {
     "reason": "connect",
     "TUNDEV": "utun5",
@@ -130,10 +130,10 @@
         "link utun5 mtu 1406",
         "address utun5 10.11.0.2",
         "route 192.0.2.10/32 gateway 198.51.100.1 en0",
-        "route 192.168.0.0/16 gateway 198.51.100.1 en0",
-        "route 198.51.100.0/24 gateway 198.51.100.1 en0",
         "route ::/1 reject",
         "route 8000::/1 reject",
+        "route 192.168.0.0/16 gateway 198.51.100.1 en0",
+        "route 198.51.100.0/24 gateway 198.51.100.1 en0",
         "route 0.0.0.0/1 interface utun5",
         "route 128.0.0.0/1 interface utun5",
         "dns passtunnel-501-acme utun5 primary servers=10.11.0.53,10.11.0.54 search=example.com match=-"
@@ -410,6 +410,233 @@
       ],
       "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, full tunnel, IPv6 blocked"
     },
+    {
+      "name": "IPv4-only full tunnel: the server's IPv6 excludes and includes cannot open the IPv6 block",
+      "env": {
+        "CISCO_IPV6_SPLIT_EXC": "3",
+        "CISCO_IPV6_SPLIT_EXC_0_ADDR": "::", "CISCO_IPV6_SPLIT_EXC_0_MASKLEN": "1",
+        "CISCO_IPV6_SPLIT_EXC_1_ADDR": "8000::", "CISCO_IPV6_SPLIT_EXC_1_MASKLEN": "1",
+        "CISCO_IPV6_SPLIT_EXC_2_ADDR": "2001:db8:5::", "CISCO_IPV6_SPLIT_EXC_2_MASKLEN": "48",
+        "CISCO_IPV6_SPLIT_INC": "1",
+        "CISCO_IPV6_SPLIT_INC_0_ADDR": "2001:db8:6::", "CISCO_IPV6_SPLIT_INC_0_MASKLEN": "48"
+      },
+      "underlay": {"ipv4": "198.51.100.1 en0", "ipv6": "fe80::1 en0"},
+      "policy": {"set_dns": false},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 192.0.2.10/32 gateway 198.51.100.1 en0",
+        "route ::/1 reject",
+        "route 8000::/1 reject",
+        "route 0.0.0.0/1 interface utun5",
+        "route 128.0.0.0/1 interface utun5"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, full tunnel, IPv6 blocked"
+    },
+    {
+      "name": "IPv4-only full tunnel: an IPv6 DNS server is left out with the rest of IPv6",
+      "env": {"INTERNAL_IP4_DNS": "2001:db8:1::53 10.11.0.53"},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 192.0.2.10/32 gateway 198.51.100.1 en0",
+        "route ::/1 reject",
+        "route 8000::/1 reject",
+        "route 0.0.0.0/1 interface utun5",
+        "route 128.0.0.0/1 interface utun5",
+        "dns passtunnel-501-acme utun5 primary servers=10.11.0.53 search=example.com match=-"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, full tunnel, IPv6 blocked, DNS 10.11.0.53, search example.com"
+    },
+    {
+      "name": "IPv4-only full tunnel with only IPv6 DNS servers: no DNS",
+      "env": {"INTERNAL_IP4_DNS": "2001:db8:1::53"},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 192.0.2.10/32 gateway 198.51.100.1 en0",
+        "route ::/1 reject",
+        "route 8000::/1 reject",
+        "route 0.0.0.0/1 interface utun5",
+        "route 128.0.0.0/1 interface utun5"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, full tunnel, IPv6 blocked"
+    },
+    {
+      "name": "IPv4 excludes still go around a full tunnel, after the IPv6 block",
+      "env": {
+        "CISCO_SPLIT_EXC": "1",
+        "CISCO_SPLIT_EXC_0_ADDR": "0.0.0.0", "CISCO_SPLIT_EXC_0_MASK": "128.0.0.0", "CISCO_SPLIT_EXC_0_MASKLEN": "1"
+      },
+      "policy": {"set_dns": false},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 192.0.2.10/32 gateway 198.51.100.1 en0",
+        "route ::/1 reject",
+        "route 8000::/1 reject",
+        "route 0.0.0.0/1 gateway 198.51.100.1 en0",
+        "route 128.0.0.0/1 interface utun5"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 1 route, full tunnel, IPv6 blocked"
+    },
+    {
+      "name": "includes 0/1 and 128/1 cover every address: a full tunnel, IPv6 blocked, DNS primary",
+      "env": {
+        "CISCO_SPLIT_INC": "2",
+        "CISCO_SPLIT_INC_0_ADDR": "0.0.0.0", "CISCO_SPLIT_INC_0_MASK": "128.0.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "1",
+        "CISCO_SPLIT_INC_1_ADDR": "128.0.0.0", "CISCO_SPLIT_INC_1_MASK": "128.0.0.0", "CISCO_SPLIT_INC_1_MASKLEN": "1"
+      },
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 192.0.2.10/32 gateway 198.51.100.1 en0",
+        "route ::/1 reject",
+        "route 8000::/1 reject",
+        "route 0.0.0.0/1 interface utun5",
+        "route 128.0.0.0/1 interface utun5",
+        "dns passtunnel-501-acme utun5 primary servers=10.11.0.53,10.11.0.54 search=example.com match=-"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, full tunnel, IPv6 blocked, DNS 10.11.0.53 10.11.0.54, search example.com"
+    },
+    {
+      "name": "includes of three parts covering every address: a full tunnel",
+      "env": {
+        "CISCO_SPLIT_INC": "4",
+        "CISCO_SPLIT_INC_0_ADDR": "10.0.0.0", "CISCO_SPLIT_INC_0_MASK": "255.0.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "8",
+        "CISCO_SPLIT_INC_1_ADDR": "0.0.0.0", "CISCO_SPLIT_INC_1_MASK": "192.0.0.0", "CISCO_SPLIT_INC_1_MASKLEN": "2",
+        "CISCO_SPLIT_INC_2_ADDR": "64.0.0.0", "CISCO_SPLIT_INC_2_MASK": "192.0.0.0", "CISCO_SPLIT_INC_2_MASKLEN": "2",
+        "CISCO_SPLIT_INC_3_ADDR": "128.0.0.0", "CISCO_SPLIT_INC_3_MASK": "128.0.0.0", "CISCO_SPLIT_INC_3_MASKLEN": "1"
+      },
+      "policy": {"set_dns": false},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 192.0.2.10/32 gateway 198.51.100.1 en0",
+        "route ::/1 reject",
+        "route 8000::/1 reject",
+        "route 0.0.0.0/1 interface utun5",
+        "route 128.0.0.0/1 interface utun5"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, full tunnel, IPv6 blocked"
+    },
+    {
+      "name": "split: the assigned network captures the VPN server, so its host route goes first",
+      "env": {
+        "VPNGATEWAY": "10.11.0.9",
+        "CISCO_SPLIT_INC": "1",
+        "CISCO_SPLIT_INC_0_ADDR": "172.16.0.0", "CISCO_SPLIT_INC_0_MASK": "255.240.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "12"
+      },
+      "policy": {"set_dns": false},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 10.11.0.9/32 gateway 198.51.100.1 en0",
+        "route 172.16.0.0/12 interface utun5",
+        "route 10.11.0.0/24 interface utun5"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes"
+    },
+    {
+      "name": "split: a DNS server on the VPN server's address: its host route goes first, around the tunnel",
+      "env": {
+        "INTERNAL_IP4_DNS": "192.0.2.10 10.11.0.53",
+        "CISCO_SPLIT_INC": "1",
+        "CISCO_SPLIT_INC_0_ADDR": "172.16.0.0", "CISCO_SPLIT_INC_0_MASK": "255.240.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "12"
+      },
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 192.0.2.10/32 gateway 198.51.100.1 en0",
+        "route 172.16.0.0/12 interface utun5",
+        "route 10.11.0.0/24 interface utun5",
+        "route 10.11.0.53/32 interface utun5",
+        "dns passtunnel-501-acme utun5 split servers=192.0.2.10,10.11.0.53 search=example.com match=example.com"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 3 routes, DNS 192.0.2.10 10.11.0.53, search example.com, split DNS example.com"
+    },
+    {
+      "name": "split: the assigned network captures the VPN server and there is no default route",
+      "env": {
+        "VPNGATEWAY": "10.11.0.9",
+        "CISCO_SPLIT_INC": "1",
+        "CISCO_SPLIT_INC_0_ADDR": "172.16.0.0", "CISCO_SPLIT_INC_0_MASK": "255.240.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "12"
+      },
+      "underlay": {},
+      "error": "there is no IPv4 default route to keep the VPN server reachable outside the tunnel"
+    },
+    {
+      "name": "local networks stay local: includes and DNS servers inside an attached network are left out and counted",
+      "env": {
+        "INTERNAL_IP4_DNS": "10.11.0.53 192.168.1.53",
+        "CISCO_SPLIT_INC": "3",
+        "CISCO_SPLIT_INC_0_ADDR": "10.0.0.0", "CISCO_SPLIT_INC_0_MASK": "255.0.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "8",
+        "CISCO_SPLIT_INC_1_ADDR": "192.168.1.128", "CISCO_SPLIT_INC_1_MASK": "255.255.255.128", "CISCO_SPLIT_INC_1_MASKLEN": "25",
+        "CISCO_SPLIT_INC_2_ADDR": "10.1.2.0", "CISCO_SPLIT_INC_2_MASK": "255.255.255.0", "CISCO_SPLIT_INC_2_MASKLEN": "24"
+      },
+      "underlay": {
+        "ipv4": "198.51.100.1 en0",
+        "attached": ["192.168.1.0/24 en0", "10.1.2.0/24 en0", "10.11.0.0/24 utun5", "fe80::/64 en0"]
+      },
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 10.0.0.0/8 interface utun5",
+        "dns passtunnel-501-acme utun5 split servers=10.11.0.53,192.168.1.53 search=example.com match=example.com"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 1 route, 3 routes kept local, DNS 10.11.0.53 192.168.1.53, search example.com, split DNS example.com"
+    },
+    {
+      "name": "IPv6 local networks stay local, link-local ones do not count",
+      "env": {
+        "INTERNAL_IP6_ADDRESS": "2001:db8:1::2",
+        "INTERNAL_IP6_NETMASK": "2001:db8:1::2/64",
+        "CISCO_SPLIT_INC": "1",
+        "CISCO_SPLIT_INC_0_ADDR": "10.0.0.0", "CISCO_SPLIT_INC_0_MASK": "255.0.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "8",
+        "CISCO_IPV6_SPLIT_INC": "2",
+        "CISCO_IPV6_SPLIT_INC_0_ADDR": "2001:db8:7:1::", "CISCO_IPV6_SPLIT_INC_0_MASKLEN": "64",
+        "CISCO_IPV6_SPLIT_INC_1_ADDR": "fe80::", "CISCO_IPV6_SPLIT_INC_1_MASKLEN": "64"
+      },
+      "underlay": {"ipv4": "198.51.100.1 en0", "ipv6": "fe80::1 en0", "attached": ["2001:db8:7::/48 en0", "fe80::/64 en0"]},
+      "policy": {"set_dns": false},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "address utun5 2001:db8:1::2",
+        "route 10.0.0.0/8 interface utun5",
+        "route fe80::/64 interface utun5",
+        "route 2001:db8:1::/64 interface utun5"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2001:db8:1::2, 3 routes, 1 route kept local"
+    },
+    {
+      "name": "a full tunnel keeps its two halves whatever is attached",
+      "underlay": {"ipv4": "198.51.100.1 en0", "attached": ["192.168.1.0/24 en0", "10.0.0.0/8 en1"]},
+      "policy": {"set_dns": false},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 192.0.2.10/32 gateway 198.51.100.1 en0",
+        "route ::/1 reject",
+        "route 8000::/1 reject",
+        "route 0.0.0.0/1 interface utun5",
+        "route 128.0.0.0/1 interface utun5"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, full tunnel, IPv6 blocked"
+    },
+    {"name": "the tunnel's IPv4 address is the VPN server's", "env": {"INTERNAL_IP4_ADDRESS": "192.0.2.10", "INTERNAL_IP4_NETMASK": null, "INTERNAL_IP4_NETMASKLEN": null, "INTERNAL_IP4_NETADDR": null}, "error": "INTERNAL_IP4_ADDRESS is the VPN server's address (VPNGATEWAY)"},
+    {"name": "the tunnel's IPv6 address is the VPN server's", "env": {"VPNGATEWAY": "2001:db8:1::2", "INTERNAL_IP6_ADDRESS": "2001:db8:1::2"}, "error": "INTERNAL_IP6_ADDRESS is the VPN server's address (VPNGATEWAY)"},
     {
       "name": "the default gateway is the tunnel itself: unusable",
       "underlay": {"ipv4": "10.11.0.1 utun5"},

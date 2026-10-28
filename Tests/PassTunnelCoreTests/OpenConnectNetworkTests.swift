@@ -60,8 +60,13 @@ final class OpenConnectNetworkTests: XCTestCase {
             }
             let policy = (c["policy"] as? [String: Bool]) ?? [:]
             var underlay = OpenConnectPlan.Underlay(ipv4: gateway("198.51.100.1 en0"))
-            if let u = c["underlay"] as? [String: String] {
-                underlay = OpenConnectPlan.Underlay(ipv4: u["ipv4"].map(gateway), ipv6: u["ipv6"].map(gateway))
+            if let u = c["underlay"] as? [String: Any] {
+                let attached = ((u["attached"] as? [String]) ?? []).map { text -> OpenConnectPlan.Attached in
+                    let words = text.split(separator: " ").map(String.init)
+                    return OpenConnectPlan.Attached(IPNetwork(words[0])!, interface: words[1])
+                }
+                underlay = OpenConnectPlan.Underlay(
+                    ipv4: (u["ipv4"] as? String).map(gateway), ipv6: (u["ipv6"] as? String).map(gateway), attached: attached)
             }
             return Case(
                 name: try XCTUnwrap(c["name"] as? String),
@@ -333,7 +338,7 @@ final class OpenConnectNetworkTests: XCTestCase {
         try record.append(.failed(c[3]))
         try record.append(.begin(c[4]))
         // Killed during the last change: it may have been made, so it is reverted too, newest first.
-        XCTAssertEqual(record.toRevert, [c[4], c[2], c[0]])
+        XCTAssertEqual(record.toRevert(sparing: []), [c[4], c[2], c[0]])
         XCTAssertEqual(record.applied, [c[0], c[1], c[2]])
         XCTAssertEqual(record.pending, c[4])
         XCTAssertThrowsError(try record.append(.reverted(c[0])), "another change is pending")
@@ -350,14 +355,101 @@ final class OpenConnectNetworkTests: XCTestCase {
         XCTAssertTrue(text.hasPrefix("passtunnel-network 1\ninterface utun5\n+ link utun5 mtu 1406\n= link utun5 mtu 1406\n"))
         let parsed = try XCTUnwrap(OpenConnectRecord.parse(text))
         XCTAssertEqual(parsed, record)
-        XCTAssertEqual(parsed.toRevert, [c[2], c[0]])
+        XCTAssertEqual(parsed.toRevert(sparing: []), [c[2], c[0]])
         XCTAssertEqual(parsed.status, .failed("INTERNAL_IP4_DNS is not a list of IPv4 and IPv6 addresses"))
 
-        let compact = record.compacted()
-        XCTAssertEqual(compact.toRevert, record.toRevert)
+        let compact = try record.compacted()
+        XCTAssertEqual(compact.toRevert(sparing: []), record.toRevert(sparing: []))
         XCTAssertEqual(compact.applied, record.applied)
         XCTAssertEqual(compact.status, record.status)
         XCTAssertEqual(OpenConnectRecord.parse(try compact.text()), compact)
+    }
+
+    /// A status, then a change begun and killed before its outcome (an attempt-reconnect): compacting keeps the
+    /// status before the pending change, which a status cannot follow.
+    func testCompactionWithAChangePendingAfterTheStatus() throws {
+        let text = """
+            passtunnel-network 1
+            interface utun5
+            + link utun5 mtu 1406
+            = link utun5 mtu 1406
+            + route 192.0.2.10/32 gateway 198.51.100.1 en0
+            = route 192.0.2.10/32 gateway 198.51.100.1 en0
+            status up
+            - route 192.0.2.10/32 gateway 198.51.100.1 en0
+            + route 192.0.2.10/32 gateway 203.0.113.1 en7
+
+            """
+        let record = try XCTUnwrap(OpenConnectRecord.parse(text))
+        let compact = try record.compacted()
+        XCTAssertEqual(
+            try compact.text(),
+            """
+            passtunnel-network 1
+            interface utun5
+            + link utun5 mtu 1406
+            = link utun5 mtu 1406
+            status up
+            + route 192.0.2.10/32 gateway 203.0.113.1 en7
+
+            """)
+        XCTAssertEqual(compact.pending, record.pending)
+        XCTAssertEqual(compact.status, .up)
+        XCTAssertEqual(compact.toRevert(sparing: []).map(\.text), ["route 192.0.2.10/32 gateway 203.0.113.1 en7", "link utun5 mtu 1406"])
+        XCTAssertEqual(OpenConnectRecord.parse(try compact.text()), compact)
+    }
+
+    /// A change another live session holds (its own, pending or found there) is not reverted, pending or not;
+    /// what is unique to this session is.
+    func testRevertSparesWhatAnotherSessionHolds() throws {
+        let reject = OpenConnectPlan.Change(text: "route ::/1 reject")!
+        let server = OpenConnectPlan.Change(text: "route 192.0.2.10/32 gateway 198.51.100.1 en0")!
+        let mine = OpenConnectPlan.Change(text: "route 0.0.0.0/1 interface utun5")!
+        let link = OpenConnectPlan.Change(text: "link utun5 mtu 1406")!
+
+        var a = OpenConnectRecord(interface: "utun5")!
+        for change in [link, server, mine] {
+            try a.append(.begin(change))
+            try a.append(.owned(change))
+        }
+        try a.append(.begin(reject))  // killed: may or may not have been made, or have been there
+
+        var b = OpenConnectRecord(interface: "utun6")!
+        try b.append(.begin(reject))
+        try b.append(.owned(reject))
+        try b.append(.begin(server))
+        try b.append(.existed(server))
+
+        XCTAssertEqual(a.toRevert(sparing: []), [reject, mine, server, link])
+        XCTAssertEqual(a.toRevert(sparing: [b]), [mine, link])
+        var c = OpenConnectRecord(interface: "utun7")!
+        try c.append(.begin(server))
+        XCTAssertEqual(a.toRevert(sparing: [c]), [reject, mine, link], "pending in another session")
+        var d = OpenConnectRecord(interface: "utun8")!
+        try d.append(.begin(server))
+        try d.append(.failed(server))
+        try d.append(.begin(reject))
+        try d.append(.owned(reject))
+        try d.append(.reverted(reject))
+        XCTAssertEqual(a.toRevert(sparing: [d]), [reject, mine, server, link], "failed or reverted there: not held")
+    }
+
+    func testCoverage() {
+        func nets(_ list: [String]) -> [IPNetwork] { list.map { IPNetwork($0)! } }
+        let v4 = IPNetwork("0.0.0.0/0")!
+        let v6 = IPNetwork("::/0")!
+        XCTAssertTrue(OpenConnectPlan.covers(nets(["0.0.0.0/1", "128.0.0.0/1"]), v4))
+        XCTAssertTrue(OpenConnectPlan.covers(nets(["0.0.0.0/2", "64.0.0.0/2", "128.0.0.0/1", "10.0.0.0/8"]), v4))
+        XCTAssertTrue(OpenConnectPlan.covers(nets(["0.0.0.0/0"]), v4))
+        XCTAssertFalse(OpenConnectPlan.covers(nets(["0.0.0.0/1", "128.0.0.0/2", "192.0.0.0/3", "224.0.0.0/4"]), v4))
+        XCTAssertFalse(OpenConnectPlan.covers([], v4))
+        XCTAssertTrue(OpenConnectPlan.covers(nets(["::/1", "8000::/2", "c000::/2"]), v6))
+        XCTAssertFalse(OpenConnectPlan.covers(nets(["::/1", "8000::/2", "c000::/3", "e000::/4", "f000::/5"]), v6))
+        // Every /16 but one of 1,024 /10s cannot cover; 1,024 hosts are quick.
+        XCTAssertFalse(OpenConnectPlan.covers((0..<1024).map { IPNetwork("10.\($0 / 256).\($0 % 256).1/32")! }, v4))
+        XCTAssertTrue(
+            OpenConnectPlan.covers(
+                (0..<1024).map { IPNetwork(address: IPAddress(bytes: [UInt8($0 >> 2), UInt8(($0 & 3) << 6), 0, 0])!, prefixLength: 10)! }, v4))
     }
 
     func testRecordParseIsStrict() throws {
@@ -465,6 +557,16 @@ final class OpenConnectNetworkTests: XCTestCase {
     func testReportParseIsStrict() {
         let good = "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, full tunnel, IPv6 blocked, DNS 10.11.0.53, search example.com"
         XCTAssertNotNil(VPNHook.Report.parse(good[...]))
+        let local = "passtunnel vpn-hook: utun5 up: 10.11.0.2, 1 route, 2 routes kept local, DNS 10.11.0.53, split DNS example.com"
+        XCTAssertEqual(VPNHook.Report.parse(local[...])?.keptLocal, 2)
+        for line in [
+            local.replacingOccurrences(of: "2 routes kept", with: "0 routes kept"),
+            local.replacingOccurrences(of: "2 routes kept", with: "1 routes kept"),
+            local.replacingOccurrences(of: ", 2 routes kept local", with: ", 2 routes kept local, 2 routes kept local"),
+            local.replacingOccurrences(of: "1 route, 2 routes kept local", with: "2 routes kept local, 1 route")
+        ] {
+            XCTAssertNil(VPNHook.Report.parse(line[...]), line)
+        }
         let bad = [
             good.replacingOccurrences(of: "utun5", with: "en0"), good.replacingOccurrences(of: "2 routes", with: "2 route"),
             good.replacingOccurrences(of: "2 routes", with: "02 routes"), good.replacingOccurrences(of: "10.11.0.53", with: "10.11.0.053"),
