@@ -332,12 +332,13 @@ PassTunnel. `list` and `list_profiles` show the profile with its stored `type` a
 [Profile (#181)](#profile-181) below. Until it connects, `VPNType.connectable` is `[.openvpn, .forti]`, and a Cisco
 AnyConnect profile (imported from a share file, or written by a newer build) is treated as follows:
 - **Core**: `ConnectionManager.checkConnectable` throws `PTError.unsupportedProfileType("anyconnect")` (`config_invalid`;
-  "needs a newer PassTunnel") at the start of `connect`, `checkCanStart` and the attempt itself, before a confirmation is
-  asked for, a secret is read or the helper is called; `observe` reads it as disconnected; `diagnose` reports that error.
+  "needs a newer PassTunnel") at the start of `connect` (following an attempt too), `checkCanStart` and the attempt
+  itself, before a confirmation is asked for, a secret is read or the helper is asked anything (its status included); `observe` reads it as disconnected; `diagnose` reports that error.
   `ProfileStore` lists, saves (with the checks above), exports, imports and deletes it like any profile.
 - **CLI and MCP**: listed with its settings and `needs_newer_version: true`; `connect`, `toggle` and the MCP `connect` fail
   as above; `show`, `set` (its keys), `export` and `rm` work; `add --type anyconnect` is refused (unknown type).
-- **App**: shown like a profile of an unknown type (`UnsupportedProfile(profile)`: the row, the detail, Delete only); the
+- **App**: shown like a profile of an unknown type (`UnsupportedProfile(profile)`: the row, the detail, Delete only);
+  `startConnect` and the overlap check refuse the profile as stored now before Touch ID or the helper; the
   editor never opens on it (an import selects it instead), the type pickers offer only `VPNType.connectable`, and the
   menu bar and scanned codes never see it.
 - The helper and `passtunneld` have no request for it.

@@ -790,11 +790,12 @@ public final class ConnectionManager: ObservableObject {
         followOnly: Bool = false, interactive: Bool = true,
         role: ((ConnectRole) -> Void)? = nil
     ) async throws {
+        // On every path (following too), before the helper is asked anything or a confirmation would
+        // decrypt the secrets.
+        if let p = try? store.get(id) { try Self.checkConnectable(p) }
         cancelReconnect(id)
         if let inFlight = connectTasks[id] { return try await inFlight.value }
         let current = state(id).isActive || followOnly ? nil : try? store.get(id)
-        // Before a confirmation is asked for, which would decrypt the secrets.
-        if let p = current { try Self.checkConnectable(p) }
         // A confirmation given for other server settings does not count: ask now, naming the new server.
         if let p = current { vault.forgetUnlessBound(p) }
         if interactive, let p = current, vault.needsPrompt(p, for: .connect) {
@@ -905,6 +906,8 @@ public final class ConnectionManager: ObservableObject {
         role: ((ConnectRole) -> Void)? = nil
     ) async throws {
         guard !isBusy(id), !state(id).isConnected else { return }
+        // Before the helper is asked for its status (checked again below on the profile as read then).
+        if let p = try? store.get(id) { try Self.checkConnectable(p) }
         // Before anything changes state: the last error of the attempt that ended stays visible.
         if followOnly, session(id, in: await currentStatus()) == nil { throw NothingToFollow() }
         guard !isBusy(id), !state(id).isConnected else { return }

@@ -247,17 +247,24 @@ extension ConnectionManagerTests {
         try await m.vault.applyProtection(from: plain, to: p)
         try store.save(p)
 
-        for attempt in 0..<2 {
+        let requestsBefore = helper.requests.count
+        let attempts: [() async throws -> Void] = [
+            { try await m.connect(p.id) },
+            { try await m.connect(p.id, followOnly: true) },  // following: refused too, not NothingToFollow
+            { try await m.connect(p.id, interactive: false) },
+            { _ = try await m.checkCanStart(p.id) }
+        ]
+        for (n, attempt) in attempts.enumerated() {
             do {
-                if attempt == 0 { try await m.connect(p.id) } else { _ = try await m.checkCanStart(p.id) }
-                XCTFail("connected")
+                try await attempt()
+                XCTFail("attempt \(n) went ahead")
             } catch {
-                XCTAssertEqual(error as? PTError, .unsupportedProfileType("anyconnect"))
+                XCTAssertEqual(error as? PTError, .unsupportedProfileType("anyconnect"), "attempt \(n)")
             }
         }
         XCTAssertEqual(authenticator.calls, 0, "no confirmation asked, nothing decrypted")
         XCTAssertFalse(m.vault.isUnlocked(p.id, .password))
-        XCTAssertTrue(helper.starts.isEmpty, "nothing sent to the helper")
+        XCTAssertEqual(helper.requests.count, requestsBefore, "the helper was not asked anything, not even its status")
         XCTAssertEqual(m.state(p.id), .disconnected)
         await m.refresh()
         XCTAssertEqual(m.state(p.id), .disconnected)

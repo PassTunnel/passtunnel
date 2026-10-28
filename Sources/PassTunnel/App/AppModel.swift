@@ -572,6 +572,8 @@ final class AppModel: ObservableObject {
     func startConnect(_ p: Profile) {
         droppedUnseen.remove(p.id)
         guard let p = storedProfile(p) else { return showError(PTError.profileNotFound(p.id)) }
+        // The type as stored now (a pending overlap sheet may hold an older copy): refused before any confirmation.
+        do { try ConnectionManager.checkConnectable(p) } catch { return showError(error) }
         let needs = p.needs
         guard !needs.isEmpty else { return connect(p, given: [:]) }
         whenUnlocked(p, SecretVault.kinds(for: .connect, p), .connect) { [self] prompted in
