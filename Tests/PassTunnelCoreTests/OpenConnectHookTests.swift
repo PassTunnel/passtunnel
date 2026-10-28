@@ -9,6 +9,7 @@ final class FakeOpenConnectSystem: OpenConnectSystem {
     var interfaces: [String: UInt32] = ["utun5": 20, "en0": 11, "en7": 12]
     var addresses: [String: [IPAddress]] = [:]
     var up: Set<String> = []
+    var mtus: [String: Int] = [:]
     var attached: [OpenConnectPlan.Attached] = [OpenConnectPlan.Attached(IPNetwork("192.168.1.0/24")!, interface: "en0")]
     var table: [KernelRoute] = [
         KernelRoute(network: IPNetwork("0.0.0.0/0")!, gateway: IPAddress("198.51.100.1"), interface: "en0"),
@@ -28,6 +29,9 @@ final class FakeOpenConnectSystem: OpenConnectSystem {
     var timeouts: [TimeInterval] = []
 
     func interfaceIndex(_ name: String) -> UInt32? { interfaces[name] }
+    func interfaceLink(_ name: String) -> (mtu: Int, up: Bool)? {
+        interfaces[name] == nil ? nil : (mtus[name] ?? 1500, up.contains(name))
+    }
     func interfaceAddresses(_ name: String) -> [IPAddress] { addresses[name] ?? [] }
     func attachedNetworks() -> [OpenConnectPlan.Attached] { attached }
     func routes() -> [KernelRoute]? { routesReadable ? table : nil }
@@ -38,9 +42,10 @@ final class FakeOpenConnectSystem: OpenConnectSystem {
         timeouts.append(timeout)
         if let result = failing(command) { return result }
         switch command.effect {
-        case .link(let interface, _):
+        case .link(let interface, let mtu):
             guard interfaces[interface] != nil else { return .init(status: 1, output: "ifconfig: interface does not exist") }
             up.insert(interface)
+            mtus[interface] = mtu
         case .linkDown(let interface):
             up.remove(interface)
         case .addAddress(let interface, let address):
@@ -668,6 +673,21 @@ final class OpenConnectHookTests: XCTestCase {
         XCTAssertEqual(restore(killed: &killed), .done)
         XCTAssertEqual(system.dns, [:])
         XCTAssertEqual(try record().states[dns], .reverted)
+    }
+
+    func testReconnectWithTheLinkChangedFails() throws {
+        XCTAssertFalse(run(.connect(Self.full)).stopTool)
+        // Another tool changed the tunnel's MTU.
+        system.mtus["utun5"] = 1300
+        try reconnectFails("utun5 is no longer up with MTU 1406")
+        XCTAssertTrue(system.log.contains("/sbin/ifconfig utun5 down"))
+
+        // Or took the tunnel down.
+        try FileManager.default.removeItem(atPath: OpenConnectJournal.path(runDir: runDir))
+        system = FakeOpenConnectSystem()
+        XCTAssertFalse(run(.connect(Self.full)).stopTool)
+        system.up.remove("utun5")
+        try reconnectFails("utun5 is no longer up with MTU 1406")
     }
 
     func testReconnectWithARouteGoneFails() throws {

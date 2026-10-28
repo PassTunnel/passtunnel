@@ -1649,7 +1649,8 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
      server changed the network settings"), and the session is stopped (below), for a new connect to
      set up afresh. Then the system must still have everything the session holds (`OpenConnectHook.verify`):
      every change it owns or shares (`=`, `&`; not `~`, which was never its) exactly as made: the tunnel
-     interface with the index noted when the run started, its addresses, every route with its planned next
+     interface with the index noted when the run started, up and with its MTU (`interfaceLink`: the link
+     entry of `getifaddrs`), its addresses, every route with its planned next
      hop (into the tunnel, around it, reject), the DNS keys with their contents
      (`OpenConnectSystem.hasDNS`). It is checked, never repaired: any difference ("the network changed while
      the connection was re-established: …") reverts what the session holds and stops it like any failure,

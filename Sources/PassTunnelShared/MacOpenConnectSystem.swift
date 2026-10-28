@@ -20,6 +20,23 @@ public final class MacOpenConnectSystem: OpenConnectSystem {
         return index == 0 ? nil : index
     }
 
+    /// From the interface's link-layer entry of `getifaddrs`: its flags and `if_data.ifi_mtu`.
+    public func interfaceLink(_ name: String) -> (mtu: Int, up: Bool)? {
+        var first: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&first) == 0 else { return nil }
+        defer { freeifaddrs(first) }
+        var cursor = first
+        while let entry = cursor?.pointee {
+            defer { cursor = entry.ifa_next }
+            guard String(cString: entry.ifa_name) == name, let sa = entry.ifa_addr, Int32(sa.pointee.sa_family) == AF_LINK,
+                let data = entry.ifa_data
+            else { continue }
+            let mtu = data.assumingMemoryBound(to: if_data.self).pointee.ifi_mtu
+            return (Int(mtu), Int32(entry.ifa_flags) & IFF_UP != 0)
+        }
+        return nil
+    }
+
     public func interfaceAddresses(_ name: String) -> [IPAddress] {
         Self.interfaces().filter { $0.name == name }.map(\.address)
     }

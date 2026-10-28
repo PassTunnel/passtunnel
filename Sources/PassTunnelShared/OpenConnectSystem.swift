@@ -8,6 +8,8 @@ import Foundation
 public protocol OpenConnectSystem: AnyObject {
     /// The interface's index; nil when there is no such interface.
     func interfaceIndex(_ name: String) -> UInt32?
+    /// An interface's MTU and whether it is up (`IFF_UP`); nil when there is no such interface.
+    func interfaceLink(_ name: String) -> (mtu: Int, up: Bool)?
     /// The addresses on an interface (empty when there is none).
     func interfaceAddresses(_ name: String) -> [IPAddress]
     /// The networks attached to the Mac's interfaces (`OpenConnectPlan.Underlay.attached`).

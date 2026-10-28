@@ -406,14 +406,17 @@ public struct OpenConnectHook {
 
     /// What `reconnect` checks: every change the session holds (its own and shared ones; not those it found
     /// there, which were never its) is still on the system exactly as made: the tunnel interface (the index noted
-    /// when the run started) with its addresses, every route with its planned next hop, the DNS keys with their
+    /// when the run started, up, with its MTU) with its addresses, every route with its planned next hop, the DNS keys with their
     /// contents. The first difference, nil when there is none.
     func verify(_ record: OpenConnectRecord, index: UInt32, table: [KernelRoute]) -> String? {
         let addresses = record.applied.compactMap(Self.address)
         for change in record.held {
             switch change {
-            case .link(let interface, _):
+            case .link(let interface, let mtu):
                 if system.interfaceIndex(interface) != index { return Self.interfaceGone }
+                guard let link = system.interfaceLink(interface), link.mtu == mtu, link.up else {
+                    return "\(interface) is no longer up with MTU \(mtu)"
+                }
             case .address(let interface, let address):
                 guard system.interfaceIndex(interface) == index, system.interfaceAddresses(interface).contains(address) else {
                     return "the address \(address) is no longer on \(interface)"
