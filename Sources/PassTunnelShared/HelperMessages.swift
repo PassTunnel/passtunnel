@@ -121,18 +121,96 @@ extension FortiConfig {
     }
 }
 
+/// Start a Cisco AnyConnect profile through openconnect (protocol 4). The user's own `openconnect
+/// --authenticate` run signed in; this carries what it returned (`OpenConnectAuthResult`) and the profile's
+/// own fields, from which the helper renders `<run>/openconnect.conf` (docs/ARCHITECTURE.md, "Helper
+/// protocol 4"). The helper trusts none of it: every field is checked again
+/// (`HelperCore.prepareOpenConnect`). `connectURL`, `resolve` and `serverCert` are the sign-in's
+/// `CONNECT_URL`, `RESOLVE` (nil for an IP-address host) and `FINGERPRINT`; `profileServerCert` is the
+/// profile's own pin (normalized) or empty. `usergroup` is the profile's, checked but not used: the tunnel
+/// run connects without it. `cookie` is a bearer secret, and the server chose `connectURL`, `resolve` and
+/// `serverCert`, so it could have repeated the cookie in them: no description or mirror shows any of the
+/// four.
+public struct OpenConnectStart: Codable, Equatable, CustomStringConvertible, CustomDebugStringConvertible,
+    CustomReflectable
+{
+    public var profileID: String
+    public var profileDir: String
+    public var logPath: String
+    public var host: String
+    public var port: Int
+    public var usergroup: String
+    public var connectURL: String
+    public var resolve: String?
+    public var cookie: String
+    public var serverCert: String
+    public var profileServerCert: String
+    public var tlsOnly: Bool
+    public var setDNS: Bool
+    public var setRoutes: Bool
+
+    public init(
+        profileID: String, profileDir: String, logPath: String, host: String, port: Int = 443, usergroup: String = "",
+        connectURL: String, resolve: String?, cookie: String, serverCert: String, profileServerCert: String = "",
+        tlsOnly: Bool = false, setDNS: Bool = false, setRoutes: Bool = true
+    ) {
+        self.profileID = profileID
+        self.profileDir = profileDir
+        self.logPath = logPath
+        self.host = host
+        self.port = port
+        self.usergroup = usergroup
+        self.connectURL = connectURL
+        self.resolve = resolve
+        self.cookie = cookie
+        self.serverCert = serverCert
+        self.profileServerCert = profileServerCert
+        self.tlsOnly = tlsOnly
+        self.setDNS = setDNS
+        self.setRoutes = setRoutes
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case profileID = "profile_id", profileDir = "profile_dir", logPath = "log_path", host, port, usergroup
+        case connectURL = "connect_url", resolve, cookie, serverCert = "server_cert"
+        case profileServerCert = "profile_server_cert", tlsOnly = "tls_only", setDNS = "set_dns", setRoutes = "set_routes"
+    }
+
+    public var description: String {
+        "OpenConnectStart(profileID: \(profileID), profileDir: \(profileDir), logPath: \(logPath), host: \(host), "
+            + "port: \(port), usergroup: \(usergroup), connectURL: <redacted>, resolve: \(resolve == nil ? "nil" : "<redacted>"), "
+            + "cookie: <redacted>, serverCert: <redacted>, profileServerCert: \(profileServerCert.isEmpty ? "<none>" : profileServerCert), "
+            + "tlsOnly: \(tlsOnly), setDNS: \(setDNS), setRoutes: \(setRoutes))"
+    }
+    public var debugDescription: String { description }
+
+    public var customMirror: Mirror {
+        Mirror(
+            self,
+            children: [
+                "profileID": profileID, "profileDir": profileDir, "logPath": logPath, "host": host, "port": port,
+                "usergroup": usergroup, "connectURL": "<redacted>", "resolve": resolve == nil ? "nil" : "<redacted>",
+                "cookie": "<redacted>", "serverCert": "<redacted>",
+                "profileServerCert": profileServerCert.isEmpty ? "<none>" : profileServerCert,
+                "tlsOnly": tlsOnly, "setDNS": setDNS, "setRoutes": setRoutes
+            ])
+    }
+}
+
 /// Request sent to the helper. Encoded as a flat JSON object with a `type` discriminator and the
-/// sender's protocol version, e.g. `{"profile_id":"acme","protocol_version":3,"type":"stop"}`.
+/// sender's protocol version, e.g. `{"profile_id":"acme","protocol_version":4,"type":"stop"}`.
 /// Use `jsonData()` / `init(jsonData:)` so both sides agree on the encoder settings; the helper
 /// decodes through `HelperCore.decodeRequest`, which also enforces size and version.
 public enum HelperRequest: Codable, Equatable {
     case startOpenVPN(OpenVPNStart)
     case startForti(FortiStart)
+    /// Protocol 4. The Linux daemon refuses it until it runs openconnect (#187).
+    case startOpenConnect(OpenConnectStart)
     case stop(profileID: String)
     case status
 
     enum Kind: String, Codable {
-        case startOpenVPN = "start_openvpn", startForti = "start_forti", stop, status
+        case startOpenVPN = "start_openvpn", startForti = "start_forti", startOpenConnect = "start_openconnect", stop, status
     }
 
     private enum TypeKey: String, CodingKey { case type, protocolVersion = "protocol_version" }
@@ -143,6 +221,7 @@ public enum HelperRequest: Codable, Equatable {
         switch try c.decode(Kind.self, forKey: .type) {
         case .startOpenVPN: self = .startOpenVPN(try OpenVPNStart(from: decoder))
         case .startForti: self = .startForti(try FortiStart(from: decoder))
+        case .startOpenConnect: self = .startOpenConnect(try OpenConnectStart(from: decoder))
         case .stop:
             let s = try decoder.container(keyedBy: StopKeys.self)
             self = .stop(profileID: try s.decode(String.self, forKey: .profileID))
@@ -159,6 +238,9 @@ public enum HelperRequest: Codable, Equatable {
             try s.encode(to: encoder)
         case .startForti(let s):
             try c.encode(Kind.startForti, forKey: .type)
+            try s.encode(to: encoder)
+        case .startOpenConnect(let s):
+            try c.encode(Kind.startOpenConnect, forKey: .type)
             try s.encode(to: encoder)
         case .stop(let id):
             try c.encode(Kind.stop, forKey: .type)

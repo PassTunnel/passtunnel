@@ -31,6 +31,26 @@ public enum HelperBuild {
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
+    /// Hex SHA-256 of the file open at `fd`, read from its start whatever its offset; nil when it cannot be
+    /// read or holds more than `maxBytes`.
+    public static func digest(ofDescriptor fd: Int32, maxBytes: Int = 256 << 20) -> String? {
+        var hasher = SHA256()
+        var buffer = [UInt8](repeating: 0, count: 1 << 20)
+        var offset: off_t = 0
+        while true {
+            let n = buffer.withUnsafeMutableBytes { pread(fd, $0.baseAddress, $0.count, offset) }
+            if n < 0 {
+                if errno == EINTR { continue }
+                return nil
+            }
+            if n == 0 { break }
+            hasher.update(data: buffer[0..<n])
+            offset += off_t(n)
+            if offset > maxBytes { return nil }
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
     /// The running process's executable, as the kernel reports it (symlinks resolved); Foundation's
     /// answer elsewhere than on the Mac.
     public static var currentExecutablePath: String? {
@@ -96,11 +116,34 @@ public enum HelperBuild {
     public static func buildNumber(ofBundleContaining executable: String) -> Int? {
         let contents = ((executable as NSString).deletingLastPathComponent as NSString).deletingLastPathComponent
         let plist = (contents as NSString).appendingPathComponent("Info.plist")
-        guard let data = FileManager.default.contents(atPath: plist),
+        guard let data = readSmallFile(plist, maxBytes: 1 << 20),
             let dict = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
             let value = dict["CFBundleVersion"] as? String
         else { return nil }
         return Int(value.trimmingCharacters(in: .whitespaces))
+    }
+
+    /// The contents of a regular file of at most `maxBytes`, opened without following a link and without
+    /// blocking (the root helper reads its bundle's Info.plist, which the bundle's owner can replace with a
+    /// FIFO or a link); nil otherwise.
+    static func readSmallFile(_ path: String, maxBytes: Int) -> Data? {
+        let fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        guard fd >= 0 else { return nil }
+        defer { close(fd) }
+        var st = stat()
+        guard fstat(fd, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG, st.st_size <= maxBytes else { return nil }
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 65536)
+        while true {
+            let n = read(fd, &buffer, buffer.count)
+            if n < 0 {
+                if errno == EINTR { continue }
+                return nil
+            }
+            if n == 0 { return data }
+            data.append(buffer, count: n)
+            if data.count > maxBytes { return nil }
+        }
     }
 
     /// Build number of the running app or CLI; nil outside a bundle.

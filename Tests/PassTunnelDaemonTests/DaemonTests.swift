@@ -60,8 +60,8 @@ final class DaemonSocketTests: DaemonTestCase {
             (#"{"op":"reboot"}"#, "Unknown operation “reboot”"),
             (#"{"op":"perform"}"#, "without a “request”"),
             (#"{"op":"perform","request":{"type":"status"}}"#, "Protocol version mismatch"),
-            (#"{"op":"perform","request":{"type":"shell","protocol_version":3}}"#, "Unknown request type “shell”"),
-            (#"{"op":"perform","request":{"type":"stop","protocol_version":3}}"#, "field “profile_id”")
+            (#"{"op":"perform","request":{"type":"shell","protocol_version":4}}"#, "Unknown request type “shell”"),
+            (#"{"op":"perform","request":{"type":"stop","protocol_version":4}}"#, "field “profile_id”")
         ]
         for (line, expected) in cases {
             let reply = try HelperResponse(jsonData: Data(try exchange(daemon.socketPath, line).utf8))
@@ -73,7 +73,7 @@ final class DaemonSocketTests: DaemonTestCase {
     func testLineLimit() throws {
         let daemon = try makeDaemon()
         // A request that fills the line exactly is read (and judged by decodeRequest).
-        var line = #"{"op":"perform","request":{"type":"status","protocol_version":3}}"#
+        var line = #"{"op":"perform","request":{"type":"status","protocol_version":4}}"#
         line += String(repeating: " ", count: DaemonProtocol.maxLineBytes - line.utf8.count)
         XCTAssertTrue(try HelperResponse(jsonData: Data(try exchange(daemon.socketPath, line).utf8)).ok)
         let reply = try HelperResponse(jsonData: Data(try exchange(daemon.socketPath, line + " ").utf8))
@@ -237,6 +237,25 @@ final class DaemonSessionTests: DaemonTestCase {
         XCTAssertTrue(refused.error?.contains("“passtunnel”") == true, refused.error ?? "")
         XCTAssertFalse(exists(runRoot + "/\(stranger)"), "refused before anything was prepared")
         XCTAssertTrue(try response(daemon.socketPath, .status).ok, "status stays allowed")
+    }
+
+    /// Cisco AnyConnect is not run by passtunneld before #187: the request is refused, and nothing is
+    /// prepared or started for it.
+    func testOpenConnectIsNotSupportedYet() throws {
+        let daemon = try makeDaemon()
+        let request = OpenConnectStart(
+            profileID: "acme", profileDir: profileDir("acme"), logPath: profileDir("acme") + "/vpn.log", host: "vpn.example.com",
+            connectURL: "https://vpn.example.com/", resolve: "vpn.example.com:192.0.2.10", cookie: "EXAMPLE-COOKIE",
+            serverCert: "pin-sha256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk=")
+        let refused = try response(daemon.socketPath, .startOpenConnect(request))
+        XCTAssertFalse(refused.ok)
+        XCTAssertEqual(refused.error, "Cisco AnyConnect is not supported by passtunneld yet.")
+        XCTAssertFalse(exists(PT.sessionDir(uid: me, profileID: "acme", runRoot: runRoot)), "nothing prepared")
+        XCTAssertFalse(exists(profileDir("acme") + "/vpn.log"), "no log")
+        XCTAssertEqual(try response(daemon.socketPath, .status).running, [:])
+        // Outsiders get the usual refusal first.
+        caller.uid = stranger
+        XCTAssertTrue(try response(daemon.socketPath, .startOpenConnect(request)).error?.contains("“passtunnel”") == true)
     }
 
     /// FortiGate: openfortivpn with the config the daemon wrote (password and code in it, never in the
@@ -819,7 +838,7 @@ final class UnixSocketClientTests: DaemonTestCase {
 
         let daemon = try makeDaemon()
         let current = await SystemHelperInspector(socketPath: daemon.socketPath, expectedBuild: "test-build").report()
-        XCTAssertEqual(current, HelperReport(state: "enabled", responding: true, protocolVersion: 3, outdated: false))
+        XCTAssertEqual(current, HelperReport(state: "enabled", responding: true, protocolVersion: 4, outdated: false))
         XCTAssertTrue(current.isUsable)
         let outdated = await SystemHelperInspector(socketPath: daemon.socketPath, expectedBuild: "older").report()
         XCTAssertEqual(outdated.outdated, true)

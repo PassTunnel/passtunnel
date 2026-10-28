@@ -10,7 +10,8 @@ public enum PT {
     /// 2: OpenVPN management moved from TCP 127.0.0.1:mgmtPort to a per-profile unix socket.
     /// 3: sessions keyed by (uid, profile ID); the socket moved to the root-owned session directory
     ///    (`mgmtSocketPath`), `status` also returns socket paths, requests must carry the version.
-    public static let helperProtocolVersion = 3
+    /// 4: `startOpenConnect` (Cisco AnyConnect, #2).
+    public static let helperProtocolVersion = 4
 
     /// Code-signing requirement the helper enforces on its XPC clients.
     public static let clientRequirement =
@@ -27,9 +28,11 @@ public enum PT {
     /// Code-signing identifiers of the bundled tools (set by scripts/build-app.sh).
     public static let openvpnIdentifier = "com.furkanprlk.passtunnel.openvpn"
     public static let openfortivpnIdentifier = "com.furkanprlk.passtunnel.openfortivpn"
-    /// Bundled for Cisco AnyConnect (#2), not run by the helper yet.
     public static let openconnectIdentifier = "com.furkanprlk.passtunnel.openconnect"
     public static let dnsUpdownIdentifier = "com.furkanprlk.passtunnel.dns-updown"
+    /// Code-signing identifier of the privileged helper (scripts/build-app.sh), which is also openconnect's
+    /// hook (`VPNHook`): the helper stages a copy of its own executable as `vpn-hook`.
+    public static let helperIdentifier = "com.furkanprlk.passtunnel.helper"
 
     /// Root-owned directory where the helper keeps per-session runtime files:
     /// `<root>/<uid>/<profileID>/` (all 0711, so users can reach their socket but list nothing), and

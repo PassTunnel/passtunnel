@@ -154,6 +154,9 @@ final class Supervisor {
                         core.fortiHandlesDNS = false
                         return try core.prepareForti(s, uid: uid)
                     })
+            case .startOpenConnect:
+                // Cisco AnyConnect on Linux is #187; nothing is checked, written or started until then.
+                reply(.failure(Supervisor.openConnectNotSupported))
             case .stop(let id):
                 self.stop(profileID: id, uid: uid, reply: reply)
             case .status:
@@ -164,6 +167,8 @@ final class Supervisor {
             }
         }
     }
+
+    static let openConnectNotSupported = "Cisco AnyConnect is not supported by passtunneld yet."
 
     /// Where a tool's output goes: straight into the log (OpenVPN), or through `OutputCopier`
     /// (openfortivpn), followed for DNS when the profile has `set_dns`.

@@ -34,6 +34,8 @@ public struct HelperCore {
         case deviceExists(String)
         /// A line-based file for a root process failed the final check (`checkLines`).
         case unsafeFile(String)
+        /// The tool needs a later macOS than this one (`Tool.minimumMacOS`; "15.4").
+        case requiresNewerMacOS(Tool, String)
         case system(String, Int32)
 
         public var description: String {
@@ -62,6 +64,7 @@ public struct HelperCore {
                     + "it creates. Use “dev tun” or “dev tap” so that the system picks a free name, or a name no "
                     + "device has."
             case .unsafeFile(let name): return "Refusing to write \(name): its contents failed the final check."
+            case .requiresNewerMacOS(let tool, let version): return "\(tool.displayName) requires macOS \(version) or later."
             case .system(let what, let err): return "\(what): \(String(cString: strerror(err)))"
             }
         }
@@ -73,10 +76,18 @@ public struct HelperCore {
         }
     }
 
-    /// The VPN tools bundled in `Contents/Resources/bin`, which `ToolStager` stages and checks. openconnect
-    /// (Cisco AnyConnect, #2) is bundled and staged but not started by anything yet.
+    /// The VPN tools bundled in `Contents/Resources/bin`, which `ToolStager` stages and checks.
     public enum Tool: String, CaseIterable {
         case openvpn, openfortivpn, openconnect
+
+        /// The VPN type the tool connects, for messages.
+        public var displayName: String {
+            switch self {
+            case .openvpn: return "OpenVPN"
+            case .openfortivpn: return "FortiGate SSL VPN"
+            case .openconnect: return "Cisco AnyConnect"
+            }
+        }
 
         public var signingIdentifier: String {
             switch self {
@@ -102,6 +113,11 @@ public struct HelperCore {
             guard let minimum = minimumMacOS else { return true }
             return (version.majorVersion, version.minorVersion, version.patchVersion)
                 >= (minimum.majorVersion, minimum.minorVersion, minimum.patchVersion)
+        }
+
+        /// "15.4", "15.4.1".
+        public static func versionText(_ version: OperatingSystemVersion) -> String {
+            "\(version.majorVersion).\(version.minorVersion)" + (version.patchVersion == 0 ? "" : ".\(version.patchVersion)")
         }
     }
 
@@ -185,6 +201,13 @@ public struct HelperCore {
     public var interfaceExists: ((String) throws -> Bool)?
     public var homeDirectory: (uid_t) -> String?
     public var userName: (uid_t) -> String?
+    /// The macOS a tool would run on, for `Tool.minimumMacOS` (replaced in tests). Nil: not checked (Linux,
+    /// where `minimumMacOS` does not apply).
+    #if os(macOS)
+    public var systemVersion: OperatingSystemVersion? = ProcessInfo.processInfo.operatingSystemVersion
+    #else
+    public var systemVersion: OperatingSystemVersion?
+    #endif
 
     public init(
         runRoot: String = PT.helperRunRoot, dnsUpdownSource: String? = nil,

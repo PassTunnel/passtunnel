@@ -105,25 +105,52 @@ public enum HelperSessions {
         }
     }
 
-    static let toolNames: Set<String> = ["openvpn", "openfortivpn"]
+    static let toolNames: Set<String> = Set(HelperCore.Tool.allCases.map(\.rawValue))
 
-    /// PIDs of VPN tools run for PassTunnel: children of a PassTunnel helper, and the tools inside an
-    /// app bundle (`<app>/Contents/Resources/bin/openvpn|openfortivpn`) whose bundle identifier is
-    /// PassTunnel's or that is gone from disk (replaced by an update). A restarted helper adopts
-    /// tools that are no longer its children, hence the path check.
+    /// The helper's staged tools (`ToolStager`: `<run root>/tools/<build>/Resources/bin/<tool>`), under the
+    /// run root as written and with its links resolved (`proc_pidpath` reports `/private/var/run/…`).
+    public static let stagedToolsRoots: [String] = {
+        let root = PT.helperRunRoot
+        let resolved = HelperCore.realPath(root) ?? (root.hasPrefix("/var/") ? "/private" + root : root)
+        return Array(Set([root, resolved])).sorted().map { $0 + "/tools" }  // ToolStager.toolsDirName (macOS only)
+    }()
+
+    /// PIDs of VPN tools run for PassTunnel, of any user: children of a PassTunnel helper; the tools the
+    /// helper runs from its staged copy (`stagedToolsRoots`), which only root can write; and the tools inside
+    /// an app bundle (`<app>/Contents/Resources/bin/openvpn|openfortivpn|openconnect`) whose bundle identifier
+    /// is PassTunnel's or that is gone from disk (replaced by an update). A restarted helper adopts tools that
+    /// are no longer its children (their parent is launchd), hence the path checks: replacing the helper
+    /// stops every tunnel it runs, so each of them must count.
     public static func toolPIDs(
         in processes: [RunningProcess],
         bundleIdentifier: (String) -> String? = Self.bundleIdentifier(ofApp:),
-        exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+        exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) },
+        stagedToolsRoots: [String] = Self.stagedToolsRoots
     ) -> [Int32] {
         let helpers = Set(processes.filter(isHelper).map(\.pid))
         return processes.filter { p in
             if helpers.contains(p.parent), !isHelper(p) { return true }
-            guard let path = p.path, let app = appPath(ofTool: path) else { return false }
+            guard let path = p.path else { return false }
+            if isStagedTool(path, roots: stagedToolsRoots) { return true }
+            guard let app = appPath(ofTool: path) else { return false }
             guard let id = bundleIdentifier(app) else { return !exists(app) }
             return id == PT.bundleID
         }
         .map(\.pid)
+    }
+
+    /// `<root>/<build>/Resources/bin/<tool>` for one of `roots`: a build directory name as `ToolStager`
+    /// makes it (16–64 lowercase hex digits) and one of the tools (not openconnect's hook).
+    static func isStagedTool(_ path: String, roots: [String]) -> Bool {
+        for root in roots where path.hasPrefix(root + "/") {
+            let parts = path.dropFirst(root.count + 1).split(separator: "/", omittingEmptySubsequences: false)
+            guard parts.count == 4, parts[1] == "Resources", parts[2] == "bin", toolNames.contains(String(parts[3])),
+                (16...64).contains(parts[0].utf8.count),
+                parts[0].utf8.allSatisfy({ (0x30...0x39).contains($0) || (0x61...0x66).contains($0) })
+            else { continue }
+            return true
+        }
+        return false
     }
 
     static func isHelper(_ p: RunningProcess) -> Bool {

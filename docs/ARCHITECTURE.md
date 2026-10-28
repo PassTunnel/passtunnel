@@ -11,7 +11,8 @@ PassTunnel.app/Contents/
   MacOS/PassTunnelHelper        privileged helper (root, launched by launchd via SMAppService)
   Library/LaunchDaemons/com.furkanprlk.passtunnel.helper.plist
   Resources/bin/openvpn, openfortivpn    bundled, signed with the app's Team ID
-  Resources/bin/openconnect     bundled the same way for Cisco AnyConnect, not run yet (needs macOS 15.4)
+  Resources/bin/openconnect     bundled the same way for Cisco AnyConnect (needs macOS 15.4); the helper can run it
+                                (#182), nothing in the app asks it to yet (#184)
   Frameworks/*.dylib            their dependencies (OpenSSL, LZO, LZ4, pkcs11-helper; openconnect's:
                                 GnuTLS, nettle, GMP, p11-kit, libtasn1, libidn2, libunistring,
                                 libintl, stoken, libtomcrypt, libtommath)
@@ -190,7 +191,7 @@ public enum PT {
     public static let helperPlistName = "com.furkanprlk.passtunnel.helper.plist"
     public static let teamID = "YH4NUPFH74"
     public static let keychainService = "PassTunnel"
-    public static let helperProtocolVersion = 3   // 3: sessions per (uid, id), socket in the run dir
+    public static let helperProtocolVersion = 4   // 3: sessions per (uid, id), socket in the run dir; 4: startOpenConnect
     public static let helperRunRoot = "/var/run/passtunnel"
     public static func sessionDir(uid:profileID:runRoot:) -> String       // <runRoot>/<uid>/<id>
     public static func mgmtSocketPath(uid:profileID:runRoot:) -> String   // <sessionDir>/mgmt.sock
@@ -604,6 +605,7 @@ public enum HelperRequest: Codable {
                                            // configSHA256? ("config_sha256": hex SHA-256 of the config.ovpn the app checked)
                                            // (mgmtPort: Int? still decodes for protocol 1 payloads but is ignored)
     case startForti(FortiStart)            // profileID, profileDir, host, port, username, password, otp?, trustedCert, setDNS, setRoutes, logPath
+    case startOpenConnect(OpenConnectStart) // protocol 4: Cisco AnyConnect ("Helper protocol 4" below); passtunneld refuses it until #187
     case stop(profileID: String)
     case status                            // → running profile IDs with pid
 }
@@ -622,7 +624,24 @@ the field, never its value). `ConnectionManager` calls `ensureCompatible()` (the
 fails with `HelperClientError.versionMismatch`, and one from another build of the same protocol with
 `.buildMismatch`. The build identity (`HelperBuild`) is the SHA-256 of the helper executable: the helper
 hashes itself once at launch (a running helper keeps reporting the build it was started from after the
-app bundle is replaced), the app/CLI hash `Contents/MacOS/PassTunnelHelper` next to their own executable
+app bundle is replaced). It opens the path in the bundle, which the bundle's owner can swap, so
+`HelperImage.open` (Shared) opens it with `O_NOFOLLOW | O_NONBLOCK` (a link or a FIFO put there never
+leads it to another file or blocks it), requires a regular file of at most 256 MB (hard links are fine:
+the next check decides), and accepts it only when the descriptor's device and inode are those of the vnode the kernel mapped as the
+helper's own Mach-O header (`PROC_PIDREGIONPATHINFO` at `#dsohandle`): the mapping cannot be swapped,
+whatever happens to the path. The digest is read from that descriptor, bounded. That fails only when the
+path cannot be opened or names another file than the one running, i.e. it was replaced between the exec
+and the open (an app update, or someone racing the helper). Then the helper still stages and runs
+OpenVPN and FortiGate under a build ID from the kernel's cdhash of its own code
+(`HelperImage.fallbackBuildID`, `csops`, no file read, 40 hex digits), refuses openconnect (no hook
+source), and reports no build number (nothing read from the bundle is trusted then). The app compares
+that ID with its own helper's digest like any other: another build, so `ensureCompatible()` fails with
+`.buildMismatch` as it does for any helper that is not the bundled one (after every app update, too), and
+`relation()` gives `.older` (no number), so `HelperAutoUpdate` replaces the helper once on its own (from
+/Applications, when no session runs) and Settings → Helper offers the update until then; the replaced
+helper is started from the bundle and verifies normally. The old code would have hashed whatever the
+path named at that moment and could report a build it is not. `Info.plist` (the build number) is read
+the same way: no link, no blocking, regular, bounded. The app/CLI hash `Contents/MacOS/PassTunnelHelper` next to their own executable
 (no stamping in `build-app.sh` needed; skipped when there is no bundled helper, e.g. tests). `build` is a
 separate call rather than a second `version` reply value so a protocol-2 helper is still recognized as
 outdated. Digests only say "different"; which side is newer comes from build numbers: the helper reads
@@ -652,9 +671,12 @@ replaces it), only when the app runs from `/Applications` (`HelperSessions.isInA
 symlinks resolved; not `~/Applications`, which any process of the user can write, and never a test build
 elsewhere), at most once per outdated helper (a failure is left to the button), and only while no
 PassTunnel session is active. Sessions are counted by `HelperSessions` from the process list
-(`sysctl KERN_PROC_ALL` + `proc_pidpath`): children of a `PassTunnelHelper` process, and
-`openvpn`/`openfortivpn` inside an app bundle whose identifier is PassTunnel's (or that is gone,
-replaced by the update), so other users' sessions and tools adopted by a restarted helper count too;
+(`sysctl KERN_PROC_ALL` + `proc_pidpath`), of any user: children of a `PassTunnelHelper` process;
+`openvpn`/`openfortivpn`/`openconnect` run from the helper's staged copy
+(`<run root>/tools/<build>/Resources/bin/…`, as written and resolved, `HelperSessions.stagedToolsRoots`;
+only root writes there), which is where tools adopted by a restarted helper run, with launchd as their
+parent; and the same tools inside an app bundle whose identifier is PassTunnel's (or that is gone,
+replaced by the update). So other users' sessions and adopted tools count too;
 plus the profiles the app itself sees as active. While sessions are active it notifies once ("The
 helper needs an update"), Settings → Helper says it updates itself, and the app re-evaluates on every
 5 s reload, so the update runs right after the last session ends.
@@ -680,19 +702,37 @@ Run directory layout (all root-owned; `HelperCore.makeRunDir`):
 /var/run/passtunnel/            0711   run root
   <uid>/                        0711   one per user
     <profileID>/                0711   one per session, recreated on start, removed when the tool exits
-      config.ovpn | openfortivpn.conf, auth, dns-updown, dns-hook, dns-up.env, state   0600/0700 root
+      config.ovpn | openfortivpn.conf | openconnect.conf, auth, policy, dns-updown, dns-hook, dns-up.env, state
+                                0600/0700 root
       mgmt.sock                 0600   owned by <uid> (OpenVPN only)
   tools/                        0755   staged tools (`ToolStager`), root:wheel
     <helper build>/             0755   hex SHA-256 of the helper executable (`HelperBuild.digest`)
-      Resources/bin/openvpn, openfortivpn   0555
+      Resources/bin/openvpn, openfortivpn, openconnect, vpn-hook   0555
       Frameworks/*.dylib        0444
 ```
 
 Users can traverse to their socket by name but cannot list, rename or replace entries, so handing the
 socket to the user (`SessionDirectory.restrictSocket`: `fstatat`/`AT_SYMLINK_NOFOLLOW` on the directory
 descriptor, then `fchownat`/`fchmodat`) cannot be redirected to another file. A restarted helper adopts
-tools recorded in `<uid>/<id>/state`; tools recorded by a protocol-2 helper (`<root>/<id>/state`) are
-stopped, since their socket is in the profile directory.
+tools recorded in `<uid>/<id>/state` (`SessionState`: pid, uid, staged executable, profile directory,
+socket; read back only from a regular, single-link file the helper owns); tools recorded by a protocol-2
+helper (`<root>/<id>/state`) are stopped, since their socket is in the profile directory. The state is
+written, atomically (a new file renamed over it), before the tool runs, in `Spawner.spawnVerified`'s
+`beforeResume`, with the tool's start time (`ProcessStart`, `proc_pidinfo` `pbi_start_tvsec`/`_tvusec`:
+with the pid, the process's identity) and a last line `launching`, and again without that line once the
+tool was resumed. A helper that died in between leaves a tool that may never run, so `adoptOrphans`
+decides by the record (`SessionRecovery.decide`): the process at the recorded pid must run the recorded
+executable and, when the record has one, have the recorded start time, or the record is stale (cleaned
+up: DNS undone, directory removed); a matching record without `launching` is adopted (also when the tool
+is stopped, by a debugger say); one with `launching` is an interrupted launch: that process alone gets
+`SIGKILL`, and the session is cleaned up like one whose tool ended. A record without a start time (older
+helpers) is never killed: the old rule (pid and executable) adopts or cleans up. Strays: a stopped
+process of the staged copy (`<run root>/tools/…`) with effective and real uid 0, inherited by launchd and
+named by no record (the helper died before writing any) is killed too (`strandedLaunches`); a user who
+runs the staged tool gets a process of their own, which is never touched. Every signal re-reads pid,
+start time, executable (and for strays the rest) right before it is sent, and goes to that pid alone,
+never a process group (`SessionRecovery.signal`). A tool killed right after its resume, before the second
+write, ends like one never resumed: nothing can tell whether it ran, and stopping is the safe side.
 
 Security rules (helper):
 - Runs **only** the tools inside its own app bundle (`Contents/Resources/bin/…`), never a path supplied by
@@ -701,7 +741,8 @@ Security rules (helper):
   the user who installed it, and a tool started there would load its dylibs from there after `SIGCONT`,
   checked only for the Team ID by library validation. `ToolStager.stage(inUse:)` (on every start, on the
   supervisor queue): `<runRoot>/tools/<buildID>` (run root realpath'd, so the path matches
-  `proc_pidpath` for adoption) is checked (`check`: exactly `Resources/bin/{openvpn,openfortivpn}` and
+  `proc_pidpath` for adoption) is checked (`check`: exactly `Resources/bin/{openvpn,openfortivpn,openconnect}` (and
+  openconnect's `vpn-hook`, checked on its own, `stageHook`) and
   the expected dylibs in `Frameworks/`, no other entries, every entry `lstat`-ed: not a symlink, owned by
   the helper's euid, one link, mode exactly 0755/0555/0444; each file `CodeSignature.verify(path:)` with
   `PT.toolRequirement` or, for dylibs, `PT.teamRequirement`, then its cdhash against `PinnedTools`).
@@ -737,7 +778,9 @@ Security rules (helper):
   the same way. A mismatch → `PinnedTools.Mismatch` ("… is not the build this PassTunnel was released
   with").
 - `Spawner.spawn`: new process group, stdin `/dev/null`, stdout+stderr to the log descriptor, all signals
-  default, empty mask, `POSIX_SPAWN_CLOEXEC_DEFAULT`, environment `HelperCore.fixedEnvironment`:
+  default, empty mask, `POSIX_SPAWN_CLOEXEC_DEFAULT`, environment `HelperCore.environment(for:)`, built
+  from fixed values and never inherited: `HelperCore.fixedEnvironment`, and for openconnect two more
+  ("Fixed environment" under Cisco AnyConnect below). `fixedEnvironment`:
   `PATH=/usr/bin:/bin:/usr/sbin:/sbin`, `LC_ALL=C`, `OPENSSL_CONF=/dev/null`,
   `OPENSSL_MODULES` = `OPENSSL_ENGINES` = `/var/empty/passtunnel-none` (`HelperCore.missingDirectory`,
   never created), `SSL_CERT_FILE=/etc/ssl/cert.pem` (`HelperCore.systemCAFile`), `SSL_CERT_DIR=/var/empty`,
@@ -998,7 +1041,10 @@ tunnel. Hence:
 ## Cisco AnyConnect backend (planned)
 
 **Not implemented yet** (connecting): the profile model is in (#181, [Profile](#profile-181)), and
-such a profile is listed but not connected. This is the design of Phase 1 of #2: Cisco AnyConnect through OpenConnect,
+such a profile is listed but not connected. The helper side is in (#182): the helper accepts
+`startOpenConnect` (protocol 4), checks it, renders the root configuration and runs, supervises, stops
+and adopts `openconnect`; nothing in the app sends the request yet (#184), and the hook is a stub that
+fails closed until #183 ([The hook](#the-hook-vpn-hook-182-stub-183-macos-187-linux)). This is the design of Phase 1 of #2: Cisco AnyConnect through OpenConnect,
 with a password and a TOTP code (no SAML or other single sign-on), on the Mac and on Linux. The
 issues #179–#189 implement it, each named below where its part lands; until they do, everything
 above is all PassTunnel runs (`openvpn`, `openfortivpn`). Before any of it, #177 makes `Profile`
@@ -1073,13 +1119,23 @@ passtunnel / app (the user)                          PassTunnelHelper / passtunn
   (`PT.openconnectIdentifier`), adds its cdhashes to `generatedCDHashes`, and a signed build fails
   without them, as for `openvpn`; the dylibs are pinned by the existing `generatedLibraryCDHashes`.
 - `HelperCore.Tool.openconnect`. `ToolStager.check` then expects exactly
-  `Resources/bin/{openvpn,openfortivpn,openconnect}` (and `vpn-hook` from #182) and the pinned dylibs,
+  `Resources/bin/{openvpn,openfortivpn,openconnect}` (`vpn-hook` may be there too) and the pinned dylibs,
   so the closure is staged for every user (about 9 MB per helper build), used or not, on every macOS
   (it is only copied and checked below 15.4, never run). `vpn-hook` (#182) is a copy of the
-  helper's own executable: no new target and no pin; it is accepted only when its SHA-256 is
-  `HelperBuild.digest` (byte-identical to the running helper) and it satisfies the helper's requirement
-  (`PT.toolRequirement(identifier: "com.furkanprlk.passtunnel.helper")`). `HelperSessions` counts
-  `openconnect` like `openvpn` and `openfortivpn`.
+  helper's own executable: no new target and no pin. The helper opens its executable when it starts,
+  verifies it is the running image and hashes that descriptor (`HelperImage`, under "Privileged
+  helper"; the digest is the build ID); `ToolStager` copies the hook from the same descriptor
+  (`hookSource`, read with `pread` from offset 0), so after an app update replaced the file on disk the
+  running helper still stages its own bytes. The hook is staged apart from the tools and only for an
+  openconnect start (`stageHook`: checked if present, else copied to `tools/.<build>.vpn-hook`, checked
+  and renamed into `Resources/bin`), so it can never keep OpenVPN or FortiGate from starting. The copy is
+  accepted only when its SHA-256 is the build ID (byte-identical to the running helper; `HookMismatch`
+  otherwise) and it satisfies the helper's requirement (`PT.toolRequirement(identifier:
+  PT.helperIdentifier)`, `com.furkanprlk.passtunnel.helper`), checked on every openconnect start. A
+  helper without a verified image has no hook source, and `stageHook` refuses every openconnect start
+  (`HookMissing`).
+  `HelperSessions` counts `openconnect` like `openvpn` and `openfortivpn`, also run from the staged copy (`toolNames` is
+  `HelperCore.Tool.allCases`); the hook process is neither a session nor a helper.
 - `THIRD_PARTY_NOTICES.md` (#179) lists the LGPL libraries, says where their sources are and that a
   build from source (`PASSTUNNEL_ALLOW_UNPINNED_TOOLS=1 scripts/build-app.sh`, which pins what it
   bundled, signed with one's own Team ID) can run a modified library; there is no further mechanism. OpenConnect code stays out of the mobile apps ([MOBILE.md](MOBILE.md)); the
@@ -1211,11 +1267,18 @@ i.e. no credentials left the machine; a failure after that is `ConnectionFailure
 
 `OpenConnectConfig` (VPNConfig, the `FortiConfig` pattern: typed fields, `validate`, `render`,
 `checkRendered`). The helper renders `<run>/openconnect.conf` (0600, root) and runs
-`openconnect --config=<run>/openconnect.conf`, nothing else in argv, stdin `/dev/null`, working
-directory the session directory; the cookie is an option in the file, as openfortivpn's password
-is in its file, so `Spawner` needs no change apart from writing `state` before `SIGCONT` (step 1
-of the hook). Next to it the helper writes `policy` (the hook's step 2); the hook adds `network`
-(its record), `hook` (while one runs) and the supervisor `stopping`.
+`openconnect --config=<run>/openconnect.conf` (`HelperCore.openConnectArguments`), nothing else in
+argv, stdin `/dev/null`, working directory the session directory; the cookie is an option in the file,
+as openfortivpn's password is in its file, so the only change to `Spawner` is `spawnVerified`'s
+`beforeResume`, in which the helper writes `state` after the signature check and before `SIGCONT`
+(step 1 of the hook; failing to write it kills the suspended openconnect). Next to it the helper writes
+`policy` (the hook's step 2, `OpenConnectPolicy`: `uid=<n>`, `profile=<id>`, `set_routes=0|1`,
+`set_dns=0|1`, one per line, `checkLines`, and a strict `parse` for the hook); #183's hook adds
+`network` (its record), `hook` (while one runs) and the supervisor `stopping`. The rendered text lives
+in a `Data` buffer that is overwritten once written (best effort: the request and the rendered text
+are Swift strings, which cannot be erased); the file goes with the session directory when the tool
+exits or is stopped (`Supervisor.finish`, `stopAll`, `adoptOrphans`), and with any start that fails
+after the directory was made.
 
 ```
 # Generated by PassTunnel. Do not edit.
@@ -1288,7 +1351,9 @@ no-dtls                                       (only with tls_only)
 
 Both runs on the Mac (the sign-in run through `ToolRunning`, the tunnel through `Spawner`) get
 `HelperCore.fixedEnvironment` plus `GNUTLS_SYSTEM_PRIORITY_FILE=/dev/null` and
-`P11_KIT_NO_USER_CONFIG=1` (the OpenSSL variables do nothing to GnuTLS). openconnect sets the first
+`P11_KIT_NO_USER_CONFIG=1` (the OpenSSL variables do nothing to GnuTLS): for the tunnel exactly
+`HelperCore.environment(for: .openconnect)` (#182), a list of fixed values, never the helper's own
+environment (tested with proxy and key-log variables set in the test process). openconnect sets the first
 itself (`main.c` 1855, without overwriting), but only in `main`; setting it in the spawn
 environment makes it hold before any library code runs. None of `https_proxy` (`main.c` 1781),
 `SSLKEYLOGFILE`, `GNUTLS_DEBUG_LEVEL`, `TPM_INTERFACE_TYPE` is ever set. On Linux the environment is
@@ -1315,9 +1380,26 @@ deleting servers the user had set), replaces the default route, and passes unche
 `route`, `ifconfig` and `scutil` as shell words; on Linux it writes DNS outside `DNSApplier`'s record
 and revert. Instead the hook is PassTunnel's own code:
 
-- **macOS:** the staged copy of the helper (above). `PassTunnelHelper`'s `main` branches on the last
-  component of `argv[0]` being `vpn-hook` before it touches XPC, as `passtunneld` does for `dns-hook`.
-  #182 stages it as a stub that fails closed; #183 makes it work.
+- **macOS:** the staged copy of the helper (above). `PassTunnelHelper`'s `main` decides its mode
+  first, before XPC, logging or any state (`VPNHook.mode`): the hook needs both the executable the
+  kernel reports (`proc_pidpath`, not chosen by whoever starts it) and the last component of `argv[0]`
+  (openconnect's `/bin/sh -c <path>` gives the path) to be `vpn-hook`. The installed helper
+  (`Contents/MacOS/PassTunnelHelper`, which launchd starts and which serves XPC) therefore never runs
+  as the hook whatever its `argv[0]` (`exec -a`), and the staged copy never runs as the helper; a
+  mismatch either way exits with status 2. The CLI is another binary and has no hook code.
+- **#182: a stub that fails closed** (`VPNHook.runStub`). It reads no environment variable and never
+  touches an interface, a route or DNS. Every run writes `passtunnel vpn-hook: setting up the network
+  failed: not supported yet` to its standard error, which openconnect shares with the session log
+  (`VPNHook.notSupportedLine`, the failure line of step 6). Then, only as root and only once the session
+  check below (step 1, `VPNHook.session`) proved which PassTunnel openconnect ran it, it sends that
+  openconnect SIGTERM, which ends the session (openconnect runs the stub again for `disconnect`, which
+  signals again, harmlessly) and the helper cleans up when it exits. Exit status 1, which openconnect
+  ignores. The helper does not rely on the stub alone: it stops every openconnect session that no hook
+  reported up within `VPNHook.setupDeadline` (60 s, also for an adopted session, counted from the
+  adoption), and `VPNHook.reportedUp` is false for every session until #183 records success. So no
+  openconnect session outlives a minute before #183, and none is ever reported connected: the client
+  (#184) only takes the hook's success line as connected, and the stub never writes one.
+  #183 makes the hook work.
 - **Linux:** `<run>/<uid>/<id>/vpn-hook`, a link to `passtunneld` (as `dns-hook`).
 - The validation is shared (`OpenConnectNetwork`, PassTunnelShared, pure), the system actions sit
   behind a protocol, so both are tested everywhere against fakes and the golden cases in
@@ -1329,10 +1411,16 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
 660–695), for the reasons `pre-init`, `connect` (`library.c` 1576, 1593), `disconnect` (`tun.c`
 579), `attempt-reconnect` and `reconnect` (`ssl.c` 1214, 1241).
 
-1. **Session check** (as `DNSHook.session`): euid 0, its own executable trusted, the working
-   directory a session directory whose `state` names the session's tool. The parent must be that
-   openconnect, or a `/bin/sh` (checked by its executable path) whose parent is that openconnect: the
-   hook does not rely on the shell replacing itself with the command. The helper writes `state`
+1. **Session check** (as `DNSHook.session`; on the Mac `VPNHook.session` since #182, pure and tested
+   with a fake process tree): euid 0; its own executable (`proc_pidpath`)
+   `<run root>/tools/<build>/Resources/bin/vpn-hook` (run root resolved), so its openconnect is the
+   `openconnect` next to it; the parent that openconnect, or one of `/bin/sh`, `/bin/bash`, `/bin/dash`,
+   `/bin/zsh` (checked by executable path; macOS's `/bin/sh` becomes the shell `/private/var/select/sh`
+   names, in the same process) whose parent is that openconnect: the hook does not rely on the shell
+   replacing itself with the command; that openconnect's working directory (`PROC_PIDVNODEPATHINFO`)
+   exactly a session directory `<run root>/<uid>/<profile id>`; and that directory's `state` (a regular,
+   single-link file the helper owns, `SessionState.read`) naming that pid, uid and executable. The
+   environment plays no part. The helper writes `state`
    before the tool can run a hook: on the Mac while it is still suspended (`Spawner.spawnVerified`
    writes it after the signature check and before `SIGCONT`; failing to write it kills the tool);
    the Linux daemon has no suspended start and writes it right after `posix_spawn`, so there the hook
@@ -1430,10 +1518,12 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
 
 ### Supervision and log (#182, #184)
 
-- **Start:** `ToolStager` stages `openconnect` and `vpn-hook`; `Spawner.spawnVerified` with
-  `PT.toolRequirement(identifier: PT.openconnectIdentifier)` and the cdhash pins; output (INFO on
-  stdout, errors on stderr) to the log descriptor. No `interface`: openconnect opens the first free
-  `utun` (`tun.c` 299–370).
+- **Start** (#182): `ToolStager` stages the tools and then `vpn-hook` (`stageHook`) while the request is
+  prepared (the configuration names the staged hook; `Supervisor.start` hands `prepare` a `stage` that
+  stages once per start); `Spawner.spawnVerified` with `PT.toolRequirement(identifier:
+  PT.openconnectIdentifier)` and the cdhash pins, `state` written in `beforeResume`; output (INFO on
+  stdout, errors on stderr) to the log descriptor, the profile's `.log` replaced as for the other tools
+  and trimmed by `capLog`. No `interface`: openconnect opens the first free `utun` (`tun.c` 299–370).
 - **Stop:** SIGTERM; openconnect cancels (`main.c` 815–835), tries to send BYE to the server
   (`cstp_bye`, `cstp.c` 1237), runs the hook's `disconnect` and exits 0 ("User cancelled
   (SIGINT/SIGTERM); exiting."). A BYE that was sent does not prove the server invalidated the
@@ -1441,7 +1531,8 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
   valid until the server's own expiry. SIGKILL after 5 s as today; a hook still running is handled
   as in step 7 above.
 - **Adoption** unchanged (`state`: pid, uid, staged executable; `proc_pidpath`); sessions count
-  against `SessionPolicy.maxSessionsPerUser`.
+  against `SessionPolicy.maxSessionsPerUser`, and `status` lists them like the others (pids only; the
+  helper reports no "connected"). An adopted openconnect gets the set-up deadline again.
 - **Exit codes** (`main.c` 2479–2521): 0 cancelled or detached; 1 authentication, I/O, "Session
   terminated by server; exiting."; 2 "Cookie was rejected by server; exiting.".
 - **Log** (`VPNLog`, #184):
@@ -1463,8 +1554,11 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
 
 ### Helper protocol 4 (#182)
 
-`PT.helperProtocolVersion` becomes 4 for the new request; an older helper fails `ensureCompatible()`
-with `versionMismatch` and is replaced as today, and `passtunneld`'s `hello` reports 4 as well.
+`PT.helperProtocolVersion` is 4 since #182; an older helper fails `ensureCompatible()`
+with `versionMismatch` and is replaced as today (`HelperBuild.relation`: a lower protocol is `.older`),
+an older client's requests fail the helper's version check, and `passtunneld`'s `hello` reports 4 as
+well. `passtunneld` refuses `startOpenConnect` ("Cisco AnyConnect is not supported by passtunneld
+yet.") before preparing anything, until #187.
 
 ```swift
 case startOpenConnect(OpenConnectStart)   // profileID, profileDir, logPath, host, port, usergroup,
@@ -1473,14 +1567,37 @@ case startOpenConnect(OpenConnectStart)   // profileID, profileDir, logPath, hos
                                           // empty), tlsOnly, setDNS, setRoutes
 ```
 
-The helper checks every field again (`OpenConnectAuthResult.tunnelConfig(host:port:connectURL:
-resolve:cookie:serverCert:profileServerCert:…)` and `OpenConnectConfig.validate`: the profile rules
-below, `connectURL` exactly `https://<host>[:<port>]/` for the request's `host` and `port`, `resolve`
-required as `<host>:<IP literal>` for a host name and absent for an IP literal, `serverCert` equal to
-`profileServerCert` when that is set, the pins' form, the cookie's length and characters) before
-anything is written, and renders `server` from `host` and
-`port`, not from the text it was sent. `setDNS` and `setRoutes` go into the session's `policy`
-file for the hook. The request stays under the
+JSON keys: `profile_id`, `profile_dir`, `log_path`, `host`, `port`, `usergroup`, `connect_url`,
+`resolve` (left out for an IP-address host), `cookie`, `server_cert`, `profile_server_cert`, `tls_only`,
+`set_dns`, `set_routes`. `OpenConnectStart`'s description and mirror show neither the cookie nor the
+values the server chose (`connect_url`, `resolve`, `server_cert`), which could repeat it; decoding
+errors name fields only (`HelperCore.decodeRequest`).
+
+`HelperCore.prepareOpenConnect` (Shared, unit-tested with injected uids, paths and macOS version), in
+this order, stopping at the first failure:
+
+1. openconnect runs on this macOS (`checkOpenConnectRuns`: `Tool.minimumMacOS`, 15.4, against
+   `HelperCore.systemVersion`): "Cisco AnyConnect requires macOS 15.4 or later." before anything is
+   read, staged or written (owner decision, #2);
+2. every field (`HelperCore.openConnectConfig`): the profile ID, `usergroup` (empty or the profile
+   rule), `profileServerCert` (empty or a full pin), then `OpenConnectAuthResult.tunnelConfig(host:
+   port:connectURL:resolve:cookie:serverCert:profileServerCert:scriptPath:tlsOnly:)`, the only builder of
+   the root configuration: the profile rules below, `connectURL` exactly `https://<host>[:<port>]/` for
+   the request's `host` and `port` (an IP-literal host compared as an address), `resolve` required as
+   `<host>:<IP literal>` for a host name and absent for an IP literal, `serverCert` a full pin equal to
+   `profileServerCert` when that is set (the destination binding the client checked, held again here:
+   the helper has no other notion of an approved destination for this type, as for FortiGate), the
+   cookie's length and characters; with a well-formed stand-in hook path, as nothing is staged yet;
+3. the profile directory and log path (`openProfileDir`, `logFileName`, as for the other tools);
+4. the tools staged and checked (`hookPath`), giving the staged hook's path;
+5. the configuration built again with that path, rendered (`render`: `validate`, then `checkRendered`),
+   and the text checked once more against the line count the request implies (header and seven
+   options, `resolve` for a host name, `no-dtls` for TLS only);
+6. a fresh session directory with `openconnect.conf` and `policy` (0600, the helper's), and the
+   profile's log replaced; a failure here removes the directory, and the cookie with it.
+
+`server` is rendered from `host` and `port`, not from the text the helper was sent. Errors name fields
+and fixed reasons, never values (tested with every refused field). The request stays under the
 64 KiB limit (the cookie is at most 4 KiB).
 
 ### Profile (#181)

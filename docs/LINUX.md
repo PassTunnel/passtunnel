@@ -57,13 +57,14 @@ parameter), resolved and checked as the tools are (below).
 
 One request per connection, one JSON object per line, at most 64 KiB:
 
-- `{"op":"hello"}` → `{"protocol":3,"build":"<hex SHA-256 of passtunneld>","build_number":N}`. The
+- `{"op":"hello"}` → `{"protocol":4,"build":"<hex SHA-256 of passtunneld>","build_number":N}`. The
   client's `ensureCompatible()` uses it as the `version` and `build` XPC calls are used on the Mac.
   The daemon hashes `/proc/self/exe` once at start. `build_number` (and `helper_build` in every
   reply) is the build number a release build compiles in (`DaemonBuild`, see Distribution);
   development builds have none and leave both out.
 - `{"op":"perform","request":<HelperRequest>}` → `<HelperResponse>`. Request decoding is
-  `HelperCore.decodeRequest`, unchanged, and so are the request types and `PT.helperProtocolVersion`.
+  `HelperCore.decodeRequest`, unchanged, and so are the request types and `PT.helperProtocolVersion`
+  (`startOpenConnect` is refused until #187).
   The daemon hands it the bytes of the `request` member exactly as sent (`DaemonCall.parse`).
 
 A client has 5 s to send its line and 5 s to take the reply; each connection is served on a thread
@@ -645,7 +646,9 @@ Linux. It lands in #187 (scope `linux`, so it stays out of app releases), tested
 - **The unit** needs nothing new: `/dev/net/tun` and `CAP_NET_ADMIN` are allowed already, and the hook
   writes the same DNS paths as `dns-hook`. `/dev/vhost-net` (openconnect's vhost-net acceleration)
   is not in `DeviceAllow`; #187 confirms that openconnect then uses the plain tun device.
-- **Protocol.** `PT.helperProtocolVersion` becomes 4 with the new request, so `hello` reports 4.
+- **Protocol.** `PT.helperProtocolVersion` is 4 with the new request (#182), so `hello` reports 4.
+  Until #187 the daemon refuses `startOpenConnect` ("Cisco AnyConnect is not supported by passtunneld
+  yet.") after the usual start permission check and before it prepares anything.
 - **CI.** #187 adds a step to the Linux jobs with the distribution's openconnect (version check,
   rendered config, no tunnel). #188 adds an ocserv service: the sign-in with password and code,
   wrong code, reused code, wrong password, pin mismatch and CA mode, without a tunnel on every run;

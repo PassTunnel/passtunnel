@@ -236,7 +236,7 @@ jobs:
           export PASSTUNNEL_HOME
           "$bin" --version | tee version.txt
           grep -qx "PassTunnel 0.0.0-dev" version.txt
-          "$bin" version --json | jq -e '.version == "0.0.0-dev" and .helper_protocol_version == 3'
+          "$bin" version --json | jq -e '.version == "0.0.0-dev" and .helper_protocol_version == 4'
           "$bin" list --json | jq -e '. == []'
           printf '%s\n' \
             '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
@@ -304,8 +304,8 @@ jobs:
           sock=/run/passtunnel/daemon.sock
           call() { socat -t 30 - "UNIX-CONNECT:$sock"; }
           call_as() { runuser -u "$1" -- socat -t 30 - "UNIX-CONNECT:$sock"; }
-          status='{"op":"perform","request":{"type":"status","protocol_version":3}}'
-          stop='{"op":"perform","request":{"type":"stop","protocol_version":3,"profile_id":"acme"}}'
+          status='{"op":"perform","request":{"type":"status","protocol_version":4}}'
+          stop='{"op":"perform","request":{"type":"stop","protocol_version":4,"profile_id":"acme"}}'
           PASSTUNNEL_HOME="$(mktemp -d)"
           export PASSTUNNEL_HOME
 
@@ -336,10 +336,10 @@ jobs:
           test "$(stat -c '%a %U' "$sock")" = "666 root"
 
           build="$(sha256sum /usr/local/sbin/passtunneld | cut -d' ' -f1)"
-          printf '%s\n' '{"op":"hello"}' | call | jq -e --arg build "$build" '.protocol == 3 and .build == $build'
+          printf '%s\n' '{"op":"hello"}' | call | jq -e --arg build "$build" '.protocol == 4 and .build == $build'
           printf '%s\n' "$status" | call | jq -e '.ok and .running == {} and .mgmt_sockets == {}'
           "$bin/passtunnel" helper status --json \
-            | jq -e '.state == "enabled" and .responding and .protocol_version == 3 and .outdated == false'
+            | jq -e '.state == "enabled" and .responding and .protocol_version == 4 and .outdated == false'
           printf '%s\n' \
             '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
             '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
@@ -347,12 +347,12 @@ jobs:
             | "$bin/passtunnel" mcp | jq -se 'INDEX(.id) as $r | $r["2"].result.structuredContent.helper
               | .state == "enabled" and .responding and .outdated == false'
 
-          start='{"op":"perform","request":{"type":"start_openvpn","protocol_version":3,"profile_id":"acme","profile_dir":"/nonexistent","log_path":"/nonexistent/vpn.log"}}'
+          start='{"op":"perform","request":{"type":"start_openvpn","protocol_version":4,"profile_id":"acme","profile_dir":"/nonexistent","log_path":"/nonexistent/vpn.log"}}'
           printf '%s\n' "$start" | call_as nobody | jq -e '.ok == false and (.error | test("group .passtunnel. does not exist"))'
           groupadd --system passtunnel
           printf '%s\n' "$start" | call_as nobody | jq -e '.ok == false and (.error | test("members of the group .passtunnel."))'
           printf '%s\n' "$status" | call_as nobody | jq -e '.ok and .running == {}'
-          printf '%s\n' '{"op":"hello"}' | call_as nobody | jq -e '.protocol == 3'
+          printf '%s\n' '{"op":"hello"}' | call_as nobody | jq -e '.protocol == 4'
 
           useradd --create-home --groups passtunnel alice
           uid="$(id -u alice)"
@@ -362,7 +362,7 @@ jobs:
             "peer-fingerprint $(printf '00:%.0s' $(seq 31))00" | runuser -u alice -- tee "$profile/config.ovpn" >/dev/null
           sha="$(sha256sum "$profile/config.ovpn" | cut -d' ' -f1)"
           request="$(jq -cn --arg dir "$profile" --arg sha "$sha" '{op: "perform", request: {type: "start_openvpn",
-            protocol_version: 3, profile_id: "acme", profile_dir: $dir, log_path: ($dir + "/vpn.log"),
+            protocol_version: 4, profile_id: "acme", profile_dir: $dir, log_path: ($dir + "/vpn.log"),
             username: "alice", secret: "example-password", config_sha256: $sha}}')"
           run="/run/passtunnel/$uid/acme"
           printf '%s\n' "$request" | call_as alice | tee start.json \
@@ -397,7 +397,7 @@ jobs:
           gateway=$!
           forti=/home/alice/.local/share/passtunnel/profiles/fortinet
           runuser -u alice -- mkdir -p "$forti"
-          fstart="$(jq -cn --arg dir "$forti" '{op: "perform", request: {type: "start_forti", protocol_version: 3,
+          fstart="$(jq -cn --arg dir "$forti" '{op: "perform", request: {type: "start_forti", protocol_version: 4,
             profile_id: "fortinet", profile_dir: $dir, log_path: ($dir + "/vpn.log"), host: "127.0.0.1", port: 10443,
             username: "alice", password: "example-password", otp: "123456", trusted_cert: "", set_dns: true,
             set_routes: true}}')"
@@ -416,7 +416,7 @@ jobs:
           grep -qx 'pppd-use-peerdns = 0' "$frun/openfortivpn.conf"
           if grep -qa example-password fcmdline.txt "/proc/$fpid/environ"; then echo "the password left the config"; exit 1; fi
           test "$(stat -c '%U %a' "$forti/vpn.log")" = "alice 600"
-          fstop='{"op":"perform","request":{"type":"stop","protocol_version":3,"profile_id":"fortinet"}}'
+          fstop='{"op":"perform","request":{"type":"stop","protocol_version":4,"profile_id":"fortinet"}}'
           printf '%s\n' "$status" | call_as alice | jq -e --argjson pid "$fpid" '.running == {"fortinet": $pid} and .mgmt_sockets == {}'
           printf '%s\n' "$fstop" | call_as nobody | jq -e '.ok and .pid == null'
           printf '%s\n' "$fstop" | call_as alice | jq -e --argjson pid "$fpid" '.ok and .pid == $pid'
@@ -715,8 +715,8 @@ jobs:
           done
           digest="$(sha256sum /usr/local/sbin/passtunneld | cut -d' ' -f1)"
           printf '%s\n' '{"op":"hello"}' | socat -t 5 - "UNIX-CONNECT:$sock" \
-            | jq -e --arg digest "$digest" --argjson n "$BUILD" '.protocol == 3 and .build == $digest and .build_number == $n'
-          printf '%s\n' '{"op":"perform","request":{"type":"status","protocol_version":3}}' | socat -t 5 - "UNIX-CONNECT:$sock" \
+            | jq -e --arg digest "$digest" --argjson n "$BUILD" '.protocol == 4 and .build == $digest and .build_number == $n'
+          printf '%s\n' '{"op":"perform","request":{"type":"status","protocol_version":4}}' | socat -t 5 - "UNIX-CONNECT:$sock" \
             | jq -e --argjson n "$BUILD" '.ok and .running == {} and .helper_build == $n'
           passtunnel helper status --json | jq -e '.state == "enabled" and .responding and .outdated == false'
           # Another file in its place, as after an update before the restart: the running daemon is outdated.
@@ -727,7 +727,7 @@ jobs:
           jq -e '.state == "enabled" and .responding and .outdated == true' helper.json
           kill -TERM "$daemon"
           wait "$daemon"
-          grep -q "listening on $sock, protocol 3, build $digest ($BUILD)" daemon.log
+          grep -q "listening on $sock, protocol 4, build $digest ($BUILD)" daemon.log
           EOF
 
   # The Dockerfile (`passtunnel mcp` for MCP directories) built on each architecture, then an MCP
