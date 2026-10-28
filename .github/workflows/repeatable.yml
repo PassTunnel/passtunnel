@@ -59,9 +59,12 @@ jobs:
           # `brew install` leaves alone, so bring the index up to date and upgrade exactly the
           # bundled formulas; bundle-tools.sh then checks the result against release.env.
           brew update
-          brew install openvpn openfortivpn
-          brew upgrade openvpn openfortivpn openssl@4 lz4 lzo pkcs11-helper
-          brew list --versions openvpn openfortivpn openssl@4 lz4 lzo pkcs11-helper
+          # Every bundled formula (the pins in scripts/release.env).
+          formulas=(openvpn openfortivpn openconnect openssl@4 lz4 lzo pkcs11-helper gnutls nettle gmp p11-kit
+            libtasn1 libidn2 libunistring gettext stoken libtomcrypt libtommath)
+          brew install openvpn openfortivpn openconnect
+          brew upgrade "${formulas[@]}"
+          brew list --versions "${formulas[@]}"
 
       # A version tag on the commit (local, never pushed), as a release rebuilt at its tag has: the
       # version comes from it, and PTGitDescribe must not, so that the rebuild below, given the

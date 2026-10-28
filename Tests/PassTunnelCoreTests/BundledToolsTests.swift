@@ -1,4 +1,5 @@
 import Foundation
+import PassTunnelShared
 import XCTest
 
 @testable import PassTunnelCore
@@ -71,6 +72,61 @@ final class BundledToolsTests: XCTestCase {
         #endif
     }
 
+    /// openconnect needs macOS 15.4 (scripts/check-tool-symbols.sh, TOOL_MINIMUMS): below it, it is not
+    /// run, and reported with a note rather than as a failure; from 15.4 on it is run like the others.
+    func testOpenconnectIsNotRunBelowMacOS154() async throws {
+        let marker = dir.appendingPathComponent("ran").path
+        try tool("openconnect", "touch '\(marker)'; echo 'OpenConnect version v9.21'")
+        try tool("openvpn", "echo 'OpenVPN 2.7.8'")
+        func macOS(_ major: Int, _ minor: Int, _ patch: Int = 0) -> OperatingSystemVersion {
+            OperatingSystemVersion(majorVersion: major, minorVersion: minor, patchVersion: patch)
+        }
+        for old in [macOS(13, 0), macOS(14, 7, 6), macOS(15, 3, 2)] {
+            let checks = await BundledTools.check(directory: dir.path, tools: ["openvpn", "openconnect"], macOS: old, timeout: 20)
+            XCTAssertEqual(
+                checks,
+                [
+                    ToolCheck(name: "openvpn", ok: true, version: "OpenVPN 2.7.8"),
+                    ToolCheck(name: "openconnect", ok: true, note: "Not run: it needs macOS 15.4 or later.")
+                ], "\(old)")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: marker), "not started on \(old)")
+        }
+        for new in [macOS(15, 4), macOS(15, 7, 9), macOS(26, 0)] {
+            let checks = await BundledTools.check(directory: dir.path, tools: ["openconnect"], macOS: new, timeout: 20)
+            XCTAssertEqual(checks, [ToolCheck(name: "openconnect", ok: true, version: "OpenConnect version v9.21")], "\(new)")
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: marker))
+    }
+
+    func testToolMinimums() {
+        XCTAssertEqual(HelperCore.Tool.allCases, [.openvpn, .openfortivpn, .openconnect])
+        XCTAssertNil(HelperCore.Tool.openvpn.minimumMacOS)
+        XCTAssertNil(HelperCore.Tool.openfortivpn.minimumMacOS)
+        let minimum = HelperCore.Tool.openconnect.minimumMacOS
+        XCTAssertEqual(minimum.map(BundledTools.versionText), "15.4")
+        XCTAssertEqual(BundledTools.versionText(OperatingSystemVersion(majorVersion: 15, minorVersion: 4, patchVersion: 1)), "15.4.1")
+        let v = { (a: Int, b: Int, c: Int) in OperatingSystemVersion(majorVersion: a, minorVersion: b, patchVersion: c) }
+        XCTAssertFalse(HelperCore.Tool.openconnect.runs(on: v(15, 3, 9)))
+        XCTAssertFalse(HelperCore.Tool.openconnect.runs(on: v(14, 9, 0)))
+        XCTAssertTrue(HelperCore.Tool.openconnect.runs(on: v(15, 4, 0)))
+        XCTAssertTrue(HelperCore.Tool.openconnect.runs(on: v(16, 0, 0)))
+        XCTAssertTrue(HelperCore.Tool.openvpn.runs(on: v(13, 0, 0)))
+        XCTAssertEqual(HelperCore.Tool.openconnect.signingIdentifier, "com.furkanprlk.passtunnel.openconnect")
+    }
+
+    /// TOOL_MINIMUMS in scripts/check-tool-symbols.sh, which holds the bundled files to these versions,
+    /// says the same as `HelperCore.Tool.minimumMacOS`.
+    func testToolMinimumsMatchTheSymbolCheck() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let script = try String(contentsOf: root.appendingPathComponent("scripts/check-tool-symbols.sh"), encoding: .utf8)
+        let line = try XCTUnwrap(script.split(separator: "\n").first { $0.hasPrefix("TOOL_MINIMUMS=(") })
+        let entries = line.dropFirst("TOOL_MINIMUMS=(".count).prefix { $0 != ")" }.split(separator: " ").map(String.init)
+        let expected = HelperCore.Tool.allCases.compactMap { tool in
+            tool.minimumMacOS.map { "\(tool.rawValue)=\(BundledTools.versionText($0))" }
+        }
+        XCTAssertEqual(entries, expected)
+    }
+
     func testMissingAndSilentTools() async throws {
         try tool("crashes", "kill -KILL $$")
         let checks = await BundledTools.check(directory: dir.path, tools: ["missing", "crashes"], timeout: 20)
@@ -98,8 +154,10 @@ final class BundledToolsTests: XCTestCase {
         // An app bundle without tools: each one is reported missing, nothing is run.
         let app = dir.appendingPathComponent("Test.app").path
         let checks = await BundledTools.check(app: AppInfo(version: "1.0", build: nil, appPath: app))
-        XCTAssertEqual(checks?.map(\.name), ["openvpn", "openfortivpn"])
-        XCTAssertEqual(checks?.map(\.ok), [false, false])
+        XCTAssertEqual(checks?.map(\.name), ["openvpn", "openfortivpn", "openconnect"])
+        // openconnect is reported with a note, not as missing, on a macOS it does not run on.
+        let openconnectRuns = HelperCore.Tool.openconnect.runs(on: ProcessInfo.processInfo.operatingSystemVersion)
+        XCTAssertEqual(checks?.map(\.ok), [false, false, !openconnectRuns])
         #endif
     }
 
@@ -108,5 +166,10 @@ final class BundledToolsTests: XCTestCase {
             decoding: AutomationJSON.encoder(pretty: false).encode(ToolCheck(name: "openvpn", ok: true, version: "OpenVPN 2.7.8")),
             as: UTF8.self)
         XCTAssertEqual(json, #"{"name":"openvpn","ok":true,"version":"OpenVPN 2.7.8"}"#)
+        let skipped = try String(
+            decoding: AutomationJSON.encoder(pretty: false).encode(
+                ToolCheck(name: "openconnect", ok: true, note: "Not run: it needs macOS 15.4 or later.")),
+            as: UTF8.self)
+        XCTAssertEqual(skipped, #"{"name":"openconnect","note":"Not run: it needs macOS 15.4 or later.","ok":true}"#)
     }
 }

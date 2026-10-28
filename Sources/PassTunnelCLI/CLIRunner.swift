@@ -1183,7 +1183,9 @@ final class CLIRunner {
         if let tools = report.tools, !tools.isEmpty {
             CLITerminal.out(String(localized: "VPN tools:"))
             for tool in tools {
-                if tool.ok {
+                if let note = tool.note {
+                    CLITerminal.out("  – \(tool.name)  " + CLITerminal.dim(note))
+                } else if tool.ok {
                     let mark = CLITerminal.colored("✓", palette.color(.connected))
                     CLITerminal.out("  \(mark) \(tool.name)  " + CLITerminal.dim(tool.version ?? ""))
                 } else {

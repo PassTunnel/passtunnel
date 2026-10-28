@@ -336,7 +336,8 @@ connecting, without connecting and without any secret's value.
   ],
   "tools" : [
     { "name" : "openvpn", "ok" : true, "version" : "OpenVPN 2.7.8 aarch64-apple-darwin25.6.0 [SSL (OpenSSL)] [LZO] [LZ4] [PKCS11] [MH/RECVDA] [AEAD]" },
-    { "name" : "openfortivpn", "ok" : true, "version" : "1.24.1" }
+    { "name" : "openfortivpn", "ok" : true, "version" : "1.24.1" },
+    { "name" : "openconnect", "ok" : true, "version" : "OpenConnect version v9.21" }
   ],
   "version" : "1.2.0"
 }
@@ -356,7 +357,9 @@ not known. Finding out contacts nothing either. `tools` (the Mac, in an app bund
 app run with `--version` as the user (no input, an empty environment, at most 10 s, nothing contacted):
 `ok` and `version` (the first line it printed), or `problem` saying why it did not start, such as
 "This VPN tool does not run on this version of macOS (Symbol not found: _strchrnul). …" when dyld
-stopped it.
+stopped it. A tool that needs a later macOS than the running one is not run: `ok` is true and `note`
+says why ("Not run: it needs macOS 15.4 or later." for `openconnect`, which Cisco AnyConnect will use,
+on macOS 13 to 15.3).
 
 ### LogReport
 

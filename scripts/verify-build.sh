@@ -18,8 +18,8 @@
 # checking that they are this build's apart from their signatures), so that the tool pins compiled into
 # the app and the helper are the app's. Then it compares the two bundles with compare-app.sh.
 #
-# Needs the Xcode recorded in the app (DTXcodeBuild in Info.plist) and Homebrew's openvpn and
-# openfortivpn at the versions in scripts/release.env.
+# Needs the Xcode recorded in the app (DTXcodeBuild in Info.plist) and Homebrew's openvpn,
+# openfortivpn and openconnect (with their libraries) at the versions in scripts/release.env.
 set -euo pipefail
 
 die() { echo "error: $*" >&2; exit 1; }

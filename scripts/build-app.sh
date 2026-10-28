@@ -46,7 +46,7 @@ APP="$ROOT/build/PassTunnel.app"
 C="$APP/Contents"
 SIGN=(codesign --force --options runtime --sign "$IDENTITY")
 [[ "$IDENTITY" != "-" ]] && SIGN+=(--timestamp)
-TOOLS=(openvpn openfortivpn dns-updown)
+TOOLS=(openvpn openfortivpn openconnect dns-updown)
 PINS="$ROOT/Sources/PassTunnelShared/PinnedTools+Generated.swift"
 
 rm -rf "$APP"
@@ -74,6 +74,7 @@ else
     for lib in "$C/Frameworks"/*.dylib; do "${SIGN[@]}" "$lib"; done
     "${SIGN[@]}" --identifier com.furkanprlk.passtunnel.openvpn "$C/Resources/bin/openvpn"
     "${SIGN[@]}" --identifier com.furkanprlk.passtunnel.openfortivpn "$C/Resources/bin/openfortivpn"
+    "${SIGN[@]}" --identifier com.furkanprlk.passtunnel.openconnect "$C/Resources/bin/openconnect"
     if [[ -f "$C/Resources/bin/dns-updown" ]]; then
         # Non-Mach-O: the signature is stored in extended attributes; the helper verifies its own copy.
         "${SIGN[@]}" --identifier com.furkanprlk.passtunnel.dns-updown "$C/Resources/bin/dns-updown"
@@ -308,7 +309,7 @@ for lib in "$C/Frameworks"/*.dylib; do
 done
 # A release must never ship a helper that accepts any team-signed tool or library.
 if [[ "$IDENTITY" != "-" ]]; then
-    for tool in openvpn openfortivpn; do
+    for tool in openvpn openfortivpn openconnect; do
         grep -Eq "\"$tool\": \[\"[0-9a-f]{40}\"" "$PINS" || { echo "error: $tool is not pinned in a signed build" >&2; exit 1; }
     done
     libs=0

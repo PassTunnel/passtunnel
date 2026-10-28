@@ -483,7 +483,7 @@ enum Schema {
 
     /// `ToolCheck`: one VPN tool of the app run with `--version`.
     static let toolCheck = result(
-        ["name": string, "ok": bool, "version": string, "problem": string], required: ["name", "ok"])
+        ["name": string, "ok": bool, "version": string, "problem": string, "note": string], required: ["name", "ok"])
 
     static let diagnose: [String: Any] = {
         var properties: [String: Any] = [

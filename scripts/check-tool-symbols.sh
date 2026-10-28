@@ -27,7 +27,8 @@ export LC_ALL=C
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 # Tools the app runs only from a later macOS than its own minimum, with that version. Cisco AnyConnect
-# (openconnect) needs macOS 15.4: Homebrew's openconnect and libidn2 import strchrnul.
+# (openconnect) needs macOS 15.4: Homebrew's libopenconnect imports strchrnul. The libraries only
+# openconnect loads are held to 15.4 with it; one it shares with openvpn or openfortivpn stays at 13.0.
 TOOL_MINIMUMS=(openconnect=15.4)
 # Weak imports of macOS symbols that a tool or library handles being absent: "file:symbol".
 WEAK_IMPORTS=()

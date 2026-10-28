@@ -1,11 +1,12 @@
 #!/bin/bash
-# Copies openvpn and openfortivpn from Homebrew into an app bundle together with every non-system
-# dylib they need, rewrites their load paths so nothing points into Homebrew, and collects licenses.
+# Copies openvpn, openfortivpn and openconnect from Homebrew into an app bundle together with every
+# non-system dylib they need, rewrites their load paths so nothing points into Homebrew, and collects
+# licenses.
 #
 #   scripts/bundle-tools.sh build/PassTunnel.app
 #
 # Layout produced:
-#   Contents/Resources/bin/{openvpn,openfortivpn,dns-updown}
+#   Contents/Resources/bin/{openvpn,openfortivpn,openconnect,dns-updown}
 #   Contents/Frameworks/*.dylib
 #   Contents/Resources/licenses/*
 # Binaries are ad-hoc signed here so they stay runnable; build-app.sh re-signs them. The Homebrew
@@ -17,10 +18,13 @@ APP="${1:?usage: $0 <App.app>}"
 BREW="${HOMEBREW_PREFIX:-/opt/homebrew}"
 OPENVPN="$BREW/opt/openvpn/sbin/openvpn"
 OPENFORTIVPN="$BREW/opt/openfortivpn/bin/openfortivpn"
+# Homebrew installs openconnect in bin (--sbindir=#{bin}). Only the binary and its libraries: never
+# etc/vpnc/vpnc-script or anything in libexec/openconnect (csd-wrapper, hipreport, tncc).
+OPENCONNECT="$BREW/opt/openconnect/bin/openconnect"
 
 [[ -d "$APP/Contents" ]] || { echo "error: $APP is not an app bundle" >&2; exit 1; }
-for t in "$OPENVPN" "$OPENFORTIVPN"; do
-    [[ -x "$t" ]] || { echo "error: $t not found (brew install openvpn openfortivpn)" >&2; exit 1; }
+for t in "$OPENVPN" "$OPENFORTIVPN" "$OPENCONNECT"; do
+    [[ -x "$t" ]] || { echo "error: $t not found (brew install openvpn openfortivpn openconnect)" >&2; exit 1; }
 done
 
 BIN="$APP/Contents/Resources/bin"
@@ -52,7 +56,8 @@ cellar_dir_of() {
 # --- tools --------------------------------------------------------------------------------------
 cp "$(realpath "$OPENVPN")" "$BIN/openvpn"
 cp "$(realpath "$OPENFORTIVPN")" "$BIN/openfortivpn"
-chmod 755 "$BIN/openvpn" "$BIN/openfortivpn"
+cp "$(realpath "$OPENCONNECT")" "$BIN/openconnect"
+chmod 755 "$BIN/openvpn" "$BIN/openfortivpn" "$BIN/openconnect"
 
 # OpenVPN's DNS hook; the helper passes it explicitly (--dns-updown) after checking its signature.
 DNS_UPDOWN="$(cellar_dir_of "$OPENVPN")/libexec/openvpn/dns-updown"
@@ -66,8 +71,8 @@ fi
 # --- dependency closure ---------------------------------------------------------------------------
 # Breadth-first over load commands. Libraries are keyed by file name (libcrypto.3 and libcrypto.4
 # are different names, so OpenSSL 3 and 4 coexist).
-queue=("$BIN/openvpn" "$BIN/openfortivpn")
-sources=("$OPENVPN" "$OPENFORTIVPN")
+queue=("$BIN/openvpn" "$BIN/openfortivpn" "$BIN/openconnect")
+sources=("$OPENVPN" "$OPENFORTIVPN" "$OPENCONNECT")
 seen_list="$FW/.seen"            # "<name> <real path>" per collected library
 : > "$seen_list"
 i=0
@@ -158,7 +163,7 @@ rewrite() {
     done
 }
 
-for tool in "$BIN/openvpn" "$BIN/openfortivpn"; do
+for tool in "$BIN/openvpn" "$BIN/openfortivpn" "$BIN/openconnect"; do
     rewrite "$tool" "@executable_path/../../Frameworks"
 done
 for lib in "$FW"/*.dylib; do
@@ -167,13 +172,13 @@ for lib in "$FW"/*.dylib; do
 done
 
 # install_name_tool invalidates signatures; arm64 needs at least an ad-hoc one to run.
-for f in "$FW"/*.dylib "$BIN/openvpn" "$BIN/openfortivpn"; do
+for f in "$FW"/*.dylib "$BIN/openvpn" "$BIN/openfortivpn" "$BIN/openconnect"; do
     codesign --force --sign - "$f" 2>/dev/null
 done
 
 # --- verify ---------------------------------------------------------------------------------------
 bad=0
-for f in "$BIN/openvpn" "$BIN/openfortivpn" "$FW"/*.dylib; do
+for f in "$BIN/openvpn" "$BIN/openfortivpn" "$BIN/openconnect" "$FW"/*.dylib; do
     if otool -L "$f" | tail -n +2 | grep -E "$BREW|/usr/local/" >/dev/null; then
         echo "error: $f still links into Homebrew:" >&2
         otool -L "$f" | grep -E "$BREW|/usr/local/" >&2
@@ -196,7 +201,8 @@ notice="$LIC/THIRD_PARTY_NOTICES.txt"
 {
     echo "PassTunnel bundles the following third-party software, unmodified, built by Homebrew."
     echo "Their licenses are in this folder. Source code is available from the upstream projects"
-    echo "listed below and from https://github.com/Homebrew/homebrew-core."
+    echo "listed below and from https://github.com/Homebrew/homebrew-core. How to run PassTunnel with a"
+    echo "modified LGPL library: THIRD_PARTY_NOTICES.md in https://github.com/$GITHUB_REPO."
     echo
 } > "$notice"
 done_formulas=" "
@@ -225,6 +231,19 @@ for src in "${sources[@]}"; do
         lzo) lic="GPL-2.0"; url="https://www.oberhumer.com/opensource/lzo/" ;;
         lz4) lic="BSD-2-Clause"; url="https://github.com/lz4/lz4" ;;
         pkcs11-helper) lic="BSD-3-Clause or GPL-2.0"; url="https://github.com/OpenSC/pkcs11-helper" ;;
+        openconnect) lic="LGPL-2.1"; url="https://www.infradead.org/openconnect/download.html" ;;
+        gnutls) lic="LGPL-2.1 or later (the library; its GPL-3.0 tools are not bundled)"; url="https://www.gnutls.org/download.html" ;;
+        nettle) lic="LGPL-3.0 or later, or GPL-2.0 or later"; url="https://www.lysator.liu.se/~nisse/nettle/" ;;
+        gmp) lic="LGPL-3.0 or later, or GPL-2.0 or later"; url="https://gmplib.org/#DOWNLOAD" ;;
+        p11-kit) lic="BSD-3-Clause"; url="https://github.com/p11-glue/p11-kit/releases" ;;
+        libtasn1) lic="LGPL-2.1 or later"; url="https://www.gnu.org/software/libtasn1/" ;;
+        libidn2) lic="LGPL-3.0 or later, or GPL-2.0 or later (the library)"; url="https://www.gnu.org/software/libidn/#libidn2" ;;
+        libunistring) lic="LGPL-3.0 or later, or GPL-2.0 or later"; url="https://www.gnu.org/software/libunistring/" ;;
+        # Only libintl is bundled; its license text is the LGPL-2.1 (gnutls-COPYING.LESSERv2).
+        gettext) lic="LGPL-2.1 or later (libintl; its GPL-3.0 tools are not bundled)"; url="https://www.gnu.org/software/gettext/" ;;
+        stoken) lic="LGPL-2.1 or later"; url="https://github.com/stoken-dev/stoken" ;;
+        libtomcrypt) lic="Unlicense"; url="https://github.com/libtom/libtomcrypt" ;;
+        libtommath) lic="Unlicense"; url="https://github.com/libtom/libtommath" ;;
         *) lic="see license files"; url="${homepage:-}" ;;
     esac
     printf '%-16s %-10s %s\n%16s %s\n\n' "$formula" "$version" "$lic" "" "$url" >> "$notice"
