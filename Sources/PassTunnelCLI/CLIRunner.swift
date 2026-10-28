@@ -19,15 +19,32 @@ final class CLIRunner {
 
     let store = ProfileStore()
     let options: CLIOptions
+    /// The macOS this runs on (nil on Linux): what decides whether a Cisco AnyConnect profile can connect
+    /// (`ConnectionManager.connectRefusal`). Replaced in tests.
+    let macOS: OperatingSystemVersion?
     private var json = false
     private var managerStorage: ConnectionManager?
     private var automationStorage: AutomationService?
     private var bag: Set<AnyCancellable> = []
     private var signalSource: DispatchSourceSignal?
 
-    init(options: CLIOptions = CLIOptions()) {
+    /// Tells a running app that profiles changed; nothing in tests.
+    private let announceChanges: () -> Void
+
+    /// `manager`, `macOS` and `announceChanges` are for tests: a manager over a fake helper, a macOS other than
+    /// the one running, no signal to the user's running app.
+    init(
+        options: CLIOptions = CLIOptions(), macOS: OperatingSystemVersion? = ConnectionManager.currentMacOS,
+        manager: ConnectionManager? = nil, announceChanges: @escaping () -> Void = ProfileChangeSignal.post
+    ) {
         self.options = options
+        self.macOS = macOS
+        self.managerStorage = manager
+        self.announceChanges = announceChanges
     }
+
+    /// Why a profile of `type` cannot be connected on this system (`ConnectionManager.connectRefusal`).
+    private func refusal(_ type: VPNType) -> PTError? { ConnectionManager.connectRefusal(type, macOS: macOS) }
 
     /// Created on first use so offline commands never talk to the helper. `--no-auth-prompt` swaps in an
     /// authenticator that refuses to ask.
@@ -37,6 +54,7 @@ final class CLIRunner {
             options.noAuthPrompt
             ? PromptlessAuthenticator(PlatformAuthenticator()) : PlatformAuthenticator()
         let m = ConnectionManager(store: store, authenticator: authenticator)
+        m.systemVersion = macOS
         managerStorage = m
         return m
     }
@@ -49,7 +67,7 @@ final class CLIRunner {
     }
 
     func run(_ command: CLICommand) async -> Int32 {
-        defer { if Self.changesProfiles(command) { ProfileChangeSignal.post() } }
+        defer { if Self.changesProfiles(command) { announceChanges() } }
         json = Self.wantsJSON(command)
         do {
             return try await execute(command)
@@ -77,7 +95,7 @@ final class CLIRunner {
     static func wantsJSON(_ command: CLICommand) -> Bool {
         switch command {
         case let .status(_, json), let .code(_, _, json), let .list(json, _), let .show(_, json), let .toggle(_, json),
-            let .set(_, _, json), let .add(_, _, json), let .importFile(_, _, json), let .export(_, _, json),
+            let .set(_, _, json), let .add(_, _, json, _), let .importFile(_, _, json), let .export(_, _, json),
             let .remove(_, _, json), let .secret(_, _, json), let .setDefault(_, json), let .pin(_, json),
             let .unpin(_, json), let .diagnose(_, json), let .helper(_, json), let .version(json):
             return json
@@ -121,7 +139,7 @@ final class CLIRunner {
         case let .list(json, quiet): return try list(json: json, quiet: quiet)
         case let .show(id, json): return try show(id, json: json)
         case let .set(id, assignments, _): return try await set(id, assignments)
-        case let .add(name, type, _): return try add(name, type: type)
+        case let .add(name, type, _, server): return try add(name, type: type, server: server)
         case let .importFile(path, name, _): return try importFile(path, name: name)
         case let .export(id, output, _): return try export(id, output: output)
         case let .remove(id, yes, _): return try await remove(id, yes: yes)
@@ -216,6 +234,8 @@ final class CLIRunner {
                 if let warning = manager.warnings[p.id] { text += "  " + CLITerminal.colored(warning, palette.color(.connecting)) }
             }
             if let error = manager.lastError[p.id], tone == .disconnected { text += "  " + error }
+            // A profile this system cannot connect (Cisco AnyConnect on an older macOS): why, beside its state.
+            if tone == .disconnected, let note = refusal(p.type)?.unavailableNote { text += "  " + CLITerminal.dim(note) }
             // The app tries a server that did not answer again.
             if tone == .disconnected, let retry = manager.unreachableRetry(p.id) {
                 if let next = retry.nextTryAt {
@@ -238,7 +258,7 @@ final class CLIRunner {
     /// `timeout`: `--wait` / `--timeout`; nil waits as long as the connection steps themselves allow.
     private func connect(_ id: String?, force: Bool = false, timeout: Int? = nil) async throws -> Int32 {
         let p = try resolve(id)
-        try ConnectionManager.checkConnectable(p)
+        try ConnectionManager.checkConnectable(p, macOS: macOS)
         await manager.refresh()
         if manager.state(p.id).isConnected {
             if json { try printJSON(automation.status(p)) } else { CLITerminal.out(String(localized: "\(p.name) is already connected.")) }
@@ -392,12 +412,13 @@ final class CLIRunner {
 
     private func toggle(_ id: String?) async throws -> Int32 {
         let p = try resolve(id)
+        // A profile this system cannot connect is never running: refused before the helper is asked anything.
+        try ConnectionManager.checkConnectable(p, macOS: macOS)
         await manager.refresh()
         if manager.state(p.id).isActive {
             try await manager.disconnect(p.id)
             if !json { CLITerminal.out(String(localized: "Disconnected: \(p.name)")) }
         } else {
-            try ConnectionManager.checkConnectable(p)
             let overlaps = await manager.overlaps(for: p.id)
             warn(of: overlaps, connecting: p)
             try await manager.vault.unlock(p, for: .connect)
@@ -464,7 +485,7 @@ final class CLIRunner {
             (profiles.map(\.id) + unsupported.map(\.id)).forEach { CLITerminal.out($0) }
         } else if json {
             try printJSON(
-                profiles.map { ProfileSummary($0, isDefault: $0.id == def) }
+                profiles.map { ProfileSummary($0, isDefault: $0.id == def, connectRefusal: refusal($0.type)) }
                     + unsupported.map { ProfileSummary($0, isDefault: $0.id == def) })
         } else if profiles.isEmpty && unsupported.isEmpty {
             CLITerminal.out(String(localized: "No profiles. Add one with “passtunnel import FILE” or in the app."))
@@ -473,7 +494,7 @@ final class CLIRunner {
             let nameWidth = (profiles.map(\.name.count) + unsupported.map(\.name.count)).max() ?? 0
             for p in profiles {
                 var flags: [String] = [Self.typeName(p.type)]
-                if !p.type.isConnectable { flags.append(UnsupportedProfile.statusText) }
+                if let note = refusal(p.type)?.unavailableNote { flags.append(note) }  // Cisco AnyConnect on an older macOS
                 if !p.username.isEmpty { flags.append(p.username) }
                 if p.otpMode == .totp { flags.append("TOTP") }
                 if p.pinned { flags.append(String(localized: "pinned")) }
@@ -510,6 +531,8 @@ final class CLIRunner {
         var totpEncrypted: Bool
         var configFile: String?
         var remote: String?
+        /// Why this system cannot connect the profile (`ProfileSummary.connectRefusal`); left out otherwise.
+        var connectRefusal: ErrorReport?
     }
 
     private func show(_ id: String, json: Bool) throws -> Int32 {
@@ -523,7 +546,7 @@ final class CLIRunner {
                     totpSaved: Secrets.has(id, .totp), passwordEncrypted: Secrets.isProtected(id, .password),
                     totpEncrypted: Secrets.isProtected(id, .totp),
                     configFile: hasConfig ? store.ovpnURL(id).path : nil,
-                    remote: remotes.map { $0.first ?? "" }))
+                    remote: remotes.map { $0.first ?? "" }, connectRefusal: refusal(p.type).map { ErrorReport($0) }))
             return Exit.ok
         }
         let missing = String(localized: "not saved")
@@ -547,6 +570,7 @@ final class CLIRunner {
             rows.append(("config", hasConfig ? store.ovpnURL(id).path : missing))
             if let remotes, !remotes.isEmpty { rows.append(("remote", OVPNAnalyzer.serverDescription(remotes))) }
         }
+        if let note = refusal(p.type)?.unavailableNote { rows.append(("connect", note)) }
         rows.append(("default", String(store.defaultID == id)))
         let width = rows.map(\.0.count).max() ?? 0
         for (k, v) in rows {
@@ -578,16 +602,26 @@ final class CLIRunner {
 
     // MARK: add / import / export / rm
 
-    private func add(_ name: String, type: VPNType) throws -> Int32 {
-        let p = try store.create(name: name, type: type)
+    private func add(_ name: String, type: VPNType, server: AnyConnectServer?) throws -> Int32 {
+        // A profile that cannot connect here is not made (the app's type picker disables the type the same way);
+        // one that arrives in a share file is kept and shown with the same note.
+        if let refusal = refusal(type) { throw refusal }
+        let p = try store.create(name: name, type: type, server: server)
         if json { try printJSON(automation.summary(p)); return Exit.ok }
         CLITerminal.out(String(localized: "Created “\(p.name)” (\(p.id))."))
         switch type {
         case .openvpn:
             CLITerminal.err(
                 CLITerminal.dim(String(localized: "Next: add the configuration in the app, or import an .ovpn file with “passtunnel import FILE”.")))
-        case .forti, .anyconnect:  // `add` refuses Cisco AnyConnect for now (`VPNType.connectable`)
+        case .forti:
             CLITerminal.err(CLITerminal.dim(String(localized: "Next: passtunnel set \(p.id) host=vpn.example.com username=alice")))
+        case .anyconnect:
+            if server == nil {
+                CLITerminal.err(CLITerminal.dim(String(localized: "Next: passtunnel set \(p.id) host=vpn.example.com username=alice")))
+            } else {
+                CLITerminal.err(CLITerminal.dim(String(localized: "Next: passtunnel set \(p.id) username=alice")))
+            }
+            CLITerminal.err(CLITerminal.dim(String(localized: "Save the password with: passtunnel secret \(p.id) password")))
         }
         return Exit.ok
     }

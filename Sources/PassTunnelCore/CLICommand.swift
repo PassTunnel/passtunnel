@@ -36,7 +36,8 @@ public enum CLICommand: Equatable {
     case list(json: Bool, quiet: Bool)  // quiet: ids only (used by shell completion)
     case show(id: String, json: Bool)
     case set(id: String, assignments: [Assignment], json: Bool = false)
-    case add(name: String, type: VPNType, json: Bool = false)
+    // server: Cisco AnyConnect's address (`--server https://vpn.example.com[:port][/group]`), saved as host, port and usergroup
+    case add(name: String, type: VPNType, json: Bool = false, server: AnyConnectServer? = nil)
     case importFile(path: String, name: String?, json: Bool = false)
     case export(id: String, output: String?, json: Bool = false)
     case remove(id: String, yes: Bool, json: Bool = false)
@@ -243,18 +244,35 @@ public enum CLICommand: Equatable {
         case "add":
             let json = a.flag("--json")
             guard let typeText = try a.option("--type", "-t") else {
-                throw CLIUsageError(String(localized: "Missing --type openvpn|forti."), command: name)
+                throw CLIUsageError(String(localized: "Missing --type openvpn|forti|anyconnect."), command: name)
             }
-            guard let type = VPNType(rawValue: typeText.lowercased()) ?? (typeText.lowercased() == "fortigate" ? .forti : nil),
-                type.isConnectable
-            else {
-                throw CLIUsageError(String(localized: "Unknown VPN type “\(typeText)” (use openvpn or forti)."), command: name)
+            let type: VPNType
+            switch typeText.lowercased() {
+            case "openvpn": type = .openvpn
+            case "forti", "fortigate": type = .forti
+            case "anyconnect": type = .anyconnect
+            default:
+                throw CLIUsageError(
+                    String(localized: "Unknown VPN type “\(typeText)” (use openvpn, forti or anyconnect)."), command: name)
             }
+            let serverText = try a.option("--server")
             try a.rejectUnknownOptions()
+            var server: AnyConnectServer?
+            if let serverText {
+                guard type == .anyconnect else {
+                    throw CLIUsageError(String(localized: "--server is for Cisco AnyConnect profiles (--type anyconnect)."), command: name)
+                }
+                guard let parsed = AnyConnectServer.parse(serverText) else {
+                    throw CLIUsageError(
+                        String(localized: "“\(serverText)” is not a server address (use https://vpn.example.com[:port][/group])."),
+                        command: name)
+                }
+                server = parsed
+            }
             let words = a.remaining()
             let joined = words.joined(separator: " ").trimmingCharacters(in: .whitespaces)
             guard !joined.isEmpty else { throw CLIUsageError(String(localized: "Missing profile name."), command: name) }
-            return .add(name: joined, type: type, json: json)
+            return .add(name: joined, type: type, json: json, server: server)
         case "import":
             let json = a.flag("--json")
             let newName = try a.option("--name", "-n")

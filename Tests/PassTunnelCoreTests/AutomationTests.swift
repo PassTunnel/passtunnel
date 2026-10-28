@@ -200,6 +200,8 @@ final class MCPServerTests: XCTestCase {
     var inspector = FixedHelperInspector()
     /// The gateway and the time server: never the network.
     var serverClock = FakeServerClock()
+    /// The macOS the manager believes it runs on (nil: Linux); Cisco AnyConnect's availability depends on it.
+    var macOS: OperatingSystemVersion? = ConnectionManager.currentMacOS
     var sent: [Data] = []
     var logs: [String] = []
     var store: ProfileStore { ProfileStore() }
@@ -222,6 +224,7 @@ final class MCPServerTests: XCTestCase {
         authenticator = FakeAuthenticator()
         inspector = FixedHelperInspector()
         serverClock = FakeServerClock()
+        macOS = ConnectionManager.currentMacOS
         sent = []
         logs = []
     }
@@ -251,6 +254,7 @@ final class MCPServerTests: XCTestCase {
             healthProbe: { _ in (false, 0) }, preferences: { Preferences() },
             routes: { [] }, authenticator: authenticator ?? self.authenticator)
         manager.serverClock = serverClock
+        manager.systemVersion = macOS
         let automation = AutomationService(
             store: store, manager: manager, helperInspector: inspector,
             appInfo: AppInfo(version: "9.9.9", build: "99", appPath: "/Applications/PassTunnel.app"),
@@ -407,7 +411,7 @@ final class MCPServerTests: XCTestCase {
         let timeout = try XCTUnwrap((properties["timeout_seconds"] as? [String: Any])?["description"] as? String)
 
         let base =
-            "(OpenVPN and FortiGate SSL VPN). Profiles are identified by their id (from list_profiles). "
+            "(OpenVPN, FortiGate SSL VPN and Cisco AnyConnect). Profiles are identified by their id (from list_profiles). "
             + "The tools never return passwords, TOTP secrets, one-time codes, keys or configuration files, and they cannot create, change or delete profiles."
         let connectText = try XCTUnwrap(descriptions["connect"])
         let listText = try XCTUnwrap(descriptions["list_profiles"])
@@ -415,6 +419,7 @@ final class MCPServerTests: XCTestCase {
         XCTAssertEqual(
             instructions,
             "PassTunnel manages this computer's VPN connections " + base
+                + " Cisco AnyConnect is not supported on Linux yet; a profile that cannot be connected here says why in connect_refusal."
                 + " connect and disconnect are enabled. A protected profile cannot be connected on Linux yet: connect refuses it with auth_unavailable."
         )
         XCTAssertTrue(
@@ -431,6 +436,7 @@ final class MCPServerTests: XCTestCase {
         XCTAssertEqual(
             instructions,
             "PassTunnel manages this Mac's VPN connections " + base
+                + " Cisco AnyConnect needs macOS 15.4 or later; a profile that cannot be connected here says why in connect_refusal."
                 + " connect and disconnect are enabled. A protected profile shows a Touch ID prompt on the Mac that the user must confirm; tell the user to look for it."
         )
         XCTAssertTrue(listText.hasSuffix(" protected=true means connecting asks the user for Touch ID on the Mac."))
@@ -625,6 +631,198 @@ final class MCPServerTests: XCTestCase {
         XCTAssertNotNil(only["duration_seconds"] as? Int)
         XCTAssertEqual((status["helper"] as? [String: Any])?["state"] as? String, "enabled")
         XCTAssertEqual((status["profiles"] as? [[String: Any]])?.count, 1)
+    }
+
+    // MARK: Cisco AnyConnect
+
+    @discardableResult
+    func makeAnyConnect(_ name: String = "Corp", host: String = "vpn.example.com", savePassword: Bool = true) throws -> Profile {
+        var p = try store.create(name: name, type: .anyconnect)
+        p.host = host
+        p.username = "alice"
+        try store.save(p)
+        if savePassword { try Secrets.set(p.id, .password, password) }
+        return p
+    }
+
+    static let macOS154 = OperatingSystemVersion(majorVersion: 15, minorVersion: 4, patchVersion: 0)
+    static let macOS153 = OperatingSystemVersion(majorVersion: 15, minorVersion: 3, patchVersion: 0)
+
+    func testAnyConnectProfilesAreListedAsProfiles() async throws {
+        macOS = Self.macOS154
+        try makeAnyConnect()
+        try makeOpenVPN()
+        let server = makeServer()
+
+        let list = try await structured(server, "list_profiles")
+        let profiles = try XCTUnwrap(list["profiles"] as? [[String: Any]])
+        let corp = try XCTUnwrap(profiles.first { $0["id"] as? String == "corp" })
+        XCTAssertEqual(corp["type"] as? String, "anyconnect")
+        XCTAssertEqual(corp["name"] as? String, "Corp")
+        XCTAssertEqual(corp["username"] as? String, "alice")
+        XCTAssertEqual(corp["password_mode"] as? String, "keychain")
+        XCTAssertEqual(corp["state"] as? String, "disconnected")
+        XCTAssertNil(corp["needs_newer_version"], "a known type")
+        XCTAssertNil(corp["connect_refusal"], "it can connect on this macOS")
+        let status = try await structured(server, "get_status", ["profile_id": "corp"])
+        let only = try XCTUnwrap((status["profiles"] as? [[String: Any]])?.first)
+        XCTAssertEqual(only["type"] as? String, "anyconnect")
+        XCTAssertEqual(only["state"] as? String, "disconnected")
+        XCTAssertNil(only["connect_refusal"])
+        let text = sent.map { String(decoding: $0, as: UTF8.self) }.joined()
+        XCTAssertFalse(text.contains(password))
+    }
+
+    func testAnOlderSystemRefusesAnyConnectAndSaysWhy() async throws {
+        let cases: [(OperatingSystemVersion?, String)] = [
+            (Self.macOS153, "Cisco AnyConnect requires macOS 15.4 or later."),
+            (OperatingSystemVersion(majorVersion: 13, minorVersion: 6, patchVersion: 1), "Cisco AnyConnect requires macOS 15.4 or later."),
+            (nil, "Cisco AnyConnect is not supported on Linux yet.")
+        ]
+        try makeAnyConnect()
+        try makeOpenVPN()
+        for (version, message) in cases {
+            macOS = version
+            helper = FakeHelper()
+            sent = []
+            let server = makeServer(allowConnect: true)
+
+            let list = try await structured(server, "list_profiles")
+            let profiles = try XCTUnwrap(list["profiles"] as? [[String: Any]])
+            let corp = try XCTUnwrap(profiles.first { $0["id"] as? String == "corp" })
+            XCTAssertEqual(corp["type"] as? String, "anyconnect")
+            XCTAssertNil(corp["needs_newer_version"])
+            let refusal = try XCTUnwrap(corp["connect_refusal"] as? [String: Any])
+            XCTAssertEqual(refusal["code"] as? String, "config_invalid")
+            XCTAssertEqual(refusal["message"] as? String, message)
+            XCTAssertNil(try XCTUnwrap(profiles.first { $0["id"] as? String == "acme" })["connect_refusal"])
+
+            let status = try await structured(server, "get_status")
+            let all = try XCTUnwrap(status["profiles"] as? [[String: Any]])
+            XCTAssertEqual((all.first { $0["id"] as? String == "corp" }?["connect_refusal"] as? [String: Any])?["message"] as? String, message)
+            XCTAssertNil(all.first { $0["id"] as? String == "acme" }?["connect_refusal"])
+
+            let asked = helper.requests.count  // the listings above refreshed the state
+            let refused = try await callTool(server, "connect", ["profile_id": "corp"])
+            XCTAssertEqual(refused["isError"] as? Bool, true)
+            XCTAssertEqual(errorCode(refused), "config_invalid")
+            let reply = try XCTUnwrap(((refused["content"] as? [[String: Any]])?.first)?["text"] as? String)
+            XCTAssertTrue(reply.contains(message), reply)
+            XCTAssertFalse(reply.contains("failure"), "refused before any attempt: \(reply)")
+            XCTAssertEqual(helper.requests.count, asked, "the helper is asked nothing: \(helper.requests)")
+            XCTAssertEqual(helper.starts.count, 0)
+            XCTAssertEqual(logs.last, "connect: config_invalid")
+
+            // Waiting or not makes no difference, and the profile is not started in the background either.
+            let quick = try await toolError(server, "connect", ["profile_id": "corp", "wait": false])
+            XCTAssertEqual(quick, "config_invalid")
+            await server.drain()
+            XCTAssertEqual(helper.requests.count, asked)
+            helper.shutdown()
+        }
+        helper = FakeHelper()
+    }
+
+    func testDiagnoseChecksAnyConnectProfiles() async throws {
+        macOS = Self.macOS153
+        try makeAnyConnect()
+        try makeAnyConnect("No Host", host: "", savePassword: false)
+        let badHost = try makeAnyConnect("Bad Host")
+        // A hand-edited file: `save` would refuse it.
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: store.profileURL(badHost.id))) as? [String: Any])
+        object["host"] = "https://vpn.example.com"
+        try JSONSerialization.data(withJSONObject: object).write(to: store.profileURL(badHost.id))
+        var odd = try makeAnyConnect("Odd")
+        odd.passwordMode = .ask
+        odd.otpMode = .totp
+        try store.save(odd)
+        var server = makeServer()
+        func problems(_ report: [String: Any]) -> [String: [String]] {
+            var result: [String: [String]] = [:]
+            for check in report["profiles"] as? [[String: Any]] ?? [] {
+                result[check["id"] as? String ?? ""] = (check["problems"] as? [[String: Any]] ?? []).compactMap {
+                    ($0["code"] as? String ?? "") + ": " + ($0["message"] as? String ?? "")
+                }
+            }
+            return result
+        }
+
+        var report = try await structured(server, "diagnose")
+        var found = problems(report)
+        let refusal = "config_invalid: Cisco AnyConnect requires macOS 15.4 or later."
+        XCTAssertEqual(found["corp"], [refusal])
+        XCTAssertEqual(found["no-host"]?.first, refusal)
+        XCTAssertEqual(found["no-host"]?.count, 3, "\(String(describing: found["no-host"]))")  // refusal, no server, no password
+        XCTAssertTrue(
+            found["no-host"]?.contains { $0.hasPrefix("config_invalid: ") && $0.contains("server") } ?? false,
+            "\(String(describing: found["no-host"]))")
+        XCTAssertTrue(found["no-host"]?.contains { $0.hasPrefix("credentials_missing: ") } ?? false)
+        XCTAssertEqual(found["bad-host"]?.first, refusal)
+        XCTAssertTrue(found["bad-host"]?.contains { $0.hasPrefix("invalid_argument: ") } ?? false, "\(String(describing: found["bad-host"]))")
+        let byID = Dictionary(uniqueKeysWithValues: (report["profiles"] as? [[String: Any]] ?? []).map { ($0["id"] as! String, $0) })
+        XCTAssertEqual(byID["corp"]?["type"] as? String, "anyconnect")
+        XCTAssertEqual(byID["corp"]?["ok"] as? Bool, false)
+        XCTAssertEqual(byID["corp"]?["server"] as? String, "vpn.example.com")
+        XCTAssertEqual(byID["corp"]?["password_saved"] as? Bool, true)
+        XCTAssertEqual(byID["no-host"]?["password_saved"] as? Bool, false)
+        XCTAssertEqual(byID["odd"]?["asks_for"] as? [String], ["password"])
+        XCTAssertEqual(byID["odd"]?["totp_saved"] as? Bool, false)
+        XCTAssertTrue(found["odd"]?.contains { $0.hasPrefix("credentials_missing: ") } ?? false)
+
+        // Where it can connect, only what is wrong with the profile is left.
+        macOS = Self.macOS154
+        server = makeServer()
+        report = try await structured(server, "diagnose")
+        found = problems(report)
+        XCTAssertEqual(found["corp"], [])
+        XCTAssertFalse(found["no-host"]?.contains { $0.contains("requires macOS") } ?? true)
+        XCTAssertEqual(found["no-host"]?.count, 2)
+        XCTAssertEqual(
+            (report["profiles"] as? [[String: Any]])?.first { $0["id"] as? String == "corp" }?["ok"] as? Bool, true)
+        // Linux says so for the profile too.
+        macOS = nil
+        server = makeServer()
+        report = try await structured(server, "diagnose")
+        XCTAssertEqual(problems(report)["corp"], ["config_invalid: Cisco AnyConnect is not supported on Linux yet."])
+        let text = sent.map { String(decoding: $0, as: UTF8.self) }.joined()
+        XCTAssertFalse(text.contains(password), "no secret in any report")
+    }
+
+    func testToolTextsNameCiscoAnyConnect() async throws {
+        let server = makeServer(allowConnect: true)
+        let list = try await reply(server, request(2, "tools/list"))
+        let tools = try XCTUnwrap((list["result"] as? [String: Any])?["tools"] as? [[String: Any]])
+        var descriptions: [String: String] = [:]
+        for tool in tools { descriptions[tool["name"] as? String ?? ""] = tool["description"] as? String }
+        XCTAssertTrue(try XCTUnwrap(descriptions["list_profiles"]).contains("connect_refusal"))
+        XCTAssertTrue(try XCTUnwrap(descriptions["list_profiles"]).contains("Cisco AnyConnect"))
+        XCTAssertTrue(try XCTUnwrap(descriptions["get_status"]).contains("host_scan_required"))
+        XCTAssertTrue(try XCTUnwrap(descriptions["get_status"]).contains("connect_refusal"))
+        XCTAssertTrue(try XCTUnwrap(descriptions["get_logs"]).contains("openconnect"))
+        let connect = try XCTUnwrap(descriptions["connect"])
+        XCTAssertTrue(connect.contains("Cisco AnyConnect"), connect)
+        XCTAssertTrue(connect.contains("config_invalid"), connect)
+        #if os(Linux)
+        XCTAssertTrue(connect.contains("cannot be connected on Linux yet"), connect)
+        #else
+        XCTAssertTrue(connect.contains("needs macOS 15.4 or later"), connect)
+        #endif
+        // The result schemas carry the new field.
+        func properties(_ tool: String, _ path: [String]) throws -> [String: Any] {
+            var node = try XCTUnwrap(tools.first { $0["name"] as? String == tool }?["outputSchema"] as? [String: Any])
+            for key in path { node = try XCTUnwrap(node[key] as? [String: Any]) }
+            return try XCTUnwrap(node["properties"] as? [String: Any])
+        }
+        XCTAssertNotNil(try properties("list_profiles", ["properties", "profiles", "items"])["connect_refusal"])
+        XCTAssertNotNil(try properties("list_profiles", ["properties", "profiles", "items"])["needs_newer_version"])
+        XCTAssertNotNil(try properties("get_status", ["properties", "profiles", "items"])["connect_refusal"])
+        XCTAssertNotNil(try properties("connect", [])["connect_refusal"])
+        XCTAssertEqual(
+            (try properties("list_profiles", ["properties", "profiles", "items"])["type"] as? [String: Any])?["enum"] as? [String],
+            ["openvpn", "forti", "anyconnect"])
+        // Nothing in the texts offers a way to read a secret or to change a profile.
+        for text in descriptions.values { XCTAssertFalse(text.lowercased().contains("password value"), text) }
+        XCTAssertEqual(tools.map { $0["name"] as? String }, ["list_profiles", "get_status", "get_logs", "diagnose", "connect", "disconnect"])
     }
 
     func testStatusWithoutTheHelperDoesNotFail() async throws {

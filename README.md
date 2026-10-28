@@ -283,6 +283,9 @@ passtunnel set work auto_reconnect=true health_host=10.0.0.1
 passtunnel add Lab --type forti
 passtunnel set lab host=203.0.113.10 port=443 username=sam
 
+passtunnel add Corp --type anyconnect --server https://vpn.example.com/staff   # Cisco AnyConnect, macOS 15.4 or later
+passtunnel set corp username=sam authgroup=Employees
+
 passtunnel log work -f
 passtunnel log work --activity                # what PassTunnel did: connecting, codes, sign-in, drops
 passtunnel helper status

@@ -166,11 +166,11 @@ public struct ProfileDestination: Equatable, Sendable {
 }
 
 extension VPNType {
-    /// The types the front ends offer to create and show as ordinary profiles (the app's type picker and
-    /// list, `passtunnel add` and `list`). Cisco AnyConnect is not among them yet: `ConnectionManager`
-    /// connects such a profile (where `ConnectionManager.connectRefusal` allows it), but the CLI (#185) and the
-    /// app (#186) still list it as needing a newer PassTunnel until they handle its settings; `passtunnel
-    /// show`, `set`, `export` and `rm` work on it.
+    /// The types the Mac app offers to create and shows as ordinary profiles (its type picker and list). Cisco
+    /// AnyConnect is not among them until the editor handles its settings (#186): the app still shows such a
+    /// profile as needing a newer PassTunnel (`UnsupportedProfile(profile)`). The `passtunnel` command and the
+    /// MCP tools do not use this: they handle every `VPNType` (#185) and ask `ConnectionManager.connectRefusal`
+    /// whether a type can be connected on this system.
     public static let connectable: [VPNType] = [.openvpn, .forti]
 
     public var isConnectable: Bool { Self.connectable.contains(self) }
@@ -464,8 +464,8 @@ public final class ConnectionManager: ObservableObject {
     /// tunnel when it is up; replaced in tests.
     var tunnelRoutes: (String) -> [RoutingTable.Route] = RoutingTable.routes(onInterface:)
     /// The macOS this runs on, for the types that need a later one than the app (`connectRefusal`); nil on
-    /// Linux. Replaced in tests.
-    var systemVersion: OperatingSystemVersion? = ConnectionManager.currentMacOS
+    /// Linux. Replaced in tests, and by the `passtunnel` command's tests.
+    public var systemVersion: OperatingSystemVersion? = ConnectionManager.currentMacOS
     /// Runs Cisco AnyConnect's sign-in (`AnyConnectSignIn`); a fake in tests, which never run openconnect.
     var toolRunner: ToolRunning = SystemToolRunner()
     /// The openconnect the sign-in runs: the app bundle's (`AnyConnectSignIn.bundledTool`); nil outside one.

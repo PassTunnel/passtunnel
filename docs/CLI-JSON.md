@@ -84,7 +84,7 @@ human confirmation, and a script cannot answer it.
 | `other_vpn_active` | Another VPN already routes all traffic (`connect --force` overrides) |
 | `destination_changed` | The server settings changed after you confirmed: connect again and confirm |
 | `timeout` | `--timeout` passed, or the VPN tool's own limit |
-| `config_invalid` | Missing or rejected OpenVPN configuration, missing FortiGate server, unreadable file, a profile or share file of a VPN type that needs a newer PassTunnel, a Cisco AnyConnect profile on macOS older than 15.4 ("Cisco AnyConnect requires macOS 15.4 or later.") or on Linux ("Cisco AnyConnect is not supported on Linux yet.") |
+| `config_invalid` | Missing or rejected OpenVPN configuration, missing FortiGate or Cisco AnyConnect server, unreadable file, a profile or share file of a VPN type that needs a newer PassTunnel, a Cisco AnyConnect profile on macOS older than 15.4 ("Cisco AnyConnect requires macOS 15.4 or later.") or on Linux ("Cisco AnyConnect is not supported on Linux yet.") |
 | `file_error` | A file could not be read or written |
 | `keychain_error` | The secret store (the Keychain on the Mac; on Linux secret-service, systemd-creds or the passphrase-encrypted file) refused or cannot be used, or a protected secret cannot be decrypted; `message` says why |
 | `internal` | Anything else |
@@ -122,10 +122,28 @@ A profile whose VPN type this version does not know (made by a newer PassTunnel)
 `"needs_newer_version" : true` (left out otherwise); its settings read as empty. Commands and tools that use it fail with
 `config_invalid`, except `rm`, which deletes it.
 
-A Cisco AnyConnect profile (`"type" : "anyconnect"`, from a share file or a newer build) is listed with its settings and
-`"needs_newer_version" : true` as well, because this version does not connect it yet: `connect`, `toggle` and the MCP tool
-`connect` fail with `config_invalid` before anything is asked or read, and `diagnose` reports that as its problem.
-`show`, `set`, `export` and `rm` work on it; `add --type anyconnect` is refused (`invalid_argument`).
+A Cisco AnyConnect profile (`"type" : "anyconnect"`) is an ordinary profile: it is listed with its settings and has no
+`needs_newer_version`. Where this system cannot connect it, it has `connect_refusal`, the error object ([Errors](#errors))
+that `connect` would fail with:
+
+```json
+{
+  "connect_refusal" : {
+    "code" : "config_invalid",
+    "message" : "Cisco AnyConnect requires macOS 15.4 or later."
+  },
+  "id" : "corp",
+  "type" : "anyconnect"
+}
+```
+
+`message` is `Cisco AnyConnect requires macOS 15.4 or later.` on a Mac with an older macOS (`list` shows it as
+`Requires macOS 15.4 or later` beside the type) and `Cisco AnyConnect is not supported on Linux yet.` on Linux (`Not
+supported on Linux yet`). The profile can still be shown, edited with `set`, exported and deleted; `connect`, `toggle`
+and the MCP tool `connect` fail with that error before anything is asked or read, and `add --type anyconnect` is refused
+with it as well. `connect_refusal` is left out when the profile can connect, and for the other types. `status` and
+`show` carry it too ([ProfileStatus](#profilestatus), [Commands](#commands)); `diagnose` reports it among the
+profile's `problems`.
 
 ### ProfileStatus
 
@@ -147,7 +165,8 @@ From `status`, `connect`, `disconnect`, `toggle` and the MCP tools `get_status`,
 }
 ```
 
-`state` is `disconnected`, `connecting` or `connected`. Present only when they apply: `phase`
+`state` is `disconnected`, `connecting` or `connected`. Present only when they apply: `connect_refusal` (this system
+cannot connect the profile: an error object, see [ProfileSummary](#profilesummary)), `phase`
 (while connecting, in the user's language), `ip`, `since`, `duration_seconds`, `health`
 (`reachable` / `unreachable`, only from a process that runs health checks), `error` (why the last
 attempt in this process failed) and `failure` (the same as a [ConnectionFailure](#connectionfailure);
@@ -359,7 +378,9 @@ connect; the server can still refuse it), `server`, `protected`, `password_saved
 one (any process's; a FortiGate gateway's after a rejected sign-in). Linux adds `secret_store`, a
 [SecretStoreReport](#secretstorereport). With `--check-clock` (MCP: `check_clock: true`) the time
 server is asked as well: `clock` is its ClockOffset, or `clock_error` says why it could not be
-measured. Without it, `diagnose` contacts nothing. `network`: whether the computer is online
+measured. Without it, `diagnose` contacts nothing. For a Cisco AnyConnect profile the checks are the server
+(`host`), the user name, `usergroup`, `authgroup`, `server_cert` and the OTP template by the profile rules, the saved
+password and TOTP secret, and the platform refusal (`connect_refusal`), each as a problem. `network`: whether the computer is online
 (`online`) and over what kind of interface (`interface`: `wifi`, `ethernet`, `cellular` or `other`), as the
 system sees its network path (macOS `NWPathMonitor`; Linux the routes and links); both absent when it is
 not known. Finding out contacts nothing either. `tools` (the Mac, in an app bundle): each VPN tool of the
@@ -443,9 +464,9 @@ the ones you do not know.
 | `toggle [ID]` | ProfileStatus |
 | `code [ID] [-c]` | `{"profile": "work", "code": "123456", "remaining": 17, "period": 30}` |
 | `list` | array of ProfileSummary |
-| `show ID` | `{"profile": {…settings…}, "is_default", "password_saved", "totp_saved", "password_encrypted", "totp_encrypted", "config_file", "remote"}` (a Cisco AnyConnect profile's settings also have `usergroup`, `authgroup`, `server_cert` and `tls_only`) |
+| `show ID` | `{"profile": {…settings…}, "is_default", "password_saved", "totp_saved", "password_encrypted", "totp_encrypted", "config_file", "remote", "connect_refusal"}` (a Cisco AnyConnect profile's settings also have `usergroup`, `authgroup`, `server_cert` and `tls_only`; `connect_refusal` only where this system cannot connect it) |
 | `set ID key=value…` | the `show` object after the change |
-| `add NAME --type T` | ProfileSummary of the new profile |
+| `add NAME --type T [--server URL]` | ProfileSummary of the new profile. `T`: `openvpn`, `forti` or `anyconnect`; `--server https://vpn.example.com[:port][/usergroup]` (Cisco AnyConnect only) sets `host`, `port` and `usergroup`, and an address that is not one (another scheme, user info, a query or fragment, a bad port, a path that is not a user group) is a usage error. Where Cisco AnyConnect cannot connect (macOS older than 15.4, Linux) it fails with its `config_invalid` error and creates nothing |
 | `import FILE` | ProfileSummary of the new profile with `skipped` (below) |
 | `export ID [-o FILE]` | `{"id": "work", "path": "/Users/alice/work.passtunnel"}` |
 | `rm ID --yes` | `{"id": "work", "deleted": true}` |
@@ -487,6 +508,24 @@ fails with `timeout`; a connection that was already on its way (started in the a
 terminal) is left alone. `log --json` drops OpenVPN's notes about PassTunnel's own management
 polls and replaces anything that looks like a credential with `<redacted>`; `log -f` cannot be
 combined with `--json` or `--activity`. `helper install` and `helper uninstall` have no JSON output.
+
+### Cisco AnyConnect profiles
+
+```sh
+passtunnel add Corp --type anyconnect --server https://vpn.example.com:8443/staff
+passtunnel set corp username=sam authgroup=Employees tls_only=true set_dns=true
+passtunnel secret corp password
+passtunnel set corp server_cert=pin-sha256:…      # trust the server's key (check it first)
+```
+
+Keys of `set` and `show` besides the common ones: `host` (name or address, no scheme or port), `port` (default 443),
+`usergroup` (the sign-in URL's path, `https://host/usergroup`), `authgroup` (matched against the server's group
+list; empty takes the server's default), `server_cert` (`pin-sha256:` and the key's SHA-256 in base64; empty
+verifies the server with the system's certificate authorities), `tls_only` (no DTLS), `set_dns` and `set_routes`
+(as for FortiGate). `otp_delivery` is `separate` by default: the code is the answer to the server's second form
+field. `password_mode` is `keychain` or `ask` (there is no certificate sign-in) and `trusted_cert` is FortiGate's alone
+(`invalid_argument`). A host scan (Cisco Secure Desktop) is never run: `host_scan_required`. The aliases `user_group`
+and `auth_group` work too. Nothing prints a password, a code or a session cookie.
 
 ### Examples
 

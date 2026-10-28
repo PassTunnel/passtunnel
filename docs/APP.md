@@ -575,7 +575,7 @@ passtunnel connect [ID] --force              even if another VPN already takes a
 passtunnel connect|disconnect … --wait [--timeout S]   bound the wait (default 60 s; --timeout implies --wait)
 passtunnel code [ID] [-c|--copy]             live code + seconds left
 passtunnel list / show ID / set ID key=value…   (keys as in the editor)
-passtunnel add NAME --type openvpn|forti / import FILE [--name N] / export ID [-o FILE] / rm ID
+passtunnel add NAME --type openvpn|forti|anyconnect [--server URL] / import FILE [--name N] / export ID [-o FILE] / rm ID
 passtunnel secret ID password|totp           reads from TTY (no echo) or stdin; totp accepts base32 or otpauth://
 passtunnel secret-store [STORE]              Linux only: the secret store in use; STORE sets it (below)
 passtunnel default ID / pin ID / unpin ID

@@ -3,8 +3,8 @@
 PassTunnel is a macOS app (13+) that connects VPNs **without ever typing a one-time code**: it keeps
 TOTP secrets in the Keychain and fills the code (and password) automatically when it connects.
 Supported VPN types: OpenVPN, FortiGate SSL VPN (openfortivpn). More types = new backend; Cisco
-AnyConnect (openconnect) is being added: Core connects it on macOS 15.4 and later (#184), the CLI, the
-editor and Linux follow ([below](#cisco-anyconnect-backend-planned)).
+AnyConnect (openconnect) is being added: Core connects it on macOS 15.4 and later (#184), the CLI and MCP
+tools handle it (#185), the editor and Linux follow ([below](#cisco-anyconnect-backend-planned)).
 
 ```
 PassTunnel.app/Contents/
@@ -331,9 +331,10 @@ is created. The error is `config_invalid` in the CLI and MCP tools, and its mess
 PassTunnel. `list` and `list_profiles` show the profile with its stored `type` and `needs_newer_version: true`.
 
 `anyconnect` is a known type that Core connects (#184, [Cisco AnyConnect backend](#cisco-anyconnect-backend-planned)) and
-the front ends do not offer yet. Its keys and rules are in [Profile (#181)](#profile-181) below. `VPNType.connectable`
-(what the front ends offer to create and show as ordinary profiles) stays `[.openvpn, .forti]` until the CLI (#185) and
-the editor (#186) handle the type, and such a profile (imported from a share file, or written by a newer build) is
+the `passtunnel` command and MCP tools handle (#185); the Mac app does not offer it yet. Its keys and rules are in
+[Profile (#181)](#profile-181) below. `VPNType.connectable` (what the Mac app offers to create and shows as ordinary
+profiles) stays `[.openvpn, .forti]` until the editor (#186) handles the type; the command and the tools do not use
+it. Such a profile (created with `passtunnel add`, imported from a share file, or written by a newer build) is
 treated as follows:
 - **Core**: `ConnectionManager.connectRefusal(type)` says whether a type can be connected on this system: nil for OpenVPN
   and FortiGate; for Cisco AnyConnect `PTError.anyConnectRequiresMacOS("15.4")` ("Cisco AnyConnect requires macOS 15.4
@@ -344,9 +345,20 @@ treated as follows:
   or the helper is asked anything (its status included); `diagnose` reports it with the profile's other problems.
   Otherwise the profile connects as described under [Cisco AnyConnect backend](#cisco-anyconnect-backend-planned).
   `ProfileStore` lists, saves (with the checks above), exports, imports and deletes it like any profile.
-- **CLI and MCP** (until #185): listed with its settings and `needs_newer_version: true`; `connect`, `toggle` and the
-  MCP `connect` go through Core as above; `show`, `set` (its keys), `export` and `rm` work; `add --type anyconnect` is
-  refused (unknown type).
+- **CLI and MCP** (#185): an ordinary profile of type `anyconnect`. `passtunnel add NAME --type anyconnect
+  [--server https://host[:port][/usergroup]]` (`AnyConnectServer.parse` at parse time: an address that is not one is a
+  usage error; `ProfileStore.create(name:type:server:)` saves it as `host`, `port` and `usergroup`), `set`/`show` with
+  its keys, `export`, `import` and `rm` as for the other types. `ProfileSummary`/`ProfileStatus` (`list`, `status`,
+  `show`, `list_profiles`, `get_status`) carry `connect_refusal` (an `ErrorReport` of `connectRefusal`'s error, from
+  `AutomationService` and the runner's system) where the system cannot connect the type, and no `needs_newer_version`
+  (that is for a type this version does not know). The text output notes it beside the profile: `PTError.unavailableNote`
+  ("Requires macOS 15.4 or later", "Not supported on Linux yet") in `list`, `status` and `show`. `connect`, `toggle`
+  and the MCP `connect` fail with `connectRefusal`'s error before the helper is asked anything or a secret is read
+  (`checkConnectable` with the runner's or manager's `systemVersion`), and `add --type anyconnect` is refused with it
+  too, so no profile that cannot connect is made here (a share file's is kept and shown the same way). `diagnose` has
+  the refusal and the profile's other problems (host, user name, group and pin fields, saved password/TOTP secret).
+  `CLIRunner` takes the system's macOS, the manager and the change signal as parameters, so its tests run on a fake
+  helper and an injected macOS (or none: Linux).
 - **App** (until #186): shown like a profile of an unknown type (`UnsupportedProfile(profile)`: the row, the detail,
   Delete only); `startConnect` and the overlap check refuse the profile as stored now before Touch ID or the helper; the
   editor never opens on it (an import selects it instead), the type pickers offer only `VPNType.connectable`, and the
@@ -2016,9 +2028,9 @@ unchanged, so older Macs and the phone apps keep importing them. A reader takes 
 OpenVPN, which they would have done before #191. A version 1 file with type `anyconnect` (which no PassTunnel writes)
 is read too. Import copies the new keys, normalizing the pin, then `save` checks them.
 
-Connecting is in Core (#184, with the macOS 15.4 check). The CLI and MCP (#185), the editor (#186) and the user docs
-(#189) follow; `passtunneld` on Linux is #187. Until the front ends handle the type, they list such a profile as
-needing a newer PassTunnel (see "Model").
+Connecting is in Core (#184, with the macOS 15.4 check) and the CLI and MCP handle the type (#185). The editor
+(#186) and the user docs (#189) follow; `passtunneld` on Linux is #187. Until the editor handles the type, the Mac app
+lists such a profile as needing a newer PassTunnel (see "Model").
 
 ### Tests (#188)
 

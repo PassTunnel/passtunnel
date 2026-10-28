@@ -63,7 +63,7 @@ enum CLICompletions {
               fi
               ;;
             import) _arguments '--name' '--json' '*:file:_files' ;;
-            add) _arguments '--type[VPN type]:type:(openvpn forti)' '--json' ;;
+            add) _arguments '--type[VPN type]:type:(openvpn forti anyconnect)' '--server[Cisco AnyConnect server address]:url:' '--json' ;;
             helper) _values 'action' status install uninstall ;;
             diagnose) _arguments '--check-clock[also ask the time server]' '--json' ;;
             \(zshSecretStore)mcp) _arguments '--allow-connect[also offer connect and disconnect]' '--no-auth-prompt' ;;
@@ -102,7 +102,7 @@ enum CLICompletions {
               fi
               ;;
             import) COMPREPLY=($(compgen -f -- "$cur")) ;;
-            add) COMPREPLY=($(compgen -W "--type openvpn forti --json" -- "$cur")) ;;
+            add) COMPREPLY=($(compgen -W "--type openvpn forti anyconnect --server --json" -- "$cur")) ;;
             helper) COMPREPLY=($(compgen -W "status install uninstall --json" -- "$cur")) ;;
             diagnose) COMPREPLY=($(compgen -W "--check-clock --json" -- "$cur")) ;;
             \(bashSecretStore)mcp) COMPREPLY=($(compgen -W "--allow-connect --no-auth-prompt" -- "$cur")) ;;
@@ -125,7 +125,8 @@ enum CLICompletions {
                 + "-a '(passtunnel list --quiet 2>/dev/null)'",
             "complete -c passtunnel -n '__fish_seen_subcommand_from secret' -a 'password totp'",
             "complete -c passtunnel -n '__fish_seen_subcommand_from set' -a '\(ProfileFields.keys.map { $0 + "=" }.joined(separator: " "))'",
-            "complete -c passtunnel -n '__fish_seen_subcommand_from add' -l type -xa 'openvpn forti'",
+            "complete -c passtunnel -n '__fish_seen_subcommand_from add' -l type -xa 'openvpn forti anyconnect'",
+            "complete -c passtunnel -n '__fish_seen_subcommand_from add' -l server -x -d 'Cisco AnyConnect server address'",
             "complete -c passtunnel -n '__fish_seen_subcommand_from import' -F",
             "complete -c passtunnel -n '__fish_seen_subcommand_from helper' -a 'status install uninstall'",
             "complete -c passtunnel -n '__fish_seen_subcommand_from completion' -a 'zsh bash fish'",

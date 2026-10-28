@@ -523,6 +523,16 @@
         }
       }
     },
+    "--server is for Cisco AnyConnect profiles (--type anyconnect)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--server yalnızca Cisco AnyConnect profilleri içindir (--type anyconnect)."
+          }
+        }
+      }
+    },
     "--timeout needs a number of seconds (1–86400)." : {
       "localizations" : {
         "tr" : {
@@ -759,6 +769,56 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cisco AnyConnect için macOS %@ veya üstü gerekir."
+          }
+        }
+      }
+    },
+    "Create an empty profile. --server https://vpn.example.com[:port][/group] fills in the server of a Cisco AnyConnect profile." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Boş bir profil oluşturur. --server https://vpn.example.com[:port][/grup] bir Cisco AnyConnect profilinin sunucusunu doldurur."
+          }
+        }
+      }
+    },
+    "Missing --type openvpn|forti|anyconnect." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--type openvpn|forti|anyconnect eksik."
+          }
+        }
+      }
+    },
+    "Next: passtunnel set %@ username=alice" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sonraki adım: passtunnel set %@ username=alice"
+          }
+        }
+      }
+    },
+    "Not supported on Linux yet" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linux’ta henüz desteklenmiyor"
+          }
+        }
+      }
+    },
+    "Requires macOS %@ or later" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS %@ veya üstü gerekir"
           }
         }
       }
@@ -3443,6 +3503,16 @@
         }
       }
     },
+    "Unknown VPN type “%@” (use openvpn, forti or anyconnect)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilinmeyen VPN türü “%@” (openvpn, forti ya da anyconnect kullanın)."
+          }
+        }
+      }
+    },
     "Unreachable" : {
       "localizations" : {
         "tr" : {
@@ -5584,16 +5654,6 @@
         }
       }
     },
-    "Create an empty profile." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Boş bir profil oluşturur."
-          }
-        }
-      }
-    },
     "Created “%@” (%@)." : {
       "localizations" : {
         "tr" : {
@@ -6630,16 +6690,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Eksik: %@."
-          }
-        }
-      }
-    },
-    "Missing --type openvpn|forti." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "--type openvpn|forti eksik."
           }
         }
       }
@@ -8956,16 +9006,6 @@
         }
       }
     },
-    "Unknown VPN type “%@” (use openvpn or forti)." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bilinmeyen VPN türü “%@” (openvpn ya da forti kullanın)."
-          }
-        }
-      }
-    },
     "Unpin from Menu Bar" : {
       "localizations" : {
         "tr" : {
@@ -9383,6 +9423,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "PassTunnel “%@” dosyasını açamıyor"
+          }
+        }
+      }
+    },
+    "“%@” is not a server address (use https://vpn.example.com[:port][/group])." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” bir sunucu adresi değil (https://vpn.example.com[:port][/grup] biçimini kullanın)."
           }
         }
       }

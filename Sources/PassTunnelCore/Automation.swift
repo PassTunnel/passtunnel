@@ -195,9 +195,12 @@ public struct ProfileSummary: Codable, Equatable {
     /// disconnected / connecting / connected; only when the caller asked the helper (MCP).
     public var state: String?
     /// true for a profile of a VPN type this version does not know (`type` is then the stored value): it needs
-    /// a newer PassTunnel and can only be deleted. Also for one of a type it knows but does not connect yet
-    /// (`VPNType.isConnectable`: Cisco AnyConnect), whose settings are shown. Left out otherwise.
+    /// a newer PassTunnel and can only be deleted. Left out otherwise.
     public var needsNewerVersion: Bool?
+    /// Why this system cannot connect the profile, though it is a known type: Cisco AnyConnect on a macOS older
+    /// than 15.4, or on Linux (`ConnectionManager.connectRefusal`; code `config_invalid`). It can still be shown,
+    /// edited, exported and deleted. Left out when the profile can connect.
+    public var connectRefusal: ErrorReport?
 
     /// A profile of an unknown type: only what the file says about it; every setting reads as off.
     public init(_ p: UnsupportedProfile, isDefault: Bool) {
@@ -216,7 +219,8 @@ public struct ProfileSummary: Codable, Equatable {
         needsNewerVersion = true
     }
 
-    public init(_ p: Profile, isDefault: Bool, state: ConnectionState? = nil) {
+    /// `connectRefusal`: `ConnectionManager.connectRefusal(p.type)` for the system the caller runs on.
+    public init(_ p: Profile, isDefault: Bool, state: ConnectionState? = nil, connectRefusal: PTError? = nil) {
         id = p.id
         name = p.name
         type = p.type.rawValue
@@ -230,7 +234,7 @@ public struct ProfileSummary: Codable, Equatable {
         autoReconnect = p.autoReconnect
         connectAtLogin = p.connectAtLogin
         self.state = state.map(ProfileStatus.stateName)
-        needsNewerVersion = p.type.isConnectable ? nil : true
+        self.connectRefusal = connectRefusal.map(ErrorReport.init)
     }
 
     /// From the settings alone (no Keychain access).
@@ -270,13 +274,15 @@ public struct ProfileStatus: Codable, Equatable {
     /// one runs or while offline), and how many tries found it unreachable.
     public var nextTryAt: Date?
     public var tries: Int?
+    /// Why this system cannot connect the profile (see `ProfileSummary.connectRefusal`); left out when it can.
+    public var connectRefusal: ErrorReport?
 
     public init(
         id: String, name: String, type: String, state: String, phase: String? = nil, ip: String? = nil,
         since: Date? = nil, durationSeconds: Int? = nil, isDefault: Bool, protected: Bool = false,
         autoReconnect: Bool = false, health: String? = nil, error: String? = nil, failure: ConnectionFailure? = nil,
         warning: String? = nil, statusUnavailable: Bool? = nil, warnings: [ConnectWarning]? = nil,
-        nextTryAt: Date? = nil, tries: Int? = nil
+        nextTryAt: Date? = nil, tries: Int? = nil, connectRefusal: ErrorReport? = nil
     ) {
         self.id = id
         self.name = name
@@ -297,6 +303,7 @@ public struct ProfileStatus: Codable, Equatable {
         self.warnings = warnings
         self.nextTryAt = nextTryAt
         self.tries = tries
+        self.connectRefusal = connectRefusal
     }
 
     static func stateName(_ state: ConnectionState) -> String {
