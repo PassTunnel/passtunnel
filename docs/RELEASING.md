@@ -484,6 +484,10 @@ Not part of a release yet: Linux is released from phase 3 of [docs/LINUX.md](LIN
 container, once per architecture), with the commit count as its build number, as `build-app.sh`
 gives the app; the CI jobs `Linux release` build it for every pull request with the development
 version `0.0.0-dev` and keep it as a workflow artifact. See [docs/LINUX.md](LINUX.md#distribution).
+Its `swift build` calls run through `scripts/swift-retry.sh`, which runs a build once more when the
+toolchain's build system crashed while planning it (exit 139, "Program crashed" with a `swift-build`
+frame in the report) and never otherwise. Such a crash happens before anything is compiled and
+produces no output, so the tarball is the same as without it.
 
 ## Verifying a release
 
