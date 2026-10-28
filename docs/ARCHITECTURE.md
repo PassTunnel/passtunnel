@@ -671,9 +671,12 @@ replaces it), only when the app runs from `/Applications` (`HelperSessions.isInA
 symlinks resolved; not `~/Applications`, which any process of the user can write, and never a test build
 elsewhere), at most once per outdated helper (a failure is left to the button), and only while no
 PassTunnel session is active. Sessions are counted by `HelperSessions` from the process list
-(`sysctl KERN_PROC_ALL` + `proc_pidpath`): children of a `PassTunnelHelper` process, and
-`openvpn`/`openfortivpn` inside an app bundle whose identifier is PassTunnel's (or that is gone,
-replaced by the update), so other users' sessions and tools adopted by a restarted helper count too;
+(`sysctl KERN_PROC_ALL` + `proc_pidpath`), of any user: children of a `PassTunnelHelper` process;
+`openvpn`/`openfortivpn`/`openconnect` run from the helper's staged copy
+(`<run root>/tools/<build>/Resources/bin/…`, as written and resolved, `HelperSessions.stagedToolsRoots`;
+only root writes there), which is where tools adopted by a restarted helper run, with launchd as their
+parent; and the same tools inside an app bundle whose identifier is PassTunnel's (or that is gone,
+replaced by the update). So other users' sessions and adopted tools count too;
 plus the profiles the app itself sees as active. While sessions are active it notifies once ("The
 helper needs an update"), Settings → Helper says it updates itself, and the app re-evaluates on every
 5 s reload, so the update runs right after the last session ends.
@@ -1131,7 +1134,7 @@ passtunnel / app (the user)                          PassTunnelHelper / passtunn
   PT.helperIdentifier)`, `com.furkanprlk.passtunnel.helper`), checked on every openconnect start. A
   helper without a verified image has no hook source, and `stageHook` refuses every openconnect start
   (`HookMissing`).
-  `HelperSessions` counts `openconnect` like `openvpn` and `openfortivpn` (`toolNames` is
+  `HelperSessions` counts `openconnect` like `openvpn` and `openfortivpn`, also run from the staged copy (`toolNames` is
   `HelperCore.Tool.allCases`); the hook process is neither a session nor a helper.
 - `THIRD_PARTY_NOTICES.md` (#179) lists the LGPL libraries, says where their sources are and that a
   build from source (`PASSTUNNEL_ALLOW_UNPINNED_TOOLS=1 scripts/build-app.sh`, which pins what it

@@ -133,6 +133,54 @@ final class HelperAutoUpdateTests: XCTestCase {
         XCTAssertEqual(pids, [101, 102, 103, 104, 105])
     }
 
+    /// After a helper restart its adopted tools run from the staged copy with launchd as their parent, and
+    /// no helper process is their parent: they still count, whoever's they are, so the helper is not
+    /// replaced (which stops every tunnel it runs) while one runs. The app's own connection list may know
+    /// nothing of them (another user's session, or one started before the app).
+    func testToolsAdoptedFromTheStagedCopyCount() {
+        let build = String(repeating: "ab", count: 32)
+        let cdhash = String(repeating: "c", count: 40)  // a helper without a verified image stages under its cdhash
+        let staged = "/private/var/run/passtunnel/tools/" + build + "/Resources/bin/"
+        let processes: [P] = [
+            P(pid: 1, parent: 0, name: "launchd", path: "/sbin/launchd"),
+            // No helper runs right now (it was stopped, or is being replaced).
+            P(pid: 400, parent: 1, name: "openvpn", path: staged + "openvpn"),
+            P(pid: 401, parent: 1, name: "openfortivpn", path: staged + "openfortivpn"),
+            P(pid: 402, parent: 1, name: "openconnect", path: staged + "openconnect"),
+            P(pid: 403, parent: 1, name: "openvpn", path: "/var/run/passtunnel/tools/" + build + "/Resources/bin/openvpn"),
+            P(pid: 404, parent: 1, name: "openvpn", path: "/private/var/run/passtunnel/tools/" + cdhash + "/Resources/bin/openvpn"),
+            // Not a session: the hook, a library, another place or layout, and look-alikes.
+            P(pid: 500, parent: 402, name: "vpn-hook", path: staged + "vpn-hook"),
+            P(pid: 501, parent: 1, name: "openvpn", path: "/private/var/run/passtunnel/tools/" + build + "/Frameworks/openvpn"),
+            P(pid: 502, parent: 1, name: "openvpn", path: "/private/var/run/passtunnel/tools/xyz/Resources/bin/openvpn"),
+            P(pid: 503, parent: 1, name: "openvpn", path: "/private/var/run/passtunnel/tools/" + build + "/x/Resources/bin/openvpn"),
+            P(pid: 504, parent: 1, name: "openvpn", path: "/private/var/run/passtunnel-x/tools/" + build + "/Resources/bin/openvpn"),
+            P(pid: 505, parent: 1, name: "openvpn", path: "/tmp/tools/" + build + "/Resources/bin/openvpn"),
+            P(pid: 506, parent: 1, name: "sleep", path: staged + "sleep")
+        ]
+        let roots = ["/private/var/run/passtunnel/tools", "/var/run/passtunnel/tools"]
+        func count(_ list: [P]) -> [Int32] {
+            HelperSessions.toolPIDs(in: list, bundleIdentifier: { _ in nil }, exists: { _ in true }, stagedToolsRoots: roots)
+        }
+        XCTAssertEqual(count(processes), [400, 401, 402, 403, 404])
+        #if os(macOS)
+        XCTAssertEqual(
+            HelperSessions.stagedToolsRoots, ["/private/var/run/passtunnel/tools", "/var/run/passtunnel/tools"],
+            "the run root as written and resolved")
+        #endif
+
+        // One adopted session is enough to hold the automatic update back, with nothing tracked locally.
+        var policy = HelperAutoUpdate()
+        let sessions = count(Array(processes.prefix(2))).count
+        XCTAssertEqual(sessions, 1)
+        XCTAssertEqual(
+            policy.next(
+                HelperAutoUpdate.Situation(
+                    status: .enabled, outdated: true, helperIsOlder: true, activeSessions: sessions, updating: false,
+                    inApplicationsFolder: true)),
+            .wait(notify: true))
+    }
+
     func testNoHelperNoTools() {
         let processes: [P] = [P(pid: 1, parent: 0, name: "launchd", path: "/sbin/launchd")]
         XCTAssertEqual(HelperSessions.toolPIDs(in: processes, bundleIdentifier: { _ in nil }, exists: { _ in true }), [])
