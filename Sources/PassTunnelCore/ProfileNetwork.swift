@@ -109,6 +109,8 @@ public enum ProfileNetwork {
                 if !routes.isEmpty { options = (options ?? []) + routes.compactMap(option) }
             }
             return options
+        case .anyconnect:
+            return nil  // not connected by this version
         }
     }
 
@@ -146,6 +148,8 @@ public enum ProfileNetwork {
             // A tunnel that is up and has no file (it came up before this was kept) is read now.
             let options = savedOptions(p, store: store) ?? (live ? observedOptions(p, store: store, tunnelRoutes: tunnelRoutes) : nil)
             return OVPNAnalyzer.networkClaims("", pushed: options ?? [])
+        case .anyconnect:
+            return OVPNAnalyzer.networkClaims("", pushed: savedOptions(p, store: store) ?? [])
         }
     }
 

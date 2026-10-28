@@ -245,7 +245,9 @@ public enum CLICommand: Equatable {
             guard let typeText = try a.option("--type", "-t") else {
                 throw CLIUsageError(String(localized: "Missing --type openvpn|forti."), command: name)
             }
-            guard let type = VPNType(rawValue: typeText.lowercased()) ?? (typeText.lowercased() == "fortigate" ? .forti : nil) else {
+            guard let type = VPNType(rawValue: typeText.lowercased()) ?? (typeText.lowercased() == "fortigate" ? .forti : nil),
+                type.isConnectable
+            else {
                 throw CLIUsageError(String(localized: "Unknown VPN type “\(typeText)” (use openvpn or forti)."), command: name)
             }
             try a.rejectUnknownOptions()

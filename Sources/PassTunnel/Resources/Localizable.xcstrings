@@ -6664,6 +6664,16 @@
         }
       }
     },
+    "New Cisco AnyConnect Profile" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni Cisco AnyConnect Profili"
+          }
+        }
+      }
+    },
     "New FortiGate Profile" : {
       "localizations" : {
         "tr" : {

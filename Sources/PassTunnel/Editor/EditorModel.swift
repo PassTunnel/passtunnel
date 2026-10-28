@@ -139,8 +139,8 @@ final class EditorModel: ObservableObject {
     func changeType(_ type: VPNType) {
         guard allowsTypeChange, type != draft.type else { return }
         draft.type = type
-        draft.otpDelivery = type == .forti ? .separate : .combined
-        if type == .forti && draft.passwordMode == .none { draft.passwordMode = .keychain }
+        draft.otpDelivery = type.defaultOTPDelivery
+        if type != .openvpn && draft.passwordMode == .none { draft.passwordMode = .keychain }
         configURL = nil
         configError = nil
         configServer = ""
@@ -148,7 +148,7 @@ final class EditorModel: ObservableObject {
 
     static func blank(_ type: VPNType) -> Profile {
         var p = Profile(id: "new-profile", name: "", type: type)
-        p.otpDelivery = type == .forti ? .separate : .combined
+        p.otpDelivery = type.defaultOTPDelivery
         return p
     }
 
@@ -161,6 +161,7 @@ final class EditorModel: ObservableObject {
             switch draft.type {
             case .openvpn: return String(localized: "New OpenVPN Profile")
             case .forti: return String(localized: "New FortiGate Profile")
+            case .anyconnect: return String(localized: "New Cisco AnyConnect Profile")
             }
         }
         return String(localized: "Edit “\(draft.name)”")
@@ -218,7 +219,7 @@ final class EditorModel: ObservableObject {
         p.healthHost = p.healthHost.trimmingCharacters(in: .whitespacesAndNewlines)
         let cert = p.trustedCert.trimmingCharacters(in: .whitespacesAndNewlines)
         p.trustedCert = cert.isEmpty ? "" : (TLSFingerprint.normalize(cert) ?? cert)
-        if p.type == .forti && p.passwordMode == .none { p.passwordMode = .keychain }
+        if p.type != .openvpn && p.passwordMode == .none { p.passwordMode = .keychain }
         if p.passwordMode == .none { p.otpMode = .none }
         if !p.unattended { p.autoReconnect = false }
         return p
@@ -279,6 +280,8 @@ final class EditorModel: ObservableObject {
             if !p.trustedCert.isEmpty && !FortiConfig.isValidDigest(p.trustedCert) {
                 e[.trustedCert] = String(localized: "A trusted certificate is a SHA-256 fingerprint: 64 hexadecimal characters (colons are allowed).")
             }
+        case .anyconnect:
+            break  // not edited by this version (`VPNType.connectable`)
         }
 
         if p.sessionLimitMin < 0 { e[.sessionLimit] = String(localized: "The session limit cannot be negative.") }

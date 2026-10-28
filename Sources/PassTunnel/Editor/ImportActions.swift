@@ -172,7 +172,8 @@ enum ImportActions {
     @MainActor static func addCode(from item: DroppedItem, profileID: String?) {
         guard let uri = decode(item) else { return }
         let id: String
-        switch ScannedCodeTarget.route(requested: profileID, profiles: ProfileStore().list()) {
+        // Only profiles the editor opens (`AppModel.unsupported` are not).
+        switch ScannedCodeTarget.route(requested: profileID, profiles: ProfileStore().list().filter(\.type.isConnectable)) {
         case .profile(let requested):
             id = requested
         case .choose(let profiles):
@@ -274,7 +275,7 @@ enum ImportActions {
             alert.messageText = String(localized: "What kind of VPN is it?")
             alert.informativeText = String(localized: "You enter the server, user name, password and code secret next.")
         }
-        let types = VPNType.allCases
+        let types = VPNType.connectable
         for type in types { alert.addButton(withTitle: type.displayName) }
         alert.addButton(withTitle: String(localized: "Cancel")).keyEquivalent = "\u{1b}"
         let index = alert.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue

@@ -198,6 +198,25 @@ public struct OpenConnectAuthConfig: Equatable {
     public static let maxAuthgroupBytes = 255
     public static let maxUsernameBytes = 255
 
+    // The rules for a Cisco AnyConnect profile's fields, as `validate` applies them, for PassTunnelKit
+    // (`ProfileFields`, `Profile.checkAnyConnectFields`) and the URL a user pastes (`AnyConnectServer`).
+
+    /// A host name or an IPv4 or IPv6 literal (no brackets, port or zone id), at most 253 bytes.
+    public static func isValidHost(_ s: String) -> Bool { OpenConnectSyntax.isValidHost(s) }
+
+    /// An IPv6 literal without brackets or zone id.
+    public static func isIPv6Literal(_ s: String) -> Bool { OpenConnectSyntax.isIPv6Literal(s) }
+
+    /// A non-empty user group: 1–255 bytes of letters, digits and `- _ . ~ /`, without `..` or a leading `/`.
+    public static func isValidUsergroup(_ s: String) -> Bool { OpenConnectSyntax.isValidUsergroup(s) }
+
+    /// A non-empty group name: 1–255 bytes, no control character or line separator, no surrounding
+    /// whitespace, no leading `=`.
+    public static func isValidAuthgroup(_ s: String) -> Bool { OpenConnectSyntax.isValidText(s, maxBytes: maxAuthgroupBytes) }
+
+    /// A non-empty user name, by the same rule as a group name.
+    public static func isValidUsername(_ s: String) -> Bool { OpenConnectSyntax.isValidText(s, maxBytes: maxUsernameBytes) }
+
     public init(host: String, port: Int = 443, usergroup: String = "", username: String, authgroup: String = "", serverCert: String = "") {
         self.host = host
         self.port = port

@@ -238,6 +238,7 @@ final class CLIRunner {
     /// `timeout`: `--wait` / `--timeout`; nil waits as long as the connection steps themselves allow.
     private func connect(_ id: String?, force: Bool = false, timeout: Int? = nil) async throws -> Int32 {
         let p = try resolve(id)
+        try ConnectionManager.checkConnectable(p)
         await manager.refresh()
         if manager.state(p.id).isConnected {
             if json { try printJSON(automation.status(p)) } else { CLITerminal.out(String(localized: "\(p.name) is already connected.")) }
@@ -396,6 +397,7 @@ final class CLIRunner {
             try await manager.disconnect(p.id)
             if !json { CLITerminal.out(String(localized: "Disconnected: \(p.name)")) }
         } else {
+            try ConnectionManager.checkConnectable(p)
             let overlaps = await manager.overlaps(for: p.id)
             warn(of: overlaps, connecting: p)
             try await manager.vault.unlock(p, for: .connect)
@@ -470,7 +472,8 @@ final class CLIRunner {
             let idWidth = (profiles.map(\.id.count) + unsupported.map(\.id.count)).max() ?? 0
             let nameWidth = (profiles.map(\.name.count) + unsupported.map(\.name.count)).max() ?? 0
             for p in profiles {
-                var flags: [String] = [p.type == .openvpn ? "OpenVPN" : "FortiGate"]
+                var flags: [String] = [Self.typeName(p.type)]
+                if !p.type.isConnectable { flags.append(UnsupportedProfile.statusText) }
                 if !p.username.isEmpty { flags.append(p.username) }
                 if p.otpMode == .totp { flags.append("TOTP") }
                 if p.pinned { flags.append(String(localized: "pinned")) }
@@ -487,6 +490,15 @@ final class CLIRunner {
             }
         }
         return Exit.ok
+    }
+
+    /// Product names stay untranslated.
+    static func typeName(_ type: VPNType) -> String {
+        switch type {
+        case .openvpn: return "OpenVPN"
+        case .forti: return "FortiGate"
+        case .anyconnect: return "Cisco AnyConnect"
+        }
     }
 
     private struct ShowJSON: Encodable {
@@ -574,7 +586,7 @@ final class CLIRunner {
         case .openvpn:
             CLITerminal.err(
                 CLITerminal.dim(String(localized: "Next: add the configuration in the app, or import an .ovpn file with “passtunnel import FILE”.")))
-        case .forti:
+        case .forti, .anyconnect:  // `add` refuses Cisco AnyConnect for now (`VPNType.connectable`)
             CLITerminal.err(CLITerminal.dim(String(localized: "Next: passtunnel set \(p.id) host=vpn.example.com username=alice")))
         }
         return Exit.ok

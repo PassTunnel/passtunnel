@@ -134,7 +134,13 @@ final class AppModel: ObservableObject {
             .sink { [weak self] note in
                 guard let self else { return }
                 self.reload()
-                self.editor = EditorRequest(profileID: note.userInfo?["profileID"] as? String, newType: nil)
+                let id = note.userInfo?["profileID"] as? String
+                // An imported profile this version cannot edit (`unsupported`) is selected instead.
+                if let id, self.unsupportedProfile(id) != nil {
+                    self.selection = id
+                    return
+                }
+                self.editor = EditorRequest(profileID: id, newType: nil)
             }
             .store(in: &bag)
         // The CLI can change profiles, secrets and preferences while the app runs: reload when the
@@ -161,7 +167,10 @@ final class AppModel: ObservableObject {
     /// Re-reads the profiles and their TOTP secrets. Cheap when nothing changed (no UI update),
     /// so it is safe to call after the app's own writes.
     func reload() {
-        let fresh = store.list()
+        let stored = store.list()
+        // A profile of a type this version does not connect yet (Cisco AnyConnect, from a share file or a newer
+        // build) is shown like one of an unknown type: listed, nothing but Delete.
+        let fresh = stored.filter(\.type.isConnectable)
         // A "Confirm with Touch ID" setting edited by hand: encrypt what it protects (no prompt).
         for p in fresh where p.requireAuth != .off { vault.reconcile(p) }
         // Server settings changed (editor, CLI, a file edit): secrets confirmed for the old ones are dropped.
@@ -172,7 +181,12 @@ final class AppModel: ObservableObject {
         } else if secretsChanged {
             objectWillChange.send()
         }
-        let unknown = store.listUnsupported()
+        let unknown = (store.listUnsupported() + stored.filter { !$0.type.isConnectable }.map(UnsupportedProfile.init)).sorted {
+            if $0.order != $1.order { return $0.order < $1.order }
+            let byName = $0.name.localizedStandardCompare($1.name)
+            if byName != .orderedSame { return byName == .orderedAscending }
+            return $0.id < $1.id
+        }
         if unknown != unsupported { unsupported = unknown }
         if let sel = selection, !fresh.contains(where: { $0.id == sel }), !unknown.contains(where: { $0.id == sel }) { selection = nil }
     }
@@ -558,6 +572,8 @@ final class AppModel: ObservableObject {
     func startConnect(_ p: Profile) {
         droppedUnseen.remove(p.id)
         guard let p = storedProfile(p) else { return showError(PTError.profileNotFound(p.id)) }
+        // The type as stored now (a pending overlap sheet may hold an older copy): refused before any confirmation.
+        do { try ConnectionManager.checkConnectable(p) } catch { return showError(error) }
         let needs = p.needs
         guard !needs.isEmpty else { return connect(p, given: [:]) }
         whenUnlocked(p, SecretVault.kinds(for: .connect, p), .connect) { [self] prompted in

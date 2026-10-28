@@ -35,6 +35,7 @@ extension VPNType {
         switch self {
         case .openvpn: return "OpenVPN"  // product names stay untranslated
         case .forti: return "FortiGate"
+        case .anyconnect: return "Cisco AnyConnect"
         }
     }
 }

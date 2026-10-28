@@ -9,17 +9,22 @@ public enum ProfileFields {
         "name", "badge", "icon", "badge_style", "pinned", "order",
         "username", "password_mode", "otp_mode", "digits", "period", "algorithm", "otp_delivery", "otp_template",
         "require_auth", "session_limit_min", "auto_reconnect", "connect_at_login", "health_host",
-        "host", "port", "trusted_cert", "set_dns", "set_routes"
+        "host", "port", "usergroup", "authgroup", "trusted_cert", "server_cert", "tls_only", "set_dns", "set_routes"
     ]
 
-    static let fortiOnly: Set<String> = ["host", "port", "trusted_cert", "set_dns", "set_routes"]
+    /// Keys of one VPN type or a few; every other key applies to all types.
+    static let typeKeys: [String: Set<VPNType>] = [
+        "host": [.forti, .anyconnect], "port": [.forti, .anyconnect], "set_dns": [.forti, .anyconnect],
+        "set_routes": [.forti, .anyconnect], "trusted_cert": [.forti],
+        "usergroup": [.anyconnect], "authgroup": [.anyconnect], "server_cert": [.anyconnect], "tls_only": [.anyconnect]
+    ]
 
     static let aliases = [
         "totp.digits": "digits", "totp_digits": "digits", "totp.period": "period", "totp_period": "period",
         "totp.algorithm": "algorithm", "totp_algorithm": "algorithm", "session_limit": "session_limit_min",
         "badge_letter": "badge", "user": "username", "template": "otp_template", "delivery": "otp_delivery",
         "dns": "set_dns", "routes": "set_routes", "health": "health_host", "cert": "trusted_cert",
-        "auth": "require_auth"
+        "auth": "require_auth", "user_group": "usergroup", "auth_group": "authgroup"
     ]
 
     /// Lowercased, dashes → underscores, aliases resolved; nil for unknown keys.
@@ -31,15 +36,17 @@ public enum ProfileFields {
 
     /// Keys that apply to a profile of `type`.
     public static func keys(for type: VPNType) -> [String] {
-        type == .forti ? keys : keys.filter { !fortiOnly.contains($0) }
+        keys.filter { applies($0, to: type) }
     }
 
+    static func applies(_ key: String, to type: VPNType) -> Bool { typeKeys[key]?.contains(type) ?? true }
+
     /// Sets one field from text. Throws `PTError.invalidField(key)` for unknown keys or bad values and
-    /// `.wrongProfileType` for FortiGate-only keys on an OpenVPN profile. Range checks that need the
-    /// whole profile happen in `ProfileStore.save`.
+    /// `.wrongProfileType` for a key of another VPN type (`host` on an OpenVPN profile, `server_cert` on a
+    /// FortiGate one). Range checks that need the whole profile happen in `ProfileStore.save`.
     public static func set(_ p: inout Profile, key rawKey: String, value raw: String) throws {
         guard let key = canonicalKey(rawKey) else { throw PTError.invalidField(rawKey) }
-        if fortiOnly.contains(key) && p.type != .forti { throw PTError.wrongProfileType(p.id) }
+        if !applies(key, to: p.type) { throw PTError.wrongProfileType(p.id) }
         let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         func bad() -> PTError { .invalidField(key) }
         func int() throws -> Int { guard let v = Int(value) else { throw bad() }; return v }
@@ -58,7 +65,9 @@ public enum ProfileFields {
         case "badge_style": p.badgeStyle = try choice(BadgeStyle.self)
         case "pinned": p.pinned = try bool()
         case "order": p.order = try int()
-        case "username": p.username = value
+        case "username":
+            if p.type == .anyconnect { try Profile.checkUsername(value, type: .anyconnect) }  // FortiGate's limit: in save
+            p.username = value
         case "password_mode":
             let mode = try choice(PasswordMode.self)
             if mode == .none && p.type != .openvpn { throw bad() }
@@ -80,6 +89,7 @@ public enum ProfileFields {
             let preset = OTPTemplatePreset.allCases.first { "\($0)" == value.lowercased() }
             let template = preset?.rawValue ?? raw
             try OTPComposer.validate(template: template)
+            if p.type == .anyconnect && !Profile.isValidAnyConnectTemplate(template) { throw bad() }
             p.otpTemplate = template
         case "require_auth": p.requireAuth = try choice(AuthRequirement.self)
         case "session_limit_min":
@@ -92,13 +102,27 @@ public enum ProfileFields {
             guard value.isEmpty || HealthCheck.parse(value) != nil else { throw bad() }
             p.healthHost = value
         case "host":
-            guard value.isEmpty || FortiConfig.isValidHost(value) else { throw bad() }
+            guard value.isEmpty || Profile.isValidHost(value, type: p.type) else { throw bad() }
             p.host = value
         case "port":
             let v = try int()
             guard (1...65535).contains(v) else { throw bad() }
             p.port = v
+        case "usergroup":
+            guard value.isEmpty || OpenConnectAuthConfig.isValidUsergroup(value) else { throw bad() }
+            p.usergroup = value
+        case "authgroup":
+            guard value.isEmpty || OpenConnectAuthConfig.isValidAuthgroup(value) else { throw bad() }
+            p.authgroup = value
         case "trusted_cert": p.trustedCert = value
+        case "server_cert":
+            if value.isEmpty {
+                p.serverCert = ""
+            } else {
+                guard let pin = OpenConnectPin.normalize(value) else { throw bad() }
+                p.serverCert = pin
+            }
+        case "tls_only": p.tlsOnly = try bool()
         case "set_dns": p.setDNS = try bool()
         case "set_routes": p.setRoutes = try bool()
         default: throw bad()
@@ -129,7 +153,11 @@ public enum ProfileFields {
         case "health_host": return p.healthHost
         case "host": return p.host
         case "port": return String(p.port)
+        case "usergroup": return p.usergroup
+        case "authgroup": return p.authgroup
         case "trusted_cert": return p.trustedCert
+        case "server_cert": return p.serverCert
+        case "tls_only": return String(p.tlsOnly)
         case "set_dns": return String(p.setDNS)
         case "set_routes": return String(p.setRoutes)
         default: return ""

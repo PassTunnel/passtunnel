@@ -312,6 +312,8 @@ public final class AutomationService {
                 problems.append(PTError.invalidField("host"))
             }
             do { try Profile.checkUsername(p.username, type: p.type) } catch { problems.append(error) }
+        case .anyconnect:
+            problems.append(PTError.unsupportedProfileType(p.type.rawValue))  // not connected yet
         }
         /// Whether `kind` is saved; nil, and the store's error once, when the store cannot be read.
         func saved(_ kind: SecretKind, missing: PTError) -> Bool? {

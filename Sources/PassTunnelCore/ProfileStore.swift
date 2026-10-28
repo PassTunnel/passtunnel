@@ -1,5 +1,6 @@
 import Foundation
 import PassTunnelKit
+import PassTunnelVPNConfig
 
 /// Profiles on disk: `profiles/<id>/profile.json` (+ `config.ovpn`, `vpn.log`, `activity.jsonl`).
 /// Stateless and synchronous; every call re-reads the file system and the environment.
@@ -60,7 +61,7 @@ public struct ProfileStore {
     // MARK: create / save / delete
 
     /// New profile with a unique slug id ("acme", "acme-2", …) of at most `Slug.maxIDLength`
-    /// characters. Forti profiles default to `.separate` OTP delivery. Keychain items still stored
+    /// characters. FortiGate and Cisco AnyConnect profiles default to `.separate` OTP delivery. Keychain items still stored
     /// under the new id (left by a profile removed outside the app, or from before a reinstall) are
     /// deleted first, so the new profile never uses secrets it was not given.
     public func create(name: String, type: VPNType) throws -> Profile {
@@ -73,7 +74,7 @@ public struct ProfileStore {
             try Secrets.deleteAll(id)
             var p = Profile(id: id, name: trimmed, type: type)
             p.order = (existing.map(\.order).max() ?? -1) + 1
-            p.otpDelivery = type == .forti ? .separate : .combined
+            p.otpDelivery = type.defaultOTPDelivery
             try save(p)
             return p
         }
@@ -91,6 +92,7 @@ public struct ProfileStore {
         guard p.sessionLimitMin >= 0 else { throw PTError.invalidField("session_limit_min") }
         try Profile.checkUsername(p.username, type: p.type)
         try p.checkHosts()
+        try p.checkAnyConnectFields()
         if p.otpDelivery == .combined && p.otpMode != .none {
             try OTPComposer.validate(template: p.otpTemplate)
         }
@@ -288,6 +290,11 @@ public struct ProfileStore {
             p.trustedCert = src.trustedCert
             p.setDNS = src.setDNS
             p.setRoutes = src.setRoutes
+            p.usergroup = src.usergroup
+            p.authgroup = src.authgroup
+            // As `passtunnel set` stores it; anything that is no pin fails the save below.
+            p.serverCert = OpenConnectPin.normalize(src.serverCert) ?? src.serverCert
+            p.tlsOnly = src.tlsOnly
             if let ovpn = sharedOVPN {
                 try FileIO.writeAtomically(ovpn, to: ovpnURL(p.id), mode: 0o600)
                 p.configSourceName = src.configSourceName ?? Self.ovpnFile
