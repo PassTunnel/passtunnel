@@ -82,7 +82,7 @@ final class OpenConnectConfigTests: XCTestCase {
         for bad in [
             "", "vpn.example.com:443", "vpn example.com", "-vpn.example.com", "https://vpn.example.com", "vpn.example.com/x",
             "fe80::1%en0", "vpn_example.com", String(repeating: "a", count: 254)
-        ] {
+        ] as [String] {
             XCTAssertThrowsError(
                 try config {
                     $0.host = bad; $0.resolveAddress = "192.0.2.10"
@@ -92,7 +92,7 @@ final class OpenConnectConfigTests: XCTestCase {
             }
         }
         // The pin is required in the root file and must be full.
-        for bad in ["", String(examplePin.dropLast()), "sha256:" + String(repeating: "ab", count: 32)] {
+        for bad in ["", String(examplePin.dropLast()), "sha256:" + String(repeating: "ab", count: 32)] as [String] {
             XCTAssertThrowsError(try config { $0.serverCert = bad }.render()) {
                 XCTAssertEqual($0 as? OpenConnectConfig.ValidationError, .invalidServerCert)
             }
@@ -100,7 +100,7 @@ final class OpenConnectConfigTests: XCTestCase {
         for bad in [
             "", "vpn-hook", "bin/vpn-hook", "/a b", "/a;b", "/a$(x)", "/a`x`", "/a|b", "/a\\b", "/a//b", "/a/./b", "/a/../b",
             "/a/", "/a\u{0}b", "/" + String(repeating: "a", count: 1023)
-        ] {
+        ] as [String] {
             XCTAssertThrowsError(try config { $0.scriptPath = bad }.render(), bad.debugDescription) {
                 guard case .invalidValue("script", _)? = $0 as? OpenConnectConfig.ValidationError else { return XCTFail("\($0)") }
             }
@@ -114,7 +114,7 @@ final class OpenConnectConfigTests: XCTestCase {
         for bad in [
             "", String(repeating: "c", count: 4097), " leading", "trailing ", "=leading", "quote'd", "tab\tx", "x\ny", "x\ry", "x\u{0}y",
             "x\u{7F}y", "çerez"
-        ] {
+        ] as [String] {
             XCTAssertThrowsError(try config { $0.cookie = bad }.render(), bad.debugDescription) { error in
                 guard case .invalidValue("cookie", _)? = error as? OpenConnectConfig.ValidationError else { return XCTFail("\(error)") }
                 if bad.count > 3 { XCTAssertFalse("\(error)".contains(bad), "the error must not include the cookie") }
@@ -210,13 +210,13 @@ final class OpenConnectAuthConfigTests: XCTestCase {
     }
 
     func testUsergroup() throws {
-        for good in ["engineering", "a", "eng/remote", "eng-1_2.x~y", String(repeating: "g", count: 255)] {
+        for good in ["engineering", "a", "eng/remote", "eng-1_2.x~y", String(repeating: "g", count: 255)] as [String] {
             XCTAssertNoThrow(try config { $0.usergroup = good }.render(noExternalAuth: true), good)
         }
         for bad in [
             "/engineering", "..", "eng/../x", "eng..x", "eng group", "eng?x=1", "eng#x", "eng%2f", "eng@x", "eng:x", "eng\\x", "eng\nx",
             "grüppe", String(repeating: "g", count: 256)
-        ] {
+        ] as [String] {
             XCTAssertThrowsError(try config { $0.usergroup = bad }.render(noExternalAuth: true), bad.debugDescription) {
                 guard case .invalidValue("user group", _)? = $0 as? OpenConnectConfig.ValidationError else { return XCTFail("\($0)") }
             }
@@ -234,7 +234,7 @@ final class OpenConnectAuthConfigTests: XCTestCase {
         for bad in [
             "", " alice", "alice ", "\talice", "=alice", "al\nice", "al\rice", "al\u{0}ice", "al\u{2028}ice", "al\u{85}ice",
             String(repeating: "u", count: 256)
-        ] {
+        ] as [String] {
             XCTAssertThrowsError(try config { $0.username = bad }.render(noExternalAuth: true), bad.debugDescription) {
                 guard case .invalidValue("user name", _)? = $0 as? OpenConnectConfig.ValidationError else { return XCTFail("\($0)") }
             }
@@ -247,7 +247,7 @@ final class OpenConnectAuthConfigTests: XCTestCase {
     }
 
     func testPinMustBeFull() {
-        for bad in [String(examplePin.prefix(15)), "sha1:" + String(repeating: "ab", count: 20), String(repeating: "ab", count: 20)] {
+        for bad in [String(examplePin.prefix(15)), "sha1:" + String(repeating: "ab", count: 20), String(repeating: "ab", count: 20)] as [String] {
             XCTAssertThrowsError(try config { $0.serverCert = bad }.render(noExternalAuth: true)) {
                 XCTAssertEqual($0 as? OpenConnectConfig.ValidationError, .invalidServerCert)
             }
@@ -389,7 +389,7 @@ final class OpenConnectRefusedOptionTests: XCTestCase {
     let auth = OpenConnectRenderedCheckTests.auth
 
     /// The options #180 lists (wildcards expanded against openconnect 9.21's table), each refused.
-    static let listed = [
+    static let listed: [String] = [
         "script-tun", "csd-user", "csd-wrapper", "external-browser", "setuid", "background", "pid-file", "syslog", "interface",
         "certificate", "sslkey", "mca-certificate", "mca-key", "mca-key-password", "key-password", "key-password-from-fsid",
         "token-mode", "token-secret", "config", "xmlconfig", "proxy", "proxy-auth", "libproxy", "dump-http-traffic", "gnutls-debug",
@@ -417,15 +417,15 @@ final class OpenConnectRefusedOptionTests: XCTestCase {
     /// leading blanks, alone), added to or replacing a line of either file, fails the final check.
     func testEveryRefusedOptionIsRefusedInBothFiles() {
         for (option, _) in OpenConnectOptions.refused {
-            let forms = [
+            let forms: [String] = [
                 "\(option)", "\(option) /tmp/x", "\(option)=/tmp/x", "\(option) = 1", " \(option) x", "\t\(option)", "\(option)\t1"
             ]
             for form in forms {
-                for (text, check) in [
-                    (root, { (t: String, n: Int) in try OpenConnectConfig.checkRendered(t, lineCount: n) }),
-                    (auth, { (t: String, n: Int) in try OpenConnectAuthConfig.checkRendered(t, lineCount: n, caFile: "/etc/ssl/cert.pem") })
-                ] {
-                    let lines = text.split(separator: "\n").count
+                let files: [(text: String, check: (String, Int) throws -> Void)] = [
+                    (root, { try OpenConnectConfig.checkRendered($0, lineCount: $1) }),
+                    (auth, { try OpenConnectAuthConfig.checkRendered($0, lineCount: $1, caFile: "/etc/ssl/cert.pem") })
+                ]
+                for (text, check) in files {
                     for candidate in [
                         text + form + "\n",  // appended
                         text.replacingOccurrences(of: "protocol anyconnect\n", with: "protocol anyconnect\n\(form)\n"),  // inserted
@@ -433,7 +433,6 @@ final class OpenConnectRefusedOptionTests: XCTestCase {
                     ] {
                         let n = candidate.split(separator: "\n", omittingEmptySubsequences: false).count - 1
                         XCTAssertThrowsError(try check(candidate, n), "\(option): \(form.debugDescription)")
-                        _ = lines
                     }
                 }
             }
@@ -475,7 +474,7 @@ final class OpenConnectPinTests: XCTestCase {
 
     func testRefused() {
         let body = String(examplePin.dropFirst(11))
-        let refused = [
+        let refused: [String] = [
             "", "pin-sha256:", body,
             String(examplePin.dropLast()),  // no '='
             String(examplePin.prefix(15)),  // a prefix: openconnect would match 4 characters or more
@@ -483,7 +482,7 @@ final class OpenConnectPinTests: XCTestCase {
             examplePin + "=", examplePin + "A",
             "pin-sha256:" + body.replacingOccurrences(of: "+", with: "-"),  // base64url
             "pin-sha256:" + String(repeating: "A", count: 42) + "B=",  // not the encoding of a 32-byte digest
-            "pin-sha256: " + body, "pin-sha256:" + body.dropLast() + " =",
+            "pin-sha256: " + body, "pin-sha256:" + String(body.dropLast()) + " =",
             "sha256:" + String(repeating: "ab", count: 32),
             "sha256:" + String(repeating: "AB", count: 32),
             "sha1:" + String(repeating: "ab", count: 20),
@@ -766,7 +765,7 @@ final class OpenConnectAnswersTests: XCTestCase {
         for bad in [
             String(repeating: "p", count: 4096), String(repeating: "ş", count: 2048), "", secret + "\n", secret + "\r", "\r" + secret,
             secret + "\u{0}x"
-        ] {
+        ] as [String] {
             XCTAssertThrowsError(try OpenConnectAnswers.combined(bad), bad.debugDescription) {
                 XCTAssertFalse("\($0)".contains(secret), "an error must not include the answer")
             }
