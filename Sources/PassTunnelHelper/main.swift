@@ -20,17 +20,25 @@ if geteuid() != 0 {
 }
 umask(0o077)
 
-// Opened and hashed now: after an app update replaces the binary on disk, this process still reports its
-// own build, and still stages its own bytes as openconnect's hook (`ToolStager`).
-let ownExecutable = open(HelperBundle.executablePath, O_RDONLY | O_CLOEXEC)
-let buildID = (ownExecutable >= 0 ? HelperBuild.digest(ofDescriptor: ownExecutable) : nil) ?? "unknown"
+// Opened, verified as the running image and hashed now (`HelperImage`): after an app update replaces the
+// binary on disk, this process still reports its own build, and still stages its own bytes as openconnect's
+// hook (`ToolStager.stageHook`). Without a verified image the other tools still run, under a build ID from
+// the kernel's cdhash of this process, and openconnect is refused.
+let image: HelperImage?
+do {
+    image = try HelperImage.open(HelperBundle.executablePath, imageAddress: #dsohandle)
+} catch {
+    image = nil
+    log.error("own executable not verified (\(String(describing: error), privacy: .public)); Cisco AnyConnect is unavailable")
+}
+let buildID = image?.digest ?? HelperImage.fallbackBuildID() ?? "unknown"
 // Read now for the same reason; the app only replaces a helper with a lower number on its own.
 let buildNumber = HelperBuild.buildNumber(ofBundleContaining: HelperBundle.executablePath)
 
 let core = HelperCore(runRoot: PT.helperRunRoot, dnsUpdownSource: HelperBundle.dnsUpdownPath)
 let stager = ToolStager(
     bundleContents: HelperBundle.contentsDir, runRoot: PT.helperRunRoot, buildID: buildID,
-    hookSource: ownExecutable >= 0 ? ownExecutable : nil)
+    hookSource: image?.descriptor)
 let supervisor = Supervisor(core: core, stager: stager)
 supervisor.adoptOrphans()
 

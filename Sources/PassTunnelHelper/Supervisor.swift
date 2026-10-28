@@ -71,10 +71,11 @@ final class Supervisor {
             case .startForti(let s):
                 reply(self.start(profileID: s.profileID, uid: uid) { _ in try self.core.prepareForti(s, uid: uid) })
             case .startOpenConnect(let s):
-                // The config names the staged hook, so the tools are staged while it is prepared.
+                // The config names the staged hook, so the tools are staged while it is prepared. Only
+                // this start stages the hook: a failure there never affects the other tools.
                 reply(
                     self.start(profileID: s.profileID, uid: uid) { stage in
-                        try self.core.prepareOpenConnect(s, uid: uid) { try stage().hook() }
+                        try self.core.prepareOpenConnect(s, uid: uid) { try self.stager.stageHook(in: try stage()) }
                     })
             case .stop(let id):
                 self.stop(profileID: id, uid: uid, reply: reply)
@@ -133,7 +134,9 @@ final class Supervisor {
                 environment: HelperCore.environment(for: plan.tool),
                 workingDirectory: plan.runDir, outputFD: plan.logFD,
                 verifier: verifier,
-                beforeResume: { pid in try self.writeState(plan: plan, pid: pid, executable: executable) })
+                beforeResume: { pid in try self.writeState(plan: plan, pid: pid, executable: executable, launching: true) })
+            // Resumed: the state no longer says `launching`, so a restarted helper adopts the tool.
+            try? writeState(plan: plan, pid: pid, executable: executable, launching: false)
             let logCopy = fcntl(plan.logFD, F_DUPFD_CLOEXEC, 0)
             let job = Job(
                 profileID: plan.profileID, ownerUID: plan.ownerUID, pid: pid, executable: executable,
@@ -329,17 +332,20 @@ final class Supervisor {
     // MARK: - Crash recovery
 
     /// Records pid, owner, executable, profile directory and management socket (`SessionState`) so a
-    /// restarted helper can adopt still-running tools, before the tool runs (`Spawner.spawnVerified`). Read
-    /// back as root: one field per line, or not written at all. openconnect never runs without it: its
-    /// hook proves its session with it; for the other tools a failure is only logged.
-    private func writeState(plan: HelperCore.LaunchPlan, pid: pid_t, executable: String) throws {
+    /// restarted helper can adopt still-running tools: before the tool runs (`Spawner.spawnVerified`) as
+    /// `launching`, then again once it was resumed. Read back as root: one field per line, or not written at
+    /// all. openconnect never runs without it (its hook proves its session with it), so a failure stops its
+    /// launch; for the other tools a failure is only logged. A record left `launching` makes a restarted
+    /// helper stop the tool rather than adopt it (`SessionRecovery`).
+    private func writeState(plan: HelperCore.LaunchPlan, pid: pid_t, executable: String, launching: Bool) throws {
         let state = SessionState(
-            pid: pid, uid: plan.ownerUID, executable: executable, profileDir: plan.profileDir.path, mgmtSocket: plan.mgmtSocket)
+            pid: pid, uid: plan.ownerUID, executable: executable, profileDir: plan.profileDir.path, mgmtSocket: plan.mgmtSocket,
+            launching: launching)
         do {
-            try HelperCore.writeNewFile(plan.runDir + "/" + SessionState.fileName, Data(try state.text().utf8), mode: 0o600)
+            try state.write(runDir: plan.runDir)
         } catch {
-            if plan.tool == .openconnect { throw error }
             log.error("not recording state for \(plan.profileID, privacy: .public): \(String(describing: error), privacy: .public)")
+            if plan.tool == .openconnect { throw error }
         }
     }
 
@@ -354,10 +360,13 @@ final class Supervisor {
             let root = core.runRoot
             var st = stat()
             guard lstat(root, &st) == 0, (st.st_mode & S_IFMT) == S_IFDIR, st.st_uid == geteuid() else { return }
+            var recorded = Set<pid_t>()
+            defer { stopStrandedLaunches(recorded: recorded) }
             for entry in Self.entries(root) {
                 let path = root + "/" + entry
                 if entry == ToolStager.toolsDirName { continue }  // staged tools (`ToolStager`)
                 if let legacy = Self.readState(path + "/state") {
+                    recorded.insert(legacy.pid)
                     if Self.isAlive(legacy) {
                         log.notice("stopping \(entry, privacy: .public) (pid \(legacy.pid)) left by an older helper")
                         kill(legacy.pid, SIGTERM)
@@ -370,11 +379,23 @@ final class Supervisor {
                 }
                 for id in Self.entries(path) {
                     let state = HelperCore.isValidProfileID(id) ? Self.readState(path + "/" + id + "/state") : nil
-                    guard let state, state.uid == uid, Self.isAlive(state),
+                    if let state { recorded.insert(state.pid) }
+                    let decision = state.map { s in
+                        let alive = Self.isAlive(s)
+                        return SessionRecovery.decide(s, alive: alive, stopped: alive && SessionRecovery.isStopped(s.pid))
+                    }
+                    if decision == .stopInterruptedLaunch, let state {
+                        // Its launch was interrupted: it may never have run. Killed, then cleaned up like a
+                        // tool that ended (a resumed OpenVPN may have set DNS already).
+                        log.notice("stopping \(id, privacy: .public) of uid \(uid) (pid \(state.pid)): its launch was not finished")
+                        kill(state.pid, SIGKILL)
+                        kill(-state.pid, SIGKILL)
+                    }
+                    guard let state, state.uid == uid, decision == .adopt,
                         let dir = try? core.openRunDir(profileID: id, uid: uid)
                     else {
                         // A tool that ended while no helper ran: undo what its DNS hook left first.
-                        if let state, !Self.isAlive(state), let dir = try? core.openRunDir(profileID: id, uid: uid) {
+                        if let decision, decision != .adopt, let dir = try? core.openRunDir(profileID: id, uid: uid) {
                             restoreDNS(runDir: dir.path, profileID: id, uid: uid, outputFD: nil)
                         }
                         HelperCore.removeEntry(path + "/" + id); continue
@@ -395,12 +416,21 @@ final class Supervisor {
         }
     }
 
+    /// Stopped tools of the staged copy that no state records (a helper died between starting one and
+    /// recording it): they would never run.
+    private func stopStrandedLaunches(recorded: Set<pid_t>) {
+        guard let realRoot = HelperCore.realPath(core.runRoot) else { return }
+        let toolsRoot = realRoot + "/" + ToolStager.toolsDirName
+        for pid in SessionRecovery.strandedLaunches(processes: SessionRecovery.systemProcesses(), toolsRoot: toolsRoot, recorded: recorded) {
+            log.notice("stopping pid \(pid): a tool whose launch was not finished")
+            kill(pid, SIGKILL)
+            kill(-pid, SIGKILL)
+        }
+    }
+
     static func readState(_ path: String) -> SessionState? { SessionState.read(path) }
 
-    /// The recorded process still runs the recorded executable (not a recycled pid).
-    static func isAlive(_ s: SessionState) -> Bool {
-        kill(s.pid, 0) == 0 && executablePath(of: s.pid) == s.executable
-    }
+    static func isAlive(_ s: SessionState) -> Bool { SessionRecovery.isAlive(s) }
 
     static func entries(_ dir: String) -> [String] {
         (try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []

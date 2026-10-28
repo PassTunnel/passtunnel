@@ -5,36 +5,66 @@ import Foundation
 /// profile directory and the OpenVPN management socket (empty for other tools). A restarted helper adopts
 /// a tool from it (`Supervisor.adoptOrphans`), and openconnect's hook proves its session with it
 /// (`VPNHook.session`). The helper writes it before the tool runs its first instruction
-/// (`Spawner.spawnVerified`'s `beforeResume`), so the tool's hook always finds it.
+/// (`Spawner.spawnVerified`'s `beforeResume`), so the tool's hook always finds it, with a sixth line
+/// `launching`, and writes it again without that line once the tool was resumed. A `launching` state a
+/// restarted helper finds is a launch the previous helper did not finish: the tool may still be suspended,
+/// and it is stopped rather than adopted (`SessionRecovery`). Both writes replace the file atomically
+/// (`write(runDir:)`).
 public struct SessionState: Equatable {
     public let pid: pid_t
     public let uid: uid_t
     public let executable: String
     public let profileDir: String
     public let mgmtSocket: String?
+    /// The tool was not resumed yet when this was written.
+    public let launching: Bool
 
     public static let fileName = "state"
     /// Larger files are not read (five short lines).
     static let maxBytes = 16 << 10
 
-    public init(pid: pid_t, uid: uid_t, executable: String, profileDir: String, mgmtSocket: String?) {
+    public static let launchingMark = "launching"
+
+    public init(pid: pid_t, uid: uid_t, executable: String, profileDir: String, mgmtSocket: String?, launching: Bool = false) {
         self.pid = pid
         self.uid = uid
         self.executable = executable
         self.profileDir = profileDir
         self.mgmtSocket = mgmtSocket
+        self.launching = launching
     }
 
-    /// The file's text; throws `HelperCore.Failure.unsafeFile` unless it is exactly five lines (a field
-    /// with a line break would shift the others).
+    /// The same record, launched or not.
+    public func launching(_ launching: Bool) -> SessionState {
+        SessionState(pid: pid, uid: uid, executable: executable, profileDir: profileDir, mgmtSocket: mgmtSocket, launching: launching)
+    }
+
+    /// The file's text; throws `HelperCore.Failure.unsafeFile` unless it is exactly five lines, six while
+    /// launching (a field with a line break would shift the others).
     public func text() throws -> String {
-        let text = "\(pid)\n\(uid)\n\(executable)\n\(profileDir)\n\(mgmtSocket ?? "")\n"
-        try HelperCore.checkLines(text, count: 5, file: Self.fileName)
+        var text = "\(pid)\n\(uid)\n\(executable)\n\(profileDir)\n\(mgmtSocket ?? "")\n"
+        if launching { text += Self.launchingMark + "\n" }
+        try HelperCore.checkLines(text, count: launching ? 6 : 5, file: Self.fileName)
         return text
     }
 
+    /// Writes `text()` to `<runDir>/state`, atomically: a new file next to it, then renamed over it.
+    public func write(runDir: String) throws {
+        let text = try text()
+        let path = runDir + "/" + Self.fileName
+        let temporary = path + ".new"
+        HelperCore.removeEntry(temporary)
+        do {
+            try HelperCore.writeNewFile(temporary, Data(text.utf8), mode: 0o600)
+            guard rename(temporary, path) == 0 else { throw HelperCore.Failure.system("rename \(temporary)", errno) }
+        } catch {
+            HelperCore.removeEntry(temporary)
+            throw error
+        }
+    }
+
     /// Reads back `text()`. Lenient about what comes after the executable: a protocol-2 helper wrote only
-    /// pid, uid and executable.
+    /// pid, uid and executable. A sixth line is `launching` or nothing.
     public static func parse(_ text: String) -> SessionState? {
         let parts = text.components(separatedBy: "\n")
         guard parts.count >= 3, let pid = pid_t(parts[0]), let uid = uid_t(parts[1]), pid > 1, !parts[2].isEmpty else {
@@ -42,7 +72,10 @@ public struct SessionState: Equatable {
         }
         let profileDir = parts.count >= 4 ? parts[3] : ""
         let socket = parts.count >= 5 && !parts[4].isEmpty ? parts[4] : nil
-        return SessionState(pid: pid, uid: uid, executable: parts[2], profileDir: profileDir, mgmtSocket: socket)
+        let sixth = parts.count >= 6 ? parts[5] : ""
+        guard sixth.isEmpty || sixth == launchingMark else { return nil }
+        return SessionState(
+            pid: pid, uid: uid, executable: parts[2], profileDir: profileDir, mgmtSocket: socket, launching: sixth == launchingMark)
     }
 
     /// The state at `path`: a regular, single-link file owned by us (root in the helper), opened without

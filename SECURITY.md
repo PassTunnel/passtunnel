@@ -170,7 +170,8 @@ FortiGate, stop, and status. It enforces the following rules on every request.
   copied tool **suspended**, before its first instruction, checks the code the kernel actually loaded
   for that process against the same requirement (strict validation, which also fails when the file
   on disk no longer matches what was loaded), and only then lets it run. If that check fails, the
-  process is killed before it ran.
+  process is killed before it ran. If the helper itself stops between starting a tool and letting it
+  run, the helper that starts next kills that tool instead of taking it over.
 - **Only the builds it was released with.** The identifier and Team ID requirements accept every
   build the project ever signed, including an older release's `openvpn` or `libcrypto`. A released
   helper also carries the cdhashes (the hash of a code signature, which the kernel records for the
@@ -497,7 +498,10 @@ names are openconnect's own, so a server cannot set `BASH_ENV` or similar.
   deleting servers you had set by hand), replaces the default route, and hands unchecked values to
   shell commands. openconnect always gets PassTunnel's own hook, `vpn-hook`, instead: on the Mac a
   root-owned copy of the helper itself (checked by hash against the running helper and by its
-  signature), on Linux `passtunneld`. The copy acts as the hook only when both the file the system
+  signature), on Linux `passtunneld`. The helper checks when it starts that the file it copies is the
+  very file running (not merely the one at its path, which the bundle's owner could swap), and copies
+  it only for a Cisco AnyConnect connection: if anything about the hook fails, only Cisco AnyConnect is
+  refused, and OpenVPN and FortiGate connect as before. The copy acts as the hook only when both the file the system
   reports for the process and the name it was started under are `vpn-hook`, so the installed helper
   can never be made to act as the hook, and the copy never acts as the helper.
 - **Until the hook is finished (#183) it fails closed.** It reads nothing from its environment and

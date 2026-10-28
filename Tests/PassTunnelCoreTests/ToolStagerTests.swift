@@ -355,18 +355,21 @@ final class ToolStagerTests: XCTestCase {
         return (path, fd, try XCTUnwrap(HelperBuild.digest(ofDescriptor: fd)))
     }
 
-    func testHookIsACopyOfTheRunningHelper() throws {
+    func testHookIsStagedOnlyForOpenConnectAndIsTheRunningHelper() throws {
         let h = try helper()
         XCTAssertEqual(HelperBuild.digest(ofFile: h.path), h.digest)
         let s = stager(id: h.digest, hookSource: h.fd)
         let staged = try s.stage()
-        let hook = try staged.hook()
+        XCTAssertEqual(entries(staged.directory + "/Resources/bin"), ["openconnect", "openfortivpn", "openvpn"], "the tools alone")
+        let hook = try s.stageHook(in: staged)
         XCTAssertEqual(hook, staged.directory + "/Resources/bin/vpn-hook")
         XCTAssertEqual(entries(staged.directory + "/Resources/bin"), ["openconnect", "openfortivpn", "openvpn", "vpn-hook"])
+        XCTAssertEqual(entries(runRoot + "/tools"), [h.digest], "no partial copy left")
         XCTAssertEqual(mode(hook), 0o555)
         XCTAssertTrue(FileManager.default.contentsEqual(atPath: hook, andPath: h.path))
         let inode = try FileManager.default.attributesOfItem(atPath: hook)[.systemFileNumber] as? Int
-        XCTAssertEqual(try s.stage(), staged)
+        XCTAssertEqual(try s.stage(), staged, "the tools' check accepts the hook next to them")
+        XCTAssertEqual(try s.stageHook(in: staged), hook)
         XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: hook)[.systemFileNumber] as? Int, inode, "reused")
 
         // An app update replaced the helper on disk: the running helper still stages its own bytes.
@@ -375,28 +378,45 @@ final class ToolStagerTests: XCTestCase {
         try FileManager.default.copyItem(atPath: try Self.fixture() + "/openfortivpn", toPath: replacement)
         XCTAssertEqual(rename(replacement, h.path), 0)
         try corrupt(hook)
-        XCTAssertEqual(try s.stage(), staged, "a modified hook is staged again")
+        XCTAssertEqual(try s.stage(), staged, "a modified hook does not make the tools be staged again")
+        XCTAssertEqual(try s.stageHook(in: staged), hook, "but is staged again itself")
         XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: hook)), original)
         XCTAssertEqual(mode(hook), 0o555)
     }
 
-    func testHookOfAnotherBuildOrSignerIsRefused() throws {
+    /// AnyConnect can never break the other tools: a hook that cannot be staged (another build's bytes,
+    /// another signer, none at all) refuses openconnect only, and OpenVPN and openfortivpn are staged and
+    /// started from the staged copy as before.
+    func testHookFailureNeverBlocksTheOtherTools() throws {
         let h = try helper()
-        XCTAssertThrowsError(try stager(id: String(repeating: "cd", count: 32), hookSource: h.fd).stage()) {
-            XCTAssertTrue($0 is ToolStager.HookMismatch, "\($0)")
+        let cases: [(String, ToolStager, (Error) -> Bool)] = [
+            ("another build", stager(id: String(repeating: "cd", count: 32), hookSource: h.fd), { $0 is ToolStager.HookMismatch }),
+            ("another signer", stager(id: h.digest, hookSource: h.fd, hookRequirement: #"identifier "com.example.other""#), { _ in true }),
+            ("no verified image", stager(id: h.digest), { $0 is ToolStager.HookMissing })
+        ]
+        for (name, s, expected) in cases {
+            HelperCore.removeEntry(runRoot + "/tools")
+            let staged = try s.stage()
+            XCTAssertThrowsError(try s.stageHook(in: staged), name) { XCTAssertTrue(expected($0), "\(name): \($0)") }
+            XCTAssertEqual(entries(staged.directory + "/Resources/bin"), ["openconnect", "openfortivpn", "openvpn"], name)
+            XCTAssertEqual(entries(runRoot + "/tools"), [s.buildID], "\(name): no partial hook left")
+            XCTAssertEqual(try s.stage(), staged, "\(name): staged again without trouble")
+            for tool in [HelperCore.Tool.openvpn, .openfortivpn] {
+                let out = base.appendingPathComponent("out-\(tool.rawValue).log").path
+                let fd = open(out, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
+                defer { close(fd) }
+                let pid = try Spawner.spawnVerified(
+                    executable: staged.executable(tool), arguments: [], environment: HelperCore.environment(for: tool),
+                    workingDirectory: base.path, outputFD: fd,
+                    verifier: RequirementVerifier(requirement: Self.toolRequirement(tool)))
+                var status: Int32 = 0
+                while waitpid(pid, &status, 0) == -1, errno == EINTR {}
+                XCTAssertEqual(status, 0, "\(name): \(tool) started")
+                XCTAssertTrue(
+                    try String(contentsOfFile: out, encoding: .utf8).contains(staged.directory + "/Frameworks/libacme.1.dylib"),
+                    "\(name): \(tool) ran from the staged copy")
+            }
         }
-        XCTAssertEqual(entries(runRoot + "/tools"), [], "nothing staged, no partial copy left")
-        XCTAssertThrowsError(try stager(id: h.digest, hookSource: h.fd, hookRequirement: "identifier \"com.example.other\"").stage())
-        XCTAssertEqual(entries(runRoot + "/tools"), [])
-
-        // A copy with a hook left from an earlier stage is not accepted by a stager without one, and the
-        // other way round: the layout must match exactly.
-        let hook = try stager(id: h.digest, hookSource: h.fd).stage().hook()
-        let staged = try stager(id: h.digest).stage()
-        XCTAssertFalse(FileManager.default.fileExists(atPath: hook))
-        XCTAssertThrowsError(try staged.hook(), "no hook to name") { XCTAssertTrue($0 is ToolStager.HookMissing) }
-        XCTAssertEqual(try stager(id: h.digest, hookSource: h.fd).stage().hook(), hook)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: hook))
     }
 
     func testBuildIDMustBeHex() {

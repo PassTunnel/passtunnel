@@ -624,7 +624,16 @@ the field, never its value). `ConnectionManager` calls `ensureCompatible()` (the
 fails with `HelperClientError.versionMismatch`, and one from another build of the same protocol with
 `.buildMismatch`. The build identity (`HelperBuild`) is the SHA-256 of the helper executable: the helper
 hashes itself once at launch (a running helper keeps reporting the build it was started from after the
-app bundle is replaced), the app/CLI hash `Contents/MacOS/PassTunnelHelper` next to their own executable
+app bundle is replaced). It opens the path in the bundle, which the bundle's owner can swap, so
+`HelperImage.open` (Shared) opens it with `O_NOFOLLOW | O_NONBLOCK` (a link or a FIFO put there never
+leads it to another file or blocks it), requires a regular, single-link file of at most 256 MB, and
+accepts it only when the descriptor's device and inode are those of the vnode the kernel mapped as the
+helper's own Mach-O header (`PROC_PIDREGIONPATHINFO` at `#dsohandle`): the mapping cannot be swapped,
+whatever happens to the path. The digest is read from that descriptor, bounded. Failing any of this, the
+helper still serves OpenVPN and FortiGate under a build ID from the kernel's cdhash of its own code
+(`HelperImage.fallbackBuildID`, `csops`, no file read; never equal to a digest, so the app offers to
+replace it) and refuses openconnect, which has no hook source then. `Info.plist` (the build number) is
+read the same way: no link, no blocking, regular, bounded. The app/CLI hash `Contents/MacOS/PassTunnelHelper` next to their own executable
 (no stamping in `build-app.sh` needed; skipped when there is no bundled helper, e.g. tests). `build` is a
 separate call rather than a second `version` reply value so a protocol-2 helper is still recognized as
 outdated. Digests only say "different"; which side is newer comes from build numbers: the helper reads
@@ -695,9 +704,17 @@ Users can traverse to their socket by name but cannot list, rename or replace en
 socket to the user (`SessionDirectory.restrictSocket`: `fstatat`/`AT_SYMLINK_NOFOLLOW` on the directory
 descriptor, then `fchownat`/`fchmodat`) cannot be redirected to another file. A restarted helper adopts
 tools recorded in `<uid>/<id>/state` (`SessionState`: pid, uid, staged executable, profile directory,
-socket; written before the tool runs, in `Spawner.spawnVerified`'s `beforeResume`, and read back only
-from a regular, single-link file the helper owns); tools recorded by a protocol-2 helper
-(`<root>/<id>/state`) are stopped, since their socket is in the profile directory.
+socket; read back only from a regular, single-link file the helper owns); tools recorded by a protocol-2
+helper (`<root>/<id>/state`) are stopped, since their socket is in the profile directory. The state is
+written, atomically (a new file renamed over it), before the tool runs, in `Spawner.spawnVerified`'s
+`beforeResume`, with a sixth line `launching`, and again without it once the tool was resumed. A helper
+that died in between leaves a tool that may never run, so `adoptOrphans` adopts nothing that is not
+finished (`SessionRecovery.decide`): a live tool whose state says `launching`, or that the kernel shows
+stopped (`SSTOP`, `proc_pidinfo`), is killed (`SIGKILL`, also its process group) and its session cleaned
+up like one whose tool ended (DNS undone, directory removed); and a stopped process of the staged copy
+(`<run root>/tools/…`) whose parent is launchd and that no state records (the helper died before the
+state existed) is killed too (`strandedLaunches`). A tool killed right after its resume, before the
+second write, ends the same way: nothing can tell whether it ran, and stopping is the safe side.
 
 Security rules (helper):
 - Runs **only** the tools inside its own app bundle (`Contents/Resources/bin/…`), never a path supplied by
@@ -706,7 +723,8 @@ Security rules (helper):
   the user who installed it, and a tool started there would load its dylibs from there after `SIGCONT`,
   checked only for the Team ID by library validation. `ToolStager.stage(inUse:)` (on every start, on the
   supervisor queue): `<runRoot>/tools/<buildID>` (run root realpath'd, so the path matches
-  `proc_pidpath` for adoption) is checked (`check`: exactly `Resources/bin/{openvpn,openfortivpn,openconnect,vpn-hook}` and
+  `proc_pidpath` for adoption) is checked (`check`: exactly `Resources/bin/{openvpn,openfortivpn,openconnect}` (and
+  openconnect's `vpn-hook`, checked on its own, `stageHook`) and
   the expected dylibs in `Frameworks/`, no other entries, every entry `lstat`-ed: not a symlink, owned by
   the helper's euid, one link, mode exactly 0755/0555/0444; each file `CodeSignature.verify(path:)` with
   `PT.toolRequirement` or, for dylibs, `PT.teamRequirement`, then its cdhash against `PinnedTools`).
@@ -1083,17 +1101,21 @@ passtunnel / app (the user)                          PassTunnelHelper / passtunn
   (`PT.openconnectIdentifier`), adds its cdhashes to `generatedCDHashes`, and a signed build fails
   without them, as for `openvpn`; the dylibs are pinned by the existing `generatedLibraryCDHashes`.
 - `HelperCore.Tool.openconnect`. `ToolStager.check` then expects exactly
-  `Resources/bin/{openvpn,openfortivpn,openconnect,vpn-hook}` and the pinned dylibs,
+  `Resources/bin/{openvpn,openfortivpn,openconnect}` (`vpn-hook` may be there too) and the pinned dylibs,
   so the closure is staged for every user (about 9 MB per helper build), used or not, on every macOS
   (it is only copied and checked below 15.4, never run). `vpn-hook` (#182) is a copy of the
-  helper's own executable: no new target and no pin. The helper opens its executable when it starts
-  and hashes that descriptor (`HelperBuild.digest(ofDescriptor:)`, the build ID); `ToolStager` copies
-  the hook from the same descriptor (`hookSource`, read with `pread` from offset 0), so after an app
-  update replaced the file on disk the running helper still stages its own bytes. The copy is accepted
-  only when its SHA-256 is the build ID (byte-identical to the running helper; `HookMismatch` otherwise)
-  and it satisfies the helper's requirement (`PT.toolRequirement(identifier: PT.helperIdentifier)`,
-  `com.furkanprlk.passtunnel.helper`), on every stage like the tools. A helper that could not open its
-  executable stages no hook, and `Staged.hook()` then refuses every openconnect start (`HookMissing`).
+  helper's own executable: no new target and no pin. The helper opens its executable when it starts,
+  verifies it is the running image and hashes that descriptor (`HelperImage`, under "Privileged
+  helper"; the digest is the build ID); `ToolStager` copies the hook from the same descriptor
+  (`hookSource`, read with `pread` from offset 0), so after an app update replaced the file on disk the
+  running helper still stages its own bytes. The hook is staged apart from the tools and only for an
+  openconnect start (`stageHook`: checked if present, else copied to `tools/.<build>.vpn-hook`, checked
+  and renamed into `Resources/bin`), so it can never keep OpenVPN or FortiGate from starting. The copy is
+  accepted only when its SHA-256 is the build ID (byte-identical to the running helper; `HookMismatch`
+  otherwise) and it satisfies the helper's requirement (`PT.toolRequirement(identifier:
+  PT.helperIdentifier)`, `com.furkanprlk.passtunnel.helper`), checked on every openconnect start. A
+  helper without a verified image has no hook source, and `stageHook` refuses every openconnect start
+  (`HookMissing`).
   `HelperSessions` counts `openconnect` like `openvpn` and `openfortivpn` (`toolNames` is
   `HelperCore.Tool.allCases`); the hook process is neither a session nor a helper.
 - `THIRD_PARTY_NOTICES.md` (#179) lists the LGPL libraries, says where their sources are and that a
@@ -1478,9 +1500,9 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
 
 ### Supervision and log (#182, #184)
 
-- **Start** (#182): `ToolStager` stages `openconnect` and `vpn-hook` while the request is prepared
-  (the configuration names the staged hook; `Supervisor.start` hands `prepare` a `stage` that stages
-  once per start); `Spawner.spawnVerified` with `PT.toolRequirement(identifier:
+- **Start** (#182): `ToolStager` stages the tools and then `vpn-hook` (`stageHook`) while the request is
+  prepared (the configuration names the staged hook; `Supervisor.start` hands `prepare` a `stage` that
+  stages once per start); `Spawner.spawnVerified` with `PT.toolRequirement(identifier:
   PT.openconnectIdentifier)` and the cdhash pins, `state` written in `beforeResume`; output (INFO on
   stdout, errors on stderr) to the log descriptor, the profile's `.log` replaced as for the other tools
   and trimmed by `capLog`. No `interface`: openconnect opens the first free `utun` (`tun.c` 299–370).

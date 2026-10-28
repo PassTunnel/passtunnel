@@ -18,11 +18,12 @@ import Foundation
 /// lives no longer than needed and nothing is left behind once PassTunnel is removed. Copying the few
 /// megabytes again on the first connection after a restart is cheap.
 ///
-/// The copy also holds openconnect's hook, `Resources/bin/vpn-hook` (`VPNHook`): a copy of the running
-/// helper's own executable, read from the descriptor the helper opened when it started (so an app update
-/// that replaced the file since still gives this helper's bytes). It has no pin of its own: it is accepted
-/// only when its SHA-256 is `buildID` (byte-identical to the running helper) and it satisfies the helper's
-/// signing requirement.
+/// The copy also holds openconnect's hook, `Resources/bin/vpn-hook` (`VPNHook`), staged on its own and
+/// only for an openconnect start (`stageHook`), so that the hook can never keep the other tools from being
+/// staged: a copy of the running helper's own executable, read from the descriptor the helper opened and
+/// verified when it started (`HelperImage`; an app update that replaced the file since still gives this
+/// helper's bytes). It has no pin of its own: it is accepted only when its SHA-256 is `buildID`
+/// (byte-identical to the running helper) and it satisfies the helper's signing requirement.
 public struct ToolStager {
     /// The app's `Contents` directory (holds `Resources/bin` and `Frameworks`).
     public var bundleContents: String
@@ -36,7 +37,8 @@ public struct ToolStager {
     public var libraryPins: [String: Set<String>]
     public var toolRequirement: (HelperCore.Tool) -> String
     public var libraryRequirement: String
-    /// Open descriptor of the helper's own executable, staged as the hook; nil: no hook is staged.
+    /// Open descriptor of the helper's own executable, staged as the hook; nil: there is no hook, and
+    /// `stageHook` refuses (openconnect starts only; the tools are staged without it).
     public var hookSource: Int32?
     /// The hook's signing requirement (the helper's own).
     public var hookRequirement: String
@@ -87,21 +89,9 @@ public struct ToolStager {
     public struct Staged: Equatable {
         /// `<runRoot>/tools/<buildID>` with symlinks resolved (as `proc_pidpath` reports the tools).
         public let directory: String
-        /// Whether openconnect's hook was staged and checked with the tools (`hookSource`).
-        public let hasHook: Bool
-
-        public init(directory: String, hasHook: Bool = false) {
-            self.directory = directory
-            self.hasHook = hasHook
-        }
-
         public func executable(_ tool: HelperCore.Tool) -> String { directory + "/Resources/bin/" + tool.rawValue }
-
-        /// openconnect's hook; throws `HookMissing` when this stager has none to stage.
-        public func hook() throws -> String {
-            guard hasHook else { throw HookMissing() }
-            return directory + "/Resources/bin/" + VPNHook.name
-        }
+        /// Where `stageHook` puts openconnect's hook.
+        public var hook: String { directory + "/Resources/bin/" + VPNHook.name }
     }
 
     /// Build ID check: it becomes a path component.
@@ -152,7 +142,7 @@ public struct ToolStager {
         where entry != buildID && !inUse.contains(entry) {
             HelperCore.removeEntry(toolsRoot + "/" + entry)
         }
-        return Staged(directory: dir, hasHook: hookSource != nil)
+        return Staged(directory: dir)
     }
 
     /// The build directory name of a staged executable path (for `stage(inUse:)`), nil for any other path.
@@ -173,9 +163,6 @@ public struct ToolStager {
             try Self.copyFile(
                 bundleContents + "/Resources/bin/" + tool.rawValue,
                 to: dir + "/Resources/bin/" + tool.rawValue, mode: Self.toolMode)
-        }
-        if let hookSource {
-            try Self.copyFile(descriptor: hookSource, to: dir + "/Resources/bin/" + VPNHook.name, mode: Self.toolMode)
         }
         for lib in libraries {
             guard ProfileDirectory.isPlainName(lib) else { throw HelperCore.Failure.notARegularFile(lib) }
@@ -257,7 +244,8 @@ public struct ToolStager {
         try Self.checkEntry(dir + "/Resources", type: S_IFDIR, mode: Self.dirMode)
         try Self.checkEntries(dir + "/Resources", ["bin"])
         try Self.checkEntry(dir + "/Resources/bin", type: S_IFDIR, mode: Self.dirMode)
-        try Self.checkEntries(dir + "/Resources/bin", HelperCore.Tool.allCases.map(\.rawValue) + (hookSource == nil ? [] : [VPNHook.name]))
+        // The hook may be there or not: `stageHook` checks it whenever openconnect is started.
+        try Self.checkEntries(dir + "/Resources/bin", HelperCore.Tool.allCases.map(\.rawValue), optional: [VPNHook.name])
         try Self.checkEntry(dir + "/Frameworks", type: S_IFDIR, mode: Self.dirMode)
         try Self.checkEntries(dir + "/Frameworks", libraries)
         let pinned = !toolPins.isEmpty
@@ -267,12 +255,6 @@ public struct ToolStager {
             let cdhash = try validate(path, toolRequirement(tool))
             try PinnedTools.check(tool.rawValue, cdhash: cdhash, allowed: PinnedTools.allowed(tool.rawValue, pins: toolPins))
         }
-        if hookSource != nil {
-            let path = dir + "/Resources/bin/" + VPNHook.name
-            try Self.checkEntry(path, type: S_IFREG, mode: Self.toolMode)
-            guard HelperBuild.digest(ofFile: path) == buildID else { throw HookMismatch() }
-            _ = try validate(path, hookRequirement)
-        }
         for lib in libraries {
             let path = dir + "/Frameworks/" + lib
             try Self.checkEntry(path, type: S_IFREG, mode: Self.libraryMode)
@@ -281,7 +263,40 @@ public struct ToolStager {
         }
     }
 
-    /// The helper could not open its own executable when it started, so there is no hook to stage.
+    // MARK: - openconnect's hook
+
+    /// Stages openconnect's hook into `staged` (a copy `stage` returned) unless a valid one is there, and
+    /// returns its path. Only openconnect starts call it; a failure here leaves the tools as they are. The
+    /// copy is made next to the build directory (`.<buildID>.vpn-hook`, removed with the other stray
+    /// entries of `tools/`), checked, then renamed into `Resources/bin`.
+    public func stageHook(in staged: Staged) throws -> String {
+        guard let hookSource else { throw HookMissing() }
+        let path = staged.hook
+        if (try? checkHook(path)) != nil { return path }
+        HelperCore.removeEntry(path)
+        let partial = (staged.directory as NSString).deletingLastPathComponent + "/." + buildID + "." + VPNHook.name
+        HelperCore.removeEntry(partial)
+        do {
+            try Self.copyFile(descriptor: hookSource, to: partial, mode: Self.toolMode)
+            try checkHook(partial)
+            guard rename(partial, path) == 0 else { throw HelperCore.Failure.system("rename \(partial)", errno) }
+        } catch {
+            HelperCore.removeEntry(partial)
+            throw error
+        }
+        return path
+    }
+
+    /// Throws unless `path` is a root-owned 0555 single-link regular file, byte-identical to the running
+    /// helper (its SHA-256 is `buildID`) and signed as the helper.
+    func checkHook(_ path: String) throws {
+        try Self.checkEntry(path, type: S_IFREG, mode: Self.toolMode)
+        guard HelperBuild.digest(ofFile: path) == buildID else { throw HookMismatch() }
+        _ = try validate(path, hookRequirement)
+    }
+
+    /// The helper could not open and verify its own executable when it started, so there is no hook to
+    /// stage.
     public struct HookMissing: Error, Equatable, CustomStringConvertible {
         public var description: String {
             "\(VPNHook.name) could not be staged. Restart the PassTunnel helper (or the Mac) and try again."
@@ -307,10 +322,11 @@ public struct ToolStager {
         guard st.st_mode & 0o7777 == mode else { throw HelperCore.Failure.insecurePermissions(path) }
     }
 
-    static func checkEntries(_ dir: String, _ expected: [String]) throws {
-        let names = try FileManager.default.contentsOfDirectory(atPath: dir)
-        guard Set(names) == Set(expected), names.count == expected.count else {
-            throw HelperCore.Failure.notARegularFile(dir + "/" + (Set(names).symmetricDifference(expected).sorted().first ?? ""))
+    /// `dir` holds every name of `expected`, any of `optional` and nothing else.
+    static func checkEntries(_ dir: String, _ expected: [String], optional: [String] = []) throws {
+        let names = Set(try FileManager.default.contentsOfDirectory(atPath: dir)).subtracting(optional)
+        guard names == Set(expected) else {
+            throw HelperCore.Failure.notARegularFile(dir + "/" + (names.symmetricDifference(expected).sorted().first ?? ""))
         }
     }
 }
