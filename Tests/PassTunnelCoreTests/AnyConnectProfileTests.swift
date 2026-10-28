@@ -8,8 +8,8 @@ import XCTest
 private let pin = "pin-sha256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk="
 private let otherPin = "pin-sha256:/+9qLXvY4QvSoKy/ojXS6HTlG1iniUJkmUyKWlahaLE="
 
-/// Cisco AnyConnect profiles in the model, the store and share files. This version does not connect them yet:
-/// they are listed, kept, edited with `passtunnel set`, shared and deleted.
+/// Cisco AnyConnect profiles in the model, the store and share files: they are listed, kept, edited with
+/// `passtunnel set`, shared and deleted. Connecting them: AnyConnectConnectTests.
 final class AnyConnectProfileTests: CoreTestCase {
     func makeAnyConnect(_ name: String = "Acme AnyConnect") throws -> Profile {
         var p = try store.create(name: name, type: .anyconnect)
@@ -223,50 +223,15 @@ final class AnyConnectProfileTests: CoreTestCase {
         XCTAssertEqual([shown.id, shown.name, shown.type], [p.id, "Acme AnyConnect", "anyconnect"])
         XCTAssertEqual(shown.order, p.order)
         XCTAssertEqual(shown.error, .unsupportedProfileType("anyconnect"))
+        // The front ends list it so until the CLI (#185) and the app (#186) handle it; Core connects it (#184)
+        // where `connectRefusal` allows (AnyConnectConnectTests).
         XCTAssertEqual(VPNType.connectable, [.openvpn, .forti])
-        XCTAssertThrowsError(try ConnectionManager.checkConnectable(p)) {
-            XCTAssertEqual($0 as? PTError, .unsupportedProfileType("anyconnect"))
+        let old = OperatingSystemVersion(majorVersion: 15, minorVersion: 3, patchVersion: 0)
+        XCTAssertThrowsError(try ConnectionManager.checkConnectable(p, macOS: old)) {
+            XCTAssertEqual($0 as? PTError, .anyConnectRequiresMacOS("15.4"))
             XCTAssertEqual(AutomationErrorCode.of($0), .configInvalid)
         }
-        XCTAssertNoThrow(try ConnectionManager.checkConnectable(open))
-    }
-}
-
-extension ConnectionManagerTests {
-    func testAnAnyConnectProfileIsRefusedBeforeAnySecretIsUsed() async throws {
-        let m = makeManager()
-        var plain = try store.create(name: "Acme AnyConnect", type: .anyconnect)
-        plain.host = "vpn.example.com"
-        plain.username = "alice"
-        plain.otpMode = .totp
-        try store.save(plain)
-        try Secrets.set(plain.id, .password, "pw")
-        try Secrets.set(plain.id, .totp, totpSecret)
-        var p = plain
-        p.requireAuth = .connect
-        try await m.vault.applyProtection(from: plain, to: p)
-        try store.save(p)
-
-        let requestsBefore = helper.requests.count
-        let attempts: [() async throws -> Void] = [
-            { try await m.connect(p.id) },
-            { try await m.connect(p.id, followOnly: true) },  // following: refused too, not NothingToFollow
-            { try await m.connect(p.id, interactive: false) },
-            { _ = try await m.checkCanStart(p.id) }
-        ]
-        for (n, attempt) in attempts.enumerated() {
-            do {
-                try await attempt()
-                XCTFail("attempt \(n) went ahead")
-            } catch {
-                XCTAssertEqual(error as? PTError, .unsupportedProfileType("anyconnect"), "attempt \(n)")
-            }
-        }
-        XCTAssertEqual(authenticator.calls, 0, "no confirmation asked, nothing decrypted")
-        XCTAssertFalse(m.vault.isUnlocked(p.id, .password))
-        XCTAssertEqual(helper.requests.count, requestsBefore, "the helper was not asked anything, not even its status")
-        XCTAssertEqual(m.state(p.id), .disconnected)
-        await m.refresh()
-        XCTAssertEqual(m.state(p.id), .disconnected)
+        XCTAssertNoThrow(try ConnectionManager.checkConnectable(p, macOS: OperatingSystemVersion(majorVersion: 15, minorVersion: 4, patchVersion: 0)))
+        XCTAssertNoThrow(try ConnectionManager.checkConnectable(open, macOS: old))
     }
 }

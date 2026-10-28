@@ -123,7 +123,7 @@ final class FakeHelper: HelperClienting, @unchecked Sendable {
     var starts: [HelperRequest] {
         requests.filter {
             switch $0 {
-            case .startOpenVPN, .startForti: return true
+            case .startOpenVPN, .startForti, .startOpenConnect: return true
             default: return false
             }
         }
@@ -189,9 +189,13 @@ final class FakeHelper: HelperClienting, @unchecked Sendable {
             write(startLog, to: s.logPath)
             if !locked({ exitAtStart }) { locked { _running[s.profileID] = 4343 } }
             return .success(pid: 4343)
-        case .startOpenConnect:
-            // Nothing sends it before #184.
-            return .failure("unexpected request")
+        case .startOpenConnect(let s):
+            onStart?(request)
+            if let failure = takeFailure() { return failure }
+            // Like the helper: a fresh log, which openconnect and its hook then write to.
+            write(startLog, to: s.logPath)
+            if !locked({ exitAtStart }) { locked { _running[s.profileID] = 4545 } }
+            return .success(pid: 4545)
         case .stop(let id):
             // Like the helper: the pid only when something was running.
             let pid = locked { _running[id] }

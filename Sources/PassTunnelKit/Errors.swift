@@ -40,6 +40,15 @@ public enum PTError: Error, Equatable, LocalizedError {
     case connectCancelled
     case otherVPNActive(String)  // interface of the VPN that already takes all traffic
     case setupFailed(reason: String, log: String)  // DNS hook or all-traffic routes failed; log tail
+    // Cisco AnyConnect
+    case anyConnectRequiresMacOS(String)  // the macOS openconnect needs ("15.4"): refused before anything runs
+    case anyConnectNotSupported  // not on this system yet (Linux, until passtunneld runs openconnect)
+    case hostScanRequired(log: String)  // the server asked for a CSD host scan, which PassTunnel never runs; log tail
+    /// openconnect did not trust the server's certificate (or key): its reason, and the pin of the key it saw
+    /// (`pin-sha256:…`, openconnect's own hint) when it printed one; log tail. Nothing was sent.
+    case serverCertificateRejected(reason: String, pin: String?, log: String)
+    case signInNeedsMoreAnswers(log: String)  // the server asked for more than the password and the code; log tail
+    case signInUnusable(String)  // the sign-in succeeded but cannot be used (another server, malformed output); fixed text
     // confirming the user (Touch ID / password) before stored secrets are used
     case userConfirmationCancelled
     case userConfirmationFailed(String)  // localized reason
@@ -136,6 +145,22 @@ public enum PTError: Error, Equatable, LocalizedError {
             return String(localized: "Another VPN is already routing all traffic (\(interface)). Disconnect it first.")
         case .setupFailed(let reason, _):
             return String(localized: "The tunnel came up, but setting up the network failed, so it was disconnected: \(reason)")
+        case .anyConnectRequiresMacOS(let version):
+            return String(localized: "Cisco AnyConnect requires macOS \(version) or later.")
+        case .anyConnectNotSupported:
+            return String(localized: "Cisco AnyConnect is not supported on Linux yet.")
+        case .hostScanRequired:
+            return String(
+                localized:
+                    "The server requires a host scan (Cisco Secure Desktop), which PassTunnel does not run. Your sign-in was not sent.")
+        case .serverCertificateRejected(let reason, _, _):
+            return String(localized: "The server’s certificate was not trusted (\(reason)). Your sign-in was not sent.")
+        case .signInNeedsMoreAnswers:
+            return String(
+                localized:
+                    "The server asked for more than the password and the one-time code. Check how the profile sends the code.")
+        case .signInUnusable(let reason):
+            return String(localized: "The sign-in cannot be used: \(reason)")
         case .userConfirmationCancelled:
             return String(localized: "Cancelled.")
         case .userConfirmationFailed(let reason):
@@ -172,7 +197,8 @@ extension PTError {
     public var logTail: String {
         switch self {
         case .authFailed(let tail), .connectFailed(let tail), .setupFailed(_, let tail), .serverUnreachable(_, _, let tail),
-            .hostNotFound(_, let tail), .toolUnsupported(_, let tail):
+            .hostNotFound(_, let tail), .toolUnsupported(_, let tail), .hostScanRequired(let tail),
+            .serverCertificateRejected(_, _, let tail), .signInNeedsMoreAnswers(let tail):
             return tail
         default: return ""
         }

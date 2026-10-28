@@ -3,7 +3,8 @@
 PassTunnel is a macOS app (13+) that connects VPNs **without ever typing a one-time code**: it keeps
 TOTP secrets in the Keychain and fills the code (and password) automatically when it connects.
 Supported VPN types: OpenVPN, FortiGate SSL VPN (openfortivpn). More types = new backend; Cisco
-AnyConnect (openconnect) is designed but not implemented yet ([below](#cisco-anyconnect-backend-planned)).
+AnyConnect (openconnect) is being added: Core connects it on macOS 15.4 and later (#184), the CLI, the
+editor and Linux follow ([below](#cisco-anyconnect-backend-planned)).
 
 ```
 PassTunnel.app/Contents/
@@ -11,8 +12,8 @@ PassTunnel.app/Contents/
   MacOS/PassTunnelHelper        privileged helper (root, launched by launchd via SMAppService)
   Library/LaunchDaemons/com.furkanprlk.passtunnel.helper.plist
   Resources/bin/openvpn, openfortivpn    bundled, signed with the app's Team ID
-  Resources/bin/openconnect     bundled the same way for Cisco AnyConnect (needs macOS 15.4); the helper can run it
-                                (#182), nothing in the app asks it to yet (#184)
+  Resources/bin/openconnect     bundled the same way for Cisco AnyConnect (needs macOS 15.4); run by the user for the
+                                sign-in (`AnyConnectSignIn`, #184) and by the helper for the tunnel (#182)
   Frameworks/*.dylib            their dependencies (OpenSSL, LZO, LZ4, pkcs11-helper; openconnect's:
                                 GnuTLS, nettle, GMP, p11-kit, libtasn1, libidn2, libunistring,
                                 libintl, stoken, libtomcrypt, libtommath)
@@ -241,7 +242,7 @@ public enum PT {
 
 ```swift
 public enum VPNType: String, Codable, CaseIterable {
-    case openvpn, forti, anyconnect   // anyconnect: Cisco AnyConnect (openconnect), not connected yet (below)
+    case openvpn, forti, anyconnect   // anyconnect: Cisco AnyConnect (openconnect), macOS 15.4 and later (below)
     var defaultOTPDelivery: OTPDelivery  // .combined for OpenVPN, .separate for FortiGate and Cisco AnyConnect
 }
 public enum PasswordMode: String, Codable, CaseIterable { case keychain, ask, none }   // none = certificate only
@@ -329,20 +330,29 @@ unreadable, or not a JSON object, because a newer version may have written it si
 is created. The error is `config_invalid` in the CLI and MCP tools, and its message says the profile needs a newer
 PassTunnel. `list` and `list_profiles` show the profile with its stored `type` and `needs_newer_version: true`.
 
-`anyconnect` is a known type whose connect path is not there yet (#184). Its keys and rules are in
-[Profile (#181)](#profile-181) below. Until it connects, `VPNType.connectable` is `[.openvpn, .forti]`, and a Cisco
-AnyConnect profile (imported from a share file, or written by a newer build) is treated as follows:
-- **Core**: `ConnectionManager.checkConnectable` throws `PTError.unsupportedProfileType("anyconnect")` (`config_invalid`;
-  "needs a newer PassTunnel") at the start of `connect` (following an attempt too), `checkCanStart` and the attempt
-  itself, before a confirmation is asked for, a secret is read or the helper is asked anything (its status included); `observe` reads it as disconnected; `diagnose` reports that error.
+`anyconnect` is a known type that Core connects (#184, [Cisco AnyConnect backend](#cisco-anyconnect-backend-planned)) and
+the front ends do not offer yet. Its keys and rules are in [Profile (#181)](#profile-181) below. `VPNType.connectable`
+(what the front ends offer to create and show as ordinary profiles) stays `[.openvpn, .forti]` until the CLI (#185) and
+the editor (#186) handle the type, and such a profile (imported from a share file, or written by a newer build) is
+treated as follows:
+- **Core**: `ConnectionManager.connectRefusal(type)` says whether a type can be connected on this system: nil for OpenVPN
+  and FortiGate; for Cisco AnyConnect `PTError.anyConnectRequiresMacOS("15.4")` ("Cisco AnyConnect requires macOS 15.4
+  or later.") below macOS 15.4 (`HelperCore.Tool.minimumMacOS`; the macOS comes from `ConnectionManager.systemVersion`,
+  replaced in tests), `PTError.anyConnectNotSupported` ("Cisco AnyConnect is not supported on Linux yet.") on Linux
+  until #187, both `config_invalid`. `checkConnectable` throws it at the start of `connect` (following an attempt
+  too), `checkCanStart` and the attempt itself, before a confirmation is asked for, a secret is read, openconnect runs
+  or the helper is asked anything (its status included); `diagnose` reports it with the profile's other problems.
+  Otherwise the profile connects as described under [Cisco AnyConnect backend](#cisco-anyconnect-backend-planned).
   `ProfileStore` lists, saves (with the checks above), exports, imports and deletes it like any profile.
-- **CLI and MCP**: listed with its settings and `needs_newer_version: true`; `connect`, `toggle` and the MCP `connect` fail
-  as above; `show`, `set` (its keys), `export` and `rm` work; `add --type anyconnect` is refused (unknown type).
-- **App**: shown like a profile of an unknown type (`UnsupportedProfile(profile)`: the row, the detail, Delete only);
-  `startConnect` and the overlap check refuse the profile as stored now before Touch ID or the helper; the
+- **CLI and MCP** (until #185): listed with its settings and `needs_newer_version: true`; `connect`, `toggle` and the
+  MCP `connect` go through Core as above; `show`, `set` (its keys), `export` and `rm` work; `add --type anyconnect` is
+  refused (unknown type).
+- **App** (until #186): shown like a profile of an unknown type (`UnsupportedProfile(profile)`: the row, the detail,
+  Delete only); `startConnect` and the overlap check refuse the profile as stored now before Touch ID or the helper; the
   editor never opens on it (an import selects it instead), the type pickers offer only `VPNType.connectable`, and the
-  menu bar and scanned codes never see it.
-- The helper and `passtunneld` have no request for it.
+  menu bar and scanned codes never see it. #186 shows the type and such a profile disabled with `connectRefusal`'s
+  message where it applies.
+- The helper accepts `startOpenConnect` (protocol 4, #182); `passtunneld` refuses it until #187.
 
 ## Core APIs
 
@@ -1040,11 +1050,13 @@ tunnel. Hence:
 
 ## Cisco AnyConnect backend (planned)
 
-**Not implemented yet** (connecting): the profile model is in (#181, [Profile](#profile-181)), and
-such a profile is listed but not connected. The helper side is in (#182): the helper accepts
-`startOpenConnect` (protocol 4), checks it, renders the root configuration and runs, supervises, stops
-and adopts `openconnect`; nothing in the app sends the request yet (#184). The hook sets up and reverts
-the network on the Mac (#183, [The hook](#the-hook-vpn-hook-182-183-macos-187-linux)). This is the design of Phase 1 of #2: Cisco AnyConnect through OpenConnect,
+**In place:** the profile model (#181, [Profile](#profile-181)); the helper side (#182): the helper
+accepts `startOpenConnect` (protocol 4), checks it, renders the root configuration and runs, supervises,
+stops and adopts `openconnect`; the hook that sets up and reverts the network on the Mac (#183,
+[The hook](#the-hook-vpn-hook-182-183-macos-187-linux)); and connecting in Core (#184): the user's
+sign-in, the start request, the state and failures from the log, on macOS 15.4 and later. Still to come:
+the CLI and MCP (#185), the editor (#186), Linux (#187), the tests against a real server (#188), the user
+docs (#189). This is the design of Phase 1 of #2: Cisco AnyConnect through OpenConnect,
 with a password and a TOTP code (no SAML or other single sign-on), on the Mac and on Linux. The
 issues #179–#189 implement it, each named below where its part lands; until they do, everything
 above is all PassTunnel runs (`openvpn`, `openfortivpn`). Before any of it, #177 makes `Profile`
@@ -1227,9 +1239,13 @@ code, nor parses the server's login forms (the most complex server-controlled pa
    buffer that is overwritten once the start request is sent or the connect fails (best effort: the
    encoded request and any copy the runtime made are not guaranteed to be erased). Neither run's
    output that carries it is logged: the sign-in run's standard output is read only by the parser,
-   and neither run gets `-v` or `dump-http-traffic` (#184 adds a log fixture check that the cookie
-   is absent). `HelperRequest`'s descriptions, mirrors and error texts never include it. Literal
-   masking by `LogRedactor` is not relied on: it runs when a log is read, after the value is gone.
+   and neither run gets `-v` or `dump-http-traffic` (the tests check that the cookie is absent from the
+   log, the errors, the activity and the request's description). `HelperRequest`'s descriptions,
+   mirrors and error texts never include it. Literal masking by `LogRedactor` is not relied on: it runs
+   when a log is read, after the value is gone; it masks `COOKIE=…`, `webvpn…=`/`openconnect_strapkey=`
+   values, `Cookie:`/`Set-Cookie:` headers and a `cookie …` config line anyway, and the sign-in's
+   standard error is passed through it, with the answers and the cookie as literal secrets, before it
+   is written.
 4. **The tunnel, as root:** `HelperRequest.startOpenConnect` (below). Costs of the split: the cookie
    crosses XPC (or the daemon socket) and sits in a root-only file for the session's life; two runs
    per connect.
@@ -1237,6 +1253,53 @@ code, nor parses the server's login forms (the most complex server-controlled pa
 `.last-otp` is recorded when the sign-in run starts and given back when its output shows that no
 form was submitted after the initial request (each submission logs `POST https://…`, `http.c` 894),
 i.e. no credentials left the machine; a failure after that is `ConnectionFailure.Kind.authRejected`.
+
+**As built (#184).** `ConnectionManager.signIn` and `AnyConnectSignIn` (Core):
+- **Program and argv:** the app bundle's `Contents/Resources/bin/openconnect` (`AnyConnectSignIn.bundledTool`;
+  nil outside an app bundle, which fails the connect with `PTError.fileError`), run as the user through
+  `ToolRunning` (`SystemToolRunner`, `Process`) with exactly `["--config=<file>", "--authenticate"]`.
+- **The file:** `OpenConnectAuthConfig(host:port:usergroup:username:authgroup:serverCert:)` from the profile
+  as stored (the pin normalized), `render(caFile: "/etc/ssl/cert.pem", noExternalAuth: true)` (the bundled
+  9.21 has the option); written with `O_CREAT|O_EXCL|O_NOFOLLOW`, 0600, as `openconnect.conf` in a directory
+  `mkdtemp` makes for the run in the user's temporary directory (0700); both are removed when the run ends,
+  whatever happened.
+- **The environment:** exactly `HelperCore.environment(for: .openconnect)` (`AnyConnectSignIn.environment`),
+  never this process's.
+- **Standard input:** `OpenConnectAnswers.stdin` of the composed answers (`OTPComposer.compose`: `.separate`
+  → the password, then the code; `.combined` → the template's secret; no code → the password alone); an answer
+  with a line break, CR or NUL fails as `invalidField("password")` before anything runs. The bytes are in one
+  buffer (`SecretBytes`), and the tool's input copy is overwritten after the run.
+- **Limits:** `Timing.signInTimeout` (60 s; `ToolTimeout` then, with the standard error so far), output kept up
+  to `SystemToolRunner.maxOutput` (1 MiB) per stream, standard output parsed only up to 8 KiB, at most 64 KiB
+  of standard error logged. `disconnect` (and cancelling the connect's task) cancels the run
+  (`ToolCancellation`: the tool is terminated within a quarter second, then killed).
+- **The log:** the run's standard error, redacted, replaces the profile's log (0600), so "Show log" and
+  `ConnectionFailure` describe the sign-in; the helper replaces it again when it starts the tunnel.
+- **Success** (exit 0): `OpenConnectAuthResult.parse` of standard output, then `checkDestination` (another
+  server, port or path, another key than the pin, an address that does not match: `PTError.signInUnusable`,
+  with a fixed text naming no value; the cookie goes nowhere); the activity records the sign-in accepted.
+- **Failure** (`VPNLog.openConnectSignInError`, from the standard error and the exit status, in this order):
+  dyld (`toolUnsupported`); a CSD host scan asked for (`hostScanRequired`, owner decision 10: openconnect
+  refuses it itself without `csd-wrapper`, "Server asked us to run CSD hostscan", "… 'Cisco Secure Desktop'
+  trojan"); from the lines before the first TLS session ("Connected to HTTPS on …", after which the server's
+  own text is printed too and could imitate any line): a certificate or key refused
+  (`serverCertificateRejected`, with openconnect's reason and its `--servercert pin-sha256:…` hint as
+  `ConnectionFailure.serverCert`; "Server certificate verify failed" alone is no failure, as openconnect
+  prints it for a pinned server too), the name not found (`hostNotFound`), no answer (`serverUnreachable`);
+  the profile's group not offered (`invalidField("authgroup")`); "User input required in non-interactive
+  mode" (`authFailed` after a submitted form, `signInNeedsMoreAnswers` before); after a submitted form
+  `authFailed`, unless the run ended on a connection that failed (`connectFailed`); else `connectFailed`. A
+  timeout with no TLS session and no form submitted is `serverUnreachable` ("no answer within 60 seconds"),
+  otherwise `connectTimeout`.
+- **Credentials sent** (`VPNLog.openConnectCredentialsSent`): two or more `POST https://` in the standard
+  error, wherever they stand (a text field's prompt is printed without a line break). A redirect counts as
+  well, so a code is never given back that may have reached a server; the server's own text can only add.
+  The manager passes it to `ConnectionFailure.of(credentialsSent:)`; a cookie means sent.
+- **The start request:** `.startOpenConnect` with the profile's host, port, user group, `tls_only`, `set_dns`
+  and `set_routes`, the sign-in's `CONNECT_URL`, `RESOLVE` (nil for an IP-address host), cookie and
+  `FINGERPRINT` (`server_cert`), and the profile's normalized pin or "" (`profile_server_cert`). No user name,
+  password or code. A start the helper refuses because another process started the profile meanwhile is
+  followed, as for the other types (that sign-in's cookie is then unused).
 
 ### Server trust
 
@@ -1789,7 +1852,7 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
   helper reports no "connected"). An adopted openconnect gets the set-up deadline again.
 - **Exit codes** (`main.c` 2479–2521): 0 cancelled or detached; 1 authentication, I/O, "Session
   terminated by server; exiting."; 2 "Cookie was rejected by server; exiting.".
-- **Log** (`VPNLog`, #184):
+- **Log** (`VPNLog`, `VPNLog+OpenConnect.swift`, #184):
 
   | Line | Meaning |
   |---|---|
@@ -1805,6 +1868,24 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
 
   `NetworkClaims` reads the session's routes from the routing table through its interface (as for
   openfortivpn) and its DNS from the hook's line.
+
+  As built: the state of a running session is the hook's last line (`VPNLog.openConnectHook`): the success
+  line is "connected" (`observe`, `waitUntilConnected`; the address shown is the report's first), a later
+  failure line is `PTError.setupFailed` (the session is stopped, kind `setup`, not retried), and openconnect's
+  "Cookie was rejected by server" or "Session terminated by server" is `connectFailed` while connecting. A
+  session that comes up within `Timing.anyConnectTimeout` (90 s) is connected; past it the manager stops it
+  (`connectTimeout`, kind `timeout`: the sign-in had reached the server). The tool's exit after "connected" is a
+  drop, handled as for the other types: with `auto_reconnect`, a new sign-in (`performConnect(interactive:
+  false)`), whose code waits for the next window when the last one's was sent (`.last-otp`); a hook that
+  refused openconnect's own reconnect stops it, and so ends the same way. `VPNLog.tunnelInterface` names the
+  hook's interface, so the other-VPN check counts the session as PassTunnel's own, and
+  `ProfileNetwork.observedOptions` keeps what it takes over for the overlap check
+  (`ProfileNetwork.anyConnectOptions`: `redirect-gateway def1` with `ipv6`/`!ipv4` as the addresses go for a full
+  tunnel, `dhcp-option DNS`, `DOMAIN` (search) and `DOMAIN-ROUTE` (split DNS) from the hook's line, and the routes
+  through the interface but its own addresses). Every failure is a `ConnectionFailure` kind:
+  `auth_rejected`, `host_not_found`, `unreachable`, `configuration` (certificate or key, with `server_cert`; more
+  answers asked for; an unknown group), `host_scan_required` (new), `setup`, `timeout`, `tool_unsupported` (dyld,
+  or this macOS older than 15.4), `cancelled`, `failed`.
 
 ### Helper protocol 4 (#182)
 
@@ -1880,7 +1961,7 @@ FortiGate files stay exactly as before. `ProfileFields` sets and shows them for 
 `auth_group`; `trusted_cert` is FortiGate's alone, the new keys on another type are `wrong_profile_type`). There is no
 user agent field and no raw option. Each rule is `PTError.invalidField(<key>)` (the username's too, where FortiGate's
 is `usernameTooLong`), enforced by `ProfileFields.set`, `ProfileStore.save` (`checkUsername`, `checkHosts`,
-`checkAnyConnectFields`), later `ConnectionManager` (#184), and again by the helper (`OpenConnectConfig.validate`).
+`checkAnyConnectFields`), `ConnectionManager` before it signs in (#184), and again by the helper (`OpenConnectConfig.validate`).
 
 `ProfileDestination.of` hashes, after the unchanged version tag `passtunnel-destination-1` and the type, the trimmed
 lowercased host, the port, `usergroup` and `server_cert` (normalized, so a hand-edited spelling of the same pin does
@@ -1902,8 +1983,9 @@ unchanged, so older Macs and the phone apps keep importing them. A reader takes 
 OpenVPN, which they would have done before #191. A version 1 file with type `anyconnect` (which no PassTunnel writes)
 is read too. Import copies the new keys, normalizing the pin, then `save` checks them.
 
-The CLI and MCP (#185), the editor (#186), connecting (#184, with the macOS 15.4 check) and the user docs (#189)
-follow; `passtunneld` on Linux is #187. Until then such a profile is listed but not connected (see "Model").
+Connecting is in Core (#184, with the macOS 15.4 check). The CLI and MCP (#185), the editor (#186) and the user docs
+(#189) follow; `passtunneld` on Linux is #187. Until the front ends handle the type, they list such a profile as
+needing a newer PassTunnel (see "Model").
 
 ### Tests (#188)
 

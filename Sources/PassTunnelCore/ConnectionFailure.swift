@@ -24,8 +24,12 @@ public struct ConnectionFailure: Codable, Equatable, Sendable {
         /// Stopped before it finished (a disconnect, Ctrl-C, a cancelled confirmation).
         case cancelled
         /// The VPN tool did not start on this version of macOS: dyld stopped it before it ran, for a
-        /// symbol or library this macOS lacks ("Symbol not found: _strchrnul"). Nothing was sent.
+        /// symbol or library this macOS lacks ("Symbol not found: _strchrnul"), or, for Cisco AnyConnect,
+        /// PassTunnel did not start it because this macOS is older than it needs (15.4). Nothing was sent.
         case toolUnsupported = "tool_unsupported"
+        /// The server requires a host scan (Cisco AnyConnect's Cisco Secure Desktop), which PassTunnel never
+        /// runs. Nothing was sent.
+        case hostScanRequired = "host_scan_required"
         /// Anything else (the helper refused, the tool exited without a reason PassTunnel knows).
         case failed
     }
@@ -36,6 +40,9 @@ public struct ConnectionFailure: Codable, Equatable, Sendable {
     public var reply: String?
     /// The tool's own words for a network or configuration failure ("Connection refused").
     public var reason: String?
+    /// configuration, Cisco AnyConnect: the key of the server whose certificate openconnect did not trust, as
+    /// openconnect's hint gives it (`pin-sha256:…`), for a front end to offer trusting it (`server_cert`).
+    public var serverCert: String?
     /// The credentials reached the server: the TLS session with it came up (OpenVPN "Control Channel",
     /// openfortivpn "Connected to gateway"), or it answered the sign-in.
     public var credentialsSent: Bool
@@ -79,8 +86,12 @@ public struct ConnectionFailure: Codable, Equatable, Sendable {
 
     /// Why `error` ended a connect. `log`: the VPN tool's log when the attempt got as far as starting it
     /// (nil before, when the log would be an older session's); `handed`: what the tool was given.
-    public static func of(_ error: Error, log: String?, handed: Handed?, at: Date) -> ConnectionFailure {
-        let sent = log.map(VPNLog.credentialsSent) ?? false
+    /// `credentialsSent`: whether the sign-in left this computer, when the caller knows it better than the log
+    /// does (Cisco AnyConnect's sign-in run, `VPNLog.OpenConnectSignIn`).
+    public static func of(
+        _ error: Error, log: String?, handed: Handed?, at: Date, credentialsSent: Bool? = nil
+    ) -> ConnectionFailure {
+        let sent = credentialsSent ?? log.map(VPNLog.credentialsSent) ?? false
         var f = ConnectionFailure(kind: .failed, at: at, credentialsSent: sent)
         let verdict = log.flatMap(VPNLog.verdict)
         if let verdict {
@@ -110,11 +121,28 @@ public struct ConnectionFailure: Codable, Equatable, Sendable {
         case PTError.toolUnsupported(let reason, _):
             f.kind = .toolUnsupported
             f.reason = reason
+        case PTError.anyConnectRequiresMacOS(let version):
+            f.kind = .toolUnsupported
+            f.reason = "requires macOS \(version) or later"
+        case PTError.hostScanRequired:
+            f.kind = .hostScanRequired
+            f.reason = nil
+        case PTError.serverCertificateRejected(let reason, let pin, _):
+            f.kind = .configuration
+            f.reason = reason
+            f.serverCert = pin
+        case PTError.signInNeedsMoreAnswers:
+            f.kind = .configuration
+            f.reason = nil
+        case PTError.signInUnusable(let reason):
+            f.kind = .failed
+            f.reason = reason
         case PTError.connectCancelled, PTError.userConfirmationCancelled, is CancellationError:
             f.kind = .cancelled
         case PTError.missingConfig, PTError.missingHost, PTError.missingPassword, PTError.missingTOTPSecret,
             PTError.missingCredential, PTError.invalidField, PTError.usernameTooLong, PTError.invalidSecret,
-            PTError.invalidFile, PTError.ovpnNotAllowed, PTError.ovpnReferencedFile, PTError.protectedSecretUnreadable:
+            PTError.invalidFile, PTError.ovpnNotAllowed, PTError.ovpnReferencedFile, PTError.protectedSecretUnreadable,
+            PTError.anyConnectNotSupported:
             f.kind = .configuration
         default:
             f.kind = .failed
@@ -140,7 +168,7 @@ public struct ConnectionFailure: Codable, Equatable, Sendable {
             if let tries, tries > 1 { parts.append(String(localized: "No answer after \(tries) tries.")) }
         case .failed:
             if !credentialsSent { parts.append(String(localized: "Your sign-in was not sent.")) }
-        case .configuration, .setup, .timeout, .cancelled, .toolUnsupported:
+        case .configuration, .setup, .timeout, .cancelled, .toolUnsupported, .hostScanRequired:
             break
         }
         return parts.isEmpty ? nil : parts.joined(separator: " ")

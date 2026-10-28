@@ -36,19 +36,62 @@ struct ToolOutput: Equatable {
     }
 }
 
-/// The tool did not finish within `seconds` and was stopped.
+/// The tool did not finish within `seconds` and was stopped. `errorOutput`: what it wrote on standard
+/// error until then (never its standard output, which may hold a secret).
 struct ToolTimeout: Error, Equatable {
     var seconds: Int
+    var errorOutput = Data()
 }
 
-/// Runs a system tool for a secret store: a fixed path, its arguments and exactly the environment
-/// given, with `input` on standard input. Secrets go over standard input and output only, never in
-/// arguments or the environment. A tool still running at the deadline is stopped (`ToolTimeout`).
+/// The run was cancelled (`ToolCancellation`) and the tool stopped.
+struct ToolCancelled: Error, Equatable {}
+
+/// Stops a `ToolRunning.run` in progress from another thread: the tool is terminated (then killed) and the
+/// run throws `ToolCancelled`. Cancelling before the run starts stops it as soon as it has started.
+final class ToolCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+
+    init() {}
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        lock.unlock()
+    }
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+}
+
+/// Runs a system tool: a fixed path, its arguments and exactly the environment given, with `input` on
+/// standard input. Secrets go over standard input and output only, never in arguments or the
+/// environment. A tool still running at the deadline is stopped (`ToolTimeout`); with a `cancellation`,
+/// also when it is cancelled (`ToolCancelled`). Used for the Linux secret stores' tools and for Cisco
+/// AnyConnect's sign-in (`AnyConnectSignIn`).
 protocol ToolRunning {
     func run(
         _ path: String, _ arguments: [String], environment: [String: String], input: Data,
         timeout: TimeInterval
     ) throws -> ToolOutput
+
+    func run(
+        _ path: String, _ arguments: [String], environment: [String: String], input: Data,
+        timeout: TimeInterval, cancellation: ToolCancellation?
+    ) throws -> ToolOutput
+}
+
+extension ToolRunning {
+    /// A runner that cannot be cancelled runs to its end or its deadline.
+    func run(
+        _ path: String, _ arguments: [String], environment: [String: String], input: Data,
+        timeout: TimeInterval, cancellation: ToolCancellation?
+    ) throws -> ToolOutput {
+        try run(path, arguments, environment: environment, input: input, timeout: timeout)
+    }
 }
 
 /// `ToolRunning` with Foundation's `Process`. Standard input is a socket pair, so a tool that exits
@@ -61,6 +104,13 @@ struct SystemToolRunner: ToolRunning {
     func run(
         _ path: String, _ arguments: [String], environment: [String: String], input: Data,
         timeout: TimeInterval
+    ) throws -> ToolOutput {
+        try run(path, arguments, environment: environment, input: input, timeout: timeout, cancellation: nil)
+    }
+
+    func run(
+        _ path: String, _ arguments: [String], environment: [String: String], input: Data,
+        timeout: TimeInterval, cancellation: ToolCancellation?
     ) throws -> ToolOutput {
         let deadline = Date().addingTimeInterval(timeout)
         var pair: [Int32] = [-1, -1]
@@ -93,16 +143,25 @@ struct SystemToolRunner: ToolRunning {
             input: inputFD, output: output.fileHandleForReading.fileDescriptor,
             errorOutput: errorOutput.fileHandleForReading.fileDescriptor, pending: input)
         defer { streams.wipe() }
-        streams.pump(until: deadline)
+        streams.pump(until: deadline, cancellation: cancellation)
 
-        let remaining = deadline.timeIntervalSinceNow
-        if remaining <= 0 || exited.wait(timeout: .now() + remaining) == .timedOut {
+        func stop() {
             process.terminate()
             if exited.wait(timeout: .now() + 1) == .timedOut {
                 kill(process.processIdentifier, SIGKILL)
                 _ = exited.wait(timeout: .now() + 1)
             }
-            throw ToolTimeout(seconds: Int(timeout.rounded(.up)))
+        }
+        if cancellation?.isCancelled == true {
+            stop()
+            streams.output.wipe()
+            throw ToolCancelled()
+        }
+        let remaining = deadline.timeIntervalSinceNow
+        if remaining <= 0 || exited.wait(timeout: .now() + remaining) == .timedOut {
+            stop()
+            streams.output.wipe()
+            throw ToolTimeout(seconds: Int(timeout.rounded(.up)), errorOutput: streams.errorOutput)
         }
         let status =
             process.terminationReason == .uncaughtSignal
@@ -134,17 +193,20 @@ struct SystemToolRunner: ToolRunning {
             if pending.isEmpty { closeInput() }
         }
 
-        mutating func pump(until deadline: Date) {
+        /// `cancellation`: also returns once it is cancelled (checked at least every quarter second).
+        mutating func pump(until deadline: Date, cancellation: ToolCancellation? = nil) {
             var buffer = [UInt8](repeating: 0, count: 16 * 1024)
             defer { _ = buffer.withUnsafeMutableBytes { $0.initializeMemory(as: UInt8.self, repeating: 0) } }
+            let slice: TimeInterval = cancellation == nil ? 1 : 0.25
             while outputOpen || errorOpen {
+                if cancellation?.isCancelled == true { return }
                 let remaining = deadline.timeIntervalSinceNow
                 guard remaining > 0 else { return }
                 var fds: [pollfd] = []
                 if inputOpen { fds.append(pollfd(fd: input, events: Int16(POLLOUT), revents: 0)) }
                 if outputOpen { fds.append(pollfd(fd: outputFD, events: Int16(POLLIN), revents: 0)) }
                 if errorOpen { fds.append(pollfd(fd: errorFD, events: Int16(POLLIN), revents: 0)) }
-                let rc = poll(&fds, nfds_t(fds.count), Int32(min(remaining * 1000, 1000).rounded(.up)))
+                let rc = poll(&fds, nfds_t(fds.count), Int32((min(remaining, slice) * 1000).rounded(.up)))
                 if rc < 0 && errno != EINTR { return }
                 guard rc > 0 else { continue }
                 for entry in fds where entry.revents != 0 {

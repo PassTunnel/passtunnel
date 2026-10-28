@@ -1,5 +1,6 @@
 import Foundation
 import PassTunnelKit
+import PassTunnelShared
 
 /// Another profile whose tunnel claims some of what this one's does (`NetworkClaims`).
 public struct ProfileOverlap: Equatable, Sendable {
@@ -110,8 +111,33 @@ public enum ProfileNetwork {
             }
             return options
         case .anyconnect:
-            return nil  // not connected by this version
+            // The hook's success line: the interface, whether all traffic goes through it, and the DNS it
+            // set; the routes through that interface from the routing table, as for FortiGate.
+            let current = VPNLog.read(store.logURL(p.id))
+            guard let report = VPNLog.openConnectReport(current) ?? VPNLog.openConnectReport(log) else { return nil }
+            return anyConnectOptions(report, routes: p.setRoutes ? tunnelRoutes(report.interface) : [])
         }
+    }
+
+    /// What a Cisco AnyConnect tunnel takes over, as the options OpenVPN would push for it (one form for
+    /// every tool): `redirect-gateway` for a full tunnel (with `ipv6` when it has an IPv6 address, `!ipv4`
+    /// when it has no IPv4 one), its DNS servers, search domains (`DOMAIN`) and split DNS domains
+    /// (`DOMAIN-ROUTE`), and the routes through its interface but its own addresses.
+    static func anyConnectOptions(_ report: VPNHook.Report, routes: [RoutingTable.Route]) -> [String] {
+        var options: [String] = []
+        if report.fullTunnel {
+            let v4 = report.addresses.contains { $0.family == .ipv4 }
+            let v6 = report.addresses.contains { $0.family == .ipv6 }
+            options.append("redirect-gateway def1" + (v4 ? "" : " !ipv4") + (v6 ? " ipv6" : ""))
+        }
+        for server in report.dnsServers.prefix(NetworkClaims.maxDNSServers) { options.append("dhcp-option DNS \(server)") }
+        for domain in report.searchDomains.prefix(NetworkClaims.maxDomains) { options.append("dhcp-option DOMAIN \(domain)") }
+        for domain in report.splitDNSDomains.prefix(NetworkClaims.maxDomains) { options.append("dhcp-option DOMAIN-ROUTE \(domain)") }
+        let own = Set(report.addresses.map(\.description))
+        for route in routes where !(own.contains(route.destination) && (route.prefixLength == 32 || route.prefixLength == 128)) {
+            if let option = option(route) { options.append(option) }
+        }
+        return Array(options.filter(VPNLog.isNetworkOption).prefix(VPNLog.maxPushedOptions))
     }
 
     /// A route as the option that would push it.
@@ -149,7 +175,9 @@ public enum ProfileNetwork {
             let options = savedOptions(p, store: store) ?? (live ? observedOptions(p, store: store, tunnelRoutes: tunnelRoutes) : nil)
             return OVPNAnalyzer.networkClaims("", pushed: options ?? [])
         case .anyconnect:
-            return OVPNAnalyzer.networkClaims("", pushed: savedOptions(p, store: store) ?? [])
+            // As FortiGate: a tunnel that is up and has no file is read now.
+            let options = savedOptions(p, store: store) ?? (live ? observedOptions(p, store: store, tunnelRoutes: tunnelRoutes) : nil)
+            return OVPNAnalyzer.networkClaims("", pushed: options ?? [])
         }
     }
 

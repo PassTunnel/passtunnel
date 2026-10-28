@@ -743,6 +743,76 @@
         }
       }
     },
+    "Cisco AnyConnect is not supported on Linux yet." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cisco AnyConnect henüz Linux’ta desteklenmiyor."
+          }
+        }
+      }
+    },
+    "Cisco AnyConnect requires macOS %@ or later." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cisco AnyConnect için macOS %@ veya üstü gerekir."
+          }
+        }
+      }
+    },
+    "The server asked for more than the password and the one-time code. Check how the profile sends the code." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu parola ve tek kullanımlık koddan fazlasını istedi. Profilin kodu nasıl gönderdiğini kontrol edin."
+          }
+        }
+      }
+    },
+    "The server requires a host scan" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu bir cihaz taraması istiyor"
+          }
+        }
+      }
+    },
+    "The server requires a host scan (Cisco Secure Desktop), which PassTunnel does not run. Your sign-in was not sent." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu bir cihaz taraması (Cisco Secure Desktop) istiyor; PassTunnel bunu çalıştırmaz. Oturum açma bilgileriniz gönderilmedi."
+          }
+        }
+      }
+    },
+    "The server’s certificate was not trusted (%@). Your sign-in was not sent." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucunun sertifikasına güvenilmedi (%@). Oturum açma bilgileriniz gönderilmedi."
+          }
+        }
+      }
+    },
+    "The sign-in cannot be used: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oturum açma kullanılamıyor: %@"
+          }
+        }
+      }
+    },
     "and %lld more" : {
       "localizations" : {
         "tr" : {
