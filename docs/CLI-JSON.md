@@ -112,7 +112,7 @@ From `list`, `add`, `import`, `pin`, `unpin` and the MCP tool `list_profiles`.
 }
 ```
 
-`protected`: connecting asks for Touch ID or the Mac password. `type`: `openvpn` or `forti`.
+`protected`: connecting asks for Touch ID or the Mac password. `type`: `openvpn`, `forti` or `anyconnect`.
 `password_mode`: `keychain`, `ask` or `none`; `otp_mode`: `none`, `totp` or `ask`; `require_auth`:
 `off`, `connect` or `always`. `connect_at_login`: the app connects the profile when it opens at login
 (one that asks first gets a notification instead). The MCP tool adds `state` (as in ProfileStatus); `list` does not ask
@@ -121,6 +121,11 @@ the helper and leaves it out.
 A profile whose VPN type this version does not know (made by a newer PassTunnel) is listed with its stored `type` and
 `"needs_newer_version" : true` (left out otherwise); its settings read as empty. Commands and tools that use it fail with
 `config_invalid`, except `rm`, which deletes it.
+
+A Cisco AnyConnect profile (`"type" : "anyconnect"`, from a share file or a newer build) is listed with its settings and
+`"needs_newer_version" : true` as well, because this version does not connect it yet: `connect`, `toggle` and the MCP tool
+`connect` fail with `config_invalid` before anything is asked or read, and `diagnose` reports that as its problem.
+`show`, `set`, `export` and `rm` work on it; `add --type anyconnect` is refused (`invalid_argument`).
 
 ### ProfileStatus
 
@@ -434,7 +439,7 @@ the ones you do not know.
 | `toggle [ID]` | ProfileStatus |
 | `code [ID] [-c]` | `{"profile": "work", "code": "123456", "remaining": 17, "period": 30}` |
 | `list` | array of ProfileSummary |
-| `show ID` | `{"profile": {…settings…}, "is_default", "password_saved", "totp_saved", "password_encrypted", "totp_encrypted", "config_file", "remote"}` |
+| `show ID` | `{"profile": {…settings…}, "is_default", "password_saved", "totp_saved", "password_encrypted", "totp_encrypted", "config_file", "remote"}` (a Cisco AnyConnect profile's settings also have `usergroup`, `authgroup`, `server_cert` and `tls_only`) |
 | `set ID key=value…` | the `show` object after the change |
 | `add NAME --type T` | ProfileSummary of the new profile |
 | `import FILE` | ProfileSummary of the new profile with `skipped` (below) |

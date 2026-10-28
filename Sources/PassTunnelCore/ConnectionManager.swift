@@ -104,7 +104,8 @@ public enum ConnectionEvent: Equatable, Sendable {
 
 /// Where a profile sends its credentials, as one fingerprint: SHA-256 over the type and, for OpenVPN,
 /// the exact bytes of config.ovpn (servers, CA, proxies, everything the helper runs); for FortiGate,
-/// host, port and trusted certificate. Secrets the user confirmed are bound to the fingerprint the
+/// host, port and trusted certificate; for Cisco AnyConnect, host, port, user group and server pin
+/// (the group name is not a destination: it is matched against the server's list). Secrets the user confirmed are bound to the fingerprint the
 /// profile had then (`SecretVault`, session secrets) and are not sent anywhere else. The helper reads
 /// config.ovpn again later, so the start request carries `configSHA256` of the bytes fingerprinted
 /// here and the helper refuses any other file.
@@ -150,11 +151,28 @@ public struct ProfileDestination: Equatable, Sendable {
             // As the editor saves it ("AB:CD:…" → "abcd…"), so its reformatting changes nothing.
             let cert = p.trustedCert.trimmingCharacters(in: .whitespacesAndNewlines)
             field(TLSFingerprint.normalize(cert) ?? cert.lowercased())
+        case .anyconnect:
+            host = p.host.trimmingCharacters(in: .whitespacesAndNewlines)
+            field(host.lowercased())
+            field(String(p.port))
+            field(p.usergroup)
+            // Stored normalized; a hand-edited file's spelling must not move the binding either.
+            field(OpenConnectPin.normalize(p.serverCert) ?? p.serverCert.trimmingCharacters(in: .whitespacesAndNewlines))
         }
         return ProfileDestination(
             fingerprint: hash.finalize().map { String(format: "%02x", $0) }.joined(), host: host,
             configSHA256: configSHA256)
     }
+}
+
+extension VPNType {
+    /// The types this version connects, and so offers to create (the app's type picker, `passtunnel add`).
+    /// A Cisco AnyConnect profile (from a share file, or written by a newer build) is kept and listed as
+    /// needing a newer PassTunnel; `passtunnel show`, `set`, `export` and `rm` work on it, connecting does
+    /// not (`ConnectionManager.checkConnectable`).
+    public static let connectable: [VPNType] = [.openvpn, .forti]
+
+    public var isConnectable: Bool { Self.connectable.contains(self) }
 }
 
 /// An automatic reconnect found the profile's server settings changed since the user confirmed the
@@ -645,6 +663,9 @@ public final class ConnectionManager: ObservableObject {
             let log = VPNLog.read(store.logURL(p.id))
             guard fortiIsConnected(p, log: log) else { return (.connecting(Phase.connecting), false) }
             return (.connected(ip: VPNLog.fortiAddress(log) ?? "", since: connectedAt[p.id] ?? logCreated(p.id)), false)
+        case .anyconnect:
+            // Not started by this version (`checkConnectable`).
+            return (isRunning ? .connecting(Phase.connecting) : .disconnected, false)
         }
     }
 
@@ -772,6 +793,8 @@ public final class ConnectionManager: ObservableObject {
         cancelReconnect(id)
         if let inFlight = connectTasks[id] { return try await inFlight.value }
         let current = state(id).isActive || followOnly ? nil : try? store.get(id)
+        // Before a confirmation is asked for, which would decrypt the secrets.
+        if let p = current { try Self.checkConnectable(p) }
         // A confirmation given for other server settings does not count: ask now, naming the new server.
         if let p = current { vault.forgetUnlessBound(p) }
         if interactive, let p = current, vault.needsPrompt(p, for: .connect) {
@@ -904,6 +927,7 @@ public final class ConnectionManager: ObservableObject {
         do {
             // Always the profile as stored now (the CLI may have changed it), never a cached copy.
             let p = try store.get(id)
+            try Self.checkConnectable(p)
             let status = await currentStatus()
             if let session = session(id, in: status) {
                 role?(.followed)
@@ -956,6 +980,8 @@ public final class ConnectionManager: ObservableObject {
                         username: creds.username ?? "", password: composed.secret, otp: composed.separateOTP,
                         trustedCert: p.trustedCert, setDNS: p.setDNS, setRoutes: p.setRoutes,
                         logPath: store.logURL(id).path))
+            case .anyconnect:
+                throw PTError.unsupportedProfileType(p.type.rawValue)  // refused above (`checkConnectable`)
             }
             let response = try await helper.perform(request, timeout: timing.helperTimeout)
             guard response.ok else {
@@ -1048,14 +1074,23 @@ public final class ConnectionManager: ObservableObject {
     }
     #endif
 
+    /// Throws `PTError.unsupportedProfileType` for a profile of a type this version does not connect yet
+    /// (`VPNType.isConnectable`), as for one of a type it does not know: before any secret is read or
+    /// anything is asked.
+    public nonisolated static func checkConnectable(_ p: Profile) throws {
+        guard p.type.isConnectable else { throw PTError.unsupportedProfileType(p.type.rawValue) }
+    }
+
     /// The check `connect` runs before starting `id` (without `force`), on its own, so a caller can
     /// report a refusal before it says it is connecting. Nothing to check when the helper already runs
-    /// the profile (`connect` then follows that session). Throws when another VPN takes all traffic;
-    /// returns the profiles of PassTunnel's own sessions whose routes or DNS names overlap with the
-    /// ones `id` takes (`overlaps(for:)`), which is a warning for the caller to show, never a refusal.
+    /// the profile (`connect` then follows that session). Throws when another VPN takes all traffic or
+    /// the profile's type is not connected yet (`checkConnectable`); returns the profiles of PassTunnel's
+    /// own sessions whose routes or DNS names overlap with the ones `id` takes (`overlaps(for:)`), which
+    /// is a warning for the caller to show, never a refusal.
     @discardableResult
     public func checkCanStart(_ id: String) async throws -> [ProfileOverlap] {
         let p = try store.get(id)
+        try Self.checkConnectable(p)
         let status = await currentStatus()
         guard status?.running?[id] == nil else { return [] }
         if p.type == .openvpn { try checkNoOtherFullTunnel(p, running: status?.running ?? [:]) }
@@ -1197,6 +1232,8 @@ public final class ConnectionManager: ObservableObject {
             guard !p.host.trimmingCharacters(in: .whitespaces).isEmpty else { throw PTError.missingHost(id) }
             // The helper refuses it too; a profile.json changed outside the app fails here, before any secret is sent.
             guard FortiConfig.isValidHost(p.host) else { throw PTError.invalidField("host") }
+        case .anyconnect:
+            throw PTError.unsupportedProfileType(p.type.rawValue)  // not connected yet (`checkConnectable`)
         }
         // A store that cannot be read says so (`SecretStoreUnavailable`), rather than "missing".
         if p.passwordMode == .keychain, try !Secrets.exists(id, .password) { throw PTError.missingPassword(id) }
@@ -1436,6 +1473,8 @@ public final class ConnectionManager: ObservableObject {
                     noteAccepted()
                     return (VPNLog.fortiAddress(log) ?? "", clock.now())
                 }
+            case .anyconnect:
+                break  // never started (`checkConnectable`)
             }
 
             let now = clock.now()
@@ -2015,7 +2054,7 @@ public final class ConnectionManager: ObservableObject {
             let config = (try? FileIO.readText(store.ovpnURL(p.id), maxSize: ProfileStore.maxOVPNSize)) ?? ""
             guard let e = OVPNAnalyzer.endpoint(config) else { return .connecting(host: "", port: nil, transport: "udp") }
             return .connecting(host: ActivityEvent.clean(e.host, limit: 255), port: Int(e.port), transport: e.tcp ? "tcp" : "udp")
-        case .forti:
+        case .forti, .anyconnect:
             return .connecting(host: ActivityEvent.clean(p.host, limit: 255), port: p.port, transport: "tcp")
         }
     }

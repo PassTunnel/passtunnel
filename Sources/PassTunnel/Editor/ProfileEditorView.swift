@@ -192,6 +192,7 @@ struct ProfileEditorView: View {
             switch p.type {
             case .openvpn: configurationRow
             case .forti: fortiRows
+            case .anyconnect: EmptyView()  // not edited by this version (shown as unsupported)
             }
 
             if model.usesCredentials {
@@ -541,7 +542,7 @@ struct ProfileEditorView: View {
         switch p.type {
         case .openvpn:
             return String(localized: "The code is sent as the answer to the server’s challenge prompt (static-challenge), not inside the password.")
-        case .forti:
+        case .forti, .anyconnect:
             return String(localized: "The code is sent in the gateway’s own one-time code field, after the password.")
         }
     }
@@ -656,7 +657,7 @@ struct ProfileEditorView: View {
         EditorRow(Text("Type")) {
             if model.allowsTypeChange {
                 Picker("Type", selection: Binding(get: { p.type }, set: { model.changeType($0) })) {
-                    ForEach(VPNType.allCases, id: \.self) { Text(verbatim: Self.typeName($0)).tag($0) }
+                    ForEach(VPNType.connectable, id: \.self) { Text(verbatim: Self.typeName($0)).tag($0) }
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
@@ -873,6 +874,7 @@ struct ProfileEditorView: View {
         switch type {
         case .openvpn: return "OpenVPN"  // product names stay untranslated
         case .forti: return "FortiGate SSL VPN"
+        case .anyconnect: return "Cisco AnyConnect"
         }
     }
 

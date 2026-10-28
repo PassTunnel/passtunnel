@@ -24,6 +24,16 @@ public struct UnsupportedProfile: Identifiable, Equatable {
         order = object["order"] as? Int ?? 0
     }
 
+    /// A profile of a type this version knows but does not connect yet, for a front end that shows it the
+    /// same way (the Mac app, for Cisco AnyConnect until it connects such profiles).
+    public init(_ p: Profile) {
+        id = p.id
+        let name = p.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.name = name.isEmpty ? p.id : name
+        type = p.type.rawValue
+        order = p.order
+    }
+
     /// The status shown in place of the connection state.
     public static var statusText: String { String(localized: "Needs a newer PassTunnel") }
 

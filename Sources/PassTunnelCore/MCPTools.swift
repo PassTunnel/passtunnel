@@ -245,6 +245,7 @@ final class MCPTools {
     /// connects like any other call (with its checks).
     private func connect(_ id: String, wait: Bool, timeout: TimeInterval) async throws -> ProfileStatus {
         let p = try store.get(id)
+        try ConnectionManager.checkConnectable(p)
         await manager.refresh()
         if manager.state(id).isConnected { return service.status(p) }
         if manager.state(id).isConnecting {

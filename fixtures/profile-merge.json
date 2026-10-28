@@ -401,6 +401,73 @@
         "type": "openvpn",
         "username": "alice"
       }
+    },
+    {
+      "name": "Cisco AnyConnect: the pin set in the editor and a group set elsewhere both survive",
+      "original": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "anyconnect",
+        "host": "vpn.example.com",
+        "otp_delivery": "separate"
+      },
+      "edited": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "anyconnect",
+        "host": "vpn.example.com",
+        "otp_delivery": "separate",
+        "server_cert": "pin-sha256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk=",
+        "tls_only": true
+      },
+      "current": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "anyconnect",
+        "host": "vpn.example.com",
+        "otp_delivery": "separate",
+        "usergroup": "engineering"
+      },
+      "changed_fields": [
+        "server_cert",
+        "tls_only"
+      ],
+      "merged": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "connect_at_login": false,
+        "health_host": "",
+        "host": "vpn.example.com",
+        "icon": "",
+        "id": "acme",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "Acme",
+        "order": 0,
+        "otp_delivery": "separate",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "anyconnect",
+        "username": "",
+        "usergroup": "engineering",
+        "authgroup": "",
+        "server_cert": "pin-sha256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk=",
+        "tls_only": true
+      }
     }
   ]
 }

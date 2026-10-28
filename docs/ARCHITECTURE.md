@@ -77,7 +77,7 @@ it needs macOS 15.4 or later."), not as a failure.
 | Target | Owns | Depends on |
 |---|---|---|
 | `PassTunnelVPNConfig` | `OVPNSanitizer`, `FortiConfig`: the configurations the helper runs as root | — |
-| `PassTunnelKit` | the portable logic (Foundation, CryptoKit and Security only; builds for macOS 13, iOS 17 and Linux): model, `PTError`, `JSONCoding`, `TOTP`, `OTPAuthURI`, `OTPComposer`, `OVPNAnalyzer`, `OVPNInliner`, `OVPNSkipRules`, `OVPNImportReport`, `ShareFile`, `UnsupportedProfile`, `Slug`, `ProfileFields`, `ProfileMerge`, `SecretEnvelope`, `HealthCheck` (parsing), `ClockOffset` (clock offset, HTTP dates) | VPNConfig (and swift-crypto on Linux) |
+| `PassTunnelKit` | the portable logic (Foundation, CryptoKit and Security only; builds for macOS 13, iOS 17 and Linux): model, `PTError`, `JSONCoding`, `TOTP`, `OTPAuthURI`, `OTPComposer`, `OVPNAnalyzer`, `OVPNInliner`, `OVPNSkipRules`, `OVPNImportReport`, `ShareFile`, `UnsupportedProfile`, `AnyConnectServer`, `Slug`, `ProfileFields`, `ProfileMerge`, `SecretEnvelope`, `HealthCheck` (parsing), `ClockOffset` (clock offset, HTTP dates) | VPNConfig (and swift-crypto on Linux) |
 | `PassTunnelShared` | XPC protocol, request/response types, `HelperCore` (request decoding, path checks, tool environment; `HelperCore+DNSHook`: the Mac's DNS script wrapper and its record), `SessionPolicy`, `CodeSignature`, `Spawner` (verified, suspended launch), `PinnedTools`, `ToolStager` (root-owned copy of the tools and their dylibs), `HelperBuild`, identifiers | VPNConfig (and swift-crypto on Linux) |
 | `PassTunnelCore` | `ProfileStore` + `ImportDraft`, `ProfilesWatcher`, `Secrets` + `SecretStore` (Keychain; on Linux `SecretStores`: secret-service, systemd-creds, file), `SecretVault` + `UserAuthenticator` (Secure Enclave protection), `Preferences`, `HealthCheck.check` (the probe), `QRDecoder`, `OpenedFiles` (files the app is asked to open), `ScannedCodeTarget` (where a scanned code goes), `TLSFingerprint`, `ServerClock` + `SNTP` (clock checks), `HelperClient`, `HelperAutoUpdate`, `ConnectionManager` + `ProfileDestination`, `ConnectionFailure`, `UnreachableRetry`, `FailureDetails` ("Copy details"), `NetworkPath` + `NetworkStatus`, `ActivityLog` + `ActivityEvent`, `LoginConnector` (connect at login), CLI parsing (`CLICommand`, `CLIInvocation`), automation objects + `AutomationService`, `MCPServer` + `MCPTools` + `JSONValue` | Kit, VPNConfig, Shared (and swift-crypto's Crypto and CryptoExtras on Linux) |
 | `PassTunnelCLI` | the `passtunnel` command: `PassTunnelCLI.run` (entry, `CLIHelp`), `CLIRunner`, `CLICompletions`, `CLITerminal`, `CLIClipboard`; `Pasteboard` (macOS: the app's too) | Core, Kit, Shared |
@@ -239,12 +239,16 @@ public enum PT {
 ## Model (`PassTunnelKit/Model.swift`)
 
 ```swift
-public enum VPNType: String, Codable, CaseIterable { case openvpn, forti }
+public enum VPNType: String, Codable, CaseIterable {
+    case openvpn, forti, anyconnect   // anyconnect: Cisco AnyConnect (openconnect), not connected yet (below)
+    var defaultOTPDelivery: OTPDelivery  // .combined for OpenVPN, .separate for FortiGate and Cisco AnyConnect
+}
 public enum PasswordMode: String, Codable, CaseIterable { case keychain, ask, none }   // none = certificate only
 public enum OTPMode: String, Codable, CaseIterable { case none, totp, ask }
 /// How the one-time code reaches the server.
 /// combined  → one secret built from `otpTemplate` (e.g. "{password}{otp}"); OpenVPN auth file / Forti password field
-/// separate  → code sent on its own: OpenVPN static-challenge (SCRV1:b64(password):b64(code)), Forti `otp =` field
+/// separate  → code sent on its own: OpenVPN static-challenge (SCRV1:b64(password):b64(code)), Forti `otp =` field,
+///             Cisco AnyConnect's second answer (the next field openconnect asks for)
 public enum OTPDelivery: String, Codable, CaseIterable { case combined, separate }
 /// Presets the UI offers; any template containing "{otp}" is valid ("{password}" optional, literal text allowed).
 public enum OTPTemplatePreset: String, CaseIterable {
@@ -277,16 +281,21 @@ public struct Profile: Codable, Identifiable, Equatable {
     public var autoReconnect = false
     public var connectAtLogin = false     // the app connects it when it opens at login (LoginConnector)
     public var healthHost = ""            // "10.0.0.5" (ICMP) or "host:port" (TCP) or "[v6]:port"
-    public var otpDelivery = OTPDelivery.combined   // default: .combined for OpenVPN, .separate for Forti (set in create)
+    public var otpDelivery = OTPDelivery.combined   // default: VPNType.defaultOTPDelivery (set in create, and when the key is missing)
     public var otpTemplate = "{password}{otp}"      // used when .combined; validated: must contain "{otp}"
     // OpenVPN
     public var mgmtPort = 0               // legacy, unused: kept only so older profile.json files decode
-    // FortiGate
+    // FortiGate and Cisco AnyConnect (trustedCert FortiGate only)
     public var host = ""
     public var port = 443
     public var trustedCert = ""
     public var setDNS = false
     public var setRoutes = true
+    // Cisco AnyConnect only; written (profile.json, share files) only for that type
+    public var usergroup = ""             // the URL path: https://host/usergroup
+    public var authgroup = ""             // matched against the server's group list
+    public var serverCert = ""            // "pin-sha256:…" (OpenConnectPin, normalized) or "" for the system CAs
+    public var tlsOnly = false            // openconnect's no-dtls; DTLS by default
     public var configSourceName: String?    // file name the OpenVPN config was imported from
     public var configImportedAt: Date?      // ISO 8601, whole seconds
     // derived
@@ -294,6 +303,10 @@ public struct Profile: Codable, Identifiable, Equatable {
     public var needs: [CredentialField]   // what must be asked before connecting (none if password == .none)
     public var unattended: Bool           // can connect without asking (required for auto-reconnect)
     public var usesStoredSecrets: Bool    // keychain password or TOTP: only then is requireAuth offered
+    // checks (PTError), used by ProfileStore.save, ProfileFields.set and connecting
+    public static func checkUsername(_: String, type: VPNType) throws   // Forti: usernameTooLong; AnyConnect: invalidField
+    public func checkHosts() throws                                     // host (by type), health_host
+    public func checkAnyConnectFields() throws                          // usergroup, authgroup, server_cert, password_mode, otp_template
 }
 public enum AuthRequirement: String, Codable, CaseIterable, Comparable { case off, connect, always }   // ordered
 public enum CredentialField: String, Codable { case username, password, otp }
@@ -314,6 +327,20 @@ byte-equal; `save` fails closed: it also refuses to replace an existing `profile
 unreadable, or not a JSON object, because a newer version may have written it since the profile was read); only `delete` works. Importing a share file with an unknown `type` throws the same error before anything
 is created. The error is `config_invalid` in the CLI and MCP tools, and its message says the profile needs a newer
 PassTunnel. `list` and `list_profiles` show the profile with its stored `type` and `needs_newer_version: true`.
+
+`anyconnect` is a known type whose connect path is not there yet (#184). Its keys and rules are in
+[Profile (#181)](#profile-181) below. Until it connects, `VPNType.connectable` is `[.openvpn, .forti]`, and a Cisco
+AnyConnect profile (imported from a share file, or written by a newer build) is treated as follows:
+- **Core**: `ConnectionManager.checkConnectable` throws `PTError.unsupportedProfileType("anyconnect")` (`config_invalid`;
+  "needs a newer PassTunnel") at the start of `connect`, `checkCanStart` and the attempt itself, before a confirmation is
+  asked for, a secret is read or the helper is called; `observe` reads it as disconnected; `diagnose` reports that error.
+  `ProfileStore` lists, saves (with the checks above), exports, imports and deletes it like any profile.
+- **CLI and MCP**: listed with its settings and `needs_newer_version: true`; `connect`, `toggle` and the MCP `connect` fail
+  as above; `show`, `set` (its keys), `export` and `rm` work; `add --type anyconnect` is refused (unknown type).
+- **App**: shown like a profile of an unknown type (`UnsupportedProfile(profile)`: the row, the detail, Delete only); the
+  editor never opens on it (an import selects it instead), the type pickers offer only `VPNType.connectable`, and the
+  menu bar and scanned codes never see it.
+- The helper and `passtunneld` have no request for it.
 
 ## Core APIs
 
@@ -407,6 +434,8 @@ public enum OTPComposer {
         // what compose sends, as .password / .code / .text in order: the editor's masked "Server receives"
 }
 public struct ShareFile: Codable              // {"passtunnel_profile":1, "profile":{…minus username,last_username,order,mgmt_port,pinned,require_auth,connect_at_login,config_imported_at}, "files":{"config.ovpn": base64}} (config without credential blocks)
+    // passtunnel_profile: the oldest version that reads the file (version(for: type): 1 for OpenVPN and FortiGate, 2 for
+    // Cisco AnyConnect); a reader accepts 1…currentVersion (2) and refuses anything else as unsupportedShareFile
     // fileExtension "passtunnel", typeIdentifier "com.furkanprlk.passtunnel.profile" (exported by the app, conforms to public.json)
 public struct Preferences: Codable { defaultProfile, theme, notifyOnDrop, sessionWarnMin=30,
     sessionNotifyMin=10, hotkeys=false, autoType=false, launchAtLogin=true,
@@ -967,7 +996,8 @@ tunnel. Hence:
 
 ## Cisco AnyConnect backend (planned)
 
-**Not implemented yet.** This is the design of Phase 1 of #2: Cisco AnyConnect through OpenConnect,
+**Not implemented yet** (connecting): the profile model is in (#181, [Profile](#profile-181)), and
+such a profile is listed but not connected. This is the design of Phase 1 of #2: Cisco AnyConnect through OpenConnect,
 with a password and a TOTP code (no SAML or other single sign-on), on the Mac and on Linux. The
 issues #179–#189 implement it, each named below where its part lands; until they do, everything
 above is all PassTunnel runs (`openvpn`, `openfortivpn`). Before any of it, #177 makes `Profile`
@@ -1454,28 +1484,54 @@ file for the hook. The request stays under the
 
 ### Profile (#181)
 
-`VPNType.anyconnect` (`--type anyconnect`; later phases add their own types for the same backend).
-New keys (JSON snake_case), FortiGate's reused where the meaning is the same:
+`VPNType.anyconnect` (`--type anyconnect` from #185; later phases add their own types for the same backend), in
+`PassTunnelKit` since #181. New keys (JSON snake_case), FortiGate's reused where the meaning is the same; the rules are
+`OpenConnectAuthConfig`'s (`PassTunnelVPNConfig`), so the profile, the sign-in file and the helper check the same thing:
 
 | Key | Rule |
 |---|---|
-| `host` | `FortiConfig.isValidHost` without an IPv6 zone id; rendered in brackets when IPv6 |
+| `host` | `OpenConnectAuthConfig.isValidHost`: `FortiConfig.isValidHost` without an IPv6 zone id (a URL cannot carry one), stored as typed; rendered lowercased, in brackets when IPv6 |
 | `port` | 1–65535, default 443 |
 | `usergroup` | empty or 1–255 bytes of `A–Z a–z 0–9 - _ . ~ /`, no `..`, no leading `/` (the URL path) |
-| `authgroup` | empty or 1–255 bytes, no control characters, no leading or trailing whitespace, no leading `=` (matched against the server's group list) |
-| `server_cert` | empty or `pin-sha256:` + 44 base64 characters (not `trusted_cert`: another hash) |
+| `authgroup` | empty or 1–255 bytes, no control characters or line separators, no leading or trailing whitespace, no leading `=` (matched against the server's group list) |
+| `server_cert` | empty or `pin-sha256:` + 44 base64 characters (`OpenConnectPin.isValid`); `passtunnel set` and share import store `OpenConnectPin.normalize`'s form, `save` refuses any other spelling (not `trusted_cert`: another hash) |
 | `tls_only` | boolean, default false: `no-dtls` |
 | `set_dns`, `set_routes` | as for FortiGate |
-| `username` | at most 255 bytes, no control characters, no leading or trailing whitespace, no leading `=` (a config file value) |
-| password, TOTP, `otp_delivery`, `otp_template` | as today; `otp_delivery` defaults to `.separate`; the password and each composed line 1–4,095 bytes, no LF, CR or NUL |
+| `username` | empty (asked each time) or, trimmed as it is sent, 1–255 bytes, no control characters, no leading `=` (a config file value) |
+| `password_mode` | `keychain` or `ask` (no certificate sign-in) |
+| TOTP, `otp_delivery`, `otp_template` | as today; `otp_delivery` defaults to `.separate` (`VPNType.defaultOTPDelivery`, also for a file without the key); with `.combined` and a code, the template is at most 4,095 bytes without LF, CR or NUL (`Profile.isValidAnyConnectTemplate`) |
+| password, composed answers | 1–4,095 bytes, no LF, CR or NUL (`OpenConnectAnswers`), checked when they are sent (#184): the password is no profile field |
 
-There is no user agent field and no raw option. Each rule is `PTError.invalidField`, enforced in
-`ProfileStore.save`, `ConnectionManager` and again by the helper. `ProfileDestination.of` covers the
-version tag, the type, the lowercased host, the port, `usergroup` and the normalized `server_cert`.
-Phase 1 imports by manual entry and by pasting a URL (`https://vpn.example.com/group` fills host,
-port and usergroup). `ShareFile`'s version is raised for the new type, so an older PassTunnel
-refuses such a share file instead of importing it as OpenVPN. The CLI and MCP (#185), the editor
-(#186) and the user docs (#189) follow; `passtunneld` on Linux is #187.
+`usergroup`, `authgroup`, `server_cert` and `tls_only` are written to `profile.json` and share files only for type
+`anyconnect` (they are read for any type and dropped on the next save of another type's profile), so OpenVPN and
+FortiGate files stay exactly as before. `ProfileFields` sets and shows them for this type only (aliases `user_group`,
+`auth_group`; `trusted_cert` is FortiGate's alone, the new keys on another type are `wrong_profile_type`). There is no
+user agent field and no raw option. Each rule is `PTError.invalidField(<key>)` (the username's too, where FortiGate's
+is `usernameTooLong`), enforced by `ProfileFields.set`, `ProfileStore.save` (`checkUsername`, `checkHosts`,
+`checkAnyConnectFields`), later `ConnectionManager` (#184), and again by the helper (`OpenConnectConfig.validate`).
+
+`ProfileDestination.of` hashes, after the unchanged version tag `passtunnel-destination-1` and the type, the trimmed
+lowercased host, the port, `usergroup` and `server_cert` (normalized, so a hand-edited spelling of the same pin does
+not move the binding). `authgroup`, `tls_only`, `set_dns` and `set_routes` are not part of it: the group is a choice
+the server offers on the same destination. The OpenVPN and FortiGate fingerprints are unchanged (the type is hashed
+first, so no AnyConnect profile can share one), and so are the secrets and network records bound to them.
+
+Phase 1 creates profiles by manual entry and by pasting a URL: `AnyConnectServer.parse` takes
+`https://vpn.example.com[:port][/usergroup]` (`https://` may be left out or upper case; blanks around it ignored) and
+gives the lowercased host (an IPv6 literal from its brackets), the port (443 when none) and the user group as written;
+it refuses another scheme, user info, a query or fragment (`?`, `#`, even empty), percent escapes, an IPv6 literal
+without brackets or with a zone id, a port with a leading zero or out of range, and a path that is not a user group.
+Golden cases: `fixtures/anyconnect-servers.json`.
+
+Share files: `passtunnel_profile` is the oldest format version that reads the file (`ShareFile.version(for:)`). A
+Cisco AnyConnect profile is written as version 2; OpenVPN and FortiGate profiles are still written as version 1,
+unchanged, so older Macs and the phone apps keep importing them. A reader takes 1…`ShareFile.currentVersion` (2), so
+1.1.4 and older (version 1 only) refuse an AnyConnect file ("made by a newer version") instead of importing it as
+OpenVPN, which they would have done before #191. A version 1 file with type `anyconnect` (which no PassTunnel writes)
+is read too. Import copies the new keys, normalizing the pin, then `save` checks them.
+
+The CLI and MCP (#185), the editor (#186), connecting (#184, with the macOS 15.4 check) and the user docs (#189)
+follow; `passtunneld` on Linux is #187. Until then such a profile is listed but not connected (see "Model").
 
 ### Tests (#188)
 

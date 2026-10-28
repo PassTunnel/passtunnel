@@ -495,6 +495,348 @@
         "detail": "health_host",
         "kind": "invalid_field"
       }
+    },
+    {
+      "name": "Cisco AnyConnect: host",
+      "type": "anyconnect",
+      "key": "host",
+      "value": "vpn.example.com",
+      "canonical_key": "host",
+      "stored": "vpn.example.com"
+    },
+    {
+      "type": "anyconnect",
+      "key": "host",
+      "value": "2001:db8::1",
+      "canonical_key": "host",
+      "stored": "2001:db8::1"
+    },
+    {
+      "note": "a URL cannot carry a zone id",
+      "type": "anyconnect",
+      "key": "host",
+      "value": "fe80::1%en0",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "host"
+      }
+    },
+    {
+      "note": "paste a URL with AnyConnectServer.parse",
+      "type": "anyconnect",
+      "key": "host",
+      "value": "https://vpn.example.com/engineering",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "host"
+      }
+    },
+    {
+      "type": "anyconnect",
+      "key": "host",
+      "value": "vpn.example.com:8443",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "host"
+      }
+    },
+    {
+      "type": "anyconnect",
+      "key": "port",
+      "value": "8443",
+      "canonical_key": "port",
+      "stored": "8443"
+    },
+    {
+      "type": "anyconnect",
+      "key": "usergroup",
+      "value": "engineering",
+      "canonical_key": "usergroup",
+      "stored": "engineering"
+    },
+    {
+      "type": "anyconnect",
+      "key": "user-group",
+      "value": "eng/vpn_2.x~",
+      "canonical_key": "usergroup",
+      "stored": "eng/vpn_2.x~"
+    },
+    {
+      "type": "anyconnect",
+      "key": "usergroup",
+      "value": "",
+      "canonical_key": "usergroup",
+      "stored": ""
+    },
+    {
+      "type": "anyconnect",
+      "key": "usergroup",
+      "value": "/engineering",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "usergroup"
+      }
+    },
+    {
+      "type": "anyconnect",
+      "key": "usergroup",
+      "value": "eng/../admin",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "usergroup"
+      }
+    },
+    {
+      "type": "anyconnect",
+      "key": "usergroup",
+      "value": "eng group",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "usergroup"
+      }
+    },
+    {
+      "type": "anyconnect",
+      "key": "usergroup",
+      "value": "eng%2Fx",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "usergroup"
+      }
+    },
+    {
+      "note": "256 bytes: at most 255",
+      "type": "anyconnect",
+      "key": "usergroup",
+      "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "usergroup"
+      }
+    },
+    {
+      "type": "anyconnect",
+      "key": "authgroup",
+      "value": "Employees (MFA)",
+      "canonical_key": "authgroup",
+      "stored": "Employees (MFA)"
+    },
+    {
+      "note": "blanks around a value are dropped",
+      "type": "anyconnect",
+      "key": "auth_group",
+      "value": "  Çalışanlar  ",
+      "canonical_key": "authgroup",
+      "stored": "Çalışanlar"
+    },
+    {
+      "note": "openconnect would skip the =",
+      "type": "anyconnect",
+      "key": "authgroup",
+      "value": "=Employees",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "authgroup"
+      }
+    },
+    {
+      "type": "anyconnect",
+      "key": "authgroup",
+      "value": "Employees\u0000x",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "authgroup"
+      }
+    },
+    {
+      "type": "anyconnect",
+      "key": "authgroup",
+      "value": "Employees\u2028x",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "authgroup"
+      }
+    },
+    {
+      "note": "stored normalized: blanks dropped, the prefix lowercased",
+      "type": "anyconnect",
+      "key": "server_cert",
+      "value": "  PIN-SHA256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk=\n",
+      "canonical_key": "server_cert",
+      "stored": "pin-sha256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk="
+    },
+    {
+      "type": "anyconnect",
+      "key": "server_cert",
+      "value": "",
+      "canonical_key": "server_cert",
+      "stored": ""
+    },
+    {
+      "note": "a prefix of the pin: openconnect would take it, PassTunnel does not",
+      "type": "anyconnect",
+      "key": "server_cert",
+      "value": "pin-sha256:z5GvjHUM",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "server_cert"
+      }
+    },
+    {
+      "note": "the last character cannot end a 32-byte digest",
+      "type": "anyconnect",
+      "key": "server_cert",
+      "value": "pin-sha256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgl=",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "server_cert"
+      }
+    },
+    {
+      "type": "anyconnect",
+      "key": "server_cert",
+      "value": "sha256:cf91af8c750c0ae0f8cde07a3dca5a7d503a39992cf9cf0f1b1480b80c741e09",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "server_cert"
+      }
+    },
+    {
+      "type": "anyconnect",
+      "key": "server_cert",
+      "value": "pin-sha256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk=x",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "server_cert"
+      }
+    },
+    {
+      "type": "anyconnect",
+      "key": "tls_only",
+      "value": "yes",
+      "canonical_key": "tls_only",
+      "stored": "true"
+    },
+    {
+      "type": "anyconnect",
+      "key": "tls_only",
+      "value": "maybe",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "tls_only"
+      }
+    },
+    {
+      "type": "anyconnect",
+      "key": "set_dns",
+      "value": "on",
+      "canonical_key": "set_dns",
+      "stored": "true"
+    },
+    {
+      "type": "anyconnect",
+      "key": "set_routes",
+      "value": "off",
+      "canonical_key": "set_routes",
+      "stored": "false"
+    },
+    {
+      "type": "anyconnect",
+      "key": "username",
+      "value": "alice",
+      "canonical_key": "username",
+      "stored": "alice"
+    },
+    {
+      "type": "anyconnect",
+      "key": "username",
+      "value": "=alice",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "username"
+      }
+    },
+    {
+      "type": "anyconnect",
+      "key": "username",
+      "value": "alice\u0001",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "username"
+      }
+    },
+    {
+      "note": "256 bytes: at most 255",
+      "type": "anyconnect",
+      "key": "username",
+      "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "username"
+      }
+    },
+    {
+      "type": "anyconnect",
+      "key": "password_mode",
+      "value": "none",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "password_mode"
+      }
+    },
+    {
+      "type": "anyconnect",
+      "key": "otp_template",
+      "value": "{password},{otp}",
+      "canonical_key": "otp_template",
+      "stored": "{password},{otp}"
+    },
+    {
+      "note": "the answer is one line",
+      "type": "anyconnect",
+      "key": "otp_template",
+      "value": "{password}\n{otp}",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "otp_template"
+      }
+    },
+    {
+      "note": "FortiGate's: Cisco AnyConnect pins with server_cert",
+      "type": "anyconnect",
+      "key": "trusted_cert",
+      "value": "ab12",
+      "error": {
+        "kind": "wrong_profile_type",
+        "detail": "acme"
+      }
+    },
+    {
+      "type": "forti",
+      "key": "usergroup",
+      "value": "engineering",
+      "error": {
+        "kind": "wrong_profile_type",
+        "detail": "acme"
+      }
+    },
+    {
+      "type": "openvpn",
+      "key": "server_cert",
+      "value": "pin-sha256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk=",
+      "error": {
+        "kind": "wrong_profile_type",
+        "detail": "acme"
+      }
+    },
+    {
+      "type": "forti",
+      "key": "tls_only",
+      "value": "yes",
+      "error": {
+        "kind": "wrong_profile_type",
+        "detail": "acme"
+      }
     }
   ]
 }

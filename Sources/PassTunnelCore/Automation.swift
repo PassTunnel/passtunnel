@@ -192,7 +192,8 @@ public struct ProfileSummary: Codable, Equatable {
     /// disconnected / connecting / connected; only when the caller asked the helper (MCP).
     public var state: String?
     /// true for a profile of a VPN type this version does not know (`type` is then the stored value): it needs
-    /// a newer PassTunnel and can only be deleted. Left out otherwise.
+    /// a newer PassTunnel and can only be deleted. Also for one of a type it knows but does not connect yet
+    /// (`VPNType.isConnectable`: Cisco AnyConnect), whose settings are shown. Left out otherwise.
     public var needsNewerVersion: Bool?
 
     /// A profile of an unknown type: only what the file says about it; every setting reads as off.
@@ -226,6 +227,7 @@ public struct ProfileSummary: Codable, Equatable {
         autoReconnect = p.autoReconnect
         connectAtLogin = p.connectAtLogin
         self.state = state.map(ProfileStatus.stateName)
+        needsNewerVersion = p.type.isConnectable ? nil : true
     }
 
     /// From the settings alone (no Keychain access).
