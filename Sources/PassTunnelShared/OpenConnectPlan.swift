@@ -15,7 +15,7 @@ public struct OpenConnectPlan: Equatable, Sendable {
         /// nil for an interface name that is not one (`isInterfaceName`) or an address no gateway has
         /// (`IPAddress.isSpecial`).
         public init?(address: IPAddress?, interface: String) {
-            guard Self.isInterfaceName(interface), address.map({ !$0.isSpecial }) ?? true else { return nil }
+            guard Self.isInterfaceName(interface), address.map({ !$0.isSpecial && !$0.isIPv4Embedded }) ?? true else { return nil }
             self.address = address
             self.interface = interface
         }
@@ -178,11 +178,14 @@ public struct OpenConnectPlan: Equatable, Sendable {
                 self = .link(interface: words[1], mtu: mtu)
             case "address":
                 guard words.count == 3, OpenConnectRecord.isInterface(words[1]), let address = IPAddress(words[2]), !address.isSpecial,
+                    !address.isIPv4Embedded,
                     address.description == words[2]
                 else { return nil }
                 self = .address(interface: words[1], address)
             case "route":
-                guard words.count >= 3, let network = IPNetwork(words[1]), network.description == words[1] else { return nil }
+                guard words.count >= 3, let network = IPNetwork(words[1]), network.description == words[1], !network.isIPv4Embedded else {
+                    return nil
+                }
                 switch (words[2], words.count) {
                 case ("interface", 4):
                     guard OpenConnectRecord.isInterface(words[3]) else { return nil }
@@ -200,7 +203,7 @@ public struct OpenConnectPlan: Equatable, Sendable {
             case "dns":
                 guard words.count == 7, Self.isService(words[1]), OpenConnectRecord.isInterface(words[2]),
                     words[3] == "primary" || words[3] == "split",
-                    let servers = Self.list(words[4], key: "servers", { IPAddress($0).flatMap { $0.isUnspecified ? nil : $0 } }),
+                    let servers = Self.list(words[4], key: "servers", { IPAddress($0).flatMap { $0.isUnspecified || $0.isIPv4Embedded ? nil : $0 } }),
                     !servers.isEmpty, servers.count <= OpenConnectNetwork.maxDNSServers,
                     let search = Self.list(words[5], key: "search", DomainName.normalize),
                     let match = Self.list(words[6], key: "match", DomainName.normalize),

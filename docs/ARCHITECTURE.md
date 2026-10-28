@@ -1442,9 +1442,12 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
    does not read is never decoded. The validators are family-specific: an *address* is parsed by
    `IPAddress` (dotted decimal without leading zeros, which `inet_aton` would read as octal; IPv6 groups
    of 1–4 hex digits, one `::`, an IPv4 tail; no zone, port, bracket or blank), cross-checked with
-   `inet_pton` and written as `inet_ntop` gives it back; a *host address* is also not unspecified,
-   loopback, `0.0.0.0/8`, `224.0.0.0/3` or `ff00::/8` (`VPNGATEWAY` may be loopback: a test server on
-   this machine); a *network* may be `0.0.0.0` or `::`; a *mask* is a contiguous dotted IPv4 mask or a
+   `inet_pton` and written as `inet_ntop` gives it back; no IPv6 address or split network may be an
+   IPv4 one written as IPv6 (IPv4-mapped `::ffff:0:0/96` or IPv4-compatible `::/96`, `isIPv4Embedded`):
+   openconnect connects over a real IPv4 or IPv6 address, and such a form would slip past the IPv4
+   checks (a `VPNGATEWAY` of `::ffff:192.0.2.10` next to an IPv4 include `192.0.2.0/24`); a *host
+   address* is also not unspecified, loopback, `0.0.0.0/8`, `224.0.0.0/3` or `ff00::/8` (`VPNGATEWAY`
+   may be loopback: a test server on this machine); a *network* may be `0.0.0.0` or `::`; a *mask* is a contiguous dotted IPv4 mask or a
    length (0–32, 0–128) without leading zeros. Errors name the variable and the rule, never the value
    (`OpenConnectNetwork.Failure`), since they go to the log.
 
@@ -1578,6 +1581,7 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
    + dns passtunnel-501-acme utun5 primary servers=… search=… match=-
    ! dns passtunnel-501-acme utun5 primary servers=… search=… match=-   failed: nothing changed
    - route 192.0.2.10/32 gateway 198.51.100.1 en0        reverted
+   ? route ::/1 reject                                   spared: left to another live session at the revert
    status up | status reconnecting | status failed <reason>
    ```
 
@@ -1588,7 +1592,10 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
 
    **What to revert** (`toRevert(sparing:)`, pure, called under the run root's lock with the records of
    every other live session of the run root): every change that is the session's own or pending, newest
-   first, but none that another live session's record lists as its own, pending or there already. Some
+   first, but none that another live session's record lists as its own, pending or there already. The
+   revert starts with `beginRevert(sparing:)`, which journals each change so left alone as spared (`?`,
+   which also settles a pending one, so the rest of the revert can be journaled) and returns the list;
+   each change on it is then journaled as reverted once undone. Some
    changes can be the same in two sessions: a reject route (`route ::/1 reject`), the host route to a VPN
    server two profiles share, an exclude through the same gateway. The session that made one first owns
    it, the other finds it there (`~`), and a pending one may be either session's; removing it while the

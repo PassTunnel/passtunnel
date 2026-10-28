@@ -247,7 +247,7 @@ public struct OpenConnectNetwork: Equatable, Sendable {
             let words = text.split(separator: " ")
             guard words.count <= maxDNSServers else { throw Failure.tooMany("INTERNAL_IP4_DNS", maxDNSServers) }
             for word in words {
-                guard let address = IPAddress(String(word)), !address.isUnspecified else {
+                guard let address = IPAddress(String(word)), !address.isUnspecified, !address.isIPv4Embedded else {
                     throw Failure.invalid("INTERNAL_IP4_DNS", "a list of IPv4 and IPv6 addresses")
                 }
                 if !servers.contains(address) { servers.append(address) }
@@ -284,12 +284,12 @@ public struct OpenConnectNetwork: Equatable, Sendable {
     }
 
     /// An address an interface may take or a host may have: not unspecified, multicast or the like
-    /// (`IPAddress.isSpecial`); loopback only where `allowLoopback` (a VPN server on this machine).
+    /// (`IPAddress.isSpecial`), not an IPv4 address written as IPv6 (`isIPv4Embedded`); loopback only where `allowLoopback` (a VPN server on this machine).
     static func hostAddress(_ text: String, name: String, family: IPAddress.Family? = nil, allowLoopback: Bool = false) throws
         -> IPAddress
     {
         let rule = family == .ipv4 ? "an IPv4 host address" : family == .ipv6 ? "an IPv6 host address" : "a host address"
-        guard let address = IPAddress(text), family == nil || address.family == family,
+        guard let address = IPAddress(text), family == nil || address.family == family, !address.isIPv4Embedded,
             !address.isSpecial || (allowLoopback && address.isLoopback)
         else { throw Failure.invalid(name, rule) }
         return address
@@ -400,7 +400,10 @@ public struct OpenConnectNetwork: Equatable, Sendable {
             if length == 0, countName.hasSuffix("EXC") {
                 throw Failure.invalid(base + "MASKLEN", "a length from 1 to \(family.bits) (an exclude of every address)")
             }
-            out.append(IPNetwork(address: address, prefixLength: length)!)
+            let network = IPNetwork(address: address, prefixLength: length)!
+            // An IPv4 network written as an IPv6 one would escape the IPv4 checks.
+            if network.isIPv4Embedded { throw Failure.invalid(base + "ADDR", "an IPv6 network (not an IPv4 one written as IPv6)") }
+            out.append(network)
         }
         return out
     }

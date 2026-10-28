@@ -80,6 +80,14 @@ public struct IPAddress: Hashable, Sendable, CustomStringConvertible {
         }
     }
 
+    /// An IPv6 address that stands for an IPv4 one: IPv4-mapped (`::ffff:0:0/96`) or IPv4-compatible
+    /// (`::/96`, which also holds `::` and `::1`). A socket of either family never connects to such an address
+    /// on the wire, so the hook refuses it: the IPv4 checks would not see the IPv4 address in it.
+    public var isIPv4Embedded: Bool {
+        guard family == .ipv6, bytes.prefix(10).allSatisfy({ $0 == 0 }) else { return false }
+        return (bytes[10] == 0 && bytes[11] == 0) || (bytes[10] == 0xFF && bytes[11] == 0xFF)
+    }
+
     /// IPv6 `fe80::/10`, IPv4 `169.254.0.0/16`.
     public var isLinkLocal: Bool {
         family == .ipv4 ? bytes[0] == 169 && bytes[1] == 254 : bytes[0] == 0xFE && bytes[1] & 0xC0 == 0x80
@@ -223,6 +231,10 @@ public struct IPNetwork: Hashable, Sendable, CustomStringConvertible {
     }
 
     public var family: IPAddress.Family { address.family }
+
+    /// An IPv6 network inside `::ffff:0:0/96` or `::/96`: IPv4 addresses written as IPv6 ones
+    /// (`IPAddress.isIPv4Embedded`). `::/1` and the like are not.
+    public var isIPv4Embedded: Bool { family == .ipv6 && prefixLength >= 96 && address.isIPv4Embedded }
 
     public var description: String { "\(address)/\(prefixLength)" }
 

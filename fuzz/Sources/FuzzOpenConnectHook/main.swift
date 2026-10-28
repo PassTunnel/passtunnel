@@ -84,6 +84,11 @@ func LLVMFuzzerTestOneInput(_ data: UnsafePointer<UInt8>?, _ size: Int) -> CInt 
     try! record.append(.status(.up))
     precondition(record.toRevert(sparing: []) == plan.changes.reversed(), "a revert that is not newest first")
     precondition(record.toRevert(sparing: [record]).isEmpty, "a revert of what another session holds")
+    var spareAll = record
+    precondition((try? spareAll.beginRevert(sparing: [record]))?.isEmpty == true && spareAll.pending == nil)
+    var undoAll = record
+    for change in try! undoAll.beginRevert(sparing: []) { try! undoAll.append(.reverted(change)) }
+    precondition(undoAll.toRevert(sparing: []).isEmpty, "a revert that left something of the session's")
     if let text = try? record.text() {
         precondition(OpenConnectRecord.parse(text) == record, "the record does not read back")
     }
@@ -95,6 +100,10 @@ func LLVMFuzzerTestOneInput(_ data: UnsafePointer<UInt8>?, _ size: Int) -> CInt 
         try! killed.append(.begin(extra))
         checkCompaction(killed)
         precondition(killed.toRevert(sparing: []).first == extra)
+        var spared = killed
+        precondition((try? spared.beginRevert(sparing: [record])) == [extra] && spared.pending == extra)
+        try! spared.append(.reverted(extra))
+        checkCompaction(spared)
     }
     precondition(OpenConnectPlan.matches(network, policy: policy, underlay: underlay, record: record), "a set-up that does not match itself")
     let refresh = OpenConnectPlan.refresh(network, policy: policy, underlay: underlay, record: record)
@@ -155,6 +164,9 @@ func checkNetwork(_ n: OpenConnectNetwork, event: OpenConnectNetwork.Event, plat
     precondition(OpenConnectNetwork.isTunnelInterface(n.interface, platform: platform))
     precondition(OpenConnectNetwork.mtuRange.contains(n.mtu))
     precondition(n.ipv4 != nil || n.ipv6 != nil)
+    let ipv6 = [n.gateway, n.ipv6?.address].compactMap { $0 } + n.dnsServers
+    precondition(!ipv6.contains { $0.isIPv4Embedded }, "an IPv4 address written as IPv6")
+    precondition(!(n.ipv6Includes + n.ipv6Excludes).contains { $0.isIPv4Embedded }, "an IPv4 network written as IPv6")
     precondition(n.ipv6 == nil || n.mtu >= OpenConnectNetwork.minIPv6MTU)
     for address in [n.gateway] + [n.ipv4?.address, n.ipv6?.address].compactMap({ $0 }) + n.dnsServers {
         precondition(IPAddress(address.description) == address, "an address that does not validate again")

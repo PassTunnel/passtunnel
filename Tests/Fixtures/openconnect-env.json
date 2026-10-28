@@ -830,6 +830,36 @@
       "env": {"CISCO_IPV6_SPLIT_INC": "1", "CISCO_IPV6_SPLIT_INC_0_ADDR": "2001:db8::"},
       "error": "CISCO_IPV6_SPLIT_INC_0_MASKLEN is not set"
     },
+    {
+      "name": "VPNGATEWAY IPv4-mapped, with an IPv4 include holding its IPv4 address",
+      "env": {
+        "VPNGATEWAY": "::ffff:192.0.2.10",
+        "CISCO_SPLIT_INC": "1",
+        "CISCO_SPLIT_INC_0_ADDR": "192.0.2.0", "CISCO_SPLIT_INC_0_MASK": "255.255.255.0", "CISCO_SPLIT_INC_0_MASKLEN": "24"
+      },
+      "error": "VPNGATEWAY is not a host address"
+    },
+    {
+      "name": "VPNGATEWAY IPv4-mapped equal to the IPv4 address",
+      "env": {"VPNGATEWAY": "::ffff:10.11.0.2"},
+      "error": "VPNGATEWAY is not a host address"
+    },
+    {"name": "VPNGATEWAY IPv4-compatible", "env": {"VPNGATEWAY": "::192.0.2.10"}, "error": "VPNGATEWAY is not a host address"},
+    {"name": "IPv6 address IPv4-mapped", "env": {"INTERNAL_IP6_ADDRESS": "::ffff:10.11.0.3"}, "error": "INTERNAL_IP6_ADDRESS is not an IPv6 host address"},
+    {"name": "IPv6 address IPv4-compatible", "env": {"INTERNAL_IP6_ADDRESS": "::10.11.0.3"}, "error": "INTERNAL_IP6_ADDRESS is not an IPv6 host address"},
+    {"name": "IPv6 netmask address IPv4-mapped", "env": {"INTERNAL_IP6_NETMASK": "::ffff:10.11.0.3/120"}, "error": "INTERNAL_IP6_NETMASK is not an IPv6 host address"},
+    {"name": "DNS server IPv4-mapped", "env": {"INTERNAL_IP4_DNS": "10.11.0.53 ::ffff:10.11.0.54"}, "error": "INTERNAL_IP4_DNS is not a list of IPv4 and IPv6 addresses"},
+    {"name": "DNS server IPv4-compatible", "env": {"INTERNAL_IP4_DNS": "::10.11.0.54"}, "error": "INTERNAL_IP4_DNS is not a list of IPv4 and IPv6 addresses"},
+    {
+      "name": "IPv6 split include IPv4-mapped",
+      "env": {"CISCO_IPV6_SPLIT_INC": "1", "CISCO_IPV6_SPLIT_INC_0_ADDR": "::ffff:192.0.2.0", "CISCO_IPV6_SPLIT_INC_0_MASKLEN": "120"},
+      "error": "CISCO_IPV6_SPLIT_INC_0_ADDR is not an IPv6 network (not an IPv4 one written as IPv6)"
+    },
+    {
+      "name": "IPv6 split exclude IPv4-compatible",
+      "env": {"CISCO_IPV6_SPLIT_EXC": "1", "CISCO_IPV6_SPLIT_EXC_0_ADDR": "::192.0.2.0", "CISCO_IPV6_SPLIT_EXC_0_MASKLEN": "120"},
+      "error": "CISCO_IPV6_SPLIT_EXC_0_ADDR is not an IPv6 network (not an IPv4 one written as IPv6)"
+    },
     {"name": "VPNPID zero", "env": {"VPNPID": "0"}, "error": "VPNPID is not a process ID"},
     {"name": "VPNPID not a number", "env": {"VPNPID": "42x"}, "error": "VPNPID is not a process ID"}
   ]

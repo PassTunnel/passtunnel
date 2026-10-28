@@ -46,6 +46,8 @@ public struct OpenConnectRecord: Equatable, Sendable {
         case existed(Change)
         case failed(Change)
         case reverted(Change)
+        /// Left in place at the revert: another live session holds it (`beginRevert(sparing:)`).
+        case spared(Change)
         case status(Status)
 
         var text: String {
@@ -55,6 +57,7 @@ public struct OpenConnectRecord: Equatable, Sendable {
             case .existed(let c): return "~ " + c.text
             case .failed(let c): return "! " + c.text
             case .reverted(let c): return "- " + c.text
+            case .spared(let c): return "? " + c.text
             case .status(.up): return "status up"
             case .status(.reconnecting): return "status reconnecting"
             case .status(.failed(let reason)): return "status failed " + reason
@@ -84,6 +87,7 @@ public struct OpenConnectRecord: Equatable, Sendable {
             case "~": self = .existed(change)
             case "!": self = .failed(change)
             case "-": self = .reverted(change)
+            case "?": self = .spared(change)
             default: return nil
             }
         }
@@ -97,6 +101,8 @@ public struct OpenConnectRecord: Equatable, Sendable {
         case existed
         case failed
         case reverted
+        /// The session's or pending, left to another live session at the revert: no longer this one's.
+        case spared
     }
 
     /// Why an entry cannot follow the record.
@@ -143,6 +149,7 @@ public struct OpenConnectRecord: Equatable, Sendable {
     /// - `begin`: no change is pending, and this one is neither pending nor the session's;
     /// - `owned`, `existed`, `failed`: the outcome of the pending change;
     /// - `reverted`: a change that is the session's or pending, while no other change is pending;
+    /// - `spared`: a change that is the session's or pending (it settles a pending one);
     /// - `status`: no change is pending; a failure's reason is one line of printable ASCII.
     public mutating func append(_ entry: Entry) throws {
         let pending = self.pending
@@ -166,6 +173,10 @@ public struct OpenConnectRecord: Equatable, Sendable {
             }
             states[c] = .reverted
             self.pending = nil
+        case .spared(let c):
+            guard states[c] == .owned || states[c] == .pending else { throw Failure.outOfOrder(entry.text) }
+            states[c] = .spared
+            if pending == c { self.pending = nil }
         case .status(let status):
             guard pending == nil else { throw Failure.outOfOrder(entry.text) }
             if case .failed(let reason) = status, !Self.isReason(reason) { throw Failure.invalidReason }
@@ -190,6 +201,19 @@ public struct OpenConnectRecord: Equatable, Sendable {
             }
         }
         return ordered.reversed().filter { (states[$0] == .owned || states[$0] == .pending) && !claimed.contains($0) }
+    }
+
+    /// Starts the revert: journals every change `toRevert(sparing:)` leaves to another session as `spared`
+    /// (`?`; a pending one is settled by it), then returns the changes to undo, newest first, each of which can
+    /// then be journaled as `reverted` once undone. Call it under the run root's lock with the other live
+    /// sessions' records; the record must then be written before anything is undone.
+    public mutating func beginRevert(sparing others: [OpenConnectRecord]) throws -> [Change] {
+        let undo = toRevert(sparing: others)
+        let kept = Set(undo)
+        for change in ordered.reversed() where (states[change] == .owned || states[change] == .pending) && !kept.contains(change) {
+            try append(.spared(change))
+        }
+        return undo
     }
 
     /// Every change, in the order it was last begun.

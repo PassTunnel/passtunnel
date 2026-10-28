@@ -514,7 +514,8 @@ names are openconnect's own, so a server cannot set `BASH_ENV` or similar.
   set-up was not reported within 60 seconds, which before #183 is every one.
 - **Every value it uses is checked first**, as for OpenVPN's DNS on Linux, with the same address
   and domain rules: addresses must parse strictly (no leading zeros, which some parsers read as
-  octal; no zones, ports or blanks) and are written back in canonical form, masks must be
+  octal; no zones, ports or blanks; no IPv4 address written as an IPv6 one, which would slip past the
+  IPv4 checks) and are written back in canonical form, masks must be
   consistent, domains must be plain host names, the interface must be a tunnel interface that
   exists, values must be printable ASCII, and lists have limits (3 DNS servers, 16 domains of each
   kind, 1,024 routes of each kind, with no gaps or extra entries). One bad value fails the set-up, and

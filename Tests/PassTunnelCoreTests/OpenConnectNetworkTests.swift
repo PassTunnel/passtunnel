@@ -434,6 +434,65 @@ final class OpenConnectNetworkTests: XCTestCase {
         XCTAssertEqual(a.toRevert(sparing: [d]), [reject, mine, server, link], "failed or reverted there: not held")
     }
 
+    /// Session A owns its link and routes and has a pending reject route that session B holds: the revert
+    /// journals the reject as spared, which settles A's pending entry, and every change it hands back can then
+    /// be journaled as reverted.
+    func testRevertSettlesASparedPendingChange() throws {
+        let link = OpenConnectPlan.Change(text: "link utun5 mtu 1406")!
+        let mine = OpenConnectPlan.Change(text: "route 0.0.0.0/1 interface utun5")!
+        let reject = OpenConnectPlan.Change(text: "route ::/1 reject")!
+        var a = OpenConnectRecord(interface: "utun5")!
+        for change in [link, mine] {
+            try a.append(.begin(change))
+            try a.append(.owned(change))
+        }
+        try a.append(.begin(reject))
+        var b = OpenConnectRecord(interface: "utun6")!
+        try b.append(.begin(reject))
+        try b.append(.owned(reject))
+
+        XCTAssertEqual(a.toRevert(sparing: [b]), [mine, link])
+        let undo = try a.beginRevert(sparing: [b])
+        XCTAssertEqual(undo, [mine, link])
+        XCTAssertNil(a.pending)
+        XCTAssertEqual(a.states[reject], .spared)
+        for change in undo { try a.append(.reverted(change)) }
+        try a.append(.status(.failed("stopped")))
+        XCTAssertEqual(a.toRevert(sparing: []), [])
+        let text = try a.text()
+        XCTAssertTrue(text.contains("\n? route ::/1 reject\n- route 0.0.0.0/1 interface utun5\n- link utun5 mtu 1406\n"), text)
+        XCTAssertEqual(OpenConnectRecord.parse(text), a)
+        XCTAssertEqual(try a.compacted().text(), "passtunnel-network 1\ninterface utun5\nstatus failed stopped\n")
+
+        // An owned change B finds there is spared too, and a pending one nobody holds is undone.
+        var c = OpenConnectRecord(interface: "utun7")!
+        try c.append(.begin(link))
+        try c.append(.owned(link))
+        try c.append(.begin(reject))
+        var d = OpenConnectRecord(interface: "utun8")!
+        try d.append(.begin(link))
+        try d.append(.existed(link))
+        XCTAssertEqual(try c.beginRevert(sparing: [d]), [reject])
+        try c.append(.reverted(reject))
+        XCTAssertEqual(c.states[link], .spared)
+        XCTAssertNil(OpenConnectRecord.parse("passtunnel-network 1\ninterface utun5\n? route ::/1 reject\n"), "spared: not the session's")
+    }
+
+    func testIPv4EmbeddedAddresses() {
+        for text in ["::ffff:192.0.2.1", "::192.0.2.1", "::ffff:0:0", "::", "::1"] { XCTAssertTrue(IPAddress(text)!.isIPv4Embedded, text) }
+        for text in ["2001:db8::1", "192.0.2.1", "::1:0:0:0", "64:ff9b::192.0.2.1"] { XCTAssertFalse(IPAddress(text)!.isIPv4Embedded, text) }
+        XCTAssertTrue(IPNetwork("::ffff:192.0.2.0/120")!.isIPv4Embedded)
+        XCTAssertFalse(IPNetwork("::/1")!.isIPv4Embedded)
+        XCTAssertFalse(IPNetwork("::/64")!.isIPv4Embedded)
+        for text in [
+            "address utun5 ::ffff:10.11.0.2", "route ::ffff:192.0.2.0/120 interface utun5", "route 2001:db8::/32 gateway ::ffff:192.0.2.1 en0",
+            "dns passtunnel-501-acme utun5 split servers=::ffff:10.0.0.53 search=- match=example.com"
+        ] {
+            XCTAssertNil(OpenConnectPlan.Change(text: text), text)
+        }
+        XCTAssertNil(OpenConnectPlan.Gateway(address: IPAddress("::ffff:198.51.100.1"), interface: "en0"))
+    }
+
     func testCoverage() {
         func nets(_ list: [String]) -> [IPNetwork] { list.map { IPNetwork($0)! } }
         let v4 = IPNetwork("0.0.0.0/0")!
