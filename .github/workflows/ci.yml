@@ -8,7 +8,8 @@
 #                     openfortivpn and openconnect bundled by scripts/bundle-tools.sh (which checks
 #                     that what they and their libraries import from macOS is there on each tool's
 #                     minimum macOS: the app's, 15.4 for openconnect) into a bundle of their own, kept
-#                     as an artifact; not held to the pins (release.yml is)
+#                     as an artifact; not held to the pins (release.yml is); and a check that the
+#                     bundled openconnect runs no PKCS#11 module from the Homebrew prefix
 #   Bundled tools on  each of those tools run with --version on the oldest arm64 macOS runner: dyld
 #   macOS 15          stops a tool there when it imports a symbol that macOS lacks
 #   Linux (x86_64)    the Linux targets (Package.swift: the portable code, the CLI, the `passtunnel`
@@ -25,7 +26,8 @@
 #   Docker image      the Dockerfile built, and an MCP session with the image
 #   (x86_64, aarch64)
 #   Release scripts   shellcheck of next-version.sh, its test, build-linux.sh, coverage-report.sh, compare-app.sh,
-#                     verify-build.sh, check-tool-symbols.sh, its test and make-system-symbols.sh, and the self-test of
+#                     verify-build.sh, check-tool-symbols.sh, its test, make-system-symbols.sh and
+#                     test-bundled-config-paths.sh, and the self-test of
 #                     scripts/next-version.sh (in a temporary repository)
 #   Site              shellcheck of the site scripts and scripts/check-site.sh, the static checks
 #                     of the website in site/ (docs/WEBSITE.md)
@@ -135,6 +137,12 @@ jobs:
           mkdir -p tools/PassTunnel.app/Contents
           scripts/bundle-tools.sh tools/PassTunnel.app
           tar -C tools -czf bundled-tools.tar.gz PassTunnel.app/Contents/Resources/bin PassTunnel.app/Contents/Frameworks
+
+      # bundle-tools.sh overwrites the configuration paths compiled into libp11-kit: with module files in
+      # the runner's Homebrew prefix whose "remote:" line runs a command, Homebrew's openconnect --version
+      # runs them and the bundled one must not.
+      - name: The bundled openconnect reads no PKCS#11 modules from Homebrew
+        run: scripts/test-bundled-config-paths.sh tools/PassTunnel.app
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -778,7 +786,7 @@ jobs:
           shellcheck --version
           shellcheck scripts/next-version.sh scripts/test-next-version.sh scripts/build-linux.sh scripts/coverage-report.sh \
             scripts/compare-app.sh scripts/verify-build.sh scripts/check-tool-symbols.sh scripts/test-check-tool-symbols.sh \
-            scripts/make-system-symbols.sh
+            scripts/make-system-symbols.sh scripts/test-bundled-config-paths.sh
 
       - name: Self-test of next-version.sh
         run: scripts/test-next-version.sh

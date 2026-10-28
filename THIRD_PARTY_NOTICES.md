@@ -33,7 +33,7 @@ own license.
 | [libunistring](https://www.gnu.org/software/libunistring/) (`libunistring`) | LGPL-3.0 or later, or GPL-2.0 or later (dual) | https://ftp.gnu.org/gnu/libunistring/ |
 | [gettext](https://www.gnu.org/software/gettext/) (`libintl` only) | LGPL-2.1 or later (libintl; the gettext tools, GPL-3.0, are not bundled) | https://ftp.gnu.org/gnu/gettext/ |
 | [stoken](https://github.com/stoken-dev/stoken) (`libstoken`) | LGPL-2.1 or later | https://github.com/stoken-dev/stoken |
-| [LibTomCrypt](https://www.libtom.net) (`libtomcrypt`) | Unlicense | https://github.com/libtom/libtomcrypt |
+| [LibTomCrypt](https://www.libtom.net) (`libtomcrypt`) | Public domain or WTFPL-2.0 (dual) | https://github.com/libtom/libtomcrypt |
 | [LibTomMath](https://www.libtom.net/LibTomMath/) (`libtommath`) | Unlicense | https://github.com/libtom/libtommath |
 | [Sparkle](https://sparkle-project.org) (`Sparkle.framework`, app updates) | MIT (includes notices for its own bundled code) | https://github.com/sparkle-project/Sparkle |
 
@@ -50,7 +50,13 @@ macOS 15.4 or later (the app itself runs on macOS 13). `libstoken`, `libtomcrypt
 
 [`scripts/bundle-tools.sh`](scripts/bundle-tools.sh) copies the tools and every non-system library
 they load from [Homebrew](https://github.com/Homebrew/homebrew-core), rewrites their library load
-paths so they point into the app bundle, and re-signs them. Their code is not otherwise modified.
+paths so they point into the app bundle, and re-signs them. Their code is not otherwise modified,
+with one exception: in `libp11-kit` (p11-kit) and `libgnutls` (GnuTLS), the configuration paths
+compiled into the library under Homebrew's prefix (p11-kit's `pkcs11.conf` and module directories,
+GnuTLS's `config` and `cert.pem`) are overwritten in place with `/var/empty/none`, a path that does
+not exist, so that the tools never read configuration or modules from a directory another user may
+be able to write ([SECURITY.md](SECURITY.md#paths-compiled-into-the-homebrew-build)). The build
+log lists each overwritten string.
 
 Inside the app:
 
@@ -85,7 +91,7 @@ release and cannot find it, open an issue at
 ### Using a modified LGPL library
 
 Each LGPL library is a separate dynamic library in `Contents/Frameworks`, unmodified apart from its
-load paths and code signature, so a compatible build of it can take its place. A released PassTunnel
+load paths and code signature (and, in GnuTLS, the two configuration paths above), so a compatible build of it can take its place. A released PassTunnel
 does not accept one, though: its privileged helper runs the tools only with the exact library builds
 the release was made with (their code-signing hashes are compiled into the helper, see
 [SECURITY.md](SECURITY.md)), and the tools are signed with library validation, so they load only

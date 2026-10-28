@@ -520,7 +520,8 @@ earlier, at `--tools-from`. What it relies on:
   signature and then uses the release's signed copies instead of signing its own, so the rebuild
   pins the same cdhashes.
 - **The bundled tools** are Homebrew's bottles for the macOS version of the build (the release
-  workflow runs on `macos-26`), copied unmodified apart from their load paths. They are the same
+  workflow runs on `macos-26`), copied unmodified apart from their load paths and the configuration
+  paths overwritten in `libp11-kit` and `libgnutls` (the same bytes every time). They are the same
   only if the bottle is the same: Homebrew can publish a new bottle of the same version (a new
   `rebuild`), and bottles for other macOS versions are other builds. The build of the tools
   themselves is Homebrew's, outside this repository.

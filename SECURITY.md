@@ -151,7 +151,8 @@ FortiGate, stop, and status. It enforces the following rules on every request.
   libtasn1, libidn2, libunistring, libintl, stoken, libtomcrypt, libtommath) for Cisco AnyConnect
   ([below](#cisco-anyconnect-planned)): they are copied and checked with the others, but **nothing
   starts `openconnect` yet**, and it will need macOS 15.4 or later (dyld stops Homebrew's build on an
-  older macOS). The bundle can
+  older macOS). Its p11-kit and GnuTLS read no configuration from the Homebrew prefix
+  ([Paths compiled into the Homebrew build](#paths-compiled-into-the-homebrew-build)). The bundle can
   be changed or renamed by the user who installed it, so the helper does not run the tools from there:
   it copies them, without following symlinks, into `/var/run/passtunnel/tools/<helper build>/`
   (directories `root:wheel` 0755, tools 0555, libraries 0444), with the bundle's layout, so the
@@ -530,15 +531,23 @@ your Mac may exist and belong to whoever installed Homebrew. Each is kept out of
 - **openconnect's default script** (`/opt/homebrew/etc/vpnc/vpnc-script`, run with `/bin/sh` when
   no script is named): the configuration always names the hook, and is checked for it before it is
   written.
+- **p11-kit's configuration and module files** (`/opt/homebrew/etc/pkcs11.conf`,
+  `/opt/homebrew/etc/modules/`, `/opt/homebrew/etc/pkcs11/modules/` and p11-kit's Cellar module
+  directory). openconnect initializes PKCS#11 before it reads its options, even for `--version`, and
+  p11-kit then reads every module file there. A module file can name a library to load or, with
+  `remote: |command`, a command p11-kit runs itself: library validation does not stop that, and no
+  environment variable moves these paths (`P11_KIT_NO_USER_CONFIG=1` covers only
+  `~/.config/pkcs11/`). So the build overwrites these paths in the bundled `libp11-kit` with
+  `/var/empty/none`, a path that does not exist inside the root-owned, empty `/var/empty` (#179):
+  the bundled p11-kit reads no file of the Homebrew prefix. The build fails when any Homebrew path is
+  left in it, and CI checks with module files in the runner's Homebrew prefix that Homebrew's
+  openconnect runs them and the bundled one does not. PassTunnel also passes no option that uses
+  PKCS#11 (no client certificate, key or token) and sets `P11_KIT_NO_USER_CONFIG=1`.
 - **GnuTLS's configuration file** (`/opt/homebrew/etc/gnutls/config`, which may also name a PKCS#11
-  module to load): the helper starts the tool with `GNUTLS_SYSTEM_PRIORITY_FILE=/dev/null`.
-- **GnuTLS's CA store:** never used (pin, or `--no-system-trust` with the system bundle).
-- **p11-kit's module configuration** (`/opt/homebrew/etc/pkcs11/`) and your own
-  (`~/.config/pkcs11/`): PassTunnel passes no option that uses PKCS#11 (no client certificate, key
-  or token) and sets `P11_KIT_NO_USER_CONFIG=1`. p11-kit has no setting for its system
-  configuration path, so the last guard is library validation: the tool is signed with the hardened
-  runtime, which loads only code signed by Apple or with the project's Team ID. #182 adds a check
-  that a module placed in the Homebrew prefix is not loaded.
+  provider library to load) and **its CA store** (`/opt/homebrew/etc/gnutls/cert.pem`): overwritten
+  with `/var/empty/none` in the bundled `libgnutls` the same way. On top of that the helper starts the
+  tool with `GNUTLS_SYSTEM_PRIORITY_FILE=/dev/null`, and the CA store would not be used anyway (pin,
+  or `--no-system-trust` with the system bundle).
 - **Message catalogs:** not opened (`LC_ALL=C`).
 - **A web browser for single sign-on** (`/usr/bin/open`): never started by the root run, which
   never signs in; see "No single sign-on" above for the sign-in run.

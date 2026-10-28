@@ -991,7 +991,7 @@ passtunnel / app (the user)                          PassTunnelHelper / passtunn
 
 ### Bundling and pins (macOS, #179)
 
-- Homebrew's `openconnect` bottle, bundled unchanged like `openvpn`: `Contents/Resources/bin/openconnect`
+- Homebrew's `openconnect` bottle, bundled like `openvpn`: `Contents/Resources/bin/openconnect`
   (Homebrew installs it in `bin`) and its closure in `Contents/Frameworks`: `libopenconnect.5`,
   `libgnutls.30`, `libnettle.9`, `libhogweed.7`, `libgmp.10`, `libp11-kit.0`, `libtasn1.6`,
   `libidn2.0`, `libunistring.5`, `libintl.8`, `libstoken.1`, `libtomcrypt.1`, `libtommath.1`
@@ -1008,7 +1008,22 @@ passtunnel / app (the user)                          PassTunnelHelper / passtunn
   `libtomcrypt`, `libtommath` (RSA SecurID soft tokens, never used) and `libintl` (message catalogs,
   unused with `LC_ALL=C`) are accepted dead weight rather than building openconnect ourselves. The
   rest stays system (`libz`, `libxml2`, `libiconv`, `libffi`, Kerberos, PCSC, Security,
-  CoreFoundation). `bundle-tools.sh` takes nothing else of the formula: not `etc/vpnc/vpnc-script`,
+  CoreFoundation). The bottles are unchanged apart from the load paths and the configuration paths
+  compiled into two libraries: `bundle-tools.sh` overwrites, in place and NUL-padded to the same
+  length, every Homebrew path in `libp11-kit.0.dylib` (`etc/pkcs11.conf`, `etc/modules`,
+  `etc/pkcs11/modules`, `Cellar/p11-kit/<version>/lib/pkcs11`) and the `etc/` paths in
+  `libgnutls.30.dylib` (`etc/gnutls/config`, `etc/gnutls/cert.pem`) with `/var/empty/none` (root-owned
+  `/var/empty`, empty; ENOENT, which p11-kit and GnuTLS treat as "nothing configured"), before signing
+  (`NEUTRALIZE`). The same input gives the same bytes (repeatable build). The build fails when a listed
+  library is missing or has no such string (a renamed library or changed build must be looked at), and
+  when a Homebrew path is left in them; `scripts/test-bundled-config-paths.sh` (CI's `Bundled tools`)
+  puts module files with a `remote:` command into the runner's Homebrew prefix and checks that
+  Homebrew's openconnect runs them and the bundled one does not. Other Homebrew paths left in the
+  bundled tools, all handled where the tools are run: openconnect's `etc/vpnc/vpnc-script` (always
+  `script`), the `share/locale` catalogs of openconnect, GnuTLS and libintl (`LC_ALL=C`), OpenSSL's
+  `OPENSSLDIR` and `MODULESDIR` (the fixed environment, below), openvpn's plugin directory and
+  `dns-updown` (sanitizer, `--dns-updown`), openfortivpn's default configuration (always `-c`).
+  `bundle-tools.sh` takes nothing else of the formula: not `etc/vpnc/vpnc-script`,
   nothing from `libexec/openconnect` (`csd-wrapper.sh`, `hipreport.sh`, `tncc-*`). Its generic
   closure walk resolves both load styles (`/opt/homebrew/opt/<formula>/lib/…` and, in `libhogweed`,
   `libnettle`'s Cellar path); no name clashes with the OpenVPN closure. License `case` entries for
@@ -1195,9 +1210,9 @@ and how each is kept out of the root run:
 | Compiled-in path | Read when | Neutralized by |
 |---|---|---|
 | `/opt/homebrew/etc/vpnc/vpnc-script` (`DEFAULT_VPNCSCRIPT`) | no `script` given (`main.c` 2439), run with `/bin/sh -c` | `script` always rendered, `checkRendered` |
-| `/opt/homebrew/etc/gnutls/config` (system priority file; may name a PKCS#11 provider to load) | GnuTLS initialization | `GNUTLS_SYSTEM_PRIORITY_FILE=/dev/null` in the spawn environment |
-| `/opt/homebrew/etc/gnutls/cert.pem` (`--with-default-trust-store-file`) | system trust (`gnutls.c` 2277) unless turned off | `no-system-trust` + `cafile /etc/ssl/cert.pem`, or `servercert` |
-| `/opt/homebrew/etc/pkcs11/pkcs11.conf`, `…/pkcs11/modules/*.module`, p11-kit's Cellar module directory; `~/.config/pkcs11/…` | when p11-kit loads modules: `pkcs11:` certificate or key URLs (`gnutls.c` 1062–1330), GnuTLS PKCS#11 trust or providers | no `certificate`, `sslkey`, `mca-*`, `token-*`; `P11_KIT_NO_USER_CONFIG=1`. p11-kit has no variable for its system configuration; the remaining guard is library validation (the tools are signed with the hardened runtime, which admits only code signed by Apple or with our Team ID); #182 checks on a release build that a module placed in the Homebrew prefix is not loaded |
+| `/opt/homebrew/etc/gnutls/config` (system priority file; may name a PKCS#11 provider to load) | GnuTLS initialization | overwritten with `/var/empty/none` in the bundled `libgnutls` (#179, below); also `GNUTLS_SYSTEM_PRIORITY_FILE=/dev/null` in the spawn environment |
+| `/opt/homebrew/etc/gnutls/cert.pem` (`--with-default-trust-store-file`) | system trust (`gnutls.c` 2277) unless turned off | overwritten with `/var/empty/none` (#179), so system trust is empty; and always `no-system-trust` + `cafile /etc/ssl/cert.pem`, or `servercert` |
+| `/opt/homebrew/etc/pkcs11.conf` (system configuration), `/opt/homebrew/etc/modules` (system modules), `/opt/homebrew/etc/pkcs11/modules` (package modules), `/opt/homebrew/Cellar/p11-kit/<version>/lib/pkcs11` (module path); `~/.config/pkcs11/…` | at every start: openconnect calls `gnutls_pkcs11_init(GNUTLS_PKCS11_FLAG_AUTO)` in `openconnect_init_ssl` (`gnutls.c` 2586–2603) before parsing options, also for `--version`, and p11-kit loads every registered module then. A module file names a library (`module:`) or a command p11-kit runs itself (`remote: \|command`) | the system paths overwritten with `/var/empty/none` in the bundled `libp11-kit` (#179, below); library validation does not cover `remote:` commands, and p11-kit has no variable for its system paths (`P11_ENV_OVERRIDE_PATHS` is not built in). `P11_KIT_NO_USER_CONFIG=1` for the user's files; no `certificate`, `sslkey`, `mca-*`, `token-*` |
 | `…/share/locale` of openconnect and GnuTLS | message lookup | `LC_ALL=C` |
 | `/usr/bin/open` (`DEFAULT_EXTERNAL_BROWSER`, spawned by `hpke.c` 63–71) | a server sends an "external browser" sign-in form | the root run never signs in (it has the cookie); in the sign-in run, as the user, `no-external-auth` stops offering it but does not prevent it (above) |
 | `/bin/sh`, `/var/tmp` (CSD) | a server requests a host scan | refused (above) |
