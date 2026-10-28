@@ -48,7 +48,9 @@ final class BundledToolsTests: XCTestCase {
     }
 
     /// dyld stopping the tool (SIGABRT, its lines on standard error) is told as "does not run on this macOS".
+    /// The Mac only (dyld; Linux runs no bundled tools).
     func testAToolDyldStopsIsReported() async throws {
+        #if os(macOS)
         try tool(
             "openvpn",
             """
@@ -64,6 +66,9 @@ final class BundledToolsTests: XCTestCase {
                     name: "openvpn", ok: false,
                     problem: "This VPN tool does not run on this version of macOS (Symbol not found: _strchrnul). Check for a PassTunnel update.")
             ])
+        #else
+        throw XCTSkip("dyld is the Mac's")
+        #endif
     }
 
     func testMissingAndSilentTools() async throws {
