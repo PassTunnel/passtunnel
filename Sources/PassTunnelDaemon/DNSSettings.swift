@@ -45,48 +45,20 @@ public struct DNSSettings: Equatable, Sendable {
 
     // MARK: - Values
 
-    /// An IPv4 or IPv6 address in canonical form. The unspecified address, scopes (`%eth0`), ports
-    /// and anything else is refused.
+    /// An IPv4 or IPv6 address in canonical form (`IPAddress`, shared with openconnect's hook). The
+    /// unspecified address, scopes (`%eth0`), ports and anything else is refused.
     public static func address(_ text: String) throws -> String {
-        // Hex digits, dots and colons only: some inet_pton accept a scope, none of them needs more.
-        guard (2...45).contains(text.utf8.count),
-            text.utf8.allSatisfy({ c in
-                (c >= 0x30 && c <= 0x39) || (c >= 0x61 && c <= 0x66) || (c >= 0x41 && c <= 0x46) || c == 0x2E || c == 0x3A
-            })
-        else {
-            throw DNSFailure.invalid("DNS server", text)
-        }
-        // in6_addr is large enough for either family.
-        var bytes = [UInt8](repeating: 0, count: MemoryLayout<in6_addr>.size)
-        for family in [AF_INET, AF_INET6] where inet_pton(family, text, &bytes) == 1 {
-            let length = family == AF_INET ? MemoryLayout<in_addr>.size : MemoryLayout<in6_addr>.size
-            var buffer = [CChar](repeating: 0, count: 64)
-            guard bytes.prefix(length).contains(where: { $0 != 0 }),
-                inet_ntop(family, bytes, &buffer, socklen_t(buffer.count)) != nil
-            else { break }
-            return String(cString: buffer)
-        }
-        throw DNSFailure.invalid("DNS server", text)
+        guard let address = IPAddress(text), !address.isUnspecified else { throw DNSFailure.invalid("DNS server", text) }
+        return address.description
     }
 
-    /// A plain host name, lowercased and without a final dot: at most 253 bytes in labels of 1 to 63
-    /// ASCII letters, digits, `-` and `_`, none starting or ending with `-`. Nothing a tool could take
-    /// for an option (`-x`), a routing marker (`~`) or anything but a name.
+    /// A plain host name, lowercased and without a final dot (`DomainName`, shared with openconnect's
+    /// hook): at most 253 bytes in labels of 1 to 63 ASCII letters, digits, `-` and `_`, none starting or
+    /// ending with `-`. Nothing a tool could take for an option (`-x`), a routing marker (`~`) or anything
+    /// but a name.
     public static func domain(_ text: String) throws -> String {
-        var name = text.lowercased()
-        if name.hasSuffix(".") { name.removeLast() }
-        let labels = name.split(separator: ".", omittingEmptySubsequences: false)
-        guard (1...253).contains(name.utf8.count), labels.allSatisfy(isLabel) else {
-            throw DNSFailure.invalid("DNS domain", text)
-        }
+        guard let name = DomainName.normalize(text) else { throw DNSFailure.invalid("DNS domain", text) }
         return name
-    }
-
-    private static func isLabel(_ label: Substring) -> Bool {
-        guard (1...63).contains(label.utf8.count), label.first != "-", label.last != "-" else { return false }
-        return label.utf8.allSatisfy { c in
-            (c >= 0x61 && c <= 0x7A) || (c >= 0x30 && c <= 0x39) || c == 0x2D || c == 0x5F  // a-z 0-9 - _
-        }
     }
 
     /// A network interface name as Linux allows it, narrowed to what tunnels are called: 1 to 15

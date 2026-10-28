@@ -1,0 +1,866 @@
+{
+  "about": "What openconnect 9.21 hands its hook (prepare_script_env, script.c 294-432; values from cstp.c 396-645), and what the hook makes of it: the event, the changes it applies for connect (OpenConnectPlan.Change text, the record's form) and its report line, or the refusal (OpenConnectNetwork.Failure, OpenConnectPlan.Failure). Each case's env is `base` with the case's variables on top (null removes one; `base_none: true` starts empty); `env_hex` sets raw bytes. Defaults: platform macos, policy uid 501, profile acme, set_routes and set_dns on, underlay ipv4 `198.51.100.1 en0`, no ipv6 and no attached (local) networks; `attached` lists `<network> <interface>`. Read by Tests/PassTunnelCoreTests/OpenConnectNetworkTests.swift.",
+  "base": {
+    "reason": "connect",
+    "TUNDEV": "utun5",
+    "VPNGATEWAY": "192.0.2.10",
+    "VPNPID": "4242",
+    "LOG_LEVEL": "2",
+    "IDLE_TIMEOUT": "1800",
+    "INTERNAL_IP4_MTU": "1406",
+    "INTERNAL_IP4_ADDRESS": "10.11.0.2",
+    "INTERNAL_IP4_NETMASK": "255.255.255.0",
+    "INTERNAL_IP4_NETMASKLEN": "24",
+    "INTERNAL_IP4_NETADDR": "10.11.0.0",
+    "INTERNAL_IP4_DNS": "10.11.0.53 10.11.0.54",
+    "INTERNAL_IP4_NBNS": "0.0.0.0",
+    "CISCO_DEF_DOMAIN": "example.com",
+    "CISCO_BANNER": "Authorized use only.\n$(reboot) `id`; rm -rf / é\u0007",
+    "CISCO_PROXY_PAC": "http://198.51.100.20/proxy.pac",
+    "CISCO_CSTP_OPTIONS": "X-CSTP-Version=1\nX-CSTP-Address=10.11.0.2\nX-CSTP-Netmask=255.255.255.0\nX-CSTP-Banner=$(reboot)\n",
+    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+    "LC_ALL": "C",
+    "GNUTLS_SYSTEM_PRIORITY_FILE": "/dev/null",
+    "P11_KIT_NO_USER_CONFIG": "1"
+  },
+  "cases": [
+    {
+      "name": "IPv4 full tunnel, no IPv6 address: IPv6 blocked",
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 192.0.2.10/32 gateway 198.51.100.1 en0",
+        "route ::/1 reject",
+        "route 8000::/1 reject",
+        "route 0.0.0.0/1 interface utun5",
+        "route 128.0.0.0/1 interface utun5",
+        "dns passtunnel-501-acme utun5 primary servers=10.11.0.53,10.11.0.54 search=example.com match=-"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, full tunnel, IPv6 blocked, DNS 10.11.0.53 10.11.0.54, search example.com"
+    },
+    {
+      "name": "the same environment for attempt-reconnect",
+      "env": {"reason": "attempt-reconnect"},
+      "event": "attempt-reconnect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 192.0.2.10/32 gateway 198.51.100.1 en0",
+        "route ::/1 reject",
+        "route 8000::/1 reject",
+        "route 0.0.0.0/1 interface utun5",
+        "route 128.0.0.0/1 interface utun5",
+        "dns passtunnel-501-acme utun5 primary servers=10.11.0.53,10.11.0.54 search=example.com match=-"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, full tunnel, IPv6 blocked, DNS 10.11.0.53 10.11.0.54, search example.com"
+    },
+    {
+      "name": "the same environment for reconnect",
+      "env": {"reason": "reconnect"},
+      "event": "reconnect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 192.0.2.10/32 gateway 198.51.100.1 en0",
+        "route ::/1 reject",
+        "route 8000::/1 reject",
+        "route 0.0.0.0/1 interface utun5",
+        "route 128.0.0.0/1 interface utun5",
+        "dns passtunnel-501-acme utun5 primary servers=10.11.0.53,10.11.0.54 search=example.com match=-"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, full tunnel, IPv6 blocked, DNS 10.11.0.53 10.11.0.54, search example.com"
+    },
+    {
+      "name": "pre-init reads nothing but reason",
+      "base_none": true,
+      "env": {"reason": "pre-init", "VPNGATEWAY": "192.0.2.10", "INTERNAL_IP4_ADDRESS": "$(reboot)"},
+      "event": "pre-init"
+    },
+    {
+      "name": "disconnect reads nothing but reason: a revert never fails on the server's values",
+      "env": {"reason": "disconnect", "TUNDEV": "utun5;reboot", "INTERNAL_IP4_ADDRESS": "$(reboot)", "CISCO_SPLIT_INC": "99999"},
+      "event": "disconnect"
+    },
+    {
+      "name": "split include: the assigned network and DNS servers inside an include need no route of their own",
+      "env": {
+        "CISCO_SPLIT_INC": "2",
+        "CISCO_SPLIT_INC_0_ADDR": "10.0.0.0", "CISCO_SPLIT_INC_0_MASK": "255.0.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "8",
+        "CISCO_SPLIT_INC_1_ADDR": "172.16.0.0", "CISCO_SPLIT_INC_1_MASK": "255.240.0.0", "CISCO_SPLIT_INC_1_MASKLEN": "12"
+      },
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 10.0.0.0/8 interface utun5",
+        "route 172.16.0.0/12 interface utun5",
+        "dns passtunnel-501-acme utun5 split servers=10.11.0.53,10.11.0.54 search=example.com match=example.com"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, DNS 10.11.0.53 10.11.0.54, search example.com, split DNS example.com"
+    },
+    {
+      "name": "split include and split DNS: the assigned network and the DNS servers get routes",
+      "env": {
+        "CISCO_SPLIT_INC": "1",
+        "CISCO_SPLIT_INC_0_ADDR": "172.16.0.0", "CISCO_SPLIT_INC_0_MASK": "255.240.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "12",
+        "CISCO_SPLIT_DNS": "corp.example.com,Lab.Example.com., corp.example.com"
+      },
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 172.16.0.0/12 interface utun5",
+        "route 10.11.0.0/24 interface utun5",
+        "route 10.11.0.53/32 interface utun5",
+        "route 10.11.0.54/32 interface utun5",
+        "dns passtunnel-501-acme utun5 split servers=10.11.0.53,10.11.0.54 search=example.com match=corp.example.com,lab.example.com,example.com"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 4 routes, DNS 10.11.0.53 10.11.0.54, search example.com, split DNS corp.example.com lab.example.com example.com"
+    },
+    {
+      "name": "full tunnel with split excludes through the original gateway",
+      "env": {
+        "CISCO_SPLIT_EXC": "2",
+        "CISCO_SPLIT_EXC_0_ADDR": "192.168.0.0", "CISCO_SPLIT_EXC_0_MASK": "255.255.0.0", "CISCO_SPLIT_EXC_0_MASKLEN": "16",
+        "CISCO_SPLIT_EXC_1_ADDR": "198.51.100.0", "CISCO_SPLIT_EXC_1_MASK": "255.255.255.0", "CISCO_SPLIT_EXC_1_MASKLEN": "24"
+      },
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 192.0.2.10/32 gateway 198.51.100.1 en0",
+        "route ::/1 reject",
+        "route 8000::/1 reject",
+        "route 192.168.0.0/16 gateway 198.51.100.1 en0",
+        "route 198.51.100.0/24 gateway 198.51.100.1 en0",
+        "route 0.0.0.0/1 interface utun5",
+        "route 128.0.0.0/1 interface utun5",
+        "dns passtunnel-501-acme utun5 primary servers=10.11.0.53,10.11.0.54 search=example.com match=-"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, full tunnel, IPv6 blocked, DNS 10.11.0.53 10.11.0.54, search example.com"
+    },
+    {
+      "name": "IPv6 assigned: both families full tunnel, nothing blocked",
+      "env": {
+        "INTERNAL_IP6_ADDRESS": "2001:db8:1::2",
+        "INTERNAL_IP6_NETMASK": "2001:db8:1::2/64",
+        "INTERNAL_IP4_DNS": "10.11.0.53 2001:DB8:1:0::53"
+      },
+      "underlay": {"ipv4": "198.51.100.1 en0", "ipv6": "fe80::1 en0"},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "address utun5 2001:db8:1::2",
+        "route 192.0.2.10/32 gateway 198.51.100.1 en0",
+        "route 0.0.0.0/1 interface utun5",
+        "route 128.0.0.0/1 interface utun5",
+        "route ::/1 interface utun5",
+        "route 8000::/1 interface utun5",
+        "dns passtunnel-501-acme utun5 primary servers=10.11.0.53,2001:db8:1::53 search=example.com match=-"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2001:db8:1::2, 4 routes, full tunnel, DNS 10.11.0.53 2001:db8:1::53, search example.com"
+    },
+    {
+      "name": "IPv6 server, split lists of both families; IPv6 split addresses are the server's raw text",
+      "env": {
+        "VPNGATEWAY": "2001:db8:ffff::10",
+        "INTERNAL_IP6_ADDRESS": "2001:db8:1::2",
+        "INTERNAL_IP6_NETMASK": "2001:db8:1::2/64",
+        "INTERNAL_IP4_DNS": "10.11.0.53",
+        "CISCO_SPLIT_INC": "1",
+        "CISCO_SPLIT_INC_0_ADDR": "10.0.0.0", "CISCO_SPLIT_INC_0_MASK": "255.0.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "8",
+        "CISCO_IPV6_SPLIT_INC": "2",
+        "CISCO_IPV6_SPLIT_INC_0_ADDR": "2001:DB8:2:0:0:0:0:0", "CISCO_IPV6_SPLIT_INC_0_MASKLEN": "48",
+        "CISCO_IPV6_SPLIT_INC_1_ADDR": "2001:db8:ffff::5", "CISCO_IPV6_SPLIT_INC_1_MASKLEN": "64",
+        "CISCO_IPV6_SPLIT_EXC": "1",
+        "CISCO_IPV6_SPLIT_EXC_0_ADDR": "2001:db8:2:1::", "CISCO_IPV6_SPLIT_EXC_0_MASKLEN": "64"
+      },
+      "underlay": {"ipv4": "198.51.100.1 en0", "ipv6": "fe80::1 en0"},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "address utun5 2001:db8:1::2",
+        "route 2001:db8:ffff::10/128 gateway fe80::1 en0",
+        "route 2001:db8:2:1::/64 gateway fe80::1 en0",
+        "route 10.0.0.0/8 interface utun5",
+        "route 2001:db8:2::/48 interface utun5",
+        "route 2001:db8:ffff::/64 interface utun5",
+        "route 2001:db8:1::/64 interface utun5",
+        "dns passtunnel-501-acme utun5 split servers=10.11.0.53 search=example.com match=example.com"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2001:db8:1::2, 4 routes, DNS 10.11.0.53, search example.com, split DNS example.com"
+    },
+    {
+      "name": "IPv4 split without an IPv6 address: IPv6 is left alone",
+      "env": {
+        "CISCO_SPLIT_INC": "1",
+        "CISCO_SPLIT_INC_0_ADDR": "10.0.0.0", "CISCO_SPLIT_INC_0_MASK": "255.0.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "8",
+        "CISCO_IPV6_SPLIT_INC": "1",
+        "CISCO_IPV6_SPLIT_INC_0_ADDR": "2001:db8:2::", "CISCO_IPV6_SPLIT_INC_0_MASKLEN": "48"
+      },
+      "policy": {"set_dns": false},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 10.0.0.0/8 interface utun5"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 1 route"
+    },
+    {
+      "name": "IPv6-only full tunnel: IPv4 blocked",
+      "env": {
+        "VPNGATEWAY": "2001:db8:ffff::10",
+        "INTERNAL_IP4_ADDRESS": null, "INTERNAL_IP4_NETMASK": null, "INTERNAL_IP4_NETMASKLEN": null, "INTERNAL_IP4_NETADDR": null,
+        "INTERNAL_IP6_NETMASK": "2001:db8:1::2/64",
+        "INTERNAL_IP6_ADDRESS": "2001:db8:1::2",
+        "INTERNAL_IP4_DNS": "2001:db8:1::53"
+      },
+      "underlay": {"ipv4": "198.51.100.1 en0", "ipv6": "fe80::1 en0"},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 2001:db8:1::2",
+        "route 2001:db8:ffff::10/128 gateway fe80::1 en0",
+        "route 0.0.0.0/1 reject",
+        "route 128.0.0.0/1 reject",
+        "route ::/1 interface utun5",
+        "route 8000::/1 interface utun5",
+        "dns passtunnel-501-acme utun5 primary servers=2001:db8:1::53 search=example.com match=-"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 2001:db8:1::2, 2 routes, full tunnel, IPv4 blocked, DNS 2001:db8:1::53, search example.com"
+    },
+    {
+      "name": "IPv6 address only from INTERNAL_IP6_NETMASK's address, as openconnect derives it",
+      "env": {
+        "INTERNAL_IP6_NETMASK": "2001:db8:1::2/64"
+      },
+      "underlay": {"ipv4": "198.51.100.1 en0", "ipv6": "link ppp0"},
+      "policy": {"set_dns": false},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "address utun5 2001:db8:1::2",
+        "route 192.0.2.10/32 gateway 198.51.100.1 en0",
+        "route 0.0.0.0/1 interface utun5",
+        "route 128.0.0.0/1 interface utun5",
+        "route ::/1 interface utun5",
+        "route 8000::/1 interface utun5"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2001:db8:1::2, 4 routes, full tunnel"
+    },
+    {
+      "name": "set_routes off: no routes, DNS only for its domains",
+      "policy": {"set_routes": false},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "dns passtunnel-501-acme utun5 split servers=10.11.0.53,10.11.0.54 search=example.com match=example.com"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 0 routes, DNS 10.11.0.53 10.11.0.54, search example.com, split DNS example.com"
+    },
+    {
+      "name": "set_routes off, no domains: no DNS",
+      "policy": {"set_routes": false},
+      "env": {"CISCO_DEF_DOMAIN": null},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 0 routes"
+    },
+    {
+      "name": "set_dns off",
+      "policy": {"set_dns": false},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 192.0.2.10/32 gateway 198.51.100.1 en0",
+        "route ::/1 reject",
+        "route 8000::/1 reject",
+        "route 0.0.0.0/1 interface utun5",
+        "route 128.0.0.0/1 interface utun5"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, full tunnel, IPv6 blocked"
+    },
+    {
+      "name": "Linux: tunN",
+      "platform": "linux",
+      "env": {"TUNDEV": "tun0"},
+      "underlay": {"ipv4": "198.51.100.1 eth0"},
+      "event": "connect",
+      "changes": [
+        "link tun0 mtu 1406",
+        "address tun0 10.11.0.2",
+        "route 192.0.2.10/32 gateway 198.51.100.1 eth0",
+        "route ::/1 reject",
+        "route 8000::/1 reject",
+        "route 0.0.0.0/1 interface tun0",
+        "route 128.0.0.0/1 interface tun0",
+        "dns passtunnel-501-acme tun0 primary servers=10.11.0.53,10.11.0.54 search=example.com match=-"
+      ],
+      "report": "passtunnel vpn-hook: tun0 up: 10.11.0.2, 2 routes, full tunnel, IPv6 blocked, DNS 10.11.0.53 10.11.0.54, search example.com"
+    },
+    {
+      "name": "a VPN server on this machine needs no host route",
+      "env": {"VPNGATEWAY": "127.0.0.1"},
+      "policy": {"set_dns": false},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route ::/1 reject",
+        "route 8000::/1 reject",
+        "route 0.0.0.0/1 interface utun5",
+        "route 128.0.0.0/1 interface utun5"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, full tunnel, IPv6 blocked"
+    },
+    {
+      "name": "an include of every address is a full tunnel",
+      "env": {
+        "CISCO_SPLIT_INC": "1",
+        "CISCO_SPLIT_INC_0_ADDR": "0.0.0.0", "CISCO_SPLIT_INC_0_MASK": "0.0.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "0"
+      },
+      "policy": {"set_dns": false},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 192.0.2.10/32 gateway 198.51.100.1 en0",
+        "route ::/1 reject",
+        "route 8000::/1 reject",
+        "route 0.0.0.0/1 interface utun5",
+        "route 128.0.0.0/1 interface utun5"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, full tunnel, IPv6 blocked"
+    },
+    {
+      "name": "an exclude wins over an include of the same network",
+      "env": {
+        "CISCO_SPLIT_INC": "2",
+        "CISCO_SPLIT_INC_0_ADDR": "10.0.0.0", "CISCO_SPLIT_INC_0_MASK": "255.0.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "8",
+        "CISCO_SPLIT_INC_1_ADDR": "172.16.0.0", "CISCO_SPLIT_INC_1_MASK": "255.240.0.0", "CISCO_SPLIT_INC_1_MASKLEN": "12",
+        "CISCO_SPLIT_EXC": "1",
+        "CISCO_SPLIT_EXC_0_ADDR": "172.16.0.0", "CISCO_SPLIT_EXC_0_MASK": "255.240.0.0", "CISCO_SPLIT_EXC_0_MASKLEN": "12"
+      },
+      "policy": {"set_dns": false},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 172.16.0.0/12 gateway 198.51.100.1 en0",
+        "route 10.0.0.0/8 interface utun5"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 1 route"
+    },
+    {
+      "name": "a split include holding the VPN server: its host route goes first",
+      "env": {
+        "CISCO_SPLIT_INC": "2",
+        "CISCO_SPLIT_INC_0_ADDR": "192.0.2.0", "CISCO_SPLIT_INC_0_MASK": "255.255.255.0", "CISCO_SPLIT_INC_0_MASKLEN": "24",
+        "CISCO_SPLIT_INC_1_ADDR": "192.0.2.10", "CISCO_SPLIT_INC_1_MASK": "255.255.255.255", "CISCO_SPLIT_INC_1_MASKLEN": "32"
+      },
+      "policy": {"set_dns": false},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 192.0.2.10/32 gateway 198.51.100.1 en0",
+        "route 192.0.2.0/24 interface utun5",
+        "route 10.11.0.0/24 interface utun5"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes"
+    },
+    {
+      "name": "repeated DNS servers and domains are dropped, domains normalized",
+      "env": {"INTERNAL_IP4_DNS": " 10.11.0.53  10.11.0.53 ", "CISCO_DEF_DOMAIN": "Example.COM. example.com  corp.example.com"},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 192.0.2.10/32 gateway 198.51.100.1 en0",
+        "route ::/1 reject",
+        "route 8000::/1 reject",
+        "route 0.0.0.0/1 interface utun5",
+        "route 128.0.0.0/1 interface utun5",
+        "dns passtunnel-501-acme utun5 primary servers=10.11.0.53 search=example.com,corp.example.com match=-"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, full tunnel, IPv6 blocked, DNS 10.11.0.53, search example.com corp.example.com"
+    },
+    {
+      "name": "no netmask from the server: the address alone",
+      "env": {"INTERNAL_IP4_NETMASK": null, "INTERNAL_IP4_NETMASKLEN": null, "INTERNAL_IP4_NETADDR": null, "INTERNAL_IP4_DNS": null},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 192.0.2.10/32 gateway 198.51.100.1 en0",
+        "route ::/1 reject",
+        "route 8000::/1 reject",
+        "route 0.0.0.0/1 interface utun5",
+        "route 128.0.0.0/1 interface utun5"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, full tunnel, IPv6 blocked"
+    },
+    {
+      "name": "IPv4-only full tunnel: the server's IPv6 excludes and includes cannot open the IPv6 block",
+      "env": {
+        "CISCO_IPV6_SPLIT_EXC": "3",
+        "CISCO_IPV6_SPLIT_EXC_0_ADDR": "::", "CISCO_IPV6_SPLIT_EXC_0_MASKLEN": "1",
+        "CISCO_IPV6_SPLIT_EXC_1_ADDR": "8000::", "CISCO_IPV6_SPLIT_EXC_1_MASKLEN": "1",
+        "CISCO_IPV6_SPLIT_EXC_2_ADDR": "2001:db8:5::", "CISCO_IPV6_SPLIT_EXC_2_MASKLEN": "48",
+        "CISCO_IPV6_SPLIT_INC": "1",
+        "CISCO_IPV6_SPLIT_INC_0_ADDR": "2001:db8:6::", "CISCO_IPV6_SPLIT_INC_0_MASKLEN": "48"
+      },
+      "underlay": {"ipv4": "198.51.100.1 en0", "ipv6": "fe80::1 en0"},
+      "policy": {"set_dns": false},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 192.0.2.10/32 gateway 198.51.100.1 en0",
+        "route ::/1 reject",
+        "route 8000::/1 reject",
+        "route 0.0.0.0/1 interface utun5",
+        "route 128.0.0.0/1 interface utun5"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, full tunnel, IPv6 blocked"
+    },
+    {
+      "name": "IPv4-only full tunnel: an IPv6 DNS server is left out with the rest of IPv6",
+      "env": {"INTERNAL_IP4_DNS": "2001:db8:1::53 10.11.0.53"},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 192.0.2.10/32 gateway 198.51.100.1 en0",
+        "route ::/1 reject",
+        "route 8000::/1 reject",
+        "route 0.0.0.0/1 interface utun5",
+        "route 128.0.0.0/1 interface utun5",
+        "dns passtunnel-501-acme utun5 primary servers=10.11.0.53 search=example.com match=-"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, full tunnel, IPv6 blocked, DNS 10.11.0.53, search example.com"
+    },
+    {
+      "name": "IPv4-only full tunnel with only IPv6 DNS servers: no DNS",
+      "env": {"INTERNAL_IP4_DNS": "2001:db8:1::53"},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 192.0.2.10/32 gateway 198.51.100.1 en0",
+        "route ::/1 reject",
+        "route 8000::/1 reject",
+        "route 0.0.0.0/1 interface utun5",
+        "route 128.0.0.0/1 interface utun5"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, full tunnel, IPv6 blocked"
+    },
+    {
+      "name": "IPv4 excludes still go around a full tunnel, after the IPv6 block",
+      "env": {
+        "CISCO_SPLIT_EXC": "1",
+        "CISCO_SPLIT_EXC_0_ADDR": "0.0.0.0", "CISCO_SPLIT_EXC_0_MASK": "128.0.0.0", "CISCO_SPLIT_EXC_0_MASKLEN": "1"
+      },
+      "policy": {"set_dns": false},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 192.0.2.10/32 gateway 198.51.100.1 en0",
+        "route ::/1 reject",
+        "route 8000::/1 reject",
+        "route 0.0.0.0/1 gateway 198.51.100.1 en0",
+        "route 128.0.0.0/1 interface utun5"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 1 route, full tunnel, IPv6 blocked"
+    },
+    {
+      "name": "includes 0/1 and 128/1 cover every address: a full tunnel, IPv6 blocked, DNS primary",
+      "env": {
+        "CISCO_SPLIT_INC": "2",
+        "CISCO_SPLIT_INC_0_ADDR": "0.0.0.0", "CISCO_SPLIT_INC_0_MASK": "128.0.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "1",
+        "CISCO_SPLIT_INC_1_ADDR": "128.0.0.0", "CISCO_SPLIT_INC_1_MASK": "128.0.0.0", "CISCO_SPLIT_INC_1_MASKLEN": "1"
+      },
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 192.0.2.10/32 gateway 198.51.100.1 en0",
+        "route ::/1 reject",
+        "route 8000::/1 reject",
+        "route 0.0.0.0/1 interface utun5",
+        "route 128.0.0.0/1 interface utun5",
+        "dns passtunnel-501-acme utun5 primary servers=10.11.0.53,10.11.0.54 search=example.com match=-"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, full tunnel, IPv6 blocked, DNS 10.11.0.53 10.11.0.54, search example.com"
+    },
+    {
+      "name": "includes of three parts covering every address: a full tunnel",
+      "env": {
+        "CISCO_SPLIT_INC": "4",
+        "CISCO_SPLIT_INC_0_ADDR": "10.0.0.0", "CISCO_SPLIT_INC_0_MASK": "255.0.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "8",
+        "CISCO_SPLIT_INC_1_ADDR": "0.0.0.0", "CISCO_SPLIT_INC_1_MASK": "192.0.0.0", "CISCO_SPLIT_INC_1_MASKLEN": "2",
+        "CISCO_SPLIT_INC_2_ADDR": "64.0.0.0", "CISCO_SPLIT_INC_2_MASK": "192.0.0.0", "CISCO_SPLIT_INC_2_MASKLEN": "2",
+        "CISCO_SPLIT_INC_3_ADDR": "128.0.0.0", "CISCO_SPLIT_INC_3_MASK": "128.0.0.0", "CISCO_SPLIT_INC_3_MASKLEN": "1"
+      },
+      "policy": {"set_dns": false},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 192.0.2.10/32 gateway 198.51.100.1 en0",
+        "route ::/1 reject",
+        "route 8000::/1 reject",
+        "route 0.0.0.0/1 interface utun5",
+        "route 128.0.0.0/1 interface utun5"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, full tunnel, IPv6 blocked"
+    },
+    {
+      "name": "split: the assigned network captures the VPN server, so its host route goes first",
+      "env": {
+        "VPNGATEWAY": "10.11.0.9",
+        "CISCO_SPLIT_INC": "1",
+        "CISCO_SPLIT_INC_0_ADDR": "172.16.0.0", "CISCO_SPLIT_INC_0_MASK": "255.240.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "12"
+      },
+      "policy": {"set_dns": false},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 10.11.0.9/32 gateway 198.51.100.1 en0",
+        "route 172.16.0.0/12 interface utun5",
+        "route 10.11.0.0/24 interface utun5"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes"
+    },
+    {
+      "name": "split: a DNS server on the VPN server's address: its host route goes first, around the tunnel",
+      "env": {
+        "INTERNAL_IP4_DNS": "192.0.2.10 10.11.0.53",
+        "CISCO_SPLIT_INC": "1",
+        "CISCO_SPLIT_INC_0_ADDR": "172.16.0.0", "CISCO_SPLIT_INC_0_MASK": "255.240.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "12"
+      },
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 192.0.2.10/32 gateway 198.51.100.1 en0",
+        "route 172.16.0.0/12 interface utun5",
+        "route 10.11.0.0/24 interface utun5",
+        "route 10.11.0.53/32 interface utun5",
+        "dns passtunnel-501-acme utun5 split servers=192.0.2.10,10.11.0.53 search=example.com match=example.com"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 3 routes, DNS 192.0.2.10 10.11.0.53, search example.com, split DNS example.com"
+    },
+    {
+      "name": "split: the assigned network captures the VPN server and there is no default route",
+      "env": {
+        "VPNGATEWAY": "10.11.0.9",
+        "CISCO_SPLIT_INC": "1",
+        "CISCO_SPLIT_INC_0_ADDR": "172.16.0.0", "CISCO_SPLIT_INC_0_MASK": "255.240.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "12"
+      },
+      "underlay": {},
+      "error": "there is no IPv4 default route to keep the VPN server reachable outside the tunnel"
+    },
+    {
+      "name": "local networks stay local: includes and DNS servers inside an attached network are left out and counted",
+      "env": {
+        "INTERNAL_IP4_DNS": "10.11.0.53 192.168.1.53",
+        "CISCO_SPLIT_INC": "3",
+        "CISCO_SPLIT_INC_0_ADDR": "10.0.0.0", "CISCO_SPLIT_INC_0_MASK": "255.0.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "8",
+        "CISCO_SPLIT_INC_1_ADDR": "192.168.1.128", "CISCO_SPLIT_INC_1_MASK": "255.255.255.128", "CISCO_SPLIT_INC_1_MASKLEN": "25",
+        "CISCO_SPLIT_INC_2_ADDR": "10.1.2.0", "CISCO_SPLIT_INC_2_MASK": "255.255.255.0", "CISCO_SPLIT_INC_2_MASKLEN": "24"
+      },
+      "underlay": {
+        "ipv4": "198.51.100.1 en0",
+        "attached": ["192.168.1.0/24 en0", "10.1.2.0/24 en0", "10.11.0.0/24 utun5", "fe80::/64 en0"]
+      },
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 10.0.0.0/8 interface utun5",
+        "dns passtunnel-501-acme utun5 split servers=10.11.0.53,192.168.1.53 search=example.com match=example.com"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 1 route, 3 routes kept local, DNS 10.11.0.53 192.168.1.53, search example.com, split DNS example.com"
+    },
+    {
+      "name": "IPv6 local networks stay local, link-local ones do not count",
+      "env": {
+        "INTERNAL_IP6_ADDRESS": "2001:db8:1::2",
+        "INTERNAL_IP6_NETMASK": "2001:db8:1::2/64",
+        "CISCO_SPLIT_INC": "1",
+        "CISCO_SPLIT_INC_0_ADDR": "10.0.0.0", "CISCO_SPLIT_INC_0_MASK": "255.0.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "8",
+        "CISCO_IPV6_SPLIT_INC": "2",
+        "CISCO_IPV6_SPLIT_INC_0_ADDR": "2001:db8:7:1::", "CISCO_IPV6_SPLIT_INC_0_MASKLEN": "64",
+        "CISCO_IPV6_SPLIT_INC_1_ADDR": "fe80::", "CISCO_IPV6_SPLIT_INC_1_MASKLEN": "64"
+      },
+      "underlay": {"ipv4": "198.51.100.1 en0", "ipv6": "fe80::1 en0", "attached": ["2001:db8:7::/48 en0", "fe80::/64 en0"]},
+      "policy": {"set_dns": false},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "address utun5 2001:db8:1::2",
+        "route 10.0.0.0/8 interface utun5",
+        "route fe80::/64 interface utun5",
+        "route 2001:db8:1::/64 interface utun5"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2001:db8:1::2, 3 routes, 1 route kept local"
+    },
+    {
+      "name": "a full tunnel keeps its two halves whatever is attached",
+      "underlay": {"ipv4": "198.51.100.1 en0", "attached": ["192.168.1.0/24 en0", "10.0.0.0/8 en1"]},
+      "policy": {"set_dns": false},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 192.0.2.10/32 gateway 198.51.100.1 en0",
+        "route ::/1 reject",
+        "route 8000::/1 reject",
+        "route 0.0.0.0/1 interface utun5",
+        "route 128.0.0.0/1 interface utun5"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, full tunnel, IPv6 blocked"
+    },
+    {"name": "the tunnel's IPv4 address is the VPN server's", "env": {"INTERNAL_IP4_ADDRESS": "192.0.2.10", "INTERNAL_IP4_NETMASK": null, "INTERNAL_IP4_NETMASKLEN": null, "INTERNAL_IP4_NETADDR": null}, "error": "INTERNAL_IP4_ADDRESS is the VPN server's address (VPNGATEWAY)"},
+    {"name": "the tunnel's IPv6 address is the VPN server's", "env": {"VPNGATEWAY": "2001:db8:1::2", "INTERNAL_IP6_ADDRESS": "2001:db8:1::2"}, "error": "INTERNAL_IP6_ADDRESS is the VPN server's address (VPNGATEWAY)"},
+    {
+      "name": "the default gateway is the tunnel itself: unusable",
+      "underlay": {"ipv4": "10.11.0.1 utun5"},
+      "error": "there is no IPv4 default route to keep the VPN server reachable outside the tunnel"
+    },
+    {
+      "name": "no IPv4 default route for a full tunnel",
+      "underlay": {},
+      "error": "there is no IPv4 default route to keep the VPN server reachable outside the tunnel"
+    },
+
+    {"name": "reason missing", "env": {"reason": null}, "error": "reason is not set"},
+    {"name": "reason unknown", "env": {"reason": "Connect"}, "error": "reason is not one of pre-init, connect, disconnect, attempt-reconnect, reconnect"},
+    {"name": "reason with a blank", "env": {"reason": "connect "}, "error": "reason is not one of pre-init, connect, disconnect, attempt-reconnect, reconnect"},
+    {"name": "TUNDEV missing", "env": {"TUNDEV": null}, "error": "TUNDEV is not set"},
+    {"name": "TUNDEV leading zero", "env": {"TUNDEV": "utun05"}, "error": "TUNDEV is not a tunnel interface utun0 to utun999"},
+    {"name": "TUNDEV too many digits", "env": {"TUNDEV": "utun1000"}, "error": "TUNDEV is not a tunnel interface utun0 to utun999"},
+    {"name": "TUNDEV no digits", "env": {"TUNDEV": "utun"}, "error": "TUNDEV is not a tunnel interface utun0 to utun999"},
+    {"name": "TUNDEV another interface", "env": {"TUNDEV": "en0"}, "error": "TUNDEV is not a tunnel interface utun0 to utun999"},
+    {"name": "TUNDEV Linux name on the Mac", "env": {"TUNDEV": "tun0"}, "error": "TUNDEV is not a tunnel interface utun0 to utun999"},
+    {"name": "TUNDEV Mac name on Linux", "platform": "linux", "error": "TUNDEV is not a tunnel interface tun0 to tun99999"},
+    {"name": "TUNDEV shell text", "env": {"TUNDEV": "utun5;reboot"}, "error": "TUNDEV is not a tunnel interface utun0 to utun999"},
+    {"name": "TUNDEV control byte", "env": {"TUNDEV": "utun5\r"}, "error": "TUNDEV is not printable ASCII"},
+    {"name": "VPNGATEWAY missing", "env": {"VPNGATEWAY": null}, "error": "VPNGATEWAY is not set"},
+    {"name": "VPNGATEWAY a name", "env": {"VPNGATEWAY": "vpn.example.com"}, "error": "VPNGATEWAY is not a host address"},
+    {"name": "VPNGATEWAY unspecified", "env": {"VPNGATEWAY": "0.0.0.0"}, "error": "VPNGATEWAY is not a host address"},
+    {"name": "VPNGATEWAY with a zone", "env": {"VPNGATEWAY": "fe80::1%en0"}, "error": "VPNGATEWAY is not a host address"},
+    {"name": "VPNGATEWAY multicast", "env": {"VPNGATEWAY": "224.0.0.1"}, "error": "VPNGATEWAY is not a host address"},
+    {"name": "VPNGATEWAY with a port", "env": {"VPNGATEWAY": "192.0.2.10:443"}, "error": "VPNGATEWAY is not a host address"},
+    {"name": "VPNGATEWAY bracketed", "env": {"VPNGATEWAY": "[2001:db8::1]"}, "error": "VPNGATEWAY is not a host address"},
+    {"name": "IPv4 address with a leading zero (octal to inet_aton)", "env": {"INTERNAL_IP4_ADDRESS": "010.11.0.2"}, "error": "INTERNAL_IP4_ADDRESS is not an IPv4 host address"},
+    {"name": "IPv4 address with a trailing blank", "env": {"INTERNAL_IP4_ADDRESS": "10.11.0.2 "}, "error": "INTERNAL_IP4_ADDRESS is not an IPv4 host address"},
+    {"name": "IPv4 address short form", "env": {"INTERNAL_IP4_ADDRESS": "10.11.2"}, "error": "INTERNAL_IP4_ADDRESS is not an IPv4 host address"},
+    {"name": "IPv4 address out of range", "env": {"INTERNAL_IP4_ADDRESS": "10.11.0.256"}, "error": "INTERNAL_IP4_ADDRESS is not an IPv4 host address"},
+    {"name": "IPv4 address empty", "env": {"INTERNAL_IP4_ADDRESS": ""}, "error": "INTERNAL_IP4_ADDRESS is not an IPv4 host address"},
+    {"name": "IPv4 address loopback", "env": {"INTERNAL_IP4_ADDRESS": "127.0.0.2"}, "error": "INTERNAL_IP4_ADDRESS is not an IPv4 host address"},
+    {"name": "IPv4 address broadcast", "env": {"INTERNAL_IP4_ADDRESS": "255.255.255.255"}, "error": "INTERNAL_IP4_ADDRESS is not an IPv4 host address"},
+    {"name": "IPv4 address an IPv6 one", "env": {"INTERNAL_IP4_ADDRESS": "2001:db8::2"}, "error": "INTERNAL_IP4_ADDRESS is not an IPv4 host address"},
+    {"name": "IPv4 address shell text", "env": {"INTERNAL_IP4_ADDRESS": "10.11.0.2;reboot"}, "error": "INTERNAL_IP4_ADDRESS is not an IPv4 host address"},
+    {"name": "IPv4 address line break", "env": {"INTERNAL_IP4_ADDRESS": "10.11.0.2\npasstunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes"}, "error": "INTERNAL_IP4_ADDRESS is not printable ASCII"},
+    {"name": "IPv4 address non-ASCII", "env_hex": {"INTERNAL_IP4_ADDRESS": "31302e31312e302e32c3a9"}, "error": "INTERNAL_IP4_ADDRESS is not printable ASCII"},
+    {"name": "IPv4 address invalid UTF-8", "env_hex": {"INTERNAL_IP4_ADDRESS": "31302e31312e302eff"}, "error": "INTERNAL_IP4_ADDRESS is not printable ASCII"},
+    {"name": "netmask not contiguous", "env": {"INTERNAL_IP4_NETMASK": "255.0.255.0", "INTERNAL_IP4_NETMASKLEN": "16"}, "error": "INTERNAL_IP4_NETMASK is not a contiguous IPv4 netmask"},
+    {"name": "netmask length disagrees", "env": {"INTERNAL_IP4_NETMASKLEN": "25"}, "error": "INTERNAL_IP4_NETMASKLEN does not agree with INTERNAL_IP4_NETMASK"},
+    {"name": "netmask length leading zero", "env": {"INTERNAL_IP4_NETMASKLEN": "024"}, "error": "INTERNAL_IP4_NETMASKLEN is not a length from 0 to 32"},
+    {"name": "network address disagrees", "env": {"INTERNAL_IP4_NETADDR": "10.11.0.1"}, "error": "INTERNAL_IP4_NETADDR does not agree with INTERNAL_IP4_ADDRESS"},
+    {"name": "network address missing", "env": {"INTERNAL_IP4_NETADDR": null}, "error": "INTERNAL_IP4_NETADDR is not set"},
+    {"name": "netmask without an address", "env": {"INTERNAL_IP4_ADDRESS": null, "INTERNAL_IP6_ADDRESS": "2001:db8:1::2"}, "error": "INTERNAL_IP4_NETMASK does not agree with INTERNAL_IP4_ADDRESS"},
+    {"name": "no address at all", "env": {"INTERNAL_IP4_ADDRESS": null, "INTERNAL_IP4_NETMASK": null, "INTERNAL_IP4_NETMASKLEN": null, "INTERNAL_IP4_NETADDR": null}, "error": "neither INTERNAL_IP4_ADDRESS nor INTERNAL_IP6_ADDRESS is set"},
+    {"name": "MTU missing", "env": {"INTERNAL_IP4_MTU": null}, "error": "INTERNAL_IP4_MTU is not set"},
+    {"name": "MTU too small", "env": {"INTERNAL_IP4_MTU": "575"}, "error": "INTERNAL_IP4_MTU is not a number from 576 to 9000"},
+    {"name": "MTU too large", "env": {"INTERNAL_IP4_MTU": "9001"}, "error": "INTERNAL_IP4_MTU is not a number from 576 to 9000"},
+    {"name": "MTU leading zero", "env": {"INTERNAL_IP4_MTU": "01406"}, "error": "INTERNAL_IP4_MTU is not a number from 576 to 9000"},
+    {"name": "MTU negative", "env": {"INTERNAL_IP4_MTU": "-1406"}, "error": "INTERNAL_IP4_MTU is not a number from 576 to 9000"},
+    {"name": "MTU too small for IPv6", "env": {"INTERNAL_IP4_MTU": "1279", "INTERNAL_IP6_ADDRESS": "2001:db8:1::2"}, "error": "INTERNAL_IP4_MTU is below 1280, too small for IPv6"},
+    {"name": "IPv6 netmask without a length", "env": {"INTERNAL_IP6_NETMASK": "ffff:ffff:ffff:ffff::"}, "error": "INTERNAL_IP6_NETMASK is not an IPv6 address with a length from 0 to 128"},
+    {"name": "IPv6 netmask length too long", "env": {"INTERNAL_IP6_NETMASK": "2001:db8:1::2/129"}, "error": "INTERNAL_IP6_NETMASK is not an IPv6 address with a length from 0 to 128"},
+    {"name": "IPv6 netmask length leading zero", "env": {"INTERNAL_IP6_NETMASK": "2001:db8:1::2/064"}, "error": "INTERNAL_IP6_NETMASK is not an IPv6 address with a length from 0 to 128"},
+    {"name": "IPv6 netmask address garbage", "env": {"INTERNAL_IP6_NETMASK": "$(reboot)/64"}, "error": "INTERNAL_IP6_NETMASK is not an IPv6 host address"},
+    {"name": "IPv6 address and netmask disagree", "env": {"INTERNAL_IP6_ADDRESS": "2001:db8:1::3", "INTERNAL_IP6_NETMASK": "2001:db8:1::2/64"}, "error": "INTERNAL_IP6_ADDRESS does not agree with INTERNAL_IP6_NETMASK"},
+    {"name": "IPv6 address with a zone", "env": {"INTERNAL_IP6_ADDRESS": "fe80::2%utun5"}, "error": "INTERNAL_IP6_ADDRESS is not an IPv6 host address"},
+    {"name": "IPv6 address loopback", "env": {"INTERNAL_IP6_ADDRESS": "::1"}, "error": "INTERNAL_IP6_ADDRESS is not an IPv6 host address"},
+    {"name": "IPv6 address multicast", "env": {"INTERNAL_IP6_ADDRESS": "ff02::1"}, "error": "INTERNAL_IP6_ADDRESS is not an IPv6 host address"},
+    {"name": "IPv6 address an IPv4 one", "env": {"INTERNAL_IP6_ADDRESS": "10.11.0.3"}, "error": "INTERNAL_IP6_ADDRESS is not an IPv6 host address"},
+    {"name": "IPv6 address two gaps", "env": {"INTERNAL_IP6_ADDRESS": "2001::1::2"}, "error": "INTERNAL_IP6_ADDRESS is not an IPv6 host address"},
+    {"name": "IPv6 address five-digit group", "env": {"INTERNAL_IP6_ADDRESS": "02001:db8::2"}, "error": "INTERNAL_IP6_ADDRESS is not an IPv6 host address"},
+    {"name": "DNS more than 3", "env": {"INTERNAL_IP4_DNS": "10.11.0.53 10.11.0.54 10.11.0.55 10.11.0.56"}, "error": "INTERNAL_IP4_DNS holds more than 3 entries"},
+    {"name": "DNS shell text", "env": {"INTERNAL_IP4_DNS": "10.11.0.53;reboot"}, "error": "INTERNAL_IP4_DNS is not a list of IPv4 and IPv6 addresses"},
+    {"name": "DNS unspecified", "env": {"INTERNAL_IP4_DNS": "0.0.0.0"}, "error": "INTERNAL_IP4_DNS is not a list of IPv4 and IPv6 addresses"},
+    {"name": "DNS a name", "env": {"INTERNAL_IP4_DNS": "dns.example.com"}, "error": "INTERNAL_IP4_DNS is not a list of IPv4 and IPv6 addresses"},
+    {"name": "DNS tab", "env": {"INTERNAL_IP4_DNS": "10.11.0.53\t10.11.0.54"}, "error": "INTERNAL_IP4_DNS is not printable ASCII"},
+    {"name": "default domain option-like", "env": {"CISCO_DEF_DOMAIN": "-x.example.com"}, "error": "CISCO_DEF_DOMAIN is not a list of plain domain names"},
+    {"name": "default domain shell text", "env": {"CISCO_DEF_DOMAIN": "$(reboot).example.com"}, "error": "CISCO_DEF_DOMAIN is not a list of plain domain names"},
+    {"name": "default domain backquotes", "env": {"CISCO_DEF_DOMAIN": "ex`id`.com"}, "error": "CISCO_DEF_DOMAIN is not a list of plain domain names"},
+    {"name": "default domain path", "env": {"CISCO_DEF_DOMAIN": "example.com/x"}, "error": "CISCO_DEF_DOMAIN is not a list of plain domain names"},
+    {"name": "default domain too long a label", "env": {"CISCO_DEF_DOMAIN": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example.com"}, "error": "CISCO_DEF_DOMAIN is not a list of plain domain names"},
+    {"name": "default domain non-ASCII", "env_hex": {"CISCO_DEF_DOMAIN": "c3bc6e69636f64652e6578616d706c65"}, "error": "CISCO_DEF_DOMAIN is not printable ASCII"},
+    {"name": "default domains more than 16", "env": {"CISCO_DEF_DOMAIN": "a1.example.com a2.example.com a3.example.com a4.example.com a5.example.com a6.example.com a7.example.com a8.example.com a9.example.com a10.example.com a11.example.com a12.example.com a13.example.com a14.example.com a15.example.com a16.example.com a17.example.com"}, "error": "CISCO_DEF_DOMAIN holds more than 16 entries"},
+    {"name": "split DNS routing marker", "env": {"CISCO_SPLIT_DNS": "corp.example.com,~lab.example.com"}, "error": "CISCO_SPLIT_DNS is not a list of plain domain names"},
+    {"name": "split DNS wildcard", "env": {"CISCO_SPLIT_DNS": "*.example.com"}, "error": "CISCO_SPLIT_DNS is not a list of plain domain names"},
+    {"name": "split count over the limit", "env": {"CISCO_SPLIT_INC": "1025"}, "error": "CISCO_SPLIT_INC holds more than 1024 entries"},
+    {"name": "split count leading zero", "env": {"CISCO_SPLIT_INC": "01"}, "error": "CISCO_SPLIT_INC is not a count"},
+    {"name": "split count negative", "env": {"CISCO_SPLIT_EXC": "-1"}, "error": "CISCO_SPLIT_EXC is not a count"},
+    {
+      "name": "split index gap",
+      "env": {
+        "CISCO_SPLIT_INC": "2",
+        "CISCO_SPLIT_INC_0_ADDR": "10.0.0.0", "CISCO_SPLIT_INC_0_MASK": "255.0.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "8",
+        "CISCO_SPLIT_INC_2_ADDR": "172.16.0.0", "CISCO_SPLIT_INC_2_MASK": "255.240.0.0", "CISCO_SPLIT_INC_2_MASKLEN": "12"
+      },
+      "error": "a variable of the CISCO_SPLIT_INC list has an index the count does not cover"
+    },
+    {
+      "name": "split entry missing",
+      "env": {
+        "CISCO_SPLIT_INC": "2",
+        "CISCO_SPLIT_INC_0_ADDR": "10.0.0.0", "CISCO_SPLIT_INC_0_MASK": "255.0.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "8"
+      },
+      "error": "CISCO_SPLIT_INC_1_ADDR is not set"
+    },
+    {
+      "name": "split entries without a count",
+      "env": {"CISCO_SPLIT_EXC_0_ADDR": "10.0.0.0", "CISCO_SPLIT_EXC_0_MASK": "255.0.0.0", "CISCO_SPLIT_EXC_0_MASKLEN": "8"},
+      "error": "a variable of the CISCO_SPLIT_EXC list has an index the count does not cover"
+    },
+    {
+      "name": "split index with a leading zero",
+      "env": {
+        "CISCO_SPLIT_INC": "1",
+        "CISCO_SPLIT_INC_0_ADDR": "10.0.0.0", "CISCO_SPLIT_INC_0_MASK": "255.0.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "8",
+        "CISCO_SPLIT_INC_00_ADDR": "10.0.0.0"
+      },
+      "error": "a variable of the CISCO_SPLIT_INC list has an index the count does not cover"
+    },
+    {
+      "name": "split entry with an unknown field",
+      "env": {
+        "CISCO_SPLIT_INC": "1",
+        "CISCO_SPLIT_INC_0_ADDR": "10.0.0.0", "CISCO_SPLIT_INC_0_MASK": "255.0.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "8",
+        "CISCO_SPLIT_INC_0_GATEWAY": "198.51.100.1"
+      },
+      "error": "a variable of the CISCO_SPLIT_INC list has an index the count does not cover"
+    },
+    {
+      "name": "split mask and length disagree",
+      "env": {"CISCO_SPLIT_INC": "1", "CISCO_SPLIT_INC_0_ADDR": "10.0.0.0", "CISCO_SPLIT_INC_0_MASK": "255.255.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "8"},
+      "error": "CISCO_SPLIT_INC_0_MASKLEN does not agree with CISCO_SPLIT_INC_0_MASK"
+    },
+    {
+      "name": "split mask not contiguous",
+      "env": {"CISCO_SPLIT_INC": "1", "CISCO_SPLIT_INC_0_ADDR": "10.0.0.0", "CISCO_SPLIT_INC_0_MASK": "255.0.255.0", "CISCO_SPLIT_INC_0_MASKLEN": "16"},
+      "error": "CISCO_SPLIT_INC_0_MASK is not a contiguous IPv4 netmask"
+    },
+    {
+      "name": "split address with host bits (openconnect clears them)",
+      "env": {"CISCO_SPLIT_INC": "1", "CISCO_SPLIT_INC_0_ADDR": "10.1.0.0", "CISCO_SPLIT_INC_0_MASK": "255.0.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "8"},
+      "error": "CISCO_SPLIT_INC_0_ADDR does not agree with CISCO_SPLIT_INC_0_MASK"
+    },
+    {
+      "name": "split address short form",
+      "env": {"CISCO_SPLIT_INC": "1", "CISCO_SPLIT_INC_0_ADDR": "10.0.0", "CISCO_SPLIT_INC_0_MASK": "255.0.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "8"},
+      "error": "CISCO_SPLIT_INC_0_ADDR is not an IPv4 address"
+    },
+    {
+      "name": "split length out of range",
+      "env": {"CISCO_SPLIT_INC": "1", "CISCO_SPLIT_INC_0_ADDR": "10.0.0.0", "CISCO_SPLIT_INC_0_MASK": "255.0.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "33"},
+      "error": "CISCO_SPLIT_INC_0_MASKLEN is not a length from 0 to 32"
+    },
+    {
+      "name": "an exclude of every address",
+      "env": {"CISCO_SPLIT_EXC": "1", "CISCO_SPLIT_EXC_0_ADDR": "0.0.0.0", "CISCO_SPLIT_EXC_0_MASK": "0.0.0.0", "CISCO_SPLIT_EXC_0_MASKLEN": "0"},
+      "error": "CISCO_SPLIT_EXC_0_MASKLEN is not a length from 1 to 32 (an exclude of every address)"
+    },
+    {
+      "name": "IPv6 split address shell text (the server's raw text)",
+      "env": {"CISCO_IPV6_SPLIT_INC": "1", "CISCO_IPV6_SPLIT_INC_0_ADDR": "$(reboot):1", "CISCO_IPV6_SPLIT_INC_0_MASKLEN": "64"},
+      "error": "CISCO_IPV6_SPLIT_INC_0_ADDR is not an IPv6 address"
+    },
+    {
+      "name": "IPv6 split address with a blank",
+      "env": {"CISCO_IPV6_SPLIT_EXC": "1", "CISCO_IPV6_SPLIT_EXC_0_ADDR": "2001:db8:: x", "CISCO_IPV6_SPLIT_EXC_0_MASKLEN": "64"},
+      "error": "CISCO_IPV6_SPLIT_EXC_0_ADDR is not an IPv6 address"
+    },
+    {
+      "name": "IPv6 split address with a zone",
+      "env": {"CISCO_IPV6_SPLIT_INC": "1", "CISCO_IPV6_SPLIT_INC_0_ADDR": "fe80::%en0", "CISCO_IPV6_SPLIT_INC_0_MASKLEN": "64"},
+      "error": "CISCO_IPV6_SPLIT_INC_0_ADDR is not an IPv6 address"
+    },
+    {
+      "name": "IPv6 split address an IPv4 one",
+      "env": {"CISCO_IPV6_SPLIT_INC": "1", "CISCO_IPV6_SPLIT_INC_0_ADDR": "10.0.0.0", "CISCO_IPV6_SPLIT_INC_0_MASKLEN": "8"},
+      "error": "CISCO_IPV6_SPLIT_INC_0_ADDR is not an IPv6 address"
+    },
+    {
+      "name": "IPv6 split length negative (strtol in openconnect)",
+      "env": {"CISCO_IPV6_SPLIT_INC": "1", "CISCO_IPV6_SPLIT_INC_0_ADDR": "2001:db8::", "CISCO_IPV6_SPLIT_INC_0_MASKLEN": "-5"},
+      "error": "CISCO_IPV6_SPLIT_INC_0_MASKLEN is not a length from 0 to 128"
+    },
+    {
+      "name": "IPv6 split length too long",
+      "env": {"CISCO_IPV6_SPLIT_INC": "1", "CISCO_IPV6_SPLIT_INC_0_ADDR": "2001:db8::", "CISCO_IPV6_SPLIT_INC_0_MASKLEN": "129"},
+      "error": "CISCO_IPV6_SPLIT_INC_0_MASKLEN is not a length from 0 to 128"
+    },
+    {
+      "name": "IPv6 split entry with a mask (openconnect never sets one)",
+      "env": {"CISCO_IPV6_SPLIT_INC": "1", "CISCO_IPV6_SPLIT_INC_0_ADDR": "2001:db8::", "CISCO_IPV6_SPLIT_INC_0_MASKLEN": "32", "CISCO_IPV6_SPLIT_INC_0_MASK": "ffff:ffff::"},
+      "error": "a variable of the CISCO_IPV6_SPLIT_INC list has an index the count does not cover"
+    },
+    {
+      "name": "IPv6 split length missing",
+      "env": {"CISCO_IPV6_SPLIT_INC": "1", "CISCO_IPV6_SPLIT_INC_0_ADDR": "2001:db8::"},
+      "error": "CISCO_IPV6_SPLIT_INC_0_MASKLEN is not set"
+    },
+    {
+      "name": "VPNGATEWAY IPv4-mapped, with an IPv4 include holding its IPv4 address",
+      "env": {
+        "VPNGATEWAY": "::ffff:192.0.2.10",
+        "CISCO_SPLIT_INC": "1",
+        "CISCO_SPLIT_INC_0_ADDR": "192.0.2.0", "CISCO_SPLIT_INC_0_MASK": "255.255.255.0", "CISCO_SPLIT_INC_0_MASKLEN": "24"
+      },
+      "error": "VPNGATEWAY is not a host address"
+    },
+    {
+      "name": "VPNGATEWAY IPv4-mapped equal to the IPv4 address",
+      "env": {"VPNGATEWAY": "::ffff:10.11.0.2"},
+      "error": "VPNGATEWAY is not a host address"
+    },
+    {"name": "VPNGATEWAY IPv4-compatible", "env": {"VPNGATEWAY": "::192.0.2.10"}, "error": "VPNGATEWAY is not a host address"},
+    {"name": "IPv6 address IPv4-mapped", "env": {"INTERNAL_IP6_ADDRESS": "::ffff:10.11.0.3"}, "error": "INTERNAL_IP6_ADDRESS is not an IPv6 host address"},
+    {"name": "IPv6 address IPv4-compatible", "env": {"INTERNAL_IP6_ADDRESS": "::10.11.0.3"}, "error": "INTERNAL_IP6_ADDRESS is not an IPv6 host address"},
+    {"name": "IPv6 netmask address IPv4-mapped", "env": {"INTERNAL_IP6_NETMASK": "::ffff:10.11.0.3/120"}, "error": "INTERNAL_IP6_NETMASK is not an IPv6 host address"},
+    {"name": "DNS server IPv4-mapped", "env": {"INTERNAL_IP4_DNS": "10.11.0.53 ::ffff:10.11.0.54"}, "error": "INTERNAL_IP4_DNS is not a list of IPv4 and IPv6 addresses"},
+    {"name": "DNS server IPv4-compatible", "env": {"INTERNAL_IP4_DNS": "::10.11.0.54"}, "error": "INTERNAL_IP4_DNS is not a list of IPv4 and IPv6 addresses"},
+    {
+      "name": "IPv6 split include IPv4-mapped",
+      "env": {"CISCO_IPV6_SPLIT_INC": "1", "CISCO_IPV6_SPLIT_INC_0_ADDR": "::ffff:192.0.2.0", "CISCO_IPV6_SPLIT_INC_0_MASKLEN": "120"},
+      "error": "CISCO_IPV6_SPLIT_INC_0_ADDR is not an IPv6 network (not an IPv4 one written as IPv6)"
+    },
+    {
+      "name": "IPv6 split exclude IPv4-compatible",
+      "env": {"CISCO_IPV6_SPLIT_EXC": "1", "CISCO_IPV6_SPLIT_EXC_0_ADDR": "::192.0.2.0", "CISCO_IPV6_SPLIT_EXC_0_MASKLEN": "120"},
+      "error": "CISCO_IPV6_SPLIT_EXC_0_ADDR is not an IPv6 network (not an IPv4 one written as IPv6)"
+    },
+    {"name": "VPNPID zero", "env": {"VPNPID": "0"}, "error": "VPNPID is not a process ID"},
+    {"name": "VPNPID not a number", "env": {"VPNPID": "42x"}, "error": "VPNPID is not a process ID"}
+  ]
+}

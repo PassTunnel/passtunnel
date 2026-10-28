@@ -426,7 +426,9 @@ section is the threat model the pull requests #179–#189 are reviewed against; 
 bundled tool (#179), the configuration checks (#180), the profile (#181) and the helper's side of a
 session (#182): the helper accepts a start request, checks every field of it again and runs
 `openconnect` as described below, but nothing in the app sends that request yet (#184), and the hook
-that would set up the network is a stub that stops the session (#183).
+that would set up the network is a stub that stops the session (#183). The checks of what openconnect
+hands the hook, and what the hook would change from it, are in place and tested, but not used yet
+(#183, first part).
 
 ### What changes
 
@@ -510,11 +512,15 @@ names are openconnect's own, so a server cannot set `BASH_ENV` or similar.
   (not from anything openconnect or the server passes) which PassTunnel session's `openconnect` ran it,
   stops that `openconnect`. Independently, the helper stops every Cisco AnyConnect session whose network
   set-up was not reported within 60 seconds, which before #183 is every one.
-- **Every value it uses is checked first**, as for OpenVPN's DNS on Linux: addresses must parse and
-  are written back in canonical form, masks must be consistent, domains must be plain host names,
-  the interface must be a tunnel interface that exists, and lists have limits (3 DNS servers, 16
-  domains of each kind, 1,024 routes of each kind). One bad value fails the set-up. What it does not
-  need (the banner, the proxy URL, the raw headers) is never read.
+- **Every value it uses is checked first**, as for OpenVPN's DNS on Linux, with the same address
+  and domain rules: addresses must parse strictly (no leading zeros, which some parsers read as
+  octal; no zones, ports or blanks; no IPv4 address written as an IPv6 one, which would slip past the
+  IPv4 checks) and are written back in canonical form, masks must be
+  consistent, domains must be plain host names, the interface must be a tunnel interface that
+  exists, values must be printable ASCII, and lists have limits (3 DNS servers, 16 domains of each
+  kind, 1,024 routes of each kind, with no gaps or extra entries). One bad value fails the set-up, and
+  the message in the log names the setting, never the server's value. What it does not need (the
+  banner, the proxy URL, the raw headers) is never read.
 - **Its permissions come from root, not from the server.** Whether it may set routes and DNS is
   written by the helper into the root-only run directory before the tool starts; the hook reads
   nothing from your profile and nothing the server sends can change it.
@@ -530,9 +536,20 @@ names are openconnect's own, so a server cannot set `BASH_ENV` or similar.
   the connection is re-established, the session is stopped instead of being re-configured.
 - **The default route stays.** A full tunnel adds two half routes (`0/1`, `128/1`), as OpenVPN
   does, and never replaces or deletes your default route.
+- **Your local network stays local.** A route the server asks for into the tunnel that lies inside a
+  network your Mac is attached to (your Wi-Fi or Ethernet subnet), including a DNS server on it, is
+  left out and counted in the log ("2 routes kept local"), so the server cannot take over devices on
+  your LAN. A broader route (all of `10.0.0.0/8` while your LAN is `10.1.2.0/24`) is kept: your LAN's
+  own route is more specific and still wins. A full tunnel is not affected by this.
+- **Shared routes are not pulled from under another session.** When two sessions need the same route
+  (a block, or the route to a VPN server both use), the one that ends leaves it in place while the
+  other still runs, even if it may have been the one that added it.
 - **IPv6 in a full tunnel.** When all IPv4 traffic goes through the tunnel and the server assigns no
   IPv6 address, IPv6's default path is taken away (reject routes), so IPv6 to the internet is refused
-  rather than sent around the tunnel. This is a routing rule, not a firewall: IPv6 to destinations
+  at once rather than sent around the tunnel, and programs fall back to IPv4 without waiting (the same
+  for IPv4 in a tunnel that assigns only IPv6). Nothing the server sends for the blocked family (routes
+  to include or exclude) is used, so the server cannot open holes in the block. Split includes that
+  together cover every address count as a full tunnel. This is a routing rule, not a firewall: IPv6 to destinations
   with a more specific route (your local network, link-local addresses, other interfaces or VPNs)
   still leaves outside the tunnel. The route to the VPN server itself is kept.
 - **A failed set-up stops the session,** whether or not the app or the command is still running.

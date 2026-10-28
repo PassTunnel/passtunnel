@@ -22,6 +22,7 @@ fuzzers=(
     "FuzzFortiConfig:forti-config"
     "FuzzOpenConnectConfig:openconnect-config"
     "FuzzOpenConnectAuthOutput:openconnect-auth-output"
+    "FuzzOpenConnectHook:openconnect-hook"
     "FuzzManagementParser:management-parser"
     "FuzzOTPAuthURI:otpauth-uri"
     "FuzzMCPDecode:mcp-decode"
