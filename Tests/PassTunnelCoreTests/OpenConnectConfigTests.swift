@@ -258,14 +258,18 @@ final class OpenConnectAuthConfigTests: XCTestCase {
 // MARK: - The final check of both files
 
 final class OpenConnectRenderedCheckTests: XCTestCase {
-    let root = try! OpenConnectConfig(
+    static let root = try! OpenConnectConfig(
         host: "vpn.example.com", port: 8443, cookie: "EXAMPLE-COOKIE", serverCert: examplePin, resolveAddress: "192.0.2.10",
         scriptPath: exampleHook
     ).render()
-    let auth = try! OpenConnectAuthConfig(host: "vpn.example.com", usergroup: "eng", username: "alice", authgroup: "Staff")
+    static let auth = try! OpenConnectAuthConfig(host: "vpn.example.com", usergroup: "eng", username: "alice", authgroup: "Staff")
         .render(noExternalAuth: true)
-    let pinnedAuth = try! OpenConnectAuthConfig(host: "vpn.example.com", username: "alice", serverCert: examplePin)
+    static let pinnedAuth = try! OpenConnectAuthConfig(host: "vpn.example.com", username: "alice", serverCert: examplePin)
         .render(noExternalAuth: true)
+
+    var root: String { Self.root }
+    var auth: String { Self.auth }
+    var pinnedAuth: String { Self.pinnedAuth }
 
     func lineCount(_ text: String) -> Int { text.split(separator: "\n", omittingEmptySubsequences: false).count - 1 }
 
@@ -381,8 +385,8 @@ final class OpenConnectRenderedCheckTests: XCTestCase {
 // MARK: - Refused options
 
 final class OpenConnectRefusedOptionTests: XCTestCase {
-    let root = OpenConnectRenderedCheckTests().root
-    let auth = OpenConnectRenderedCheckTests().auth
+    let root = OpenConnectRenderedCheckTests.root
+    let auth = OpenConnectRenderedCheckTests.auth
 
     /// The options #180 lists (wildcards expanded against openconnect 9.21's table), each refused.
     static let listed = [
