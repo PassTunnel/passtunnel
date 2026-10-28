@@ -854,26 +854,67 @@ extension ConnectionManagerTests {
             XCTAssertNil(ConnectionManager.connectRefusal(type, macOS: nil))
             XCTAssertNil(ConnectionManager.connectRefusal(type, macOS: OperatingSystemVersion(majorVersion: 13, minorVersion: 0, patchVersion: 0)))
         }
+        // Linux (no macOS) refuses nothing up front: the distribution's openconnect is checked at the sign-in.
+        XCTAssertNil(ConnectionManager.connectRefusal(.anyconnect, macOS: nil))
         #if os(macOS)
         XCTAssertNotNil(ConnectionManager.currentMacOS)
         #else
         XCTAssertNil(ConnectionManager.currentMacOS)
-        XCTAssertEqual(ConnectionManager.connectRefusal(.anyconnect), .anyConnectNotSupported)
+        XCTAssertNil(ConnectionManager.connectRefusal(.anyconnect))
         #endif
     }
 
-    func testLinuxRefusesBeforeAnything() async throws {
+    /// Linux: the sign-in runs the distribution's openconnect that `locateOpenConnect` found and checked, with
+    /// its CA bundle, and `no-external-auth` only when that openconnect lists it (9.10 and later).
+    func testLinuxSignsInWithTheDistributionTool() async throws {
+        for noExternalAuth in [false, true] {
+            let p = try makeAnyConnect(noExternalAuth ? "Acme 9.12" : "Acme 9.01", pin: "")
+            let fake = FakeOpenConnect()
+            fake.results = [Out.output(stdout: Out.stdout(), stderr: Out.signedIn)]
+            helper.startLog = Out.hookUp
+            let m = try makeAnyConnectManager(fake, macOS: nil)
+            // The distribution's path in real life; an executable placeholder here (never run).
+            let distribution = try XCTUnwrap(m.openConnectPath)
+            m.openConnectPath = nil
+            var lookups = 0
+            m.locateOpenConnect = { runner in
+                lookups += 1
+                XCTAssertTrue(runner as AnyObject === fake, "the manager's runner")
+                return AnyConnectSignIn.Tool(
+                    path: distribution, caFile: "/etc/ssl/certs/ca-certificates.crt", noExternalAuth: noExternalAuth)
+            }
+            try await m.connect(p.id)
+            XCTAssertEqual(lookups, 1)
+            let call = try XCTUnwrap(fake.calls.first)
+            XCTAssertEqual(call.path, distribution)
+            XCTAssertTrue(call.config.contains("no-system-trust\ncafile /etc/ssl/certs/ca-certificates.crt\n"), call.config)
+            XCTAssertEqual(call.config.contains("no-external-auth"), noExternalAuth, call.config)
+            XCTAssertEqual(openConnectStarts().last?.profileID, p.id)
+        }
+    }
+
+    /// Linux: an openconnect that is missing or too old (Ubuntu 22.04's 8.20) is refused with the reason before
+    /// anything is run, the code used or the daemon asked.
+    func testLinuxRefusesAnOldOpenConnectBeforeTheCode() async throws {
         let p = try makeAnyConnect()
         let fake = FakeOpenConnect()
         let m = try makeAnyConnectManager(fake, macOS: nil)
+        m.openConnectPath = nil
+        let reason = ToolFailure.tooOld(
+            name: "openconnect", version: ToolVersion(8, 20, twoDigitMinor: true), minimum: ToolSpec.openconnect.minimum,
+            package: "openconnect")
+        m.locateOpenConnect = { _ in throw PTError.anyConnectToolUnavailable(reason.description) }
         let before = helper.requests.count
         do { try await m.connect(p.id); XCTFail("connected") } catch {
-            XCTAssertEqual(error as? PTError, .anyConnectNotSupported)
-            XCTAssertEqual(error.localizedDescription, "Cisco AnyConnect is not supported on Linux yet.")
+            XCTAssertEqual(error as? PTError, .anyConnectToolUnavailable(reason.description))
+            XCTAssertEqual(
+                error.localizedDescription,
+                "Cisco AnyConnect cannot be used here: openconnect 8.20 is too old: PassTunnel needs 9.01 or later. Update the openconnect package.")
         }
-        XCTAssertEqual(helper.requests.count, before)
-        XCTAssertTrue(fake.calls.isEmpty)
-        XCTAssertEqual(authenticator.calls, 0)
+        XCTAssertEqual(helper.requests.filter { if case .startOpenConnect = $0 { return true } else { return false } }.count, 0)
+        XCTAssertLessThanOrEqual(helper.requests.count, before + 1, "at most the status")
+        XCTAssertTrue(fake.calls.isEmpty, "no sign-in ran")
+        XCTAssertNil(m.usedCode(p.id), "the code is unused")
     }
 }
 

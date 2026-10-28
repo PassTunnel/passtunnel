@@ -102,6 +102,10 @@ extension HelperCore {
             defer { Self.wipe(&bytes) }
             try Self.writeNewFile(configPath, bytes, mode: 0o600)
             try Self.writeNewFile(runDir + "/" + OpenConnectPolicy.fileName, Data(policy.utf8), mode: 0o600)
+            #if os(Linux)
+            // passtunneld: the `script` the configuration names, a link to the daemon's own executable.
+            try linkVPNHook(in: runDir)
+            #endif
             let logFD = try dir.createLogFile(logName)
             // A server can make openconnect print what it chooses (the CONNECT status line, say), so its output
             // goes through the masker, which removes the cookie, before it reaches the user's log.
@@ -115,6 +119,26 @@ extension HelperCore {
             throw error
         }
     }
+
+    #if os(Linux)
+    /// passtunneld's `script` for a session: `<run>/<uid>/<id>/vpn-hook`, which `prepareOpenConnect` makes a
+    /// link to the daemon's own executable (`dnsHook`, resolved and checked), as `dns-hook` is for OpenVPN
+    /// (docs/LINUX.md, "Cisco AnyConnect"). A path of the run root, digits, the profile ID and `/`: safe for
+    /// openconnect's `/bin/sh -c`. Throws without a daemon executable to link to.
+    public func vpnHookPath(profileID: String, uid: uid_t) throws -> String {
+        guard dnsHook != nil else { throw Failure.system("link \(VPNHook.name)", ENOENT) }
+        return PT.sessionDir(uid: uid, profileID: profileID, runRoot: runRoot) + "/" + VPNHook.name
+    }
+
+    /// Links the daemon's own executable into the (root-owned) session directory as `vpn-hook`.
+    func linkVPNHook(in runDir: String) throws {
+        guard let target = dnsHook, target.hasPrefix("/"), !Self.containsNUL(target) else {
+            throw Failure.system("link \(VPNHook.name)", ENOENT)
+        }
+        let path = runDir + "/" + VPNHook.name
+        guard symlink(target, path) == 0 else { throw Failure.system("link \(path)", errno) }
+    }
+    #endif
 
     /// Overwrites `data` with zeros.
     static func wipe(_ data: inout Data) {

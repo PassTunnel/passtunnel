@@ -1,11 +1,14 @@
 import Foundation
 
-/// What the hook reads from and changes on the Mac, behind a protocol: the hook's logic (`OpenConnectHook`)
+/// What the hook reads from and changes on the system, behind a protocol: the hook's logic (`OpenConnectHook`)
 /// runs against a fake in the tests, which records every command and every DNS write, and against
-/// `MacOpenConnectSystem` in the hook and the helper (docs/ARCHITECTURE.md, "The hook", steps 4 and 7).
-/// The changes are the plan's (`OpenConnectPlan.Change`); how each one is made is `OpenConnectCommand`'s
-/// argument lists and `OpenConnectDNSSettings`' keys, both pure and tested to the byte.
+/// `MacOpenConnectSystem` in the Mac's hook and helper and `LinuxOpenConnectSystem` in passtunneld
+/// (docs/ARCHITECTURE.md, "The hook", steps 4 and 7). The changes are the plan's (`OpenConnectPlan.Change`);
+/// how each one is made is `OpenConnectCommand`'s argument lists (for the platform's `tools`) and, on the Mac,
+/// `OpenConnectDNSSettings`' keys, both pure and tested to the byte.
 public protocol OpenConnectSystem: AnyObject {
+    /// The programs the changes are made with: the Mac's `ifconfig` and `route`, or Linux's `ip`.
+    var tools: OpenConnectCommand.Tools { get }
     /// The interface's index; nil when there is no such interface.
     func interfaceIndex(_ name: String) -> UInt32?
     /// An interface's MTU and whether it is up (`IFF_UP`); nil when there is no such interface.
@@ -24,6 +27,13 @@ public protocol OpenConnectSystem: AnyObject {
     func hasDNS(_ settings: OpenConnectDNSSettings) -> Bool
     /// Removes a session's dynamic DNS keys; true also when there were none.
     func removeDNS(service: String) -> Bool
+    /// Why the last `setDNS` failed, when the system can say (Linux: `DNSApplier`'s reason); nil otherwise.
+    var dnsFailure: String? { get }
+}
+
+extension OpenConnectSystem {
+    public var tools: OpenConnectCommand.Tools { .macOS }
+    public var dnsFailure: String? { nil }
 }
 
 /// A route of the routing table, as the hook compares it with the routes it adds.
@@ -86,6 +96,15 @@ public struct OpenConnectCommand: Equatable, Sendable {
     public static let ifconfig = "/sbin/ifconfig"
     public static let route = "/sbin/route"
 
+    /// The programs a platform's changes are made with.
+    public enum Tools: Equatable, Sendable {
+        /// `/sbin/ifconfig` and `/sbin/route`.
+        case macOS
+        /// iproute2's `ip`, at the path the system checked (`LinuxOpenConnectSystem`: the first of the fixed
+        /// paths that passes `TrustedPath`).
+        case linux(ip: String)
+    }
+
     public enum Effect: Equatable, Sendable {
         case link(interface: String, mtu: Int)
         case linkDown(interface: String)
@@ -121,6 +140,29 @@ public struct OpenConnectCommand: Equatable, Sendable {
 
     /// The command as one line, for the golden tests and the failure reasons.
     public var line: String { ([executable] + arguments).joined(separator: " ") }
+
+    public init(executable: String, arguments: [String], effect: Effect) {
+        self.executable = executable
+        self.arguments = arguments
+        self.effect = effect
+    }
+
+    /// The command that makes `effect` with `tools`.
+    public init(_ effect: Effect, tools: Tools) {
+        switch tools {
+        case .macOS:
+            switch effect {
+            case .link(let interface, let mtu): self = .link(interface, mtu: mtu)
+            case .linkDown(let interface): self = .linkDown(interface)
+            case .addAddress(let interface, let address): self = .addAddress(interface, address)
+            case .deleteAddress(let interface, let address): self = .deleteAddress(interface, address)
+            case .addRoute(let route): self = .addRoute(route)
+            case .deleteRoute(let route): self = .deleteRoute(route)
+            }
+        case .linux(let ip):
+            self.init(executable: ip, arguments: Self.ipArguments(effect), effect: effect)
+        }
+    }
 
     /// `ifconfig utun5 mtu 1406 up`.
     public static func link(_ interface: String, mtu: Int) -> OpenConnectCommand {
@@ -179,6 +221,47 @@ public struct OpenConnectCommand: Equatable, Sendable {
         OpenConnectCommand(executable: Self.route, arguments: ["-n", "delete"] + destination(route.network), effect: .deleteRoute(route))
     }
 
+    /// Linux: `ip`'s argument list for `effect`, every address family and prefix length spelled out, never a
+    /// name `ip` would look up:
+    ///
+    ///     ip link set dev tun0 up mtu 1406                              revert: ip link set dev tun0 down
+    ///     ip -4 addr add 10.11.0.2/32 peer 10.11.0.2 dev tun0           revert: ip -4 addr del … (the same)
+    ///     ip -6 addr add 2001:db8:1::2/128 dev tun0                     revert: ip -6 addr del … (the same)
+    ///     ip -4 route add 0.0.0.0/1 dev tun0
+    ///     ip -4 route add 192.0.2.10/32 via 198.51.100.1 dev eth0
+    ///     ip -4 route add 192.0.2.10/32 dev ppp0                       (a gateway link without an address)
+    ///     ip -6 route add 2001:db8:5::/48 via fe80::1 dev eth0         (a link-local next hop with its interface)
+    ///     ip -6 route add unreachable ::/1
+    ///
+    /// A route's revert is `route del` with the same destination and next hop (and type), so the kernel deletes
+    /// only that route, never another one of the destination.
+    static func ipArguments(_ effect: Effect) -> [String] {
+        func family(_ f: IPAddress.Family) -> String { f == .ipv4 ? "-4" : "-6" }
+        func address(_ verb: String, _ interface: String, _ a: IPAddress) -> [String] {
+            a.family == .ipv4
+                ? ["-4", "addr", verb, "\(a)/32", "peer", a.description, "dev", interface]
+                : ["-6", "addr", verb, "\(a)/128", "dev", interface]
+        }
+        func route(_ verb: String, _ r: OpenConnectPlan.Route) -> [String] {
+            let head = [family(r.network.family), "route", verb]
+            switch r.via {
+            case .interface(let name): return head + [r.network.description, "dev", name]
+            case .gateway(let gateway):
+                let via = gateway.address.map { ["via", $0.description] } ?? []
+                return head + [r.network.description] + via + ["dev", gateway.interface]
+            case .reject: return head + ["unreachable", r.network.description]
+            }
+        }
+        switch effect {
+        case .link(let interface, let mtu): return ["link", "set", "dev", interface, "up", "mtu", String(mtu)]
+        case .linkDown(let interface): return ["link", "set", "dev", interface, "down"]
+        case .addAddress(let interface, let a): return address("add", interface, a)
+        case .deleteAddress(let interface, let a): return address("del", interface, a)
+        case .addRoute(let r): return route("add", r)
+        case .deleteRoute(let r): return route("del", r)
+        }
+    }
+
     /// `-inet -host A`, `-inet -net A -netmask M`, `-inet6 -host A`, `-inet6 -net A -prefixlen L`: always
     /// the family and the length spelled out, never a class or a name.
     static func destination(_ network: IPNetwork) -> [String] {
@@ -218,6 +301,8 @@ public struct OpenConnectDNSSettings: Equatable, Sendable {
     public let service: String
     /// Every key and its dictionary.
     public let values: [String: [String: Value]]
+    /// The plan's DNS these keys are made from: what Linux applies through `DNSApplier` instead.
+    public let dns: OpenConnectPlan.DNS
 
     public static func key(service: String, entity: String) -> String { "State:/Network/Service/\(service)/\(entity)" }
 
@@ -234,6 +319,7 @@ public struct OpenConnectDNSSettings: Equatable, Sendable {
     ///   (`255.255.255.255`), `Router` (the tunnel's address), `InterfaceName` and `OverridePrimary` = 1, and
     ///   `IPv6` likewise with `PrefixLength` (128), for each family the tunnel has an address of.
     public init(_ dns: OpenConnectPlan.DNS, addresses: [IPAddress]) {
+        self.dns = dns
         service = dns.service
         var values: [String: [String: Value]] = [:]
         if dns.primary {

@@ -468,8 +468,12 @@ public final class ConnectionManager: ObservableObject {
     public var systemVersion: OperatingSystemVersion? = ConnectionManager.currentMacOS
     /// Runs Cisco AnyConnect's sign-in (`AnyConnectSignIn`); a fake in tests, which never run openconnect.
     var toolRunner: ToolRunning = SystemToolRunner()
-    /// The openconnect the sign-in runs: the app bundle's (`AnyConnectSignIn.bundledTool`); nil outside one.
+    /// The openconnect the sign-in runs: the app bundle's (`AnyConnectSignIn.bundledTool`); nil outside one and
+    /// on Linux, where `locateOpenConnect` finds the distribution's.
     var openConnectPath: String? = AnyConnectSignIn.bundledTool()
+    /// Without `openConnectPath`: finds and checks the distribution's openconnect, what it supports and the CA
+    /// bundle (`AnyConnectSignIn.distributionTool`); replaced in tests.
+    var locateOpenConnect: (ToolRunning) throws -> AnyConnectSignIn.Tool = AnyConnectSignIn.distributionTool
     /// Cisco AnyConnect sign-ins under way, which `disconnect` stops.
     private var signIns: [String: ToolCancellation] = [:]
 
@@ -1096,7 +1100,17 @@ public final class ConnectionManager: ObservableObject {
     ) async throws -> HelperRequest {
         let id = p.id
         progress.anyConnect = true
-        guard let tool = openConnectPath else { throw PTError.fileError("openconnect") }
+        let tool: AnyConnectSignIn.Tool
+        if let path = openConnectPath {
+            tool = AnyConnectSignIn.Tool(path: path)
+        } else {
+            // Linux: the distribution's, checked before the code is used (it runs the tool twice, as the user).
+            let lookup = AnyConnectSignIn.Lookup(locate: locateOpenConnect, runner: toolRunner)
+            let found = await withCheckedContinuation { (done: CheckedContinuation<Result<AnyConnectSignIn.Tool, Error>, Never>) in
+                DispatchQueue.global(qos: .userInitiated).async { done.resume(returning: lookup.run()) }
+            }
+            tool = try found.get()
+        }
         let pin = p.serverCert.isEmpty ? "" : OpenConnectPin.normalize(p.serverCert) ?? p.serverCert
         let config = OpenConnectAuthConfig(
             host: p.host, port: p.port, usergroup: p.usergroup, username: username, authgroup: p.authgroup, serverCert: pin)
@@ -1118,7 +1132,8 @@ public final class ConnectionManager: ObservableObject {
         record(id, .sending(sent))
         setState(id, .connecting(Phase.signingIn))
 
-        let run = AnyConnectSignIn(toolPath: tool, runner: toolRunner, timeout: timing.signInTimeout)
+        let run = AnyConnectSignIn(
+            toolPath: tool.path, runner: toolRunner, timeout: timing.signInTimeout, caFile: tool.caFile, noExternalAuth: tool.noExternalAuth)
         let cancellation = ToolCancellation()
         signIns[id] = cancellation
         defer { if signIns[id] === cancellation { signIns[id] = nil } }
@@ -1208,14 +1223,14 @@ public final class ConnectionManager: ObservableObject {
     /// Why a profile of `type` cannot be connected on this system, nil when it can: what the front ends show
     /// such a profile (and its type in the type picker) disabled with. Cisco AnyConnect needs macOS 15.4 or
     /// later (`HelperCore.Tool.minimumMacOS`: dyld stops the bundled openconnect on anything older; owner
-    /// decision, #2): `PTError.anyConnectRequiresMacOS`. On Linux (`macOS` nil) it is not supported yet
-    /// (passtunneld refuses it until #187): `PTError.anyConnectNotSupported`.
+    /// decision, #2): `PTError.anyConnectRequiresMacOS`. On Linux (`macOS` nil) nothing is refused here: the
+    /// distribution's openconnect is checked when the sign-in starts (`AnyConnectSignIn.distributionTool`).
     public nonisolated static func connectRefusal(_ type: VPNType, macOS: OperatingSystemVersion? = currentMacOS) -> PTError? {
         switch type {
         case .openvpn, .forti:
             return nil
         case .anyconnect:
-            guard let macOS else { return .anyConnectNotSupported }
+            guard let macOS else { return nil }
             let tool = HelperCore.Tool.openconnect
             guard !tool.runs(on: macOS), let minimum = tool.minimumMacOS else { return nil }
             return .anyConnectRequiresMacOS(HelperCore.Tool.versionText(minimum))
@@ -1858,7 +1873,7 @@ public final class ConnectionManager: ObservableObject {
         case .authFailed, .missingPassword, .missingTOTPSecret, .missingCredential, .missingConfig,
             .missingHost, .usernameTooLong, .invalidSecret, .profileNotFound, .otherVPNActive, .setupFailed,
             .userConfirmationCancelled, .userConfirmationFailed, .confirmationRequired, .protectedSecretUnreadable,
-            .protectionUnavailable, .anyConnectRequiresMacOS, .anyConnectNotSupported, .hostScanRequired,
+            .protectionUnavailable, .anyConnectRequiresMacOS, .anyConnectToolUnavailable, .hostScanRequired,
             .serverCertificateRejected, .signInNeedsMoreAnswers, .signInUnusable:
             return false
         default:

@@ -84,7 +84,7 @@ human confirmation, and a script cannot answer it.
 | `other_vpn_active` | Another VPN already routes all traffic (`connect --force` overrides) |
 | `destination_changed` | The server settings changed after you confirmed: connect again and confirm |
 | `timeout` | `--timeout` passed, or the VPN tool's own limit |
-| `config_invalid` | Missing or rejected OpenVPN configuration, missing FortiGate or Cisco AnyConnect server, unreadable file, a profile or share file of a VPN type that needs a newer PassTunnel, a Cisco AnyConnect profile on macOS older than 15.4 ("Cisco AnyConnect requires macOS 15.4 or later.") or on Linux ("Cisco AnyConnect is not supported on Linux yet.") |
+| `config_invalid` | Missing or rejected OpenVPN configuration, missing FortiGate or Cisco AnyConnect server, unreadable file, a profile or share file of a VPN type that needs a newer PassTunnel, a Cisco AnyConnect profile on macOS older than 15.4 ("Cisco AnyConnect requires macOS 15.4 or later.") or on Linux without the distribution's openconnect 9.01 or later ("Cisco AnyConnect cannot be used here: openconnect 8.20 is too old: PassTunnel needs 9.01 or later. Update the openconnect package.") |
 | `file_error` | A file could not be read or written |
 | `keychain_error` | The secret store (the Keychain on the Mac; on Linux secret-service, systemd-creds or the passphrase-encrypted file) refused or cannot be used, or a protected secret cannot be decrypted; `message` says why |
 | `internal` | Anything else |

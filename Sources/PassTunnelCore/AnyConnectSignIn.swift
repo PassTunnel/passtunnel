@@ -12,8 +12,10 @@ import Glibc
 /// and prints the session cookie, which alone goes to the helper. Root never holds the password or the code,
 /// nor parses the server's sign-in forms.
 ///
-/// - **Program:** the app bundle's `openconnect` (a fixed path, never `PATH`), with exactly
-///   `["--config=<file>", "--authenticate"]`: nothing else in argv, which every local user can read.
+/// - **Program:** the app bundle's `openconnect` on the Mac; on Linux the distribution's, from its fixed paths
+///   and checked as the daemon checks it (`ToolSpec.openconnect`: `TrustedPath`, 9.01 or later), never from
+///   `PATH` (`distributionTool`). With exactly `["--config=<file>", "--authenticate"]`: nothing else in argv,
+///   which every local user can read.
 /// - **Config file:** rendered and checked by `OpenConnectAuthConfig` (the user name is only here), written
 ///   0600 into a directory of its own (0700, made for the run in the user's temporary directory) and
 ///   removed, with the directory, after the run whatever happened.
@@ -60,6 +62,54 @@ struct AnyConnectSignIn: @unchecked Sendable {
             env[String(item[..<eq])] = String(item[item.index(after: eq)...])
         }
         return env
+    }
+
+    /// The openconnect a sign-in runs, with what the file it reads depends on: the CA bundle the server is
+    /// checked against without a pin, and whether the tool knows `no-external-auth`.
+    struct Tool: Equatable {
+        var path: String
+        var caFile: String = OpenConnectConfig.systemCAFile
+        var noExternalAuth = true
+    }
+
+    /// `distributionTool` (or a test's stand-in) with its runner, run once on a background queue.
+    /// `@unchecked Sendable` as `AnyConnectSignIn` is: the runner keeps no state between runs.
+    struct Lookup: @unchecked Sendable {
+        var locate: (ToolRunning) throws -> Tool
+        var runner: ToolRunning
+
+        func run() -> Result<Tool, Error> { Result { try locate(runner) } }
+    }
+
+    /// How long `openconnect --version` and `--help` may take.
+    static let probeTimeout: TimeInterval = 5
+
+    /// Linux: the distribution's openconnect (docs/LINUX.md, "Cisco AnyConnect"): the first of
+    /// `ToolSpec.openconnect`'s fixed paths, resolved and checked (`TrustedPath`) and run for its version, which
+    /// must be 9.01 or later; `--help` tells whether it has `no-external-auth` (9.10 and later), which the file
+    /// then names; and the distribution's CA bundle, checked as the daemon checks it. Run as the user, before any
+    /// code is used: a tool that is missing, untrusted or too old is `PTError.anyConnectToolUnavailable` with the
+    /// reason. Elsewhere there is no distribution tool (`PTError.fileError`).
+    static func distributionTool(runner: ToolRunning) throws -> Tool {
+        #if os(Linux)
+        func output(_ path: String, _ arguments: [String]) -> String? {
+            guard let run = try? runner.run(path, arguments, environment: environment, input: Data(), timeout: probeTimeout) else {
+                return nil
+            }
+            return String(decoding: run.output + run.errorOutput, as: UTF8.self)
+        }
+        do {
+            let tool = try DistributionTools.resolve(.openconnect, versionOutput: output)
+            let help = output(tool.path, ToolSpec.helpArguments) ?? ""
+            return Tool(
+                path: tool.path, caFile: try DistributionTools.caBundle(),
+                noExternalAuth: ToolSpec.openConnectHasNoExternalAuth(help: help))
+        } catch let failure as ToolFailure {
+            throw PTError.anyConnectToolUnavailable(failure.description)
+        }
+        #else
+        throw PTError.fileError("openconnect")
+        #endif
     }
 
     /// The app bundle's openconnect (`Contents/Resources/bin/openconnect`); nil outside an app bundle and on

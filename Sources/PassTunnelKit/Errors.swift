@@ -42,7 +42,7 @@ public enum PTError: Error, Equatable, LocalizedError {
     case setupFailed(reason: String, log: String)  // DNS hook or all-traffic routes failed; log tail
     // Cisco AnyConnect
     case anyConnectRequiresMacOS(String)  // the macOS openconnect needs ("15.4"): refused before anything runs
-    case anyConnectNotSupported  // not on this system yet (Linux, until passtunneld runs openconnect)
+    case anyConnectToolUnavailable(String)  // Linux: the distribution's openconnect is missing, untrusted or older than 9.01; why
     case hostScanRequired(log: String)  // the server asked for a CSD host scan, which PassTunnel never runs; log tail
     /// openconnect did not trust the server's certificate (or key): its reason, and the pin of the key it saw
     /// (`pin-sha256:…`, openconnect's own hint) when it printed one; log tail. Nothing was sent.
@@ -147,8 +147,8 @@ public enum PTError: Error, Equatable, LocalizedError {
             return String(localized: "The tunnel came up, but setting up the network failed, so it was disconnected: \(reason)")
         case .anyConnectRequiresMacOS(let version):
             return String(localized: "Cisco AnyConnect requires macOS \(version) or later.")
-        case .anyConnectNotSupported:
-            return String(localized: "Cisco AnyConnect is not supported on Linux yet.")
+        case .anyConnectToolUnavailable(let reason):
+            return String(localized: "Cisco AnyConnect cannot be used here: \(reason)")
         case .hostScanRequired:
             return String(
                 localized:

@@ -487,6 +487,106 @@ jobs:
           daemon=""
           test ! -e "$sock"
 
+      # Cisco AnyConnect (#187) with the distribution's openconnect (Ubuntu 24.04: 9.12), no tunnel: its
+      # version and --help (no-external-auth) read as the daemon and passtunnel read them
+      # (OpenConnectToolProbeTests, against the installed tool); a start refused for a field the client
+      # checked, before anything is prepared, and for an openconnect too old (a stand-in at the same path
+      # that prints Ubuntu 22.04's 8.20); then a start with the real tool against a local socket that never
+      # answers, so openconnect never gets a tunnel, never runs its hook and changes nothing: its config
+      # (the cookie only there), arguments, environment, state and hook link, the cookie kept out of the
+      # log, its status, and the stop.
+      - name: Cisco AnyConnect in passtunneld (no tunnel)
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends jq socat openconnect ca-certificates >/dev/null
+          openconnect --version | head -n 1
+          PASSTUNNEL_TEST_OPENCONNECT=1 scripts/swift-retry.sh swift test --skip-build \
+            --filter 'OpenConnectToolProbeTests' 2>&1 | tee probe.txt
+          grep -q 'no-external-auth: true' probe.txt
+          if grep -q 'skipped' probe.txt; then echo "the probe was skipped"; exit 1; fi
+
+          bin="$(swift build --show-bin-path)"
+          install -m 0755 "$bin/passtunneld" /usr/local/sbin/passtunneld
+          getent group passtunnel >/dev/null || groupadd --system passtunnel
+          id alice >/dev/null 2>&1 || useradd --create-home --groups passtunnel alice
+          sock=/run/passtunnel/daemon.sock
+          call_as() { runuser -u "$1" -- socat -t 30 - "UNIX-CONNECT:$sock"; }
+          status='{"op":"perform","request":{"type":"status","protocol_version":4}}'
+          stop='{"op":"perform","request":{"type":"stop","protocol_version":4,"profile_id":"cisco"}}'
+          /usr/local/sbin/passtunneld >>oc-daemon.log 2>&1 &
+          daemon=$!
+          trap 'kill "$daemon" 2>/dev/null || true; echo "--- daemon log"; cat oc-daemon.log
+            echo "--- session log"; cat /home/alice/.local/share/passtunnel/profiles/cisco/vpn.log 2>/dev/null || true
+            if [ -e /usr/sbin/openconnect.real ]; then mv /usr/sbin/openconnect.real /usr/sbin/openconnect; fi' EXIT
+          for _ in $(seq 100); do
+            printf '%s\n' '{"op":"hello"}' | socat -t 5 - "UNIX-CONNECT:$sock" 2>/dev/null | grep -q '"protocol"' && break
+            sleep 0.1
+          done
+
+          uid="$(id -u alice)"
+          dir=/home/alice/.local/share/passtunnel/profiles/cisco
+          runuser -u alice -- mkdir -p "$dir"
+          run="/run/passtunnel/$uid/cisco"
+          cookie='EXAMPLE-COOKIE-0123456789abcdef'
+          pin='pin-sha256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk='
+          start() {
+            jq -cn --arg dir "$dir" --arg cookie "$cookie" --arg pin "$pin" --arg url "${1:-https://127.0.0.1:10443/}" \
+              '{op: "perform", request: {type: "start_openconnect", protocol_version: 4, profile_id: "cisco", profile_dir: $dir,
+                log_path: ($dir + "/vpn.log"), host: "127.0.0.1", port: 10443, usergroup: "", connect_url: $url,
+                cookie: $cookie, server_cert: $pin, profile_server_cert: "", tls_only: true, set_dns: true, set_routes: true}}'
+          }
+
+          # A connect URL other than the profile's server: refused before anything is prepared.
+          start https://vpn.example.com/ | call_as alice | jq -e '.ok == false and (.error | test("another server"))'
+          test ! -e "$run"
+          # Ubuntu 22.04's openconnect: refused, naming the minimum.
+          mv /usr/sbin/openconnect /usr/sbin/openconnect.real
+          printf '%s\n' '#!/bin/sh' 'echo "OpenConnect version v8.20-1"' 'exit 0' >old-openconnect
+          install -m 0755 old-openconnect /usr/sbin/openconnect
+          start | call_as alice | tee old.json
+          jq -e '.error == "openconnect 8.20 is too old: PassTunnel needs 9.01 or later. Update the openconnect package."' old.json
+          test ! -e "$run"
+          mv /usr/sbin/openconnect.real /usr/sbin/openconnect
+
+          # The real one, against a socket that accepts and never answers the TLS handshake.
+          socat -u TCP-LISTEN:10443,bind=127.0.0.1,reuseaddr,fork /dev/null &
+          gateway=$!
+          start | call_as alice | tee oc.json | jq -e '.ok and .pid > 1 and .mgmt_socket == null'
+          pid="$(jq -r .pid oc.json)"
+          tr '\0' ' ' <"/proc/$pid/cmdline" | tee occmdline.txt
+          echo
+          test "$(cat occmdline.txt)" = "/usr/sbin/openconnect --config=$run/openconnect.conf "
+          test "$(tr '\0' '\n' <"/proc/$pid/environ" | sort | tr '\n' ' ')" = "LC_ALL=C P11_KIT_NO_USER_CONFIG=1 PATH=/usr/sbin:/usr/bin:/sbin:/bin "
+          test "$(stat -c '%a %U' "$run/openconnect.conf")" = "600 root"
+          test "$(stat -c '%a %U' "$run/policy")" = "600 root"
+          test "$(stat -c '%a %U' "$run/state")" = "600 root"
+          grep -v '^cookie ' "$run/openconnect.conf"
+          grep -qx "cookie $cookie" "$run/openconnect.conf"
+          grep -qx "script $run/vpn-hook" "$run/openconnect.conf"
+          grep -qx 'no-dtls' "$run/openconnect.conf"
+          test "$(readlink "$run/vpn-hook")" = /usr/local/sbin/passtunneld
+          printf 'uid=%s\nprofile=cisco\nset_routes=1\nset_dns=1\n' "$uid" | cmp - "$run/policy"
+          test "$(sed -n 1p "$run/state")" = "$pid"
+          test "$(sed -n 3p "$run/state")" = /usr/sbin/openconnect
+          if grep -qa "$cookie" occmdline.txt "/proc/$pid/environ"; then echo "the cookie left the config"; exit 1; fi
+          printf '%s\n' "$status" | call_as alice \
+            | jq -e --argjson pid "$pid" '.running == {"cisco": $pid} and .tunnels == {"cisco": {"state": "setting_up"}}'
+          printf '%s\n' "$status" | call_as nobody | jq -e '.running == {} and .tunnels == null'
+          sleep 2
+          test "$(stat -c '%U %a' "$dir/vpn.log")" = "alice 600"
+          if grep -q "$cookie" "$dir/vpn.log"; then echo "the cookie is in the log"; exit 1; fi
+          printf '%s\n' "$stop" | call_as nobody | jq -e '.ok and .pid == null'
+          printf '%s\n' "$stop" | call_as alice | jq -e --argjson pid "$pid" '.ok and .pid == $pid'
+          test ! -e "$run"
+          if kill -0 "$pid" 2>/dev/null; then echo "openconnect $pid still runs"; exit 1; fi
+          grep -q "started openconnect 9\.[0-9]* for cisco, uid $uid" oc-daemon.log
+          kill "$gateway"
+          kill -TERM "$daemon"
+          wait "$daemon"
+
       # The DNS hook as OpenVPN runs it, against the container's own /etc/resolv.conf: the file backend
       # (no systemd-resolved or resolvconf here; the container's file is a bind mount, rewritten in
       # place). The hook acts only in a session directory whose recorded tool is its parent, so this

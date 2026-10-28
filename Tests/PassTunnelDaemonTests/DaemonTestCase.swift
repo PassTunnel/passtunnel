@@ -14,6 +14,7 @@ class DaemonTestCase: XCTestCase {
     var toolPath: String { base + "/bin/openvpn" }
     var fortiPath: String { base + "/bin/openfortivpn" }
     var pppdPath: String { base + "/bin/pppd" }
+    var openConnectPath: String { base + "/bin/openconnect" }
     var caPath: String { base + "/certs/ca-certificates.crt" }
     let me = geteuid()
     /// A user outside the group `passtunnel`.
@@ -36,6 +37,7 @@ class DaemonTestCase: XCTestCase {
         try makeTool(version: "2.6.9")
         try makeForti(version: "1.21.0")
         try makePPPD(version: "2.4.9")
+        try makeOpenConnect(version: "v9.12")
         try FileManager.default.createDirectory(
             atPath: base + "/certs", withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o755])
@@ -108,6 +110,23 @@ class DaemonTestCase: XCTestCase {
             """)
     }
 
+    /// The fake openconnect: its version for `--version` (as openconnect prints it), its options for `--help`,
+    /// else its arguments and a line with the session's cookie (which the log must never show), then it sleeps.
+    func makeOpenConnect(version: String) throws {
+        try makeScript(
+            openConnectPath,
+            """
+            #!/bin/sh
+            if [ "$1" = "--version" ]; then echo "OpenConnect version \(version)"; echo "Using GnuTLS 3.8.3. Features present: PKCS#11"; exit 0; fi
+            if [ "$1" = "--help" ]; then echo "      --no-external-auth          Do not offer or use auth methods requiring external browser"; exit 1; fi
+            echo "fake openconnect $*"
+            config="${1#--config=}"
+            echo "Got CONNECT response: HTTP/1.1 200 OK $(sed -n 's/^cookie //p' "$config")"
+            exec sleep 30
+
+            """)
+    }
+
     func makeScript(_ path: String, _ script: String) throws {
         try? FileManager.default.removeItem(atPath: path)
         try script.write(toFile: path, atomically: true, encoding: .utf8)
@@ -137,7 +156,8 @@ class DaemonTestCase: XCTestCase {
     }
 
     var testTools: TestTools {
-        TestTools(system: fakeTools, paths: ["OpenVPN": toolPath, "openfortivpn": fortiPath, "pppd": pppdPath])
+        TestTools(
+            system: fakeTools, paths: ["OpenVPN": toolPath, "openfortivpn": fortiPath, "pppd": pppdPath, "openconnect": openConnectPath])
     }
 
     func fortiStart(_ id: String = "acme", setDNS: Bool = false) -> FortiStart {

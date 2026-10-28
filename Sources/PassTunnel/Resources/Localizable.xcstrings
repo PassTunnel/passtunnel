@@ -773,12 +773,12 @@
         }
       }
     },
-    "Cisco AnyConnect is not supported on Linux yet." : {
+    "Cisco AnyConnect cannot be used here: %@" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cisco AnyConnect henüz Linux’ta desteklenmiyor."
+            "value" : "Cisco AnyConnect burada kullanılamıyor: %@"
           }
         }
       }
