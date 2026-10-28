@@ -2,9 +2,12 @@ import Foundation
 
 /// The hook's record of what it changed for a session (`network` in the session directory, 0600, root),
 /// docs/ARCHITECTURE.md, "The hook", steps 4–7. A journal, one entry per line: every change is written
-/// before it is made (`+`) and its outcome after (`=` the session's own, `~` it was there already and is
-/// not the session's, `!` it failed and nothing was changed), a revert after it succeeded (`-`), and the
-/// set-up's outcome (`status`). A change that was begun and has no outcome (the hook was killed during it)
+/// before it is made (`+`) and its outcome after (`=` the session's own, `!` it failed and nothing was
+/// changed), a revert after it succeeded (`-`), and the set-up's outcome (`status`). A change the hook finds
+/// there already is journaled without a `+`, since nothing is made: `&` when another live session of the run
+/// root holds it as its own or shared (the two share it, and the last one of them to end removes it), `~`
+/// when no session does (it is not PassTunnel's and is never removed); either can also be the outcome of a
+/// change begun when someone else made it meanwhile. A change that was begun and has no outcome (the hook was killed during it)
 /// may have been made, so it is reverted like one of the session's own, unless another live session's record
 /// lists the same change (`toRevert(sparing:)`). Reverting is idempotent: a change already gone counts as
 /// reverted.
@@ -43,6 +46,9 @@ public struct OpenConnectRecord: Equatable, Sendable {
     public enum Entry: Equatable, Sendable {
         case begin(Change)
         case owned(Change)
+        /// There already, held by another live session: shared with it.
+        case shared(Change)
+        /// There already, held by no session: never removed.
         case existed(Change)
         case failed(Change)
         case reverted(Change)
@@ -54,6 +60,7 @@ public struct OpenConnectRecord: Equatable, Sendable {
             switch self {
             case .begin(let c): return "+ " + c.text
             case .owned(let c): return "= " + c.text
+            case .shared(let c): return "& " + c.text
             case .existed(let c): return "~ " + c.text
             case .failed(let c): return "! " + c.text
             case .reverted(let c): return "- " + c.text
@@ -84,6 +91,7 @@ public struct OpenConnectRecord: Equatable, Sendable {
             switch text.first {
             case "+": self = .begin(change)
             case "=": self = .owned(change)
+            case "&": self = .shared(change)
             case "~": self = .existed(change)
             case "!": self = .failed(change)
             case "-": self = .reverted(change)
@@ -98,6 +106,8 @@ public struct OpenConnectRecord: Equatable, Sendable {
         /// Begun, no outcome: it may have been made.
         case pending
         case owned
+        /// Found there, held by another live session too: reverted by whichever of them ends last.
+        case shared
         case existed
         case failed
         case reverted
@@ -146,35 +156,40 @@ public struct OpenConnectRecord: Equatable, Sendable {
     }
 
     /// Adds `entry`, in the order the journal allows:
-    /// - `begin`: no change is pending, and this one is neither pending nor the session's;
-    /// - `owned`, `existed`, `failed`: the outcome of the pending change;
-    /// - `reverted`: a change that is the session's or pending, while no other change is pending;
-    /// - `spared`: a change that is the session's or pending (it settles a pending one);
+    /// - `begin`: no change is pending, and this one is neither pending nor the session's (own or shared);
+    /// - `owned`, `failed`: the outcome of the pending change;
+    /// - `shared`, `existed`: the outcome of the pending change, or, while none is pending, a change found
+    ///   there that is not the session's yet;
+    /// - `reverted`: a change that is the session's (own or shared) or pending, while no other change is pending;
+    /// - `spared`: a change that is the session's (own or shared) or pending (it settles a pending one);
     /// - `status`: no change is pending; a failure's reason is one line of printable ASCII.
     public mutating func append(_ entry: Entry) throws {
         let pending = self.pending
         switch entry {
         case .begin(let c):
-            guard pending == nil, states[c] != .owned else { throw Failure.outOfOrder(entry.text) }
+            guard pending == nil, !Self.held(states[c]) else { throw Failure.outOfOrder(entry.text) }
             states[c] = .pending
             begun[c] = entries.count
             self.pending = c
-        case .owned(let c), .existed(let c), .failed(let c):
+        case .owned(let c), .failed(let c):
             guard pending == c else { throw Failure.outOfOrder(entry.text) }
-            switch entry {
-            case .owned: states[c] = .owned
-            case .existed: states[c] = .existed
-            default: states[c] = .failed
+            states[c] = entry == .owned(c) ? .owned : .failed
+            self.pending = nil
+        case .shared(let c), .existed(let c):
+            if pending != c {
+                guard pending == nil, !Self.held(states[c]) else { throw Failure.outOfOrder(entry.text) }
+                begun[c] = entries.count
             }
+            states[c] = entry == .shared(c) ? .shared : .existed
             self.pending = nil
         case .reverted(let c):
-            guard pending == nil || pending == c, states[c] == .owned || states[c] == .pending else {
+            guard pending == nil || pending == c, Self.held(states[c]) || states[c] == .pending else {
                 throw Failure.outOfOrder(entry.text)
             }
             states[c] = .reverted
             self.pending = nil
         case .spared(let c):
-            guard states[c] == .owned || states[c] == .pending else { throw Failure.outOfOrder(entry.text) }
+            guard Self.held(states[c]) || states[c] == .pending else { throw Failure.outOfOrder(entry.text) }
             states[c] = .spared
             if pending == c { self.pending = nil }
         case .status(let status):
@@ -184,23 +199,30 @@ public struct OpenConnectRecord: Equatable, Sendable {
         entries.append(entry)
     }
 
-    /// The changes to undo, newest first: the session's own and those begun without an outcome (they may have
-    /// been made), but none that another live session's record (`others`, every other session of the run
-    /// root, read under its lock) lists as its own, begun or there already. Some changes can be the same in two
-    /// sessions: a reject route, the host route to a VPN server two sessions share, an exclude through the
-    /// same gateway; the session that set one up first owns it, the other finds it there (`existed`), and
-    /// removing it while the other runs would take away that session's block or transport. Others are unique
-    /// to a session and never spared in practice: its interface's link and addresses, its routes through that
-    /// interface, its DNS service key. A spared change stays when this session ends (a stale reject or host
-    /// route rather than a hole in a running session).
+    /// The session's: its own, or shared with another session.
+    static func held(_ state: State?) -> Bool { state == .owned || state == .shared }
+
+    /// The changes to undo, newest first: the session's own and shared ones and those begun without an outcome
+    /// (they may have been made), but none that another live session's record (`others`, every other session of
+    /// the run root whose tool still runs, read under its lock) holds as its own, shared or begun. Some changes
+    /// can be the same in two sessions: a reject route, the host route to a VPN server two sessions share, an
+    /// exclude through the same gateway; the session that set one up first owns it, the other shares it (`&`),
+    /// and the last of them to end removes it, so it neither goes from under a running session nor stays after
+    /// all of them. One a session found there with no session holding it (`existed`) claims nothing: it is not
+    /// PassTunnel's, and no session removes it. Others are unique to a session and never spared in practice:
+    /// its interface's link and addresses, its routes through that interface, its DNS service key.
     public func toRevert(sparing others: [OpenConnectRecord]) -> [Change] {
+        let claimed = Self.claimed(by: others)
+        return ordered.reversed().filter { (Self.held(states[$0]) || states[$0] == .pending) && !claimed.contains($0) }
+    }
+
+    /// Every change one of `others` holds: its own, shared or begun.
+    public static func claimed(by others: [OpenConnectRecord]) -> Set<Change> {
         var claimed = Set<Change>()
         for other in others {
-            for (change, state) in other.states where state == .owned || state == .pending || state == .existed {
-                claimed.insert(change)
-            }
+            for (change, state) in other.states where held(state) || state == .pending { claimed.insert(change) }
         }
-        return ordered.reversed().filter { (states[$0] == .owned || states[$0] == .pending) && !claimed.contains($0) }
+        return claimed
     }
 
     /// Starts the revert: journals every change `toRevert(sparing:)` leaves to another session as `spared`
@@ -210,7 +232,7 @@ public struct OpenConnectRecord: Equatable, Sendable {
     public mutating func beginRevert(sparing others: [OpenConnectRecord]) throws -> [Change] {
         let undo = toRevert(sparing: others)
         let kept = Set(undo)
-        for change in ordered.reversed() where (states[change] == .owned || states[change] == .pending) && !kept.contains(change) {
+        for change in ordered.reversed() where (Self.held(states[change]) || states[change] == .pending) && !kept.contains(change) {
             try append(.spared(change))
         }
         return undo
@@ -222,9 +244,13 @@ public struct OpenConnectRecord: Equatable, Sendable {
     /// The session's own changes, oldest first.
     public var owned: [Change] { ordered.filter { states[$0] == .owned } }
 
-    /// What the system has as the set-up asked: the session's own changes and those that were there already,
-    /// oldest first.
-    public var applied: [Change] { ordered.filter { states[$0] == .owned || states[$0] == .existed } }
+    /// The session's own and shared changes, oldest first: what it removes when it ends (unless another live
+    /// session still holds it).
+    public var held: [Change] { ordered.filter { Self.held(states[$0]) } }
+
+    /// What the system has as the set-up asked: the session's own and shared changes and those that were there
+    /// already, oldest first.
+    public var applied: [Change] { ordered.filter { Self.held(states[$0]) || states[$0] == .existed } }
 
     /// The latest status.
     public var status: Status? {
@@ -242,8 +268,9 @@ public struct OpenConnectRecord: Equatable, Sendable {
             case .owned:
                 try out.append(.begin(change))
                 try out.append(.owned(change))
+            case .shared:
+                try out.append(.shared(change))
             case .existed:
-                try out.append(.begin(change))
                 try out.append(.existed(change))
             default: break
             }

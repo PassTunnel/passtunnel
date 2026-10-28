@@ -43,6 +43,9 @@ public enum VPNHook {
     /// What starts the line of a revert that did not finish (the helper tries again once openconnect ended).
     public static let revertFailurePrefix = linePrefix + "restoring the network failed: "
 
+    /// The line of a run whose session ended while it waited: it changed nothing, and stops nothing.
+    public static let endedLine = linePrefix + "the session this run was started for has ended; nothing was changed\n"
+
     /// `passtunnel vpn-hook: restoring the network failed: <reason>` and a line break.
     public static func revertFailureLine(_ reason: String) -> String { revertFailurePrefix + oneLine(reason) + "\n" }
 
@@ -299,19 +302,32 @@ public enum VPNHook {
         sigaddset(&alarmSet, SIGALRM)
         sigprocmask(SIG_UNBLOCK, &alarmSet, nil)
         alarm(UInt32(OpenConnectHook.runLimit) + 1)
+        // The session's generation: its openconnect's start time, which the helper recorded in `state` and the
+        // kernel reports for that pid. A later session in the same directory has another one.
+        let generation = SessionState.read(session.runDir + "/" + SessionState.fileName)?.startTime
+        func stillOurs() -> Bool {
+            guard let generation,
+                let again = Self.session(hookExecutable: executable, parent: getppid(), runRoot: runRoot, processes: .system),
+                again == session, SessionState.read(session.runDir + "/" + SessionState.fileName)?.startTime == generation,
+                SessionRecovery.facts(of: session.toolPID)?.start == generation
+            else { return false }
+            return true
+        }
+        guard stillOurs() else {
+            writeLine(failureLine("this run is not one of a PassTunnel session"))
+            return 1
+        }
         let environment = OpenConnectNetwork.Environment(entries: rawEnvironment())
-        let hook = OpenConnectHook(
+        var hook = OpenConnectHook(
             runRoot: runRoot, runDir: session.runDir, system: MacOpenConnectSystem(), deadline: started.addingTimeInterval(OpenConnectHook.runLimit),
             isLive: MacOpenConnectSystem.isLive(runDir:), identity: (getpid(), SessionRecovery.facts(of: getpid())?.start))
+        hook.stillOurs = stillOurs
         let outcome = hook.run(
             event: { try OpenConnectNetwork.parse(environment, platform: .macOS) }, policy: { try policy(of: session) })
         outcome.lines.forEach(writeLine)
-        // Still that openconnect (proven again: it may have ended meanwhile, and its pid been reused): it ends the
-        // session, runs the hook once more for `disconnect`, and the helper cleans up when it exits.
-        if outcome.stopTool,
-            let again = Self.session(hookExecutable: executable, parent: getppid(), runRoot: runRoot, processes: .system),
-            again == session
-        {
+        // Still that openconnect of that session (it may have ended meanwhile, and its pid been reused): it ends
+        // the session, runs the hook once more for `disconnect`, and the helper cleans up when it exits.
+        if outcome.stopTool, stillOurs() {
             kill(session.toolPID, SIGTERM)
         }
         return outcome.stopTool || outcome.lines.contains(where: { $0.hasPrefix(revertFailurePrefix) }) ? 1 : 0

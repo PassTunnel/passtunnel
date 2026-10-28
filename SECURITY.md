@@ -535,19 +535,24 @@ names are openconnect's own, so a server cannot set `BASH_ENV` or similar.
 - **Reconnects do not change the set-up.** If the server sends different DNS, routes or MTU when
   the connection is re-established, the session is stopped instead of being re-configured.
 - **The default route stays.** A full tunnel adds two half routes (`0/1`, `128/1`), as OpenVPN
-  does; the hook never replaces or deletes your default route. If another VPN already sends all
-  traffic through its own tunnel, the set-up fails rather than taking over half of it. For a full
-  tunnel's DNS, the hook's per-session entries ask macOS to treat the tunnel as the primary network
-  service, so that every name is resolved through the tunnel; macOS may then point the default route
-  at the tunnel itself while the session lasts, and returns it when the entries are removed.
+  does; the hook never replaces or deletes your default route. If a route the set-up needs already
+  goes elsewhere (another VPN that sends all traffic or a network the server routes, another gateway
+  to the server), the set-up fails rather than replacing someone else's route. For a full tunnel's DNS,
+  the hook's per-session entries make the tunnel macOS's primary network service, so that every name
+  is resolved through the tunnel; macOS then also points the default route at the tunnel while the
+  session lasts, and returns it when the entries are removed.
 - **Your local network stays local.** A route the server asks for into the tunnel that lies inside a
   network your Mac is attached to (your Wi-Fi or Ethernet subnet), including a DNS server on it, is
   left out and counted in the log ("2 routes kept local"), so the server cannot take over devices on
   your LAN. A broader route (all of `10.0.0.0/8` while your LAN is `10.1.2.0/24`) is kept: your LAN's
   own route is more specific and still wins. A full tunnel is not affected by this.
-- **Shared routes are not pulled from under another session.** When two sessions need the same route
-  (a block, or the route to a VPN server both use), the one that ends leaves it in place while the
-  other still runs, even if it may have been the one that added it.
+- **Shared routes are not pulled from under another session, nor left behind.** When two sessions need
+  the same route (a block, or the route to a VPN server both use), the one that ends first leaves it in
+  place while the other still runs, and the last one removes it. A route that was there before any
+  PassTunnel session is never removed.
+- **A late hook cannot touch a newer session.** Once it holds the lock, the hook proves its session again,
+  including its generation (the start time of its `openconnect`), before it reads or changes anything: a
+  hook of a session that has ended meanwhile does nothing.
 - **IPv6 in a full tunnel.** When all IPv4 traffic goes through the tunnel and the server assigns no
   IPv6 address, IPv6's default path is taken away (reject routes), so IPv6 to the internet is refused
   at once rather than sent around the tunnel, and programs fall back to IPv4 without waiting (the same

@@ -188,8 +188,20 @@ public struct OpenConnectCommand: Equatable, Sendable {
 }
 
 /// A session's DNS as dynamic keys of the system configuration (`SCDynamicStore`), never a `Setup:` key:
-/// `State:/Network/Service/passtunnel-<uid>-<profile id>/IPv4`, `/IPv6` (for the families the tunnel has an
-/// address of) and `/DNS`. They disappear on restart and are removed by the revert.
+/// `State:/Network/Service/passtunnel-<uid>-<profile id>/DNS`, and for a full tunnel `/IPv4` and `/IPv6` (for
+/// the families the tunnel has an address of). They disappear on restart and are removed by the revert.
+///
+/// How the DNS wins (configd's IPMonitor builds the resolver configuration from the `State:` services):
+/// - **Split tunnel:** the `DNS` entity alone, with `SupplementalMatchDomains`: a resolver for those domains,
+///   whatever the primary service is (what OpenVPN's own macOS `dns-updown` writes for its split DNS).
+/// - **Full tunnel:** the service is made the primary one, whose `DNS` entity becomes the default resolver
+///   (`State:/Network/Global/DNS`, resolver #1 of `scutil --dns`). IPMonitor elects the primary service among
+///   those with a router: `OverridePrimary` = 1 ranks a service first, but a service without `Router` is not
+///   eligible and keeps only scoped settings (as the system's own `utun` services, which carry
+///   `PrimaryRank Scoped`, show in `scutil`). So the `IPv4`/`IPv6` entities name the tunnel as the router: the
+///   tunnel's own address on its point-to-point link (`Router`), with `Addresses`, the host mask and
+///   `InterfaceName`. OpenVPN's `dns-updown` gets the same result by rewriting the primary service's `Setup:`
+///   DNS, which PassTunnel never does: a crash would leave it changed for good.
 public struct OpenConnectDNSSettings: Equatable, Sendable {
     /// A property list value, as the keys hold them.
     public enum Value: Equatable, Sendable {
@@ -212,27 +224,29 @@ public struct OpenConnectDNSSettings: Equatable, Sendable {
     public var removedKeys: [String] { Self.keys(service: service).filter { values[$0] == nil } }
 
     /// For `dns` on a tunnel with `addresses`:
-    /// - `IPv4`: `Addresses`, `SubnetMasks` (`255.255.255.255`), `InterfaceName`; `IPv6`: `Addresses`,
-    ///   `PrefixLength` (128), `InterfaceName`. They tie the service to the tunnel interface. Both get
-    ///   `OverridePrimary` = 1 only when the DNS is primary (a full tunnel), and neither gets a `Router`.
-    /// - `DNS`: `ServerAddresses`; `SearchDomains` when there are any; `SupplementalMatchDomains` when the
-    ///   DNS is not primary (the names resolved through the tunnel).
+    /// - `DNS`: `ServerAddresses`; `SearchDomains` when there are any; `SupplementalMatchDomains` when the DNS is
+    ///   not primary (the names resolved through the tunnel).
+    /// - only when the DNS is primary (a full tunnel): `IPv4` with `Addresses`, `SubnetMasks`
+    ///   (`255.255.255.255`), `Router` (the tunnel's address), `InterfaceName` and `OverridePrimary` = 1, and
+    ///   `IPv6` likewise with `PrefixLength` (128), for each family the tunnel has an address of.
     public init(_ dns: OpenConnectPlan.DNS, addresses: [IPAddress]) {
         service = dns.service
         var values: [String: [String: Value]] = [:]
-        for family in [IPAddress.Family.ipv4, .ipv6] {
-            let own = addresses.filter { $0.family == family }
-            guard !own.isEmpty else { continue }
-            var entity: [String: Value] = [
-                "Addresses": .strings(own.map(\.description)), "InterfaceName": .string(dns.interface)
-            ]
-            if family == .ipv4 {
-                entity["SubnetMasks"] = .strings(own.map { _ in "255.255.255.255" })
-            } else {
-                entity["PrefixLength"] = .numbers(own.map { _ in 128 })
+        if dns.primary {
+            for family in [IPAddress.Family.ipv4, .ipv6] {
+                let own = addresses.filter { $0.family == family }
+                guard let first = own.first else { continue }
+                var entity: [String: Value] = [
+                    "Addresses": .strings(own.map(\.description)), "Router": .string(first.description),
+                    "InterfaceName": .string(dns.interface), "OverridePrimary": .number(1)
+                ]
+                if family == .ipv4 {
+                    entity["SubnetMasks"] = .strings(own.map { _ in "255.255.255.255" })
+                } else {
+                    entity["PrefixLength"] = .numbers(own.map { _ in 128 })
+                }
+                values[Self.key(service: dns.service, entity: family == .ipv4 ? "IPv4" : "IPv6")] = entity
             }
-            if dns.primary { entity["OverridePrimary"] = .number(1) }
-            values[Self.key(service: dns.service, entity: family == .ipv4 ? "IPv4" : "IPv6")] = entity
         }
         var entity: [String: Value] = ["ServerAddresses": .strings(dns.servers.map(\.description))]
         if !dns.searchDomains.isEmpty { entity["SearchDomains"] = .strings(dns.searchDomains) }

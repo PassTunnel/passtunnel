@@ -12,10 +12,10 @@ import Foundation
 /// - `reconnect`: the network must be what the record holds (`OpenConnectPlan.matches`).
 /// - `disconnect`: everything the record holds is reverted, but what another live session holds.
 ///
-/// A route that is there already is the session's only if it added it: the same route (or any route of that
-/// destination, for a route around the tunnel or one of the server's routes into it) is recorded as there
-/// already (`~`) and never removed; but a full tunnel's half (`0/1`, `128/1`, `::/1`, `8000::/1`) or a reject
-/// route that finds another route of its destination fails the set-up: another tunnel holds that traffic.
+/// Every change is looked for before anything is journaled for it. A route already there with exactly the
+/// planned next hop is shared (`&`) when another live session holds it, and the last of them to end removes
+/// it, or not PassTunnel's (`~`) and never removed; any other route of that destination fails the set-up
+/// (`finding`): the hook replaces nobody's route.
 ///
 /// Any failure reverts what the record holds, records `status failed <reason>`, gives the failure line and
 /// asks for openconnect to be stopped (`Outcome.stopTool`): openconnect ignores the hook's exit status.
@@ -60,6 +60,11 @@ public struct OpenConnectHook {
     /// The pid and start time the `hook` mark records.
     public let identity: (pid: pid_t, start: ProcessStart?)
     public var now: () -> Date = Date.init
+    /// Whether the run still serves the session it proved, checked once the lock is held, before the record is
+    /// read or anything is changed: the hook may have waited for the lock while its openconnect ended, the
+    /// helper cleaned up and the profile started again in the same session directory (`VPNHook.run` proves the
+    /// session again and compares its generation, the tool's start time in `state`).
+    public var stillOurs: () -> Bool = { true }
 
     public init(
         runRoot: String, runDir: String, system: OpenConnectSystem, deadline: Date, isLive: @escaping (String) -> Bool,
@@ -105,11 +110,16 @@ public struct OpenConnectHook {
         }
     }
 
-    /// `body` under the run root's lock, with the `hook` mark set while it runs.
+    /// `body` under the run root's lock, with the `hook` mark set while it runs; nothing at all when the session
+    /// the run proved has ended meanwhile (`stillOurs`).
     func locked(reverting: Bool, _ body: () -> Outcome) -> Outcome {
         guard let lock = OpenConnectLock.acquire(runRoot: runRoot, until: deadline, now: now) else {
             let reason = "the network lock was not free within \(Int(Self.runLimit)) seconds"
             return reverting ? Outcome(lines: [VPNHook.revertFailureLine(reason)]) : Outcome(lines: [VPNHook.failureLine(reason)], stopTool: true)
+        }
+        guard stillOurs() else {
+            withExtendedLifetime(lock) {}
+            return Outcome(lines: [VPNHook.endedLine])
         }
         try? OpenConnectMarks.setHook(runDir: runDir, pid: identity.pid, start: identity.start)
         defer {
@@ -139,7 +149,8 @@ public struct OpenConnectHook {
         } catch {
             return fail("the network record cannot be written (\(error))", tunnel: tunnel)
         }
-        if let failure = add(plan.changes, addresses: plan.addresses, index: index, table: &table, journal: journal) {
+        let context = context(index: index, addresses: plan.addresses)
+        if let failure = add(plan.changes, context: context, table: &table, journal: journal) {
             return fail(failure, journal: journal, tunnel: tunnel)
         }
         do {
@@ -169,7 +180,7 @@ public struct OpenConnectHook {
         guard let current = table else { return fail("the routing table cannot be read", journal: journal, tunnel: tunnel) }
         let underlay = OpenConnectPlan.Underlay(routes: current, attached: system.attachedNetworks(), tunnel: n.interface)
         let (remove, add) = OpenConnectPlan.refresh(n, policy: policy, underlay: underlay, record: journal.record)
-        let claimed = Self.claimed(by: otherRecords(own: journal.record))
+        let claimed = OpenConnectRecord.claimed(by: sparing(journal.record))
         for change in remove {
             if let stop = interruption() { return fail(stop, journal: journal, tunnel: tunnel) }
             do {
@@ -185,7 +196,8 @@ public struct OpenConnectHook {
             }
         }
         var rows = table ?? current
-        if let failure = self.add(add, addresses: journal.record.applied.compactMap(Self.address), index: index, table: &rows, journal: journal) {
+        let context = context(index: index, addresses: journal.record.applied.compactMap(Self.address))
+        if let failure = self.add(add, context: context, table: &rows, journal: journal) {
             return fail(failure, journal: journal, tunnel: tunnel)
         }
         return Outcome()
@@ -275,21 +287,65 @@ public struct OpenConnectHook {
 
     // MARK: - Applying
 
-    enum Applied: Equatable {
-        case owned, existed
+    /// What one run's changes are made with: the tunnel interface's index noted when it started, the tunnel's
+    /// addresses (for DNS), the changes another live session holds, the Mac's attached networks.
+    struct Context {
+        var index: UInt32
+        var addresses: [IPAddress]
+        var claimed: Set<Change>
+        var attached: [OpenConnectPlan.Attached]
+    }
+
+    /// The context of a run on the tunnel interface with `index`. The changes other sessions hold come from
+    /// the records that can be read: a change found there that only an unreadable record could hold counts as
+    /// not PassTunnel's (`~`), which no session ever removes.
+    func context(index: UInt32, addresses: [IPAddress]) -> Context {
+        Context(
+            index: index, addresses: addresses, claimed: OpenConnectRecord.claimed(by: otherRecords().records),
+            attached: system.attachedNetworks())
+    }
+
+    /// What the system has of a change before it is made.
+    enum Finding: Equatable {
+        /// Not there: the hook makes it.
+        case absent
+        /// There as planned (an address, a route with exactly the planned next hop): `shared` when another live
+        /// session holds it, otherwise it is not PassTunnel's.
+        case there(shared: Bool)
+        /// Something else is in the way: the set-up fails, and nothing of someone else's is replaced.
+        case conflict(String)
+    }
+
+    /// How making a change went.
+    enum Made: Equatable {
+        case made
+        /// Someone else made it meanwhile.
+        case there(shared: Bool)
         case failed(String)
     }
 
-    /// Applies `changes` in order, each journaled first and with its outcome after; the reason of the first
-    /// failure, nil when all were applied.
-    func add(_ changes: [Change], addresses: [IPAddress], index: UInt32, table: inout [KernelRoute], journal: OpenConnectJournal) -> String? {
+    /// Applies `changes` in order: each is looked for first, under the lock. One there already is journaled as
+    /// shared (`&`) or not PassTunnel's (`~`) and not made; one in the way of something else fails the set-up
+    /// unjournaled; any other is journaled (`+`), made and journaled with its outcome. A crash leaves at most the
+    /// change being made pending, never one the system had before. The reason of the first failure, nil when all
+    /// were applied.
+    func add(_ changes: [Change], context: Context, table: inout [KernelRoute], journal: OpenConnectJournal) -> String? {
         for change in changes {
             if let stop = interruption() { return stop }
             do {
+                switch inspect(change, context: context, table: table) {
+                case .conflict(let reason):
+                    return reason
+                case .there(let shared):
+                    try journal.append(shared ? .shared(change) : .existed(change))
+                    continue
+                case .absent:
+                    break
+                }
                 try journal.append(.begin(change))
-                switch apply(change, addresses: addresses, index: index, table: &table) {
-                case .owned: try journal.append(.owned(change))
-                case .existed: try journal.append(.existed(change))
+                switch make(change, context: context, table: &table) {
+                case .made: try journal.append(.owned(change))
+                case .there(let shared): try journal.append(shared ? .shared(change) : .existed(change))
                 case .failed(let reason):
                     try journal.append(.failed(change))
                     return reason
@@ -301,56 +357,73 @@ public struct OpenConnectHook {
         return nil
     }
 
-    /// Makes one change. `table` is the routing table as the run last read it, kept up to date with the
-    /// routes added.
-    func apply(_ change: Change, addresses: [IPAddress], index: UInt32, table: inout [KernelRoute]) -> Applied {
+    /// Looks for `change` on the system. `table` is the routing table as the run last read it, kept up to date
+    /// with the routes added.
+    func inspect(_ change: Change, context: Context, table: [KernelRoute]) -> Finding {
+        switch change {
+        case .link(let interface, _):
+            return system.interfaceIndex(interface) == context.index ? .absent : .conflict(Self.interfaceGone)
+        case .address(let interface, let address):
+            guard system.interfaceIndex(interface) == context.index else { return .conflict(Self.interfaceGone) }
+            return system.interfaceAddresses(interface).contains(address) ? .there(shared: false) : .absent
+        case .route(let route):
+            if case .interface(let interface) = route.via, system.interfaceIndex(interface) != context.index {
+                return .conflict(Self.interfaceGone)
+            }
+            return Self.finding(route, in: table, claimed: context.claimed, attached: context.attached)
+        case .dns:
+            return .absent
+        }
+    }
+
+    /// Makes `change`, which was not there.
+    func make(_ change: Change, context: Context, table: inout [KernelRoute]) -> Made {
         switch change {
         case .link(let interface, let mtu):
-            guard system.interfaceIndex(interface) == index else { return .failed(Self.interfaceGone) }
-            return run(.link(interface, mtu: mtu)).map(Applied.failed) ?? .owned
+            return run(.link(interface, mtu: mtu)).map(Made.failed) ?? .made
         case .address(let interface, let address):
-            guard system.interfaceIndex(interface) == index else { return .failed(Self.interfaceGone) }
-            if system.interfaceAddresses(interface).contains(address) { return .existed }
-            return run(.addAddress(interface, address)).map(Applied.failed) ?? .owned
+            guard let failure = run(.addAddress(interface, address)) else { return .made }
+            return system.interfaceAddresses(interface).contains(address) ? .there(shared: false) : .failed(failure)
         case .route(let route):
-            if case .interface(let interface) = route.via, system.interfaceIndex(interface) != index { return .failed(Self.interfaceGone) }
-            if let found = Self.existing(route, in: table) { return found }
             if let failure = run(.addRoute(route)) {
-                // Someone else's route may have come in between: then it counts as there already.
+                // Someone else may have made exactly this route meanwhile; anything else is a failure.
                 if let fresh = system.routes() {
                     table = fresh
-                    if let found = Self.existing(route, in: fresh) { return found }
+                    if fresh.contains(where: { $0.is(route) }) { return .there(shared: context.claimed.contains(change)) }
                 }
                 return .failed(failure)
             }
             table.append(KernelRoute(route))
-            return .owned
+            return .made
         case .dns(let dns):
-            return system.setDNS(OpenConnectDNSSettings(dns, addresses: addresses)) ? .owned : .failed("the DNS settings could not be written")
+            return system.setDNS(OpenConnectDNSSettings(dns, addresses: context.addresses))
+                ? .made : .failed("the DNS settings could not be written")
         }
     }
 
     static let interfaceGone = "the tunnel interface went away"
 
-    /// What a route already in `table` means for adding `route`: nil when no route holds its destination;
-    /// `existed` for the same route, or another one where the session can do without its own (a route around
-    /// the tunnel, a route of the server's into it); a failure for a full tunnel's half or a reject route, which
-    /// the set-up needs as it planned them.
-    static func existing(_ route: OpenConnectPlan.Route, in table: [KernelRoute]) -> Applied? {
+    /// What the routes in `table` mean for `route`: absent when no route holds its destination; there when one
+    /// has exactly the planned next hop (the same interface, the same gateway on its interface, a reject route),
+    /// shared when another live session holds it (`claimed`); there as well for a route around the tunnel (an
+    /// exclude) whose destination is a network the Mac is attached to, held by that network's own on-link route
+    /// (that traffic leaves outside every tunnel already). Any other route in the way is a conflict: traffic the
+    /// set-up would claim goes elsewhere (another VPN, another gateway), and the hook replaces nobody's route.
+    static func finding(
+        _ route: OpenConnectPlan.Route, in table: [KernelRoute], claimed: Set<Change>, attached: [OpenConnectPlan.Attached]
+    ) -> Finding {
         let held = table.filter { $0.network == route.network && $0.holdsDestination }
-        guard !held.isEmpty else { return nil }
-        if held.contains(where: { $0.is(route) }) { return .existed }
-        if isRequired(route) { return .failed("another route for \(route.network) exists already (another VPN?)") }
-        return .existed
-    }
-
-    /// A route the set-up needs as planned: a full tunnel's half, or a reject route.
-    static func isRequired(_ route: OpenConnectPlan.Route) -> Bool {
-        switch route.via {
-        case .reject: return true
-        case .interface: return IPNetwork.halves(route.network.family).contains(route.network)
-        case .gateway: return false
+        guard let first = held.first else { return .absent }
+        if held.contains(where: { $0.is(route) }) { return .there(shared: claimed.contains(.route(route))) }
+        if case .gateway = route.via,
+            held.allSatisfy({ entry in
+                entry.gateway == nil && !entry.reject && attached.contains(OpenConnectPlan.Attached(route.network, interface: entry.interface))
+            })
+        {
+            return .there(shared: false)
         }
+        let through = first.reject ? "a reject route" : first.gateway.map { "through \($0) \(first.interface)" } ?? "through \(first.interface)"
+        return .conflict("another route for \(route.network) exists already, \(through)")
     }
 
     static func address(_ change: Change) -> IPAddress? {
@@ -395,7 +468,7 @@ public struct OpenConnectHook {
         }
         let undo: [Change]
         do {
-            undo = try journal.beginRevert(sparing: otherRecords(own: journal.record))
+            undo = try journal.beginRevert(sparing: sparing(journal.record))
         } catch {
             return ["the network record cannot be written (\(error))"]
         }
@@ -448,11 +521,11 @@ public struct OpenConnectHook {
         }
     }
 
-    /// The records of the other sessions of the run root whose tool still runs, read under the lock. One that
-    /// cannot be read counts as holding every change of `own` two sessions can share (routes around the
-    /// tunnel, reject routes): nothing is taken from under a running session.
-    func otherRecords(own: OpenConnectRecord) -> [OpenConnectRecord] {
+    /// The records of the other sessions of the run root whose tool still runs, read under the lock, and
+    /// whether one of them could not be read.
+    func otherRecords() -> (records: [OpenConnectRecord], unreadable: Bool) {
         var out: [OpenConnectRecord] = []
+        var unreadable = false
         for uid in Self.entries(runRoot) where UInt32(uid).map({ String($0) == uid }) ?? false {
             for id in Self.entries(runRoot + "/" + uid) where HelperCore.isValidProfileID(id) {
                 let dir = runRoot + "/" + uid + "/" + id
@@ -460,20 +533,26 @@ public struct OpenConnectHook {
                 do {
                     if let record = try OpenConnectJournal.read(OpenConnectJournal.path(runDir: dir)) { out.append(record) }
                 } catch {
-                    if let claim = Self.claimingShared(own) { out.append(claim) }
+                    unreadable = true
                 }
             }
         }
-        return out
+        return (out, unreadable)
+    }
+
+    /// The records a revert of `own` spares: the other live sessions', and when one of them cannot be read, a
+    /// record that holds every change of `own` two sessions can share (routes around the tunnel, reject
+    /// routes): nothing is taken from under a running session.
+    func sparing(_ own: OpenConnectRecord) -> [OpenConnectRecord] {
+        let others = otherRecords()
+        guard others.unreadable, let claim = Self.claimingShared(own) else { return others.records }
+        return others.records + [claim]
     }
 
     /// A record that holds every change of `own` another session could hold too.
     static func claimingShared(_ own: OpenConnectRecord) -> OpenConnectRecord? {
         guard var claim = OpenConnectRecord(interface: own.interface) else { return nil }
-        for change in own.states.keys where isShareable(change) {
-            try? claim.append(.begin(change))
-            try? claim.append(.existed(change))
-        }
+        for change in own.states.keys where isShareable(change) { try? claim.append(.shared(change)) }
         return claim
     }
 
@@ -482,15 +561,6 @@ public struct OpenConnectHook {
         guard case .route(let route) = change else { return false }
         if case .interface = route.via { return false }
         return true
-    }
-
-    /// Every change another session holds: its own, pending or there already.
-    static func claimed(by others: [OpenConnectRecord]) -> Set<Change> {
-        var out = Set<Change>()
-        for other in others {
-            for (change, state) in other.states where state == .owned || state == .pending || state == .existed { out.insert(change) }
-        }
-        return out
     }
 
     static func entries(_ dir: String) -> [String] {

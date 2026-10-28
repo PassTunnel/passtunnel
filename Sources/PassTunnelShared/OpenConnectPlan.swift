@@ -423,7 +423,7 @@ public struct OpenConnectPlan: Equatable, Sendable {
 
     /// What `attempt-reconnect` changes: the routes around the tunnel (the VPN server's host route and the
     /// excludes) follow the default gateway, which may have changed under the session (another network).
-    /// Per family that has a usable gateway now: the session's own routes through another gateway are removed
+    /// Per family that has a usable gateway now: the session's own and shared routes through another gateway are removed
     /// (`remove`, newest first), then the routes `connect` would add now and the record does not hold are added
     /// (`add`). A family without a gateway right now (the network is down while openconnect retries) is left
     /// as it is.
@@ -432,7 +432,7 @@ public struct OpenConnectPlan: Equatable, Sendable {
     ) -> (remove: [Change], add: [Change]) {
         let wanted = build(n, policy: policy, underlay: underlay).plan.changes.filter(\.isThroughGateway)
         let applied = Set(record.applied)
-        let owned = record.owned
+        let owned = record.held
         var remove: [Change] = []
         var add: [Change] = []
         for family in [IPAddress.Family.ipv4, .ipv6] where underlay.usable(family, tunnel: n.interface) != nil {

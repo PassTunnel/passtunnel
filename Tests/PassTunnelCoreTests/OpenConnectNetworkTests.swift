@@ -417,11 +417,16 @@ final class OpenConnectNetworkTests: XCTestCase {
         var b = OpenConnectRecord(interface: "utun6")!
         try b.append(.begin(reject))
         try b.append(.owned(reject))
-        try b.append(.begin(server))
-        try b.append(.existed(server))
+        try b.append(.shared(server))
 
         XCTAssertEqual(a.toRevert(sparing: []), [reject, mine, server, link])
         XCTAssertEqual(a.toRevert(sparing: [b]), [mine, link])
+        // Found there with no session holding it: not PassTunnel's, it claims nothing.
+        var e = OpenConnectRecord(interface: "utun9")!
+        try e.append(.existed(server))
+        try e.append(.begin(reject))
+        try e.append(.existed(reject))
+        XCTAssertEqual(a.toRevert(sparing: [e]), [reject, mine, server, link])
         var c = OpenConnectRecord(interface: "utun7")!
         try c.append(.begin(server))
         XCTAssertEqual(a.toRevert(sparing: [c]), [reject, mine, link], "pending in another session")
@@ -470,8 +475,7 @@ final class OpenConnectNetworkTests: XCTestCase {
         try c.append(.owned(link))
         try c.append(.begin(reject))
         var d = OpenConnectRecord(interface: "utun8")!
-        try d.append(.begin(link))
-        try d.append(.existed(link))
+        try d.append(.shared(link))
         XCTAssertEqual(try c.beginRevert(sparing: [d]), [reject])
         try c.append(.reverted(reject))
         XCTAssertEqual(c.states[link], .spared)

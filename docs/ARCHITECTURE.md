@@ -1392,7 +1392,13 @@ and revert. Instead the hook is PassTunnel's own code:
   that is not one of a PassTunnel session writes `passtunnel vpn-hook: setting up the network failed:
   this run is not one of a PassTunnel session` and changes nothing. Then it checks the environment
   (step 3), reads `policy` (step 2) and, under the run root's lock, applies or reverts
-  (`OpenConnectHook`, steps 4–7) through `MacOpenConnectSystem`. It writes its lines to its standard
+  (`OpenConnectHook`, steps 4–7) through `MacOpenConnectSystem`. **Generation:** once it holds the lock,
+  before it reads the record or changes anything, it proves the session again and compares its
+  generation, the openconnect start time the helper recorded in `state` (with the pid, as the kernel
+  reports it for that pid): a hook that waited for the lock while its openconnect ended, the helper
+  cleaned up and the profile started again in the same session directory finds another generation (or
+  no parent openconnect at all) and does nothing but write `passtunnel vpn-hook: the session this run
+  was started for has ended; nothing was changed` (`VPNHook.endedLine`). It writes its lines to its standard
   error, which openconnect shares with the session log. After a failure it sends its openconnect
   SIGTERM, once the session check holds again (the pid is not reused meanwhile): openconnect ends the
   session, runs the hook once more for `disconnect` and exits, and the helper cleans up. Exit status 1
@@ -1506,18 +1512,22 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
    again after a `route` that failed. A route is in the way of an `add` when an unscoped entry of that
    destination is there that the kernel did not make itself (`RTF_WASCLONED`, `RTF_LLINFO` entries, such
    as the one for the connection to the server, are replaced by an added route; `RTF_IFSCOPE` entries are
-   another key). **What "File exists" means:** the same route already there (same destination and next
-   hop: the interface, the gateway on its interface, or a reject route) is recorded as there already
-   (`~`), not owned and never removed (another session's block, the route to a server two sessions
-   share); another route of that destination is fine as well for a route around the tunnel (the server's
-   host route, an exclude: that traffic leaves outside the tunnel anyway, as when the server excludes the
-   LAN the Mac is on) and for a route of the server's into the tunnel (an include, the assigned network, a
-   DNS server's host route: `~`); but a full tunnel's half (`0/1`, `128/1`, `::/1`, `8000::/1`) or a
-   reject route that finds another route of its destination fails the set-up ("another route for
-   0.0.0.0/1 exists already (another VPN?)"): another tunnel holds that traffic, as for OpenVPN. A
-   `route add` that fails is looked at again in a fresh table (someone added the same route meanwhile:
-   `~`), otherwise the change failed (`!`). An address already on the interface is `~` too; the link
-   change and DNS are always the session's.
+   another key). **Looked for first, journaled after** (`OpenConnectHook.finding`): every change is looked
+   for under the lock before anything is journaled for it, so the record never shows as begun (`+`, which a
+   revert would undo) something the system had before. **What "File exists" means:** a route already there
+   counts only when it has exactly the planned next hop (the same interface, the same gateway on its
+   interface, a reject route); it is journaled without a `+` as shared (`&`) when another live session's
+   record holds it (own, shared or pending), or as not PassTunnel's (`~`, never removed by anyone) when
+   none does (a live session whose record cannot be read counts as none: `~` may leave a route behind, but
+   never removes one that is not PassTunnel's). Any other route of that destination fails the set-up
+   ("another route for 10.20.0.0/16 exists already, through utun3"), for every kind of route: traffic the
+   set-up claims (an include, the assigned network, a DNS server, a full tunnel's half, the server's own
+   route, an exclude, a block) would go elsewhere, and the hook replaces nobody's route. One exception: an
+   exclude whose destination is a network the Mac is attached to, held by that network's own on-link route
+   (the server excludes the LAN the Mac is on), is `~`: that traffic leaves outside every tunnel already. A
+   `route add` that fails is looked at again in a fresh table: exactly the planned route (someone made it
+   meanwhile) is `~` or `&`, anything else is a failure (`!`). An address already on the interface is `~`
+   too; the link change and DNS are always the session's.
 
    A revert deletes a route only while the table still holds it as the session added it
    (`KernelRoute.is`): one replaced meanwhile (another next hop) is no longer the session's and stays,
@@ -1579,20 +1589,34 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
         the order server host route, reject routes, excludes, routes into the tunnel: so a reject route is
         never dropped, an exclude wins over an include of the same network, and the server's host route
         over an include, the assigned network or a DNS server on that host;
-     3. with `set_dns` and at least one DNS server: macOS writes the dynamic keys
-        `State:/Network/Service/passtunnel-<uid>-<profile id>/IPv4` (and `/IPv6`) and `/DNS` through
-        `SCDynamicStore`, all at once (`SCDynamicStoreSetMultiple`, `OpenConnectDNSSettings`, golden-tested):
-        `IPv4` `Addresses`, `SubnetMasks` (`255.255.255.255`), `InterfaceName`; `IPv6` `Addresses`,
-        `PrefixLength` (128), `InterfaceName` (for each family the tunnel has an address of; never a
-        `Router`), both with `OverridePrimary` = 1 only for a full tunnel (every family with an address,
-        and `set_routes`); `DNS` `ServerAddresses`, `SearchDomains` (`CISCO_DEF_DOMAIN`, when there are
-        any) and, when not a full tunnel, `SupplementalMatchDomains`, `CISCO_SPLIT_DNS` then
-        `CISCO_DEF_DOMAIN` (no DNS at all when there are none). The revert removes the three keys. Only a
-        `passtunnel-<uid>-<profile id>` service is ever written or removed (checked again right before).
-        Never a `Setup:` key, never `networksetup`, never `/etc/resolv.conf`, no `scutil` text. With
-        `OverridePrimary` the system makes the service primary, and may then route `default` through the
-        tunnel itself (the full tunnel's halves carry that traffic already); the underlay's fallback above
-        is for that case, and the revert ends it with the keys. Linux uses `DNSApplier`.
+     3. with `set_dns` and at least one DNS server: macOS writes dynamic keys of the service
+        `passtunnel-<uid>-<profile id>` through `SCDynamicStore`, all at once (`SCDynamicStoreSetMultiple`,
+        `OpenConnectDNSSettings`, golden-tested), and removes them on revert. Only that service is ever
+        written or removed (checked again right before). Never a `Setup:` key, never `networksetup`, never
+        `/etc/resolv.conf`, no `scutil` text. configd's IPMonitor builds the resolver configuration from the
+        `State:` services:
+        - **split tunnel:** only `State:/Network/Service/<service>/DNS` with `ServerAddresses`,
+          `SupplementalMatchDomains` (`CISCO_SPLIT_DNS` then `CISCO_DEF_DOMAIN`; no DNS at all when there are
+          none) and `SearchDomains` (`CISCO_DEF_DOMAIN`, when there are any): a resolver for those domains,
+          whatever the primary service is, as OpenVPN's own macOS `dns-updown` writes it for split DNS
+          (`State:/Network/Service/openvpn-<dev>/DNS`). No `IPv4`/`IPv6` entity, so the service is never a
+          candidate for primary.
+        - **full tunnel** (every family with an address, and `set_routes`): the service is made the primary
+          one, whose `DNS` (`ServerAddresses`, `SearchDomains`) becomes the default resolver
+          (`State:/Network/Global/DNS`, resolver #1 of `scutil --dns`). IPMonitor elects the primary service
+          among those with a router: `OverridePrimary` = 1 ranks a service first, but a service without
+          `Router` is not eligible and keeps only scoped settings (the system's own `utun` services show
+          `Router` and `PrimaryRank Scoped` in `scutil`). So `State:/Network/Service/<service>/IPv4` has
+          `Addresses`, `SubnetMasks` (`255.255.255.255`), `Router` (the tunnel's own address, on its
+          point-to-point link), `InterfaceName` and `OverridePrimary` = 1, and `/IPv6` likewise with
+          `PrefixLength` (128), for each family the tunnel has an address of. OpenVPN's `dns-updown` reaches
+          the same by rewriting the primary service's `Setup:` DNS, which a crash would leave changed for
+          good; these keys go with a restart. As the primary service with a router, the tunnel also gets the
+          system's `default` route while the keys are there (configd's change, not the hook's: the full
+          tunnel's halves carry that traffic already); the underlay's fallback above is for that case, and
+          the revert ends it with the keys.
+
+        Linux uses `DNSApplier`.
 
      Each change has one line of text, which the record stores and the golden cases compare
      (`OpenConnectPlan.Change.text`; every field a checked value, so no blank or line break in one):
@@ -1609,9 +1633,11 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
    - `attempt-reconnect` (`OpenConnectPlan.refresh`): needs a record of this interface whose status is
      `up` or `reconnecting`. The record's status becomes `reconnecting`, then the routes around the
      tunnel follow the default gateway, which may have changed (another network). For each family that
-     has a usable gateway now, the session's own routes through another gateway are removed, newest
-     first (one another live session's record holds is left and journaled as spared, `?`), then the ones
-     `connect` would add now and the record does not hold are added. A family without a gateway right
+     has a usable gateway now, the session's own and shared routes through another gateway are removed,
+     newest first (one another live session's record holds is left and journaled as spared, `?`), then the
+     ones `connect` would add now and the record does not hold are added, looked for first as in `connect`
+     (so a route another session still uses through the old gateway fails the attempt: the session stops
+     and signs in afresh rather than replacing it). A family without a gateway right
      now (the network is down while openconnect retries) is left as it is. Nothing is written to the log.
    - `reconnect` (`OpenConnectPlan.matches`): openconnect refuses a different address or netmask
      itself (`library.c` 676–712). openconnect 9.21 does not rebuild the hook's environment after a
@@ -1642,8 +1668,8 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
    interface utun5
    + route 192.0.2.10/32 gateway 198.51.100.1 en0        begun: written before the change is made
    = route 192.0.2.10/32 gateway 198.51.100.1 en0        the session's own: reverted later
-   + route ::/1 reject
-   ~ route ::/1 reject                                   was there already: never removed
+   & route ::/1 reject                                   found there, held by another live session: shared
+   ~ route 192.168.1.0/24 gateway 198.51.100.1 en0       found there, held by no session: never removed
    + dns passtunnel-501-acme utun5 primary servers=… search=… match=-
    ! dns passtunnel-501-acme utun5 primary servers=… search=… match=-   failed: nothing changed
    - route 192.0.2.10/32 gateway 198.51.100.1 en0        reverted
@@ -1651,28 +1677,29 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
    status up | status reconnecting | status failed <reason>
    ```
 
-   One change at a time: an outcome must name the change just begun, a status or a new change needs
-   none pending, a revert names one that is the session's or pending. What the system has as asked is the
-   session's and those that were there already (`applied`); the latest `status` is the set-up's state;
+   One change at a time: an outcome must name the change just begun (`&` and `~` may also stand alone, for a
+   change found there while none is pending), a status or a new change needs none pending, a revert names
+   one that is the session's (own or shared) or pending. What the system has as asked is the session's and
+   those that were there already (`applied`); the latest `status` is the set-up's state;
    `compacted()` keeps a pending change after the status (a status cannot follow one).
 
    **What to revert** (`toRevert(sparing:)`, pure, called under the run root's lock with the records of
    every other live session of the run root, a session whose `state` names a process that still runs,
    `MacOpenConnectSystem.isLive`; the record of a session whose tool has ended claims nothing, and a live
    session's record that cannot be read claims every change of this session two sessions can share, the
-   routes around the tunnel and the reject routes): every change that is the session's own or pending,
-   newest first, but none that another live session's record lists as its own, pending or there already. The
+   routes around the tunnel and the reject routes): every change that is the session's own, shared or
+   pending, newest first, but none that another live session's record lists as its own, shared or pending
+   (one it found there with no session holding it, `~`, claims nothing). The
    revert starts with `beginRevert(sparing:)`, which journals each change so left alone as spared (`?`,
    which also settles a pending one, so the rest of the revert can be journaled) and returns the list;
    each change on it is then journaled as reverted once undone. Some
    changes can be the same in two sessions: a reject route (`route ::/1 reject`), the host route to a VPN
    server two profiles share, an exclude through the same gateway. The session that made one first owns
-   it, the other finds it there (`~`), and a pending one may be either session's; removing it while the
-   other runs would take away that session's block or its route to the server. Unique to a session, and
-   so never spared in practice: its interface's link and addresses, its routes through that interface,
-   its DNS service key `passtunnel-<uid>-<profile id>`. A spared change outlives the session (a stale
-   reject or host route, which a later revert of the session that holds it does not remove either, as
-   it is not that session's own): the price of never opening a hole in a running session.
+   it, the other finds it held and shares it (`&`), and a pending one may be either session's; removing it
+   while the other runs would take away that session's block or its route to the server, so whichever of
+   them ends first spares it, and the last one removes it: nothing outlives all the sessions that needed
+   it. Unique to a session, and so never spared in practice: its interface's link and addresses, its
+   routes through that interface, its DNS service key `passtunnel-<uid>-<profile id>`.
 5. **Bounded.** openconnect waits for the hook without a limit, and the hook runs in its own process
    group, which `kill(-pid)` does not reach. So the whole hook run, the lock wait included, has a
    limit of 30 s (`OpenConnectHook.runLimit`: checked before each change, each program gets at most what

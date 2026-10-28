@@ -190,6 +190,8 @@ final class OpenConnectHookTests: XCTestCase {
 
     func testDNSKeys() {
         let service = "passtunnel-501-acme"
+        // A full tunnel: the service names the tunnel as its router and asks to be the primary one, so its DNS is
+        // the default resolver.
         let primary = OpenConnectDNSSettings(
             OpenConnectPlan.DNS(
                 service: service, interface: "utun5", primary: true, servers: [IPAddress("10.11.0.53")!], searchDomains: ["example.com"],
@@ -198,8 +200,8 @@ final class OpenConnectHookTests: XCTestCase {
             primary.values,
             [
                 "State:/Network/Service/passtunnel-501-acme/IPv4": [
-                    "Addresses": .strings(["10.11.0.2"]), "SubnetMasks": .strings(["255.255.255.255"]), "InterfaceName": .string("utun5"),
-                    "OverridePrimary": .number(1)
+                    "Addresses": .strings(["10.11.0.2"]), "SubnetMasks": .strings(["255.255.255.255"]), "Router": .string("10.11.0.2"),
+                    "InterfaceName": .string("utun5"), "OverridePrimary": .number(1)
                 ],
                 "State:/Network/Service/passtunnel-501-acme/DNS": [
                     "ServerAddresses": .strings(["10.11.0.53"]), "SearchDomains": .strings(["example.com"])
@@ -207,6 +209,20 @@ final class OpenConnectHookTests: XCTestCase {
             ])
         XCTAssertEqual(primary.removedKeys, ["State:/Network/Service/passtunnel-501-acme/IPv6"])
 
+        let dual = OpenConnectDNSSettings(
+            OpenConnectPlan.DNS(
+                service: service, interface: "utun5", primary: true, servers: [IPAddress("2001:db8:1::53")!], searchDomains: [],
+                matchDomains: []), addresses: [IPAddress("10.11.0.2")!, IPAddress("2001:db8:1::2")!])
+        XCTAssertEqual(
+            dual.values["State:/Network/Service/passtunnel-501-acme/IPv6"],
+            [
+                "Addresses": .strings(["2001:db8:1::2"]), "PrefixLength": .numbers([128]), "Router": .string("2001:db8:1::2"),
+                "InterfaceName": .string("utun5"), "OverridePrimary": .number(1)
+            ])
+        XCTAssertEqual(dual.values["State:/Network/Service/passtunnel-501-acme/DNS"], ["ServerAddresses": .strings(["2001:db8:1::53"])])
+        XCTAssertEqual(dual.removedKeys, [])
+
+        // A split tunnel: a resolver for its domains only; the service is never a candidate for primary.
         let split = OpenConnectDNSSettings(
             OpenConnectPlan.DNS(
                 service: service, interface: "utun5", primary: false, servers: [IPAddress("10.11.0.53")!, IPAddress("2001:db8:1::53")!],
@@ -215,18 +231,12 @@ final class OpenConnectHookTests: XCTestCase {
         XCTAssertEqual(
             split.values,
             [
-                "State:/Network/Service/passtunnel-501-acme/IPv4": [
-                    "Addresses": .strings(["10.11.0.2"]), "SubnetMasks": .strings(["255.255.255.255"]), "InterfaceName": .string("utun5")
-                ],
-                "State:/Network/Service/passtunnel-501-acme/IPv6": [
-                    "Addresses": .strings(["2001:db8:1::2"]), "PrefixLength": .numbers([128]), "InterfaceName": .string("utun5")
-                ],
                 "State:/Network/Service/passtunnel-501-acme/DNS": [
                     "ServerAddresses": .strings(["10.11.0.53", "2001:db8:1::53"]),
                     "SupplementalMatchDomains": .strings(["corp.example.com", "example.com"])
                 ]
             ])
-        XCTAssertEqual(split.removedKeys, [])
+        XCTAssertEqual(split.removedKeys, ["State:/Network/Service/passtunnel-501-acme/IPv4", "State:/Network/Service/passtunnel-501-acme/IPv6"])
         // Only dynamic keys of the session's own service.
         for key in OpenConnectDNSSettings.keys(service: service) { XCTAssertTrue(key.hasPrefix("State:/Network/Service/passtunnel-501-acme/")) }
     }
@@ -258,6 +268,7 @@ final class OpenConnectHookTests: XCTestCase {
                 "dns set passtunnel-501-acme"
             ])
         XCTAssertEqual(system.dns["State:/Network/Service/passtunnel-501-acme/IPv4"]?["OverridePrimary"], .number(1))
+        XCTAssertEqual(system.dns["State:/Network/Service/passtunnel-501-acme/IPv4"]?["Router"], .string("10.11.0.2"))
         XCTAssertNil(system.dns["State:/Network/Service/passtunnel-501-acme/IPv6"])
         XCTAssertEqual(
             try recordText(),
@@ -337,8 +348,9 @@ final class OpenConnectHookTests: XCTestCase {
             ])
         let dns = system.dns["State:/Network/Service/passtunnel-501-acme/DNS"]
         XCTAssertEqual(dns?["SupplementalMatchDomains"], .strings(["corp.example.com", "example.com"]))
-        XCTAssertNil(system.dns["State:/Network/Service/passtunnel-501-acme/IPv4"]?["OverridePrimary"])
-        XCTAssertNotNil(system.dns["State:/Network/Service/passtunnel-501-acme/IPv6"])
+        // Split: no entity that could make the service primary.
+        XCTAssertNil(system.dns["State:/Network/Service/passtunnel-501-acme/IPv4"])
+        XCTAssertNil(system.dns["State:/Network/Service/passtunnel-501-acme/IPv6"])
 
         XCTAssertEqual(run(.disconnect), OpenConnectHook.Outcome())
         // The server's address is not captured: no route to it was added (and the kernel's own stays).
@@ -393,7 +405,7 @@ final class OpenConnectHookTests: XCTestCase {
         let outcome = run(.connect(Self.full))
         XCTAssertTrue(outcome.stopTool)
         XCTAssertEqual(
-            outcome.lines, [VPNHook.failureLine("another route for 0.0.0.0/1 exists already (another VPN?)")])
+            outcome.lines, [VPNHook.failureLine("another route for 0.0.0.0/1 exists already, through utun3")])
         // What the set-up made is reverted, the other VPN's route is not touched.
         XCTAssertEqual(
             Array(system.log.suffix(6)),
@@ -408,8 +420,9 @@ final class OpenConnectHookTests: XCTestCase {
             ])
         XCTAssertTrue(system.table.contains { $0.network == IPNetwork("0.0.0.0/1")! && $0.interface == "utun3" })
         let record = try record()
-        XCTAssertEqual(record.status, .failed("another route for 0.0.0.0/1 exists already (another VPN?)"))
-        XCTAssertEqual(record.states[.route(.init(IPNetwork("0.0.0.0/1")!, via: .interface("utun5")))], .failed)
+        XCTAssertEqual(record.status, .failed("another route for 0.0.0.0/1 exists already, through utun3"))
+        // Found in the way before anything was journaled for it.
+        XCTAssertNil(record.states[.route(.init(IPNetwork("0.0.0.0/1")!, via: .interface("utun5")))])
         XCTAssertEqual(record.owned, [])
         XCTAssertFalse(VPNHook.reportedUp(runDir: runDir))
     }
@@ -418,7 +431,7 @@ final class OpenConnectHookTests: XCTestCase {
         system.table.append(KernelRoute(network: IPNetwork("8000::/1")!, interface: "utun3"))
         let outcome = run(.connect(Self.full))
         XCTAssertTrue(outcome.stopTool)
-        XCTAssertEqual(outcome.lines.last, VPNHook.failureLine("another route for 8000::/1 exists already (another VPN?)"))
+        XCTAssertEqual(outcome.lines.last, VPNHook.failureLine("another route for 8000::/1 exists already, through utun3"))
     }
 
     func testARouteAddedMeanwhileCountsAsThere() throws {
@@ -636,7 +649,7 @@ final class OpenConnectHookTests: XCTestCase {
         let reject = OpenConnectPlan.Change.route(.init(IPNetwork("::/1")!, via: .reject))
         let server = OpenConnectPlan.Change.route(
             .init(IPNetwork("192.0.2.10/32")!, via: .gateway(OpenConnectPlan.Gateway(address: IPAddress("198.51.100.1"), interface: "en0")!)))
-        try otherSession([.begin(reject), .existed(reject), .begin(server), .existed(server)])
+        try otherSession([.shared(reject), .shared(server)])
         system.log = []
         XCTAssertEqual(run(.disconnect), OpenConnectHook.Outcome())
         XCTAssertFalse(system.log.contains("/sbin/route -n delete -inet6 -net :: -prefixlen 1"))
@@ -677,15 +690,175 @@ final class OpenConnectHookTests: XCTestCase {
         XCTAssertFalse(run(.connect(Self.full)).stopTool)
         let server = OpenConnectPlan.Change.route(
             .init(IPNetwork("192.0.2.10/32")!, via: .gateway(OpenConnectPlan.Gateway(address: IPAddress("198.51.100.1"), interface: "en0")!)))
-        try otherSession([.begin(server), .existed(server)])
+        try otherSession([.shared(server)])
         system.table.removeAll { $0.network == IPNetwork("0.0.0.0/0")! }
         system.table.append(KernelRoute(network: IPNetwork("0.0.0.0/0")!, gateway: IPAddress("203.0.113.1"), interface: "en7"))
         system.log = []
-        XCTAssertEqual(run(.attemptReconnect(Self.full)), OpenConnectHook.Outcome())
-        // Not removed from under the other session; the new route finds the old one in its way, which is fine
-        // for a route around the tunnel.
-        XCTAssertEqual(system.log, [])
+        let outcome = run(.attemptReconnect(Self.full))
+        // Not removed from under the other session; then the new route finds it in its way: the session stops
+        // and signs in afresh rather than replacing a route another session uses.
+        XCTAssertFalse(system.log.contains("/sbin/route -n delete -inet -host 192.0.2.10"))
         XCTAssertTrue(try recordText().contains("? route 192.0.2.10/32 gateway 198.51.100.1 en0\n"))
+        XCTAssertEqual(
+            outcome.lines.last, VPNHook.failureLine("another route for 192.0.2.10/32 exists already, through 198.51.100.1 en0"))
+        XCTAssertTrue(system.table.contains { $0.network == IPNetwork("192.0.2.10/32")! && $0.gateway == IPAddress("198.51.100.1") })
+    }
+
+    // MARK: - Shared changes
+
+    /// Session B of another profile, to the same server, on utun6: a split tunnel whose include holds the
+    /// server, so it needs the server's host route too. (Two full tunnels cannot run at once: the second finds
+    /// the first's halves in its way.)
+    static let second = OpenConnectNetwork(
+        interface: "utun6", gateway: IPAddress("192.0.2.10")!, ipv4: .init(address: IPAddress("10.12.0.2")!, network: nil), ipv6: nil,
+        mtu: 1406, ipv4Includes: [IPNetwork("192.0.2.0/24")!])
+    static let secondPolicy = OpenConnectPolicy(uid: 501, profileID: "other", setRoutes: true, setDNS: true)
+
+    func testTheLastSessionToEndRemovesWhatTwoShare() throws {
+        system.interfaces["utun6"] = 21
+        XCTAssertFalse(run(.connect(Self.full)).stopTool)
+        live.insert(runDir)
+        // B finds the server's route A made: shared, not made again.
+        system.log = []
+        XCTAssertFalse(run(.connect(Self.second), policy: Self.secondPolicy, dir: otherDir).stopTool)
+        XCTAssertFalse(system.log.contains { $0.contains("192.0.2.10") })
+        let b = try recordText(otherDir)
+        XCTAssertTrue(b.contains("& route 192.0.2.10/32 gateway 198.51.100.1 en0\n"), b)
+        XCTAssertFalse(b.contains("+ route 192.0.2.10/32"), b)
+
+        // A ends first: B still runs, so the route stays (A journals it as spared).
+        live.insert(otherDir)
+        live.remove(runDir)
+        system.log = []
+        XCTAssertEqual(run(.disconnect), OpenConnectHook.Outcome())
+        XCTAssertFalse(system.log.contains { $0.contains("192.0.2.10") })
+        XCTAssertTrue(try recordText().contains("? route 192.0.2.10/32 gateway 198.51.100.1 en0\n"))
+        // B ends last: nobody holds it any more, and B removes it.
+        live = []
+        system.log = []
+        XCTAssertEqual(run(.disconnect, policy: Self.secondPolicy, dir: otherDir), OpenConnectHook.Outcome())
+        XCTAssertEqual(system.log.filter { $0.contains("192.0.2.10") }, ["/sbin/route -n delete -inet -host 192.0.2.10"])
+        XCTAssertEqual(system.table, originalTable.filter { !$0.cloned })
+
+        // The same for a block: shared by a session that found it held by a live one, removed by the last.
+        let reject = OpenConnectPlan.Change.route(.init(IPNetwork("::/1")!, via: .reject))
+        var a = OpenConnectRecord(interface: "utun5")!
+        try a.append(.begin(reject))
+        try a.append(.owned(reject))
+        var c = OpenConnectRecord(interface: "utun6")!
+        try c.append(.shared(reject))
+        XCTAssertEqual(a.toRevert(sparing: [c]), [])
+        XCTAssertEqual(c.toRevert(sparing: [a]), [])
+        XCTAssertEqual(c.toRevert(sparing: []), [reject])
+    }
+
+    func testARouteNoSessionHoldsIsNeverRemoved() throws {
+        // There before any session (or its session has ended): not PassTunnel's, never removed by anyone.
+        system.table.append(KernelRoute(OpenConnectPlan.Route(IPNetwork("::/1")!, via: .reject)))
+        XCTAssertFalse(run(.connect(Self.full)).stopTool)
+        XCTAssertTrue(try recordText().contains("~ route ::/1 reject\n"))
+        XCTAssertEqual(run(.disconnect), OpenConnectHook.Outcome())
+        // Nor by the helper's revert after a kill.
+        var killed = 0
+        XCTAssertEqual(restore(killed: &killed), .done)
+        XCTAssertTrue(system.table.contains { $0.network == IPNetwork("::/1")! && $0.reject })
+    }
+
+    func testAFindingIsJournaledWithoutABegin() throws {
+        // What the system had is never journaled as begun, so a hook killed right after cannot leave it pending
+        // for a revert to remove.
+        system.table.append(KernelRoute(OpenConnectPlan.Route(IPNetwork("::/1")!, via: .reject)))
+        let dir = runDir
+        var snapshot = ""
+        system.before = { command in
+            if command.line.contains("8000::") && snapshot.isEmpty {
+                snapshot = (try? String(contentsOfFile: OpenConnectJournal.path(runDir: dir), encoding: .utf8)) ?? ""
+            }
+        }
+        XCTAssertFalse(run(.connect(Self.full)).stopTool)
+        XCTAssertTrue(snapshot.hasSuffix("~ route ::/1 reject\n+ route 8000::/1 reject\n"), snapshot)
+        XCTAssertFalse(snapshot.contains("+ route ::/1 reject"))
+        // The record as a kill at that moment would leave it: the revert undoes the pending change only.
+        try FileManager.default.removeItem(atPath: OpenConnectJournal.path(runDir: runDir))
+        try snapshot.write(toFile: OpenConnectJournal.path(runDir: runDir), atomically: false, encoding: .utf8)
+        system.interfaces["utun5"] = nil
+        system.log = []
+        var killed = 0
+        XCTAssertEqual(restore(killed: &killed), .done)
+        XCTAssertFalse(system.log.contains("/sbin/route -n delete -inet6 -net :: -prefixlen 1"))
+        XCTAssertTrue(system.log.contains("/sbin/route -n delete -inet6 -net 8000:: -prefixlen 1"))
+        XCTAssertTrue(system.table.contains { $0.network == IPNetwork("::/1")! && $0.reject })
+    }
+
+    // MARK: - Routes with another next hop
+
+    func testARouteOfTheServerThroughAnotherNextHopFails() throws {
+        let cases: [(String, KernelRoute)] = [
+            // An include another VPN routes already.
+            ("10.0.0.0/8", KernelRoute(network: IPNetwork("10.0.0.0/8")!, interface: "utun3")),
+            // A DNS server's host route through a physical gateway.
+            ("172.16.0.53/32", KernelRoute(network: IPNetwork("172.16.0.53/32")!, gateway: IPAddress("198.51.100.9"), interface: "en0")),
+            // An exclude through another gateway than the default one.
+            ("10.99.0.0/16", KernelRoute(network: IPNetwork("10.99.0.0/16")!, gateway: IPAddress("198.51.100.9"), interface: "en0"))
+        ]
+        for (network, route) in cases {
+            try? FileManager.default.removeItem(atPath: OpenConnectJournal.path(runDir: runDir))
+            system = FakeOpenConnectSystem()
+            system.table.append(route)
+            let outcome = run(.connect(Self.split))
+            XCTAssertTrue(outcome.stopTool, network)
+            XCTAssertTrue(outcome.lines.last?.contains("another route for \(network) exists already") ?? false, network)
+            // Nothing of someone else's is replaced, and the set-up is reverted.
+            XCTAssertFalse(system.log.contains { $0.contains(" add ") && $0.contains(" " + network.split(separator: "/")[0] + " ") }, network)
+            XCTAssertTrue(system.table.contains(route), network)
+            XCTAssertEqual(system.table.filter { $0 != route }, originalTable, network)
+        }
+        // The VPN server's own route through another gateway.
+        try? FileManager.default.removeItem(atPath: OpenConnectJournal.path(runDir: runDir))
+        system = FakeOpenConnectSystem()
+        system.table.append(KernelRoute(network: IPNetwork("192.0.2.10/32")!, gateway: IPAddress("198.51.100.9"), interface: "en0"))
+        XCTAssertEqual(
+            run(.connect(Self.full)).lines.last,
+            VPNHook.failureLine("another route for 192.0.2.10/32 exists already, through 198.51.100.9 en0"))
+    }
+
+    func testAnAddThatFailsIsCheckedAgainstWhatIsThere() throws {
+        // `route add` fails because another program put a route of the destination through another VPN meanwhile.
+        system.interfaces["utun3"] = 18
+        system.before = { command in
+            if case .addRoute(let route) = command.effect, route.network == IPNetwork("0.0.0.0/1")! {
+                self.system.table.append(KernelRoute(network: route.network, interface: "utun3"))
+            }
+        }
+        let outcome = run(.connect(Self.full))
+        XCTAssertTrue(outcome.stopTool)
+        XCTAssertTrue(
+            outcome.lines.last?.contains("/sbin/route -n add -inet -net 0.0.0.0 -netmask 128.0.0.0 -interface utun5 failed") ?? false)
+        XCTAssertTrue(try recordText().contains("! route 0.0.0.0/1 interface utun5\n"))
+        XCTAssertTrue(system.table.contains { $0.network == IPNetwork("0.0.0.0/1")! && $0.interface == "utun3" })
+    }
+
+    // MARK: - The session's generation
+
+    func testARunWhoseSessionEndedChangesNothing() throws {
+        XCTAssertFalse(run(.connect(Self.full)).stopTool)
+        let before = try recordText()
+        system.log = []
+        var late = hook()
+        late.stillOurs = { false }
+        for event in [OpenConnectNetwork.Event.disconnect, .connect(Self.full), .attemptReconnect(Self.full)] {
+            let outcome = late.run(event: { event }, policy: { Self.policy })
+            XCTAssertEqual(outcome, OpenConnectHook.Outcome(lines: [VPNHook.endedLine]))
+        }
+        // Not even a refused environment is recorded.
+        XCTAssertEqual(
+            late.run(event: { throw OpenConnectNetwork.Failure.missing("TUNDEV") }, policy: { Self.policy }),
+            OpenConnectHook.Outcome(lines: [VPNHook.endedLine]))
+        XCTAssertEqual(system.log, [])
+        XCTAssertEqual(try recordText(), before)
+        XCTAssertNil(OpenConnectMarks.runningHook(runDir: runDir))
+        XCTAssertTrue(VPNHook.endedLine.hasPrefix(VPNHook.linePrefix))
+        XCTAssertNil(VPNHook.Report.parse(VPNHook.endedLine[...]))
     }
 
     // MARK: - The helper's revert
@@ -937,29 +1110,52 @@ final class OpenConnectHookTests: XCTestCase {
     }
 
     func testKernelRouteMatching() {
+        func finding(_ route: OpenConnectPlan.Route, _ table: [KernelRoute], claimed: Bool = false, attached: [OpenConnectPlan.Attached] = [])
+            -> OpenConnectHook.Finding
+        {
+            OpenConnectHook.finding(route, in: table, claimed: claimed ? [.route(route)] : [], attached: attached)
+        }
         let gateway = OpenConnectPlan.Gateway(address: IPAddress("198.51.100.1"), interface: "en0")!
         let host = OpenConnectPlan.Route(IPNetwork("192.0.2.10/32")!, via: .gateway(gateway))
         XCTAssertTrue(KernelRoute(host).is(host))
         var cloned = KernelRoute(host)
         cloned.cloned = true
         XCTAssertFalse(cloned.is(host))
-        XCTAssertNil(OpenConnectHook.existing(host, in: [cloned]))
+        XCTAssertEqual(finding(host, [cloned]), .absent)
         var scoped = KernelRoute(host)
         scoped.scoped = true
-        XCTAssertNil(OpenConnectHook.existing(host, in: [scoped]))
-        XCTAssertFalse(KernelRoute(network: host.network, gateway: IPAddress("198.51.100.2"), interface: "en0").is(host))
+        XCTAssertEqual(finding(host, [scoped]), .absent)
+        XCTAssertEqual(finding(host, [KernelRoute(host)]), .there(shared: false))
+        XCTAssertEqual(finding(host, [KernelRoute(host)], claimed: true), .there(shared: true))
+        // The server's route through another gateway: the set-up would not reach it as planned.
+        let elsewhere = KernelRoute(network: host.network, gateway: IPAddress("198.51.100.2"), interface: "en0")
+        XCTAssertFalse(elsewhere.is(host))
+        XCTAssertEqual(finding(host, [elsewhere]), .conflict("another route for 192.0.2.10/32 exists already, through 198.51.100.2 en0"))
         let reject = OpenConnectPlan.Route(IPNetwork("::/1")!, via: .reject)
         XCTAssertTrue(KernelRoute(network: reject.network, gateway: IPAddress("::1"), interface: "lo0", reject: true).is(reject))
         XCTAssertFalse(KernelRoute(network: reject.network, interface: "utun3").is(reject))
         let inside = OpenConnectPlan.Route(IPNetwork("10.0.0.0/8")!, via: .interface("utun5"))
         XCTAssertTrue(KernelRoute(network: inside.network, interface: "utun5").is(inside))
         XCTAssertFalse(KernelRoute(network: inside.network, interface: "utun6").is(inside))
-        // A server's include that finds another route: there already. A full tunnel's half: a failure.
-        XCTAssertEqual(OpenConnectHook.existing(inside, in: [KernelRoute(network: inside.network, interface: "utun6")]), .existed)
+        // A server's include that finds another route: a conflict, as a full tunnel's half.
+        XCTAssertEqual(
+            finding(inside, [KernelRoute(network: inside.network, interface: "utun6")]),
+            .conflict("another route for 10.0.0.0/8 exists already, through utun6"))
         let half = OpenConnectPlan.Route(IPNetwork("128.0.0.0/1")!, via: .interface("utun5"))
         XCTAssertEqual(
-            OpenConnectHook.existing(half, in: [KernelRoute(network: half.network, interface: "utun6")]),
-            .failed("another route for 128.0.0.0/1 exists already (another VPN?)"))
+            finding(half, [KernelRoute(network: half.network, gateway: IPAddress("::1"), interface: "lo0", reject: true)]),
+            .conflict("another route for 128.0.0.0/1 exists already, a reject route"))
+        // An exclude of the LAN the Mac is on, held by its on-link route: that traffic leaves outside already.
+        let lan = OpenConnectPlan.Route(IPNetwork("192.168.1.0/24")!, via: .gateway(gateway))
+        let onLink = KernelRoute(network: lan.network, interface: "en0")
+        let attached = [OpenConnectPlan.Attached(lan.network, interface: "en0")]
+        XCTAssertEqual(finding(lan, [onLink], attached: attached), .there(shared: false))
+        XCTAssertEqual(
+            finding(lan, [onLink], attached: []), .conflict("another route for 192.168.1.0/24 exists already, through en0"))
+        // Not for a route into the tunnel.
+        let lanInside = OpenConnectPlan.Route(lan.network, via: .interface("utun5"))
+        XCTAssertEqual(
+            finding(lanInside, [onLink], attached: attached), .conflict("another route for 192.168.1.0/24 exists already, through en0"))
     }
 
     #if os(macOS)
