@@ -190,6 +190,11 @@ PassTunnelDaemonCommand, whose product is `passtunneld`. The
 cases, `PassTunnelCoreTests` without the Apple-only ones, and `PassTunnelDaemonTests`) in the official
 Swift container on x86_64 and aarch64, and try the built `passtunnel`: `--version`, `list --json` and
 an MCP session. Then, as root in the container, they start `passtunneld` and talk to it (see below).
+The Linux builds in CI (`swift build`, `swift test`, `scripts/build-linux.sh` and the Dockerfile) go
+through `scripts/swift-retry.sh`: the toolchain's build system sometimes crashes while it plans a
+build (exit 139, "Program crashed" with a `swift-build` frame), and the script then runs the command
+once more. A compile error, a failing test or a second crash fails as usual; if a Linux check fails
+with that crash twice, report it with the log.
 To do the same locally with Docker, from the repository root:
 
 ```sh

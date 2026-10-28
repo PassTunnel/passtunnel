@@ -27,8 +27,8 @@
 #   (x86_64, aarch64)
 #   Release scripts   shellcheck of next-version.sh, its test, build-linux.sh, coverage-report.sh, compare-app.sh,
 #                     verify-build.sh, check-tool-symbols.sh, its test, make-system-symbols.sh and
-#                     test-bundled-config-paths.sh, and the self-test of
-#                     scripts/next-version.sh (in a temporary repository)
+#                     test-bundled-config-paths.sh, swift-retry.sh and its test, and the self-tests of
+#                     scripts/next-version.sh (in a temporary repository) and swift-retry.sh
 #   Site              shellcheck of the site scripts and scripts/check-site.sh, the static checks
 #                     of the website in site/ (docs/WEBSITE.md)
 #
@@ -217,13 +217,15 @@ jobs:
           uname -m
           swift --version
 
+      # scripts/swift-retry.sh runs the command once more if the build system itself crashed (exit 139
+      # and a swift-build frame in the report), never on an error of ours.
       - name: Build
-        run: swift build
+        run: scripts/swift-retry.sh swift build
 
       # PassTunnelKitTests and the Core tests that build on Linux (the Apple-only ones are left out
       # with #if); their secrets are kept in memory.
       - name: Test
-        run: swift test
+        run: scripts/swift-retry.sh swift test
 
       # The `passtunnel` binary against an empty temporary support directory: the version, an empty
       # list, and an MCP session over stdin (the replies are checked with jq).
@@ -786,10 +788,14 @@ jobs:
           shellcheck --version
           shellcheck scripts/next-version.sh scripts/test-next-version.sh scripts/build-linux.sh scripts/coverage-report.sh \
             scripts/compare-app.sh scripts/verify-build.sh scripts/check-tool-symbols.sh scripts/test-check-tool-symbols.sh \
-            scripts/make-system-symbols.sh scripts/test-bundled-config-paths.sh
+            scripts/make-system-symbols.sh scripts/test-bundled-config-paths.sh \
+            scripts/swift-retry.sh scripts/test-swift-retry.sh
 
       - name: Self-test of next-version.sh
         run: scripts/test-next-version.sh
+
+      - name: Self-test of swift-retry.sh
+        run: scripts/test-swift-retry.sh
 
   site:
     name: Site

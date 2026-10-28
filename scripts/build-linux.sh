@@ -95,8 +95,10 @@ swift --version
 # their signatures in the module cache, which differ from one build to the next, and the linker's build
 # ID, which strip keeps, is a hash over all of it.
 BUILD=(swift build -c release --static-swift-stdlib -debug-info-format none -Xswiftc -DPASSTUNNEL_BUILD_VERSION)
-"${BUILD[@]}" --product passtunnel
-"${BUILD[@]}" --product passtunneld
+# swift-retry.sh runs a build once more if the toolchain's build system crashed while planning it (a
+# crash before anything was compiled, so the second run starts from the same state); nothing else is retried.
+"$ROOT/scripts/swift-retry.sh" "${BUILD[@]}" --product passtunnel
+"$ROOT/scripts/swift-retry.sh" "${BUILD[@]}" --product passtunneld
 BIN="$("${BUILD[@]}" --show-bin-path)"
 
 # The version went in, and nothing of Swift is loaded from the system.
