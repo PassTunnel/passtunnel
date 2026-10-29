@@ -296,7 +296,7 @@ different one, it warns instead of connecting.
 
 - Sign-in through a web browser (SAML / single sign-on).
 - Host scan: Cisco Secure Desktop, HIP and TNCC. PassTunnel never runs it; the connect stops at **Host
-  scan required**, and your password and code are not sent. Ask your IT team whether your account can
+  scan required**. Ask your IT team whether your account can
   sign in without it.
 - Client certificates and RSA SecurID tokens.
 - A server that sends you to a different host after the sign-in.
@@ -490,7 +490,7 @@ connected or edited. PassTunnel itself still runs on macOS 13, with OpenVPN and 
 
 PassTunnel signs in with a user name, password and one-time code only. Sign-in through a web page
 (SAML / single sign-on) is not supported, and neither is the server's host scan (Cisco Secure Desktop,
-HIP, TNCC): PassTunnel never downloads or runs it, shows **Host scan required** and sends nothing. Ask
+HIP, TNCC): PassTunnel never downloads or runs it, stops the connection and shows **Host scan required**. Ask
 your IT team whether your account can sign in with a password and code, or whether another group on the
 server skips the host scan (the profile's **Group**).
 </details>

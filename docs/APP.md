@@ -240,7 +240,7 @@ The main window (`MainSplitView`, decision D-23) is a `NavigationSplitView`, abo
     key than the one this profile trusts.", a warning that someone may be intercepting the connection, and **Trust the
     New Key…**, whose confirmation shows the key it replaces too.
   - **Host scan required** (`HostScanCard`, Cisco AnyConnect, status "Host scan required"): the server asked for a host
-    scan (Cisco Secure Desktop), which PassTunnel never runs; the password and code were not sent; "Ask your IT team"
+    scan (Cisco Secure Desktop), which PassTunnel never runs; the line "Your password and code were not sent." appears only when the sign-in form had not been sent yet (a server can ask for the scan after it); "Ask your IT team"
     and Copy details.
   - **Host not found and other failures** (`MessageCard`): the tool's reason, and that the password and code were not
     sent; a name that was not found also points to the profile's address.
@@ -316,7 +316,7 @@ The main window (`MainSplitView`, decision D-23) is a `NavigationSplitView`, abo
   has a pin, by that key alone: **Fetch Fingerprint** in the editor and **Trust This Server…** on the failure
   card (see Failures above) are the two ways to set it, both asking first. What it does not do: sign in
   through a web page (SAML / single sign-on), run a host scan (Cisco Secure Desktop, HIP, TNCC; the failure
-  card says so and nothing was sent), use client certificates or RSA SecurID tokens, or follow the server to
+  card says so), use client certificates or RSA SecurID tokens, or follow the server to
   another host. The tunnel takes the server's address, routes and DNS servers (with Routes and DNS
   on); routes that lie inside a network the Mac is attached to stay local (the log line counts them), and
   when all traffic goes through the tunnel and the server assigns no IPv6 address, IPv6 is blocked. It is
