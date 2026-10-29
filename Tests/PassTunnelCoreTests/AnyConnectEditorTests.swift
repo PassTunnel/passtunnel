@@ -180,6 +180,97 @@ final class AnyConnectEditorTests: XCTestCase {
         XCTAssertEqual(scanned.line(at: Date()), "The server requires a host scan")
     }
 
+    // MARK: Fetch Fingerprint, bound to its server
+
+    func profile(_ server: String, type: VPNType = .anyconnect) -> Profile {
+        var p = Profile(id: "corp", name: "Corp", type: type)
+        E.applyServer(server, to: &p)
+        return p
+    }
+
+    func testAFetchedKeyIsKeptShownAndTakenOnlyForItsServer() throws {
+        var fetch = FingerprintFetch()
+        var p = profile("https://vpn.example.com:8443/engineering")
+        let destination = fetch.start(for: p)
+        XCTAssertTrue(fetch.isFetching)
+        XCTAssertTrue(fetch.finish(Self.pin, for: destination, current: p))
+        XCTAssertFalse(fetch.isFetching)
+        XCTAssertEqual(fetch.value(for: p), Self.pin)
+        XCTAssertEqual(fetch.result?.destination.server, "vpn.example.com:8443/engineering", "the confirmation names it")
+
+        // Edits that keep the server keep the result (the host's case, the group, the pin itself).
+        p.host = "VPN.example.com"
+        p.authgroup = "Employees"
+        p.serverCert = Self.otherPin
+        XCTAssertFalse(fetch.profileChanged(p))
+        XCTAssertEqual(fetch.value(for: p), Self.pin)
+
+        // Another host, port, path or type drops it: it is never taken for another server.
+        for edit: (inout Profile) -> Void in [
+            { $0.host = "vpn2.example.com" }, { $0.port = 443 }, { $0.usergroup = "" }, { $0.type = .forti }
+        ] {
+            var other = p
+            edit(&other)
+            XCTAssertNil(fetch.value(for: other), "not for another server")
+            var kept = fetch
+            kept.profileChanged(other)
+            XCTAssertNil(kept.result)
+            XCTAssertNil(kept.value(for: p), "dropped, also if the server is changed back")
+        }
+        fetch.clearResult()
+        XCTAssertNil(fetch.value(for: p))
+    }
+
+    /// The server is edited from A to B while A's fetch runs: the fetch ends (the caller cancels it), and A's answer
+    /// arriving later is dropped, never shown as B's key.
+    func testAnEditWhileFetchingDropsTheAnswer() {
+        var fetch = FingerprintFetch()
+        let a = profile("https://vpn-a.example.com")
+        let b = profile("https://vpn-b.example.com")
+        let fromA = fetch.start(for: a)
+        XCTAssertTrue(fetch.profileChanged(b), "the fetch under way is ended")
+        XCTAssertFalse(fetch.isFetching)
+        XCTAssertFalse(fetch.finish(Self.pin, for: fromA, current: b))
+        XCTAssertNil(fetch.result)
+        XCTAssertNil(fetch.value(for: b))
+
+        // Changed and changed back before the answer: the fetch ended anyway, its answer is dropped.
+        let again = fetch.start(for: a)
+        fetch.profileChanged(b)
+        fetch.profileChanged(a)
+        XCTAssertFalse(fetch.finish(Self.pin, for: again, current: a))
+        XCTAssertNil(fetch.value(for: a))
+
+        // A late answer of an earlier fetch never replaces the one under way.
+        let first = fetch.start(for: a)
+        let second = fetch.start(for: a)
+        XCTAssertEqual(first, second)
+        XCTAssertTrue(fetch.finish(Self.pin, for: second, current: a))
+        XCTAssertFalse(fetch.finish(Self.otherPin, for: first, current: a), "nothing under way any more")
+        XCTAssertEqual(fetch.value(for: a), Self.pin)
+
+        // An answer for a profile changed without the editor noticing (`current`) is dropped too.
+        let third = fetch.start(for: a)
+        XCTAssertFalse(fetch.finish(Self.otherPin, for: third, current: b))
+        XCTAssertNil(fetch.value(for: a))
+        fetch.fail(for: third)
+        XCTAssertFalse(fetch.isFetching)
+    }
+
+    /// FortiGate's certificate fingerprint is bound the same way (host and port; no group).
+    func testFortiGateFingerprintsAreBoundToo() {
+        var fetch = FingerprintFetch()
+        var p = Profile(id: "office", name: "Office", type: .forti)
+        p.host = "gw.example.net"
+        let digest = String(repeating: "ab", count: 32)
+        XCTAssertTrue(fetch.finish(digest, for: fetch.start(for: p), current: p))
+        XCTAssertEqual(fetch.result?.destination.server, "gw.example.net:443")
+        p.usergroup = "ignored"
+        XCTAssertEqual(fetch.value(for: p), digest)
+        p.port = 10443
+        XCTAssertNil(fetch.value(for: p))
+    }
+
     // MARK: the trust offer
 
     func testTheOfferHoldsTheServerAndTheKey() throws {
@@ -232,6 +323,23 @@ extension ConnectionManagerTests {
         XCTAssertEqual(DisplayStatus(DisplayStatus.Facts(p, in: m)), .off)
         m.systemVersion = nil  // Linux: the distribution's openconnect is checked when connecting
         XCTAssertEqual(DisplayStatus(DisplayStatus.Facts(p, in: m)), .off)
+    }
+
+    /// Below macOS 15.4 the app reads, unlocks and offers no secret of a Cisco AnyConnect profile.
+    func testNoSecretOfAProfileThisMacCannotConnectIsUsed() throws {
+        let any = try makeAnyConnect()
+        let open = try store.create(name: "Acme OpenVPN", type: .openvpn)
+        let m = makeManager()
+        m.systemVersion = AnyConnectEditorTests.oldMac
+        XCTAssertEqual(m.profilesWithUsableSecrets(store.list()).map(\.id), [open.id])
+        m.systemVersion = AnyConnectEditorTests.newMac
+        XCTAssertEqual(Set(m.profilesWithUsableSecrets(store.list()).map(\.id)), [any.id, open.id])
+        m.systemVersion = nil
+        XCTAssertEqual(m.profilesWithUsableSecrets([any]).map(\.id), [any.id], "Linux refuses no type up front")
+        // The copy items' target never falls on it when its code is not offered.
+        let target = CopyTarget.profile(
+            in: [any, open], defaultID: any.id, hasCode: { $0.type != .anyconnect }, lastCodeSent: { _ in Date() })
+        XCTAssertNotEqual(target?.id, any.id)
     }
 
     /// openconnect did not trust the certificate and printed the key's pin: the manager offers it for the server the

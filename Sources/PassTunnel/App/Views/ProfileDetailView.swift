@@ -151,7 +151,7 @@ private struct DetailMoreMenu: View {
             Button(String(localized: "Copy Code")) { model.copyCode(p) }
                 .disabled(model.code(for: p) == nil && !model.isCodeLocked(p))
             Button(String(localized: "Copy Password + Code")) { model.copyPasswordAndCode(p) }
-                .disabled(p.passwordMode != .keychain)
+                .disabled(!model.canCopyPassword(p))
             Divider()
             Button(String(localized: "Share…")) { model.share(p) }
             Button(String(localized: "Show Log")) { model.showLog(p) }

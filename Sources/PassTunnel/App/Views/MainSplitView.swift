@@ -255,7 +255,7 @@ struct ProfileMenuItems: View {
         Button(String(localized: "Copy Code")) { model.copyCode(p) }
             .disabled(model.code(for: p) == nil && !model.isCodeLocked(p))
         Button(String(localized: "Copy Password + Code")) { model.copyPasswordAndCode(p) }
-            .disabled(p.passwordMode != .keychain)
+            .disabled(!model.canCopyPassword(p))
         Divider()
         Button(String(localized: "Share…")) { model.share(p) }
         Button(String(localized: "Show Log")) { model.showLog(p) }
@@ -402,7 +402,7 @@ struct SplitWindowCommands: View {
         .disabled(selected.map(model.hasCode) != true || blocked)
         Button(String(localized: "Copy Password + Code")) { selected.map(model.copyPasswordAndCode) }
             .keyboardShortcut("c", modifiers: [.command, .shift])
-            .disabled(selected?.passwordMode != .keychain || blocked)
+            .disabled(selected.map(model.canCopyPassword) != true || blocked)
         Button(String(localized: "Edit…")) { selected.map(model.edit) }
             .keyboardShortcut("e")
             .disabled(selected.map { model.editRefusal($0) != nil } ?? true || blocked)

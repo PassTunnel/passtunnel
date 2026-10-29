@@ -100,7 +100,7 @@ struct ProfileEditorView: View {
                 )
             } else {
                 Text(
-                    "The gateway \(p.host) presented a certificate with this SHA-256 fingerprint:\n\n\(TLSFingerprint.display(model.fetchedFingerprint ?? ""))\n\nTrust it only if it matches the fingerprint your administrator gave you."
+                    "The gateway \(model.fetchedServer) presented a certificate with this SHA-256 fingerprint:\n\n\(TLSFingerprint.display(model.fetchedFingerprint ?? ""))\n\nTrust it only if it matches the fingerprint your administrator gave you."
                 )
             }
         }
@@ -937,7 +937,7 @@ struct ProfileEditorView: View {
     private var fingerprintAlertShown: Binding<Bool> {
         Binding(
             get: { model.fetchedFingerprint != nil },
-            set: { if !$0 { model.fetchedFingerprint = nil } })
+            set: { if !$0 { model.discardFetchedFingerprint() } })
     }
 
     private struct ContentHeight: PreferenceKey {

@@ -28,7 +28,10 @@ final class EditorModel: ObservableObject {
     let isPreview: Bool
     let palette: BadgePalette
 
-    @Published var draft: Profile
+    @Published var draft: Profile {
+        // A fingerprint fetched, or being fetched, for another server than the one the profile names now is dropped.
+        didSet { if fetch.profileChanged(draft) { fetchTask?.cancel() } }
+    }
     /// The stored profile when the sheet opened; Save applies only the differences to it.
     let original: Profile?
     @Published var attemptedSave = false
@@ -66,9 +69,15 @@ final class EditorModel: ObservableObject {
     @Published private(set) var serverText = ""
 
     // FortiGate's certificate fingerprint, Cisco AnyConnect's key pin ("Fetch Fingerprint")
-    @Published var fetchingFingerprint = false
-    @Published var fetchedFingerprint: String?
+    /// Bound to the server it reads (`FingerprintFetch`): a result is kept, shown and taken only for the server the
+    /// profile names.
+    @Published private(set) var fetch = FingerprintFetch()
+    private var fetchTask: Task<Void, Never>?
     @Published var fingerprintError: String?
+
+    var fetchingFingerprint: Bool { fetch.isFetching }
+    /// The fingerprint read, for the confirmation, while the profile still names the server it was read from.
+    var fetchedFingerprint: String? { fetch.value(for: draft) }
 
     // Health check
     @Published var testingHealth = false
@@ -172,7 +181,6 @@ final class EditorModel: ObservableObject {
     func setServerText(_ text: String) {
         serverText = text
         AnyConnectEditing.applyServer(text, to: &draft)
-        fetchedFingerprint = nil
         fingerprintError = nil
     }
 
@@ -596,31 +604,36 @@ final class EditorModel: ObservableObject {
         let anyConnect = draft.type == .anyconnect
         if anyConnect && !serverIsValid { return }
         fingerprintError = nil
-        fetchingFingerprint = true
-        Task {
+        let destination = fetch.start(for: draft)
+        fetchTask = Task {
             do {
-                fetchedFingerprint =
+                let value =
                     anyConnect
                     ? try await TLSFingerprint.fetchServerKeyPin(host: host, port: port)
                     : try await TLSFingerprint.fetch(host: host, port: port)
+                // Kept only for the fetch under way, while the profile still names the server it read.
+                fetch.finish(value, for: destination, current: draft)
             } catch {
-                fingerprintError = error.localizedDescription
+                if fetch.pending == destination { fingerprintError = error.localizedDescription }
+                fetch.fail(for: destination)
             }
-            fetchingFingerprint = false
         }
     }
 
-    /// Where the fetched fingerprint came from, as the confirmation names it ("vpn.example.com:8443").
-    var fetchedServer: String {
-        OVPNAnalyzer.Endpoint.address(host: draft.host.trimmingCharacters(in: .whitespacesAndNewlines), port: String(draft.port))
-    }
+    /// Where the fingerprint shown was read ("vpn.example.com:8443/engineering"): the server it was fetched from,
+    /// which is the one the profile names (else nothing is shown).
+    var fetchedServer: String { fetch.result?.destination.server ?? "" }
 
+    /// "Trust": the fingerprint goes into the field only while the profile still names the server it was read from.
     func acceptFetchedFingerprint() {
-        if let fp = fetchedFingerprint {
+        if let fp = fetch.value(for: draft) {
             if draft.type == .anyconnect { draft.serverCert = fp } else { draft.trustedCert = fp }
         }
-        fetchedFingerprint = nil
+        fetch.clearResult()
     }
+
+    /// The confirmation was dismissed without trusting.
+    func discardFetchedFingerprint() { fetch.clearResult() }
 
     // MARK: health
 

@@ -207,3 +207,98 @@ extension ConnectionManager {
         return saved
     }
 }
+
+/// "Fetch Fingerprint" in the editor, bound to the server it was asked for: the result of a fetch is kept only when
+/// it answers the fetch under way and the profile still names that server, is shown with that server, and is taken
+/// only while the profile still names it. Editing the server while a fetch runs ends the fetch; editing it after the
+/// result came drops the result. So a key read from one server never goes into a profile that names another.
+public struct FingerprintFetch: Equatable {
+    /// What a fingerprint is bound to: the type (which hash), the host (trimmed, lowercased), the port and, for Cisco
+    /// AnyConnect, the user group.
+    public struct Destination: Equatable {
+        public var type: VPNType
+        public var host: String
+        public var port: Int
+        public var usergroup: String
+
+        public init(_ p: Profile) {
+            type = p.type
+            host = p.host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            port = p.port
+            usergroup = p.type == .anyconnect ? p.usergroup : ""
+        }
+
+        /// "vpn.example.com:8443/engineering", "[2001:db8::1]:443": where the fingerprint was read.
+        public var server: String {
+            let address = OVPNAnalyzer.Endpoint.address(host: host, port: String(port))
+            return usergroup.isEmpty ? address : address + "/" + usergroup
+        }
+    }
+
+    /// The fetch under way, and the server it reads.
+    public private(set) var pending: Destination?
+    /// The fingerprint read, and the server it was read from, until it is taken or dropped.
+    public private(set) var result: (destination: Destination, value: String)?
+
+    public init() {}
+
+    public var isFetching: Bool { pending != nil }
+
+    /// Starts a fetch for `p`'s server (replacing one under way and an earlier result); the caller reads that server.
+    @discardableResult
+    public mutating func start(for p: Profile) -> Destination {
+        let destination = Destination(p)
+        pending = destination
+        result = nil
+        return destination
+    }
+
+    /// The answer of the fetch for `destination`, with the profile as it is now. Kept only when that fetch is still
+    /// the one under way and `current` still names its server; true when kept.
+    @discardableResult
+    public mutating func finish(_ value: String, for destination: Destination, current: Profile) -> Bool {
+        guard pending == destination else { return false }
+        pending = nil
+        guard Destination(current) == destination else { return false }
+        result = (destination, value)
+        return true
+    }
+
+    /// The fetch for `destination` failed or was cancelled: it is no longer under way (unless another one replaced it).
+    public mutating func fail(for destination: Destination) {
+        if pending == destination { pending = nil }
+    }
+
+    /// The profile was edited: a fetch or a result for another server than the one it names now is dropped. True when
+    /// a fetch under way was ended (the caller cancels its task).
+    @discardableResult
+    public mutating func profileChanged(_ p: Profile) -> Bool {
+        let now = Destination(p)
+        if let r = result, r.destination != now { result = nil }
+        guard let pending, pending != now else { return false }
+        self.pending = nil
+        return true
+    }
+
+    /// The fingerprint to put into `p`: the result, only while `p` still names the server it was read from.
+    public func value(for p: Profile) -> String? {
+        guard let result, result.destination == Destination(p) else { return nil }
+        return result.value
+    }
+
+    /// The result is shown or taken: it is gone either way.
+    public mutating func clearResult() { result = nil }
+
+    public static func == (a: FingerprintFetch, b: FingerprintFetch) -> Bool {
+        a.pending == b.pending && a.result?.destination == b.result?.destination && a.result?.value == b.result?.value
+    }
+}
+
+extension ConnectionManager {
+    /// The profiles whose secrets the app may read (codes shown, copied or typed, Keychain items kept in line with
+    /// "Confirm with Touch ID"): those of a type this system can connect (`connectRefusal`). A Cisco AnyConnect profile
+    /// below macOS 15.4 is listed, but nothing of it is read or unlocked.
+    public func profilesWithUsableSecrets(_ profiles: [Profile]) -> [Profile] {
+        profiles.filter { connectRefusal($0.type) == nil }
+    }
+}

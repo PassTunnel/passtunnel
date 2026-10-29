@@ -365,7 +365,8 @@ rules are in [Profile (#181)](#profile-181) below. Such a profile is treated as 
   as `DisplayStatus.unavailable` ("Requires macOS 15.4 or later" in the row, the sentence in the status line, a card
   that says what still works), with Connect, Edit and the menu bar switch disabled and no code in its rows;
   `startConnect`, the overlap check, `edit` and `newProfile` refuse it with the message before Touch ID, the Keychain or
-  the helper, an import selects it instead of opening the editor, and scanned codes never target it. Sharing and
+  the helper, an import selects it instead of opening the editor, and scanned codes never target it; its secrets are
+  never read, reconciled or unlocked (`ConnectionManager.profilesWithUsableSecrets`; the copy actions refuse it). Sharing and
   deleting it work. There is no `VPNType.connectable` any more: every known type is one the app shows as a profile;
   only a type this version does not know is an `UnsupportedProfile`.
 - The helper accepts `startOpenConnect` (protocol 4, #182), and so does `passtunneld` (#187, docs/LINUX.md).

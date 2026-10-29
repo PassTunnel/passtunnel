@@ -311,7 +311,8 @@ The main window (`MainSplitView`, decision D-23) is a `NavigationSplitView`, abo
   "Requires macOS 15.4 or later" in amber and no code; its detail says "Cisco AnyConnect requires macOS 15.4 or
   later." with a card that it can still be shared or deleted, and Connect (also Return, ⌘↩ and the menu bar switch)
   and Edit are disabled. Connecting, editing or creating one is refused with that message before Touch ID, the
-  Keychain or the helper is asked anything; an imported one is selected instead of opened in the editor, and scanned
+  Keychain or the helper is asked anything; none of its secrets is read or unlocked (`profilesWithUsableSecrets`: no
+  code in the window, the menu bar or the copy items, Copy Code and Copy Password + Code disabled and refused); an imported one is selected instead of opened in the editor, and scanned
   codes never go to it. The type question of the add view shows Cisco AnyConnect disabled, with the sentence under
   the question, and File → New Cisco AnyConnect Profile… is disabled with the note as its tooltip.
 - **A profile of a newer VPN type** (`UnsupportedProfile`: its `type` is not one this version knows) is listed under the
@@ -370,7 +371,10 @@ the sheet closes and `AppModel.delete` runs), Cancel, Save (Add Profile for a ne
    (`TLSFingerprint.fetchServerKeyPin`: the SHA-256 of the certificate's SubjectPublicKeyInfo, `ServerKeyPin`) and asks
    "Trust this server’s key?" with the server and the full pin first; DTLS ("Use TLS only (no DTLS)", `tls_only`);
    DNS and Routes as for FortiGate. User name: at most 255 bytes, no control characters, no leading "=". Nothing is
-   fetched without the click. Save checks everything again (`checkAnyConnectFields` in `ProfileStore.save`). Password: one secure field when it is kept in the Keychain (no
+   fetched without the click. A fetched fingerprint (FortiGate's too) is bound to the server it was read from
+   (`FingerprintFetch`: type, host, port, user group): editing any of them while the fetch runs ends it, a result for
+   another server than the one the profile names is dropped, and the confirmation names the server the key came
+   from. Save checks everything again (`checkAnyConnectFields` in `ProfileStore.save`). Password: one secure field when it is kept in the Keychain (no
    confirm field; placeholder "Saved in Keychain" when one is saved, and empty keeps it), else the words for "Ask
    each time" or "None — certificate only".
 2. **One-time code** (the hero card): with a secret, "Secret added · 6 digits · 30 s" (the issuer · account of a

@@ -265,7 +265,7 @@ struct MenuBarPanel: View {
     private func copyActions(_ target: Profile?) -> [PanelItem] {
         guard let target else { return [] }
         var actions: [PanelItem] = [.copyCode]
-        if target.passwordMode == .keychain { actions.append(.copyPasswordAndCode) }
+        if model.canCopyPassword(target) { actions.append(.copyPasswordAndCode) }
         if model.prefs.autoType { actions.append(.typeCode) }
         return actions
     }
