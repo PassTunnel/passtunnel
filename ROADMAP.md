@@ -9,7 +9,7 @@ decisions are; a feature is only "done" when its pull request is merged and rele
 
 | Area | What | Where |
 |---|---|---|
-| More VPN types | OpenConnect as a backend (Cisco AnyConnect, GlobalProtect, Pulse/Ivanti), bundled and signature-checked like `openvpn` and `openfortivpn`, with import and validation rules documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [SECURITY.md](SECURITY.md) | [#2](https://github.com/PassTunnel/passtunnel/issues/2) |
+| More VPN types | OpenConnect as a backend, bundled and signature-checked like `openvpn` and `openfortivpn`, with import and validation rules documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [SECURITY.md](SECURITY.md). **Phase 1, Cisco AnyConnect, is done** and ships with the next release: password and one-time code on macOS 15.4 and later and on Linux; no single sign-on (SAML), host scan, client certificates or RSA SecurID. **Phase 2, GlobalProtect**, and **Phase 3, Pulse/Ivanti**, are open | [#2](https://github.com/PassTunnel/passtunnel/issues/2) |
 | Intel Macs | A universal build of app, helper and CLI, with x86_64 slices of the bundled tools, and CI and release on both architectures. The fallback without a Secure Enclave must stay safe | [#3](https://github.com/PassTunnel/passtunnel/issues/3) |
 | Shortcuts and Siri | App Intents for connect, disconnect and status, under the same confirmation rules as the menu bar and CLI | [#4](https://github.com/PassTunnel/passtunnel/issues/4) |
 | Linux | The command line and MCP server and the root daemon are built and tested in CI; next are packages (polkit, systemd units, apt and dnf repositories, release automation) and, after them, a desktop app | [#5](https://github.com/PassTunnel/passtunnel/issues/5), [docs/LINUX.md](docs/LINUX.md#phases) |
@@ -18,7 +18,7 @@ decisions are; a feature is only "done" when its pull request is merged and rele
 Ongoing, not tied to an issue:
 
 - Security fixes for the latest release, following [SECURITY.md](SECURITY.md#how-reports-are-handled).
-- Keeping the bundled `openvpn`, `openfortivpn` and their libraries current: the pinned versions in
+- Keeping the bundled `openvpn`, `openfortivpn`, `openconnect` and their libraries current: the pinned versions in
   [`scripts/release.env`](scripts/release.env) are moved by pull request, and Dependabot proposes
   updates for GitHub Actions, Swift packages and the Docker base images.
 - Keeping the documentation true to the code (the pull request checklist asks for it).

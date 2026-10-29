@@ -73,7 +73,7 @@ public enum Access {
         switch request {
         case .status, .stop:
             return .allowed
-        case .startOpenVPN, .startForti:
+        case .startOpenVPN, .startForti, .startOpenConnect:
             return mayStart(uid: uid, users: users) ? .allowed : .refused(refusal(uid: uid, users: users))
         }
     }

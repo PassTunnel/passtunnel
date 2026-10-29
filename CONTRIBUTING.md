@@ -190,6 +190,11 @@ PassTunnelDaemonCommand, whose product is `passtunneld`. The
 cases, `PassTunnelCoreTests` without the Apple-only ones, and `PassTunnelDaemonTests`) in the official
 Swift container on x86_64 and aarch64, and try the built `passtunnel`: `--version`, `list --json` and
 an MCP session. Then, as root in the container, they start `passtunneld` and talk to it (see below).
+The Linux builds in CI (`swift build`, `swift test`, `scripts/build-linux.sh` and the Dockerfile) go
+through `scripts/swift-retry.sh`: the toolchain's build system sometimes crashes while it plans a
+build (exit 139, "Program crashed" with a `swift-build` frame), and the script then runs the command
+once more. A compile error, a failing test or a second crash fails as usual; if a Linux check fails
+with that crash twice, report it with the log.
 To do the same locally with Docker, from the repository root:
 
 ```sh
@@ -279,8 +284,10 @@ image names in workflow variables, so they are bumped by hand with the Dockerfil
 
 The code that parses untrusted text is fuzzed with libFuzzer. The harnesses live in their own
 package under [`fuzz/`](fuzz/) (one per target: the OpenVPN config sanitizer, the import review that
-skips some of the lines it refuses, FortiGate config rendering, the OpenVPN management-interface parser,
-`otpauth://` URIs and MCP JSON-RPC decoding).
+skips some of the lines it refuses, FortiGate config rendering, openconnect config rendering, the
+openconnect sign-in output parser, what openconnect hands its hook (`vpn-hook`) with the plan, record and
+report lines built from it, the OpenVPN management-interface parser, `otpauth://` URIs and MCP JSON-RPC
+decoding).
 That package is not part of the app: `swift build` and `swift test` at the repository root never
 build it, and nothing in it ships in any binary. It links the parsing libraries of the main package
 so the fuzzers run the exact sources the app and the helper use.

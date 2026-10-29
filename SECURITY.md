@@ -12,7 +12,7 @@ Implementation details are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - [The privileged helper](#the-privileged-helper)
 - [OpenVPN configuration sanitizer](#openvpn-configuration-sanitizer)
 - [Importing an OpenVPN configuration](#importing-an-openvpn-configuration)
-- [Cisco AnyConnect (planned)](#cisco-anyconnect-planned)
+- [Cisco AnyConnect](#cisco-anyconnect)
 - [Secrets and files](#secrets-and-files)
 - [Confirm with Touch ID (Secure Enclave)](#confirm-with-touch-id-secure-enclave)
 - [Network connections](#network-connections)
@@ -102,7 +102,7 @@ Both were found by the maintainer, so there is no outside reporter to credit in 
 |---|---|---|
 | `PassTunnel.app` (app and `passtunnel` CLI, one binary) | you | UI, profiles, Keychain access, TOTP, talks to the helper |
 | `PassTunnelHelper` | **root**, started on demand by launchd | validates requests and starts or stops the VPN tools |
-| bundled `openvpn`, `openfortivpn` (+ `dns-updown`) | **root**, started by the helper | the actual tunnel |
+| bundled `openvpn`, `openfortivpn`, `openconnect` (+ `dns-updown`) | **root**, started by the helper | the actual tunnel |
 
 **Why root?** Creating a tunnel interface and changing routes and DNS requires it. PassTunnel does
 not use a sudoers rule, a setuid binary or a kernel extension. The helper is registered with
@@ -146,7 +146,14 @@ FortiGate, stop, and status. It enforces the following rules on every request.
 - **Only the tools bundled in its own app, run from a root-owned copy.** The helper takes
   `Contents/Resources/bin/openvpn` and `Contents/Resources/bin/openfortivpn` and the libraries in
   `Contents/Frameworks` that they load (OpenSSL's `libcrypto` and `libssl`, `lzo`, `lz4`,
-  `pkcs11-helper`) from its own app bundle (located through the kernel, not `argv[0]`). The bundle can
+  `pkcs11-helper`) from its own app bundle (located through the kernel, not `argv[0]`). The bundle
+  also holds `Contents/Resources/bin/openconnect` and its libraries (GnuTLS, nettle, GMP, p11-kit,
+  libtasn1, libidn2, libunistring, libintl, stoken, libtomcrypt, libtommath) for Cisco AnyConnect
+  ([below](#cisco-anyconnect)): they are copied and checked with the others. The helper
+  starts `openconnect` only for its Cisco AnyConnect request, which **nothing in the app sends yet**,
+  and only on macOS 15.4 or later (dyld stops Homebrew's build on an older macOS; the helper refuses
+  before it copies or starts anything). Its p11-kit and GnuTLS read no configuration from the Homebrew prefix
+  ([Paths compiled into the Homebrew build](#paths-compiled-into-the-homebrew-build)). The bundle can
   be changed or renamed by the user who installed it, so the helper does not run the tools from there:
   it copies them, without following symlinks, into `/var/run/passtunnel/tools/<helper build>/`
   (directories `root:wheel` 0755, tools 0555, libraries 0444), with the bundle's layout, so the
@@ -157,20 +164,21 @@ FortiGate, stop, and status. It enforces the following rules on every request.
   path supplied by the client is never executed. System libraries come from macOS.
 - **Signature checked on the copies and on the code that runs.** Each tool must satisfy a
   code-signing requirement with its own identifier (`com.furkanprlk.passtunnel.openvpn`,
-  `…openfortivpn`) and the project's Team ID; each library must be signed with the project's Team ID.
+  `…openfortivpn`, `…openconnect`) and the project's Team ID; each library must be signed with the project's Team ID.
   The helper checks every copied file (strict validation across all architectures), so a file
   replaced in the bundle while it was being copied gives a copy that is refused. It then starts the
   copied tool **suspended**, before its first instruction, checks the code the kernel actually loaded
   for that process against the same requirement (strict validation, which also fails when the file
   on disk no longer matches what was loaded), and only then lets it run. If that check fails, the
-  process is killed before it ran.
+  process is killed before it ran. If the helper itself stops between starting a tool and letting it
+  run, the helper that starts next kills that tool instead of taking it over.
 - **Only the builds it was released with.** The identifier and Team ID requirements accept every
   build the project ever signed, including an older release's `openvpn` or `libcrypto`. A released
   helper also carries the cdhashes (the hash of a code signature, which the kernel records for the
   running process) of the exact tools and libraries it ships with, compiled into its own signed code.
   It copies only those libraries, and refuses a copied tool or library, a started tool, or a
   `dns-updown` copy with any other cdhash. Every app bundle made by `scripts/build-app.sh` is pinned
-  this way, and a signed build fails unless both tools and every bundled library are pinned. Only
+  this way, and a signed build fails unless every tool and every bundled library is pinned. Only
   plain development builds (`swift build`, tests) pin nothing: they copy every `.dylib` in
   `Contents/Frameworks` and accept any tool or library that satisfies the requirement.
 - **DNS script.** OpenVPN's `dns-updown` script is copied into the root-only run directory and the
@@ -409,12 +417,19 @@ Everything else the sanitizer refuses blocks the file, in particular:
 comment in that block. The comment is at most 254 bytes, so OpenVPN reads it as one line, and control
 characters in it are replaced.
 
-## Cisco AnyConnect (planned)
+## Cisco AnyConnect
 
-**Not in any release yet.** Support for Cisco AnyConnect through OpenConnect (issue #2, Phase 1:
-password and one-time code, no single sign-on, Mac and Linux) is designed but not implemented. This
-section is the threat model the pull requests #179–#189 are reviewed against; the details are in
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#cisco-anyconnect-backend-planned).
+Support for Cisco AnyConnect through OpenConnect (issue #2, Phase 1: password and one-time code, no
+single sign-on, Mac and Linux). This section is the threat model the pull requests #179–#189 were
+reviewed against; the details are in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#cisco-anyconnect-backend). The parts: the
+bundled tool (#179), the configuration checks (#180), the profile (#181), the helper's side of a
+session (#182: the helper accepts a start request, checks every field of it again and runs
+`openconnect` as described below), the Mac's hook that sets up and undoes the network (#183), tested
+against a simulated Mac, and the sign-in and connect in PassTunnel's core (#184, macOS 15.4 and later;
+the command line and MCP tools since #185, the app since #186), and Linux (#187: `passtunneld`
+runs the distribution's `openconnect` and is its hook, tested against a simulated system); what only a real
+server and tunnel show is checked against an ocserv test server (#188).
 
 ### What changes
 
@@ -422,13 +437,34 @@ section is the threat model the pull requests #179–#189 are reviewed against; 
   GMP, p11-kit, libtasn1, libidn2, libunistring) and three unused libraries Homebrew links in
   (gettext's libintl, and stoken with libtomcrypt and libtommath for RSA SecurID tokens). They are
   copied, signature-checked and pinned by cdhash exactly like `openvpn` and its libraries, and their
-  own vulnerabilities apply as root (#179, #182).
+  own vulnerabilities apply as root once the helper runs it. Since #179 they are in the app bundle and
+  in the helper's root-owned copy, pinned; since #182 the helper starts `openconnect` for a Cisco
+  AnyConnect start request (macOS 15.4 and later only), which PassTunnel sends since #184. `diagnose`
+  runs `openconnect --version` as you (macOS 15.4 and later only). Below macOS 15.4 a Cisco AnyConnect
+  profile is refused before anything is asked, read or run ("Cisco AnyConnect requires macOS 15.4 or
+  later."). On Linux the distribution's `openconnect` is used (below), 9.01 or later.
 - **Signing in runs as you, not as root.** Your password and one-time code go to an `openconnect
   --authenticate` run under your own account, on its standard input. The helper receives only what
   that run returns: the session cookie, the server's public key fingerprint and the address it
   connected to. It never sees your password or code, and the root process never reads the server's
   login pages. Your user name goes to that run in a file, never on its command line, which every
-  account on the machine can read.
+  account on the machine can read: the command line is exactly `--config=<file> --authenticate`, the
+  file is `0600` in a directory of its own (`0700`) in your temporary folder and is removed when the
+  run ends, and the run gets a fixed environment (no proxy, key log or debug variable of yours). It is
+  the app bundle's own `openconnect`, run with your privileges, so it is trusted as much as the app's
+  own code is; it is stopped after 60 seconds, or when you disconnect. Its progress messages (never its
+  output with the cookie) become the profile's log after passing the log filter, with your password,
+  code and the cookie masked literally.
+- **The one-time code.** It counts as sent once the sign-in run starts (the next connect waits for a
+  fresh code). It is given back only when the run's messages, all of them, show that no form was
+  submitted: only one request, the first, which carries no credentials. A redirect counts as a second
+  request, and a run stopped at its time limit or with more messages than are kept counts as sent, so a
+  code that may have reached any server is never reused. After a form may have been sent, a failure is
+  always a refused sign-in, never retried, whatever the server's text says.
+- **What the server writes into the log decides nothing.** Its text appears among openconnect's
+  messages. Whether the tunnel is up, or its network set-up failed, comes from the helper, which reads
+  the hook's root-owned record; openconnect's messages are read only as whole lines in its exact wording,
+  and certificate and network failures only from before the server's first answer.
 - **Where the sign-in may go.** A server may send the sign-in to another server (load balancing).
   PassTunnel refuses to build a tunnel when the sign-in **ended** on another host or port than the
   profile's (Phase 1), or when the sign-in's log shows a form sent to one; the tunnel run is pinned
@@ -446,6 +482,12 @@ section is the threat model the pull requests #179–#189 are reviewed against; 
   value: openconnect itself would accept a prefix as short as 4 characters, which PassTunnel
   refuses), which is then the only trust, or the system's root-owned CA bundle passed explicitly
   (`/etc/ssl/cert.pem` on the Mac). The CA store compiled into Homebrew's GnuTLS is never used.
+  The app's *Fetch fingerprint* reads the key's pin with a TLS handshake that is aborted once the
+  certificate is received (only when you click it; you confirm the pin before it goes into the
+  profile). When a connect fails because the certificate is not trusted, *Trust This Server…*
+  offers the key openconnect named, showing the server and the full pin first; it is saved only for
+  the server that sign-in went to, and only if the profile still names that server with the pin it
+  had then.
 
 ### The session cookie
 
@@ -459,8 +501,16 @@ The cookie is a bearer secret: whoever holds it can use your VPN session until t
   encoding the request or by the runtime are not guaranteed to be erased. It is never written to
   your profile folder.
 - **Not logged:** the sign-in run's output, which carries it, is read only by PassTunnel's parser,
-  and neither run gets `-v` or an HTTP dump option, the levels that would print it. The log filter
-  is not relied on for it.
+  and neither run gets `-v` or an HTTP dump option, the levels that would print it. A server can still
+  make the tunnel run print text of its choosing (the status line of its CONNECT reply), so the helper
+  copies that run's output into the log through a filter that removes the cookie, whole lines at a time:
+  the cookie under its name, its value alone and, where openconnect makes one (Linux openconnect before
+  9.10), the STRAP key that comes with it, which is the client's private key for the session.
+  The filter applied when a log is read masks the cookie's forms as well (`COOKIE=`, `webvpn=`, `Cookie:`
+  headers, a `cookie` configuration line). No error message, activity entry or description of the
+  start request contains it: a sign-in that cannot be used (it ended on another server, or its output
+  is not in the expected form) is reported with a fixed text, since the server chooses every value
+  of that output.
 - **How long it lives:** the file goes with the run directory when the tunnel stops. On a disconnect
   openconnect tries to tell the server goodbye; whether the server then invalidates the cookie is up
   to the server, and nothing is sent after a forced kill, a crash or a broken connection. Treat the
@@ -482,31 +532,70 @@ names are openconnect's own, so a server cannot set `BASH_ENV` or similar.
   network service's DNS servers permanently with `networksetup` (and empties them on disconnect,
   deleting servers you had set by hand), replaces the default route, and hands unchecked values to
   shell commands. openconnect always gets PassTunnel's own hook, `vpn-hook`, instead: on the Mac a
-  root-owned copy of the helper itself (checked by hash against the running helper), on Linux
-  `passtunneld`.
-- **Every value it uses is checked first**, as for OpenVPN's DNS on Linux: addresses must parse and
-  are written back in canonical form, masks must be consistent, domains must be plain host names,
-  the interface must be a tunnel interface that exists, and lists have limits (3 DNS servers, 16
-  domains of each kind, 1,024 routes of each kind). One bad value fails the set-up. What it does not
-  need (the banner, the proxy URL, the raw headers) is never read.
+  root-owned copy of the helper itself (checked by hash against the running helper and by its
+  signature), on Linux `passtunneld`. The helper checks when it starts that the file it copies is the
+  very file running (not merely the one at its path, which the bundle's owner could swap), and copies
+  it only for a Cisco AnyConnect connection: if anything about the hook fails, only Cisco AnyConnect is
+  refused, and OpenVPN and FortiGate connect as before. The copy acts as the hook only when both the file the system
+  reports for the process and the name it was started under are `vpn-hook`, so the installed helper
+  can never be made to act as the hook, and the copy never acts as the helper.
+- **It first proves which session it serves.** Before it reads anything from its environment, it proves
+  from the process tree and the helper's root-only session files (not from anything openconnect or the
+  server passes) which PassTunnel session's `openconnect` ran it. A run it cannot prove changes nothing
+  and stops nothing.
+- **Every value it uses is checked first**, as for OpenVPN's DNS on Linux, with the same address
+  and domain rules: addresses must parse strictly (no leading zeros, which some parsers read as
+  octal; no zones, ports or blanks; no IPv4 address written as an IPv6 one, which would slip past the
+  IPv4 checks) and are written back in canonical form, masks must be
+  consistent, domains must be plain host names, the interface must be a tunnel interface that
+  exists, values must be printable ASCII, and lists have limits (3 DNS servers, 16 domains of each
+  kind, 1,024 routes of each kind, with no gaps or extra entries). One bad value fails the set-up, and
+  the message in the log names the setting, never the server's value. What it does not need (the
+  banner, the proxy URL, the raw headers) is never read.
 - **Its permissions come from root, not from the server.** Whether it may set routes and DNS is
   written by the helper into the root-only run directory before the tool starts; the hook reads
   nothing from your profile and nothing the server sends can change it.
-- **No shell, no lasting change.** The hook runs fixed programs with argument lists, each for at most
-  10 seconds and the whole run for at most 30. On the Mac DNS goes into dynamic, per-session entries
-  of the system configuration that disappear on restart; it never changes your network service's
-  saved settings and never writes `/etc/resolv.conf`. It records every change in the session's run
-  directory before making it, and whether it succeeded: only what it added itself is removed later,
-  never a route that was already there. It undoes them on disconnect; if `openconnect` is killed
-  before it could, the helper (or the Linux daemon) first lets a running hook finish or stops it,
-  then undoes them from that record, and keeps retrying while that fails.
+- **No shell, no lasting change.** The hook runs fixed programs (`/sbin/ifconfig` and `/sbin/route` on
+  the Mac) with argument lists and none of its own environment, each for at most 10 seconds and the
+  whole run for at most 30. On the Mac DNS goes into dynamic, per-session entries of the system
+  configuration that disappear on restart; it never changes your network service's saved settings and
+  never writes `/etc/resolv.conf`. It records every change in the session's run directory before
+  making it, and whether it succeeded, one session at a time: only what it added itself is removed
+  later, never a route that was already there, nor one that was replaced since. It undoes them on
+  disconnect and after a failed set-up; if `openconnect` is killed before it could, the helper (or the
+  Linux daemon) first lets a running hook finish or stops it, then undoes them from that record (what
+  belonged to the tunnel interface went with it), and keeps retrying every 15 seconds while that fails;
+  the profile cannot connect again until it succeeded.
 - **Reconnects do not change the set-up.** If the server sends different DNS, routes or MTU when
   the connection is re-established, the session is stopped instead of being re-configured.
 - **The default route stays.** A full tunnel adds two half routes (`0/1`, `128/1`), as OpenVPN
-  does, and never replaces or deletes your default route.
+  does; the hook never replaces or deletes your default route. If a route the set-up needs already
+  goes elsewhere (another VPN that sends all traffic or a network the server routes, another gateway
+  to the server), the set-up fails rather than replacing someone else's route. For a full tunnel's DNS,
+  the hook's per-session entries make the tunnel macOS's primary network service, so that every name
+  is resolved through the tunnel; macOS then also points the default route at the tunnel while the
+  session lasts, and returns it when the entries are removed.
+- **Your local network stays local.** A route the server asks for into the tunnel that lies inside a
+  network your Mac is attached to (your Wi-Fi or Ethernet subnet), including a DNS server on it, is
+  left out and counted in the log ("2 routes kept local"), so the server cannot take over devices on
+  your LAN. A broader route (all of `10.0.0.0/8` while your LAN is `10.1.2.0/24`) is kept: your LAN's
+  own route is more specific and still wins. A full tunnel is not affected by this.
+- **Shared routes are not pulled from under another session, nor left behind.** When two sessions need
+  the same route (a block, or the route to a VPN server both use), the one that ends first leaves it in
+  place while the other still runs (also when the first one was killed and is still being cleaned up),
+  and the last one removes it. A route that was there before any PassTunnel session is never removed.
+- **A network change does not leave holes.** When the connection is re-established, the hook checks that
+  every route, address and DNS setting it made is still there as it made it; if anything differs, it
+  undoes the rest and stops the session, which then connects afresh.
+- **A late hook cannot touch a newer session.** Once it holds the lock, the hook proves its session again,
+  including its generation (the start time of its `openconnect`), before it reads or changes anything: a
+  hook of a session that has ended meanwhile does nothing.
 - **IPv6 in a full tunnel.** When all IPv4 traffic goes through the tunnel and the server assigns no
   IPv6 address, IPv6's default path is taken away (reject routes), so IPv6 to the internet is refused
-  rather than sent around the tunnel. This is a routing rule, not a firewall: IPv6 to destinations
+  at once rather than sent around the tunnel, and programs fall back to IPv4 without waiting (the same
+  for IPv4 in a tunnel that assigns only IPv6). Nothing the server sends for the blocked family (routes
+  to include or exclude) is used, so the server cannot open holes in the block. Split includes that
+  together cover every address count as a full tunnel. This is a routing rule, not a firewall: IPv6 to destinations
   with a more specific route (your local network, link-local addresses, other interfaces or VPNs)
   still leaves outside the tunnel. The route to the VPN server itself is kept.
 - **A failed set-up stops the session,** whether or not the app or the command is still running.
@@ -523,15 +612,27 @@ your Mac may exist and belong to whoever installed Homebrew. Each is kept out of
 - **openconnect's default script** (`/opt/homebrew/etc/vpnc/vpnc-script`, run with `/bin/sh` when
   no script is named): the configuration always names the hook, and is checked for it before it is
   written.
+- **p11-kit's configuration and module files** (`/opt/homebrew/etc/pkcs11.conf`,
+  `/opt/homebrew/etc/modules/`, `/opt/homebrew/etc/pkcs11/modules/` and p11-kit's Cellar module
+  directory). openconnect initializes PKCS#11 before it reads its options, even for `--version`, and
+  p11-kit then reads every module file there. A module file can name a library to load or, with
+  `remote: |command`, a command p11-kit runs itself: library validation does not stop that, and no
+  environment variable moves these paths (`P11_KIT_NO_USER_CONFIG=1` covers only
+  `~/.config/pkcs11/`). So the build overwrites these paths in the bundled `libp11-kit` with
+  `/var/empty/none`, a path that does not exist inside the root-owned, empty `/var/empty` (#179):
+  the bundled p11-kit reads no file of the Homebrew prefix. The build fails when any Homebrew path is
+  left in it, and CI checks with module files in the runner's Homebrew prefix that Homebrew's
+  openconnect runs them and the bundled one does not. PassTunnel also passes no option that uses
+  PKCS#11 (no client certificate, key or token) and sets `P11_KIT_NO_USER_CONFIG=1`.
 - **GnuTLS's configuration file** (`/opt/homebrew/etc/gnutls/config`, which may also name a PKCS#11
-  module to load): the helper starts the tool with `GNUTLS_SYSTEM_PRIORITY_FILE=/dev/null`.
-- **GnuTLS's CA store:** never used (pin, or `--no-system-trust` with the system bundle).
-- **p11-kit's module configuration** (`/opt/homebrew/etc/pkcs11/`) and your own
-  (`~/.config/pkcs11/`): PassTunnel passes no option that uses PKCS#11 (no client certificate, key
-  or token) and sets `P11_KIT_NO_USER_CONFIG=1`. p11-kit has no setting for its system
-  configuration path, so the last guard is library validation: the tool is signed with the hardened
-  runtime, which loads only code signed by Apple or with the project's Team ID. #182 adds a check
-  that a module placed in the Homebrew prefix is not loaded.
+  provider library to load) and **its CA store** (`/opt/homebrew/etc/gnutls/cert.pem`): overwritten
+  with `/var/empty/none` in the bundled `libgnutls` the same way. On top of that the helper starts the
+  tool with `GNUTLS_SYSTEM_PRIORITY_FILE=/dev/null`, and the CA store would not be used anyway (pin,
+  or `--no-system-trust` with the system bundle).
+- **GnuTLS's `/etc/gnutls/pkcs11.conf`** (a fixed path, not under the Homebrew prefix, which can
+  name PKCS#11 provider libraries): left as it is. Only root can create it in `/etc`, so it gives
+  no one more than they have, and library validation refuses a provider library not signed by Apple
+  or with the project's Team ID.
 - **Message catalogs:** not opened (`LC_ALL=C`).
 - **A web browser for single sign-on** (`/usr/bin/open`): never started by the root run, which
   never signs in; see "No single sign-on" above for the sign-in run.
@@ -544,13 +645,40 @@ Some servers require the client to download and run a host scan (Cisco Secure De
 phases GlobalProtect's HIP report and Pulse's Host Checker). PassTunnel never runs such code,
 neither the server's nor the scripts Homebrew ships for it: openconnect refuses the request when it
 is not given a wrapper, PassTunnel never gives one, and the connection fails saying the server
-requires a host scan PassTunnel does not run.
+requires a host scan PassTunnel does not run (`host_scan_required`). It is not retried.
 
 ### Linux
 
-`passtunneld` uses the distribution's `openconnect` (9.01 or later), from fixed paths checked like
-the other tools (root-owned, not pinned by hash), and acts as the hook itself, applying DNS through
-the same code as for OpenVPN ([docs/LINUX.md](docs/LINUX.md#cisco-anyconnect-planned)).
+Since #187 (not in any release: the Linux packages are not published yet).
+
+- **The distribution's `openconnect`, 9.01 or later**, from fixed paths (`/usr/sbin/openconnect`,
+  `/usr/bin/openconnect`, never `PATH`) checked like the other tools: every directory of its real path
+  and the file itself root's and not writable by anyone else; not pinned by hash, so trust rests on the
+  package manager, as for `openvpn` and `openfortivpn`. Older versions (Ubuntu 22.04's 8.20) are refused,
+  naming the minimum; the same check runs before your sign-in, before the one-time code is used. Its
+  vulnerabilities apply as root while a session runs. Its environment is fixed (`PATH`, `LC_ALL=C`,
+  `P11_KIT_NO_USER_CONFIG=1`); the distribution's GnuTLS and p11-kit configuration, root's files, applies.
+- **Sign-in as you**, as on the Mac, with the distribution's CA bundle (checked as a tool is) when the
+  profile has no pin. `no-external-auth` is used when that `openconnect` lists it (9.10 and later); 9.01
+  offers the server a browser sign-in, which then opens with `xdg-open` as you, and the run fails.
+- **The hook is `passtunneld` itself**, through a link in the root-only session directory, acting as the hook
+  only when it was started under that name. It proves its session from `/proc` and the daemon's root-only
+  files (its parent is the session's recorded `openconnect`, or the shell `/bin/sh` is, whose parent is; that
+  `openconnect` works in the session directory; the recorded boot, start time and executable match), checks
+  every value as on the Mac, and runs iproute2's `ip` from a fixed, checked path with argument lists, at most
+  10 seconds each. It reads the routing table straight from the kernel (rtnetlink), not from a tool's
+  output. DNS goes through the same code, backends and records as OpenVPN's on Linux (systemd-resolved per
+  link, resolvconf, or a marked block in `/etc/resolv.conf`); with the latter two, every name goes through
+  a tunnel that has DNS (they cannot send only some domains there). A full tunnel without IPv6 gets
+  `unreachable` routes for both halves of IPv6. A revert names the route's next hop, so the kernel never
+  deletes another route of that destination.
+- **Supervision** as for the other tools, and what the hook recorded is reverted by the daemon after a
+  kill and by the next daemon after a crash; a session the daemon cannot restore keeps only its records
+  (the cookie goes) and blocks a new start of that profile until it is restored.
+- **What CI does not cover**: a tunnel on the Mac. The Mac's hook is tested against a simulated system and
+  checked by hand against the ocserv test image; on Linux, real tunnels run against that image in an opt-in
+  workflow, and every CI run signs in against it (#188). See
+  [docs/LINUX.md](docs/LINUX.md#cisco-anyconnect) and [Tests/ocserv](Tests/ocserv/README.md).
 
 ## Secrets and files
 
@@ -698,10 +826,10 @@ moment is not used either: the connect fails and asks you to connect again.
 PassTunnel has no servers of its own. Apart from the VPN itself, the app and the `passtunnel`
 command connect only to:
 
-- **Your VPN servers**, through the bundled `openvpn` and `openfortivpn`. Your user name, password and
+- **Your VPN servers**, through the bundled `openvpn`, `openfortivpn` and `openconnect`. Your user name, password and
   one-time code go only there.
 - **Hosts you set up:** a profile's health check host while it is connected, and the gateway you
-  entered when you click *Fetch fingerprint* (a TLS handshake that stops once the certificate is seen).
+  entered (FortiGate) or the server (Cisco AnyConnect) when you click *Fetch fingerprint* (a TLS handshake that stops once the certificate is seen).
 - **The FortiGate gateway, after it rejected a sign-in,** to read its clock: one-time codes are worked
   out from the clock, so a Mac whose clock is off sends codes the server refuses. Only after a
   rejection, never at launch, and only to the gateway the VPN just signed in to: one `HEAD /` request
@@ -732,7 +860,7 @@ seconds, the host asked and when.
   whose signature does not verify, and anyone can check one with
   `git -c gpg.ssh.allowedSignersFile=.github/allowed_signers tag -v vX.Y.Z` (tags up to 1.5.0 are
   not signed with it; see [docs/RELEASING.md](docs/RELEASING.md#signed-tags)). The bundled `openvpn`,
-  `openfortivpn` and their libraries come in pinned versions (`scripts/release.env`); a release
+  `openfortivpn`, `openconnect` and their libraries come in pinned versions (`scripts/release.env`); a release
   build stops when Homebrew provides any other version. Details: [docs/RELEASING.md](docs/RELEASING.md).
 - **Replacing the helper.** Registering the helper points the root daemon at the copy of PassTunnel
   that registers it, so this is limited:
@@ -883,7 +1011,7 @@ PassTunnel cannot defend against an attacker who already controls your account o
 - **The VPN configuration itself.** The sanitizer stops configs from running code or touching files
   as root, but a legitimate config still decides where your traffic and DNS go. Only import
   configurations from sources you trust.
-- **The bundled tools.** `openvpn`, `openfortivpn` and their libraries run as root, and their own
+- **The bundled tools.** `openvpn`, `openfortivpn`, `openconnect` and their libraries run as root, and their own
   vulnerabilities apply. Keep PassTunnel updated to get their fixes.
 - **Builds you sign yourself.** The helper trusts the Team ID compiled into it. A build signed with
   a different Team ID has its own trust root, chosen by whoever built it.

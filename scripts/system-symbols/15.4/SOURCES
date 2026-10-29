@@ -1,0 +1,29 @@
+# What each library and the libraries it re-exports export on macOS 15.4 (arm64).
+# Written by scripts/make-system-symbols.sh from these SDKs (a symbol is listed when every one
+# of them exports it), with the checksums of the stubs read:
+MacOSX15.4.sdk (macosx15.4, macOS 15.4)
+/usr/lib/libSystem.B.dylib:
+  5a01a65f4a19aeca54a95c13ee9587895ce22af6f4ac87c0b2e18a90965ef66d  MacOSX15.4.sdk/usr/lib/libSystem.B.tbd
+/usr/lib/libffi.dylib:
+  6680d5330564390ce00db8b3705bf0bf17e25c8994788f96728eb74bde383394  MacOSX15.4.sdk/usr/lib/libffi.tbd
+/usr/lib/libiconv.2.dylib:
+  63ee901a4d1f37a8dbe17bff52fa099080f2df44b840dfcc366c9f0c82abcf8f  MacOSX15.4.sdk/usr/lib/libiconv.2.tbd
+  fcbc0ad240580f14febf5ea036af74a1b0a945c5703f8f2d57e458715ef2ff07  MacOSX15.4.sdk/usr/lib/libcharset.1.tbd
+/usr/lib/libxml2.2.dylib:
+  4d5cbca54eebbe5a0c008beabdade452a5f470716e3dafd7f32950f30cf85906  MacOSX15.4.sdk/usr/lib/libxml2.2.tbd
+/usr/lib/libz.1.dylib:
+  d8345b4949b529ffd6057d84816b2a741db2ec73c24a61be0a23cab37096a7d7  MacOSX15.4.sdk/usr/lib/libz.1.tbd
+/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation:
+  1e88b12bd24dc1d6d034478f88f575cc2e0b0c29919b3e0645da114450d488f9  MacOSX15.4.sdk/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation.tbd
+  bbeab472aafb2dc68eb254a0729cc9a23992c37b79f34f486ccf110b57a595c0  MacOSX15.4.sdk/usr/lib/libobjc.A.tbd
+/System/Library/Frameworks/CoreServices.framework/Versions/A/CoreServices:
+  73e7a2e69f465ea2af8cdc6d6e5d6fb83692d0628ac2d44e4e503f1121ef1fba  MacOSX15.4.sdk/System/Library/Frameworks/CoreServices.framework/Versions/A/CoreServices.tbd
+  ea890afba0ac63109322474e704d676b0c5145568ae7400e3be0adb3bb55bacd  MacOSX15.4.sdk/System/Library/Frameworks/CFNetwork.framework/Versions/A/CFNetwork.tbd
+  1e88b12bd24dc1d6d034478f88f575cc2e0b0c29919b3e0645da114450d488f9  MacOSX15.4.sdk/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation.tbd
+  bbeab472aafb2dc68eb254a0729cc9a23992c37b79f34f486ccf110b57a595c0  MacOSX15.4.sdk/usr/lib/libobjc.A.tbd
+/System/Library/Frameworks/Kerberos.framework/Versions/A/Kerberos:
+  f0e73ce0297dda1c7cbbde277d09fb2059f8977f846769ca86dc1024341c982a  MacOSX15.4.sdk/System/Library/Frameworks/Kerberos.framework/Versions/A/Kerberos.tbd
+/System/Library/Frameworks/PCSC.framework/Versions/A/PCSC:
+  46a443f3ac388fd2ad8961d76ce75688388cb2b3ec3d56758bfff40872b2e865  MacOSX15.4.sdk/System/Library/Frameworks/PCSC.framework/Versions/A/PCSC.tbd
+/System/Library/Frameworks/Security.framework/Versions/A/Security:
+  d99577cd62e53509b0fd7b5bc3531d393cd4eceb934156b0e862591681159dc4  MacOSX15.4.sdk/System/Library/Frameworks/Security.framework/Versions/A/Security.tbd

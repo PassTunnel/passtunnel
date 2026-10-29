@@ -40,12 +40,15 @@ public final class AutomationService {
     public func summaries(withState: Bool) async -> [ProfileSummary] {
         if withState { await manager.refresh() }
         let def = store.defaultID
-        return store.list().map { ProfileSummary($0, isDefault: $0.id == def, state: withState ? manager.state($0.id) : nil) }
-            + store.listUnsupported().map { ProfileSummary($0, isDefault: $0.id == def) }
+        return store.list().map {
+            ProfileSummary(
+                $0, isDefault: $0.id == def, state: withState ? manager.state($0.id) : nil,
+                connectRefusal: manager.connectRefusal($0.type))
+        } + store.listUnsupported().map { ProfileSummary($0, isDefault: $0.id == def) }
     }
 
     public func summary(_ p: Profile) -> ProfileSummary {
-        ProfileSummary(p, isDefault: store.defaultID == p.id)
+        ProfileSummary(p, isDefault: store.defaultID == p.id, connectRefusal: manager.connectRefusal(p.type))
     }
 
     /// The state the manager last saw (no refresh).
@@ -55,7 +58,8 @@ public final class AutomationService {
             id: p.id, name: p.name, type: p.type.rawValue, state: "disconnected",
             isDefault: store.defaultID == p.id, protected: ProfileSummary.isProtected(p),
             autoReconnect: p.autoReconnect, error: m.lastError[p.id],
-            failure: m.failures[p.id].map { Self.redacted($0, id: p.id) })
+            failure: m.failures[p.id].map { Self.redacted($0, id: p.id) },
+            connectRefusal: m.connectRefusal(p.type).map(ErrorReport.init))
         if !m.state(p.id).isConnected, let retry = m.unreachableRetry(p.id) {
             s.nextTryAt = retry.nextTryAt
             s.tries = retry.tries
@@ -312,6 +316,15 @@ public final class AutomationService {
                 problems.append(PTError.invalidField("host"))
             }
             do { try Profile.checkUsername(p.username, type: p.type) } catch { problems.append(error) }
+        case .anyconnect:
+            if let refusal = manager.connectRefusal(p.type) { problems.append(refusal) }  // macOS 15.4, Linux
+            if p.host.trimmingCharacters(in: .whitespaces).isEmpty {
+                problems.append(PTError.missingHost(p.id))
+            } else if !Profile.isValidHost(p.host, type: p.type) {
+                problems.append(PTError.invalidField("host"))
+            }
+            do { try Profile.checkUsername(p.username, type: p.type) } catch { problems.append(error) }
+            do { try p.checkAnyConnectFields() } catch { problems.append(error) }
         }
         /// Whether `kind` is saved; nil, and the store's error once, when the store cannot be read.
         func saved(_ kind: SecretKind, missing: PTError) -> Bool? {
@@ -336,8 +349,9 @@ public final class AutomationService {
 
 /// Removes anything that looks like a credential from log lines before they leave the process. The
 /// VPN tools get credentials through files, not on the command line, and do not log them or key
-/// material at the verbosity the helper allows (OpenVPN `--verb` capped at 4); this is a second line
-/// of defence for unusual configs and servers.
+/// material at the verbosity the helper allows (OpenVPN `--verb` capped at 4; openconnect at its default
+/// INFO, which prints no cookie); this is a second line of defence for unusual configs and servers.
+/// Cisco AnyConnect's pins (`pin-sha256:…`) are public key digests, not secrets, and stay.
 public struct LogRedactor {
     public static let mask = "<redacted>"
     private let secrets: [String]
@@ -384,7 +398,9 @@ public struct LogRedactor {
         for (regex, template) in Self.patterns {
             out = regex.stringByReplacingMatches(in: out, range: NSRange(out.startIndex..., in: out), withTemplate: template)
         }
-        return out
+        // Cisco AnyConnect's session cookie in any of its forms (`COOKIE=`, `webvpn=`, `Cookie:` headers, a
+        // `cookie` configuration line): the helper masks it as it writes the tunnel's log, this again.
+        return OutputMask.apply(out)
     }
 }
 

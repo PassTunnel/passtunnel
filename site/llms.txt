@@ -1,9 +1,10 @@
 # PassTunnel
 
-> PassTunnel is a free, open-source (MIT) macOS app for OpenVPN and FortiGate SSL VPN, for Apple silicon Macs with macOS 13 or later. It keeps the TOTP secret in the macOS Keychain, computes the current one-time code and sends it with the password when you connect. It includes the `passtunnel` command-line tool and a built-in MCP server (`passtunnel mcp`).
+> PassTunnel is a free, open-source (MIT) macOS app for OpenVPN, FortiGate SSL VPN and Cisco AnyConnect, for Apple silicon Macs with macOS 13 or later (Cisco AnyConnect needs macOS 15.4 or later). It keeps the TOTP secret in the macOS Keychain, computes the current one-time code and sends it with the password when you connect. It includes the `passtunnel` command-line tool and a built-in MCP server (`passtunnel mcp`).
 
-- Codes are sent in the format the server expects: appended or prepended to the password, `password:code`, `password,code`, a custom template with the placeholders `{password}` and `{otp}`, or separately (OpenVPN static challenge, FortiGate OTP field). With 5 seconds or less left in the code window, PassTunnel waits for a fresh code (a setting, on by default); a code already sent is never sent again.
-- Signed `openvpn` and `openfortivpn` are bundled; nothing else to install. A small privileged helper, approved once in System Settings, only accepts the signed app and only runs those tools, with sanitized OpenVPN configurations.
+- Codes are sent in the format the server expects: appended or prepended to the password, `password:code`, `password,code`, a custom template with the placeholders `{password}` and `{otp}`, or separately (OpenVPN static challenge, FortiGate OTP field, Cisco AnyConnect's second password field). With 5 seconds or less left in the code window, PassTunnel waits for a fresh code (a setting, on by default); a code already sent is never sent again.
+- Signed `openvpn`, `openfortivpn` and `openconnect` are bundled; nothing else to install. A small privileged helper, approved once in System Settings, only accepts the signed app and only runs those tools, with sanitized OpenVPN configurations.
+- Cisco AnyConnect signs in with a user name, password and one-time code. Not supported: sign-in through a web browser (SAML / single sign-on), host scan (Cisco Secure Desktop, HIP, TNCC), client certificates and RSA SecurID. A server's certificate is trusted through the system, or by pinning its key (Fetch Fingerprint, Trust This Server). GlobalProtect and Pulse/Ivanti are on the roadmap, not supported yet.
 - Passwords and TOTP secrets stay in the login Keychain (no iCloud sync); nothing is sent anywhere except the VPN server. Optional Touch ID per profile encrypts the secrets with a Secure Enclave key.
 
 ## Install
@@ -23,6 +24,7 @@ The `passtunnel` command comes with the Homebrew cask, or from Settings → Gene
 passtunnel connect work           # connect a profile (IDs come from the name: Work -> work)
 passtunnel code work -c           # print the live code and copy it
 passtunnel status --json          # every profile's state as JSON
+passtunnel add Corp --type anyconnect --server https://vpn.example.com/staff   # Cisco AnyConnect profile
 ```
 
 Every command with a result takes `--json`; any command takes `--no-input` and `--no-auth-prompt`. Exit codes: 0 ok, 1 error, 2 usage, 3 not found or not connected, 4 confirmation or input cancelled or not possible, 5 helper missing, unapproved or outdated, 6 connection failed, 7 timeout, 130 interrupted (Ctrl-C).
@@ -37,7 +39,7 @@ Every command with a result takes `--json`; any command takes `--no-input` and `
 
 ## Docs
 
-- [README](https://raw.githubusercontent.com/PassTunnel/passtunnel/main/README.md): features, install, quick start, code formats, CLI, MCP setup, FAQ
+- [README](https://raw.githubusercontent.com/PassTunnel/passtunnel/main/README.md): features, install, quick start, code formats, Cisco AnyConnect, CLI, MCP setup, FAQ
 - [Installing the MCP server](https://raw.githubusercontent.com/PassTunnel/passtunnel/main/llms-install.md): setup steps for an assistant
 - [CLI JSON output and exit codes](https://raw.githubusercontent.com/PassTunnel/passtunnel/main/docs/CLI-JSON.md): objects returned by `--json` and the MCP tools
 - [Security model](https://raw.githubusercontent.com/PassTunnel/passtunnel/main/SECURITY.md): the helper, Keychain storage, the configuration sanitizer, what is not protected

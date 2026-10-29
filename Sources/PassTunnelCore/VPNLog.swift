@@ -46,7 +46,8 @@ public enum VPNLog {
 
     /// The tunnel interface the tool opened: OpenVPN "Opened utun device utun5" (macOS), "TUN/TAP
     /// device tun0 opened" or, with data channel offload, "DCO device tun0 opened" (Linux);
-    /// openfortivpn "Interface ppp0 is UP".
+    /// openfortivpn "Interface ppp0 is UP". (Cisco AnyConnect's comes from the helper's `status`,
+    /// `TunnelStatus.interface`: its log is not trusted for it.)
     public static func tunnelInterface(_ text: String) -> String? {
         for line in text.split(whereSeparator: \.isNewline) {
             for (marker, prefix) in [("Opened utun device ", "utun"), ("Interface ", "ppp")] {

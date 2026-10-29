@@ -1,0 +1,13 @@
+ passtunnel-network 1
+interface utun5
++ link utun5 mtu 1406
+= link utun5 mtu 1406
++ route 192.0.2.10/32 gateway 198.51.100.1 en0
+= route 192.0.2.10/32 gateway 198.51.100.1 en0
++ route ::/1 reject
+~ route ::/1 reject
++ route 0.0.0.0/1 interface utun5
+- route 0.0.0.0/1 interface utun5
++ dns passtunnel-501-acme utun5 primary servers=10.11.0.53,2001:db8::53 search=example.com match=-
+! dns passtunnel-501-acme utun5 primary servers=10.11.0.53,2001:db8::53 search=example.com match=-
+status failed SCDynamicStore refused the DNS settings

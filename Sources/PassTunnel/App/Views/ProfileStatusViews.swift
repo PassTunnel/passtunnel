@@ -16,7 +16,8 @@ extension AppModel {
         return DisplayStatus(
             DisplayStatus.Facts(
                 p, state: state(id), reconnect: reconnectInfo(id), codeWaitUntil: previewCodeWaits[id], lastError: error(id),
-                notResponding: isUnreachable(id), droppedUnseen: dropped, failure: failure(id), retry: unreachableRetry(id)))
+                notResponding: isUnreachable(id), droppedUnseen: dropped, failure: failure(id), retry: unreachableRetry(id),
+                refusal: connectRefusal(p.type)))
     }
 }
 
@@ -31,8 +32,10 @@ extension DisplayStatus {
         case .setupIncomplete, .notResponding, .dropped: return .warning
         case .failed(.signInRejected): return .rejected
         case .failed(.unreachable): return .unreachable
-        case .failed(.hostNotFound), .failed(.message): return .warning
+        case .failed(.hostNotFound), .failed(.message), .failed(.hostScanRequired): return .warning
+        case .failed(.serverNotTrusted): return .rejected
         case .reconnecting: return .dropped
+        case .unavailable: return .warning
         }
     }
 
@@ -42,7 +45,7 @@ extension DisplayStatus {
         switch self {
         case .off, .protected: return Palette.fg2
         case .connecting: return Palette.fg
-        case .waitingForCode, .setupIncomplete, .notResponding: return Palette.amber
+        case .waitingForCode, .setupIncomplete, .notResponding, .unavailable: return Palette.amber
         case .connected, .statusUnavailable: return Palette.green
         case .reconnecting, .dropped, .failed: return Palette.red
         }
@@ -70,7 +73,7 @@ extension DisplayStatus {
         case .failed(.unreachable(let retry)): return retry?.nextTryAt == nil ? nil : 0.25
         case .connected(let c), .setupIncomplete(let c, _), .notResponding(let c), .statusUnavailable(let c):
             return c.since == nil ? nil : 1
-        case .off, .protected, .connecting, .dropped, .failed: return nil
+        case .off, .protected, .connecting, .dropped, .failed, .unavailable: return nil
         }
     }
 }
@@ -243,7 +246,15 @@ struct ProfileStatusGallery: View {
                         retry: UnreachableRetry(
                             tries: 3, maxTries: 5, waitingForNetwork: true, firstFailedAt: now, lastFailedAt: now)))
             ),
-            ("unreachable, gave up", .failed(.unreachable(retry: nil)))
+            ("unreachable, gave up", .failed(.unreachable(retry: nil))),
+            ("server not trusted", .failed(.serverNotTrusted)),
+            ("host scan required", .failed(.hostScanRequired)),
+            (
+                "requires a later macOS",
+                .unavailable(
+                    note: PTError.anyConnectRequiresMacOS("15.4").unavailableNote ?? "",
+                    reason: PTError.anyConnectRequiresMacOS("15.4").localizedDescription)
+            )
         ]
     }
 

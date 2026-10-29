@@ -97,11 +97,14 @@ public enum AutomationErrorCode: String, Codable, CaseIterable, Sendable {
             .hotpNotSupported, .invalidTemplate, .usernameTooLong:
             return .invalidArgument
         case .fileError, .fileTooLarge: return .fileError
-        case .invalidFile, .unsupportedShareFile, .unsupportedProfileType, .ovpnReferencedFile, .ovpnNotAllowed, .missingConfig, .missingHost:
+        case .invalidFile, .unsupportedShareFile, .unsupportedProfileType, .ovpnReferencedFile, .ovpnNotAllowed, .missingConfig, .missingHost,
+            .anyConnectRequiresMacOS, .anyConnectToolUnavailable:
             return .configInvalid
         case .keychain, .protectedSecretUnreadable: return .keychainError
         case .missingPassword, .missingTOTPSecret, .missingCredential: return .credentialsMissing
-        case .helperFailed, .connectFailed, .setupFailed, .connectCancelled, .toolUnsupported: return .connectFailed
+        case .helperFailed, .connectFailed, .setupFailed, .connectCancelled, .toolUnsupported, .hostScanRequired,
+            .serverCertificateRejected, .signInNeedsMoreAnswers, .signInUnusable:
+            return .connectFailed
         case .serverUnreachable: return .serverUnreachable
         case .hostNotFound: return .hostNotFound
         case .authFailed: return .credentialsRejected
@@ -194,6 +197,11 @@ public struct ProfileSummary: Codable, Equatable {
     /// true for a profile of a VPN type this version does not know (`type` is then the stored value): it needs
     /// a newer PassTunnel and can only be deleted. Left out otherwise.
     public var needsNewerVersion: Bool?
+    /// Why this system cannot connect the profile, though it is a known type: Cisco AnyConnect on a macOS older
+    /// than 15.4 (`ConnectionManager.connectRefusal`; code `config_invalid`; none on Linux, where the
+    /// distribution's openconnect is checked when connecting). It can still be shown,
+    /// edited, exported and deleted. Left out when the profile can connect.
+    public var connectRefusal: ErrorReport?
 
     /// A profile of an unknown type: only what the file says about it; every setting reads as off.
     public init(_ p: UnsupportedProfile, isDefault: Bool) {
@@ -212,7 +220,8 @@ public struct ProfileSummary: Codable, Equatable {
         needsNewerVersion = true
     }
 
-    public init(_ p: Profile, isDefault: Bool, state: ConnectionState? = nil) {
+    /// `connectRefusal`: `ConnectionManager.connectRefusal(p.type)` for the system the caller runs on.
+    public init(_ p: Profile, isDefault: Bool, state: ConnectionState? = nil, connectRefusal: PTError? = nil) {
         id = p.id
         name = p.name
         type = p.type.rawValue
@@ -226,6 +235,7 @@ public struct ProfileSummary: Codable, Equatable {
         autoReconnect = p.autoReconnect
         connectAtLogin = p.connectAtLogin
         self.state = state.map(ProfileStatus.stateName)
+        self.connectRefusal = connectRefusal.map(ErrorReport.init)
     }
 
     /// From the settings alone (no Keychain access).
@@ -265,13 +275,15 @@ public struct ProfileStatus: Codable, Equatable {
     /// one runs or while offline), and how many tries found it unreachable.
     public var nextTryAt: Date?
     public var tries: Int?
+    /// Why this system cannot connect the profile (see `ProfileSummary.connectRefusal`); left out when it can.
+    public var connectRefusal: ErrorReport?
 
     public init(
         id: String, name: String, type: String, state: String, phase: String? = nil, ip: String? = nil,
         since: Date? = nil, durationSeconds: Int? = nil, isDefault: Bool, protected: Bool = false,
         autoReconnect: Bool = false, health: String? = nil, error: String? = nil, failure: ConnectionFailure? = nil,
         warning: String? = nil, statusUnavailable: Bool? = nil, warnings: [ConnectWarning]? = nil,
-        nextTryAt: Date? = nil, tries: Int? = nil
+        nextTryAt: Date? = nil, tries: Int? = nil, connectRefusal: ErrorReport? = nil
     ) {
         self.id = id
         self.name = name
@@ -292,6 +304,7 @@ public struct ProfileStatus: Codable, Equatable {
         self.warnings = warnings
         self.nextTryAt = nextTryAt
         self.tries = tries
+        self.connectRefusal = connectRefusal
     }
 
     static func stateName(_ state: ConnectionState) -> String {

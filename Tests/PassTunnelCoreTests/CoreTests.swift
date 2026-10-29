@@ -779,7 +779,7 @@ final class ProfileStoreTests: CoreTestCase {
     }
 
     func testImportShareRejectsOtherFiles() throws {
-        let wrong = try write(#"{"passtunnel_profile":2,"profile":{"name":"A","type":"forti"}}"#, name: "a.json")
+        let wrong = try write(#"{"passtunnel_profile":3,"profile":{"name":"A","type":"forti"}}"#, name: "a.json")
         assertThrows(.unsupportedShareFile) { _ = try store.importShare(wrong, name: nil) }
         let plain = try write(#"{"name":"A"}"#, name: "b.json")
         assertThrows(.unsupportedShareFile) { _ = try store.importShare(plain, name: nil) }

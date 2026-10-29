@@ -13,8 +13,9 @@ import Security
 #endif
 
 /// Reads a TLS server's leaf certificate and returns its SHA-256 digest, the format openfortivpn
-/// expects for `trusted-cert`. The certificate is never trusted and no application data is sent:
-/// the handshake is aborted as soon as the certificate has been seen. Reading it (`fetch`, the
+/// expects for `trusted-cert`, or its key's pin, the format openconnect expects (`fetchServerKeyPin`).
+/// The certificate is never trusted and no application data is sent: the handshake is aborted as
+/// soon as the certificate has been seen. Reading it (`fetch`, the
 /// editor's) is macOS only (Network); the digest formats are used everywhere (`ProfileDestination`).
 public enum TLSFingerprint {
     public enum Failure: Error, Equatable, LocalizedError {
@@ -22,6 +23,8 @@ public enum TLSFingerprint {
         case invalidPort
         case timedOut
         case noCertificate
+        /// The certificate's public key could not be found in it (`ServerKeyPin`).
+        case unreadableCertificate
         case connectionFailed(String)
 
         public var errorDescription: String? {
@@ -34,6 +37,8 @@ public enum TLSFingerprint {
                 return String(localized: "The gateway did not answer in time.")
             case .noCertificate:
                 return String(localized: "The gateway did not present a certificate.")
+            case .unreadableCertificate:
+                return String(localized: "The server’s certificate could not be read.")
             case .connectionFailed(let reason):
                 return String(localized: "Could not reach the gateway: \(reason)")
             }
@@ -45,6 +50,24 @@ public enum TLSFingerprint {
     public static func fetch(host: String, port: Int, timeout: TimeInterval = 10) async throws -> String {
         let h = host.trimmingCharacters(in: .whitespacesAndNewlines)
         guard FortiConfig.isValidHost(h) else { throw Failure.invalidHost }
+        return sha256Hex(try await leafCertificate(host: h, port: port, timeout: timeout))
+    }
+
+    /// The Cisco AnyConnect server's key pin, as openconnect prints it (`ServerKeyPin`): `pin-sha256:` and the
+    /// base64 SHA-256 of the leaf certificate's SubjectPublicKeyInfo. The host follows the profile's rule
+    /// (`OpenConnectAuthConfig.isValidHost`, an IPv6 literal without brackets).
+    public static func fetchServerKeyPin(host: String, port: Int, timeout: TimeInterval = 10) async throws -> String {
+        let h = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard OpenConnectAuthConfig.isValidHost(h) else { throw Failure.invalidHost }
+        guard let pin = ServerKeyPin.pin(certificate: try await leafCertificate(host: h, port: port, timeout: timeout)) else {
+            throw Failure.unreadableCertificate
+        }
+        return pin
+    }
+
+    /// The DER of the leaf certificate `host` presents in a TLS handshake (with `host` as the server name), which
+    /// is then aborted: the certificate is never trusted and nothing is sent.
+    static func leafCertificate(host h: String, port: Int, timeout: TimeInterval) async throws -> Data {
         guard (1...65535).contains(port), let nwPort = NWEndpoint.Port(rawValue: UInt16(port)) else {
             throw Failure.invalidPort
         }
@@ -57,7 +80,7 @@ public enum TLSFingerprint {
             { _, trust, complete in
                 let ref = sec_trust_copy_ref(trust).takeRetainedValue()
                 if let chain = SecTrustCopyCertificateChain(ref) as? [SecCertificate], let leaf = chain.first {
-                    probe.fingerprint = sha256Hex(SecCertificateCopyData(leaf) as Data)
+                    probe.certificate = SecCertificateCopyData(leaf) as Data
                 }
                 complete(false)  // never trust it; we only wanted to look
             }, queue)
@@ -68,7 +91,7 @@ public enum TLSFingerprint {
             using: NWParameters(tls: tls, tcp: tcp))
 
         return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
                 probe.continuation = continuation
                 connection.stateUpdateHandler = { state in
                     switch state {
@@ -118,15 +141,15 @@ public enum TLSFingerprint {
     #if os(macOS)
     /// Single-use result holder; all access happens on the probe's serial queue.
     private final class Probe: @unchecked Sendable {
-        var fingerprint: String?
-        var continuation: CheckedContinuation<String, Error>?
+        var certificate: Data?
+        var continuation: CheckedContinuation<Data, Error>?
 
         func finish(_ connection: NWConnection, fallback: Failure) {
             guard let c = continuation else { return }
             continuation = nil
             connection.stateUpdateHandler = nil
             connection.cancel()
-            if let fingerprint { c.resume(returning: fingerprint) } else { c.resume(throwing: fallback) }
+            if let certificate { c.resume(returning: certificate) } else { c.resume(throwing: fallback) }
         }
     }
     #endif

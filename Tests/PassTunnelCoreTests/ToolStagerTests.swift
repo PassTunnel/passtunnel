@@ -43,7 +43,7 @@ final class ToolStagerTests: XCTestCase {
         super.tearDown()
     }
 
-    /// `openvpn` and `openfortivpn` print where their library and its dependency were loaded from:
+    /// `openvpn`, `openfortivpn` and `openconnect` print where their library and its dependency were loaded from:
     /// `libacme` by `@executable_path/../../Frameworks`, `libbase` by `@loader_path`, as bundle-tools.sh
     /// writes them. Built once per run.
     static func fixture() throws -> String {
@@ -67,10 +67,11 @@ final class ToolStagerTests: XCTestCase {
                 "-install_name", "@executable_path/../../Frameworks/libacme.1.dylib"
             ],
             ["clang", "-o", dir + "/openvpn", dir + "/tool.c", dir + "/libacme.1.dylib"],
-            ["clang", "-o", dir + "/openfortivpn", dir + "/tool.c", dir + "/libacme.1.dylib"]
+            ["clang", "-o", dir + "/openfortivpn", dir + "/tool.c", dir + "/libacme.1.dylib"],
+            ["clang", "-o", dir + "/openconnect", dir + "/tool.c", dir + "/libacme.1.dylib"]
         ]
         for step in steps where run("/usr/bin/xcrun", step) != 0 { throw XCTSkip("no C compiler available") }
-        for name in ["openvpn", "openfortivpn", "libacme.1.dylib", "libbase.1.dylib"] {
+        for name in ["openvpn", "openfortivpn", "openconnect", "libacme.1.dylib", "libbase.1.dylib"] {
             let id = "com.example.acme." + name.replacingOccurrences(of: ".1.dylib", with: "")
             guard run("/usr/bin/codesign", ["-f", "-s", "-", "-i", id, dir + "/" + name]) == 0 else {
                 throw XCTSkip("codesign not available")
@@ -102,11 +103,18 @@ final class ToolStagerTests: XCTestCase {
     static let toolRequirement: (HelperCore.Tool) -> String = { "identifier \"com.example.acme.\($0.rawValue)\"" }
     static let libraryRequirement = "identifier \"com.example.acme.libacme\" or identifier \"com.example.acme.libbase\""
 
-    func stager(id: String? = nil, toolPins: [String: Set<String>] = [:], libraryPins: [String: Set<String>] = [:]) -> ToolStager {
+    func stager(
+        id: String? = nil, toolPins: [String: Set<String>] = [:], libraryPins: [String: Set<String>] = [:],
+        hookSource: Int32? = nil, hookRequirement: String = ToolStagerTests.hookRequirement
+    ) -> ToolStager {
         ToolStager(
             bundleContents: contents, runRoot: runRoot, buildID: id ?? buildID, toolPins: toolPins,
-            libraryPins: libraryPins, toolRequirement: Self.toolRequirement, libraryRequirement: Self.libraryRequirement)
+            libraryPins: libraryPins, toolRequirement: Self.toolRequirement, libraryRequirement: Self.libraryRequirement,
+            hookSource: hookSource, hookRequirement: hookRequirement)
     }
+
+    /// The fake helper's signing requirement (`helper()` copies the signed openvpn fixture).
+    static let hookRequirement = #"identifier "com.example.acme.openvpn""#
 
     /// The pins build-app.sh would generate for the fake bundle.
     func pins() throws -> (tools: [String: Set<String>], libraries: [String: Set<String>]) {
@@ -155,7 +163,8 @@ final class ToolStagerTests: XCTestCase {
         XCTAssertEqual(staged.executable(.openvpn), staged.directory + "/Resources/bin/openvpn")
 
         XCTAssertEqual(entries(staged.directory), ["Frameworks", "Resources"])
-        XCTAssertEqual(entries(staged.directory + "/Resources/bin"), ["openfortivpn", "openvpn"], "dns-updown is copied per session")
+        XCTAssertEqual(
+            entries(staged.directory + "/Resources/bin"), ["openconnect", "openfortivpn", "openvpn"], "dns-updown is copied per session")
         XCTAssertEqual(entries(staged.directory + "/Frameworks"), Self.libraries, "no Sparkle, nothing else")
         for dir in [
             realRoot + "/tools", staged.directory, staged.directory + "/Resources",
@@ -303,6 +312,110 @@ final class ToolStagerTests: XCTestCase {
         tools["openfortivpn"] = ["2222222222222222222222222222222222222222"]
         XCTAssertThrowsError(try stager(toolPins: tools, libraryPins: p.libraries).stage()) {
             XCTAssertEqual(($0 as? PinnedTools.Mismatch)?.tool, "openfortivpn", "\($0)")
+        }
+    }
+
+    /// openconnect is staged and checked like the others: a pinned build
+    /// refuses another build of it, and a bundle without it (an older layout) is not staged.
+    func testOpenconnectIsStagedAndPinned() throws {
+        let p = try pins()
+        XCTAssertNotNil(p.tools["openconnect"])
+        let staged = try stager(toolPins: p.tools, libraryPins: p.libraries).stage()
+        XCTAssertEqual(staged.executable(.openconnect), staged.directory + "/Resources/bin/openconnect")
+        XCTAssertEqual(mode(staged.executable(.openconnect)), 0o555)
+
+        var tools = p.tools
+        tools["openconnect"] = ["3333333333333333333333333333333333333333"]
+        XCTAssertThrowsError(try stager(id: String(repeating: "cd", count: 32), toolPins: tools, libraryPins: p.libraries).stage()) {
+            XCTAssertEqual(($0 as? PinnedTools.Mismatch)?.tool, "openconnect", "\($0)")
+        }
+        tools["openconnect"] = nil
+        XCTAssertThrowsError(try stager(id: String(repeating: "ce", count: 32), toolPins: tools, libraryPins: p.libraries).stage()) {
+            XCTAssertEqual(($0 as? PinnedTools.Mismatch)?.tool, "openconnect", "a pinned build without its pin refuses it: \($0)")
+        }
+
+        try FileManager.default.removeItem(atPath: contents + "/Resources/bin/openconnect")
+        XCTAssertThrowsError(try stager(id: String(repeating: "cf", count: 32)).stage()) {
+            XCTAssertEqual(
+                $0 as? HelperCore.Failure,
+                .system("open \(self.contents)/Resources/bin/openconnect", ENOENT), "\($0)")
+        }
+    }
+
+    // MARK: - openconnect's hook
+
+    /// A fake running helper: a copy of a signed fixture program, opened as the helper opens its own
+    /// executable, and its SHA-256 (the helper's build ID).
+    func helper() throws -> (path: String, fd: Int32, digest: String) {
+        let path = base.appendingPathComponent("PassTunnelHelper").path
+        try FileManager.default.copyItem(atPath: try Self.fixture() + "/openvpn", toPath: path)
+        let fd = open(path, O_RDONLY | O_CLOEXEC)
+        XCTAssertGreaterThanOrEqual(fd, 0)
+        addTeardownBlock { close(fd) }
+        return (path, fd, try XCTUnwrap(HelperBuild.digest(ofDescriptor: fd)))
+    }
+
+    func testHookIsStagedOnlyForOpenConnectAndIsTheRunningHelper() throws {
+        let h = try helper()
+        XCTAssertEqual(HelperBuild.digest(ofFile: h.path), h.digest)
+        let s = stager(id: h.digest, hookSource: h.fd)
+        let staged = try s.stage()
+        XCTAssertEqual(entries(staged.directory + "/Resources/bin"), ["openconnect", "openfortivpn", "openvpn"], "the tools alone")
+        let hook = try s.stageHook(in: staged)
+        XCTAssertEqual(hook, staged.directory + "/Resources/bin/vpn-hook")
+        XCTAssertEqual(entries(staged.directory + "/Resources/bin"), ["openconnect", "openfortivpn", "openvpn", "vpn-hook"])
+        XCTAssertEqual(entries(runRoot + "/tools"), [h.digest], "no partial copy left")
+        XCTAssertEqual(mode(hook), 0o555)
+        XCTAssertTrue(FileManager.default.contentsEqual(atPath: hook, andPath: h.path))
+        let inode = try FileManager.default.attributesOfItem(atPath: hook)[.systemFileNumber] as? Int
+        XCTAssertEqual(try s.stage(), staged, "the tools' check accepts the hook next to them")
+        XCTAssertEqual(try s.stageHook(in: staged), hook)
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: hook)[.systemFileNumber] as? Int, inode, "reused")
+
+        // An app update replaced the helper on disk: the running helper still stages its own bytes.
+        let original = try Data(contentsOf: URL(fileURLWithPath: h.path))
+        let replacement = base.appendingPathComponent("new").path
+        try FileManager.default.copyItem(atPath: try Self.fixture() + "/openfortivpn", toPath: replacement)
+        XCTAssertEqual(rename(replacement, h.path), 0)
+        try corrupt(hook)
+        XCTAssertEqual(try s.stage(), staged, "a modified hook does not make the tools be staged again")
+        XCTAssertEqual(try s.stageHook(in: staged), hook, "but is staged again itself")
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: hook)), original)
+        XCTAssertEqual(mode(hook), 0o555)
+    }
+
+    /// AnyConnect can never break the other tools: a hook that cannot be staged (another build's bytes,
+    /// another signer, none at all) refuses openconnect only, and OpenVPN and openfortivpn are staged and
+    /// started from the staged copy as before.
+    func testHookFailureNeverBlocksTheOtherTools() throws {
+        let h = try helper()
+        let cases: [(String, ToolStager, (Error) -> Bool)] = [
+            ("another build", stager(id: String(repeating: "cd", count: 32), hookSource: h.fd), { $0 is ToolStager.HookMismatch }),
+            ("another signer", stager(id: h.digest, hookSource: h.fd, hookRequirement: #"identifier "com.example.other""#), { _ in true }),
+            ("no verified image", stager(id: h.digest), { $0 is ToolStager.HookMissing })
+        ]
+        for (name, s, expected) in cases {
+            HelperCore.removeEntry(runRoot + "/tools")
+            let staged = try s.stage()
+            XCTAssertThrowsError(try s.stageHook(in: staged), name) { XCTAssertTrue(expected($0), "\(name): \($0)") }
+            XCTAssertEqual(entries(staged.directory + "/Resources/bin"), ["openconnect", "openfortivpn", "openvpn"], name)
+            XCTAssertEqual(entries(runRoot + "/tools"), [s.buildID], "\(name): no partial hook left")
+            XCTAssertEqual(try s.stage(), staged, "\(name): staged again without trouble")
+            for tool in [HelperCore.Tool.openvpn, .openfortivpn] {
+                let out = base.appendingPathComponent("out-\(tool.rawValue).log").path
+                let fd = open(out, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
+                defer { close(fd) }
+                let pid = try Spawner.spawnVerified(
+                    executable: staged.executable(tool), arguments: [], environment: HelperCore.environment(for: tool),
+                    workingDirectory: base.path, outputFD: fd,
+                    verifier: RequirementVerifier(requirement: Self.toolRequirement(tool)))
+                var status: Int32 = 0
+                while waitpid(pid, &status, 0) == -1, errno == EINTR {}
+                XCTAssertEqual(status, 0, "\(name): \(tool) started")
+                XCTAssertTrue(
+                    try String(contentsOfFile: out, encoding: .utf8).contains(staged.directory + "/Frameworks/libacme.1.dylib"),
+                    "\(name): \(tool) ran from the staged copy")
+            }
         }
     }
 

@@ -1,3 +1,4 @@
+import PassTunnelShared
 import XCTest
 
 @testable import PassTunnelCore

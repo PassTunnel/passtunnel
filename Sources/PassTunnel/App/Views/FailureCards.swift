@@ -1,6 +1,7 @@
 import AppKit
 import PassTunnelCore
 import PassTunnelKit
+import PassTunnelVPNConfig
 import SwiftUI
 
 // The error states of the main window's detail (docs/APP.md, Main window): under the status line, a card
@@ -46,11 +47,25 @@ extension AppModel {
     func showsFailureCard(_ p: Profile, _ status: DisplayStatus) -> Bool {
         guard case .failed(let reason) = status else { return false }
         switch reason {
-        case .signInRejected: return failure(p.id) != nil
-        case .unreachable, .hostNotFound: return true
+        case .signInRejected, .serverNotTrusted: return failure(p.id) != nil
+        case .unreachable, .hostNotFound, .hostScanRequired: return true
         case .message:
             return failure(p.id).map { !MessageCard.lines($0, shown: status.line(at: now)).isEmpty } ?? false
         }
+    }
+
+    /// "Trust this server": the offer to keep the key of the Cisco AnyConnect server whose certificate the last connect
+    /// of `p` did not trust (`ConnectionManager.serverTrustOffer`); nil when there is none or the profile changed since.
+    func serverTrustOffer(_ p: Profile) -> ServerTrustOffer? {
+        if previewStates != nil { return ServerTrustOffer(p, pin: failure(p.id)?.serverCert) }
+        return connections.serverTrustOffer(p.id)
+    }
+
+    /// Keeps the offer's pin in the profile (only its `server_cert`), once the user confirmed the server and the pin.
+    func trustServer(_ offer: ServerTrustOffer) {
+        guard previewStates == nil else { return }
+        do { try connections.trustServer(offer) } catch { showError(error) }
+        reload()
     }
 
     /// "Copy details": the summary for the user's IT team, on the pasteboard as ordinary text. False when there is
@@ -82,6 +97,10 @@ struct FailureCard: View {
             UnreachableCard(profile: profile, failure: failure, retry: retry, server: server)
         case .failed(.hostNotFound):
             MessageCard(profile: profile, failure: failure, shown: status.line(at: model.now), editsAddress: true)
+        case .failed(.serverNotTrusted):
+            if let failure { ServerTrustCard(profile: profile, failure: failure) }
+        case .failed(.hostScanRequired):
+            HostScanCard(profile: profile, failure: failure)
         case .failed(.message):
             MessageCard(profile: profile, failure: failure, shown: status.line(at: model.now))
         default:
@@ -352,5 +371,154 @@ struct MessageCard: View {
         }
         if !failure.credentialsSent { lines.append(String(localized: "Your password and code were not sent.")) }
         return lines
+    }
+}
+
+// MARK: - Cisco AnyConnect
+
+/// "Copy details" (`AppModel.copyFailureDetails`), with "Copied ✓" for a moment.
+private struct CopyDetailsButton: View {
+    @EnvironmentObject private var model: AppModel
+    let profile: Profile
+    @State private var copied = false
+
+    var body: some View {
+        Button(action: copyDetails) {
+            Text(copied ? String(localized: "Copied ✓") : String(localized: "Copy details"))
+        }
+        .buttonStyle(.secondaryCapsule(.compact, minWidth: 112))
+        .accessibilityIdentifier("profile.\(profile.id).failure.copyDetails")
+    }
+
+    private func copyDetails() {
+        guard model.copyFailureDetails(profile) else { return }
+        copied = true
+        Task {
+            try? await Task.sleep(nanoseconds: UInt64(Motion.copiedDuration * 1_000_000_000))
+            copied = false
+        }
+    }
+}
+
+/// openconnect did not trust the server's certificate (`DisplayStatus.Failure.serverNotTrusted`): what that means, the
+/// key it named (`ConnectionFailure.serverCert`) and "Trust This Server…", which keeps that key in the profile after
+/// the user confirmed the server and the key (`AppModel.trustServer`). A profile that had another key pinned is told
+/// that the key changed. Once the profile trusts the key, the card says so and Try again uses it.
+struct ServerTrustCard: View {
+    @EnvironmentObject private var model: AppModel
+    let profile: Profile
+    let failure: ConnectionFailure
+    @State private var confirming: ServerTrustOffer?
+
+    var body: some View {
+        let offer = model.serverTrustOffer(profile)
+        let pin = failure.serverCert.flatMap(OpenConnectPin.normalize) ?? ""
+        let trusted = !pin.isEmpty && AnyConnectEditing.normalizedPin(profile.serverCert) == pin
+        let changedKey = offer.map { !$0.replacing.isEmpty } ?? (!trusted && !profile.serverCert.isEmpty)
+        Card(style: .compact) {
+            Lead(text: lead(changedKey: changedKey))
+            if !pin.isEmpty {
+                DiagnosisRow(symbol: .info, title: Text(String(localized: "The server’s key")), detail: Text.mono(pin, part: pin))
+                    .textSelection(.enabled)
+            }
+            if trusted {
+                DiagnosisRow(
+                    symbol: .check, title: Text(String(localized: "This profile trusts this key now")),
+                    detail: Text(String(localized: "Connect again to use it.")))
+            } else if changedKey {
+                DiagnosisRow(
+                    symbol: .warning, title: Text(String(localized: "The server’s key changed")),
+                    detail: Text(
+                        String(
+                            localized:
+                                "If the server got a new key, your IT team can confirm this fingerprint. Otherwise someone may be intercepting the connection."
+                        )))
+            } else {
+                DiagnosisRow(
+                    symbol: .info, title: Text(String(localized: "Check the fingerprint first")),
+                    detail: Text(String(localized: "Trust the server only if this fingerprint matches the one your IT team gave you.")))
+            }
+            HStack(spacing: Spacing.xs) {
+                if let offer, !trusted {
+                    Button {
+                        confirming = offer
+                    } label: {
+                        Text(changedKey ? String(localized: "Trust the New Key…") : String(localized: "Trust This Server…"))
+                    }
+                    .buttonStyle(.primaryCapsule(.compact))
+                    .accessibilityIdentifier("profile.\(profile.id).failure.trustServer")
+                }
+                CopyDetailsButton(profile: profile)
+            }
+            .padding(.top, 2)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("profile.\(profile.id).failure")
+        .alert(
+            confirming.map(Self.title) ?? "", isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
+            presenting: confirming
+        ) { offer in
+            Button(offer.replacing.isEmpty ? String(localized: "Trust Server") : String(localized: "Replace Key")) {
+                model.trustServer(offer)
+            }
+            Button(String(localized: "Cancel"), role: .cancel) {}
+        } message: { offer in
+            Text(verbatim: Self.message(offer))
+        }
+    }
+
+    /// Why it stopped, with openconnect's reason ("signer not found") when it gave one.
+    private func lead(changedKey: Bool) -> Text {
+        let notSent = failure.credentialsSent ? "" : " " + String(localized: "Your password and code were not sent.")
+        if changedKey {
+            return Text(String(localized: "The server presented another key than the one this profile trusts.") + notSent)
+        }
+        let reason = failure.reason?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let sentence =
+            reason.isEmpty
+            ? String(localized: "This Mac doesn’t trust the server’s certificate.")
+            : String(localized: "This Mac doesn’t trust the server’s certificate (\(reason)).")
+        return Text(sentence + notSent)
+    }
+
+    /// "Trust vpn.example.com:8443/engineering?"
+    static func title(_ offer: ServerTrustOffer) -> String {
+        offer.replacing.isEmpty
+            ? String(localized: "Trust \(offer.server)?")
+            : String(localized: "Replace the key PassTunnel trusts for \(offer.server)?")
+    }
+
+    /// The server and the key, in full, and what trusting it does.
+    static func message(_ offer: ServerTrustOffer) -> String {
+        var text = String(localized: "PassTunnel will accept only the server key with this fingerprint:") + "\n\n" + offer.pin
+        if !offer.replacing.isEmpty {
+            text += "\n\n" + String(localized: "It replaces the key the profile trusts now:") + "\n\n" + offer.replacing
+        }
+        return text + "\n\n" + String(localized: "Trust it only if it matches the fingerprint your IT team gave you.")
+    }
+}
+
+/// The server asked for a host scan (Cisco Secure Desktop), which PassTunnel never runs (`DisplayStatus.Failure.hostScanRequired`).
+struct HostScanCard: View {
+    let profile: Profile
+    let failure: ConnectionFailure?
+
+    var body: some View {
+        Card(style: .compact) {
+            Lead(
+                text: Text(
+                    String(localized: "The server asked for a host scan (Cisco Secure Desktop) before the sign-in. PassTunnel never runs it.")
+                        + (failure?.credentialsSent == true ? "" : " " + String(localized: "Your password and code were not sent."))))
+            DiagnosisRow(
+                symbol: .info, title: Text(String(localized: "Ask your IT team")),
+                detail: Text(
+                    String(
+                        localized:
+                            "Your account may be allowed to sign in without the host scan, or the server may offer a group that doesn’t ask for it."
+                    )))
+            CopyDetailsButton(profile: profile).padding(.top, 2)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("profile.\(profile.id).failure")
     }
 }

@@ -84,7 +84,7 @@ human confirmation, and a script cannot answer it.
 | `other_vpn_active` | Another VPN already routes all traffic (`connect --force` overrides) |
 | `destination_changed` | The server settings changed after you confirmed: connect again and confirm |
 | `timeout` | `--timeout` passed, or the VPN tool's own limit |
-| `config_invalid` | Missing or rejected OpenVPN configuration, missing FortiGate server, unreadable file, a profile or share file of a VPN type that needs a newer PassTunnel |
+| `config_invalid` | Missing or rejected OpenVPN configuration, missing FortiGate or Cisco AnyConnect server, unreadable file, a profile or share file of a VPN type that needs a newer PassTunnel, a Cisco AnyConnect profile on macOS older than 15.4 ("Cisco AnyConnect requires macOS 15.4 or later.") or on Linux without the distribution's openconnect 9.01 or later ("Cisco AnyConnect cannot be used here: openconnect 8.20 is too old: PassTunnel needs 9.01 or later. Update the openconnect package.") |
 | `file_error` | A file could not be read or written |
 | `keychain_error` | The secret store (the Keychain on the Mac; on Linux secret-service, systemd-creds or the passphrase-encrypted file) refused or cannot be used, or a protected secret cannot be decrypted; `message` says why |
 | `internal` | Anything else |
@@ -112,7 +112,7 @@ From `list`, `add`, `import`, `pin`, `unpin` and the MCP tool `list_profiles`.
 }
 ```
 
-`protected`: connecting asks for Touch ID or the Mac password. `type`: `openvpn` or `forti`.
+`protected`: connecting asks for Touch ID or the Mac password. `type`: `openvpn`, `forti` or `anyconnect`.
 `password_mode`: `keychain`, `ask` or `none`; `otp_mode`: `none`, `totp` or `ask`; `require_auth`:
 `off`, `connect` or `always`. `connect_at_login`: the app connects the profile when it opens at login
 (one that asks first gets a notification instead). The MCP tool adds `state` (as in ProfileStatus); `list` does not ask
@@ -121,6 +121,30 @@ the helper and leaves it out.
 A profile whose VPN type this version does not know (made by a newer PassTunnel) is listed with its stored `type` and
 `"needs_newer_version" : true` (left out otherwise); its settings read as empty. Commands and tools that use it fail with
 `config_invalid`, except `rm`, which deletes it.
+
+A Cisco AnyConnect profile (`"type" : "anyconnect"`) is an ordinary profile: it is listed with its settings and has no
+`needs_newer_version`. Where this system cannot connect it, it has `connect_refusal`, the error object ([Errors](#errors))
+that `connect` would fail with:
+
+```json
+{
+  "connect_refusal" : {
+    "code" : "config_invalid",
+    "message" : "Cisco AnyConnect requires macOS 15.4 or later."
+  },
+  "id" : "corp",
+  "type" : "anyconnect"
+}
+```
+
+`message` is `Cisco AnyConnect requires macOS 15.4 or later.` on a Mac with an older macOS (`list` shows it as
+`Requires macOS 15.4 or later` beside the type). Linux has no `connect_refusal` (since #187): there `connect` checks
+the distribution's openconnect first and fails with `config_invalid` ("Cisco AnyConnect cannot be used here: …") when
+it is missing, untrusted or older than 9.01, before the one-time code is used. The profile can still be shown, edited with `set`, exported and deleted; `connect`, `toggle`
+and the MCP tool `connect` fail with that error before anything is asked or read, and `add --type anyconnect` is refused
+with it as well. `connect_refusal` is left out when the profile can connect, and for the other types. `status` and
+`show` carry it too ([ProfileStatus](#profilestatus), [Commands](#commands)); `diagnose` reports it among the
+profile's `problems`.
 
 ### ProfileStatus
 
@@ -142,7 +166,8 @@ From `status`, `connect`, `disconnect`, `toggle` and the MCP tools `get_status`,
 }
 ```
 
-`state` is `disconnected`, `connecting` or `connected`. Present only when they apply: `phase`
+`state` is `disconnected`, `connecting` or `connected`. Present only when they apply: `connect_refusal` (this system
+cannot connect the profile: an error object, see [ProfileSummary](#profilesummary)), `phase`
 (while connecting, in the user's language), `ip`, `since`, `duration_seconds`, `health`
 (`reachable` / `unreachable`, only from a process that runs health checks), `error` (why the last
 attempt in this process failed) and `failure` (the same as a [ConnectionFailure](#connectionfailure);
@@ -224,20 +249,24 @@ and MCP).
 | `auth_rejected` | `credentials_rejected` | The server refused the sign-in (OpenVPN `AUTH_FAILED`, openfortivpn "Could not authenticate"). It is never retried, also not by the automatic reconnect: retrying could lock the account |
 | `host_not_found` | `host_not_found` | The server's name could not be resolved |
 | `unreachable` | `server_unreachable` | The server did not answer: connection refused or timed out, no route, no TLS answer in time. The sign-in was not sent |
-| `configuration` | `config_invalid`, `connect_failed`, `credentials_missing`, … | The configuration, a key or the server's certificate was refused (OpenVPN `Options error`, `VERIFY ERROR`; openfortivpn's gateway certificate), or something the profile needs is missing |
+| `configuration` | `config_invalid`, `connect_failed`, `credentials_missing`, … | The configuration, a key or the server's certificate was refused (OpenVPN `Options error`, `VERIFY ERROR`; openfortivpn's gateway certificate; Cisco AnyConnect: the certificate or the pinned key, with `server_cert`), or something the profile needs is missing (Cisco AnyConnect: also a group the server does not offer, or a server that asks for more than the password and the code) |
 | `setup` | `connect_failed` | The tunnel came up, but its network setup failed |
 | `timeout` | `timeout` | The sign-in was sent, but the tunnel did not come up in time |
 | `cancelled` | `cancelled`, `auth_cancelled`, `connect_failed` | Stopped before it finished |
-| `tool_unsupported` | `connect_failed` | The VPN tool does not run on this version of macOS: dyld stopped it at launch (`reason`: `Symbol not found: _strchrnul`, `Library not loaded: …`). Nothing was sent |
+| `tool_unsupported` | `connect_failed`, `config_invalid` | The VPN tool does not run on this version of macOS: dyld stopped it at launch (`reason`: `Symbol not found: _strchrnul`, `Library not loaded: …`), or it needs a later macOS than this one (Cisco AnyConnect: `reason` `requires macOS 15.4 or later`). Nothing was sent |
+| `host_scan_required` | `connect_failed` | Cisco AnyConnect: the server requires a host scan (Cisco Secure Desktop), which PassTunnel never runs. Nothing was sent; not retried |
 | `failed` | `connect_failed`, `helper_*`, … | Anything else |
 
 `credentials_sent`: the sign-in reached the server (OpenVPN finished the TLS handshake, which sends
-it; openfortivpn connected to the gateway; or the server answered it). `code_sent`: a one-time code
+it; openfortivpn connected to the gateway; or the server answered it; Cisco AnyConnect: openconnect
+made a request after its first one, which is when a form with them can have been submitted). `code_sent`: a one-time code
 went with it, so that code's period is used up; when it did not, PassTunnel gives the period back and
 the next connect sends a code at once (not after `cancelled`). Present only when they apply: `reply` (the server's answer,
 `auth_rejected`), `reason` (the VPN tool's words, e.g. `Connection refused`, `Name or service not
 known`, `certificate has expired`), `code_seconds_left` (the code's seconds left when it was sent),
-`tries` (`unreachable`), `clock` (`auth_rejected`: a [ClockOffset](#clockoffset), how far the clock was
+`tries` (`unreachable`), `server_cert` (`configuration`, Cisco AnyConnect: the `pin-sha256:…` of the key
+whose certificate was not trusted, as openconnect reported it, to trust it in the profile's `server_cert`
+after checking it), `clock` (`auth_rejected`: a [ClockOffset](#clockoffset), how far the clock was
 off when it was measured after the rejection or checked on request since; see below). `reply` and
 `reason` pass through the same redaction as `log --json`. New kinds may be added.
 
@@ -274,9 +303,9 @@ From `helper status` and inside the MCP tools `get_status` and `diagnose`.
 
 ```json
 {
-  "expected_protocol_version" : 3,
+  "expected_protocol_version" : 4,
   "outdated" : false,
-  "protocol_version" : 3,
+  "protocol_version" : 4,
   "responding" : true,
   "state" : "enabled"
 }
@@ -316,7 +345,7 @@ connecting, without connecting and without any secret's value.
 {
   "app_path" : "/Applications/PassTunnel.app",
   "build" : "45",
-  "helper" : { "expected_protocol_version" : 3, "protocol_version" : 3, "responding" : true, "state" : "enabled" },
+  "helper" : { "expected_protocol_version" : 4, "protocol_version" : 4, "responding" : true, "state" : "enabled" },
   "in_applications" : true,
   "network" : { "interface" : "wifi", "online" : true },
   "profiles" : [
@@ -336,7 +365,8 @@ connecting, without connecting and without any secret's value.
   ],
   "tools" : [
     { "name" : "openvpn", "ok" : true, "version" : "OpenVPN 2.7.8 aarch64-apple-darwin25.6.0 [SSL (OpenSSL)] [LZO] [LZ4] [PKCS11] [MH/RECVDA] [AEAD]" },
-    { "name" : "openfortivpn", "ok" : true, "version" : "1.24.1" }
+    { "name" : "openfortivpn", "ok" : true, "version" : "1.24.1" },
+    { "name" : "openconnect", "ok" : true, "version" : "OpenConnect version v9.21" }
   ],
   "version" : "1.2.0"
 }
@@ -349,14 +379,18 @@ connect; the server can still refuse it), `server`, `protected`, `password_saved
 one (any process's; a FortiGate gateway's after a rejected sign-in). Linux adds `secret_store`, a
 [SecretStoreReport](#secretstorereport). With `--check-clock` (MCP: `check_clock: true`) the time
 server is asked as well: `clock` is its ClockOffset, or `clock_error` says why it could not be
-measured. Without it, `diagnose` contacts nothing. `network`: whether the computer is online
+measured. Without it, `diagnose` contacts nothing. For a Cisco AnyConnect profile the checks are the server
+(`host`), the user name, `usergroup`, `authgroup`, `server_cert` and the OTP template by the profile rules, the saved
+password and TOTP secret, and the platform refusal (`connect_refusal`), each as a problem. `network`: whether the computer is online
 (`online`) and over what kind of interface (`interface`: `wifi`, `ethernet`, `cellular` or `other`), as the
 system sees its network path (macOS `NWPathMonitor`; Linux the routes and links); both absent when it is
 not known. Finding out contacts nothing either. `tools` (the Mac, in an app bundle): each VPN tool of the
 app run with `--version` as the user (no input, an empty environment, at most 10 s, nothing contacted):
 `ok` and `version` (the first line it printed), or `problem` saying why it did not start, such as
 "This VPN tool does not run on this version of macOS (Symbol not found: _strchrnul). …" when dyld
-stopped it.
+stopped it. A tool that needs a later macOS than the running one is not run: `ok` is true and `note`
+says why ("Not run: it needs macOS 15.4 or later." for `openconnect`, which Cisco AnyConnect will use,
+on macOS 13 to 15.3).
 
 ### LogReport
 
@@ -411,7 +445,7 @@ One event of the activity log (`profiles/<id>/activity.jsonl`, the last 500 even
 | `unreachable` | `tries`, `reason` (the tool's words, e.g. `Connection refused`) | The server did not answer; the sign-in was not sent |
 | `next_try` | `next_at` | The next automatic attempt starts then |
 | `rejected` | `reply` (what the server answered, e.g. `AUTH_FAILED`; absent when it said nothing) | The server refused the sign-in; not retried |
-| `failed` | `failure` (a [ConnectionFailure](#connectionfailure) `kind`: `host_not_found`, `configuration`, `setup`, `timeout`, `tool_unsupported` or `failed`), `reason`, `credentials_sent` | The attempt failed otherwise |
+| `failed` | `failure` (a [ConnectionFailure](#connectionfailure) `kind`: `host_not_found`, `configuration`, `setup`, `timeout`, `tool_unsupported`, `host_scan_required` or `failed`), `reason`, `credentials_sent` | The attempt failed otherwise |
 | `stopped_by_user` | | A connect, a code wait or the automatic reconnects were stopped |
 | `disconnected_by_user` | | A connection that was up was ended |
 
@@ -431,9 +465,9 @@ the ones you do not know.
 | `toggle [ID]` | ProfileStatus |
 | `code [ID] [-c]` | `{"profile": "work", "code": "123456", "remaining": 17, "period": 30}` |
 | `list` | array of ProfileSummary |
-| `show ID` | `{"profile": {…settings…}, "is_default", "password_saved", "totp_saved", "password_encrypted", "totp_encrypted", "config_file", "remote"}` |
+| `show ID` | `{"profile": {…settings…}, "is_default", "password_saved", "totp_saved", "password_encrypted", "totp_encrypted", "config_file", "remote", "connect_refusal"}` (a Cisco AnyConnect profile's settings also have `usergroup`, `authgroup`, `server_cert` and `tls_only`; `connect_refusal` only where this system cannot connect it) |
 | `set ID key=value…` | the `show` object after the change |
-| `add NAME --type T` | ProfileSummary of the new profile |
+| `add NAME --type T [--server URL]` | ProfileSummary of the new profile. `T`: `openvpn`, `forti` or `anyconnect`; `--server https://vpn.example.com[:port][/usergroup]` (Cisco AnyConnect only) sets `host`, `port` and `usergroup`, and an address that is not one (another scheme, user info, a query or fragment, a bad port, a path that is not a user group) is a usage error. Where Cisco AnyConnect cannot connect (macOS older than 15.4) it fails with its `config_invalid` error and creates nothing |
 | `import FILE` | ProfileSummary of the new profile with `skipped` (below) |
 | `export ID [-o FILE]` | `{"id": "work", "path": "/Users/alice/work.passtunnel"}` |
 | `rm ID --yes` | `{"id": "work", "deleted": true}` |
@@ -445,7 +479,7 @@ the ones you do not know.
 | `log ID --activity [-n N]` | LogReport with `"source": "activity"` and `events`, the last N events (at most 500) |
 | `diagnose [--check-clock]` | DiagnoseReport; `--check-clock` asks the time server too (exit 0 also when that fails: `clock_error`) |
 | `helper status` | HelperReport (exit 5 unless enabled, answering and current) |
-| `version` | `{"version": "1.1.0", "build": "12", "app_path": "/Applications/PassTunnel.app", "helper_protocol_version": 3}` |
+| `version` | `{"version": "1.1.0", "build": "12", "app_path": "/Applications/PassTunnel.app", "helper_protocol_version": 4}` |
 
 `import` adds `skipped` to the ProfileSummary: the lines of an `.ovpn` that PassTunnel left out of the
 stored configuration (kept there as comments, see
@@ -475,6 +509,24 @@ fails with `timeout`; a connection that was already on its way (started in the a
 terminal) is left alone. `log --json` drops OpenVPN's notes about PassTunnel's own management
 polls and replaces anything that looks like a credential with `<redacted>`; `log -f` cannot be
 combined with `--json` or `--activity`. `helper install` and `helper uninstall` have no JSON output.
+
+### Cisco AnyConnect profiles
+
+```sh
+passtunnel add Corp --type anyconnect --server https://vpn.example.com:8443/staff
+passtunnel set corp username=sam authgroup=Employees tls_only=true set_dns=true
+passtunnel secret corp password
+passtunnel set corp server_cert=pin-sha256:…      # trust the server's key (check it first)
+```
+
+Keys of `set` and `show` besides the common ones: `host` (name or address, no scheme or port), `port` (default 443),
+`usergroup` (the sign-in URL's path, `https://host/usergroup`), `authgroup` (matched against the server's group
+list; empty takes the server's default), `server_cert` (`pin-sha256:` and the key's SHA-256 in base64; empty
+verifies the server with the system's certificate authorities), `tls_only` (no DTLS), `set_dns` and `set_routes`
+(as for FortiGate). `otp_delivery` is `separate` by default: the code is the answer to the server's second form
+field. `password_mode` is `keychain` or `ask` (there is no certificate sign-in) and `trusted_cert` is FortiGate's alone
+(`invalid_argument`). A host scan (Cisco Secure Desktop) is never run: `host_scan_required`. The aliases `user_group`
+and `auth_group` work too. Nothing prints a password, a code or a session cookie.
 
 ### Examples
 

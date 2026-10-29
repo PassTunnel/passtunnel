@@ -229,6 +229,295 @@
       }
     },
     {
+      "name": "a Cisco AnyConnect profile (version 2): the code is sent apart by default",
+      "file": {
+        "passtunnel_profile": 2,
+        "profile": {
+          "name": "Acme AnyConnect",
+          "type": "anyconnect",
+          "host": "vpn.example.com",
+          "port": 8443,
+          "usergroup": "engineering",
+          "authgroup": "Employees",
+          "server_cert": "pin-sha256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk=",
+          "tls_only": true,
+          "set_dns": true,
+          "otp_mode": "totp"
+        }
+      },
+      "files": {},
+      "profile": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "connect_at_login": false,
+        "health_host": "",
+        "host": "vpn.example.com",
+        "icon": "",
+        "id": "",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "Acme AnyConnect",
+        "order": 0,
+        "otp_delivery": "separate",
+        "otp_mode": "totp",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 8443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": true,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "anyconnect",
+        "username": "",
+        "usergroup": "engineering",
+        "authgroup": "Employees",
+        "server_cert": "pin-sha256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk=",
+        "tls_only": true
+      }
+    },
+    {
+      "name": "a Cisco AnyConnect profile: its keys take their defaults",
+      "file": {
+        "passtunnel_profile": 2,
+        "profile": {
+          "name": "A",
+          "type": "anyconnect"
+        }
+      },
+      "files": {},
+      "profile": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "connect_at_login": false,
+        "health_host": "",
+        "host": "",
+        "icon": "",
+        "id": "",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "A",
+        "order": 0,
+        "otp_delivery": "separate",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "anyconnect",
+        "username": "",
+        "usergroup": "",
+        "authgroup": "",
+        "server_cert": "",
+        "tls_only": false
+      }
+    },
+    {
+      "name": "a Cisco AnyConnect pin is decoded as written",
+      "note": "importing it stores it normalized (pin-sha256: lowercased, blanks dropped) or refuses it, as passtunnel set does",
+      "file": {
+        "passtunnel_profile": 2,
+        "profile": {
+          "name": "A",
+          "type": "anyconnect",
+          "server_cert": " PIN-SHA256:x "
+        }
+      },
+      "files": {},
+      "profile": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "connect_at_login": false,
+        "health_host": "",
+        "host": "",
+        "icon": "",
+        "id": "",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "A",
+        "order": 0,
+        "otp_delivery": "separate",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "anyconnect",
+        "username": "",
+        "usergroup": "",
+        "authgroup": "",
+        "server_cert": " PIN-SHA256:x ",
+        "tls_only": false
+      }
+    },
+    {
+      "name": "version 1 with a Cisco AnyConnect profile is read too",
+      "note": "nothing writes it: export writes version 2 for this type, so that older versions refuse it",
+      "file": {
+        "passtunnel_profile": 1,
+        "profile": {
+          "name": "A",
+          "type": "anyconnect"
+        }
+      },
+      "files": {},
+      "profile": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "connect_at_login": false,
+        "health_host": "",
+        "host": "",
+        "icon": "",
+        "id": "",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "A",
+        "order": 0,
+        "otp_delivery": "separate",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "anyconnect",
+        "username": "",
+        "usergroup": "",
+        "authgroup": "",
+        "server_cert": "",
+        "tls_only": false
+      }
+    },
+    {
+      "name": "version 2 with an OpenVPN profile",
+      "file": {
+        "passtunnel_profile": 2,
+        "profile": {
+          "name": "A",
+          "type": "openvpn"
+        }
+      },
+      "files": {},
+      "profile": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "connect_at_login": false,
+        "health_host": "",
+        "host": "",
+        "icon": "",
+        "id": "",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "A",
+        "order": 0,
+        "otp_delivery": "combined",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "openvpn",
+        "username": ""
+      }
+    },
+    {
+      "name": "Cisco AnyConnect keys of another type are not kept",
+      "note": "they are written only for type anyconnect",
+      "file": {
+        "passtunnel_profile": 1,
+        "profile": {
+          "name": "A",
+          "type": "forti",
+          "usergroup": "engineering",
+          "server_cert": "pin-sha256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk=",
+          "tls_only": true
+        }
+      },
+      "files": {},
+      "profile": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "connect_at_login": false,
+        "health_host": "",
+        "host": "",
+        "icon": "",
+        "id": "",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "A",
+        "order": 0,
+        "otp_delivery": "separate",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "forti",
+        "username": ""
+      }
+    },
+    {
       "name": "legacy otp_format scrv1",
       "file": {
         "passtunnel_profile": 1,
@@ -792,9 +1081,9 @@
       }
     },
     {
-      "name": "version 2 (newer)",
+      "name": "version 3 (newer)",
       "file": {
-        "passtunnel_profile": 2,
+        "passtunnel_profile": 3,
         "profile": {
           "name": "A"
         }
@@ -1007,6 +1296,58 @@
           },
           "trusted_cert": "",
           "type": "openvpn"
+        }
+      }
+    },
+    {
+      "name": "a Cisco AnyConnect profile: version 2, so older versions refuse it",
+      "profile": {
+        "id": "acme-ac",
+        "name": "Acme AnyConnect",
+        "type": "anyconnect",
+        "username": "alice",
+        "host": "vpn.example.com",
+        "port": 8443,
+        "usergroup": "engineering",
+        "authgroup": "Employees",
+        "server_cert": "pin-sha256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk=",
+        "tls_only": true,
+        "otp_mode": "totp",
+        "otp_delivery": "separate",
+        "pinned": true
+      },
+      "files": {},
+      "file": {
+        "files": {},
+        "passtunnel_profile": 2,
+        "profile": {
+          "authgroup": "Employees",
+          "auto_reconnect": false,
+          "badge": "",
+          "badge_style": "letter",
+          "health_host": "",
+          "host": "vpn.example.com",
+          "icon": "",
+          "id": "acme-ac",
+          "name": "Acme AnyConnect",
+          "otp_delivery": "separate",
+          "otp_mode": "totp",
+          "otp_template": "{password}{otp}",
+          "password_mode": "keychain",
+          "port": 8443,
+          "server_cert": "pin-sha256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk=",
+          "session_limit_min": 0,
+          "set_dns": false,
+          "set_routes": true,
+          "tls_only": true,
+          "totp": {
+            "algorithm": "sha1",
+            "digits": 6,
+            "period": 30
+          },
+          "trusted_cert": "",
+          "type": "anyconnect",
+          "usergroup": "engineering"
         }
       }
     }

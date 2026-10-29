@@ -685,6 +685,36 @@
       "type": "openvpn",
       "secret": "pw12",
       "separate_otp": null
+    },
+    {
+      "name": "Cisco AnyConnect, separate: the code is the second answer",
+      "password": "pw",
+      "otp": "123456",
+      "delivery": "separate",
+      "template": "{password}{otp}",
+      "type": "anyconnect",
+      "secret": "pw",
+      "separate_otp": "123456"
+    },
+    {
+      "name": "Cisco AnyConnect, separate, without a code",
+      "password": "pw",
+      "otp": null,
+      "delivery": "separate",
+      "template": "{password}{otp}",
+      "type": "anyconnect",
+      "secret": "pw",
+      "separate_otp": null
+    },
+    {
+      "name": "Cisco AnyConnect, combined: one answer",
+      "password": "pw",
+      "otp": "123456",
+      "delivery": "combined",
+      "template": "{password},{otp}",
+      "type": "anyconnect",
+      "secret": "pw,123456",
+      "separate_otp": null
     }
   ]
 }

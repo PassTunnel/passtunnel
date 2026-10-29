@@ -34,6 +34,8 @@ public struct HelperCore {
         case deviceExists(String)
         /// A line-based file for a root process failed the final check (`checkLines`).
         case unsafeFile(String)
+        /// The tool needs a later macOS than this one (`Tool.minimumMacOS`; "15.4").
+        case requiresNewerMacOS(Tool, String)
         case system(String, Int32)
 
         public var description: String {
@@ -62,6 +64,7 @@ public struct HelperCore {
                     + "it creates. Use “dev tun” or “dev tap” so that the system picks a free name, or a name no "
                     + "device has."
             case .unsafeFile(let name): return "Refusing to write \(name): its contents failed the final check."
+            case .requiresNewerMacOS(let tool, let version): return "\(tool.displayName) requires macOS \(version) or later."
             case .system(let what, let err): return "\(what): \(String(cString: strerror(err)))"
             }
         }
@@ -73,14 +76,48 @@ public struct HelperCore {
         }
     }
 
+    /// The VPN tools bundled in `Contents/Resources/bin`, which `ToolStager` stages and checks.
     public enum Tool: String, CaseIterable {
-        case openvpn, openfortivpn
+        case openvpn, openfortivpn, openconnect
+
+        /// The VPN type the tool connects, for messages.
+        public var displayName: String {
+            switch self {
+            case .openvpn: return "OpenVPN"
+            case .openfortivpn: return "FortiGate SSL VPN"
+            case .openconnect: return "Cisco AnyConnect"
+            }
+        }
 
         public var signingIdentifier: String {
             switch self {
             case .openvpn: return PT.openvpnIdentifier
             case .openfortivpn: return PT.openfortivpnIdentifier
+            case .openconnect: return PT.openconnectIdentifier
             }
+        }
+
+        /// The macOS the tool needs when it is later than the app's own minimum (nil: the app's). Homebrew's
+        /// libopenconnect imports `strchrnul`, which macOS has from 15.4: dyld stops openconnect at launch
+        /// on anything older. Must match `TOOL_MINIMUMS` in scripts/check-tool-symbols.sh, which holds the
+        /// tool and the libraries only it loads to that version.
+        public var minimumMacOS: OperatingSystemVersion? {
+            switch self {
+            case .openvpn, .openfortivpn: return nil
+            case .openconnect: return OperatingSystemVersion(majorVersion: 15, minorVersion: 4, patchVersion: 0)
+            }
+        }
+
+        /// Whether the tool starts on macOS `version` (`minimumMacOS`).
+        public func runs(on version: OperatingSystemVersion) -> Bool {
+            guard let minimum = minimumMacOS else { return true }
+            return (version.majorVersion, version.minorVersion, version.patchVersion)
+                >= (minimum.majorVersion, minimum.minorVersion, minimum.patchVersion)
+        }
+
+        /// "15.4", "15.4.1".
+        public static func versionText(_ version: OperatingSystemVersion) -> String {
+            "\(version.majorVersion).\(version.minorVersion)" + (version.patchVersion == 0 ? "" : ".\(version.patchVersion)")
         }
     }
 
@@ -102,6 +139,9 @@ public struct HelperCore {
         public let profileDir: ProfileDirectory
         /// Full path of the OpenVPN management socket inside `runDir` (OpenVPN only).
         public let mgmtSocket: String?
+        /// Literal values the tool's output must never write to the log (openconnect: the session cookie). When
+        /// set, the output goes through a pipe and `MaskingCopier` (`OutputMask`) instead of straight into the log.
+        public var maskedSecrets: [String]? = nil
     }
 
     public static let configFileName = "config.ovpn"
@@ -144,7 +184,8 @@ public struct HelperCore {
     public var openVPNHasDNSUpdown = true
     #if os(Linux)
     /// The daemon's own executable (resolved and checked), which OpenVPN runs as its DNS hook through
-    /// the link `dnsHookName` in the session directory (docs/LINUX.md, "DNS"). Nil: no DNS hook.
+    /// the link `dnsHookName` in the session directory (docs/LINUX.md, "DNS"), and openconnect as its
+    /// `script` through the link `vpn-hook` (`vpnHookPath`). Nil: no DNS hook, and no Cisco AnyConnect.
     public var dnsHook: String?
     #endif
     /// The DNS hook's name in the session directory: on Linux the link to the daemon, also the hook's
@@ -164,6 +205,13 @@ public struct HelperCore {
     public var interfaceExists: ((String) throws -> Bool)?
     public var homeDirectory: (uid_t) -> String?
     public var userName: (uid_t) -> String?
+    /// The macOS a tool would run on, for `Tool.minimumMacOS` (replaced in tests). Nil: not checked (Linux,
+    /// where `minimumMacOS` does not apply).
+    #if os(macOS)
+    public var systemVersion: OperatingSystemVersion? = ProcessInfo.processInfo.operatingSystemVersion
+    #else
+    public var systemVersion: OperatingSystemVersion?
+    #endif
 
     public init(
         runRoot: String = PT.helperRunRoot, dnsUpdownSource: String? = nil,

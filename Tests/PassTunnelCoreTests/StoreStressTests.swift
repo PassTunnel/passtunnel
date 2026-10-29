@@ -174,7 +174,7 @@ final class ShareFileStressTests: CoreTestCase {
             ("{}", .unsupportedShareFile),
             ("[]", .unsupportedShareFile),
             ("not json", .unsupportedShareFile),
-            ("{\"passtunnel_profile\": 2, \"profile\": {\"name\": \"A\"}}", .unsupportedShareFile),
+            ("{\"passtunnel_profile\": 3, \"profile\": {\"name\": \"A\"}}", .unsupportedShareFile),
             ("{\"passtunnel_profile\": 0, \"profile\": {\"name\": \"A\"}}", .unsupportedShareFile),
             ("{\"passtunnel_profile\": \"1\", \"profile\": {\"name\": \"A\"}}", .unsupportedShareFile),
             ("{\"passtunnel_profile\": 1}", .unsupportedShareFile),

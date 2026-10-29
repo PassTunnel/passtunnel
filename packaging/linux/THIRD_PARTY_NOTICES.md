@@ -31,5 +31,6 @@ attribution in compiled form).
 ## Trademarks
 
 OpenVPN is a registered trademark of OpenVPN Inc. Fortinet and FortiGate are registered trademarks
-of Fortinet, Inc. PassTunnel is an independent project and is not affiliated with or endorsed by
-either company.
+of Fortinet, Inc. Cisco and AnyConnect are trademarks or registered trademarks of Cisco Systems, Inc.
+PassTunnel is an independent project and is not affiliated with or endorsed by any of these
+companies.

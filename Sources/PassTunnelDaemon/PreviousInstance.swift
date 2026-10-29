@@ -15,9 +15,9 @@ import PassTunnelShared
 /// process group is signalled through the pidfd where the kernel can (6.9); before that only the
 /// tool itself is.
 ///
-/// A session whose DNS cannot be restored yet (the lock is held, the file cannot be written) keeps its
-/// directory and record, and the run root its file-backend state (`ResolvConfBaseline`): the daemon
-/// tries again later (`Supervisor`).
+/// A session whose DNS or openconnect network cannot be restored yet (a lock is held, the file cannot be
+/// written, a route cannot be deleted) keeps its directory and records, and the run root its file-backend
+/// state (`ResolvConfBaseline`): the daemon tries again later (`Supervisor`).
 enum PreviousInstance {
     struct State: Equatable {
         let pid: pid_t
@@ -49,16 +49,17 @@ enum PreviousInstance {
     struct Outcome: Equatable {
         /// The pids it signalled.
         var signalled: [pid_t] = []
-        /// The sessions whose DNS is not restored yet, left in place for the daemon to try again.
-        var pendingDNS: [SessionPolicy.Key] = []
+        /// The sessions whose DNS or network is not restored yet, left in place for the daemon to try again.
+        var pending: [SessionPolicy.Key] = []
     }
 
-    /// Stops the recorded tools that still run, reverts the DNS of every session (with `dns`) and
-    /// removes everything in `runRoot` but the entries in `keep` (the daemon's socket and lock), the
-    /// sessions whose DNS could not be restored, and the file backend's state while it is needed.
+    /// Stops the recorded tools that still run, restores what every session recorded (with `restore`: an
+    /// openconnect session's network, then the DNS) and removes everything in `runRoot` but the entries in
+    /// `keep` (the daemon's socket and locks), the sessions not restored yet, and the file backend's state
+    /// while it is needed.
     @discardableResult
     static func cleanUp(
-        runRoot: String, keep: Set<String>, grace: TimeInterval = 5, dns: DNSApplier? = nil,
+        runRoot: String, keep: Set<String>, grace: TimeInterval = 5, restore: SessionRestore? = nil,
         pidfds: Pidfds = Pidfds()
     ) -> Outcome {
         var running: [State] = []
@@ -94,11 +95,11 @@ enum PreviousInstance {
             deliver(SIGKILL, to: state, pidfds: pidfds)
         }
         outcome.signalled = signalled.map(\.pid)
-        if let dns {
-            outcome.pendingDNS = revertDNS(runRoot: runRoot, keep: keep, dns: dns)
-            if let message = dns.recover() { DaemonLog.info(message) }
+        if let restore {
+            outcome.pending = restoreSessions(runRoot: runRoot, keep: keep, restore: restore)
+            if let message = restore.dns.recover() { DaemonLog.info(message) }
         }
-        let pending = Set(outcome.pendingDNS)
+        let pending = Set(outcome.pending)
         for entry in entries(runRoot) where !keep.contains(entry) && entry != ResolvConfBaseline.fileName {
             let path = runRoot + "/" + entry
             guard let uid = uid_t(entry), String(uid) == entry, isRealDirectory(path) else {
@@ -107,7 +108,7 @@ enum PreviousInstance {
             }
             for id in entries(path) {
                 if pending.contains(SessionPolicy.Key(uid: uid, profileID: id)) {
-                    keepOnlyDNSRecord(in: path + "/" + id)
+                    keepOnlyRecords(in: path + "/" + id)
                 } else {
                     HelperCore.removeEntry(path + "/" + id)
                 }
@@ -117,19 +118,17 @@ enum PreviousInstance {
         return outcome
     }
 
-    /// The DNS each session directory records, reverted (its tool, stopped by now, did not). Returns
-    /// the sessions whose DNS is still recorded: not restored yet.
-    static func revertDNS(runRoot: String, keep: Set<String>, dns: DNSApplier) -> [SessionPolicy.Key] {
+    /// What each session directory records, restored (its tool, stopped by now, did not). Returns the
+    /// sessions with something still recorded: not restored yet.
+    static func restoreSessions(runRoot: String, keep: Set<String>, restore: SessionRestore) -> [SessionPolicy.Key] {
         let core = HelperCore(runRoot: runRoot)
         var pending: [SessionPolicy.Key] = []
         for entry in entries(runRoot) where !keep.contains(entry) {
             guard let uid = uid_t(entry), String(uid) == entry, isRealDirectory(runRoot + "/" + entry) else { continue }
             for id in entries(runRoot + "/" + entry) {
                 guard HelperCore.isValidProfileID(id), let session = try? core.openRunDir(profileID: id, uid: uid) else { continue }
-                if let message = dns.revert(in: session) {
-                    DaemonLog.info("\(id) of uid \(uid), left by an earlier instance: \(message)")
-                }
-                if DNSRecord.isRecorded(in: session) { pending.append(SessionPolicy.Key(uid: uid, profileID: id)) }
+                let key = SessionPolicy.Key(uid: uid, profileID: id)
+                if !restore.restore(session, key: key, context: "left by an earlier instance") { pending.append(key) }
             }
         }
         return pending
@@ -244,10 +243,11 @@ enum PreviousInstance {
         return String(cString: buf)
     }
 
-    /// A session directory whose DNS is not restored yet loses everything but the record: the tool's
-    /// config and auth file hold secrets, and nothing else is needed to restore it.
-    static func keepOnlyDNSRecord(in dir: String) {
-        for name in entries(dir) where name != DNSRecord.fileName {
+    /// A session directory not restored yet loses everything but its records (`dns`, and openconnect's
+    /// `network`): the tool's config and auth file hold secrets (openconnect's its cookie), and nothing else
+    /// is needed to restore it.
+    static func keepOnlyRecords(in dir: String) {
+        for name in entries(dir) where name != DNSRecord.fileName && name != OpenConnectRecord.fileName {
             HelperCore.removeEntry(dir + "/" + name)
         }
     }
@@ -259,5 +259,41 @@ enum PreviousInstance {
     static func isRealDirectory(_ path: String) -> Bool {
         var st = stat()
         return lstat(path, &st) == 0 && (st.st_mode & S_IFMT) == S_IFDIR && st.st_uid == geteuid()
+    }
+}
+
+/// Restores what an ended session left (docs/LINUX.md, "Cisco AnyConnect" and "DNS"): an openconnect
+/// session's network from its record (`OpenConnectHook.restoreAfterExit`, as the Mac's helper does: the
+/// session marked as stopping, a hook still running waited for and, past its limit, killed, then everything
+/// the record holds reverted but what another session holds), then whatever `DNSApplier` still records. Used
+/// by the daemon when a tool exits, when it stops, for its retries, and by a starting daemon.
+struct SessionRestore {
+    let runRoot: String
+    let dns: DNSApplier
+    /// The system an openconnect session's network is restored with (`LinuxOpenConnectSystem`; a fake in tests).
+    let openConnect: (SessionDirectory) -> OpenConnectSystem
+    /// The daemon's own executable: what a running hook of a session runs (`LinuxVPNHook.killHook`).
+    let hookExecutable: String?
+
+    /// Restores `session`; true when nothing is left recorded. `context` goes into the daemon's log lines.
+    func restore(_ session: SessionDirectory, key: SessionPolicy.Key, context: String? = nil) -> Bool {
+        let name = "\(key.profileID) of uid \(key.uid)" + (context.map { ", \($0)" } ?? "")
+        if OpenConnectJournal.exists(runDir: session.path) {
+            let runDir = session.path, executable = hookExecutable
+            let result = OpenConnectHook.restoreAfterExit(
+                runRoot: runRoot, runDir: runDir, system: openConnect(session),
+                killHook: { LinuxVPNHook.killHook(runDir: runDir, executable: executable) })
+            switch result {
+            case .done:
+                _ = unlinkat(session.fd, OpenConnectRecord.fileName, 0)
+            case .unreadable:
+                DaemonLog.info("\(name): the network record cannot be read; nothing restored from it")
+                _ = unlinkat(session.fd, OpenConnectRecord.fileName, 0)
+            case .failed(let reason):
+                DaemonLog.info("\(name): could not restore the network yet: \(reason); kept, to be restored later")
+            }
+        }
+        if let message = dns.revert(in: session) { DaemonLog.info("\(name): \(message)") }
+        return !OpenConnectJournal.exists(runDir: session.path) && !DNSRecord.isRecorded(in: session)
     }
 }

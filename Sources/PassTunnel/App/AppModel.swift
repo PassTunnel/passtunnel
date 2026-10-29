@@ -134,7 +134,14 @@ final class AppModel: ObservableObject {
             .sink { [weak self] note in
                 guard let self else { return }
                 self.reload()
-                self.editor = EditorRequest(profileID: note.userInfo?["profileID"] as? String, newType: nil)
+                let id = note.userInfo?["profileID"] as? String
+                // An imported profile this version or this Mac cannot edit (`unsupported`, `editRefusal`) is
+                // selected instead.
+                if let id, self.unsupportedProfile(id) != nil || self.profile(id).flatMap(self.editRefusal) != nil {
+                    self.selection = id
+                    return
+                }
+                self.editor = EditorRequest(profileID: id, newType: nil)
             }
             .store(in: &bag)
         // The CLI can change profiles, secrets and preferences while the app runs: reload when the
@@ -162,11 +169,13 @@ final class AppModel: ObservableObject {
     /// so it is safe to call after the app's own writes.
     func reload() {
         let fresh = store.list()
+        // Nothing of a profile this Mac cannot connect (Cisco AnyConnect below macOS 15.4) is read or unlocked.
+        let usable = connections.profilesWithUsableSecrets(fresh)
         // A "Confirm with Touch ID" setting edited by hand: encrypt what it protects (no prompt).
-        for p in fresh where p.requireAuth != .off { vault.reconcile(p) }
+        for p in usable where p.requireAuth != .off { vault.reconcile(p) }
         // Server settings changed (editor, CLI, a file edit): secrets confirmed for the old ones are dropped.
         connections.revalidateDestinations(fresh)
-        let secretsChanged = refreshSecrets(for: fresh)
+        let secretsChanged = refreshSecrets(for: usable)
         if fresh != profiles {
             profiles = fresh
         } else if secretsChanged {
@@ -221,6 +230,18 @@ final class AppModel: ObservableObject {
     func profile(_ id: String) -> Profile? { profiles.first { $0.id == id } }
 
     func unsupportedProfile(_ id: String) -> UnsupportedProfile? { unsupported.first { $0.id == id } }
+
+    /// Why this Mac cannot connect profiles of `type` (`ConnectionManager.connectRefusal`: Cisco AnyConnect below
+    /// macOS 15.4, for the manager's `systemVersion`), nil when it can. Such a profile is listed with the note, and
+    /// connecting, editing and creating one are refused with the message before anything is asked or run; deleting
+    /// and sharing it still work.
+    func connectRefusal(_ type: VPNType) -> PTError? { connections.connectRefusal(type) }
+
+    /// "Copy Password + Code" can be offered: a password in the Keychain, of a profile this Mac can connect.
+    func canCopyPassword(_ p: Profile) -> Bool { p.passwordMode == .keychain && connectRefusal(p.type) == nil }
+
+    /// Why the editor does not open on `p`: `connectRefusal` of its type.
+    func editRefusal(_ p: Profile) -> PTError? { connectRefusal(p.type) }
 
     /// Nothing to show in the sidebar: the first-run view takes the window.
     var hasNoProfiles: Bool { profiles.isEmpty && unsupported.isEmpty }
@@ -415,6 +436,7 @@ final class AppModel: ObservableObject {
     // MARK: codes
 
     private func totpSecret(_ p: Profile) -> Data? {
+        guard connectRefusal(p.type) == nil else { return nil }
         if protectedTOTP.contains(p.id) {
             return vault.available(p.id, .totp).flatMap { try? TOTP.decodeSecret($0) }
         }
@@ -428,9 +450,11 @@ final class AppModel: ObservableObject {
         return data
     }
 
-    /// The profile has a TOTP secret (shown, or locked behind a confirmation).
+    /// The profile has a TOTP secret (shown, or locked behind a confirmation). Never for a profile this Mac cannot
+    /// connect (`connectRefusal`), whose secrets are not read.
     func hasCode(_ p: Profile) -> Bool {
-        p.otpMode == .totp && (protectedTOTP.contains(p.id) || previewLockedCodes.contains(p.id) || totpSecret(p) != nil)
+        guard connectRefusal(p.type) == nil, p.otpMode == .totp else { return false }
+        return protectedTOTP.contains(p.id) || previewLockedCodes.contains(p.id) || totpSecret(p) != nil
     }
 
     /// Current code for profiles with a stored TOTP secret (also used for `.ask` profiles to prefill),
@@ -445,7 +469,7 @@ final class AppModel: ObservableObject {
     /// Code for an action (copy, type, connect sheet): computed from the stored profile and the
     /// Keychain item as they are now, bypassing every cache.
     func currentCode(for p: Profile, at date: Date = Date()) -> String? {
-        guard let stored = storedProfile(p), stored.otpMode != .none,
+        guard let stored = storedProfile(p), connectRefusal(stored.type) == nil, stored.otpMode != .none,
             let raw = vault.available(stored.id, .totp), let secret = try? TOTP.decodeSecret(raw)
         else { return nil }
         return TOTP.code(secret: secret, params: stored.totp, at: date)
@@ -463,6 +487,7 @@ final class AppModel: ObservableObject {
     /// The TOTP secret of `p` is stored encrypted and not unlocked: its code is hidden; clicking it asks
     /// (`revealCodes`).
     func isCodeLocked(_ p: Profile) -> Bool {
+        if connectRefusal(p.type) != nil { return false }
         if previewStates != nil { return previewLockedCodes.contains(p.id) }
         return protectedTOTP.contains(p.id) && !vault.isUnlocked(p.id, .totp)
     }
@@ -490,7 +515,7 @@ final class AppModel: ObservableObject {
     /// A click on the code card's masked code: shows the codes of `p` there for 20 s, after the confirmation when
     /// they are locked. A cancel does nothing.
     func revealCodes(_ p: Profile) {
-        guard let stored = storedProfile(p) else { return }
+        guard let stored = storedProfile(p), !refusesSecrets(stored) else { return }
         whenUnlocked(stored, [.totp], .code) { [self] _ in
             let now = Date()
             revealedCodes = revealedCodes.filter { $0.value > now }
@@ -504,6 +529,13 @@ final class AppModel: ObservableObject {
     /// Runs `body` once the secrets `kinds` of `p` are readable: at once when they are stored in plain
     /// text or unlocked, else after the user confirms (which decrypts them). `body` gets whether a
     /// prompt was shown. A cancel does nothing; a failure is shown.
+    /// A profile this Mac cannot connect (`connectRefusal`): none of its secrets is read or unlocked; says why.
+    private func refusesSecrets(_ p: Profile) -> Bool {
+        guard let refusal = connectRefusal(p.type) else { return false }
+        showRefusal(refusal)
+        return true
+    }
+
     private func whenUnlocked(
         _ p: Profile, _ kinds: Set<SecretKind>, _ action: UserPresenceAction,
         _ body: @escaping (_ prompted: Bool) -> Void
@@ -558,6 +590,8 @@ final class AppModel: ObservableObject {
     func startConnect(_ p: Profile) {
         droppedUnseen.remove(p.id)
         guard let p = storedProfile(p) else { return showError(PTError.profileNotFound(p.id)) }
+        // The type as stored now (a pending overlap sheet may hold an older copy): refused before any confirmation.
+        do { try ConnectionManager.checkConnectable(p, macOS: connections.systemVersion) } catch { return showError(error) }
         let needs = p.needs
         guard !needs.isEmpty else { return connect(p, given: [:]) }
         whenUnlocked(p, SecretVault.kinds(for: .connect, p), .connect) { [self] prompted in
@@ -648,6 +682,7 @@ final class AppModel: ObservableObject {
 
     func copyCode(_ p: Profile) {
         guard let stored = storedProfile(p) else { return showError(PTError.profileNotFound(p.id)) }
+        if refusesSecrets(stored) { return }
         whenUnlocked(stored, [.totp], .code) { [self] _ in
             guard let c = currentCode(for: stored) else {
                 showToast(String(localized: "No code available"))
@@ -669,6 +704,7 @@ final class AppModel: ObservableObject {
 
     func copyPasswordAndCode(_ p: Profile) {
         guard let p = storedProfile(p) else { return showError(PTError.profileNotFound(p.id)) }
+        if refusesSecrets(p) { return }
         whenUnlocked(p, [.password, .totp], .code) { [self] _ in
             guard let password = vault.available(p.id, .password) else {
                 showToast(String(localized: "No password saved in Keychain"))
@@ -699,7 +735,7 @@ final class AppModel: ObservableObject {
     }
 
     func typeCode(_ p: Profile) {
-        guard let stored = storedProfile(p) else { NSSound.beep(); return }
+        guard let stored = storedProfile(p), connectRefusal(stored.type) == nil else { NSSound.beep(); return }
         whenUnlocked(stored, [.totp], .code) { [self] prompted in
             guard prompted else { return type(stored) }
             // Let the focus go back to the field the code is for once the system prompt has closed.
@@ -771,9 +807,15 @@ final class AppModel: ObservableObject {
 
     func share(_ p: Profile) { ShareActions.export(profileID: p.id) }
 
-    func edit(_ p: Profile) { editor = EditorRequest(profileID: p.id, newType: nil) }
+    func edit(_ p: Profile) {
+        if let refusal = editRefusal(p) { return showRefusal(refusal) }
+        editor = EditorRequest(profileID: p.id, newType: nil)
+    }
 
-    func newProfile(_ type: VPNType) { editor = EditorRequest(profileID: nil, newType: type) }
+    func newProfile(_ type: VPNType) {
+        if let refusal = connectRefusal(type) { return showRefusal(refusal) }
+        editor = EditorRequest(profileID: nil, newType: type)
+    }
 
     func move(fromOffsets source: IndexSet, toOffset destination: Int) {
         var list = profiles
@@ -794,6 +836,12 @@ final class AppModel: ObservableObject {
 
     func showToast(_ text: String) {
         toast = ToastMessage(text: text)
+    }
+
+    /// "Requires macOS 15.4 or later" / "Cisco AnyConnect requires macOS 15.4 or later." (`connectRefusal`).
+    func showRefusal(_ refusal: PTError) {
+        alert = AppAlert(
+            title: refusal.unavailableNote ?? String(localized: "Something went wrong"), message: refusal.localizedDescription)
     }
 
     func showError(_ error: Error) {

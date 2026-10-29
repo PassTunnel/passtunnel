@@ -4,10 +4,12 @@
 #   Build and test    swift format lint, swift build and swift test on macOS (Apple silicon) with our
 #                     targets' warnings as errors, a statement coverage report in the job summary
 #                     (not gating), and the PassTunnelKit library built for iOS (the iPhone app uses it)
-#   Bundled tools     the self-test of scripts/check-tool-symbols.sh, then Homebrew's openvpn and
-#                     openfortivpn bundled by scripts/bundle-tools.sh (which checks that what they and
-#                     their libraries import from macOS is there on the app's minimum macOS) into a
-#                     bundle of their own, kept as an artifact; not held to the pins (release.yml is)
+#   Bundled tools     the self-test of scripts/check-tool-symbols.sh, then Homebrew's openvpn,
+#                     openfortivpn and openconnect bundled by scripts/bundle-tools.sh (which checks
+#                     that what they and their libraries import from macOS is there on each tool's
+#                     minimum macOS: the app's, 15.4 for openconnect) into a bundle of their own, kept
+#                     as an artifact; not held to the pins (release.yml is); and a check that the
+#                     bundled openconnect runs no PKCS#11 module from the Homebrew prefix
 #   Bundled tools on  each of those tools run with --version on the oldest arm64 macOS runner: dyld
 #   macOS 15          stops a tool there when it imports a symbol that macOS lacks
 #   Linux (x86_64)    the Linux targets (Package.swift: the portable code, the CLI, the `passtunnel`
@@ -23,9 +25,15 @@
 #                     its README says, `passtunnel` and, as root, `passtunneld` with their build number
 #   Docker image      the Dockerfile built, and an MCP session with the image
 #   (x86_64, aarch64)
+#   Cisco AnyConnect  the test server of Tests/ocserv (ocserv: a password, then a TOTP code) on a
+#   against ocserv    Docker network, and OcservSignInTests in the Swift container with Ubuntu's
+#                     openconnect: real sign-ins through ConnectionManager, no tunnel (Tests/ocserv/
+#                     README.md). The tunnel itself is ocserv-tunnel.yml, which is not a required check
 #   Release scripts   shellcheck of next-version.sh, its test, build-linux.sh, coverage-report.sh, compare-app.sh,
-#                     verify-build.sh, check-tool-symbols.sh, its test and make-system-symbols.sh, and the self-test of
-#                     scripts/next-version.sh (in a temporary repository)
+#                     verify-build.sh, check-tool-symbols.sh, its test, make-system-symbols.sh and
+#                     test-bundled-config-paths.sh, swift-retry.sh and its test, the scripts of
+#                     Tests/ocserv, and the self-tests of
+#                     scripts/next-version.sh (in a temporary repository) and swift-retry.sh
 #   Site              shellcheck of the site scripts and scripts/check-site.sh, the static checks
 #                     of the website in site/ (docs/WEBSITE.md)
 #
@@ -114,9 +122,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           brew update
-          brew install openvpn openfortivpn
-          brew upgrade openvpn openfortivpn openssl@4 lz4 lzo pkcs11-helper
-          brew list --versions openvpn openfortivpn openssl@4 lz4 lzo pkcs11-helper
+          # Every bundled formula (the pins in scripts/release.env).
+          formulas=(openvpn openfortivpn openconnect openssl@4 lz4 lzo pkcs11-helper gnutls nettle gmp p11-kit
+            libtasn1 libidn2 libunistring gettext stoken libtomcrypt libtommath)
+          brew install openvpn openfortivpn openconnect
+          brew upgrade "${formulas[@]}"
+          brew list --versions "${formulas[@]}"
 
       # Only the tools and their libraries, in a bundle of their own; bundle-tools.sh ends with
       # check-tool-symbols.sh. The versions are not held to the pins (PASSTUNNEL_ALLOW_UNPINNED_TOOLS;
@@ -132,6 +143,12 @@ jobs:
           scripts/bundle-tools.sh tools/PassTunnel.app
           tar -C tools -czf bundled-tools.tar.gz PassTunnel.app/Contents/Resources/bin PassTunnel.app/Contents/Frameworks
 
+      # bundle-tools.sh overwrites the configuration paths compiled into libp11-kit: with module files in
+      # the runner's Homebrew prefix whose "remote:" line runs a command, Homebrew's openconnect --version
+      # runs them and the bundled one must not.
+      - name: The bundled openconnect reads no PKCS#11 modules from Homebrew
+        run: scripts/test-bundled-config-paths.sh tools/PassTunnel.app
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bundled-tools
@@ -142,7 +159,8 @@ jobs:
   # macos-15 is the oldest arm64 macOS runner. Only `--version`: nothing is configured, nothing
   # contacted. A tool that imports a symbol this macOS lacks is stopped by dyld before it prints
   # anything ("Symbol not found", SIGABRT). The exit status is not checked otherwise: some openvpn
-  # builds exit with 1 after printing their version.
+  # builds exit with 1 after printing their version. openconnect needs macOS 15.4, which the image
+  # has (15.7); it would be left out, with a warning, on an older one.
   tools-macos-15:
     name: Bundled tools on macOS 15
     needs: tools
@@ -161,6 +179,11 @@ jobs:
           failed=0
           for tool in PassTunnel.app/Contents/Resources/bin/*; do
             lipo -archs "$tool" >/dev/null 2>&1 || continue    # dns-updown is a script
+            if [ "$(basename "$tool")" = openconnect ] \
+              && ! awk -v v="$(sw_vers -productVersion)" 'BEGIN { split(v, x, "."); exit !(x[1] > 15 || (x[1] == 15 && x[2] >= 4)) }'; then
+              echo "::warning title=Bundled tools::openconnect not run: it needs macOS 15.4, this is $(sw_vers -productVersion)"
+              continue
+            fi
             status=0
             out="$(perl -e 'alarm 10; exec @ARGV or die "exec: $!"' "$tool" --version 2>&1)" || status=$?
             echo "--- $(basename "$tool") (exit $status)"
@@ -199,13 +222,15 @@ jobs:
           uname -m
           swift --version
 
+      # scripts/swift-retry.sh runs the command once more if the build system itself crashed (exit 139
+      # and a swift-build frame in the report), never on an error of ours.
       - name: Build
-        run: swift build
+        run: scripts/swift-retry.sh swift build
 
       # PassTunnelKitTests and the Core tests that build on Linux (the Apple-only ones are left out
       # with #if); their secrets are kept in memory.
       - name: Test
-        run: swift test
+        run: scripts/swift-retry.sh swift test
 
       # The `passtunnel` binary against an empty temporary support directory: the version, an empty
       # list, and an MCP session over stdin (the replies are checked with jq).
@@ -218,7 +243,7 @@ jobs:
           export PASSTUNNEL_HOME
           "$bin" --version | tee version.txt
           grep -qx "PassTunnel 0.0.0-dev" version.txt
-          "$bin" version --json | jq -e '.version == "0.0.0-dev" and .helper_protocol_version == 3'
+          "$bin" version --json | jq -e '.version == "0.0.0-dev" and .helper_protocol_version == 4'
           "$bin" list --json | jq -e '. == []'
           printf '%s\n' \
             '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
@@ -286,8 +311,8 @@ jobs:
           sock=/run/passtunnel/daemon.sock
           call() { socat -t 30 - "UNIX-CONNECT:$sock"; }
           call_as() { runuser -u "$1" -- socat -t 30 - "UNIX-CONNECT:$sock"; }
-          status='{"op":"perform","request":{"type":"status","protocol_version":3}}'
-          stop='{"op":"perform","request":{"type":"stop","protocol_version":3,"profile_id":"acme"}}'
+          status='{"op":"perform","request":{"type":"status","protocol_version":4}}'
+          stop='{"op":"perform","request":{"type":"stop","protocol_version":4,"profile_id":"acme"}}'
           PASSTUNNEL_HOME="$(mktemp -d)"
           export PASSTUNNEL_HOME
 
@@ -318,10 +343,10 @@ jobs:
           test "$(stat -c '%a %U' "$sock")" = "666 root"
 
           build="$(sha256sum /usr/local/sbin/passtunneld | cut -d' ' -f1)"
-          printf '%s\n' '{"op":"hello"}' | call | jq -e --arg build "$build" '.protocol == 3 and .build == $build'
+          printf '%s\n' '{"op":"hello"}' | call | jq -e --arg build "$build" '.protocol == 4 and .build == $build'
           printf '%s\n' "$status" | call | jq -e '.ok and .running == {} and .mgmt_sockets == {}'
           "$bin/passtunnel" helper status --json \
-            | jq -e '.state == "enabled" and .responding and .protocol_version == 3 and .outdated == false'
+            | jq -e '.state == "enabled" and .responding and .protocol_version == 4 and .outdated == false'
           printf '%s\n' \
             '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
             '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
@@ -329,12 +354,12 @@ jobs:
             | "$bin/passtunnel" mcp | jq -se 'INDEX(.id) as $r | $r["2"].result.structuredContent.helper
               | .state == "enabled" and .responding and .outdated == false'
 
-          start='{"op":"perform","request":{"type":"start_openvpn","protocol_version":3,"profile_id":"acme","profile_dir":"/nonexistent","log_path":"/nonexistent/vpn.log"}}'
+          start='{"op":"perform","request":{"type":"start_openvpn","protocol_version":4,"profile_id":"acme","profile_dir":"/nonexistent","log_path":"/nonexistent/vpn.log"}}'
           printf '%s\n' "$start" | call_as nobody | jq -e '.ok == false and (.error | test("group .passtunnel. does not exist"))'
           groupadd --system passtunnel
           printf '%s\n' "$start" | call_as nobody | jq -e '.ok == false and (.error | test("members of the group .passtunnel."))'
           printf '%s\n' "$status" | call_as nobody | jq -e '.ok and .running == {}'
-          printf '%s\n' '{"op":"hello"}' | call_as nobody | jq -e '.protocol == 3'
+          printf '%s\n' '{"op":"hello"}' | call_as nobody | jq -e '.protocol == 4'
 
           useradd --create-home --groups passtunnel alice
           uid="$(id -u alice)"
@@ -344,7 +369,7 @@ jobs:
             "peer-fingerprint $(printf '00:%.0s' $(seq 31))00" | runuser -u alice -- tee "$profile/config.ovpn" >/dev/null
           sha="$(sha256sum "$profile/config.ovpn" | cut -d' ' -f1)"
           request="$(jq -cn --arg dir "$profile" --arg sha "$sha" '{op: "perform", request: {type: "start_openvpn",
-            protocol_version: 3, profile_id: "acme", profile_dir: $dir, log_path: ($dir + "/vpn.log"),
+            protocol_version: 4, profile_id: "acme", profile_dir: $dir, log_path: ($dir + "/vpn.log"),
             username: "alice", secret: "example-password", config_sha256: $sha}}')"
           run="/run/passtunnel/$uid/acme"
           printf '%s\n' "$request" | call_as alice | tee start.json \
@@ -379,7 +404,7 @@ jobs:
           gateway=$!
           forti=/home/alice/.local/share/passtunnel/profiles/fortinet
           runuser -u alice -- mkdir -p "$forti"
-          fstart="$(jq -cn --arg dir "$forti" '{op: "perform", request: {type: "start_forti", protocol_version: 3,
+          fstart="$(jq -cn --arg dir "$forti" '{op: "perform", request: {type: "start_forti", protocol_version: 4,
             profile_id: "fortinet", profile_dir: $dir, log_path: ($dir + "/vpn.log"), host: "127.0.0.1", port: 10443,
             username: "alice", password: "example-password", otp: "123456", trusted_cert: "", set_dns: true,
             set_routes: true}}')"
@@ -398,7 +423,7 @@ jobs:
           grep -qx 'pppd-use-peerdns = 0' "$frun/openfortivpn.conf"
           if grep -qa example-password fcmdline.txt "/proc/$fpid/environ"; then echo "the password left the config"; exit 1; fi
           test "$(stat -c '%U %a' "$forti/vpn.log")" = "alice 600"
-          fstop='{"op":"perform","request":{"type":"stop","protocol_version":3,"profile_id":"fortinet"}}'
+          fstop='{"op":"perform","request":{"type":"stop","protocol_version":4,"profile_id":"fortinet"}}'
           printf '%s\n' "$status" | call_as alice | jq -e --argjson pid "$fpid" '.running == {"fortinet": $pid} and .mgmt_sockets == {}'
           printf '%s\n' "$fstop" | call_as nobody | jq -e '.ok and .pid == null'
           printf '%s\n' "$fstop" | call_as alice | jq -e --argjson pid "$fpid" '.ok and .pid == $pid'
@@ -466,6 +491,106 @@ jobs:
           wait "$daemon"
           daemon=""
           test ! -e "$sock"
+
+      # Cisco AnyConnect (#187) with the distribution's openconnect (Ubuntu 24.04: 9.12), no tunnel: its
+      # version and --help (no-external-auth) read as the daemon and passtunnel read them
+      # (OpenConnectToolProbeTests, against the installed tool); a start refused for a field the client
+      # checked, before anything is prepared, and for an openconnect too old (a stand-in at the same path
+      # that prints Ubuntu 22.04's 8.20); then a start with the real tool against a local socket that never
+      # answers, so openconnect never gets a tunnel, never runs its hook and changes nothing: its config
+      # (the cookie only there), arguments, environment, state and hook link, the cookie kept out of the
+      # log, its status, and the stop.
+      - name: Cisco AnyConnect in passtunneld (no tunnel)
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends jq socat openconnect ca-certificates >/dev/null
+          openconnect --version | head -n 1
+          PASSTUNNEL_TEST_OPENCONNECT=1 scripts/swift-retry.sh swift test --skip-build \
+            --filter 'OpenConnectToolProbeTests' 2>&1 | tee probe.txt
+          grep -q 'no-external-auth: true' probe.txt
+          if grep -q 'skipped' probe.txt; then echo "the probe was skipped"; exit 1; fi
+
+          bin="$(swift build --show-bin-path)"
+          install -m 0755 "$bin/passtunneld" /usr/local/sbin/passtunneld
+          getent group passtunnel >/dev/null || groupadd --system passtunnel
+          id alice >/dev/null 2>&1 || useradd --create-home --groups passtunnel alice
+          sock=/run/passtunnel/daemon.sock
+          call_as() { runuser -u "$1" -- socat -t 30 - "UNIX-CONNECT:$sock"; }
+          status='{"op":"perform","request":{"type":"status","protocol_version":4}}'
+          stop='{"op":"perform","request":{"type":"stop","protocol_version":4,"profile_id":"cisco"}}'
+          /usr/local/sbin/passtunneld >>oc-daemon.log 2>&1 &
+          daemon=$!
+          trap 'kill "$daemon" 2>/dev/null || true; echo "--- daemon log"; cat oc-daemon.log
+            echo "--- session log"; cat /home/alice/.local/share/passtunnel/profiles/cisco/vpn.log 2>/dev/null || true
+            if [ -e /usr/sbin/openconnect.real ]; then mv /usr/sbin/openconnect.real /usr/sbin/openconnect; fi' EXIT
+          for _ in $(seq 100); do
+            printf '%s\n' '{"op":"hello"}' | socat -t 5 - "UNIX-CONNECT:$sock" 2>/dev/null | grep -q '"protocol"' && break
+            sleep 0.1
+          done
+
+          uid="$(id -u alice)"
+          dir=/home/alice/.local/share/passtunnel/profiles/cisco
+          runuser -u alice -- mkdir -p "$dir"
+          run="/run/passtunnel/$uid/cisco"
+          cookie='webvpn=EXAMPLE-COOKIE-0123456789abcdef'
+          pin='pin-sha256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk='
+          start() {
+            jq -cn --arg dir "$dir" --arg cookie "$cookie" --arg pin "$pin" --arg url "${1:-https://127.0.0.1:10443/}" \
+              '{op: "perform", request: {type: "start_openconnect", protocol_version: 4, profile_id: "cisco", profile_dir: $dir,
+                log_path: ($dir + "/vpn.log"), host: "127.0.0.1", port: 10443, usergroup: "", connect_url: $url,
+                cookie: $cookie, server_cert: $pin, profile_server_cert: "", tls_only: true, set_dns: true, set_routes: true}}'
+          }
+
+          # A connect URL other than the profile's server: refused before anything is prepared.
+          start https://vpn.example.com/ | call_as alice | jq -e '.ok == false and (.error | test("another server"))'
+          test ! -e "$run"
+          # Ubuntu 22.04's openconnect: refused, naming the minimum.
+          mv /usr/sbin/openconnect /usr/sbin/openconnect.real
+          printf '%s\n' '#!/bin/sh' 'echo "OpenConnect version v8.20-1"' 'exit 0' >old-openconnect
+          install -m 0755 old-openconnect /usr/sbin/openconnect
+          start | call_as alice | tee old.json
+          jq -e '.error == "openconnect 8.20 is too old: PassTunnel needs 9.01 or later. Update the openconnect package."' old.json
+          test ! -e "$run"
+          mv /usr/sbin/openconnect.real /usr/sbin/openconnect
+
+          # The real one, against a socket that accepts and never answers the TLS handshake.
+          socat -u TCP-LISTEN:10443,bind=127.0.0.1,reuseaddr,fork /dev/null &
+          gateway=$!
+          start | call_as alice | tee oc.json | jq -e '.ok and .pid > 1 and .mgmt_socket == null'
+          pid="$(jq -r .pid oc.json)"
+          tr '\0' ' ' <"/proc/$pid/cmdline" | tee occmdline.txt
+          echo
+          test "$(cat occmdline.txt)" = "/usr/sbin/openconnect --config=$run/openconnect.conf "
+          test "$(tr '\0' '\n' <"/proc/$pid/environ" | sort | tr '\n' ' ')" = "LC_ALL=C P11_KIT_NO_USER_CONFIG=1 PATH=/usr/sbin:/usr/bin:/sbin:/bin "
+          test "$(stat -c '%a %U' "$run/openconnect.conf")" = "600 root"
+          test "$(stat -c '%a %U' "$run/policy")" = "600 root"
+          test "$(stat -c '%a %U' "$run/state")" = "600 root"
+          grep -v '^cookie ' "$run/openconnect.conf"
+          grep -qx "cookie $cookie" "$run/openconnect.conf"
+          grep -qx "script $run/vpn-hook" "$run/openconnect.conf"
+          grep -qx 'no-dtls' "$run/openconnect.conf"
+          test "$(readlink "$run/vpn-hook")" = /usr/local/sbin/passtunneld
+          printf 'uid=%s\nprofile=cisco\nset_routes=1\nset_dns=1\n' "$uid" | cmp - "$run/policy"
+          test "$(sed -n 1p "$run/state")" = "$pid"
+          test "$(sed -n 3p "$run/state")" = /usr/sbin/openconnect
+          if grep -qa "$cookie" occmdline.txt "/proc/$pid/environ"; then echo "the cookie left the config"; exit 1; fi
+          printf '%s\n' "$status" | call_as alice \
+            | jq -e --argjson pid "$pid" '.running == {"cisco": $pid} and .tunnels == {"cisco": {"state": "setting_up"}}'
+          printf '%s\n' "$status" | call_as nobody | jq -e '.running == {} and .tunnels == null'
+          sleep 2
+          test "$(stat -c '%U %a' "$dir/vpn.log")" = "alice 600"
+          if grep -q "$cookie" "$dir/vpn.log"; then echo "the cookie is in the log"; exit 1; fi
+          printf '%s\n' "$stop" | call_as nobody | jq -e '.ok and .pid == null'
+          printf '%s\n' "$stop" | call_as alice | jq -e --argjson pid "$pid" '.ok and .pid == $pid'
+          test ! -e "$run"
+          if kill -0 "$pid" 2>/dev/null; then echo "openconnect $pid still runs"; exit 1; fi
+          grep -q "started openconnect 9\.[0-9]* for cisco, uid $uid" oc-daemon.log
+          kill "$gateway"
+          kill -TERM "$daemon"
+          wait "$daemon"
 
       # The DNS hook as OpenVPN runs it, against the container's own /etc/resolv.conf: the file backend
       # (no systemd-resolved or resolvconf here; the container's file is a bind mount, rewritten in
@@ -697,8 +822,8 @@ jobs:
           done
           digest="$(sha256sum /usr/local/sbin/passtunneld | cut -d' ' -f1)"
           printf '%s\n' '{"op":"hello"}' | socat -t 5 - "UNIX-CONNECT:$sock" \
-            | jq -e --arg digest "$digest" --argjson n "$BUILD" '.protocol == 3 and .build == $digest and .build_number == $n'
-          printf '%s\n' '{"op":"perform","request":{"type":"status","protocol_version":3}}' | socat -t 5 - "UNIX-CONNECT:$sock" \
+            | jq -e --arg digest "$digest" --argjson n "$BUILD" '.protocol == 4 and .build == $digest and .build_number == $n'
+          printf '%s\n' '{"op":"perform","request":{"type":"status","protocol_version":4}}' | socat -t 5 - "UNIX-CONNECT:$sock" \
             | jq -e --argjson n "$BUILD" '.ok and .running == {} and .helper_build == $n'
           passtunnel helper status --json | jq -e '.state == "enabled" and .responding and .outdated == false'
           # Another file in its place, as after an update before the restart: the running daemon is outdated.
@@ -709,7 +834,7 @@ jobs:
           jq -e '.state == "enabled" and .responding and .outdated == true' helper.json
           kill -TERM "$daemon"
           wait "$daemon"
-          grep -q "listening on $sock, protocol 3, build $digest ($BUILD)" daemon.log
+          grep -q "listening on $sock, protocol 4, build $digest ($BUILD)" daemon.log
           EOF
 
   # The Dockerfile (`passtunnel mcp` for MCP directories) built on each architecture, then an MCP
@@ -754,6 +879,63 @@ jobs:
             and [$r["2"].result.tools[].name] == ["list_profiles", "get_status", "get_logs", "diagnose"]
             and $r["3"].result.isError == false and $r["3"].result.structuredContent == {"profiles": []}' mcp.jsonl
 
+  # Cisco AnyConnect's sign-in against a real AnyConnect-compatible server: the image of Tests/ocserv,
+  # without NET_ADMIN (ocserv asks for a tun device only for a tunnel, which a sign-in never requests),
+  # at 172.31.211.10 on a network of its own, which the client container knows as vpn.example.com (the
+  # name in the server's certificate). OcservSignInTests (only with PASSTUNNEL_TEST_OCSERV_SERVER) runs
+  # the distribution's openconnect through ConnectionManager with a fake helper: the password and code
+  # accepted with the pin and with the test CA, a spent code refused by ocserv and never sent twice by
+  # PassTunnel, a wrong code, a wrong password and ocserv's retry form, the wrong delivery, the system's
+  # CAs, another pin, and a cookie ocserv does not know.
+  ocserv:
+    name: Cisco AnyConnect against ocserv
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      # swift:6.4.1-noble, the image of the Linux jobs, pinned by the digest of its multi-arch index.
+      SWIFT_IMAGE: swift:6.4.1-noble@sha256:19cbe56bdaec1918f7cf5fdeba42b9bd55bdd8a6149c9990d0e0e3a89a127d63
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build/repositories
+          key: swiftpm-repositories-${{ hashFiles('Package.resolved') }}
+
+      - name: Start the test server
+        run: |
+          set -euo pipefail
+          docker build -t passtunnel-ocserv Tests/ocserv
+          docker network create --subnet 172.31.211.0/24 ocserv
+          docker run -d --name ocserv --network ocserv --ip 172.31.211.10 passtunnel-ocserv
+          mkdir -p "$RUNNER_TEMP/ocserv"
+          docker cp ocserv:/etc/ocserv/ca.pem "$RUNNER_TEMP/ocserv/ca.pem"
+          docker exec ocserv cat /etc/ocserv/pin.txt | tee "$RUNNER_TEMP/ocserv/pin.txt"
+
+      - name: Sign in (no tunnel)
+        run: |
+          set -euo pipefail
+          docker run --rm --network ocserv --add-host vpn.example.com:172.31.211.10 -v "$PWD:/src" -w /src \
+            -v "$RUNNER_TEMP/ocserv:/ocserv:ro" -e PASSTUNNEL_STRICT_WARNINGS=1 "$SWIFT_IMAGE" bash -c '
+            set -euo pipefail
+            git config --global --add safe.directory "*"
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update -qq
+            apt-get install -y -qq --no-install-recommends openconnect ca-certificates >/dev/null
+            openconnect --version | head -n 1
+            scripts/swift-retry.sh swift build --build-tests
+            PASSTUNNEL_TEST_OCSERV_SERVER=vpn.example.com:443 PASSTUNNEL_TEST_OCSERV_CA=/ocserv/ca.pem \
+              PASSTUNNEL_TEST_OCSERV_PIN="$(cat /ocserv/pin.txt)" \
+              swift test --skip-build --filter OcservSignInTests 2>&1 | tee signin.txt
+            if grep -qE "^Test Case .* skipped" signin.txt; then echo "a test was skipped"; exit 1; fi
+            test "$(grep -c "^Test Case .OcservSignInTests\..* passed" signin.txt)" = 9'
+
+      - name: The server's log
+        if: always()
+        run: docker logs ocserv 2>&1 | tail -n 200
+
   scripts:
     name: Release scripts
     runs-on: ubuntu-latest
@@ -768,10 +950,15 @@ jobs:
           shellcheck --version
           shellcheck scripts/next-version.sh scripts/test-next-version.sh scripts/build-linux.sh scripts/coverage-report.sh \
             scripts/compare-app.sh scripts/verify-build.sh scripts/check-tool-symbols.sh scripts/test-check-tool-symbols.sh \
-            scripts/make-system-symbols.sh
+            scripts/make-system-symbols.sh scripts/test-bundled-config-paths.sh \
+            scripts/swift-retry.sh scripts/test-swift-retry.sh \
+            Tests/ocserv/entrypoint.sh Tests/ocserv/cut.sh Tests/ocserv/tunnel-test.sh Tests/ocserv/run-tunnel-tests.sh
 
       - name: Self-test of next-version.sh
         run: scripts/test-next-version.sh
+
+      - name: Self-test of swift-retry.sh
+        run: scripts/test-swift-retry.sh
 
   site:
     name: Site

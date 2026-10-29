@@ -23,7 +23,8 @@ public enum OTPComposer {
     ///   values are never re-scanned for placeholders). Without a code (`otp` nil or empty) the secret is
     ///   the plain password. An invalid template falls back to `OTPTemplatePreset.append`.
     /// - `.separate` + OpenVPN: `SCRV1:b64(password):b64(otp)`; without a code, the plain password.
-    /// - `.separate` + Forti: secret = password, separateOTP = otp.
+    /// - `.separate` + Forti or AnyConnect: secret = password, separateOTP = otp (Forti's `otp` field,
+    ///   AnyConnect's second answer line).
     public static func compose(
         password: String, otp: String?, delivery: OTPDelivery, template: String,
         type: VPNType
@@ -36,7 +37,7 @@ public enum OTPComposer {
             return (render(t, password: password, otp: code), nil)
         case .separate:
             switch type {
-            case .forti:
+            case .forti, .anyconnect:
                 return (password, code)
             case .openvpn:
                 guard let code else { return (password, nil) }
@@ -54,7 +55,8 @@ public enum OTPComposer {
     /// What `compose` sends, as parts in order, so it can be shown without the password (the editor's "Server
     /// receives"). `.combined`: the template's parts (an invalid template falls back to `OTPTemplatePreset.append`,
     /// as in `compose`), `separateCode` false. `.separate`: the password alone, and `separateCode` true: the code
-    /// goes in a field of its own (the OpenVPN static challenge, the FortiGate `otp` field).
+    /// goes in a field of its own (the OpenVPN static challenge, the FortiGate `otp` field, the Cisco AnyConnect
+    /// form's next field).
     public static func parts(delivery: OTPDelivery, template: String) -> (secret: [Part], separateCode: Bool) {
         guard delivery == .combined else { return ([.password], true) }
         let t = (try? validate(template: template)) != nil ? template : OTPTemplatePreset.append.rawValue

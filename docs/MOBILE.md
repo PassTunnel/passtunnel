@@ -20,7 +20,9 @@ order they are built in, and the rules they follow. [ARCHITECTURE.md](ARCHITECTU
 Both are free, MIT, without accounts, analytics, ads or network access of their own (the Android
 VPN talks only to the user's VPN server). FortiGate is not on either phone for now: there is no
 library we may use under MIT, and FortiOS 7.6.3 removed SSL VPN tunnel mode altogether. It is
-revisited after the Android VPN ships.
+revisited after the Android VPN ships. Cisco AnyConnect (type `anyconnect`, in share files of version 2)
+is not on either phone either: the shared model reads and keeps such a profile and its keys (the
+fixtures), and the phones do not connect it.
 
 ## Shared logic
 

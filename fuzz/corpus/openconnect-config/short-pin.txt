@@ -1,0 +1,1 @@
+vpn.example.com443alicepin-sha256:z5Gvc192.0.2.10/private/var/run/passtunnel/tools/0123abcd/Resources/bin/vpn-hook

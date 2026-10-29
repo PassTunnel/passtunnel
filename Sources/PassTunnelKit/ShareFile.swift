@@ -4,8 +4,15 @@ import Foundation
 /// `{"passtunnel_profile": 1, "profile": {…}, "files": {"config.ovpn": "<base64>"}}`.
 /// The profile omits the per-user fields (username, last_username, order, mgmt_port, pinned, require_auth,
 /// connect_at_login, config_imported_at). Secrets are never included.
+///
+/// `passtunnel_profile` is the oldest format version that can read the file, not the writer's: a reader
+/// refuses a file of a version it does not know. Version 2 added the type `anyconnect`, so a Cisco
+/// AnyConnect profile is written as 2 and refused by an older PassTunnel (which would have imported it as
+/// OpenVPN before it knew to refuse unknown types); OpenVPN and FortiGate profiles are still written as 1,
+/// unchanged, so every older reader takes them.
 public struct ShareFile: Codable {
-    public static let currentVersion = 1
+    /// The newest version this one reads.
+    public static let currentVersion = 2
     /// File name extension of share files.
     public static let fileExtension = "passtunnel"
     /// The type the Mac app exports in its Info.plist (conforms to `public.json`).
@@ -19,9 +26,17 @@ public struct ShareFile: Codable {
     public var files: [String: Data]
 
     public init(profile: Profile, files: [String: Data] = [:]) {
-        self.passtunnelProfile = Self.currentVersion
+        self.passtunnelProfile = Self.version(for: profile.type)
         self.profile = profile
         self.files = files
+    }
+
+    /// The version a file with a profile of `type` is written as: the first one that has the type.
+    public static func version(for type: VPNType) -> Int {
+        switch type {
+        case .openvpn, .forti: return 1
+        case .anyconnect: return 2
+        }
     }
 
     enum CodingKeys: String, CodingKey { case passtunnelProfile, profile, files }
@@ -45,7 +60,8 @@ public struct ShareFile: Codable {
 
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(passtunnelProfile, forKey: .passtunnelProfile)
+        // Never older than the profile's type needs, also when `profile` was replaced after `init`.
+        try c.encode(max(passtunnelProfile, Self.version(for: profile.type)), forKey: .passtunnelProfile)
         try c.encode(profile, forKey: .profile)
         try c.encode(files, forKey: .files)
     }

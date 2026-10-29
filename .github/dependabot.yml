@@ -5,10 +5,11 @@
 #   Swift packages   "fix(deps): bump …"   a patch release (Sparkle is shipped in the app)
 #   Docker           "build(deps): bump …" no release (the Dockerfile's base images are not shipped)
 #
-# Docker covers the base images pinned by tag and digest in the root Dockerfile. It does not see the
-# images pinned in .github/workflows/ci.yml (`container:` and the BUILD_IMAGE / CLEAN_IMAGE
-# variables): Dependabot updates neither, so those are bumped by hand, together with the Dockerfile's
-# build image, which is meant to stay the one of the Linux CI jobs.
+# Docker covers the base images pinned by tag and digest in the root Dockerfile and in the test
+# server's and test clients' Tests/ocserv/Dockerfile and Tests/ocserv/client.Dockerfile. It does not see
+# the images pinned in .github/workflows/ci.yml (`container:`, SWIFT_IMAGE and the BUILD_IMAGE /
+# CLEAN_IMAGE variables) and ocserv-tunnel.yml: Dependabot updates none of them, so those are bumped by hand,
+# together with the Dockerfile's build image, which is meant to stay the one of the Linux CI jobs.
 #
 # Updates of each ecosystem come grouped in one pull request a week. Dependabot's pull requests need
 # no linked issue (pull-request.yml).
@@ -39,7 +40,7 @@ updates:
         patterns: ["*"]
 
   - package-ecosystem: docker
-    directory: /
+    directories: ["/", "/Tests/ocserv"]
     target-branch: dev
     schedule:
       interval: weekly

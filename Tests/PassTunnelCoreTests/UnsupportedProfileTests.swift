@@ -14,7 +14,7 @@ final class UnsupportedProfileTests: CoreTestCase {
           "id": "future",
           "name": "Future VPN",
           "order": 5,
-          "type": "anyconnect",
+          "type": "globalprotect",
           "host": "vpn.example.com",
           "username": "alice",
           "auth_group": "staff",
@@ -41,7 +41,7 @@ final class UnsupportedProfileTests: CoreTestCase {
     func testAnUnknownTypeIsNotReadAsOpenVPN() throws {
         let data = Data(Self.futureJSON.utf8)
         XCTAssertThrowsError(try JSONCoding.decode(Profile.self, from: data)) { error in
-            XCTAssertEqual(error as? PTError, .unsupportedProfileType("anyconnect"))
+            XCTAssertEqual(error as? PTError, .unsupportedProfileType("globalprotect"))
         }
         // No type at all is an old OpenVPN profile, as before.
         XCTAssertEqual(try JSONCoding.decode(Profile.self, from: Data("{\"name\": \"Old\"}".utf8)).type, .openvpn)
@@ -55,7 +55,7 @@ final class UnsupportedProfileTests: CoreTestCase {
         let listed = store.listUnsupported()
         XCTAssertEqual(listed.map(\.id), ["future"])
         XCTAssertEqual(listed.first?.name, "Future VPN")
-        XCTAssertEqual(listed.first?.type, "anyconnect")
+        XCTAssertEqual(listed.first?.type, "globalprotect")
         XCTAssertEqual(listed.first?.order, 5)
         XCTAssertNil(store.unsupportedProfile(known.id))
         XCTAssertNotNil(store.unsupportedProfile("future"))
@@ -72,7 +72,7 @@ final class UnsupportedProfileTests: CoreTestCase {
     }
 
     func testTheNameFallsBackToTheID() throws {
-        try writeFuture("nameless", json: "{\"type\": \"anyconnect\", \"name\": \"  \"}")
+        try writeFuture("nameless", json: "{\"type\": \"globalprotect\", \"name\": \"  \"}")
         XCTAssertEqual(store.listUnsupported().map(\.name), ["nameless"])
     }
 
@@ -97,7 +97,7 @@ final class UnsupportedProfileTests: CoreTestCase {
 
     func testNothingButDeleteWorks() throws {
         let original = try writeFuture()
-        let expected = PTError.unsupportedProfileType("anyconnect")
+        let expected = PTError.unsupportedProfileType("globalprotect")
         assertThrows(expected) { _ = try store.get("future") }
         assertThrows(expected) { _ = try store.update("future") { $0.pinned = true } }
         assertThrows(expected) { try store.save(Profile(id: "future", name: "Overwrite", type: .openvpn)) }
@@ -122,7 +122,7 @@ final class UnsupportedProfileTests: CoreTestCase {
 
         // Replaced by an unknown type.
         let replaced = try writeFuture(known.id)
-        assertThrows(.unsupportedProfileType("anyconnect")) { try store.save(edited) }
+        assertThrows(.unsupportedProfileType("globalprotect")) { try store.save(edited) }
         XCTAssertEqual(try Data(contentsOf: url), replaced)
 
         // Replaced by an unknown type too large to read.
@@ -133,7 +133,7 @@ final class UnsupportedProfileTests: CoreTestCase {
         XCTAssertEqual(try Data(contentsOf: url), large)
 
         // Not JSON, not an object, empty.
-        for garbage in ["{\"type\": \"anyconnect\", ", "[1, 2]", "\"anyconnect\"", ""] {
+        for garbage in ["{\"type\": \"globalprotect\", ", "[1, 2]", "\"globalprotect\"", ""] {
             try Data(garbage.utf8).write(to: url)
             assertThrows(.invalidFile("profile.json")) { try store.save(edited) }
             XCTAssertEqual(try Data(contentsOf: url), Data(garbage.utf8), garbage)
@@ -188,12 +188,12 @@ final class UnsupportedProfileTests: CoreTestCase {
     // MARK: share files
 
     func testAShareFileOfAnUnknownTypeIsRefused() throws {
-        let json = "{\"passtunnel_profile\": 1, \"profile\": {\"name\": \"A\", \"type\": \"anyconnect\", \"host\": \"vpn.example.com\"}}"
+        let json = "{\"passtunnel_profile\": 1, \"profile\": {\"name\": \"A\", \"type\": \"globalprotect\", \"host\": \"vpn.example.com\"}}"
         let url = try write(json, name: "future.passtunnel")
         try paths.ensureDirectories()
-        assertThrows(.unsupportedProfileType("anyconnect")) { _ = try store.importShare(url, name: nil) }
+        assertThrows(.unsupportedProfileType("globalprotect")) { _ = try store.importShare(url, name: nil) }
         XCTAssertThrowsError(try ShareFile.decode(Data(json.utf8))) { error in
-            XCTAssertEqual(error as? PTError, .unsupportedProfileType("anyconnect"))
+            XCTAssertEqual(error as? PTError, .unsupportedProfileType("globalprotect"))
         }
         XCTAssertEqual(store.list(), [])
         XCTAssertEqual(store.listUnsupported(), [])
@@ -210,11 +210,11 @@ final class UnsupportedProfileTests: CoreTestCase {
     // MARK: words
 
     func testTheMessageSaysItNeedsANewerVersionAndCanBeDeleted() {
-        let text = PTError.unsupportedProfileType("anyconnect").localizedDescription
-        XCTAssertTrue(text.contains("anyconnect"), text)
+        let text = PTError.unsupportedProfileType("globalprotect").localizedDescription
+        XCTAssertTrue(text.contains("globalprotect"), text)
         XCTAssertTrue(text.contains("needs a newer PassTunnel"), text)
         XCTAssertTrue(text.contains("deleted"), text)
-        XCTAssertEqual(AutomationErrorCode.of(PTError.unsupportedProfileType("anyconnect")), .configInvalid)
+        XCTAssertEqual(AutomationErrorCode.of(PTError.unsupportedProfileType("globalprotect")), .configInvalid)
     }
 
     // MARK: CLI
@@ -254,7 +254,7 @@ final class UnsupportedProfileTests: CoreTestCase {
         let json = await runCLI(.list(json: true, quiet: false))
         let rows = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(json.out.utf8)) as? [[String: Any]])
         let row = try XCTUnwrap(rows.first { $0["id"] as? String == "future" })
-        XCTAssertEqual(row["type"] as? String, "anyconnect")
+        XCTAssertEqual(row["type"] as? String, "globalprotect")
         XCTAssertEqual(row["needs_newer_version"] as? Bool, true)
         XCTAssertNil(rows.first { $0["id"] as? String == "known" }?["needs_newer_version"])
 
@@ -277,7 +277,7 @@ final class UnsupportedProfileTests: CoreTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: "\(home.path)/f.passtunnel"))
 
         let share = try write(
-            "{\"passtunnel_profile\": 1, \"profile\": {\"name\": \"A\", \"type\": \"anyconnect\"}}", name: "future.passtunnel")
+            "{\"passtunnel_profile\": 1, \"profile\": {\"name\": \"A\", \"type\": \"globalprotect\"}}", name: "future.passtunnel")
         let imported = await runCLI(.importFile(path: share.path, name: nil))
         XCTAssertEqual(imported.code, AutomationExit.error)
         XCTAssertTrue(imported.err.contains("needs a newer PassTunnel"), imported.err)
@@ -302,7 +302,7 @@ extension MCPServerTests {
         let list = try await structured(server, "list_profiles")
         let rows = try XCTUnwrap(list["profiles"] as? [[String: Any]])
         XCTAssertEqual(rows.map { $0["id"] as? String }, ["acme", "future"])
-        XCTAssertEqual(rows[1]["type"] as? String, "anyconnect")
+        XCTAssertEqual(rows[1]["type"] as? String, "globalprotect")
         XCTAssertEqual(rows[1]["needs_newer_version"] as? Bool, true)
         XCTAssertEqual(rows[1]["name"] as? String, "Future VPN")
         XCTAssertNil(rows[0]["needs_newer_version"])

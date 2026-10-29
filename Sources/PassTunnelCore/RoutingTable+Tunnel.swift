@@ -1,5 +1,6 @@
 import Foundation
 import PassTunnelKit
+import PassTunnelShared
 
 extension RoutingTable {
     /// The routes through `interface` that stand for networks the tunnel serves, read like `trafficRoutes`

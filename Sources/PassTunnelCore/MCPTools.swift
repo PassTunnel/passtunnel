@@ -17,6 +17,10 @@ enum MCPWording {
     static let timeout = "How long to wait for the connection."
     static let timeServer = "the NTP server this computer is set up with"
     static let diagnoseTools = ""
+    static let anyConnectPlatform =
+        "Cisco AnyConnect needs the distribution's openconnect 9.01 or later: when it is missing or older, connect is refused with config_invalid before the one-time code is used."
+    static let instructionsAnyConnect =
+        "Cisco AnyConnect needs the distribution's openconnect 9.01 or later; connect says why when it is missing or too old."
     #else
     static let thisMachines = "this Mac's"
     static let theMachines = "the Mac's"
@@ -29,6 +33,10 @@ enum MCPWording {
     static let timeServer = "Apple's time server (time.apple.com)"
     static let diagnoseTools =
         "; also whether each VPN tool bundled with the app starts on this macOS version (run with --version; nothing is contacted)"
+    static let anyConnectPlatform =
+        "Cisco AnyConnect needs macOS 15.4 or later: on an older macOS it is refused with config_invalid before anything is asked or sent, and list_profiles shows that as connect_refusal."
+    static let instructionsAnyConnect =
+        "Cisco AnyConnect needs macOS 15.4 or later; a profile that cannot be connected here says why in connect_refusal."
     #endif
 }
 
@@ -102,18 +110,18 @@ final class MCPTools {
         Tool(
             name: "list_profiles", title: "List VPN profiles",
             description:
-                "Lists the VPN profiles configured in PassTunnel with their current state. Use the returned id as profile_id in the other tools. \(MCPWording.listProtected)",
+                "Lists the VPN profiles configured in PassTunnel with their current state. Use the returned id as profile_id in the other tools. A profile with connect_refusal (code and message) is of a type this system cannot connect, such as Cisco AnyConnect on an older macOS; connect refuses it. \(MCPWording.listProtected)",
             input: Schema.object([:]), output: Schema.object(["profiles": Schema.array(Schema.profileSummary)], required: ["profiles"]),
             readOnly: true),
         Tool(
             name: "get_status", title: "Get connection status",
             description:
-                "Returns the connection state of every profile (or only profile_id): disconnected, connecting or connected, the tunnel IP, since when, the last error and why it happened (failure: auth_rejected, host_not_found, unreachable, configuration, setup, timeout, cancelled, tool_unsupported (the VPN tool does not run on this macOS version) or failed; the server's reply; whether the sign-in and a one-time code were sent; for a rejected sign-in, clock: how far \(MCPWording.thisMachines) clock was off, when known), when the app tries a server that did not answer again (next_try_at, tries), and whether the privileged helper that starts VPNs is installed and current.",
+                "Returns the connection state of every profile (or only profile_id): disconnected, connecting or connected, the tunnel IP, since when, the last error and why it happened (failure: auth_rejected, host_not_found, unreachable, configuration, setup, timeout, cancelled, tool_unsupported (the VPN tool does not run on this macOS version), host_scan_required (a Cisco AnyConnect server requires a host scan, which PassTunnel never runs) or failed; the server's reply; whether the sign-in and a one-time code were sent; for a rejected sign-in, clock: how far \(MCPWording.thisMachines) clock was off, when known), when the app tries a server that did not answer again (next_try_at, tries), and whether the privileged helper that starts VPNs is installed and current. connect_refusal says why a profile cannot be connected on this system at all.",
             input: Schema.object(["profile_id": Schema.profileID(optional: true)]), output: Schema.statusReport, readOnly: true),
         Tool(
             name: "get_logs", title: "Read VPN log",
             description:
-                "Returns the last lines of a profile's VPN log, for explaining why a connection failed. source \"raw\" (the default): the OpenVPN or openfortivpn output of the current or last session. source \"activity\": what PassTunnel did and saw, also for sessions the app or a terminal started (connecting, waiting for a fresh code, credentials sent, sign-in accepted or rejected, connected, drops, reconnects, stopped by the user), as sentences in lines and as typed events. Anything that looks like a credential is replaced by <redacted>; passwords and one-time codes are never included.",
+                "Returns the last lines of a profile's VPN log, for explaining why a connection failed. source \"raw\" (the default): the OpenVPN, openfortivpn or openconnect output of the current or last session. source \"activity\": what PassTunnel did and saw, also for sessions the app or a terminal started (connecting, waiting for a fresh code, credentials sent, sign-in accepted or rejected, connected, drops, reconnects, stopped by the user), as sentences in lines and as typed events. Anything that looks like a credential is replaced by <redacted>; passwords and one-time codes are never included.",
             input: Schema.object(
                 [
                     "profile_id": Schema.profileID(optional: false),
@@ -143,7 +151,7 @@ final class MCPTools {
         Tool(
             name: "connect", title: "Connect a VPN profile",
             description:
-                "Connects a VPN profile and, by default, waits until it is connected or has failed. \(MCPWording.connectProtected) Profiles that ask for a user name, password or code on every connect cannot be connected this way. A failure carries a failure object (why, the server's reply, whether the sign-in was sent); a rejected sign-in is never retried, so do not retry it either. The result's warnings list connected profiles whose tunnels claim some of the same networks or DNS names (kind overlap): that traffic goes through only one of the two tunnels. The connection goes ahead; tell the user. Connecting changes \(MCPWording.theMachines) network routes; only connect when the user asked for it.",
+                "Connects a VPN profile and, by default, waits until it is connected or has failed. \(MCPWording.connectProtected) \(MCPWording.anyConnectPlatform) Profiles that ask for a user name, password or code on every connect cannot be connected this way. A failure carries a failure object (why, the server's reply, whether the sign-in was sent); a rejected sign-in is never retried, so do not retry it either. The result's warnings list connected profiles whose tunnels claim some of the same networks or DNS names (kind overlap): that traffic goes through only one of the two tunnels. The connection goes ahead; tell the user. Connecting changes \(MCPWording.theMachines) network routes; only connect when the user asked for it.",
             input: Schema.object(
                 [
                     "profile_id": Schema.profileID(optional: false),
@@ -245,6 +253,7 @@ final class MCPTools {
     /// connects like any other call (with its checks).
     private func connect(_ id: String, wait: Bool, timeout: TimeInterval) async throws -> ProfileStatus {
         let p = try store.get(id)
+        try ConnectionManager.checkConnectable(p, macOS: manager.systemVersion)
         await manager.refresh()
         if manager.state(id).isConnected { return service.status(p) }
         if manager.state(id).isConnecting {
@@ -395,7 +404,7 @@ enum Schema {
             "id": string, "name": string, "type": vpnType, "is_default": bool, "pinned": bool, "username": string,
             "password_mode": oneOf(PasswordMode.allCases.map(\.rawValue)), "otp_mode": oneOf(OTPMode.allCases.map(\.rawValue)),
             "require_auth": oneOf(AuthRequirement.allCases.map(\.rawValue)), "protected": bool, "auto_reconnect": bool,
-            "connect_at_login": bool, "state": state
+            "connect_at_login": bool, "state": state, "needs_newer_version": bool, "connect_refusal": errorReport
         ],
         required: [
             "id", "name", "type", "is_default", "pinned", "username", "password_mode", "otp_mode", "require_auth",
@@ -429,7 +438,8 @@ enum Schema {
             "id": string, "name": string, "type": vpnType, "state": state, "phase": string, "ip": string,
             "since": ["type": "string", "format": "date-time"], "duration_seconds": int, "is_default": bool, "protected": bool,
             "auto_reconnect": bool, "health": oneOf(["reachable", "unreachable"]), "error": string, "failure": failure,
-            "warning": string, "status_unavailable": bool, "warnings": array(warning), "next_try_at": dateTime, "tries": int
+            "warning": string, "status_unavailable": bool, "warnings": array(warning), "next_try_at": dateTime, "tries": int,
+            "connect_refusal": errorReport
         ], required: ["id", "name", "type", "state", "is_default", "protected", "auto_reconnect"])
 
     static let helper = result(
@@ -483,7 +493,7 @@ enum Schema {
 
     /// `ToolCheck`: one VPN tool of the app run with `--version`.
     static let toolCheck = result(
-        ["name": string, "ok": bool, "version": string, "problem": string], required: ["name", "ok"])
+        ["name": string, "ok": bool, "version": string, "problem": string, "note": string], required: ["name", "ok"])
 
     static let diagnose: [String: Any] = {
         var properties: [String: Any] = [

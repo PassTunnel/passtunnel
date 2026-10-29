@@ -104,7 +104,8 @@ public enum ConnectionEvent: Equatable, Sendable {
 
 /// Where a profile sends its credentials, as one fingerprint: SHA-256 over the type and, for OpenVPN,
 /// the exact bytes of config.ovpn (servers, CA, proxies, everything the helper runs); for FortiGate,
-/// host, port and trusted certificate. Secrets the user confirmed are bound to the fingerprint the
+/// host, port and trusted certificate; for Cisco AnyConnect, host, port, user group and server pin
+/// (the group name is not a destination: it is matched against the server's list). Secrets the user confirmed are bound to the fingerprint the
 /// profile had then (`SecretVault`, session secrets) and are not sent anywhere else. The helper reads
 /// config.ovpn again later, so the start request carries `configSHA256` of the bytes fingerprinted
 /// here and the helper refuses any other file.
@@ -150,6 +151,13 @@ public struct ProfileDestination: Equatable, Sendable {
             // As the editor saves it ("AB:CD:…" → "abcd…"), so its reformatting changes nothing.
             let cert = p.trustedCert.trimmingCharacters(in: .whitespacesAndNewlines)
             field(TLSFingerprint.normalize(cert) ?? cert.lowercased())
+        case .anyconnect:
+            host = p.host.trimmingCharacters(in: .whitespacesAndNewlines)
+            field(host.lowercased())
+            field(String(p.port))
+            field(p.usergroup)
+            // Stored normalized; a hand-edited file's spelling must not move the binding either.
+            field(OpenConnectPin.normalize(p.serverCert) ?? p.serverCert.trimmingCharacters(in: .whitespacesAndNewlines))
         }
         return ProfileDestination(
             fingerprint: hash.finalize().map { String(format: "%02x", $0) }.joined(), host: host,
@@ -284,6 +292,10 @@ public final class ConnectionManager: ObservableObject {
         public var healthInterval: TimeInterval = 30
         public var openVPNTimeout: TimeInterval = 60
         public var fortiTimeout: TimeInterval = 120
+        /// Cisco AnyConnect: the longest the user's sign-in run may take (`AnyConnectSignIn`), and then the
+        /// tunnel run until the hook reports the network up (the helper stops it after `VPNHook.setupDeadline`).
+        public var signInTimeout: TimeInterval = AnyConnectSignIn.defaultTimeout
+        public var anyConnectTimeout: TimeInterval = 90
         public var connectCheckInterval: TimeInterval = 0.5
         public var processCheckInterval: TimeInterval = 2
         public var reconnectDelays: [TimeInterval] = [5, 15, 45]
@@ -390,6 +402,9 @@ public final class ConnectionManager: ObservableObject {
     @Published public private(set) var lastErrorLog: [String: String] = [:]
     /// Why the last connect failed, typed (also for a cancelled one, which leaves `lastError` empty).
     @Published public private(set) var failures: [String: ConnectionFailure] = [:]
+    /// "Trust this server": the Cisco AnyConnect server whose certificate the last connect did not trust, and its
+    /// key's pin (`serverTrustOffer`). Set and cleared with `failures`.
+    var trustOffers: [String: ServerTrustOffer] = [:]
     @Published public private(set) var health: [String: HealthState] = [:]
     @Published public private(set) var reconnecting: [String: ReconnectInfo] = [:]
     /// Why the last helper `status` call failed (nil when it worked).
@@ -440,6 +455,19 @@ public final class ConnectionManager: ObservableObject {
     /// The routes through a tunnel interface (`RoutingTable.routes(onInterface:)`), read for a FortiGate
     /// tunnel when it is up; replaced in tests.
     var tunnelRoutes: (String) -> [RoutingTable.Route] = RoutingTable.routes(onInterface:)
+    /// The macOS this runs on, for the types that need a later one than the app (`connectRefusal`); nil on
+    /// Linux. Replaced in tests, and by the `passtunnel` command's tests.
+    public var systemVersion: OperatingSystemVersion? = ConnectionManager.currentMacOS
+    /// Runs Cisco AnyConnect's sign-in (`AnyConnectSignIn`); a fake in tests, which never run openconnect.
+    var toolRunner: ToolRunning = SystemToolRunner()
+    /// The openconnect the sign-in runs: the app bundle's (`AnyConnectSignIn.bundledTool`); nil outside one and
+    /// on Linux, where `locateOpenConnect` finds the distribution's.
+    var openConnectPath: String? = AnyConnectSignIn.bundledTool()
+    /// Without `openConnectPath`: finds and checks the distribution's openconnect, what it supports and the CA
+    /// bundle (`AnyConnectSignIn.distributionTool`); replaced in tests.
+    var locateOpenConnect: (ToolRunning) throws -> AnyConnectSignIn.Tool = AnyConnectSignIn.distributionTool
+    /// Cisco AnyConnect sign-ins under way, which `disconnect` stops.
+    private var signIns: [String: ToolCancellation] = [:]
 
     private var pollSeq = 0
     private var appliedSeq = 0
@@ -449,6 +477,8 @@ public final class ConnectionManager: ObservableObject {
     private var sessionActive: Set<String> = []  // reached "connected" in the current session
     private var connectedAt: [String: Date] = [:]
     private var mgmtSockets: [String: String] = [:]  // management socket per profile, as the helper reports it
+    /// The network of each openconnect session, as the helper reports it from the hook's record.
+    private var tunnelStates: [String: TunnelStatus] = [:]
     private var sharedStates: [String: SharedState] = [:]  // last state written to the shared file per profile
     private var reconnectGen: [String: Int] = [:]
     private var reconnectTasks: [String: Task<Void, Never>] = [:]
@@ -597,6 +627,7 @@ public final class ConnectionManager: ObservableObject {
             if r.ok {
                 running = r.running ?? [:]
                 mgmtSockets = r.mgmtSockets ?? [:]
+                tunnelStates = r.tunnels ?? [:]
                 helperError = nil
             } else {
                 helperError = r.error ?? ""
@@ -645,6 +676,15 @@ public final class ConnectionManager: ObservableObject {
             let log = VPNLog.read(store.logURL(p.id))
             guard fortiIsConnected(p, log: log) else { return (.connecting(Phase.connecting), false) }
             return (.connected(ip: VPNLog.fortiAddress(log) ?? "", since: connectedAt[p.id] ?? logCreated(p.id)), false)
+        case .anyconnect:
+            // Connected once the helper reports the network up from the hook's root-owned record, never from
+            // the log, part of which the server writes. The address shown is the log's, for that interface.
+            guard isRunning else { return (.disconnected, false) }
+            let tunnel = tunnelStates[p.id]
+            if tunnel?.state == .unknown, case .connected = state(p.id) { return (state(p.id), false) }
+            guard let tunnel, tunnel.isUp else { return (.connecting(Phase.configuring), false) }
+            let ip = VPNLog.openConnectAddress(VPNLog.read(store.logURL(p.id)), interface: tunnel.interface)
+            return (.connected(ip: ip, since: connectedAt[p.id] ?? logCreated(p.id)), false)
         }
     }
 
@@ -769,6 +809,9 @@ public final class ConnectionManager: ObservableObject {
         followOnly: Bool = false, interactive: Bool = true,
         role: ((ConnectRole) -> Void)? = nil
     ) async throws {
+        // On every path (following too), before the helper is asked anything or a confirmation would
+        // decrypt the secrets.
+        if let p = try? store.get(id) { try Self.checkConnectable(p, macOS: systemVersion) }
         cancelReconnect(id)
         if let inFlight = connectTasks[id] { return try await inFlight.value }
         let current = state(id).isActive || followOnly ? nil : try? store.get(id)
@@ -829,6 +872,7 @@ public final class ConnectionManager: ObservableObject {
         removeSharedRetry(id)
         actionToken[id, default: 0] += 1
         codeWaits.removeValue(forKey: id)?.cancel()
+        signIns.removeValue(forKey: id)?.cancel()
         endSessionSecrets(id)
         changedDestinations.remove(id)
         userStopped.insert(id)
@@ -847,11 +891,15 @@ public final class ConnectionManager: ObservableObject {
     }
 
     /// The tool's log shows the tunnel up (OpenVPN "Initialization Sequence Completed" with no restart
-    /// after it, openfortivpn "Tunnel is up and running").
+    /// after it, openfortivpn "Tunnel is up and running", Cisco AnyConnect the hook's success line).
     private func toolLogSaysUp(_ id: String) -> Bool {
         guard let p = try? store.get(id) else { return false }
         let log = VPNLog.read(store.logURL(id))
-        return p.type == .openvpn ? VPNLog.openVPNIsUp(log) : VPNLog.fortiIsUp(log)
+        switch p.type {
+        case .openvpn: return VPNLog.openVPNIsUp(log)
+        case .forti: return VPNLog.fortiIsUp(log)
+        case .anyconnect: return VPNLog.openConnectIsUp(log)
+        }
     }
 
     /// Disconnect when connected or connecting, connect otherwise.
@@ -882,6 +930,8 @@ public final class ConnectionManager: ObservableObject {
         role: ((ConnectRole) -> Void)? = nil
     ) async throws {
         guard !isBusy(id), !state(id).isConnected else { return }
+        // Before the helper is asked for its status (checked again below on the profile as read then).
+        if let p = try? store.get(id) { try Self.checkConnectable(p, macOS: systemVersion) }
         // Before anything changes state: the last error of the attempt that ended stays visible.
         if followOnly, session(id, in: await currentStatus()) == nil { throw NothingToFollow() }
         guard !isBusy(id), !state(id).isConnected else { return }
@@ -897,6 +947,7 @@ public final class ConnectionManager: ObservableObject {
         lastError[id] = nil
         lastErrorLog[id] = nil
         failures[id] = nil
+        trustOffers[id] = nil
         warnings[id] = nil
         setState(id, .connecting(Phase.preparing))
         var progress = AttemptProgress()
@@ -904,6 +955,8 @@ public final class ConnectionManager: ObservableObject {
         do {
             // Always the profile as stored now (the CLI may have changed it), never a cached copy.
             let p = try store.get(id)
+            progress.profile = p
+            try Self.checkConnectable(p, macOS: systemVersion)
             let status = await currentStatus()
             if let session = session(id, in: status) {
                 role?(.followed)
@@ -956,6 +1009,11 @@ public final class ConnectionManager: ObservableObject {
                         username: creds.username ?? "", password: composed.secret, otp: composed.separateOTP,
                         trustedCert: p.trustedCert, setDNS: p.setDNS, setRoutes: p.setRoutes,
                         logPath: store.logURL(id).path))
+            case .anyconnect:
+                // The user's own sign-in first; only its cookie goes to the helper.
+                request = try await signIn(
+                    p, username: creds.username ?? "", password: creds.password ?? "", composed: composed, otp: otp,
+                    codeTime: codeTime, token: token, progress: &progress)
             }
             let response = try await helper.perform(request, timeout: timing.helperTimeout)
             guard response.ok else {
@@ -973,18 +1031,21 @@ public final class ConnectionManager: ObservableObject {
                 throw PTError.helperFailed(response.error ?? "")
             }
             progress.toolRan = true
+            // Cisco AnyConnect: the sign-in run had the code and the password (`signIn` noted both).
             let sent = sending(p, username: creds.username ?? "", password: creds.password ?? "", otp: otp, codeTime: codeTime)
-            progress.handed = ConnectionFailure.Handed(code: sent.code, codeSecondsLeft: sent.secondsLeft)
-            if let codeTime {
-                // The tool has it now; given back if it never reaches the server (`noteFailure`).
-                progress.usedCode = (usedCode(id), rememberUsedCode(p, at: codeTime))
+            if !progress.anyConnect {
+                progress.handed = ConnectionFailure.Handed(code: sent.code, codeSecondsLeft: sent.secondsLeft)
+                if let codeTime {
+                    // The tool has it now; given back if it never reaches the server (`noteFailure`).
+                    progress.usedCode = (usedCode(id), rememberUsedCode(p, at: codeTime))
+                }
             }
             if actionToken[id] != token {
                 // Disconnected while the helper was starting the tool; its stop may have come first.
                 await stopQuietly(id)
                 throw PTError.connectCancelled
             }
-            if creds.username != nil { record(id, .sending(sent)) }
+            if creds.username != nil && !progress.anyConnect { record(id, .sending(sent)) }
 
             if let socket = response.mgmtSocket { mgmtSockets[id] = socket }
             let result = try await waitUntilConnected(
@@ -1019,9 +1080,105 @@ public final class ConnectionManager: ObservableObject {
         }
     }
 
+    /// Cisco AnyConnect's sign-in (docs/ARCHITECTURE.md, "Authentication, split from the tunnel"): runs
+    /// `openconnect --authenticate` as the user (`AnyConnectSignIn`) and returns the start request with the
+    /// session cookie it got, the address and the key it reached, and the profile's own settings. The
+    /// password and the code go to openconnect's standard input only, as `OpenConnectAnswers` lays them out
+    /// for the profile's `otp_delivery` (`.separate`: the password, then the code; `.combined`: the composed
+    /// secret). The code counts as sent once the run starts (`.last-otp`); `progress.credentialsSent` tells
+    /// `noteFailure` whether it can be given back. The run's standard error, redacted, becomes the profile's log
+    /// (the helper replaces it when it starts the tunnel). `disconnect` stops a run under way.
+    private func signIn(
+        _ p: Profile, username: String, password: String, composed: (secret: String, separateOTP: String?), otp: String?,
+        codeTime: Date?, token: Int, progress: inout AttemptProgress
+    ) async throws -> HelperRequest {
+        let id = p.id
+        progress.anyConnect = true
+        let tool: AnyConnectSignIn.Tool
+        if let path = openConnectPath {
+            tool = AnyConnectSignIn.Tool(path: path)
+        } else {
+            // Linux: the distribution's, checked before the code is used (it runs the tool twice, as the user).
+            let lookup = AnyConnectSignIn.Lookup(locate: locateOpenConnect, runner: toolRunner)
+            let found = await withCheckedContinuation { (done: CheckedContinuation<Result<AnyConnectSignIn.Tool, Error>, Never>) in
+                DispatchQueue.global(qos: .userInitiated).async { done.resume(returning: lookup.run()) }
+            }
+            tool = try found.get()
+        }
+        let pin = p.serverCert.isEmpty ? "" : OpenConnectPin.normalize(p.serverCert) ?? p.serverCert
+        let config = OpenConnectAuthConfig(
+            host: p.host, port: p.port, usergroup: p.usergroup, username: username, authgroup: p.authgroup, serverCert: pin)
+        let texts = [composed.secret] + (composed.separateOTP.map { [$0] } ?? [])
+        let answers: SecretBytes
+        do {
+            answers = SecretBytes(try OpenConnectAnswers.stdin(texts))
+        } catch {
+            // Its description names the answer's position, never its value.
+            throw PTError.invalidField("password")
+        }
+        defer { answers.wipe() }
+
+        // openconnect has the code from here on: recorded now, given back by `noteFailure` when no form was sent.
+        let sent = sending(p, username: username, password: password, otp: otp, codeTime: codeTime)
+        progress.handed = ConnectionFailure.Handed(code: sent.code, codeSecondsLeft: sent.secondsLeft)
+        if let codeTime { progress.usedCode = (usedCode(id), rememberUsedCode(p, at: codeTime)) }
+        progress.credentialsSent = false
+        record(id, .sending(sent))
+        setState(id, .connecting(Phase.signingIn))
+
+        let run = AnyConnectSignIn(
+            toolPath: tool.path, runner: toolRunner, timeout: timing.signInTimeout, caFile: tool.caFile, noExternalAuth: tool.noExternalAuth)
+        let cancellation = ToolCancellation()
+        signIns[id] = cancellation
+        defer { if signIns[id] === cancellation { signIns[id] = nil } }
+        if actionToken[id] != token { cancellation.cancel() }
+        let secrets = Array(Set(texts + [password] + (otp.map { [$0] } ?? [])))
+        let server = serverAddress(p)
+        let outcome = await withTaskCancellationHandler {
+            await withCheckedContinuation { (done: CheckedContinuation<Result<AnyConnectSignIn.Success, AnyConnectSignIn.Failure>, Never>) in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    done.resume(
+                        returning: run.run(config, answers: answers.bytes, secrets: secrets, server: server, cancellation: cancellation))
+                }
+            }
+        } onCancel: {
+            cancellation.cancel()
+        }
+
+        switch outcome {
+        case .failure(let failure):
+            progress.credentialsSent = failure.credentialsSent
+            if !failure.log.isEmpty { writeSignInLog(id, failure.log) }
+            progress.toolRan = !failure.log.isEmpty
+            if actionToken[id] != token { throw PTError.connectCancelled }
+            throw failure.error
+        case .success(let success):
+            progress.credentialsSent = true
+            writeSignInLog(id, success.log)
+            progress.toolRan = true
+            try checkToken(id, token)
+            record(id, .authAccepted)
+            setState(id, .connecting(Phase.configuring))
+            let r = success.result
+            return .startOpenConnect(
+                OpenConnectStart(
+                    profileID: id, profileDir: store.dir(id).path, logPath: store.logURL(id).path, host: p.host, port: p.port,
+                    usergroup: p.usergroup, connectURL: r.connectURL, resolve: success.resolve, cookie: r.tunnelCookie,
+                    serverCert: r.fingerprint, profileServerCert: pin, tlsOnly: p.tlsOnly, setDNS: p.setDNS,
+                    setRoutes: p.setRoutes))
+        }
+    }
+
+    /// The sign-in's standard error (already redacted) as the profile's log, 0600; best effort.
+    private func writeSignInLog(_ id: String, _ log: String) {
+        guard FileManager.default.fileExists(atPath: store.dir(id).path) else { return }
+        try? FileIO.writeAtomically(Data(log.utf8), to: store.logURL(id), mode: 0o600)
+    }
+
     /// The helper's `status` reply, nil when it failed.
     private func currentStatus() async -> HelperResponse? {
         guard let r = try? await helper.perform(.status, timeout: timing.helperTimeout), r.ok else { return nil }
+        tunnelStates = r.tunnels ?? [:]
         return r
     }
 
@@ -1048,14 +1205,51 @@ public final class ConnectionManager: ObservableObject {
     }
     #endif
 
+    /// The macOS this process runs on; nil on Linux.
+    public nonisolated static var currentMacOS: OperatingSystemVersion? {
+        #if os(macOS)
+        return ProcessInfo.processInfo.operatingSystemVersion
+        #else
+        return nil
+        #endif
+    }
+
+    /// Why a profile of `type` cannot be connected on this system, nil when it can: what the front ends show
+    /// such a profile (and its type in the type picker) disabled with. Cisco AnyConnect needs macOS 15.4 or
+    /// later (`HelperCore.Tool.minimumMacOS`: dyld stops the bundled openconnect on anything older; owner
+    /// decision, #2): `PTError.anyConnectRequiresMacOS`. On Linux (`macOS` nil) nothing is refused here: the
+    /// distribution's openconnect is checked when the sign-in starts (`AnyConnectSignIn.distributionTool`).
+    public nonisolated static func connectRefusal(_ type: VPNType, macOS: OperatingSystemVersion? = currentMacOS) -> PTError? {
+        switch type {
+        case .openvpn, .forti:
+            return nil
+        case .anyconnect:
+            guard let macOS else { return nil }
+            let tool = HelperCore.Tool.openconnect
+            guard !tool.runs(on: macOS), let minimum = tool.minimumMacOS else { return nil }
+            return .anyConnectRequiresMacOS(HelperCore.Tool.versionText(minimum))
+        }
+    }
+
+    /// `connectRefusal` for this manager's system.
+    public func connectRefusal(_ type: VPNType) -> PTError? { Self.connectRefusal(type, macOS: systemVersion) }
+
+    /// Throws `connectRefusal`'s error for a profile whose type cannot be connected on this system: before
+    /// any secret is read, any confirmation is asked or the helper is asked anything.
+    public nonisolated static func checkConnectable(_ p: Profile, macOS: OperatingSystemVersion? = currentMacOS) throws {
+        if let refusal = connectRefusal(p.type, macOS: macOS) { throw refusal }
+    }
+
     /// The check `connect` runs before starting `id` (without `force`), on its own, so a caller can
     /// report a refusal before it says it is connecting. Nothing to check when the helper already runs
-    /// the profile (`connect` then follows that session). Throws when another VPN takes all traffic;
-    /// returns the profiles of PassTunnel's own sessions whose routes or DNS names overlap with the
-    /// ones `id` takes (`overlaps(for:)`), which is a warning for the caller to show, never a refusal.
+    /// the profile (`connect` then follows that session). Throws when another VPN takes all traffic or
+    /// the profile's type is not connected yet (`checkConnectable`); returns the profiles of PassTunnel's
+    /// own sessions whose routes or DNS names overlap with the ones `id` takes (`overlaps(for:)`), which
+    /// is a warning for the caller to show, never a refusal.
     @discardableResult
     public func checkCanStart(_ id: String) async throws -> [ProfileOverlap] {
         let p = try store.get(id)
+        try Self.checkConnectable(p, macOS: systemVersion)
         let status = await currentStatus()
         guard status?.running?[id] == nil else { return [] }
         if p.type == .openvpn { try checkNoOtherFullTunnel(p, running: status?.running ?? [:]) }
@@ -1091,7 +1285,9 @@ public final class ConnectionManager: ObservableObject {
             OVPNAnalyzer.redirectsGateway(config)
             ?? VPNLog.pushedRedirectGateway(VPNLog.readHead(store.logURL(p.id)))
         guard redirects else { return }
+        // Cisco AnyConnect sessions: the interface the helper reports from the hook's record.
         let own = Set(running.keys.filter { $0 != p.id }.compactMap { VPNLog.tunnelInterface(VPNLog.readHead(store.logURL($0))) })
+            .union(tunnelStates.filter { $0.key != p.id && running[$0.key] != nil }.compactMap(\.value.interface))
         if let other = FullTunnelCheck.foreignFullTunnel(in: routes(), own: own) {
             throw PTError.otherVPNActive(other)
         }
@@ -1197,6 +1393,11 @@ public final class ConnectionManager: ObservableObject {
             guard !p.host.trimmingCharacters(in: .whitespaces).isEmpty else { throw PTError.missingHost(id) }
             // The helper refuses it too; a profile.json changed outside the app fails here, before any secret is sent.
             guard FortiConfig.isValidHost(p.host) else { throw PTError.invalidField("host") }
+        case .anyconnect:
+            guard !p.host.trimmingCharacters(in: .whitespaces).isEmpty else { throw PTError.missingHost(id) }
+            // As stored, which is what the sign-in uses; a profile.json changed outside the app fails here.
+            guard Profile.isValidHost(p.host, type: .anyconnect) else { throw PTError.invalidField("host") }
+            try p.checkAnyConnectFields()
         }
         // A store that cannot be read says so (`SecretStoreUnavailable`), rather than "missing".
         if p.passwordMode == .keychain, try !Secrets.exists(id, .password) { throw PTError.missingPassword(id) }
@@ -1323,6 +1524,13 @@ public final class ConnectionManager: ObservableObject {
         var handed: ConnectionFailure.Handed?
         /// The used-code record before this attempt, and the one it wrote.
         var usedCode: (previous: UsedOTPWindow?, written: UsedOTPWindow)?
+        /// Cisco AnyConnect: the sign-in ran (or was about to run) in this process (`signIn`). Its errors carry
+        /// what the log says, and whether the credentials left is `credentialsSent`, not the log's markers.
+        var anyConnect = false
+        /// Whether the sign-in's credentials can have reached the server, when this process knows it.
+        var credentialsSent: Bool?
+        /// The profile as the attempt read it.
+        var profile: Profile?
     }
 
     /// Keeps why the attempt failed (`failures`), records it in the activity of a session this manager
@@ -1330,11 +1538,16 @@ public final class ConnectionManager: ObservableObject {
     /// connect need not wait for a fresh code (only if no other process recorded a code since). Not after
     /// a cancel: the tool may still be on its way to the server while the stop is under way.
     private func noteFailure(_ id: String, _ error: Error, _ progress: AttemptProgress) {
-        let log = progress.toolRan ? VPNLog.read(store.logURL(id)) : nil
-        var failure = ConnectionFailure.of(error, log: log, handed: progress.handed, at: clock.now())
+        // A Cisco AnyConnect log is openconnect's: its errors (`VPNLog.openConnectSignInError`, `waitUntilConnected`)
+        // already carry what it says, which the markers of the other tools would misread.
+        let anyConnect = progress.anyConnect || (try? store.get(id))?.type == .anyconnect
+        let log = progress.toolRan && !anyConnect ? VPNLog.read(store.logURL(id)) : nil
+        var failure = ConnectionFailure.of(
+            error, log: log, handed: progress.handed, at: clock.now(), credentialsSent: progress.credentialsSent)
         // A try of the retries counts on from the ones before it.
         if failure.kind == .unreachable, let retry = unreachableRetries[id] { failure.tries = retry.tries + (failure.tries ?? 1) }
         failures[id] = failure
+        trustOffers[id] = progress.profile.flatMap { ServerTrustOffer($0, pin: failure.serverCert) }
         if failure.kind == .authRejected && progress.owned { checkGatewayClock(id, after: failure) }
         if let used = progress.usedCode, !failure.credentialsSent, failure.kind != .cancelled, usedCode(id) == used.written {
             restoreUsedCode(id, used.previous)
@@ -1344,7 +1557,7 @@ public final class ConnectionManager: ObservableObject {
         case .authRejected: record(id, .rejected(reply: failure.reply))
         case .unreachable: record(id, .unreachable(tries: failure.tries ?? 1, reason: failure.reason))
         case .cancelled: break  // `disconnect` records the stop
-        case .hostNotFound, .configuration, .setup, .timeout, .toolUnsupported, .failed:
+        case .hostNotFound, .configuration, .setup, .timeout, .toolUnsupported, .hostScanRequired, .failed:
             record(id, .failed(kind: failure.kind, reason: failure.reason, credentialsSent: failure.credentialsSent))
         }
     }
@@ -1388,7 +1601,12 @@ public final class ConnectionManager: ObservableObject {
         owned: Bool = true
     ) async throws -> (ip: String, since: Date?) {
         let id = p.id
-        let timeout = p.type == .openvpn ? timing.openVPNTimeout : timing.fortiTimeout
+        let timeout: TimeInterval
+        switch p.type {
+        case .openvpn: timeout = timing.openVPNTimeout
+        case .forti: timeout = timing.fortiTimeout
+        case .anyconnect: timeout = timing.anyConnectTimeout
+        }
         let started = clock.now()
         var lastProcessCheck = started
         let logURL = store.logURL(id)
@@ -1403,16 +1621,37 @@ public final class ConnectionManager: ObservableObject {
         while true {
             try checkToken(id, token)
             let log = VPNLog.read(logURL)
-            if VPNLog.isAuthFailure(log) {
-                if owned { await stopQuietly(id) }
-                throw PTError.authFailed(VPNLog.tail(log))
+            if p.type == .anyconnect {
+                // The sign-in is over (`signIn` recorded it accepted). Up or failed is what the helper reads in
+                // the hook's record; the log only gives the address shown and the failure's tail.
+                if let r = try? await helper.perform(.status, timeout: timing.helperTimeout), r.ok {
+                    try checkToken(id, token)
+                    guard (r.running ?? [:])[id] != nil else {
+                        if hasUserStoppedMarker(id) { throw PTError.connectCancelled }
+                        throw anyConnectEnded(VPNLog.read(logURL))
+                    }
+                    let tunnel = r.tunnels?[id]
+                    if let tunnel { tunnelStates[id] = tunnel }
+                    if tunnel?.state == .failed {
+                        if owned { await stopQuietly(id) }
+                        throw PTError.setupFailed(reason: tunnel?.reason ?? "", log: VPNLog.tail(VPNLog.read(logURL)))
+                    }
+                    if let tunnel, tunnel.isUp {
+                        return (VPNLog.openConnectAddress(VPNLog.read(logURL), interface: tunnel.interface), clock.now())
+                    }
+                }
+            } else {
+                if VPNLog.isAuthFailure(log) {
+                    if owned { await stopQuietly(id) }
+                    throw PTError.authFailed(VPNLog.tail(log))
+                }
+                if VPNLog.isFatal(log) {
+                    if owned { await stopQuietly(id) }
+                    throw ended(p, log: log, exited: false)
+                }
+                try await checkSetup(p, log: log, owned: owned)
+                if VPNLog.authAccepted(log) { noteAccepted() }
             }
-            if VPNLog.isFatal(log) {
-                if owned { await stopQuietly(id) }
-                throw ended(p, log: log, exited: false)
-            }
-            try await checkSetup(p, log: log, owned: owned)
-            if VPNLog.authAccepted(log) { noteAccepted() }
             switch p.type {
             case .openvpn:
                 if let s = await managementState(id, socketPath: socketPath, pid: pid)?.state {
@@ -1436,6 +1675,8 @@ public final class ConnectionManager: ObservableObject {
                     noteAccepted()
                     return (VPNLog.fortiAddress(log) ?? "", clock.now())
                 }
+            case .anyconnect:
+                break  // above
             }
 
             let now = clock.now()
@@ -1448,16 +1689,28 @@ public final class ConnectionManager: ObservableObject {
                     // Stopped by a disconnect in another process (app ↔ CLI): a cancel, not a failure.
                     if hasUserStoppedMarker(id) { throw PTError.connectCancelled }
                     let final = VPNLog.read(logURL)
+                    if p.type == .anyconnect { throw anyConnectEnded(final) }
                     if VPNLog.isAuthFailure(final) { throw PTError.authFailed(VPNLog.tail(final)) }
                     throw ended(p, log: final, exited: true)
                 }
             }
             if clock.now().timeIntervalSince(started) >= timeout {
                 if owned { await stopQuietly(id) }
+                // Cisco AnyConnect: the sign-in reached the server already.
+                if p.type == .anyconnect { throw PTError.connectTimeout(Int(timeout)) }
                 throw unreached(p, log: VPNLog.read(logURL), timeout: timeout) ?? PTError.connectTimeout(Int(timeout))
             }
             do { try await clock.sleep(timing.connectCheckInterval) } catch { throw PTError.connectCancelled }
         }
+    }
+
+    /// Why the tunnel run of a Cisco AnyConnect session ended before it was up: dyld stopped it
+    /// (`toolUnsupported`; its line comes first, before the tool could write anything), else `connectFailed`
+    /// with the log's tail (the server ended the session, the cookie was refused, the helper stopped a set-up
+    /// that failed or took too long).
+    private func anyConnectEnded(_ log: String) -> PTError {
+        if let reason = VPNLog.toolLoadFailure(log) { return .toolUnsupported(reason: reason, log: VPNLog.tail(log)) }
+        return .connectFailed(VPNLog.tail(log))
     }
 
     /// An OpenVPN session whose DNS hook or all-traffic routes failed is unusable (another VPN is in
@@ -1617,7 +1870,8 @@ public final class ConnectionManager: ObservableObject {
         case .authFailed, .missingPassword, .missingTOTPSecret, .missingCredential, .missingConfig,
             .missingHost, .usernameTooLong, .invalidSecret, .profileNotFound, .otherVPNActive, .setupFailed,
             .userConfirmationCancelled, .userConfirmationFailed, .confirmationRequired, .protectedSecretUnreadable,
-            .protectionUnavailable:
+            .protectionUnavailable, .anyConnectRequiresMacOS, .anyConnectToolUnavailable, .hostScanRequired,
+            .serverCertificateRejected, .signInNeedsMoreAnswers, .signInUnusable:
             return false
         default:
             return true
@@ -2015,7 +2269,7 @@ public final class ConnectionManager: ObservableObject {
             let config = (try? FileIO.readText(store.ovpnURL(p.id), maxSize: ProfileStore.maxOVPNSize)) ?? ""
             guard let e = OVPNAnalyzer.endpoint(config) else { return .connecting(host: "", port: nil, transport: "udp") }
             return .connecting(host: ActivityEvent.clean(e.host, limit: 255), port: Int(e.port), transport: e.tcp ? "tcp" : "udp")
-        case .forti:
+        case .forti, .anyconnect:
             return .connecting(host: ActivityEvent.clean(p.host, limit: 255), port: p.port, transport: "tcp")
         }
     }
@@ -2063,6 +2317,7 @@ public final class ConnectionManager: ObservableObject {
         lastError[id] = nil
         lastErrorLog[id] = nil
         failures[id] = nil
+        trustOffers[id] = nil
         clockOffsets[id] = nil
         sessionActive.remove(id)
         userStopped.remove(id)

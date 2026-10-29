@@ -1,0 +1,238 @@
+{
+  "about": "Cisco AnyConnect server URLs as users paste them: the host, port and user group a profile takes, or null when the text is refused.",
+  "parse": [
+    {
+      "url": "https://vpn.example.com",
+      "server": {
+        "host": "vpn.example.com",
+        "port": 443,
+        "usergroup": ""
+      }
+    },
+    {
+      "url": "https://vpn.example.com/",
+      "server": {
+        "host": "vpn.example.com",
+        "port": 443,
+        "usergroup": ""
+      }
+    },
+    {
+      "url": "https://vpn.example.com:8443/engineering",
+      "server": {
+        "host": "vpn.example.com",
+        "port": 8443,
+        "usergroup": "engineering"
+      }
+    },
+    {
+      "url": "https://vpn.example.com:443/engineering",
+      "server": {
+        "host": "vpn.example.com",
+        "port": 443,
+        "usergroup": "engineering"
+      }
+    },
+    {
+      "note": "the host is lowercased, the group kept as written",
+      "url": "HTTPS://VPN.Example.COM/Sales",
+      "server": {
+        "host": "vpn.example.com",
+        "port": 443,
+        "usergroup": "Sales"
+      }
+    },
+    {
+      "note": "https:// may be left out",
+      "url": "vpn.example.com/engineering",
+      "server": {
+        "host": "vpn.example.com",
+        "port": 443,
+        "usergroup": "engineering"
+      }
+    },
+    {
+      "url": "vpn.example.com:10443",
+      "server": {
+        "host": "vpn.example.com",
+        "port": 10443,
+        "usergroup": ""
+      }
+    },
+    {
+      "note": "blanks around it are dropped",
+      "url": "  https://vpn.example.com/engineering \n",
+      "server": {
+        "host": "vpn.example.com",
+        "port": 443,
+        "usergroup": "engineering"
+      }
+    },
+    {
+      "url": "https://203.0.113.5/eng/vpn",
+      "server": {
+        "host": "203.0.113.5",
+        "port": 443,
+        "usergroup": "eng/vpn"
+      }
+    },
+    {
+      "note": "a trailing slash is part of the path",
+      "url": "https://vpn.example.com/engineering/",
+      "server": {
+        "host": "vpn.example.com",
+        "port": 443,
+        "usergroup": "engineering/"
+      }
+    },
+    {
+      "url": "https://[2001:db8::1]:8443/engineering",
+      "server": {
+        "host": "2001:db8::1",
+        "port": 8443,
+        "usergroup": "engineering"
+      }
+    },
+    {
+      "url": "https://[2001:DB8::A]/",
+      "server": {
+        "host": "2001:db8::a",
+        "port": 443,
+        "usergroup": ""
+      }
+    },
+    {
+      "note": "only https",
+      "url": "http://vpn.example.com/engineering",
+      "server": null
+    },
+    {
+      "url": "ftp://vpn.example.com",
+      "server": null
+    },
+    {
+      "url": "https//vpn.example.com",
+      "server": null
+    },
+    {
+      "note": "user info",
+      "url": "https://alice@vpn.example.com/",
+      "server": null
+    },
+    {
+      "url": "https://alice:secret@vpn.example.com/",
+      "server": null
+    },
+    {
+      "note": "a query",
+      "url": "https://vpn.example.com/engineering?x=1",
+      "server": null
+    },
+    {
+      "url": "https://vpn.example.com/engineering?",
+      "server": null
+    },
+    {
+      "note": "a fragment",
+      "url": "https://vpn.example.com/#top",
+      "server": null
+    },
+    {
+      "note": "percent escapes",
+      "url": "https://vpn.example.com/eng%20group",
+      "server": null
+    },
+    {
+      "url": "https://vpn.example.com/eng group",
+      "server": null
+    },
+    {
+      "url": "https://vpn.example.com/eng\ngroup",
+      "server": null
+    },
+    {
+      "note": "the group cannot start with /",
+      "url": "https://vpn.example.com//engineering",
+      "server": null
+    },
+    {
+      "url": "https://vpn.example.com/eng/../admin",
+      "server": null
+    },
+    {
+      "url": "https://vpn.example.com:0/",
+      "server": null
+    },
+    {
+      "url": "https://vpn.example.com:65536/",
+      "server": null
+    },
+    {
+      "note": "a leading zero",
+      "url": "https://vpn.example.com:08443/",
+      "server": null
+    },
+    {
+      "url": "https://vpn.example.com:/",
+      "server": null
+    },
+    {
+      "url": "https://vpn.example.com:https/",
+      "server": null
+    },
+    {
+      "url": "https://vpn.example.com:+443/",
+      "server": null
+    },
+    {
+      "note": "an IPv6 address needs brackets",
+      "url": "https://2001:db8::1/",
+      "server": null
+    },
+    {
+      "note": "no zone id",
+      "url": "https://[fe80::1%25en0]/",
+      "server": null
+    },
+    {
+      "url": "https://[2001:db8::1/",
+      "server": null
+    },
+    {
+      "url": "https://[2001:db8::1]x/",
+      "server": null
+    },
+    {
+      "url": "https://[vpn.example.com]/",
+      "server": null
+    },
+    {
+      "url": "https://[203.0.113.5]/",
+      "server": null
+    },
+    {
+      "url": "https://-vpn.example.com/",
+      "server": null
+    },
+    {
+      "url": "https://vpn_example.com/",
+      "server": null
+    },
+    {
+      "url": "https://",
+      "server": null
+    },
+    {
+      "url": "https:///engineering",
+      "server": null
+    },
+    {
+      "url": "",
+      "server": null
+    },
+    {
+      "url": " \t",
+      "server": null
+    }
+  ]
+}

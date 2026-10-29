@@ -78,6 +78,7 @@ public struct FailureDetails: Equatable {
         case .timeout: return String(localized: "Did not connect in time")
         case .cancelled: return String(localized: "Stopped by you")
         case .toolUnsupported: return String(localized: "The VPN tool does not run on this macOS")
+        case .hostScanRequired: return String(localized: "The server requires a host scan")
         case .failed: return String(localized: "Could not connect")
         }
     }

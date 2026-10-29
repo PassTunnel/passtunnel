@@ -113,6 +113,9 @@ enum FixtureRunner {
         ],
         "profile-fields.json": [
             "set": Group(inputs: ["type", "key", "value"], run: fieldsSet)
+        ],
+        "anyconnect-servers.json": [
+            "parse": Group(inputs: ["url"], run: anyConnectServer)
         ]
     ]
 
@@ -434,6 +437,15 @@ enum FixtureRunner {
         return [
             "merged": try encoded(merged),
             "changed_fields": .array(try ProfileMerge.changedFields(from: original, to: edited).map { .string($0) })
+        ]
+    }
+
+    static func anyConnectServer(_ c: [String: JSON]) throws -> [String: JSON] {
+        guard let server = AnyConnectServer.parse(try str(c, "url")) else { return ["server": .null] }
+        return [
+            "server": .object([
+                "host": .string(server.host), "port": .number(Double(server.port)), "usergroup": .string(server.usergroup)
+            ])
         ]
     }
 

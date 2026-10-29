@@ -1,11 +1,12 @@
 #!/bin/bash
-# Copies openvpn and openfortivpn from Homebrew into an app bundle together with every non-system
-# dylib they need, rewrites their load paths so nothing points into Homebrew, and collects licenses.
+# Copies openvpn, openfortivpn and openconnect from Homebrew into an app bundle together with every
+# non-system dylib they need, rewrites their load paths so nothing points into Homebrew, and collects
+# licenses.
 #
 #   scripts/bundle-tools.sh build/PassTunnel.app
 #
 # Layout produced:
-#   Contents/Resources/bin/{openvpn,openfortivpn,dns-updown}
+#   Contents/Resources/bin/{openvpn,openfortivpn,openconnect,dns-updown}
 #   Contents/Frameworks/*.dylib
 #   Contents/Resources/licenses/*
 # Binaries are ad-hoc signed here so they stay runnable; build-app.sh re-signs them. The Homebrew
@@ -17,10 +18,13 @@ APP="${1:?usage: $0 <App.app>}"
 BREW="${HOMEBREW_PREFIX:-/opt/homebrew}"
 OPENVPN="$BREW/opt/openvpn/sbin/openvpn"
 OPENFORTIVPN="$BREW/opt/openfortivpn/bin/openfortivpn"
+# Homebrew installs openconnect in bin (--sbindir=#{bin}). Only the binary and its libraries: never
+# etc/vpnc/vpnc-script or anything in libexec/openconnect (csd-wrapper, hipreport, tncc).
+OPENCONNECT="$BREW/opt/openconnect/bin/openconnect"
 
 [[ -d "$APP/Contents" ]] || { echo "error: $APP is not an app bundle" >&2; exit 1; }
-for t in "$OPENVPN" "$OPENFORTIVPN"; do
-    [[ -x "$t" ]] || { echo "error: $t not found (brew install openvpn openfortivpn)" >&2; exit 1; }
+for t in "$OPENVPN" "$OPENFORTIVPN" "$OPENCONNECT"; do
+    [[ -x "$t" ]] || { echo "error: $t not found (brew install openvpn openfortivpn openconnect)" >&2; exit 1; }
 done
 
 BIN="$APP/Contents/Resources/bin"
@@ -52,7 +56,8 @@ cellar_dir_of() {
 # --- tools --------------------------------------------------------------------------------------
 cp "$(realpath "$OPENVPN")" "$BIN/openvpn"
 cp "$(realpath "$OPENFORTIVPN")" "$BIN/openfortivpn"
-chmod 755 "$BIN/openvpn" "$BIN/openfortivpn"
+cp "$(realpath "$OPENCONNECT")" "$BIN/openconnect"
+chmod 755 "$BIN/openvpn" "$BIN/openfortivpn" "$BIN/openconnect"
 
 # OpenVPN's DNS hook; the helper passes it explicitly (--dns-updown) after checking its signature.
 DNS_UPDOWN="$(cellar_dir_of "$OPENVPN")/libexec/openvpn/dns-updown"
@@ -66,8 +71,8 @@ fi
 # --- dependency closure ---------------------------------------------------------------------------
 # Breadth-first over load commands. Libraries are keyed by file name (libcrypto.3 and libcrypto.4
 # are different names, so OpenSSL 3 and 4 coexist).
-queue=("$BIN/openvpn" "$BIN/openfortivpn")
-sources=("$OPENVPN" "$OPENFORTIVPN")
+queue=("$BIN/openvpn" "$BIN/openfortivpn" "$BIN/openconnect")
+sources=("$OPENVPN" "$OPENFORTIVPN" "$OPENCONNECT")
 seen_list="$FW/.seen"            # "<name> <real path>" per collected library
 : > "$seen_list"
 i=0
@@ -158,7 +163,7 @@ rewrite() {
     done
 }
 
-for tool in "$BIN/openvpn" "$BIN/openfortivpn"; do
+for tool in "$BIN/openvpn" "$BIN/openfortivpn" "$BIN/openconnect"; do
     rewrite "$tool" "@executable_path/../../Frameworks"
 done
 for lib in "$FW"/*.dylib; do
@@ -166,14 +171,61 @@ for lib in "$FW"/*.dylib; do
     rewrite "$lib" "@loader_path"
 done
 
+# --- configuration paths compiled into the libraries -------------------------------------------------
+# Some libraries read files from the Homebrew prefix by themselves, whatever the command line says, and
+# the tools run as root: whoever can write the prefix (the user who installed Homebrew) would get root.
+# libp11-kit loads its system configuration and module files (pkcs11.conf, etc/modules,
+# etc/pkcs11/modules) as soon as GnuTLS initializes PKCS#11, which openconnect does before it reads its
+# options, even for --version; a module file can name a command to run ("remote: |command") or a
+# library to load, and no environment variable moves the system paths. GnuTLS's system configuration
+# (etc/gnutls/config) can name a PKCS#11 provider library to load, and its default trust store
+# (etc/gnutls/cert.pem) would trust whatever certificate is added there. Each such string is
+# overwritten in place with NEUTRAL_PATH, NUL-padded to its length, so the library finds nothing:
+# /var/empty is root-owned and empty, and only root could create anything in it. Nothing else of the
+# libraries changes (the same bytes in, the same bytes out). Other Homebrew paths left in the tools
+# are handled where they are run (docs/ARCHITECTURE.md, Bundling and pins).
+NEUTRAL_PATH=/var/empty/none
+NEUTRALIZE=(
+    "libp11-kit.0.dylib:$BREW/"           # every path: configuration, module directories, module path
+    "libgnutls.30.dylib:$BREW/etc/"       # gnutls/config, gnutls/cert.pem
+)
+neutralize() {
+    local file="$1" prefix="$2"
+    perl -e '
+        my ($file, $prefix, $neutral) = @ARGV;
+        open(my $in, "<:raw", $file) or die "error: $file: $!\n";
+        my $data = do { local $/; <$in> };
+        close($in);
+        my $count = 0;
+        # Whole C strings only: at the start of the file or after a NUL, up to the next NUL.
+        $data =~ s{(?<![^\0])(\Q$prefix\E[^\0]*)(?=\0)}{
+            my $old = $1;
+            length($old) >= length($neutral) or die "error: $file: \"$old\" is shorter than $neutral\n";
+            $count++;
+            print "  $file: $old\n";
+            $neutral . ("\0" x (length($old) - length($neutral)));
+        }ge;
+        $count or die "error: $file has no strings under $prefix (has the library changed?)\n";
+        open(my $out, ">:raw", $file) or die "error: $file: $!\n";
+        print $out $data;
+        close($out) or die "error: $file: $!\n";
+    ' "$file" "$prefix" "$NEUTRAL_PATH"
+}
+echo "Neutralized paths (now $NEUTRAL_PATH):"
+for entry in "${NEUTRALIZE[@]}"; do
+    lib="$FW/${entry%%:*}"
+    [[ -f "$lib" ]] || { echo "error: ${entry%%:*} is not bundled; update NEUTRALIZE in $0" >&2; exit 1; }
+    (cd "$FW" && neutralize "$(basename "$lib")" "${entry#*:}")
+done
+
 # install_name_tool invalidates signatures; arm64 needs at least an ad-hoc one to run.
-for f in "$FW"/*.dylib "$BIN/openvpn" "$BIN/openfortivpn"; do
+for f in "$FW"/*.dylib "$BIN/openvpn" "$BIN/openfortivpn" "$BIN/openconnect"; do
     codesign --force --sign - "$f" 2>/dev/null
 done
 
 # --- verify ---------------------------------------------------------------------------------------
 bad=0
-for f in "$BIN/openvpn" "$BIN/openfortivpn" "$FW"/*.dylib; do
+for f in "$BIN/openvpn" "$BIN/openfortivpn" "$BIN/openconnect" "$FW"/*.dylib; do
     if otool -L "$f" | tail -n +2 | grep -E "$BREW|/usr/local/" >/dev/null; then
         echo "error: $f still links into Homebrew:" >&2
         otool -L "$f" | grep -E "$BREW|/usr/local/" >&2
@@ -184,6 +236,18 @@ for f in "$BIN/openvpn" "$BIN/openfortivpn" "$FW"/*.dylib; do
         bad=1
     fi
 done
+for entry in "${NEUTRALIZE[@]}"; do
+    lib="$FW/${entry%%:*}"
+    if LC_ALL=C grep -aq -- "${entry#*:}" "$lib"; then
+        echo "error: $lib still holds a path under ${entry#*:}:" >&2
+        strings -a "$lib" | grep -F -- "${entry#*:}" >&2
+        bad=1
+    fi
+done
+if LC_ALL=C grep -aqE "$BREW/|/usr/local/" "$FW/libp11-kit.0.dylib"; then
+    echo "error: libp11-kit.0.dylib still names the Homebrew prefix" >&2
+    bad=1
+fi
 ((bad == 0)) || exit 1
 
 # --- minimum macOS ----------------------------------------------------------------------------------
@@ -194,9 +258,12 @@ done
 # --- licenses -------------------------------------------------------------------------------------
 notice="$LIC/THIRD_PARTY_NOTICES.txt"
 {
-    echo "PassTunnel bundles the following third-party software, unmodified, built by Homebrew."
+    echo "PassTunnel bundles the following third-party software, built by Homebrew. It is unmodified"
+    echo "apart from library load paths and, in libp11-kit (p11-kit) and libgnutls (GnuTLS), the"
+    echo "configuration paths compiled in, overwritten with $NEUTRAL_PATH (a path that does not exist)."
     echo "Their licenses are in this folder. Source code is available from the upstream projects"
-    echo "listed below and from https://github.com/Homebrew/homebrew-core."
+    echo "listed below and from https://github.com/Homebrew/homebrew-core. How to run PassTunnel with a"
+    echo "modified LGPL library: THIRD_PARTY_NOTICES.md in https://github.com/$GITHUB_REPO."
     echo
 } > "$notice"
 done_formulas=" "
@@ -225,6 +292,19 @@ for src in "${sources[@]}"; do
         lzo) lic="GPL-2.0"; url="https://www.oberhumer.com/opensource/lzo/" ;;
         lz4) lic="BSD-2-Clause"; url="https://github.com/lz4/lz4" ;;
         pkcs11-helper) lic="BSD-3-Clause or GPL-2.0"; url="https://github.com/OpenSC/pkcs11-helper" ;;
+        openconnect) lic="LGPL-2.1"; url="https://www.infradead.org/openconnect/download.html" ;;
+        gnutls) lic="LGPL-2.1 or later (the library; its GPL-3.0 tools are not bundled)"; url="https://www.gnutls.org/download.html" ;;
+        nettle) lic="LGPL-3.0 or later, or GPL-2.0 or later"; url="https://www.lysator.liu.se/~nisse/nettle/" ;;
+        gmp) lic="LGPL-3.0 or later, or GPL-2.0 or later"; url="https://gmplib.org/#DOWNLOAD" ;;
+        p11-kit) lic="BSD-3-Clause"; url="https://github.com/p11-glue/p11-kit/releases" ;;
+        libtasn1) lic="LGPL-2.1 or later"; url="https://www.gnu.org/software/libtasn1/" ;;
+        libidn2) lic="LGPL-3.0 or later, or GPL-2.0 or later (the library)"; url="https://www.gnu.org/software/libidn/#libidn2" ;;
+        libunistring) lic="LGPL-3.0 or later, or GPL-2.0 or later"; url="https://www.gnu.org/software/libunistring/" ;;
+        # Only libintl is bundled; its license text is the LGPL-2.1 (gnutls-COPYING.LESSERv2).
+        gettext) lic="LGPL-2.1 or later (libintl; its GPL-3.0 tools are not bundled)"; url="https://www.gnu.org/software/gettext/" ;;
+        stoken) lic="LGPL-2.1 or later"; url="https://github.com/stoken-dev/stoken" ;;
+        libtomcrypt) lic="Public domain or WTFPL-2.0"; url="https://github.com/libtom/libtomcrypt" ;;
+        libtommath) lic="Unlicense"; url="https://github.com/libtom/libtommath" ;;
         *) lic="see license files"; url="${homepage:-}" ;;
     esac
     printf '%-16s %-10s %s\n%16s %s\n\n' "$formula" "$version" "$lic" "" "$url" >> "$notice"

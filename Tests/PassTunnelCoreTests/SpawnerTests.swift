@@ -102,6 +102,51 @@ final class SpawnerTests: XCTestCase {
         XCTAssertEqual(lines.sorted(), HelperCore.fixedEnvironment.sorted())
     }
 
+    /// The helper writes the session's `state` here, before the tool can run its hook.
+    func testBeforeResumeRunsWhileSuspendedAndItsFailureKillsTheChild() throws {
+        var seen: (pid: pid_t, stopped: Bool)?
+        let pid = try Spawner.spawnVerified(
+            executable: "/bin/echo", arguments: ["started"], environment: HelperCore.fixedEnvironment,
+            workingDirectory: dir.path, outputFD: outputFD, verifier: FakeVerifier(accept: true),
+            beforeResume: { seen = ($0, Self.isStopped($0)) })
+        XCTAssertEqual(seen?.pid, pid)
+        XCTAssertEqual(seen?.stopped, true)
+        XCTAssertEqual(waitForExit(pid), 0)
+
+        struct NotRecorded: Error {}
+        var failed: pid_t = 0
+        XCTAssertThrowsError(
+            try Spawner.spawnVerified(
+                executable: "/bin/echo", arguments: ["never"], environment: HelperCore.fixedEnvironment,
+                workingDirectory: dir.path, outputFD: outputFD, verifier: FakeVerifier(accept: true),
+                beforeResume: {
+                    failed = $0
+                    throw NotRecorded()
+                })
+        ) { XCTAssertTrue($0 is NotRecorded) }
+        XCTAssertTrue(Self.isGone(failed), "killed and reaped before it ran")
+        // A rejected child never reaches it.
+        var reached = false
+        XCTAssertThrowsError(
+            try Spawner.spawnVerified(
+                executable: "/bin/echo", arguments: ["never"], environment: HelperCore.fixedEnvironment,
+                workingDirectory: dir.path, outputFD: outputFD, verifier: FakeVerifier(accept: false),
+                beforeResume: { _ in reached = true }))
+        XCTAssertFalse(reached)
+        XCTAssertEqual(try outputText(), "started\n")
+    }
+
+    /// openconnect's environment as spawned: exactly `HelperCore.environment(for: .openconnect)`, nothing
+    /// from the helper's own (here a proxy and a TLS key log are set in it).
+    func testOpenConnectGetsOnlyItsBuiltEnvironment() throws {
+        for name in ["https_proxy", "SSLKEYLOGFILE", "GNUTLS_DEBUG_LEVEL"] { setenv(name, "/tmp/pt-leak", 1) }
+        defer { for name in ["https_proxy", "SSLKEYLOGFILE", "GNUTLS_DEBUG_LEVEL"] { unsetenv(name) } }
+        let pid = try spawn("/usr/bin/env", [], verifier: FakeVerifier(accept: true), environment: HelperCore.environment(for: .openconnect))
+        XCTAssertEqual(waitForExit(pid), 0)
+        let lines = try outputText().split(separator: "\n").map(String.init)
+        XCTAssertEqual(lines.sorted(), HelperCore.environment(for: .openconnect).sorted())
+    }
+
     func testChildRunsInItsOwnProcessGroup() throws {
         let verifier = FakeVerifier(accept: true)
         verifier.before = { XCTAssertEqual(getpgid(verifier.pid), verifier.pid) }

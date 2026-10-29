@@ -86,6 +86,9 @@ final class FakeHelper: HelperClienting, @unchecked Sendable {
     private let lock = NSLock()
     private var _requests: [HelperRequest] = []
     private var _running: [String: Int32] = [:]
+    private var _tunnels: [String: TunnelStatus] = [:]
+    /// What the hook's record of a started openconnect session says (the helper's `status` reports it).
+    var openConnectTunnel = TunnelStatus(state: .up, interface: "utun5")
     private var servers: [String: LoopingManagementServer] = [:]
     private var sockets: [String: String] = [:]
 
@@ -123,7 +126,7 @@ final class FakeHelper: HelperClienting, @unchecked Sendable {
     var starts: [HelperRequest] {
         requests.filter {
             switch $0 {
-            case .startOpenVPN, .startForti: return true
+            case .startOpenVPN, .startForti, .startOpenConnect: return true
             default: return false
             }
         }
@@ -155,11 +158,11 @@ final class FakeHelper: HelperClienting, @unchecked Sendable {
             }
             onStatus?(call)
             if let error = locked({ statusError }) { throw error }
-            let (snapshot, socks, delay) = locked { () -> ([String: Int32], [String: String], TimeInterval) in
-                (_running, sockets, _statusDelayPop())
+            let (snapshot, socks, tunnels, delay) = locked { () -> ([String: Int32], [String: String], [String: TunnelStatus], TimeInterval) in
+                (_running, sockets, _tunnels.filter { _running[$0.key] != nil }, _statusDelayPop())
             }
             if delay > 0 { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
-            return .success(running: snapshot, mgmtSockets: socks)
+            return .success(running: snapshot, mgmtSockets: socks, tunnels: tunnels)
         case .startOpenVPN(let s):
             onStart?(request)
             // Like the helper: only the config.ovpn the app checked is started.
@@ -189,6 +192,18 @@ final class FakeHelper: HelperClienting, @unchecked Sendable {
             write(startLog, to: s.logPath)
             if !locked({ exitAtStart }) { locked { _running[s.profileID] = 4343 } }
             return .success(pid: 4343)
+        case .startOpenConnect(let s):
+            onStart?(request)
+            if let failure = takeFailure() { return failure }
+            // Like the helper: a fresh log, which openconnect and its hook then write to.
+            write(startLog, to: s.logPath)
+            if !locked({ exitAtStart }) {
+                locked {
+                    _running[s.profileID] = 4545
+                    _tunnels[s.profileID] = openConnectTunnel
+                }
+            }
+            return .success(pid: 4545)
         case .stop(let id):
             // Like the helper: the pid only when something was running.
             let pid = locked { _running[id] }
@@ -214,9 +229,15 @@ final class FakeHelper: HelperClienting, @unchecked Sendable {
     }
 
     /// The VPN process went away (drop, crash or stop).
+    /// The hook's record of `id`'s openconnect session changed.
+    func setTunnel(_ id: String, _ status: TunnelStatus?) {
+        locked { _tunnels[id] = status }
+    }
+
     func simulateExit(_ id: String) {
         let server = locked { () -> LoopingManagementServer? in
             _running[id] = nil
+            _tunnels[id] = nil
             sockets[id] = nil
             return servers.removeValue(forKey: id)
         }

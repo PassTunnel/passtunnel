@@ -86,7 +86,7 @@ they all match.
    Add the same key to the GitHub account as a *signing* key so the tag shows as verified (GPG works
    too: `user.signingkey` set to the key ID).
 6. **Tools.** Xcode (Swift 5.10+, `xcstringstool`, `notarytool`, `stapler`),
-   `brew install openvpn openfortivpn` (bundled into the app, at the versions pinned in
+   `brew install openvpn openfortivpn openconnect` (bundled into the app, at the versions pinned in
    `release.env`; see [Bundled tools](#bundled-tools)) and `jq` (part of macOS 15 and later, else
    `brew install jq`). No Node.js or npm: the MCP bundle is built with macOS tools and `jq` only.
    Optional: `brew install mcp-publisher`, then `release.sh` also validates
@@ -111,7 +111,7 @@ they all match.
      version, which has no release yet: they count for nothing, breaking or not, and are not in the
      notes. Phase 3 of [docs/LINUX.md](LINUX.md#phases), which releases Linux, revisits this.
    - **Build and publish** waits for approval in the environment `release` (Actions → the run →
-     *Review deployments*). It then installs `openvpn` and `openfortivpn` with Homebrew, puts the
+     *Review deployments*). It then installs `openvpn`, `openfortivpn` and `openconnect` with Homebrew, puts the
      Developer ID identity and the notarytool profile into a temporary keychain, writes the Sparkle
      key and the tag signing key to files, sets up git to sign tags with the latter
      ([Signed tags](#signed-tags)) and runs
@@ -384,11 +384,14 @@ One-time setup).
 
 ## Bundled tools
 
-`openvpn`, `openfortivpn` and their libraries come from the release Mac's Homebrew.
+`openvpn`, `openfortivpn`, `openconnect` and their libraries come from the release Mac's Homebrew.
 `bundle-tools.sh` prints the formula versions it bundles and stops the build unless each one
 matches its pin in `release.env` (`OPENVPN_VERSION`, `OPENFORTIVPN_VERSION`, `OPENSSL4_VERSION`,
-`LZ4_VERSION`, `LZO_VERSION`, `PKCS11_HELPER_VERSION`; the name is the formula in capitals without
-`@`, `-` as `_`, so `openssl@3` would be `OPENSSL3_VERSION`). A pin is the Cellar directory name,
+`LZ4_VERSION`, `LZO_VERSION`, `PKCS11_HELPER_VERSION`; for openconnect `OPENCONNECT_VERSION`,
+`GNUTLS_VERSION`, `NETTLE_VERSION`, `GMP_VERSION`, `P11_KIT_VERSION`, `LIBTASN1_VERSION`,
+`LIBIDN2_VERSION`, `LIBUNISTRING_VERSION`, `GETTEXT_VERSION`, `STOKEN_VERSION`,
+`LIBTOMCRYPT_VERSION`, `LIBTOMMATH_VERSION`; the name is the formula in capitals without `@`, `-` as
+`_`, so `openssl@3` would be `OPENSSL3_VERSION`). A pin is the Cellar directory name,
 including a Homebrew revision such as `1.24.1_1`; a formula without a pin, or a pin that is not
 bundled, also stops it. When Homebrew moves a tool to another library (openvpn 2.7.8_1 moved from
 `openssl@3` to `openssl@4`), the build lists the new formula as not pinned and the old pin as not
@@ -398,15 +401,16 @@ To move to new versions:
 
 ```sh
 brew update
-brew outdated openvpn openfortivpn openssl@4 lz4 lzo pkcs11-helper
-HOMEBREW_VERIFY_ATTESTATIONS=1 brew upgrade openvpn openfortivpn   # and the libraries
+brew outdated openvpn openfortivpn openconnect openssl@4 lz4 lzo pkcs11-helper gnutls nettle gmp \
+    p11-kit libtasn1 libidn2 libunistring gettext stoken libtomcrypt libtommath
+HOMEBREW_VERIFY_ATTESTATIONS=1 brew upgrade openvpn openfortivpn openconnect   # and the libraries
 scripts/build-app.sh                                               # prints the versions it found
 ```
 
 Read the upstream changelogs (security fixes in particular), set the new versions in `release.env`,
 build again and send the pins as a pull request (`fix(deps): bundle openvpn 2.7.8`, so it releases).
-The release workflow and the Repeatable build run `brew update`, install `openvpn` and `openfortivpn`
-and upgrade exactly the bundled formulas (the runner image ships older versions of some, which
+The release workflow and the Repeatable build run `brew update`, install `openvpn`, `openfortivpn`
+and `openconnect` and upgrade exactly the bundled formulas (the runner image ships older versions of some, which
 `brew install` leaves alone), so both stop as soon as Homebrew has moved past a pin; the same pull
 request fixes that. For a local build against other
 versions, `PASSTUNNEL_ALLOW_UNPINNED_TOOLS=1 scripts/build-app.sh` only warns; `release.sh`
@@ -420,7 +424,7 @@ from macOS a symbol its minimum macOS does not export ([ARCHITECTURE.md](ARCHITE
 of the tools):
 
 ```
-error: Frameworks/libidn2.0.dylib imports _strchrnul from /usr/lib/libSystem.B.dylib, which macOS 13.0 does not export (built for macOS 26.0)
+error: Frameworks/libopenconnect.5.dylib imports _strchrnul from /usr/lib/libSystem.B.dylib, which macOS 13.0 does not export (built for macOS 26.0)
 ```
 
 A new tool version that does this would abort at launch on older Macs. Keep the old pin and report it
@@ -445,16 +449,19 @@ scripts/make-system-symbols.sh 15.4 MacOSX15.4.sdk -- /usr/lib/libSystem.B.dylib
 
 Without install names it rewrites the libraries already listed for that version. An SDK is the
 `Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX*.sdk` of the Xcode that shipped it
-(12.3: Xcode 13.3, 13.1: Xcode 14.2, 15.4: Xcode 16.3); only its `SDKSettings.json` and the `.tbd`
-stubs are read (llvm-readtapi of the current Xcode, and jq).
+(12.3: Xcode 13.3, 13.1: Xcode 14.2, 15.4: Xcode 16.3; the Command Line Tools for Xcode 26 also
+install `/Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk`, with the same stubs, which the 15.4
+lists were made from); only its `SDKSettings.json` and the `.tbd` stubs are read (llvm-readtapi of
+the current Xcode, and jq). The 15.4 lists are for openconnect's closure (`TOOL_MINIMUMS`); a library
+it shares with `openvpn` or `openfortivpn` is held to 13.0, the lower of the two.
 
 ### Tool cdhash pins
 
 The helper runs only the exact tool and library builds it shipped with: it copies `openvpn`,
-`openfortivpn` and the dylibs in `Contents/Frameworks` into `/var/run/passtunnel/tools/<helper build>/`
+`openfortivpn`, `openconnect` (not run yet) and the dylibs in `Contents/Frameworks` into `/var/run/passtunnel/tools/<helper build>/`
 (root-owned) and checks every copy against the pins before running the tools from there.
 `build-app.sh` therefore signs the bundled tools and their libraries **before** compiling, writes the
-cdhash of every architecture of `openvpn`, `openfortivpn`, `dns-updown` and every
+cdhash of every architecture of `openvpn`, `openfortivpn`, `openconnect`, `dns-updown` and every
 `Contents/Frameworks/*.dylib` to `Sources/PassTunnelShared/PinnedTools+Generated.swift`
 (gitignored, deleted when the script exits) and builds with `swift build -c release -Xswiftc
 -DPASSTUNNEL_TOOL_PINS`. Without that define (`swift build`, `swift test`) nothing is pinned and the
@@ -464,8 +471,8 @@ helper only checks the tools' signing identifier and Team ID.
   build (by hand or in a script): a new signature changes the cdhash, and the helper then refuses to
   start the tools. To change a tool, a library or the identity, run `build-app.sh` again.
 - The script checks that each bundled tool's and dylib's cdhashes are in the pins and in the signed
-  helper binary, and a `--sign` build fails unless `openvpn`, `openfortivpn` and every bundled dylib
-  are pinned.
+  helper binary, and a `--sign` build fails unless `openvpn`, `openfortivpn`, `openconnect` and every
+  bundled dylib are pinned.
 - A `PinnedTools+Generated.swift` left by an interrupted build changes nothing for `swift build` /
   `swift test` (its contents are inside `#if PASSTUNNEL_TOOL_PINS`); the next `build-app.sh` rewrites it.
 
@@ -477,6 +484,10 @@ Not part of a release yet: Linux is released from phase 3 of [docs/LINUX.md](LIN
 container, once per architecture), with the commit count as its build number, as `build-app.sh`
 gives the app; the CI jobs `Linux release` build it for every pull request with the development
 version `0.0.0-dev` and keep it as a workflow artifact. See [docs/LINUX.md](LINUX.md#distribution).
+Its `swift build` calls run through `scripts/swift-retry.sh`, which runs a build once more when the
+toolchain's build system crashed while planning it (exit 139, "Program crashed" with a `swift-build`
+frame in the report) and never otherwise. Such a crash happens before anything is compiled and
+produces no output, so the tarball is the same as without it.
 
 ## Verifying a release
 
@@ -496,7 +507,7 @@ git clone https://github.com/PassTunnel/passtunnel && cd passtunnel
 git checkout v1.2.0
 ditto -x -k PassTunnel-1.2.0.zip /tmp/release     # or copy PassTunnel.app out of the disk image
 plutil -extract DTXcodeBuild raw /tmp/release/PassTunnel.app/Contents/Info.plist   # the Xcode to use
-brew install openvpn openfortivpn                  # the versions in scripts/release.env
+brew install openvpn openfortivpn openconnect      # the versions in scripts/release.env
 scripts/verify-build.sh /tmp/release/PassTunnel.app
 ```
 
@@ -513,7 +524,8 @@ earlier, at `--tools-from`. What it relies on:
   signature and then uses the release's signed copies instead of signing its own, so the rebuild
   pins the same cdhashes.
 - **The bundled tools** are Homebrew's bottles for the macOS version of the build (the release
-  workflow runs on `macos-26`), copied unmodified apart from their load paths. They are the same
+  workflow runs on `macos-26`), copied unmodified apart from their load paths and the configuration
+  paths overwritten in `libp11-kit` and `libgnutls` (the same bytes every time). They are the same
   only if the bottle is the same: Homebrew can publish a new bottle of the same version (a new
   `rebuild`), and bottles for other macOS versions are other builds. The build of the tools
   themselves is Homebrew's, outside this repository.

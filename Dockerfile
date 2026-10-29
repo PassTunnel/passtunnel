@@ -14,7 +14,7 @@
 FROM swift:6.4.1-noble@sha256:19cbe56bdaec1918f7cf5fdeba42b9bd55bdd8a6149c9990d0e0e3a89a127d63 AS build
 WORKDIR /src
 COPY . .
-RUN swift build -c release --static-swift-stdlib --product passtunnel \
+RUN scripts/swift-retry.sh swift build -c release --static-swift-stdlib --product passtunnel \
     && install -D -m 0755 "$(swift build -c release --static-swift-stdlib --show-bin-path)/passtunnel" /out/passtunnel \
     && strip --strip-debug /out/passtunnel
 

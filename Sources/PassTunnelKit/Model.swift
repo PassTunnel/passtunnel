@@ -1,13 +1,21 @@
 import Foundation
 import PassTunnelVPNConfig
 
-public enum VPNType: String, Codable, CaseIterable { case openvpn, forti }
+/// `anyconnect`: Cisco AnyConnect through openconnect (docs/ARCHITECTURE.md, "Cisco AnyConnect backend").
+public enum VPNType: String, Codable, CaseIterable {
+    case openvpn, forti, anyconnect
+
+    /// How a new profile of this type sends the code: on its own for FortiGate (the `otp` field) and Cisco
+    /// AnyConnect (a second answer), with the password (`otpTemplate`) for OpenVPN.
+    public var defaultOTPDelivery: OTPDelivery { self == .openvpn ? .combined : .separate }
+}
 public enum PasswordMode: String, Codable, CaseIterable { case keychain, ask, none }  // none = certificate only
 public enum OTPMode: String, Codable, CaseIterable { case none, totp, ask }
 
 /// How the one-time code reaches the server.
 /// combined → one secret built from `otpTemplate` (e.g. "{password}{otp}")
-/// separate → code sent on its own: OpenVPN static-challenge (SCRV1), Forti `otp =` field
+/// separate → code sent on its own: OpenVPN static-challenge (SCRV1), Forti `otp =` field, AnyConnect's
+///            second answer (the next form field openconnect asks for)
 public enum OTPDelivery: String, Codable, CaseIterable { case combined, separate }
 
 /// Templates the UI offers; any template containing "{otp}" is valid.
@@ -99,12 +107,22 @@ public struct Profile: Codable, Identifiable, Equatable {
     public var configSourceName: String?
     /// When the current configuration was imported; nil for older profiles.
     public var configImportedAt: Date?
-    // FortiGate
+    // FortiGate and Cisco AnyConnect (`trustedCert` FortiGate only)
     public var host = ""
     public var port = 443
     public var trustedCert = ""
     public var setDNS = false
     public var setRoutes = true
+    // Cisco AnyConnect only (written to profile.json and share files only for that type)
+    /// The URL path of the sign-in (`https://host/usergroup`); empty for none.
+    public var usergroup = ""
+    /// Matched against the server's group list; empty to take the server's default.
+    public var authgroup = ""
+    /// `pin-sha256:` and the full base64 SHA-256 of the server's public key (`OpenConnectPin`, stored
+    /// normalized), or empty to verify the server with the system's CAs. Not `trustedCert`: another hash.
+    public var serverCert = ""
+    /// TLS only (openconnect's `no-dtls`); DTLS is used by default.
+    public var tlsOnly = false
 
     public init(id: String, name: String, type: VPNType) {
         self.id = id
@@ -124,21 +142,59 @@ public struct Profile: Codable, Identifiable, Equatable {
     }
 
     /// Throws `PTError.usernameTooLong` for a FortiGate user name (trimmed, as it is sent) longer than
-    /// openfortivpn keeps: it would cut the name off and the sign-in would fail without a reason.
+    /// openfortivpn keeps: it would cut the name off and the sign-in would fail without a reason. For Cisco
+    /// AnyConnect, `PTError.invalidField("username")` for one that is not a value of openconnect's config file
+    /// (`OpenConnectAuthConfig.isValidUsername`: at most 255 bytes, no control character). Empty is fine (asked
+    /// each time).
     public static func checkUsername(_ username: String, type: VPNType) throws {
-        guard type == .forti else { return }
         let sent = username.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard sent.utf8.count <= FortiConfig.maxUsernameBytes else {
-            throw PTError.usernameTooLong(maxBytes: FortiConfig.maxUsernameBytes)
+        switch type {
+        case .openvpn: return
+        case .forti:
+            guard sent.utf8.count <= FortiConfig.maxUsernameBytes else {
+                throw PTError.usernameTooLong(maxBytes: FortiConfig.maxUsernameBytes)
+            }
+        case .anyconnect:
+            guard sent.isEmpty || OpenConnectAuthConfig.isValidUsername(sent) else { throw PTError.invalidField("username") }
         }
     }
 
     /// Throws `PTError.invalidField` for a gateway host (`host`) or health-check host (`health_host`)
-    /// that is set but not usable: one with a port, a scheme, whitespace or control characters. Both are
-    /// checked exactly as stored, because that is what connecting and probing use.
+    /// that is set but not usable: one with a port, a scheme, whitespace or control characters (Cisco
+    /// AnyConnect: also an IPv6 zone id, which a URL cannot carry). Both are checked exactly as stored,
+    /// because that is what connecting and probing use.
     public func checkHosts() throws {
-        if !host.isEmpty, !FortiConfig.isValidHost(host) { throw PTError.invalidField("host") }
+        if !host.isEmpty, !Self.isValidHost(host, type: type) { throw PTError.invalidField("host") }
         if !healthHost.isEmpty, HealthCheck.parse(healthHost) == nil { throw PTError.invalidField("health_host") }
+    }
+
+    /// A gateway host as `type` takes it (not empty).
+    public static func isValidHost(_ host: String, type: VPNType) -> Bool {
+        type == .anyconnect ? OpenConnectAuthConfig.isValidHost(host) : FortiConfig.isValidHost(host)
+    }
+
+    /// Throws `PTError.invalidField` for a Cisco AnyConnect setting openconnect could not be given as stored:
+    /// `usergroup`, `authgroup` or `server_cert` (which must be in its normalized form) not by their rules,
+    /// `password_mode` none (there is no certificate sign-in), or an `otp_template` that is used and is not
+    /// one line (`isValidAnyConnectTemplate`). Nothing for other types. The host and user name are
+    /// `checkHosts` and `checkUsername`.
+    public func checkAnyConnectFields() throws {
+        guard type == .anyconnect else { return }
+        if !usergroup.isEmpty, !OpenConnectAuthConfig.isValidUsergroup(usergroup) { throw PTError.invalidField("usergroup") }
+        if !authgroup.isEmpty, !OpenConnectAuthConfig.isValidAuthgroup(authgroup) { throw PTError.invalidField("authgroup") }
+        if !serverCert.isEmpty, !OpenConnectPin.isValid(serverCert) { throw PTError.invalidField("server_cert") }
+        if passwordMode == .none { throw PTError.invalidField("password_mode") }
+        if otpMode != .none, otpDelivery == .combined, !Self.isValidAnyConnectTemplate(otpTemplate) {
+            throw PTError.invalidField("otp_template")
+        }
+    }
+
+    /// A code template whose text stays on the one line openconnect reads as the answer
+    /// (`OpenConnectAnswers`): at most 4,095 bytes, without LF, CR or NUL. The composed answer, with the
+    /// password and the code, is checked again when it is sent.
+    public static func isValidAnyConnectTemplate(_ template: String) -> Bool {
+        let bytes = template.utf8
+        return bytes.count <= OpenConnectAnswers.maxLineBytes && !bytes.contains { $0 == 0x0A || $0 == 0x0D || $0 == 0 }
     }
 
     /// What must be asked from the user before connecting. Empty for certificate-only profiles.
@@ -165,6 +221,7 @@ public struct Profile: Codable, Identifiable, Equatable {
         case username, lastUsername, passwordMode, otpMode, totp, requireAuth
         case sessionLimitMin, autoReconnect, connectAtLogin, healthHost, otpDelivery, otpTemplate
         case mgmtPort, host, port, trustedCert, setRoutes
+        case usergroup, authgroup, serverCert, tlsOnly
         case configSourceName, configImportedAt
         case setDNS = "setDns"  // matches "set_dns" under the snake_case strategies
         case otpFormat  // legacy, read only
@@ -205,6 +262,10 @@ public struct Profile: Codable, Identifiable, Equatable {
         trustedCert = c.lenient(String.self, .trustedCert) ?? ""
         setDNS = c.lenient(Bool.self, .setDNS) ?? false
         setRoutes = c.lenient(Bool.self, .setRoutes) ?? true
+        usergroup = c.lenient(String.self, .usergroup) ?? ""
+        authgroup = c.lenient(String.self, .authgroup) ?? ""
+        serverCert = c.lenient(String.self, .serverCert) ?? ""
+        tlsOnly = c.lenient(Bool.self, .tlsOnly) ?? false
         configSourceName = c.lenient(String.self, .configSourceName).flatMap { $0.isEmpty ? nil : $0 }
         configImportedAt = c.lenientDate(.configImportedAt)
 
@@ -216,7 +277,7 @@ public struct Profile: Codable, Identifiable, Equatable {
             // Files written before otp_delivery existed: scrv1 → separate, append → combined.
             otpDelivery = legacy.lowercased() == "scrv1" ? .separate : .combined
         } else {
-            otpDelivery = type == .forti ? .separate : .combined
+            otpDelivery = type.defaultOTPDelivery
         }
     }
 
@@ -237,6 +298,11 @@ public struct Profile: Codable, Identifiable, Equatable {
         try put(healthHost, .healthHost); try put(otpDelivery, .otpDelivery); try put(otpTemplate, .otpTemplate)
         try put(mgmtPort, .mgmtPort); try put(host, .host); try put(port, .port)
         try put(trustedCert, .trustedCert); try put(setDNS, .setDNS); try put(setRoutes, .setRoutes)
+        // Only for the type that uses them: OpenVPN and FortiGate files stay as older versions write them.
+        if type == .anyconnect {
+            try put(usergroup, .usergroup); try put(authgroup, .authgroup)
+            try put(serverCert, .serverCert); try put(tlsOnly, .tlsOnly)
+        }
         if let configSourceName { try put(configSourceName, .configSourceName) }
         if let configImportedAt { try put(Profile.dateFormatter.string(from: configImportedAt), .configImportedAt) }
     }
