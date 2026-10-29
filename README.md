@@ -4,8 +4,8 @@
 
 **Connect your VPN without ever typing a one-time code again.**
 
-PassTunnel is an open-source macOS app for OpenVPN and FortiGate SSL VPN. It keeps your TOTP
-secret in the Keychain and fills in the current code (and your password) every time you connect.
+PassTunnel is an open-source macOS app for OpenVPN, FortiGate SSL VPN and Cisco AnyConnect. It keeps
+your TOTP secret in the Keychain and fills in the current code (and your password) every time you connect.
 
 [![macOS 13+](https://img.shields.io/badge/macOS-13%2B-blue)](#install)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -25,6 +25,7 @@ secret in the Keychain and fills in the current code (and your password) every t
 [Install](#install) ·
 [Quick start](#quick-start) ·
 [Code format](#configuring-the-code-format) ·
+[Cisco AnyConnect](#cisco-anyconnect) ·
 [CLI](#command-line) ·
 [AI assistants](#use-with-ai-assistants-mcp) ·
 [FAQ](#faq) ·
@@ -46,7 +47,7 @@ secret in the Keychain and fills in the current code (and your password) every t
   default). A code that was already sent is never sent again.
 - **Any format your server expects.** Append, prepend, `password:code`, `password,code`, or a custom
   template with any literal text, or send the code separately (OpenVPN static challenge, FortiGate
-  OTP field). See [Configuring the code format](#configuring-the-code-format).
+  OTP field, Cisco AnyConnect's second password field). See [Configuring the code format](#configuring-the-code-format).
 - **Authenticator-style main window.** The sidebar lists every profile with its state and live code;
   the selected one shows its code in large digits with a countdown ring, and what the server
   receives. Click the code to copy; the clipboard is cleared again after 1 minute (or 30 seconds, or
@@ -66,8 +67,9 @@ secret in the Keychain and fills in the current code (and your password) every t
 
 **VPN client**
 
-- **OpenVPN and FortiGate SSL VPN**, using bundled, signed copies of `openvpn` and `openfortivpn`.
-  Nothing else to install.
+- **OpenVPN, FortiGate SSL VPN and Cisco AnyConnect**, using bundled, signed copies of `openvpn`,
+  `openfortivpn` and `openconnect`. Nothing else to install. Cisco AnyConnect (password and one-time
+  code) needs macOS 15.4 or later; see [Cisco AnyConnect](#cisco-anyconnect).
 - **Menu bar panel.** Every pinned or active profile with its state, live code and a switch to
   connect or disconnect, plus copy and type for the current code. A colored badge (five palettes)
   marks a profile that needs attention, with a red dot when a connection dropped unexpectedly.
@@ -90,7 +92,7 @@ secret in the Keychain and fills in the current code (and your password) every t
 ## How it works
 
 ```
-PassTunnel.app ──XPC──▶ PassTunnelHelper (root) ──▶ bundled openvpn / openfortivpn
+PassTunnel.app ──XPC──▶ PassTunnelHelper (root) ──▶ bundled openvpn / openfortivpn / openconnect
   │  (code-signature checked)                             │
   ├─ Keychain: password + TOTP secret                     └─ management socket (OpenVPN),
   └─ ~/Library/Application Support/PassTunnel                log file, status ──▶ back to the app
@@ -101,16 +103,19 @@ PassTunnel.app ──XPC──▶ PassTunnelHelper (root) ──▶ bundled open
 2. The app hands the request to the privileged helper over XPC. The helper accepts only the signed
    PassTunnel app, checks that the profile folder belongs to you, sanitizes the OpenVPN config (or
    writes the openfortivpn config itself from typed fields) and starts the bundled tool, which it
-   lets run only after checking the signature of the code that was actually loaded.
+   lets run only after checking the signature of the code that was actually loaded. For Cisco
+   AnyConnect, the app signs in first (as you, not as root) and hands the helper only the resulting
+   session cookie, which the helper uses to build the `openconnect` configuration itself.
 3. The app follows the connection state (OpenVPN through a management socket that only your user
-   can open, FortiGate through the log) and shows it in the window and the menu bar.
+   can open, FortiGate and Cisco AnyConnect through the log) and shows it in the window and the menu bar.
 
 The full security model, including what is *not* protected, is in [SECURITY.md](SECURITY.md). The
 code layout is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Install
 
-Requires **macOS 13 Ventura or later** on a Mac with **Apple silicon**.
+Requires **macOS 13 Ventura or later** on a Mac with **Apple silicon**. Cisco AnyConnect profiles
+need **macOS 15.4 or later**; on an older macOS the rest of the app works as usual.
 
 ### Download
 
@@ -148,7 +153,7 @@ scripts/build-app.sh                  # → build/PassTunnel.app (ad-hoc signed)
 ```
 
 `build-app.sh` builds a release binary, assembles the bundle, copies `openvpn`, `openfortivpn`,
-`openconnect` (for the coming Cisco AnyConnect support) and their libraries in (`scripts/bundle-tools.sh`, with their license files), compiles the helper with
+`openconnect` (Cisco AnyConnect) and their libraries in (`scripts/bundle-tools.sh`, with their license files), compiles the helper with
 the code-signature hashes of exactly these tools and libraries, and signs everything inside-out with
 the hardened runtime. An ad-hoc build signs the app without library validation: an ad-hoc signature
 has no Team ID, so macOS would otherwise refuse to load `Sparkle.framework` into it.
@@ -189,6 +194,7 @@ the window. The File menu has the same items:
 | An OpenVPN file (`.ovpn` / `.conf`) | Drop it on the dashed area or **Choose File…** (File → **Import .ovpn…**). You see a review of what is in the file before anything is saved; files it references (`ca ca.crt`, `tls-auth ta.key 1`, …) are embedded automatically. |
 | A FortiGate gateway | **Enter details by hand**, choose FortiGate (File → **New FortiGate Profile…**), then enter host and port and **Fetch fingerprint** to pin the gateway certificate (SHA-256). |
 | A `.passtunnel` file from a colleague | Double-click it (or open it from AirDrop), or drop it on the window. Then add your own user name, password and TOTP secret. |
+| A Cisco AnyConnect server | **Enter details by hand**, choose Cisco AnyConnect (File → **New Cisco AnyConnect Profile…**), then paste the address your IT team gave you, for example `https://vpn.example.com/staff`. See [Cisco AnyConnect](#cisco-anyconnect). |
 | A QR code for your authenticator | **Scan a QR code on screen** (macOS 14 and later) or **Use a QR image**, or drop the screenshot onto the window or the editor. |
 
 Then open the profile editor (**Edit** in the toolbar):
@@ -255,9 +261,58 @@ With the password `secret` and the code `123456`:
   when the imported `.ovpn` contains `static-challenge`.
 - **FortiGate:** in openfortivpn's separate OTP field. This is the default for new FortiGate
   profiles.
+- **Cisco AnyConnect:** as the answer to the server's second password field. This is the default for
+  new Cisco AnyConnect profiles; for a server that wants one field, choose a format that joins them.
 
 As you change the format, the editor's *Server receives* shows the result with the profile's user
 name and the live code; the password is always masked.
+
+## Cisco AnyConnect
+
+PassTunnel connects to servers that speak the Cisco AnyConnect protocol through the bundled
+`openconnect`, with a user name, a password and, if the server asks for one, a one-time code. It needs
+**macOS 15.4 or later**; the rest of the app still runs on macOS 13.
+
+**Add a profile.** Click **+**, choose **Enter details by hand**, then **Cisco AnyConnect** (or File →
+**New Cisco AnyConnect Profile…**). In **Server**, paste the address as your IT team gave it,
+`https://vpn.example.com[:port][/group]`; PassTunnel fills in the host, port and user group from it.
+**Group** is the group the server offers at sign-in; leave it empty for the server's default. Add the
+user name and password, and the TOTP secret as for any other profile. Under **Advanced**, the profile can
+also ask for the password each time, or use TLS only (no DTLS).
+
+**The one-time code** is sent as the answer to the server's second password field by default, which is
+what most AnyConnect servers ask for. If yours wants the code inside the password, choose Append,
+Prepend or a custom template in **Code format** ([see above](#configuring-the-code-format)).
+
+**Trust the server.** If the server's certificate is signed by an authority your Mac trusts, there is
+nothing to do. For a self-signed certificate or a private authority, **Fetch Fingerprint** in the editor
+reads the server's key and asks whether to trust it; compare the fingerprint with the one your IT team
+published first. Without it, the first connect stops at **Server not trusted** with the key shown and a
+**Trust This Server…** button that asks the same question. PassTunnel then saves only that key
+(`pin-sha256:…`) in the profile and accepts no other key from that server; if the server later presents a
+different one, it warns instead of connecting.
+
+**Not supported:**
+
+- Sign-in through a web browser (SAML / single sign-on).
+- Host scan: Cisco Secure Desktop, HIP and TNCC. PassTunnel never runs it; the connect stops at **Host
+  scan required**. Ask your IT team whether your account can
+  sign in without it.
+- Client certificates and RSA SecurID tokens.
+- A server that sends you to a different host after the sign-in.
+
+**On the network.** The server's routes and DNS servers are applied when the tunnel comes up and removed
+when it ends. Local networks stay local: a route from the server that lies inside a network your Mac is
+attached to (your home or office LAN) is skipped, so a server cannot take over part of it. When all
+traffic goes through the tunnel and the server assigns no IPv6 address, IPv6 is blocked so that it
+cannot bypass the tunnel.
+
+On a Mac with macOS 13 to 15.3, **Cisco AnyConnect** is shown in the type list as *Requires macOS 15.4
+or later*. An existing or imported profile is listed with the same note and can still be shared or
+deleted. On Linux, `passtunneld` uses the distribution's `openconnect` 9.01 or later (Ubuntu 22.04's
+8.20 is too old); see [docs/LINUX.md](docs/LINUX.md#cisco-anyconnect).
+
+The command line has the same: [`passtunnel add --type anyconnect`](#command-line) below.
 
 ## Command line
 
@@ -285,6 +340,7 @@ passtunnel set lab host=203.0.113.10 port=443 username=sam
 
 passtunnel add Corp --type anyconnect --server https://vpn.example.com/staff   # Cisco AnyConnect, macOS 15.4 or later
 passtunnel set corp username=sam authgroup=Employees
+passtunnel set corp server_cert=pin-sha256:…    # trust the server's key (compare it first)
 
 passtunnel log work -f
 passtunnel log work --activity                # what PassTunnel did: connecting, codes, sign-in, drops
@@ -395,8 +451,8 @@ share the `.ovpn` itself.
 Creating a tunnel interface and changing routes and DNS requires root. Instead of asking for your
 admin password at every connect or adding a sudoers rule, PassTunnel registers a small launchd
 daemon with `SMAppService`, which you approve once in System Settings → General → Login Items. The
-helper accepts requests only from the signed PassTunnel app, only runs the `openvpn` and
-`openfortivpn` that come with it (from a root-owned copy, together with their libraries), lets them
+helper accepts requests only from the signed PassTunnel app, only runs the `openvpn`,
+`openfortivpn` and `openconnect` that come with it (from a root-owned copy, together with their libraries), lets them
 run only after checking their signature, and rejects dangerous OpenVPN directives. Details in [SECURITY.md](SECURITY.md).
 </details>
 
@@ -416,8 +472,27 @@ except to your VPN server.
 <summary><b>Which VPN types are supported?</b></summary>
 
 OpenVPN (OpenVPN 2.x client configurations: user/password, certificate-only and static-challenge
-setups) and FortiGate SSL VPN (through openfortivpn). Other types can be added
-as new backends; see [Contributing](#contributing).
+setups), FortiGate SSL VPN (through openfortivpn) and Cisco AnyConnect (through openconnect, with a
+password and a one-time code; macOS 15.4 or later). GlobalProtect and Pulse/Ivanti are on the
+[roadmap](ROADMAP.md). Other types can be added as new backends; see [Contributing](#contributing).
+</details>
+
+<details>
+<summary><b>Why is Cisco AnyConnect greyed out?</b></summary>
+
+The bundled `openconnect` needs macOS 15.4 or later, so on an older macOS the type is shown as
+*Requires macOS 15.4 or later* and a Cisco AnyConnect profile can be listed, shared and deleted but not
+connected or edited. PassTunnel itself still runs on macOS 13, with OpenVPN and FortiGate as usual.
+</details>
+
+<details>
+<summary><b>My Cisco AnyConnect server asks me to sign in in a browser, or reports a host scan.</b></summary>
+
+PassTunnel signs in with a user name, password and one-time code only. Sign-in through a web page
+(SAML / single sign-on) is not supported, and neither is the server's host scan (Cisco Secure Desktop,
+HIP, TNCC): PassTunnel never downloads or runs it, stops the connection and shows **Host scan required**. Ask
+your IT team whether your account can sign in with a password and code, or whether another group on the
+server skips the host scan (the profile's **Group**).
 </details>
 
 <details>
@@ -562,20 +637,21 @@ PassTunnel is maintained by one person, in the open.
 PassTunnel is released under the [MIT License](LICENSE). Copyright © 2026 Furkanprlk.
 
 The app bundles `openvpn` (GPL-2.0), `openfortivpn` (GPL-3.0) and their libraries (OpenSSL, LZO,
-LZ4, pkcs11-helper), and `openconnect` (LGPL-2.1, not used yet) with its libraries (GnuTLS, nettle,
+LZ4, pkcs11-helper), and `openconnect` (LGPL-2.1) with its libraries (GnuTLS, nettle,
 GMP and others, mostly LGPL). They are separate programs distributed alongside PassTunnel under their own
 licenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Their full license texts are inside
 the app in `Contents/Resources/licenses` and under **Settings → Helper → Show Licenses…**.
 
-PassTunnel is not affiliated with OpenVPN Inc. or Fortinet. OpenVPN and FortiGate are trademarks
-of their respective owners.
+PassTunnel is not affiliated with OpenVPN Inc., Fortinet or Cisco. OpenVPN, FortiGate and Cisco
+AnyConnect are trademarks of their respective owners.
 
 ---
 
 ## Türkçe
 
-**PassTunnel**, Apple silicon Mac'lerde macOS 13 ve üzeri için açık kaynaklı bir VPN uygulamasıdır. OpenVPN ve FortiGate SSL
-VPN bağlantılarını tek tıkla açar. TOTP anahtarınız Anahtar Zinciri'nde (Keychain) durur; PassTunnel
+**PassTunnel**, Apple silicon Mac'lerde macOS 13 ve üzeri için açık kaynaklı bir VPN uygulamasıdır. OpenVPN, FortiGate SSL
+VPN ve Cisco AnyConnect bağlantılarını tek tıkla açar (Cisco AnyConnect için macOS 15.4 ve üzeri gerekir; parola ve tek kullanımlık kod
+ile oturum açılır, tarayıcıyla (SAML) oturum açma desteklenmez). TOTP anahtarınız Anahtar Zinciri'nde (Keychain) durur; PassTunnel
 bağlanırken o anki tek kullanımlık kodu ve parolanızı sizin yerinize gönderir. Telefondan kod bakıp
 yazmanız gerekmez.
 

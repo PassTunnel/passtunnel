@@ -4,7 +4,7 @@ PassTunnel is a macOS app (13+) that connects VPNs **without ever typing a one-t
 TOTP secrets in the Keychain and fills the code (and password) automatically when it connects.
 Supported VPN types: OpenVPN, FortiGate SSL VPN (openfortivpn). More types = new backend; Cisco
 AnyConnect (openconnect) is being added: Core connects it on macOS 15.4 and later (#184), the CLI and MCP
-tools (#185), the app (#186) and Linux (#187) handle it ([below](#cisco-anyconnect-backend-planned)).
+tools (#185), the app (#186) and Linux (#187) handle it ([below](#cisco-anyconnect-backend)).
 
 ```
 PassTunnel.app/Contents/
@@ -330,7 +330,7 @@ unreadable, or not a JSON object, because a newer version may have written it si
 is created. The error is `config_invalid` in the CLI and MCP tools, and its message says the profile needs a newer
 PassTunnel. `list` and `list_profiles` show the profile with its stored `type` and `needs_newer_version: true`.
 
-`anyconnect` is a known type that Core connects (#184, [Cisco AnyConnect backend](#cisco-anyconnect-backend-planned)) and
+`anyconnect` is a known type that Core connects (#184, [Cisco AnyConnect backend](#cisco-anyconnect-backend)) and
 the `passtunnel` command, the MCP tools (#185) and the Mac app (#186) handle as an ordinary profile. Its keys and
 rules are in [Profile (#181)](#profile-181) below. Such a profile is treated as follows:
 - **Core**: `ConnectionManager.connectRefusal(type)` says whether a type can be connected on this system: nil for OpenVPN
@@ -342,7 +342,7 @@ rules are in [Profile (#181)](#profile-181) below. Such a profile is treated as 
   `checkConnectable` throws the refusal at the start of `connect` (following an attempt
   too), `checkCanStart` and the attempt itself, before a confirmation is asked for, a secret is read, openconnect runs
   or the helper is asked anything (its status included); `diagnose` reports it with the profile's other problems.
-  Otherwise the profile connects as described under [Cisco AnyConnect backend](#cisco-anyconnect-backend-planned).
+  Otherwise the profile connects as described under [Cisco AnyConnect backend](#cisco-anyconnect-backend).
   `ProfileStore` lists, saves (with the checks above), exports, imports and deletes it like any profile.
 - **CLI and MCP** (#185): an ordinary profile of type `anyconnect`. `passtunnel add NAME --type anyconnect
   [--server https://host[:port][/usergroup]]` (`AnyConnectServer.parse` at parse time: an address that is not one is a
@@ -1065,7 +1065,7 @@ tunnel. Hence:
   "route add command failed" line after it. A session killed without cleanup (e.g. the helper was
   unregistered while connected) leaves that route behind; it is the route OpenVPN wanted anyway.
 
-## Cisco AnyConnect backend (planned)
+## Cisco AnyConnect backend
 
 **In place:** the profile model (#181, [Profile](#profile-181)); the helper side (#182): the helper
 accepts `startOpenConnect` (protocol 4), checks it, renders the root configuration and runs, supervises,
@@ -1074,16 +1074,15 @@ stops and adopts `openconnect`; the hook that sets up and reverts the network on
 sign-in, the start request, the state and failures from the log, on macOS 15.4 and later; and Linux (#187):
 `passtunneld` runs the distribution's openconnect and is its hook ([LINUX.md](LINUX.md#cisco-anyconnect)), and the
 sign-in runs the distribution's openconnect; the CLI and MCP (#185); the Mac app's editor, views and "Trust this
-server" (#186). Still to come: the tests against a real server (#188), the user docs (#189). This is the design of Phase 1 of #2: Cisco AnyConnect through OpenConnect,
+server" (#186), and the user docs (#189). The tests against a real server are #188. This is the design of Phase 1 of #2: Cisco AnyConnect through OpenConnect,
 with a password and a TOTP code (no SAML or other single sign-on), on the Mac and on Linux. The
-issues #179–#189 implement it, each named below where its part lands; until they do, everything
-above is all PassTunnel runs (`openvpn`, `openfortivpn`). Before any of it, #177 makes `Profile`
+issues #179–#189 implemented it, each named below where its part landed. Before any of it, #177 makes `Profile`
 keep a profile of an unknown `type` intact instead of decoding it as OpenVPN (`Model.swift`,
 `lenientEnum(…) ?? .openvpn`), so an older or a companion build cannot rewrite an AnyConnect
 profile. Phase 2 (GlobalProtect) and Phase 3 (Pulse/Ivanti) get their own issues. References like
 `main.c 1593` are to the openconnect 9.21 sources, from which the tool's behavior below was read;
 the pull requests confirm it against the running tool (#188). Linux specifics:
-[LINUX.md](LINUX.md#cisco-anyconnect); the threat model: [SECURITY.md](../SECURITY.md#cisco-anyconnect-planned).
+[LINUX.md](LINUX.md#cisco-anyconnect); the threat model: [SECURITY.md](../SECURITY.md#cisco-anyconnect).
 
 ```
 passtunnel / app (the user)                          PassTunnelHelper / passtunneld (root)
@@ -2085,7 +2084,7 @@ OpenVPN, which they would have done before #191. A version 1 file with type `any
 is read too. Import copies the new keys, normalizing the pin, then `save` checks them.
 
 Connecting is in Core (#184, with the macOS 15.4 check), the CLI and MCP handle the type (#185), and so does the Mac
-app (#186, see "Model"); `passtunneld` on Linux is #187 (done). The user docs (#189) follow.
+app (#186, see "Model"); `passtunneld` on Linux is #187 (done). The user docs (#189) are in the README and [APP.md](APP.md).
 
 ### Tests (#188)
 

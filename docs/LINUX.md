@@ -593,7 +593,7 @@ implements. Cisco AnyConnect through OpenConnect (#2, Phase 1) runs on Linux sin
 ## Cisco AnyConnect
 
 **In place since #187** (scope `linux`, so it stays out of app releases); tested against a real server
-in #188. The design is in [ARCHITECTURE.md](ARCHITECTURE.md#cisco-anyconnect-backend-planned) (split
+in #188. The design is in [ARCHITECTURE.md](ARCHITECTURE.md#cisco-anyconnect-backend) (split
 sign-in, the rendered `openconnect.conf` and its refused options, trust, the `vpn-hook`, the log); this is
 what differs on Linux. The CLI and MCP offer the type with #185; until then Core connects such a profile
 when asked.
