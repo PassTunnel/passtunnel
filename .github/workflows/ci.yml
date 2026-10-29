@@ -25,9 +25,14 @@
 #                     its README says, `passtunnel` and, as root, `passtunneld` with their build number
 #   Docker image      the Dockerfile built, and an MCP session with the image
 #   (x86_64, aarch64)
+#   Cisco AnyConnect  the test server of Tests/ocserv (ocserv: a password, then a TOTP code) on a
+#   against ocserv    Docker network, and OcservSignInTests in the Swift container with Ubuntu's
+#                     openconnect: real sign-ins through ConnectionManager, no tunnel (Tests/ocserv/
+#                     README.md). The tunnel itself is ocserv-tunnel.yml, which is not a required check
 #   Release scripts   shellcheck of next-version.sh, its test, build-linux.sh, coverage-report.sh, compare-app.sh,
 #                     verify-build.sh, check-tool-symbols.sh, its test, make-system-symbols.sh and
-#                     test-bundled-config-paths.sh, swift-retry.sh and its test, and the self-tests of
+#                     test-bundled-config-paths.sh, swift-retry.sh and its test, the scripts of
+#                     Tests/ocserv, and the self-tests of
 #                     scripts/next-version.sh (in a temporary repository) and swift-retry.sh
 #   Site              shellcheck of the site scripts and scripts/check-site.sh, the static checks
 #                     of the website in site/ (docs/WEBSITE.md)
@@ -874,6 +879,63 @@ jobs:
             and [$r["2"].result.tools[].name] == ["list_profiles", "get_status", "get_logs", "diagnose"]
             and $r["3"].result.isError == false and $r["3"].result.structuredContent == {"profiles": []}' mcp.jsonl
 
+  # Cisco AnyConnect's sign-in against a real AnyConnect-compatible server: the image of Tests/ocserv,
+  # without NET_ADMIN (ocserv asks for a tun device only for a tunnel, which a sign-in never requests),
+  # at 172.31.211.10 on a network of its own, which the client container knows as vpn.example.com (the
+  # name in the server's certificate). OcservSignInTests (only with PASSTUNNEL_TEST_OCSERV_SERVER) runs
+  # the distribution's openconnect through ConnectionManager with a fake helper: the password and code
+  # accepted with the pin and with the test CA, a spent code refused by ocserv and never sent twice by
+  # PassTunnel, a wrong code, a wrong password and ocserv's retry form, the wrong delivery, the system's
+  # CAs, another pin, and a cookie ocserv does not know.
+  ocserv:
+    name: Cisco AnyConnect against ocserv
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      # swift:6.4.1-noble, the image of the Linux jobs, pinned by the digest of its multi-arch index.
+      SWIFT_IMAGE: swift:6.4.1-noble@sha256:19cbe56bdaec1918f7cf5fdeba42b9bd55bdd8a6149c9990d0e0e3a89a127d63
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build/repositories
+          key: swiftpm-repositories-${{ hashFiles('Package.resolved') }}
+
+      - name: Start the test server
+        run: |
+          set -euo pipefail
+          docker build -t passtunnel-ocserv Tests/ocserv
+          docker network create --subnet 172.31.211.0/24 ocserv
+          docker run -d --name ocserv --network ocserv --ip 172.31.211.10 passtunnel-ocserv
+          mkdir -p "$RUNNER_TEMP/ocserv"
+          docker cp ocserv:/etc/ocserv/ca.pem "$RUNNER_TEMP/ocserv/ca.pem"
+          docker exec ocserv cat /etc/ocserv/pin.txt | tee "$RUNNER_TEMP/ocserv/pin.txt"
+
+      - name: Sign in (no tunnel)
+        run: |
+          set -euo pipefail
+          docker run --rm --network ocserv --add-host vpn.example.com:172.31.211.10 -v "$PWD:/src" -w /src \
+            -v "$RUNNER_TEMP/ocserv:/ocserv:ro" -e PASSTUNNEL_STRICT_WARNINGS=1 "$SWIFT_IMAGE" bash -c '
+            set -euo pipefail
+            git config --global --add safe.directory "*"
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update -qq
+            apt-get install -y -qq --no-install-recommends openconnect ca-certificates >/dev/null
+            openconnect --version | head -n 1
+            scripts/swift-retry.sh swift build --build-tests
+            PASSTUNNEL_TEST_OCSERV_SERVER=vpn.example.com:443 PASSTUNNEL_TEST_OCSERV_CA=/ocserv/ca.pem \
+              PASSTUNNEL_TEST_OCSERV_PIN="$(cat /ocserv/pin.txt)" \
+              swift test --skip-build --filter OcservSignInTests 2>&1 | tee signin.txt
+            if grep -qE "^Test Case .* skipped" signin.txt; then echo "a test was skipped"; exit 1; fi
+            test "$(grep -c "^Test Case .OcservSignInTests\..* passed" signin.txt)" = 9'
+
+      - name: The server's log
+        if: always()
+        run: docker logs ocserv 2>&1 | tail -n 200
+
   scripts:
     name: Release scripts
     runs-on: ubuntu-latest
@@ -889,7 +951,8 @@ jobs:
           shellcheck scripts/next-version.sh scripts/test-next-version.sh scripts/build-linux.sh scripts/coverage-report.sh \
             scripts/compare-app.sh scripts/verify-build.sh scripts/check-tool-symbols.sh scripts/test-check-tool-symbols.sh \
             scripts/make-system-symbols.sh scripts/test-bundled-config-paths.sh \
-            scripts/swift-retry.sh scripts/test-swift-retry.sh
+            scripts/swift-retry.sh scripts/test-swift-retry.sh \
+            Tests/ocserv/entrypoint.sh Tests/ocserv/cut.sh Tests/ocserv/tunnel-test.sh Tests/ocserv/run-tunnel-tests.sh
 
       - name: Self-test of next-version.sh
         run: scripts/test-next-version.sh
