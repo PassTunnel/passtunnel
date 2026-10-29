@@ -20,10 +20,6 @@ backends=("$@")
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OUT="${OUT:-$(mktemp -d)}"
 mkdir -p "$OUT"
-# ubuntu:24.04 and debian:trixie-slim, pinned by the digests of their multi-arch indexes (the root
-# Dockerfile's and Tests/ocserv/Dockerfile's).
-UBUNTU=ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac
-DEBIAN=debian:trixie-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4
 NET=passtunnel-ocserv-test
 SERVER=passtunnel-ocserv-test
 CLIENT=passtunnel-ocserv-client
@@ -41,9 +37,9 @@ docker network create --subnet 172.31.211.0/24 "$NET" >/dev/null
 failed=0
 for backend in "${backends[@]}"; do
     case "$backend" in
-        file) base="$UBUNTU" extra="" ;;
-        resolvconf) base="$DEBIAN" extra="openresolv" ;;
-        resolved) base="$UBUNTU" extra="systemd systemd-sysv systemd-resolved dbus" ;;
+        file) target=client-ubuntu extra="" ;;
+        resolvconf) target=client-debian extra="openresolv" ;;
+        resolved) target=client-ubuntu extra="systemd systemd-sysv systemd-resolved dbus" ;;
         *) echo "unknown backend: $backend" >&2; exit 2 ;;
     esac
     echo "::group::Cisco AnyConnect tunnel, DNS: $backend"
@@ -52,7 +48,7 @@ for backend in "${backends[@]}"; do
     docker run -d --name "$SERVER" --network "$NET" --ip 172.31.211.10 --cap-add NET_ADMIN --device /dev/net/tun \
         --sysctl net.ipv6.conf.all.disable_ipv6=0 passtunnel-ocserv >/dev/null
     pin="$(docker exec "$SERVER" cat /etc/ocserv/pin.txt)"
-    docker build -q -t "passtunnel-ocserv-client:$backend" --build-arg BASE="$base" --build-arg EXTRA="$extra" \
+    docker build -q -t "passtunnel-ocserv-client:$backend" --target "$target" --build-arg EXTRA="$extra" \
         -f "$HERE/client.Dockerfile" "$HERE" >/dev/null
     shared="$(mktemp -d)"
     run=(docker run -d --name "$CLIENT" --network "$NET" --add-host vpn.example.com:172.31.211.10 --cap-add NET_ADMIN
