@@ -2087,11 +2087,16 @@ app (#186, see "Model"); `passtunneld` on Linux is #187 (done). The user docs (#
 The Mac path is tested with unit tests (`OpenConnectConfig` render and check, the sign-in output
 parser, the hook's validation and its actions against a fake system, log fixtures from real runs
 with example hosts and documentation addresses) and a manual connect against the ocserv image on a
-developer machine (GitHub's macOS runners have no Docker). The Linux jobs sign in against ocserv
-(`plain` with an OTP file: a password form, then a second form for the code) with the
-distribution's `openconnect --authenticate`, no tunnel; an opt-in job (`PASSTUNNEL_TEST_OCSERV=1`)
-connects a real tunnel on the runner VM, sets and reverts routes and DNS, and kills openconnect to
-check the daemon's revert — an exception to "tests never start a tunnel", marked as such.
+developer machine (GitHub's macOS runners have no Docker; the procedure is in
+[Tests/ocserv/README.md](../Tests/ocserv/README.md)). `OcservSignInTests` (only with
+`PASSTUNNEL_TEST_OCSERV_SERVER`) sign in against that image (`plain` with an OTP file: a form for the
+user name, one for the password, then a separate one for the code) through `ConnectionManager` with a
+real openconnect and a fake helper: on every CI run in the job "Cisco AnyConnect against ocserv" with
+Ubuntu's openconnect, and on a Mac with Homebrew's against Docker Desktop. The workflow
+`ocserv-tunnel.yml` (`PASSTUNNEL_TEST_OCSERV=1`, not a required check) connects real tunnels through
+passtunneld in containers, one per Linux DNS backend, sets and reverts routes and DNS, follows
+openconnect's own reconnect, and kills openconnect to check the daemon's revert — an exception to
+"tests never start a tunnel", marked as such.
 
 ## Rules for all code
 

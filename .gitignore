@@ -2,6 +2,8 @@
 .swiftpm/
 /build/
 /dist/
+# passtunnel and passtunneld for the tunnel tests (Tests/ocserv/README.md).
+/ocserv-bin/
 *.xcodeproj
 .DS_Store
 
