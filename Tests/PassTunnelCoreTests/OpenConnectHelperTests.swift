@@ -6,7 +6,7 @@ import XCTest
 /// The helper's side of a Cisco AnyConnect session that needs no files: the request (protocol 4), its
 /// checks, the environment and arguments, the session and policy records, and the hook stub's decisions.
 final class OpenConnectRequestTests: XCTestCase {
-    static let cookie = "EXAMPLE-COOKIE-3F2A@1234@ABCD"
+    static let cookie = "webvpn=EXAMPLE-COOKIE-3F2A@1234@ABCD"
 
     static func start(_ change: (inout OpenConnectStart) -> Void = { _ in }) -> OpenConnectStart {
         var s = OpenConnectStart(
@@ -50,7 +50,7 @@ final class OpenConnectRequestTests: XCTestCase {
         let noResolve = String(decoding: try HelperRequest.startOpenConnect(Self.start { $0.resolve = nil }).jsonData(), as: UTF8.self)
         XCTAssertFalse(noResolve.contains("resolve"))
         // The request stays far below the helper's limit with the longest cookie.
-        let longest = try HelperRequest.startOpenConnect(Self.start { $0.cookie = String(repeating: "C", count: 4096) }).jsonData()
+        let longest = try HelperRequest.startOpenConnect(Self.start { $0.cookie = "webvpn=" + String(repeating: "C", count: 4089) }).jsonData()
         XCTAssertLessThan(longest.count, HelperCore.maxRequestBytes / 8)
     }
 
@@ -169,11 +169,15 @@ final class OpenConnectRequestTests: XCTestCase {
             ),
             ("cookie empty", { $0.cookie = "" }, { if case .invalidValue("cookie", _)? = $0 as? V { return true } else { return false } }),
             (
-                "cookie long", { $0.cookie = String(repeating: "C", count: 4097) },
+                "cookie long", { $0.cookie = "webvpn=" + String(repeating: "C", count: 4090) },
                 { if case .invalidValue("cookie", _)? = $0 as? V { return true } else { return false } }
             ),
             (
                 "cookie line", { $0.cookie = "abc\nscript /tmp/x" },
+                { if case .invalidValue("cookie", _)? = $0 as? V { return true } else { return false } }
+            ),
+            (
+                "cookie bare", { $0.cookie = OpenConnectCookieTests.ocservToken },
                 { if case .invalidValue("cookie", _)? = $0 as? V { return true } else { return false } }
             ),
             ("cookie quote", { $0.cookie = "abc'def" }, { if case .invalidValue("cookie", _)? = $0 as? V { return true } else { return false } }),

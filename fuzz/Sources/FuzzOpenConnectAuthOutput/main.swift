@@ -17,6 +17,11 @@ func LLVMFuzzerTestOneInput(_ data: UnsafePointer<UInt8>?, _ size: Int) -> CInt 
     let printed = Array(result.output.utf8)
     precondition(bytes == printed || (result.resolve.isEmpty && bytes == printed + [0x0A]), "parsed output does not print back the same")
     precondition(result.cookie.utf8.count <= OpenConnectConfig.maxCookieBytes && !result.cookie.isEmpty)
+    // The tunnel run's option: the value under its name, or the STRAP form unchanged; always one root accepts.
+    precondition(OpenConnectCookie.isValidTunnelOption(result.tunnelCookie), "the tunnel cookie is not one root accepts")
+    precondition(
+        result.tunnelCookie == result.cookie ? result.cookie.hasPrefix("openconnect_strapkey=") : result.tunnelCookie == "webvpn=" + result.cookie,
+        "the tunnel cookie is not the printed one under its name")
     precondition(OpenConnectPin.isValid(result.fingerprint))
     let other = try! OpenConnectAuthResult(
         cookie: "x", host: result.host, connectURL: result.connectURL, fingerprint: result.fingerprint, resolve: result.resolve)
@@ -39,14 +44,14 @@ func LLVMFuzzerTestOneInput(_ data: UnsafePointer<UInt8>?, _ size: Int) -> CInt 
         precondition(url.lowercased().hasPrefix("https://"), "accepted a connect URL that is not https")
         // The helper's check, on the fields the client sends it, accepts the same and builds the same file.
         let helper = try? OpenConnectAuthResult.tunnelConfig(
-            host: host, port: port, connectURL: url, resolve: config.resolveAddress == nil ? nil : result.resolve, cookie: result.cookie,
+            host: host, port: port, connectURL: url, resolve: config.resolveAddress == nil ? nil : result.resolve, cookie: result.tunnelCookie,
             serverCert: result.fingerprint, profileServerCert: pin, scriptPath: "/x/vpn-hook", tlsOnly: false)
         precondition(helper == config, "the helper's check disagrees with the client's")
         guard let text = try? config.render() else { preconditionFailure("a checked sign-in did not render") }
         let table = OpenConnectOptions.all.map { (name: $0.name, takesValue: $0.takesValue) }
         guard let read = readLikeOpenConnect(Array(text.utf8), table: table) else { preconditionFailure("openconnect would refuse the file") }
         let values = Dictionary(read.map { ($0.option, $0.value) }, uniquingKeysWith: { a, _ in a })
-        precondition(values["cookie"] == Array(result.cookie.utf8), "cookie not recovered")
+        precondition(values["cookie"] == Array(result.tunnelCookie.utf8), "cookie not recovered")
         precondition(values["servercert"] == Array(result.fingerprint.utf8), "the root run does not trust the key the sign-in accepted")
         if let address = config.resolveAddress {
             precondition(values["resolve"] == Array("\(host.lowercased()):\(address)".utf8), "resolve not recovered")

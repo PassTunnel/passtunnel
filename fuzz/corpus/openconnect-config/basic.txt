@@ -1,1 +1,1 @@
-vpn.example.com8443engineeringalicepin-sha256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk=EXAMPLE-COOKIE@1@AB192.0.2.10/private/var/run/passtunnel/tools/0123abcd/Resources/bin/vpn-hookn
+vpn.example.com8443engineeringalicepin-sha256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk=webvpn=EXAMPLE-COOKIE@1@AB192.0.2.10/private/var/run/passtunnel/tools/0123abcd/Resources/bin/vpn-hookn

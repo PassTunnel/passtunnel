@@ -215,7 +215,9 @@ struct AnyConnectSignIn: @unchecked Sendable {
             let log = Self.log(Self.redacted(output.errorOutput, secrets: secrets))
             return failed(PTError.signInUnusable(String(describing: error)), log: log, sent: true)
         }
-        let log = Self.log(Self.redacted(output.errorOutput, secrets: secrets + [result.cookie]))
+        // The cookie as printed, under its name, and each part of it (the STRAP key, the `webvpn` value).
+        let cookieSecrets = OpenConnectCookie.secrets(result.cookie) + OpenConnectCookie.secrets(result.tunnelCookie)
+        let log = Self.log(Self.redacted(output.errorOutput, secrets: secrets + cookieSecrets))
         do {
             let address = try result.checkDestination(host: config.host, port: config.port, profileServerCert: config.serverCert)
             return .success(Success(result: result, resolve: address == nil ? nil : result.resolve, log: log))

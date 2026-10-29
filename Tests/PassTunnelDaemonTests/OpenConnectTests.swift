@@ -60,7 +60,10 @@ final class FakeLinuxSystem: OpenConnectSystem, @unchecked Sendable {
 /// kill, also by the next daemon. The "openconnect" is a script that sleeps; the system is a fake.
 final class OpenConnectDaemonTests: DaemonTestCase {
     static let pin = "pin-sha256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk="
-    static let cookie = "4C1D2A@1048576@A3F1@9C8B7A6F5E4D3C2B1A0F9E8D7C6B5A4F3E2D1C0B"
+    /// The cookie under its name, as the client sends it (`OpenConnectCookie`); `value` is what a server could make
+    /// openconnect print alone.
+    static let value = "4C1D2A@1048576@A3F1@9C8B7A6F5E4D3C2B1A0F9E8D7C6B5A4F3E2D1C0B"
+    static let cookie = "webvpn=" + value
     var hookTarget: String { base + "/sbin/passtunneld" }
     var runDir: String { PT.sessionDir(uid: me, profileID: "acme", runRoot: runRoot) }
     let system = FakeLinuxSystem()
@@ -138,8 +141,9 @@ final class OpenConnectDaemonTests: DaemonTestCase {
             .filter { !["PWD", "OLDPWD", "SHLVL", "_"].contains($0.split(separator: "=").first.map(String.init) ?? "") }
         XCTAssertEqual(Set(environment), Set(HelperCore.fixedEnvironment + ["P11_KIT_NO_USER_CONFIG=1"]))
         // The cookie never reaches the user's log, even when the server makes openconnect print it.
-        XCTAssertFalse(log().contains(Self.cookie), log())
+        XCTAssertFalse(log().contains(Self.value), log())
         XCTAssertTrue(log().contains("Got CONNECT response: HTTP/1.1 200 OK <redacted>\n"), log())
+        XCTAssertTrue(log().contains("Reflected: <redacted>\n"), "the value alone is masked too: \(log())")
 
         // Status: the session, and its network as the record says (none yet: setting up).
         let status = try response(daemon.socketPath, .status)
@@ -165,6 +169,8 @@ final class OpenConnectDaemonTests: DaemonTestCase {
             (request(resolve: "vpn.example.com:not-an-address"), "address"),
             (request(cookie: "a\nb"), "cookie"),
             (request(cookie: ""), "cookie"),
+            (request(cookie: Self.value), "cookie"),  // a bare value: openconnect would split it at its first '='
+            (request(cookie: "webvpn=a b"), "cookie"),
             (request(serverCert: "sha256:abc"), "certificate"),
             (request(serverCert: otherPin, profileServerCert: Self.pin), "pinned key"),
             (request(usergroup: "../x"), "user group"),

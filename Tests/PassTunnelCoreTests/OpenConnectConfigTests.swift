@@ -11,7 +11,7 @@ let exampleHook = "/private/var/run/passtunnel/tools/0123abcd/Resources/bin/vpn-
 // MARK: - The root file
 
 final class OpenConnectConfigTests: XCTestCase {
-    let cookie = "EXAMPLE-COOKIE-3F2A@1234@ABCD"
+    let cookie = "webvpn=EXAMPLE-COOKIE-3F2A@1234@ABCD"
 
     func config(_ change: (inout OpenConnectConfig) -> Void = { _ in }) -> OpenConnectConfig {
         var c = OpenConnectConfig(
@@ -108,12 +108,18 @@ final class OpenConnectConfigTests: XCTestCase {
         XCTAssertNoThrow(try config { $0.scriptPath = "/" + String(repeating: "a", count: 1022) }.render())
     }
 
+    /// The root run's `cookie` option: exactly the shapes `OpenConnectCookie.tunnelOption` gives.
     func testCookieRules() {
-        XCTAssertNoThrow(try config { $0.cookie = String(repeating: "c", count: 4096) }.render())
-        XCTAssertNoThrow(try config { $0.cookie = "webvpn=AB12; extra=x y" }.render())
+        XCTAssertNoThrow(try config { $0.cookie = "webvpn=" + String(repeating: "c", count: 4089) }.render())
+        XCTAssertNoThrow(try config { $0.cookie = "webvpn=" + OpenConnectCookieTests.ocservToken }.render())
+        XCTAssertNoThrow(try config { $0.cookie = OpenConnectCookieTests.strap }.render())
         for bad in [
-            "", String(repeating: "c", count: 4097), " leading", "trailing ", "=leading", "quote'd", "tab\tx", "x\ny", "x\ry", "x\u{0}y",
-            "x\u{7F}y", "çerez"
+            "", "webvpn=", "webvpn=" + String(repeating: "c", count: 4090), "EXAMPLE-COOKIE", OpenConnectCookieTests.ocservToken,
+            "webvpn=AB12; extra=x", "extra=x; webvpn=AB12", "WEBVPN=AB12", " webvpn=AB12", "webvpn=AB12 ", "webvpn=a b", "webvpn=a;b",
+            "webvpn=quote'd", "webvpn=a\"b", "webvpn=a,b", "webvpn=a\\b", "webvpn=tab\tx", "webvpn=x\ny", "webvpn=x\ry",
+            "webvpn=x\u{0}y", "webvpn=x\u{7F}y", "webvpn=çerez", "openconnect_strapkey=; webvpn=AB12",
+            "openconnect_strapkey=MHcC; webvpn=", "openconnect_strapkey=MHc; webvpn=AB12", "openconnect_strapkey=MH*C; webvpn=AB12",
+            "openconnect_strapkey=MHcC;webvpn=AB12", "openconnect_strapkey=MHcC; webvpn=AB12; x=y"
         ] as [String] {
             XCTAssertThrowsError(try config { $0.cookie = bad }.render(), bad.debugDescription) { error in
                 guard case .invalidValue("cookie", _)? = error as? OpenConnectConfig.ValidationError else { return XCTFail("\(error)") }
@@ -259,7 +265,7 @@ final class OpenConnectAuthConfigTests: XCTestCase {
 
 final class OpenConnectRenderedCheckTests: XCTestCase {
     static let root = try! OpenConnectConfig(
-        host: "vpn.example.com", port: 8443, cookie: "EXAMPLE-COOKIE", serverCert: examplePin, resolveAddress: "192.0.2.10",
+        host: "vpn.example.com", port: 8443, cookie: "webvpn=EXAMPLE-COOKIE", serverCert: examplePin, resolveAddress: "192.0.2.10",
         scriptPath: exampleHook
     ).render()
     static let auth = try! OpenConnectAuthConfig(host: "vpn.example.com", usergroup: "eng", username: "alice", authgroup: "Staff")
@@ -296,7 +302,8 @@ final class OpenConnectRenderedCheckTests: XCTestCase {
         XCTAssertNoThrow(try OpenConnectAuthConfig.checkRendered(pinnedAuth, lineCount: 8, caFile: "/etc/ssl/cert.pem"))
         let keys = { (text: String) in text.split(separator: "\n").dropFirst().map { String($0.prefix { $0 != " " }) } }
         let fullRoot = try OpenConnectConfig(
-            host: "vpn.example.com", cookie: "c", serverCert: examplePin, resolveAddress: "192.0.2.1", scriptPath: "/x", tlsOnly: true
+            host: "vpn.example.com", cookie: "webvpn=c", serverCert: examplePin, resolveAddress: "192.0.2.1", scriptPath: "/x",
+            tlsOnly: true
         ).render()
         XCTAssertEqual(keys(fullRoot), OpenConnectConfig.renderedKeys)
         XCTAssertEqual(keys(auth), OpenConnectAuthConfig.renderedKeys.filter { $0 != "servercert" })
@@ -310,10 +317,13 @@ final class OpenConnectRenderedCheckTests: XCTestCase {
         assertRootUnsafe(root.replacingOccurrences(of: "EXAMPLE-COOKIE", with: "EXAMPLE\u{7F}COOKIE"))
         assertRootUnsafe(String(root.dropLast()))
         // Separators: only "key value" with one space.
-        assertRootUnsafe(root.replacingOccurrences(of: "cookie EXAMPLE", with: "cookie=EXAMPLE"))
-        assertRootUnsafe(root.replacingOccurrences(of: "cookie EXAMPLE", with: "cookie\tEXAMPLE"))
-        assertRootUnsafe(root.replacingOccurrences(of: "cookie EXAMPLE", with: "cookie  EXAMPLE"))
-        assertRootUnsafe(root.replacingOccurrences(of: "cookie EXAMPLE", with: "cookie =EXAMPLE"))
+        assertRootUnsafe(root.replacingOccurrences(of: "cookie webvpn", with: "cookie=webvpn"))
+        assertRootUnsafe(root.replacingOccurrences(of: "cookie webvpn", with: "cookie\twebvpn"))
+        assertRootUnsafe(root.replacingOccurrences(of: "cookie webvpn", with: "cookie  webvpn"))
+        assertRootUnsafe(root.replacingOccurrences(of: "cookie webvpn", with: "cookie =webvpn"))
+        // A bare value, which openconnect would split at its first '=' into another cookie.
+        assertRootUnsafe(root.replacingOccurrences(of: "cookie webvpn=EXAMPLE-COOKIE", with: "cookie EXAMPLE-COOKIE"))
+        assertRootUnsafe(root.replacingOccurrences(of: "cookie webvpn=EXAMPLE-COOKIE", with: "cookie EXAMPLE=COOKIE"))
         assertRootUnsafe(root.replacingOccurrences(of: "EXAMPLE-COOKIE", with: "EXAMPLE-COOKIE "))
         assertRootUnsafe(root.replacingOccurrences(of: "\ncookie", with: "\n cookie"))
         assertRootUnsafe(root.replacingOccurrences(of: "non-inter", with: "non-inter "))
@@ -356,7 +366,8 @@ final class OpenConnectRenderedCheckTests: XCTestCase {
         assertRootUnsafe(root.replacingOccurrences(of: "resolve vpn.example.com:", with: "resolve vpn:"))
         for host in ["192.0.2.10", "2001:db8::1"] {
             let literal = try OpenConnectConfig(
-                host: host, port: 8443, cookie: "EXAMPLE-COOKIE", serverCert: examplePin, resolveAddress: nil, scriptPath: exampleHook
+                host: host, port: 8443, cookie: "webvpn=EXAMPLE-COOKIE", serverCert: examplePin, resolveAddress: nil,
+                scriptPath: exampleHook
             ).render()
             XCTAssertNoThrow(try OpenConnectConfig.checkRendered(literal, lineCount: lineCount(literal)))
             assertRootUnsafe(literal.replacingOccurrences(of: "\nscript ", with: "\nresolve \(host):192.0.2.10\nscript "))
@@ -574,6 +585,7 @@ final class OpenConnectAuthResultTests: XCTestCase {
     func testParse() throws {
         let r = try OpenConnectAuthResult.parse(output())
         XCTAssertEqual(r.cookie, cookie)
+        XCTAssertEqual(r.tunnelCookie, "webvpn=" + cookie)
         XCTAssertEqual(r.host, "192.0.2.10")
         XCTAssertEqual(r.connectURL, "https://vpn.example.com:8443/")
         XCTAssertEqual(r.fingerprint, examplePin)
@@ -585,9 +597,15 @@ final class OpenConnectAuthResultTests: XCTestCase {
         XCTAssertEqual(empty.resolve, "")
         XCTAssertEqual(empty.output, output(resolve: ""))
         XCTAssertEqual(try OpenConnectAuthResult.parse(output(resolve: "\n")).resolve, "")
-        // Cookie length limits.
-        XCTAssertNoThrow(try OpenConnectAuthResult.parse(output(cookie: String(repeating: "c", count: 4096))))
+        // Cookie length limits: the value under its name fits the root option's limit.
+        XCTAssertNoThrow(try OpenConnectAuthResult.parse(output(cookie: String(repeating: "c", count: 4089))))
         XCTAssertNoThrow(try OpenConnectAuthResult.parse(output(cookie: "c")))
+        XCTAssertEqual(try OpenConnectAuthResult.parse(output(cookie: "=c")).tunnelCookie, "webvpn==c")
+        // The real shapes (OpenConnectCookieTests).
+        XCTAssertEqual(
+            try OpenConnectAuthResult.parse(output(cookie: OpenConnectCookieTests.ocservToken)).tunnelCookie,
+            "webvpn=" + OpenConnectCookieTests.ocservToken)
+        XCTAssertEqual(try OpenConnectAuthResult.parse(output(cookie: OpenConnectCookieTests.strap)).tunnelCookie, OpenConnectCookieTests.strap)
     }
 
     func testRefusesAnythingElse() {
@@ -610,9 +628,10 @@ final class OpenConnectAuthResultTests: XCTestCase {
             String(good.dropLast()),  // RESOLVE with a value needs its line break
             output(resolve: "x"), output(resolve: "\n\n"), output(resolve: "''"),
             output(resolve: "''\n"),  // found by FuzzOpenConnectAuthOutput: openconnect prints an empty RESOLVE unquoted
-            output(cookie: ""), output(cookie: String(repeating: "c", count: 4097)), output(cookie: "it's"), output(cookie: " c"),
-            output(cookie: "c "), output(cookie: "=c"), output(cookie: "c\u{1}"), output(cookie: "c\u{7F}"), output(cookie: "çerez"),
-            output(cookie: "a\nCOOKIE='b"),
+            output(cookie: ""), output(cookie: String(repeating: "c", count: 4090)), output(cookie: "it's"), output(cookie: " c"),
+            output(cookie: "c "), output(cookie: "a b"), output(cookie: "a;b"), output(cookie: "webvpn=a; x=b"), output(cookie: "c\u{1}"),
+            output(cookie: "c\u{7F}"), output(cookie: "çerez"), output(cookie: "a\nCOOKIE='b"),
+            output(cookie: "openconnect_strapkey=MHcC; webvpn="), output(cookie: "openconnect_strapkey=M*cC; webvpn=AB12"),
             output(host: "192.0.2.10\u{0}"), output(host: String(repeating: "h", count: 256)),
             output(url: ""), output(url: "https://vpn.example.com/" + String(repeating: "p", count: 300)),
             output(fingerprint: ""), output(fingerprint: "(null)"), output(fingerprint: String(examplePin.prefix(20))),
@@ -744,7 +763,7 @@ final class OpenConnectAuthResultTests: XCTestCase {
             # Generated by PassTunnel. Do not edit.
             protocol anyconnect
             server https://vpn.example.com:8443/
-            cookie \(cookie)
+            cookie webvpn=\(cookie)
             servercert \(otherExamplePin)
             resolve vpn.example.com:192.0.2.10
             script \(exampleHook)
@@ -762,7 +781,7 @@ final class OpenConnectAuthResultTests: XCTestCase {
     func testTheHelpersCheck() throws {
         func build(
             host: String = "vpn.example.com", port: Int = 8443, url: String = "https://vpn.example.com:8443/",
-            resolve: String? = "vpn.example.com:192.0.2.10", cookie: String = "EXAMPLE-COOKIE", pin: String = examplePin,
+            resolve: String? = "vpn.example.com:192.0.2.10", cookie: String = "webvpn=EXAMPLE-COOKIE", pin: String = examplePin,
             profilePin: String = "", script: String = exampleHook
         ) throws -> OpenConnectConfig {
             try OpenConnectAuthResult.tunnelConfig(
@@ -788,6 +807,8 @@ final class OpenConnectAuthResultTests: XCTestCase {
             { try build(port: 443) },
             { try build(cookie: "") },
             { try build(cookie: "a\nb") },
+            { try build(cookie: "EXAMPLE-COOKIE") },  // the helper takes the cookie under its name only
+            { try build(cookie: OpenConnectCookieTests.ocservToken) },
             { try build(pin: "") },  // the root run always gets the accepted key
             { try build(pin: String(examplePin.prefix(20))) },
             { try build(script: "/tmp/x y") },

@@ -503,7 +503,9 @@ The cookie is a bearer secret: whoever holds it can use your VPN session until t
 - **Not logged:** the sign-in run's output, which carries it, is read only by PassTunnel's parser,
   and neither run gets `-v` or an HTTP dump option, the levels that would print it. A server can still
   make the tunnel run print text of its choosing (the status line of its CONNECT reply), so the helper
-  copies that run's output into the log through a filter that removes the cookie, whole lines at a time.
+  copies that run's output into the log through a filter that removes the cookie, whole lines at a time:
+  the cookie under its name, its value alone and, where openconnect makes one (Linux openconnect before
+  9.10), the STRAP key that comes with it, which is the client's private key for the session.
   The filter applied when a log is read masks the cookie's forms as well (`COOKIE=`, `webvpn=`, `Cookie:`
   headers, a `cookie` configuration line). No error message, activity entry or description of the
   start request contains it: a sign-in that cannot be used (it ended on another server, or its output

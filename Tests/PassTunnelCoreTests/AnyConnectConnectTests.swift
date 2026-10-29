@@ -289,7 +289,7 @@ extension ConnectionManagerTests {
         XCTAssertEqual([s.host, s.usergroup, s.connectURL], ["vpn.example.com", "engineering", "https://vpn.example.com:8443/"])
         XCTAssertEqual(s.port, 8443)
         XCTAssertEqual(s.resolve, "vpn.example.com:192.0.2.10")
-        XCTAssertEqual(s.cookie, Out.cookie)
+        XCTAssertEqual(s.cookie, "webvpn=" + Out.cookie, "the value under its name (#212)")
         XCTAssertEqual(s.serverCert, Out.pin, "the key the sign-in accepted")
         XCTAssertEqual(s.profileServerCert, Out.pin, "the profile's own pin")
         XCTAssertEqual([s.tlsOnly, s.setDNS, s.setRoutes], [true, true, true])
@@ -317,6 +317,44 @@ extension ConnectionManagerTests {
         helper.simulateExit(p.id)
         await m.refresh()
         XCTAssertEqual(m.state(p.id), .disconnected)
+    }
+
+    /// #212: whatever shape openconnect printed, the helper gets the cookie under its name, and no log or error
+    /// holds any part of it.
+    func testTheCookieGoesToTheHelperUnderItsName() async throws {
+        typealias C = OpenConnectCookieTests
+        for (printed, sent) in [
+            (C.ocservToken, "webvpn=" + C.ocservToken), (C.asaToken, "webvpn=" + C.asaToken), (C.strap, C.strap)
+        ] {
+            helper = FakeHelper()
+            helper.startLog = Out.hookUp
+            let p = try makeAnyConnect("Acme \(UUID().uuidString.prefix(8))")
+            let fake = FakeOpenConnect()
+            // A server that makes openconnect print each part.
+            fake.results = [
+                Out.output(stdout: Out.stdout(cookie: printed), stderr: Out.signedIn + "x \(C.strapKey)\ny \(C.ocservToken)\nz \(printed)\n")
+            ]
+            let m = try makeAnyConnectManager(fake)
+            try await m.connect(p.id)
+            XCTAssertEqual(openConnectStarts().first?.cookie, sent, printed)
+            for part in OpenConnectCookie.secrets(sent) {
+                XCTAssertFalse(String(describing: helper.requests).contains(part))
+                XCTAssertFalse((m.lastErrorLog[p.id] ?? "").contains(part))
+            }
+        }
+    }
+
+    func testTheSignInLogHoldsNoPartOfTheCookie() async throws {
+        typealias C = OpenConnectCookieTests
+        let p = try makeAnyConnect()
+        let fake = FakeOpenConnect()
+        fake.results = [Out.output(stdout: Out.stdout(cookie: C.strap), stderr: Out.signedIn + "x \(C.strapKey)\ny \(C.ocservToken)\n")]
+        helper.failStarts = 1
+        let m = try makeAnyConnectManager(fake)
+        do { try await m.connect(p.id); XCTFail("connected") } catch PTError.helperFailed {}
+        let log = VPNLog.read(store.logURL(p.id))
+        XCTAssertTrue(log.contains("x <redacted>\ny <redacted>\n"), log)
+        XCTAssertFalse(log.contains(C.strapKey) || log.contains(C.ocservToken), log)
     }
 
     func testCombinedDeliverySendsOneLine() async throws {
