@@ -25,7 +25,7 @@ let package = Package(
     // Declared on every platform, so one Package.resolved (and Dependabot, which runs on Linux) covers them all.
     dependencies: [
         // App updates. The `passtunnel` CLI never starts the updater.
-        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0"),
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.1"),
         // CryptoKit's API on Linux (`crypto` above); Apple platforms use CryptoKit and never build it.
         .package(url: "https://github.com/apple/swift-crypto", exact: "5.0.3")
     ],
