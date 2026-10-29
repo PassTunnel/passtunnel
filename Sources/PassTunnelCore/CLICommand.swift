@@ -234,9 +234,11 @@ public enum CLICommand: Equatable {
             let id = try a.positional(String(localized: "profile"))
             let rest = a.remaining()
             guard !rest.isEmpty else { throw CLIUsageError(String(localized: "Give at least one key=value."), command: name) }
-            let assignments = try rest.map { item -> Assignment in
+            let assignments = try rest.enumerated().map { index, item -> Assignment in
                 guard let eq = item.firstIndex(of: "="), eq != item.startIndex else {
-                    throw CLIUsageError(String(localized: "“\(item)” is not in key=value form."), command: name)
+                    // The position, not the text: it may be a password typed without its key.
+                    let position = index + 2  // the profile is the first
+                    throw CLIUsageError(String(localized: "Argument \(position) is not in key=value form."), command: name)
                 }
                 return Assignment(key: String(item[..<eq]), value: String(item[item.index(after: eq)...]))
             }

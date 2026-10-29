@@ -763,6 +763,16 @@
         }
       }
     },
+    "Argument %lld is not in key=value form." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld. argüman anahtar=değer biçiminde değil."
+          }
+        }
+      }
+    },
     "Cisco AnyConnect is not supported on Linux yet." : {
       "localizations" : {
         "tr" : {
@@ -9443,16 +9453,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "“%@” geçerli bir profil kimliği değil."
-          }
-        }
-      }
-    },
-    "“%@” is not in key=value form." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "“%@” anahtar=değer biçiminde değil."
           }
         }
       }

@@ -148,6 +148,31 @@ final class AnyConnectCLITests: CoreTestCase {
         }
     }
 
+    /// `set acme MyPassword`: the error names the position of the argument that is wrong, never its text.
+    func testASetArgumentWithoutAKeyIsNotEchoed() throws {
+        let cases: [([String], String)] = [
+            (["set", "acme", "MyPassword"], "Argument 2 is not in key=value form."),
+            (["set", "acme", "username=alice", "MyPassword"], "Argument 3 is not in key=value form."),
+            (["set", "acme", "--json", "=MyPassword"], "Argument 2 is not in key=value form."),
+            (["set", "acme", "MyPassword", "username=alice"], "Argument 2 is not in key=value form.")
+        ]
+        for (args, message) in cases {
+            XCTAssertThrowsError(try parse(args), args.joined(separator: " ")) { error in
+                let usage = error as? CLIUsageError
+                XCTAssertEqual(usage?.message, message)
+                XCTAssertEqual(usage?.command, "set")
+                XCTAssertEqual(AutomationErrorCode.of(error), .invalidArgument)
+                let json = String(decoding: (try? AutomationJSON.encoder().encode(ErrorEnvelope(error))) ?? Data(), as: UTF8.self)
+                XCTAssertTrue(json.contains(message), json)
+                XCTAssertFalse(json.contains("MyPassword"), json)
+                XCTAssertFalse(error.localizedDescription.contains("MyPassword"))
+            }
+        }
+        // Well-formed assignments are unchanged.
+        XCTAssertEqual(
+            try parse(["set", "acme", "authgroup=a=b"]), .set(id: "acme", assignments: [.init(key: "authgroup", value: "a=b")]))
+    }
+
     func testAddRefusesTheServerForOtherTypesAndWithoutAValue() throws {
         for type in ["forti", "openvpn"] {
             XCTAssertThrowsError(try parse(["add", "Lab", "--type", type, "--server", "https://vpn.example.com"])) { error in
