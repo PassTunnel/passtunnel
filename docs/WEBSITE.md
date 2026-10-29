@@ -82,22 +82,23 @@ release also uploads its DMG under that name without the version, see
 Below 900 px the section links move into a menu button (disclosure pattern: `aria-expanded`,
 closes on Escape, on outside click and when a link is chosen).
 
-1. **Hero.** Eyebrow "For OpenVPN and FortiGate SSL VPN on macOS", the tagline as `h1`, one
+1. **Hero.** Eyebrow "For OpenVPN, FortiGate SSL VPN and Cisco AnyConnect on macOS", the tagline as `h1`, one
    sentence of explanation, "Download for Mac" (the latest disk image) and the Homebrew one-liner
    with a copy button (`brew trust passtunnel/tap && brew install --cask passtunnel/tap/passtunnel`).
    The one-liner is focusable and scrolls sideways with a fade at the cut edge; below 640 px it is
    replaced by an "Install with Homebrew" button that jumps to the Install section. Then
-   "macOS 13+ · Apple silicon · Free & open source (MIT)". Below that, on the glow: the live code
+   "macOS 13+ · Apple silicon · Free & open source (MIT)" (the Cisco AnyConnect requirement of macOS 15.4 is stated where the types are listed: the FAQ, Install and the call to action). Below that, on the glow: the live code
    demo next to the main window screenshot (stacked on narrow screens, demo first).
 2. **One-time codes, handled.** Format picker (Append, Prepend, password:code, password,code,
    Custom template, Sent separately) showing what the server receives; Custom template shows the
    `{password}` / `{otp}` placeholders; Sent separately shows the password and the code as two
-   fields (OpenVPN static challenge, FortiGate OTP field). Next to it the profile editor
+   fields (OpenVPN static challenge, FortiGate OTP field, Cisco AnyConnect's second password field). Next to it the profile editor
    screenshot (a saved profile with its code and what the server receives). Four cards: authenticator-style window (live codes, countdown ring,
    click to copy, clipboard cleared after 1 minute, codes can be hidden), QR import (scan on screen, drop,
    choose or paste), Touch ID per profile (secrets then encrypted with a Secure Enclave key), auto-type
    shortcut ⌃⌥C.
-3. **VPN client.** OpenVPN and FortiGate SSL VPN with signed `openvpn` / `openfortivpn` bundled.
+3. **VPN client.** OpenVPN, FortiGate SSL VPN and Cisco AnyConnect with signed `openvpn` / `openfortivpn` /
+   `openconnect` bundled.
    Menu bar card: text next to the rendered menu bar panel (profiles with state, code and switch,
    the copy items), light and dark.
    Cards: stays connected (auto-reconnect with backoff, health check, reconnect after wake,
@@ -112,19 +113,21 @@ closes on Escape, on outside click and when a link is chosen).
    `.mcpb` bundle from the latest release (double-click).
 5. **Security model.** Diagram: PassTunnel.app (Developer ID, notarized, signature-checked
    updates) → XPC → privileged helper (approved once in System Settings, accepts only the signed
-   app) → bundled `openvpn` / `openfortivpn` (signed, sanitized OpenVPN configurations); a text
+   app) → bundled `openvpn` / `openfortivpn` / `openconnect` (signed, sanitized OpenVPN configurations); a text
    equivalent for screen readers. Two cards: login Keychain without iCloud sync; nothing sent
    anywhere except your VPN server (no sudoers rule, no admin password at every connect).
    First-run screenshot (Add your first VPN, with the Install the helper card). Link: "Read the full security model" → SECURITY.md.
    Touch ID/Secure Enclave is covered in section 2 and the FAQ, not repeated here.
-6. **Install.** Download ("Download the disk image, open it and drag PassTunnel to
+6. **Install.** ("macOS 13 or later on Apple silicon (Cisco AnyConnect needs macOS 15.4)".) Download ("Download the disk image, open it and drag PassTunnel to
    Applications", a "Release notes" link to the latest release, "Download for Mac"), Homebrew (the
    two commands, copyable), build from source (README).
 7. **FAQ** (`<details>`): why a privileged helper, where secrets are stored, which VPN types,
-   does it work without TOTP ("None" or "Ask each time").
+   does it work without TOTP ("None" or "Ask each time"). The VPN types answer names the three types and
+   what Cisco AnyConnect does not do (browser/SAML sign-in, host scan, client certificates, RSA SecurID) and
+   needs (macOS 15.4).
 8. **Call to action**, then **footer**: GitHub, Releases, Security, Privacy, License (MIT), and
-   "PassTunnel is not affiliated with OpenVPN Inc. or Fortinet. OpenVPN and FortiGate are trademarks
-   of their respective owners." The privacy page and the 404 page carry the same footer.
+   "PassTunnel is not affiliated with OpenVPN Inc., Fortinet or Cisco. OpenVPN, FortiGate and Cisco AnyConnect
+   are trademarks of their respective owners." The privacy page and the 404 page carry the same footer.
 
 ## Privacy policy
 
@@ -135,7 +138,7 @@ the main page, then one readable column (`.doc`): eyebrow "Privacy", `h1`, a one
 what the policy covers (the Mac app and CLI, the Android and iPhone apps, described as in
 development, and this website), information collected (none), what stays on the device (per
 platform), network connections (per platform: the user's VPN servers, the Mac's health check and
-*Fetch fingerprint*, its clock checks (the FortiGate gateway after a rejected sign-in, Apple's time
+*Fetch fingerprint* (FortiGate and Cisco AnyConnect), its clock checks (the FortiGate gateway after a rejected sign-in, Apple's time
 server on request), Sparkle update checks to GitHub, the local MCP server), permissions (per
 platform), this website, children, changes (the public repository history) and contact (GitHub
 issues and the security policy; no email address). Every statement must match `SECURITY.md`,

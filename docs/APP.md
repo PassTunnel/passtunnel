@@ -306,6 +306,22 @@ The main window (`MainSplitView`, decision D-23) is a `NavigationSplitView`, abo
   fields, with the TOTP pre-filled when available.
 - **Context menu** of a sidebar row (`ProfileMenuItems`): Edit…, Copy Code, Copy Password + Code, Share… (export
   `.passtunnel`), Show Log, Pin to Menu Bar, Default Profile, Delete….
+- **Cisco AnyConnect** (user-facing summary; the design is in
+  [ARCHITECTURE.md](ARCHITECTURE.md#cisco-anyconnect-backend), the threat model in
+  [SECURITY.md](../SECURITY.md#cisco-anyconnect)): a profile has a server (host, port, user group), an
+  optional group, an optional pinned server key, the user name, the password and the one-time code. Connect
+  signs in first, as the user, with the stored password and code (the code goes as the answer to the server's
+  second field unless the Code format joins it to the password), and gives the helper only the session
+  cookie that results. The server is trusted by the system's certificate authorities or, when the profile
+  has a pin, by that key alone: **Fetch Fingerprint** in the editor and **Trust This Server…** on the failure
+  card (see Failures above) are the two ways to set it, both asking first. What it does not do: sign in
+  through a web page (SAML / single sign-on), run a host scan (Cisco Secure Desktop, HIP, TNCC; the failure
+  card says so and nothing was sent), use client certificates or RSA SecurID tokens, or follow the server to
+  another host. The tunnel takes the server's address, routes and DNS servers (with Routes and DNS
+  on); routes that lie inside a network the Mac is attached to stay local (the log line counts them), and
+  when all traffic goes through the tunnel and the server assigns no IPv6 address, IPv6 is blocked. It is
+  available on macOS 15.4 and later (next item) and, as `passtunneld`, on Linux with the distribution's
+  `openconnect` 9.01 or later ([LINUX.md](LINUX.md#cisco-anyconnect)).
 - **Cisco AnyConnect below macOS 15.4** (`AppModel.connectRefusal`, `DisplayStatus.unavailable`; owner decision in
   #2): the app runs on macOS 13, but the bundled openconnect needs 15.4. A Cisco AnyConnect profile is listed with
   "Requires macOS 15.4 or later" in amber and no code; its detail says "Cisco AnyConnect requires macOS 15.4 or
