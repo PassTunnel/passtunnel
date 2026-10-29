@@ -700,12 +700,22 @@ when asked.
     is the default route, `~.`); otherwise the split DNS and default domains are routing domains
     (`~domain`) and the default domains are searched. On the resolvconf and file backends, which cannot
     route names, every name goes through the tunnel. Only the session's own service
-    (`passtunnel-<uid>-<id>`) is set or removed. A reconnect's check (`hasDNS`, `DNSApplier.verify`) reads
-    back where the DNS took effect, never only the record: with systemd-resolved the link's servers, domains
-    and default route as `resolvectl dns`, `domain` and `default-route` report them for the recorded index;
-    with resolvconf the resolv.conf the system reads must still name the servers; with the file backend
-    `/etc/resolv.conf` must still be exactly what PassTunnel wrote last. Anything that differs or cannot be
-    established fails the check, and the session is stopped. A failure's reason (`DNSApplier`'s) reaches
+    (`passtunnel-<uid>-<id>`) is set or removed. A reconnect's check (`hasDNS`, `DNSApplier.verify`) checks what
+    PassTunnel itself set and how the system's resolver reaches it, never what another program may
+    legitimately put in front, so a session whose DNS is unchanged always passes:
+    - systemd-resolved: `/etc/resolv.conf` still leads where it led when the DNS was set (the same link, the
+      stub or the uplink file, recorded next to the record as `dns-path`), and the link's servers, domains and
+      default route as `resolvectl dns`, `domain` and `default-route` report them for the recorded index
+      (lists wrapped onto continuation lines read whole), compared as systemd-resolved stores them: one entry
+      per domain, the routing flag given last winning (a default domain given as search and routing domain is
+      listed as `~example.com` only);
+    - resolvconf: `/etc/resolv.conf` still leads where it did (a link; a regular file that openresolv
+      rewrites in place is not checked further), and resolvconf still holds the record it was given
+      (`/run/resolvconf/interface/<name>`, openresolv's `interfaces/<name>`) with the servers and search
+      domains; not the final resolv.conf, which a local cache (dnsmasq) may fill with `127.0.0.1` alone;
+    - the file backend: `/etc/resolv.conf` is still exactly what PassTunnel wrote last.
+    Anything that differs or cannot be established fails the check, and the session is stopped (a new
+    sign-in sets it up afresh). A failure's reason (`DNSApplier`'s) reaches
     the failure line (`OpenConnectSystem.dnsFailure`).
 - **Revert after a kill** (`SessionRestore`): when a session's tool has exited (stopped, killed or
   crashed), when the daemon stops, and in a starting daemon (`PreviousInstance`), the daemon runs

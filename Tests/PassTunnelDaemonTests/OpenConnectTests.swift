@@ -443,16 +443,39 @@ final class LinuxOpenConnectSystemTests: DNSTestCase {
         let indexes = self.indexes
         kernel.interfaceIndex = { indexes.get($0) }
         kernel.run = run
+        var dnsSystem = system
+        dnsSystem.resolvconfRecords = [resolvconfRecords]
         return LinuxOpenConnectSystem(
-            session: session, dns: applier, kernel: kernel, ipCandidates: ip ?? [root + "/usr/sbin/ip"], owner: me, base: base)
+            session: session, dns: DNSApplier(system: dnsSystem, runRoot: runRoot), kernel: kernel,
+            ipCandidates: ip ?? [root + "/usr/sbin/ip"], owner: me, base: base)
     }
 
-    func dns(primary: Bool) -> OpenConnectDNSSettings {
+    /// Where the fake resolvconf below keeps what it is given (Debian's `/run/resolvconf/interface`).
+    var resolvconfRecords: String { root + "/run/resolvconf/interface" }
+
+    func dns(primary: Bool, servers: [String] = ["10.11.0.53"], search: [String] = ["example.com"]) -> OpenConnectDNSSettings {
         OpenConnectDNSSettings(
             OpenConnectPlan.DNS(
-                service: "passtunnel-\(me)-acme", interface: "tun0", primary: primary, servers: [IPAddress("10.11.0.53")!],
-                searchDomains: ["example.com"], matchDomains: primary ? [] : ["corp.example.com", "example.com"]),
+                service: "passtunnel-\(me)-acme", interface: "tun0", primary: primary, servers: servers.map { IPAddress($0)! },
+                searchDomains: search, matchDomains: primary ? [] : ["corp.example.com"] + search),
             addresses: [IPAddress("10.11.0.2")!])
+    }
+
+    /// A fake `resolvectl` that answers `dns`, `domain` and `default-route` for link 7 as systemd-resolved does
+    /// (one entry per domain; a long list wrapped onto indented lines).
+    func answer(dns: String, domain: String, route: String = "no") throws {
+        try """
+        #!/bin/sh
+        echo "resolvectl $*" >> '\(calls)'
+        case "$1" in
+          dns) printf '%s\\n' "\(dns)" ;;
+          domain) printf '%s\\n' "\(domain)" ;;
+          default-route) echo "Link 7 (tun0): \(route)" ;;
+        esac
+        exit 0
+
+        """.write(toFile: resolvectl, atomically: false, encoding: .utf8)
+        chmod(resolvectl, 0o755)
     }
 
     func testDNSThroughTheApplier() throws {
@@ -502,63 +525,100 @@ final class LinuxOpenConnectSystemTests: DNSTestCase {
     }
 
     /// systemd-resolved: the link's servers, domains and default route as `resolvectl` reports them for the
-    /// recorded index; anything else (dropped settings, another form, a failing tool) fails the check.
+    /// recorded index, compared as resolved stores them; anything else (dropped settings, other values, another
+    /// form, a failing tool, `/etc/resolv.conf` no longer its link) fails the check.
     func testReconnectCheckAsksSystemdResolved() throws {
         try useResolved()
         let session = try session()
         let system = makeSystem(session)
         XCTAssertTrue(system.setDNS(dns(primary: false)), system.dnsFailure ?? "")
-        func answer(dns: String, domain: String, route: String = "no") throws {
-            try """
-            #!/bin/sh
-            echo "resolvectl $*" >> '\(calls)'
-            case "$1" in
-              dns) echo "\(dns)" ;;
-              domain) echo "\(domain)" ;;
-              default-route) echo "Link 7 (tun0): \(route)" ;;
-            esac
-            exit 0
-
-            """.write(toFile: resolvectl, atomically: false, encoding: .utf8)
-            chmod(resolvectl, 0o755)
-        }
-        try answer(dns: "Link 7 (tun0): 10.11.0.53", domain: "Link 7 (tun0): example.com ~corp.example.com ~example.com")
+        XCTAssertTrue(callLog.contains("resolvectl domain 7 example.com ~corp.example.com ~example.com\n"), callLog)
+        // What systemd 249 and 255 list for that: example.com was given searched, then routing-only, and the
+        // last flag wins (one entry per domain).
+        try answer(dns: "Link 7 (tun0): 10.11.0.53", domain: "Link 7 (tun0): ~corp.example.com ~example.com")
         XCTAssertTrue(system.hasDNS(dns(primary: false)), system.dnsFailure ?? "")
-        XCTAssertTrue(callLog.contains("resolvectl dns 7\nresolvectl domain 7\nresolvectl default-route 7\n"), callLog)
-        try answer(dns: "Link 7 (tun0): [10.11.0.53]:53#dns.example.com", domain: "Link 7 (tun0): ~corp.example.com example.com ~example.com")
+        XCTAssertTrue(callLog.hasSuffix("resolvectl dns 7\nresolvectl domain 7\nresolvectl default-route 7\n"), callLog)
+        try answer(dns: "Link 7 (tun0): [10.11.0.53]:53#dns.example.com", domain: "Link 7 (tun0): ~example.com ~corp.example.com")
         XCTAssertTrue(system.hasDNS(dns(primary: false)), system.dnsFailure ?? "")
         // Dropped by systemd-resolved (or someone else), or other values.
-        try answer(dns: "Link 7 (tun0):", domain: "Link 7 (tun0): example.com ~corp.example.com ~example.com")
+        try answer(dns: "Link 7 (tun0):", domain: "Link 7 (tun0): ~corp.example.com ~example.com")
         XCTAssertFalse(system.hasDNS(dns(primary: false)))
         XCTAssertEqual(system.dnsFailure, "systemd-resolved no longer has the link's DNS servers")
-        try answer(dns: "Link 7 (tun0): 10.11.0.53 192.0.2.66", domain: "Link 7 (tun0): example.com ~corp.example.com ~example.com")
+        try answer(dns: "Link 7 (tun0): 10.11.0.53 192.0.2.66", domain: "Link 7 (tun0): ~corp.example.com ~example.com")
         XCTAssertFalse(system.hasDNS(dns(primary: false)))
-        try answer(dns: "Link 7 (tun0): 10.11.0.53", domain: "Link 7 (tun0): example.com")
-        XCTAssertEqual(system.hasDNS(dns(primary: false)), false)
+        try answer(dns: "Link 7 (tun0): 10.11.0.53", domain: "Link 7 (tun0): ~corp.example.com")
+        XCTAssertFalse(system.hasDNS(dns(primary: false)))
         XCTAssertEqual(system.dnsFailure, "systemd-resolved no longer has the link's DNS domains")
-        try answer(dns: "Link 7 (tun0): 10.11.0.53", domain: "Link 7 (tun0): example.com ~corp.example.com ~example.com", route: "yes")
+        try answer(dns: "Link 7 (tun0): 10.11.0.53", domain: "Link 7 (tun0): ~corp.example.com ~example.com", route: "yes")
         XCTAssertFalse(system.hasDNS(dns(primary: false)))
-        try answer(dns: "Link 8 (tun1): 10.11.0.53", domain: "Link 7 (tun0): example.com ~corp.example.com ~example.com")
+        try answer(dns: "Link 8 (tun1): 10.11.0.53", domain: "Link 7 (tun0): ~corp.example.com ~example.com")
         XCTAssertFalse(system.hasDNS(dns(primary: false)), "another link's line")
         try "#!/bin/sh\nexit 1\n".write(toFile: resolvectl, atomically: false, encoding: .utf8)
         XCTAssertFalse(system.hasDNS(dns(primary: false)), "cannot be established")
+
+        // A file put in place of systemd-resolved's link: the link's settings stay, names go elsewhere.
+        try answer(dns: "Link 7 (tun0): 10.11.0.53", domain: "Link 7 (tun0): ~corp.example.com ~example.com")
+        XCTAssertTrue(system.hasDNS(dns(primary: false)), system.dnsFailure ?? "")
+        unlink(resolvConf)
+        try "nameserver 192.0.2.66\n".write(toFile: resolvConf, atomically: false, encoding: .utf8)
+        XCTAssertFalse(system.hasDNS(dns(primary: false)))
+        XCTAssertEqual(system.dnsFailure, "\(resolvConf) no longer leads where it did when the DNS was set")
+        unlink(resolvConf)
+        XCTAssertEqual(symlink("../usr/lib/systemd/resolv.conf", resolvConf), 0)
+        XCTAssertFalse(system.hasDNS(dns(primary: false)), "systemd-resolved's uplink file instead of its stub")
+        unlink(resolvConf)
+        XCTAssertEqual(symlink("../run/systemd/resolve/stub-resolv.conf", resolvConf), 0)
+        XCTAssertTrue(system.hasDNS(dns(primary: false)), system.dnsFailure ?? "")
+    }
+
+    /// A full tunnel with three IPv6 servers and long domains: `resolvectl` wraps the lists, as systemd 249
+    /// and 255 do past 80 columns.
+    func testReconnectCheckReadsWrappedLists() throws {
+        try useResolved()
+        let session = try session()
+        let system = makeSystem(session)
+        let servers = ["2001:db8:1111:2222:3333:4444:5555:53", "2001:db8:1111:2222:3333:4444:5555:54", "2001:db8:1111:2222:3333:4444:5555:55"]
+        let search = ["engineering.corp.example.com", "operations.corp.example.com", "research.corp.example.com"]
+        let settings = dns(primary: true, servers: servers, search: search)
+        XCTAssertTrue(system.setDNS(settings), system.dnsFailure ?? "")
+        let indent = String(repeating: " ", count: "Link 7 (tun0):".count)
+        try answer(
+            dns: "Link 7 (tun0): \(servers[0])\n\(indent) \(servers[1])\n\(indent) \(servers[2])",
+            domain: "Link 7 (tun0): \(search[0]) \(search[1])\n\(indent) \(search[2]) ~.", route: "yes")
+        XCTAssertTrue(system.hasDNS(settings), system.dnsFailure ?? "")
+        XCTAssertEqual(
+            DNSApplier.linkLines("Link 7 (tun0): a b\n               c\nLink 8 (tun1): d\n", index: 7, interface: "tun0"), ["a", "b", "c"])
+        XCTAssertNil(DNSApplier.linkLines("Global: a\n", index: 7, interface: "tun0"))
         XCTAssertEqual(DNSApplier.serverAddress("[2001:db8::53]:53"), "2001:db8::53")
         XCTAssertNil(DNSApplier.serverAddress("10.11.0.53:5353"))
         XCTAssertNil(DNSApplier.serverAddress("fe80::53%tun0"))
     }
 
-    /// resolvconf: the resolv.conf the system reads must still name the servers it was given.
-    func testReconnectCheckReadsResolvconfsFile() throws {
-        try makeFakeTool(resolvconf, name: "resolvconf")
+    /// resolvconf: the record it was given for the interface, not the final resolv.conf, which a local cache
+    /// (dnsmasq) may fill with 127.0.0.1 alone.
+    func testReconnectCheckReadsResolvconfsRecord() throws {
+        try FileManager.default.createDirectory(atPath: resolvconfRecords, withIntermediateDirectories: true)
+        // Keeps what `-a <name>` reads in `interface/<name>`, as Debian's resolvconf does; `-d` removes it.
+        try """
+        #!/bin/sh
+        echo "resolvconf $*" >> '\(calls)'
+        if [ "$1" = "-a" ]; then cat > '\(resolvconfRecords)'/"$2"; fi
+        if [ "$1" = "-d" ]; then rm -f '\(resolvconfRecords)'/"$2"; fi
+        exit 0
+
+        """.write(toFile: resolvconf, atomically: false, encoding: .utf8)
+        chmod(resolvconf, 0o755)
         let session = try session()
         let system = makeSystem(session)
         XCTAssertTrue(system.setDNS(dns(primary: true)), system.dnsFailure ?? "")
-        // The fake records the call only: the merged file is written here as resolvconf would.
-        try "nameserver 10.11.0.53\nnameserver 192.0.2.1\nsearch example.com\n".write(toFile: resolvConf, atomically: false, encoding: .utf8)
+        try "nameserver 127.0.0.1\n".write(toFile: resolvConf, atomically: false, encoding: .utf8)
         XCTAssertTrue(system.hasDNS(dns(primary: true)), system.dnsFailure ?? "")
-        try Self.original.write(toFile: resolvConf, atomically: false, encoding: .utf8)
+        try "nameserver 192.0.2.66\n".write(toFile: resolvconfRecords + "/tun0.passtunnel-7", atomically: false, encoding: .utf8)
         XCTAssertFalse(system.hasDNS(dns(primary: true)))
-        XCTAssertEqual(system.dnsFailure, "\(resolvConf) no longer names the VPN's DNS servers")
+        XCTAssertEqual(system.dnsFailure, "resolvconf's record of tun0 is no longer the one it was given")
+        unlink(resolvconfRecords + "/tun0.passtunnel-7")
+        XCTAssertFalse(system.hasDNS(dns(primary: true)))
+        XCTAssertEqual(system.dnsFailure, "resolvconf no longer holds the record of tun0")
     }
 
     func testDNSFailureSaysWhy() throws {

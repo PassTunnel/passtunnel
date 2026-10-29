@@ -34,6 +34,9 @@ public struct DNSSystem {
     public var resolvconf = ["/usr/sbin/resolvconf", "/sbin/resolvconf"]
     /// openresolv's configuration, read for `resolv_conf_mv` only.
     public var resolvconfConf = "/etc/resolvconf.conf"
+    /// Where resolvconf keeps the record it was given for an interface (Debian's `interface/`, openresolv's
+    /// `interfaces/`): read back by `DNSApplier.verify`.
+    public var resolvconfRecords = ["/run/resolvconf/interface", "/run/resolvconf/interfaces"]
     /// Who must own the tools, the paths above them and /etc/resolv.conf (root, but in tests), and where
     /// the `TrustedPath` checks start.
     public var owner: uid_t = 0
@@ -121,6 +124,9 @@ public struct DNSApplier {
             }
             do {
                 try record.write(in: session)
+                if backend != .file {
+                    try RootFile.store(DNSRecord.pathFileName, Data(resolvConfIdentity().utf8), at: session.fd, path: session.path)
+                }
                 try commit(record, settings: settings, tool: tool, root: root)
             } catch {
                 // Not undone, a link's settings keep their record, for the end of the session to try
@@ -180,12 +186,15 @@ public struct DNSApplier {
     // MARK: - Checking
 
     /// Whether the DNS `session` records is still in effect as `settings` set it up (openconnect's
-    /// reconnect check, docs/LINUX.md): nil when it is, else why not. Read back from where it took effect,
-    /// never only from the record:
-    /// - systemd-resolved: the link's servers, domains and default route as `resolvectl dns`, `domain` and
-    ///   `default-route` report them for the recorded index (after `checkLink`), compared as sets;
-    /// - resolvconf: the resolv.conf the system reads (`system.resolvConf`, a link followed) names each of
-    ///   the servers it was given as a `nameserver`;
+    /// reconnect check, docs/LINUX.md): nil when it is, else why not. It checks what PassTunnel itself set
+    /// and how the system's resolver reaches it, never what another program may legitimately put in front:
+    /// - systemd-resolved: `/etc/resolv.conf` still leads where it led when the DNS was set (the same link,
+    ///   `resolvConfIdentity`), and the link's servers, domains and default route as `resolvectl dns`,
+    ///   `domain` and `default-route` report them for the recorded index (after `checkLink`), compared as
+    ///   systemd-resolved stores them (`resolvedDomains`: one entry per domain, the last routing flag given);
+    /// - resolvconf: `/etc/resolv.conf` still leads where it did, and resolvconf still holds the record it was
+    ///   given for the interface (`resolvconfRecords`) with these servers and search domains; not the final
+    ///   resolv.conf, where a local cache (dnsmasq) may legitimately stand in for every server;
     /// - the file: the record holds these servers and search domains, and `/etc/resolv.conf` is still
     ///   exactly what PassTunnel wrote last (the run root's state), with no change under way.
     /// What cannot be established (a tool that fails or answers in another form, a file that cannot be read)
@@ -199,32 +208,34 @@ public struct DNSApplier {
             return "the record cannot be read"
         }
         do {
+            if record.backend != .file {
+                let recorded = try RootFile.load(DNSRecord.pathFileName, at: session.fd, path: session.path, maxBytes: 8192)
+                guard let recorded, String(decoding: recorded, as: UTF8.self) == resolvConfIdentity() else {
+                    return "\(system.resolvConf) no longer leads where it did when the DNS was set"
+                }
+            }
             switch record.backend {
             case .resolved:
                 guard let tool = try trustedTool(system.resolvectl) else { return "resolvectl is not installed" }
                 try checkLink(record)
                 let link = String(record.index)
-                var domains = settings.searchDomains + settings.routingDomains.map { "~" + $0 }
-                if settings.fullTunnel { domains.append("~.") }
                 let servers = Set(settings.servers)
                 guard let shown = try linkValue(tool, "dns", link, record), Set(shown.compactMap(Self.serverAddress)) == servers,
                     shown.count == servers.count
                 else { return "systemd-resolved no longer has the link's DNS servers" }
-                guard let shownDomains = try linkValue(tool, "domain", link, record), Set(shownDomains) == Set(domains) else {
-                    return "systemd-resolved no longer has the link's DNS domains"
-                }
+                guard let shownDomains = try linkValue(tool, "domain", link, record), Set(shownDomains) == Self.resolvedDomains(settings)
+                else { return "systemd-resolved no longer has the link's DNS domains" }
                 guard let route = try linkValue(tool, "default-route", link, record),
                     route == [settings.fullTunnel ? "yes" : "no"]
                 else { return "systemd-resolved no longer has the link's DNS default route" }
                 return nil
             case .resolvconf:
-                guard let text = Self.readEffective(system.resolvConf, owner: system.owner) else {
-                    return "\(system.resolvConf) cannot be read"
-                }
+                let name = Self.resolvconfRecord(record)
+                guard let text = system.resolvconfRecords.lazy.compactMap({ Self.readEffective($0 + "/" + name, owner: self.system.owner) }).first
+                else { return "resolvconf no longer holds the record of \(record.interface)" }
                 let named = Set(Self.nameservers(text))
-                guard settings.servers.prefix(Self.maxNameservers).allSatisfy(named.contains) else {
-                    return "\(system.resolvConf) no longer names the VPN's DNS servers"
-                }
+                guard settings.servers.prefix(Self.maxNameservers).allSatisfy(named.contains), Self.searchDomains(text) == settings.searchDomains
+                else { return "resolvconf's record of \(record.interface) is no longer the one it was given" }
                 return nil
             case .file:
                 // The block of the session is made from its record: it must be what was asked for.
@@ -243,20 +254,55 @@ public struct DNSApplier {
         }
     }
 
-    /// The words `resolvectl <command> <index>` prints for the link: its line `Link <index> (<name>): …`;
-    /// nil when it answers in another form or fails.
-    private func linkValue(_ tool: String, _ command: String, _ link: String, _ record: DNSRecord) throws -> [String]? {
-        guard let result = system.run(tool, [command, link], nil), result.status == 0 else { return nil }
-        return Self.linkLine(result.output, index: record.index, interface: record.interface)
+    /// How `/etc/resolv.conf` reaches the resolver: `link <target>` (worked out from the link's text alone,
+    /// as `chooseBackend` does: systemd-resolved's stub or its uplink file, resolvconf's file), `file` for a
+    /// regular file, `none` otherwise. Recorded with a link's DNS (`DNSRecord.pathFileName`) and compared by
+    /// `verify`: a file put in place of systemd-resolved's link sends names elsewhere while the link's own
+    /// settings stay.
+    func resolvConfIdentity() -> String {
+        let path = system.resolvConf
+        var st = stat()
+        guard lstat(path, &st) == 0 else { return "none\n" }
+        switch st.st_mode & S_IFMT {
+        case S_IFLNK: return "link " + Self.lexicalTarget(of: path, target: Self.readLink(path) ?? "") + "\n"
+        case S_IFREG: return "file\n"
+        default: return "none\n"
+        }
     }
 
-    /// The words after `Link <index> (<interface>):` in `resolvectl`'s output; nil without that line.
-    static func linkLine(_ output: String, index: UInt32, interface: String) -> [String]? {
+    /// The domains of a link as systemd-resolved keeps them: one entry per domain, routing-only (`~`) or also
+    /// searched, the flag given last winning (`SetLinkDomains` updates an entry it has already), as
+    /// `resolvectl domain` then lists them. What `commit` gives it: the search domains, the routing domains,
+    /// and `~.` for a full tunnel.
+    static func resolvedDomains(_ settings: DNSSettings) -> Set<String> {
+        var routeOnly: [String: Bool] = [:]
+        let given =
+            settings.searchDomains.map { ($0, false) } + settings.routingDomains.map { ($0, true) }
+            + (settings.fullTunnel ? [(".", true)] : [])
+        for (domain, flag) in given { routeOnly[domain] = flag }
+        return Set(routeOnly.map { $0.value ? "~" + $0.key : $0.key })
+    }
+
+    /// The words `resolvectl <command> <index>` prints for the link (`linkLines`); nil when it answers in
+    /// another form or fails.
+    private func linkValue(_ tool: String, _ command: String, _ link: String, _ record: DNSRecord) throws -> [String]? {
+        guard let result = system.run(tool, [command, link], nil), result.status == 0 else { return nil }
+        return Self.linkLines(result.output, index: record.index, interface: record.interface)
+    }
+
+    /// The words after `Link <index> (<interface>):` in `resolvectl`'s output, with those of the lines that
+    /// continue it (`resolvectl` wraps a long list onto lines indented under the first value); nil without
+    /// that line.
+    static func linkLines(_ output: String, index: UInt32, interface: String) -> [String]? {
         let prefix = "Link \(index) (\(interface)):"
-        for line in output.split(whereSeparator: \.isNewline) where line.hasPrefix(prefix) {
-            return line.dropFirst(prefix.count).split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        let lines = output.split(separator: "\n", omittingEmptySubsequences: false)
+        guard let start = lines.firstIndex(where: { $0.hasPrefix(prefix) }) else { return nil }
+        var words = lines[start].dropFirst(prefix.count).split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+        for line in lines[(start + 1)...] {
+            guard let first = line.first, first == " " || first == "\t" else { break }
+            words += line.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
         }
-        return nil
+        return words
     }
 
     /// A server as `resolvectl dns` shows it, in `DNSSettings.address`'s form: a plain address, or one with a
@@ -276,6 +322,16 @@ public struct DNSApplier {
             text = text.dropLast(3)
         }
         return try? DNSSettings.address(String(text))
+    }
+
+    /// The words of the last `search` line of a resolv.conf (none: empty).
+    static func searchDomains(_ text: String) -> [String] {
+        var domains: [String] = []
+        for line in text.split(whereSeparator: \.isNewline) {
+            let words = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
+            if words.first == "search" { domains = words.dropFirst().map(String.init) }
+        }
+        return domains
     }
 
     /// The `nameserver` addresses of a resolv.conf, in `DNSSettings.address`'s form.
@@ -780,6 +836,9 @@ public struct DNSApplier {
 /// file is made again whenever a session comes or goes.
 public struct DNSRecord: Equatable {
     public static let fileName = "dns"
+    /// Next to it, for systemd-resolved and resolvconf: how `/etc/resolv.conf` reached them when the DNS was
+    /// set (`DNSApplier.resolvConfIdentity`).
+    static let pathFileName = "dns-path"
     static let header = "passtunnel-dns 2"
     static let maxBytes = 8192
 
@@ -849,6 +908,7 @@ public struct DNSRecord: Equatable {
 
     static func remove(in session: SessionDirectory) {
         _ = unlinkat(session.fd, fileName, 0)
+        _ = unlinkat(session.fd, pathFileName, 0)
     }
 
     /// Whether `session` still has a record: its DNS is not restored yet.
