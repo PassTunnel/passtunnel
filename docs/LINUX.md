@@ -730,8 +730,8 @@ when asked.
   `network.lock` (a hook of an earlier instance's openconnect may hold it).
 - **The unit** needs nothing new: `/dev/net/tun` and `CAP_NET_ADMIN` are allowed already, and the hook
   writes the same DNS paths as `dns-hook`. `/dev/vhost-net` (openconnect's vhost-net acceleration) is not
-  in `DeviceAllow`; whether openconnect then uses the plain tun device without a word is for #188 to
-  confirm with a real tunnel.
+  in `DeviceAllow`: openconnect logs "Failed to open /dev/vhost-net: No such file or directory" once and
+  goes on with the plain tun device (seen in #188's tunnel tests, where containers lack the device too).
 - **Tests.** `OpenConnectLinuxTests` (Core, every platform): `ip`'s argument lists, the hook's set-up,
   revert, failure, sharing and a hook killed in the middle of a change against a simulated Linux, the
   routing table from rtnetlink messages, the version and options. Daemon tests (Linux): the start, its
@@ -744,12 +744,22 @@ when asked.
   `PASSTUNNEL_TEST_OPENCONNECT=1`), then start sessions through the daemon without a tunnel: a request
   refused before anything is prepared, a stand-in at the tool's path that prints 8.20 refused naming the
   minimum, and the real tool against a local socket that never answers (no tunnel, no hook run): its
-  arguments, environment, configuration, state, link, masked log, status and stop. #188 adds an ocserv
-  service: the sign-in with password and code, wrong code, reused code, wrong password, pin mismatch and
-  CA mode, without a tunnel on every run; and an opt-in job (`PASSTUNNEL_TEST_OCSERV=1`) on the runner VM
-  with `NET_ADMIN` and `/dev/net/tun` that connects, checks routes and DNS (all three DNS backends) and
-  their revert, and kills openconnect to check the daemon's revert. That job is an exception to "tests
-  never start a tunnel" (Rules) and marked like `RealSecretServiceTests`.
+  arguments, environment, configuration, state, link, masked log, status and stop.
+- **Against a real server** (#188, [Tests/ocserv](../Tests/ocserv/README.md)): a test image with Debian's
+  ocserv (a password form, then a separate form for the TOTP code). On every run, the CI job "Cisco
+  AnyConnect against ocserv" signs in with Ubuntu's openconnect through `ConnectionManager` and a fake
+  helper, without a tunnel (`OcservSignInTests`, only with `PASSTUNNEL_TEST_OCSERV_SERVER`): password
+  and code with the pin and in CA mode (the test CA handed to the sign-in by the test alone), the next
+  window waited for instead of a spent code, which ocserv refuses; a wrong code; a wrong password, whose
+  retry form gets the code (refused, the code counted as sent); `combined` delivery against separate
+  forms; the system's CAs; another pin; a cookie ocserv does not know. The workflow
+  `ocserv-tunnel.yml` (not a required check; pull requests that touch the code it runs, weekly, by hand)
+  connects real tunnels through passtunneld in containers with `NET_ADMIN` and `/dev/net/tun`, one per
+  DNS backend (systemd-resolved, openresolv, the plain file): address, routes into and around the
+  tunnel, reachability, DNS, their revert on disconnect, openconnect's own reconnect after the server
+  cut its connection, and the daemon's revert after a SIGKILL of openconnect
+  (`Tests/ocserv/tunnel-test.sh`, only with `PASSTUNNEL_TEST_OCSERV=1`). That workflow is the exception
+  to "tests never start a tunnel" (Rules), marked like `RealSecretServiceTests`.
 
 ## Rules
 
@@ -764,6 +774,7 @@ secrets in logs, signed commits, the issue → branch → pull request flow). In
   `HelperCore` already allows. The one exception is marked as such: a CI step of the Linux jobs runs
   one real Secret Service round trip (`RealSecretServiceTests`, only with
   `PASSTUNNEL_TEST_SECRET_SERVICE=1`) against a throwaway keyring on a throwaway session bus inside
-  the job's container.
+  the job's container; and `Tests/ocserv/tunnel-test.sh` (only with `PASSTUNNEL_TEST_OCSERV=1`) starts
+  real tunnels, inside throwaway containers of the `ocserv-tunnel.yml` workflow (Cisco AnyConnect).
 - Every Linux change keeps the `Linux (x86_64)` and `Linux (aarch64)` checks green; they run all tests
   that build on Linux.

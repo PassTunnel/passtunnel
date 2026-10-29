@@ -1,0 +1,85 @@
+# Real Cisco AnyConnect tunnels through passtunneld against the test server of Tests/ocserv: the one
+# test that starts a tunnel (docs/LINUX.md, Rules; marked with PASSTUNNEL_TEST_OCSERV=1). On the runner
+# VM, with Docker: ocserv with NET_ADMIN and /dev/net/tun, and for each Linux DNS backend a client
+# container of its own (NET_ADMIN, /dev/net/tun; systemd-resolved as the init of a privileged one,
+# openresolv on Debian, a plain /etc/resolv.conf on Ubuntu) in which the `passtunnel` command and
+# passtunneld, built from this commit, connect: the address, the routes into and around the tunnel,
+# reachability and DNS, their revert on disconnect, openconnect's own reconnect after the server cut its
+# connection, and passtunneld's revert after openconnect is killed with SIGKILL
+# (Tests/ocserv/run-tunnel-tests.sh, tunnel-test.sh). The runner's own network is never changed.
+#
+# Not a required check: it waits for TOTP windows (up to 30 s per connect), depends on Docker, the
+# distributions' mirrors and the runner's kernel, and so can fail for reasons that are not the change's.
+# It runs on pull requests that touch the code it exercises, every Monday on dev, and by hand.
+name: Cisco AnyConnect tunnel
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 5 * * 1"
+  pull_request:
+    branches: [dev, main]
+    paths:
+      - Tests/ocserv/**
+      - .github/workflows/ocserv-tunnel.yml
+      - Sources/PassTunnelDaemon/**
+      - Sources/PassTunnelShared/**
+      - Sources/PassTunnelVPNConfig/OpenConnect*.swift
+      - Sources/PassTunnelCore/AnyConnectSignIn.swift
+      - Sources/PassTunnelCore/ConnectionManager.swift
+      - Sources/PassTunnelCore/VPNLog+OpenConnect.swift
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ocserv-tunnel-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  tunnel:
+    name: Cisco AnyConnect tunnel against ocserv
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      # swift:6.4.1-noble, the image of the Linux CI jobs, pinned by the digest of its multi-arch index.
+      SWIFT_IMAGE: swift:6.4.1-noble@sha256:19cbe56bdaec1918f7cf5fdeba42b9bd55bdd8a6149c9990d0e0e3a89a127d63
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build/repositories
+          key: swiftpm-repositories-${{ hashFiles('Package.resolved') }}
+
+      # With the Swift standard library linked in: the client containers have no Swift.
+      - name: Build passtunnel and passtunneld
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/src" -w /src "$SWIFT_IMAGE" bash -c '
+            set -euo pipefail
+            git config --global --add safe.directory "*"
+            scripts/swift-retry.sh swift build --static-swift-stdlib --product passtunnel
+            scripts/swift-retry.sh swift build --static-swift-stdlib --product passtunneld
+            bin="$(swift build --static-swift-stdlib --show-bin-path)"
+            install -D -m 0755 -t /src/ocserv-bin "$bin/passtunnel" "$bin/passtunneld"'
+
+      - name: Tunnels (plain resolv.conf, openresolv, systemd-resolved)
+        env:
+          PASSTUNNEL_TEST_OCSERV: "1"
+          OUT: ${{ runner.temp }}/ocserv-logs
+        run: Tests/ocserv/run-tunnel-tests.sh ocserv-bin file resolvconf resolved
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: ocserv-tunnel-logs
+          path: ${{ runner.temp }}/ocserv-logs
+          if-no-files-found: ignore
+          retention-days: 14
