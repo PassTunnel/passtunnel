@@ -200,6 +200,9 @@ struct AnyConnectSignIn: @unchecked Sendable {
         let sent = output.errorOutputCut || VPNLog.openConnectCredentialsSent(String(decoding: output.errorOutput, as: UTF8.self))
         var stdout = [UInt8](output.output)
         defer { stdout.wipe() }
+        // Whatever COOKIE holds, read apart from the parser, so a cookie it refuses is masked too when the server
+        // repeats it on standard error.
+        let secrets = secrets + Self.printedCookieSecrets(stdout)
         guard output.status == 0 else {
             let text = Self.redacted(output.errorOutput, secrets: secrets)
             let error = VPNLog.openConnectSignInError(
@@ -215,13 +218,38 @@ struct AnyConnectSignIn: @unchecked Sendable {
             let log = Self.log(Self.redacted(output.errorOutput, secrets: secrets))
             return failed(PTError.signInUnusable(String(describing: error)), log: log, sent: true)
         }
-        let log = Self.log(Self.redacted(output.errorOutput, secrets: secrets + [result.cookie]))
+        // The cookie as printed, under its name, and each part of it (the STRAP key, the `webvpn` value).
+        let cookieSecrets = OpenConnectCookie.secrets(result.cookie) + OpenConnectCookie.secrets(result.tunnelCookie)
+        let log = Self.log(Self.redacted(output.errorOutput, secrets: secrets + cookieSecrets))
         do {
             let address = try result.checkDestination(host: config.host, port: config.port, profileServerCert: config.serverCert)
             return .success(Success(result: result, resolve: address == nil ? nil : result.resolve, log: log))
         } catch {
             return failed(PTError.signInUnusable(String(describing: error)), log: log, sent: true)
         }
+    }
+
+    /// What standard output's `COOKIE='…'` holds, as literal secrets, without the parser's rules: the value up to
+    /// its closing quote (or the end), each of its lines, each `;`-separated part (blanks around it dropped) and
+    /// what follows a part's first `=` (a cookie's value under any name, a STRAP key). For the log only: a
+    /// cookie the parser refuses is never used, but the server may have echoed it.
+    static func printedCookieSecrets(_ stdout: [UInt8]) -> [String] {
+        let start = Array("COOKIE='".utf8)
+        guard let at = stdout.indices.first(where: { stdout[$0...].starts(with: start) && ($0 == 0 || stdout[$0 - 1] == 0x0A) })
+        else { return [] }
+        let from = at + start.count
+        let to = stdout[from...].firstIndex(of: UInt8(ascii: "'")) ?? stdout.endIndex
+        let value = String(decoding: stdout[from..<to], as: UTF8.self)
+        var out = [value]
+        for line in value.split(whereSeparator: \.isNewline) {
+            out.append(String(line))
+            for part in line.split(separator: ";") {
+                let part = part.trimmingCharacters(in: .whitespaces)
+                out.append(part)
+                if let eq = part.firstIndex(of: "=") { out.append(String(part[part.index(after: eq)...])) }
+            }
+        }
+        return out.filter { !$0.isEmpty }
     }
 
     /// The whole of standard error, each line (split at LF) through `LogRedactor` with `secrets` as literal

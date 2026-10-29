@@ -108,12 +108,13 @@ extension HelperCore {
             #endif
             let logFD = try dir.createLogFile(logName)
             // A server can make openconnect print what it chooses (the CONNECT status line, say), so its output
-            // goes through the masker, which removes the cookie, before it reaches the user's log.
+            // goes through the masker, which removes the cookie (whole, its `webvpn` value alone and a STRAP key),
+            // before it reaches the user's log.
             return LaunchPlan(
                 profileID: s.profileID, ownerUID: uid, tool: .openconnect,
                 arguments: Self.openConnectArguments(configPath: configPath),
                 runDir: runDir, sessionDir: session, logFD: logFD, dnsUpdownPath: nil,
-                profileDir: dir, mgmtSocket: nil, maskedSecrets: [s.cookie])
+                profileDir: dir, mgmtSocket: nil, maskedSecrets: OpenConnectCookie.secrets(s.cookie))
         } catch {
             removeRunDir(profileID: s.profileID, uid: uid)
             throw error

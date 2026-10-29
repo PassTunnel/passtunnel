@@ -26,7 +26,11 @@ import Foundation
 /// address it reports cannot be verified independently in pure code (and no address range is refused:
 /// tests run against a server on loopback).
 public struct OpenConnectAuthResult: Equatable, CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    /// `COOKIE` as openconnect printed it: the bare `webvpn` value, or the STRAP form (`OpenConnectCookie`).
     public let cookie: String
+    /// The tunnel run's `cookie` option for it, which the helper is sent: the value under its name
+    /// (`OpenConnectCookie.tunnelOption`).
+    public let tunnelCookie: String
     /// `HOST`: the numeric address the run connected to (an IPv6 address in brackets).
     public let host: String
     /// `CONNECT_URL`: where the session continues.
@@ -81,10 +85,11 @@ public struct OpenConnectAuthResult: Equatable, CustomStringConvertible, CustomD
 
     /// The fields, each checked as `parse` checks it (so the helper can rebuild and check a result it was sent).
     public init(cookie: String, host: String, connectURL: String, fingerprint: String, resolve: String) throws {
-        guard OpenConnectSyntax.isValidCookie(cookie) else {
+        guard let tunnelCookie = OpenConnectCookie.tunnelOption(printed: cookie) else {
             throw ParseError.invalidValue(
                 key: "COOKIE",
-                reason: "not 1–\(OpenConnectConfig.maxCookieBytes) bytes of printable ASCII without surrounding blanks or a leading =")
+                reason: "neither a cookie value (cookie octets without ') nor openconnect's STRAP form, "
+                    + "or longer than \(OpenConnectConfig.maxCookieBytes) bytes under its name")
         }
         try Self.checkPrintable(host, key: "HOST", maxBytes: Self.maxHostBytes, allowEmpty: false)
         try Self.checkPrintable(connectURL, key: "CONNECT_URL", maxBytes: Self.maxConnectURLBytes, allowEmpty: false)
@@ -93,6 +98,7 @@ public struct OpenConnectAuthResult: Equatable, CustomStringConvertible, CustomD
         }
         try Self.checkPrintable(resolve, key: "RESOLVE", maxBytes: Self.maxResolveBytes, allowEmpty: true)
         self.cookie = cookie
+        self.tunnelCookie = tunnelCookie
         self.host = host
         self.connectURL = connectURL
         self.fingerprint = fingerprint
@@ -228,14 +234,15 @@ public struct OpenConnectAuthResult: Equatable, CustomStringConvertible, CustomD
     }
 
     /// The root run's configuration for this sign-in (`checkDestination` first): the profile's host and port,
-    /// this cookie, this `FINGERPRINT` as the only trusted key, and the address the sign-in used.
+    /// this cookie under its name (`tunnelCookie`), this `FINGERPRINT` as the only trusted key, and the address
+    /// the sign-in used.
     public func tunnelConfig(host: String, port: Int, profileServerCert: String, scriptPath: String, tlsOnly: Bool) throws
         -> OpenConnectConfig
     {
         let address = try checkDestination(host: host, port: port, profileServerCert: profileServerCert)
         let config = OpenConnectConfig(
-            host: host, port: port, cookie: cookie, serverCert: fingerprint, resolveAddress: address, scriptPath: scriptPath,
-            tlsOnly: tlsOnly)
+            host: host, port: port, cookie: tunnelCookie, serverCert: fingerprint, resolveAddress: address,
+            scriptPath: scriptPath, tlsOnly: tlsOnly)
         try config.validate()
         return config
     }

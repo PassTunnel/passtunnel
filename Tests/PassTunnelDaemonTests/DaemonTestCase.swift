@@ -122,6 +122,7 @@ class DaemonTestCase: XCTestCase {
             echo "fake openconnect $*"
             config="${1#--config=}"
             echo "Got CONNECT response: HTTP/1.1 200 OK $(sed -n 's/^cookie //p' "$config")"
+            echo "Reflected: $(sed -n 's/^cookie webvpn=//p' "$config")"
             exec sleep 30
 
             """)

@@ -15,7 +15,8 @@ public struct OpenConnectConfig: Equatable, CustomStringConvertible, CustomDebug
     /// The profile's host: a host name, or an IPv4 or IPv6 literal (no brackets, no port, no zone id).
     public var host: String
     public var port: Int
-    /// The session cookie from the sign-in run. A bearer secret: no description, mirror or error has it.
+    /// The session cookie from the sign-in run under its name (`OpenConnectCookie`: `webvpn=…`, or the STRAP
+    /// form). A bearer secret: no description, mirror or error has it.
     public var cookie: String
     /// The key the sign-in run accepted (its `FINGERPRINT`): `pin-sha256:` and the full base64 SHA-256 of
     /// the server's public key. Always set, and the tunnel run's only trust (openconnect turns system trust
@@ -52,7 +53,7 @@ public struct OpenConnectConfig: Equatable, CustomStringConvertible, CustomDebug
     }
 
     public static let maxHostBytes = 253
-    /// The longest cookie accepted from the sign-in run.
+    /// The longest `cookie` option accepted (`OpenConnectCookie`).
     public static let maxCookieBytes = 4096
     /// The longest `script` or `cafile` path (macOS `PATH_MAX` is 1,024 with its NUL).
     public static let maxPathBytes = 1023
@@ -95,9 +96,10 @@ public struct OpenConnectConfig: Equatable, CustomStringConvertible, CustomDebug
     public func validate() throws {
         guard OpenConnectSyntax.isValidHost(host) else { throw ValidationError.invalidHost }
         guard (1...65535).contains(port) else { throw ValidationError.invalidPort(port) }
-        guard OpenConnectSyntax.isValidCookie(cookie) else {
+        guard OpenConnectCookie.isValidTunnelOption(cookie) else {
             throw ValidationError.invalidValue(
-                field: "cookie", reason: "not 1–\(Self.maxCookieBytes) bytes of printable ASCII without ' and surrounding blanks")
+                field: "cookie",
+                reason: "not the webvpn cookie under its name, nor openconnect's STRAP form, within \(Self.maxCookieBytes) bytes")
         }
         guard OpenConnectPin.isValid(serverCert) else { throw ValidationError.invalidServerCert }
         if OpenConnectSyntax.isIPLiteral(host) {
@@ -154,7 +156,7 @@ public struct OpenConnectConfig: Equatable, CustomStringConvertible, CustomDebug
             .init("protocol", required: true) { $0 == "anyconnect" },
             // The tunnel run connects without the user group: the path is empty.
             .init("server", required: true) { OpenConnectSyntax.parseServerURL($0)?.path == "" },
-            .init("cookie", required: true, value: OpenConnectSyntax.isValidCookie),
+            .init("cookie", required: true, value: OpenConnectCookie.isValidTunnelOption),
             .init("servercert", required: true, value: OpenConnectPin.isValid),
             .init("resolve", required: false, value: OpenConnectSyntax.isValidResolveOption),
             .init("script", required: true, value: OpenConnectSyntax.isSafePath),
@@ -455,15 +457,6 @@ enum OpenConnectSyntax {
     static func resolveName(_ s: String) -> Substring { s.prefix { $0 != ":" } }
 
     // MARK: Values
-
-    /// 1–4,096 bytes of printable ASCII without `'` (the sign-in output's quote), not starting with a blank
-    /// or `=` and not ending with a blank.
-    static func isValidCookie(_ s: String) -> Bool {
-        let bytes = Array(s.utf8)
-        return (1...OpenConnectConfig.maxCookieBytes).contains(bytes.count)
-            && bytes.allSatisfy { (0x20...0x7E).contains($0) && $0 != UInt8(ascii: "'") }
-            && bytes.first != 0x20 && bytes.first != UInt8(ascii: "=") && bytes.last != 0x20
-    }
 
     /// An absolute path of `A–Z a–z 0–9 / . _ -` only (openconnect passes `script` to `/bin/sh -c`), at most
     /// `maxPathBytes`, every component non-empty and neither `.` nor `..`.

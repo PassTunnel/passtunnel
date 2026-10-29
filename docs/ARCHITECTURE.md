@@ -1210,8 +1210,7 @@ code, nor parses the server's login forms (the most complex server-controlled pa
    `RESOLVE='<host>:<address>'`, each on its own line and in this order, or a last `RESOLVE=` that
    openconnect prints without a line break (`main.c` 2403–2425; its progress messages go to standard
    error in this mode, `main.c` 2556–2563). Values are printable ASCII without `'` (nothing is
-   escaped); the cookie is 1–4,096 bytes and starts with neither a blank nor `=` and ends without a
-   blank (it must survive the root file), `FINGERPRINT` is a full pin, `CONNECT_URL` at most 300 bytes,
+   escaped); the cookie must be one of the two shapes below, `FINGERPRINT` is a full pin, `CONNECT_URL` at most 300 bytes,
    the whole output at most 8 KiB; anything else (an unknown, repeated, missing or reordered key, a CR)
    fails. The server chooses every value, so it could repeat the cookie in any of them: no
    description, mirror or error shows any value of the output, only fixed text and key names.
@@ -1232,6 +1231,26 @@ code, nor parses the server's login forms (the most complex server-controlled pa
      spelling of it) and no `resolve` is rendered (openconnect splits `resolve` at the first `:`,
      `main.c` 1983–2000). An empty `RESOLVE` fails; so does an address with a zone id.
    - `FINGERPRINT` must equal the profile's pin when it has one.
+   - *The cookie's name* (`OpenConnectCookie`, #212). openconnect builds `COOKIE` in one place
+     (`cstp_obtain_cookie`, `auth.c` 1666–1709; the same in 9.01 and 9.12) in one of two shapes: with a
+     STRAP key, which it makes only without `no-external-auth` (Linux 9.01–9.09),
+     `openconnect_strapkey=<base64 DER>; webvpn=<value>`; otherwise the **bare value** of the `webvpn`
+     cookie (the server's `Set-Cookie` or `<session-token>`). The tunnel run splits its `cookie` option at
+     each `;` and each part at its first `=` (`internal_split_cookies(…, "webvpn")`, `http.c` 119), and only
+     a part without `=` is taken as the `webvpn` value: a bare value holding `=` (ocserv's base64 tokens)
+     would become a cookie named after itself, and the server would get no session cookie ("no cookie
+     found"). So the helper is sent the value under its name, `webvpn=<value>` (whatever the value holds),
+     or the STRAP form unchanged (`OpenConnectAuthResult.tunnelCookie`). STRAP is recognised only by its
+     whole structure (`openconnect_strapkey=<standard base64>; webvpn=<value>`); a value that merely starts
+     like it is a bare value, sent as `webvpn=<value>`, so the client gives exactly the options the helper
+     accepts. Accepted, and nothing else: a `webvpn` value of RFC 6265 cookie octets without `'` (no blank,
+     `"`, `,`, `;` or `\`, so nothing can split it differently), a STRAP key of standard base64, each at least
+     8 bytes (the log maskers skip values under 3, and no server issues a session cookie that short), at most
+     4,096 bytes under its name. The sign-in's log also masks whatever `COOKIE='…'` held when the parser
+     refuses it (whole, per line, per `;` part and after each part's `=`), since the server may echo it. The helper
+     and the root file's check (`checkRendered`) accept exactly `webvpn=<value>` and the STRAP form
+     (`OpenConnectCookie.isValidTunnelOption`), never a bare value. The STRAP key is the client's own
+     private key for the session's resumption, a secret like the value: both are masked on their own too.
    - `OpenConnectAuthResult.checkDestination` makes these checks and returns the address for
      `resolve`; `tunnelConfig` builds the root configuration from them. The helper repeats them on the
      request's fields (`OpenConnectAuthResult.tunnelConfig(host:port:connectURL:resolve:cookie:
@@ -1264,7 +1283,8 @@ code, nor parses the server's login forms (the most complex server-controlled pa
    CONNECT reply's status line, `cstp.c` 384, is logged as it came) and could reflect the cookie there,
    so the helper does not give openconnect the log itself: its standard output and error go into a pipe,
    and `MaskingCopier` (Shared) writes them to the log one complete line at a time, each through
-   `OutputMask`. A line over 16 KiB is never written, not even in part (a secret could run over any cut): it
+   `OutputMask`, with the cookie under its name, its `webvpn` value alone and a STRAP key as literal secrets
+   (`OpenConnectCookie.secrets`). A line over 16 KiB is never written, not even in part (a secret could run over any cut): it
    is replaced as a whole by `[output line over 16 KiB dropped]`, and an unterminated last line is dropped.
    One thread drains the pipe into a bounded queue (4,096 lines, 4 MiB), another writes from it, so openconnect
    never waits for the log: when a stalled file system fills the queue, lines are dropped and
@@ -1272,8 +1292,8 @@ code, nor parses the server's login forms (the most complex server-controlled pa
    `COOKIE=…`, `webvpn…=`/`openconnect_strapkey=` values, `Cookie:`/`Set-Cookie:` headers and a `cookie …`
    config line. openconnect ignores SIGPIPE (`main.c` 2348), so if the helper ends first (an update), the
    session runs on and only its further output is lost. `LogRedactor` applies `OutputMask` as well, when a
-   log is read; the sign-in's standard error is passed through it, with the answers and the cookie as
-   literal secrets, before it is cut and written.
+   log is read; the sign-in's standard error is passed through it, with the answers and the cookie (as
+   printed, under its name, and each of its parts) as literal secrets, before it is cut and written.
 4. **The tunnel, as root:** `HelperRequest.startOpenConnect` (below). Costs of the split: the cookie
    crosses XPC (or the daemon socket) and sits in a root-only file for the session's life; two runs
    per connect.
