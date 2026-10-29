@@ -487,6 +487,80 @@ final class LinuxOpenConnectSystemTests: DNSTestCase {
         XCTAssertFalse(system.removeDNS(service: "passtunnel-\(me)-other"))
     }
 
+    /// A reconnect's check reads back what the system resolves with: on the file backend `/etc/resolv.conf`
+    /// still as PassTunnel wrote it; another writer's change fails the check.
+    func testReconnectCheckReadsTheFileBack() throws {
+        let session = try session()
+        let system = makeSystem(session)
+        XCTAssertTrue(system.setDNS(dns(primary: true)), system.dnsFailure ?? "")
+        XCTAssertTrue(system.hasDNS(dns(primary: true)), system.dnsFailure ?? "")
+        // A network manager rewrites the file in place: the record is still there, the DNS is not.
+        try "nameserver 192.0.2.1\n".write(toFile: resolvConf, atomically: false, encoding: .utf8)
+        XCTAssertFalse(system.hasDNS(dns(primary: true)))
+        XCTAssertEqual(system.dnsFailure, "\(resolvConf) was changed by something else")
+        XCTAssertNotNil(recorded(session))
+    }
+
+    /// systemd-resolved: the link's servers, domains and default route as `resolvectl` reports them for the
+    /// recorded index; anything else (dropped settings, another form, a failing tool) fails the check.
+    func testReconnectCheckAsksSystemdResolved() throws {
+        try useResolved()
+        let session = try session()
+        let system = makeSystem(session)
+        XCTAssertTrue(system.setDNS(dns(primary: false)), system.dnsFailure ?? "")
+        func answer(dns: String, domain: String, route: String = "no") throws {
+            try """
+            #!/bin/sh
+            echo "resolvectl $*" >> '\(calls)'
+            case "$1" in
+              dns) echo "\(dns)" ;;
+              domain) echo "\(domain)" ;;
+              default-route) echo "Link 7 (tun0): \(route)" ;;
+            esac
+            exit 0
+
+            """.write(toFile: resolvectl, atomically: false, encoding: .utf8)
+            chmod(resolvectl, 0o755)
+        }
+        try answer(dns: "Link 7 (tun0): 10.11.0.53", domain: "Link 7 (tun0): example.com ~corp.example.com ~example.com")
+        XCTAssertTrue(system.hasDNS(dns(primary: false)), system.dnsFailure ?? "")
+        XCTAssertTrue(callLog.contains("resolvectl dns 7\nresolvectl domain 7\nresolvectl default-route 7\n"), callLog)
+        try answer(dns: "Link 7 (tun0): [10.11.0.53]:53#dns.example.com", domain: "Link 7 (tun0): ~corp.example.com example.com ~example.com")
+        XCTAssertTrue(system.hasDNS(dns(primary: false)), system.dnsFailure ?? "")
+        // Dropped by systemd-resolved (or someone else), or other values.
+        try answer(dns: "Link 7 (tun0):", domain: "Link 7 (tun0): example.com ~corp.example.com ~example.com")
+        XCTAssertFalse(system.hasDNS(dns(primary: false)))
+        XCTAssertEqual(system.dnsFailure, "systemd-resolved no longer has the link's DNS servers")
+        try answer(dns: "Link 7 (tun0): 10.11.0.53 192.0.2.66", domain: "Link 7 (tun0): example.com ~corp.example.com ~example.com")
+        XCTAssertFalse(system.hasDNS(dns(primary: false)))
+        try answer(dns: "Link 7 (tun0): 10.11.0.53", domain: "Link 7 (tun0): example.com")
+        XCTAssertEqual(system.hasDNS(dns(primary: false)), false)
+        XCTAssertEqual(system.dnsFailure, "systemd-resolved no longer has the link's DNS domains")
+        try answer(dns: "Link 7 (tun0): 10.11.0.53", domain: "Link 7 (tun0): example.com ~corp.example.com ~example.com", route: "yes")
+        XCTAssertFalse(system.hasDNS(dns(primary: false)))
+        try answer(dns: "Link 8 (tun1): 10.11.0.53", domain: "Link 7 (tun0): example.com ~corp.example.com ~example.com")
+        XCTAssertFalse(system.hasDNS(dns(primary: false)), "another link's line")
+        try "#!/bin/sh\nexit 1\n".write(toFile: resolvectl, atomically: false, encoding: .utf8)
+        XCTAssertFalse(system.hasDNS(dns(primary: false)), "cannot be established")
+        XCTAssertEqual(DNSApplier.serverAddress("[2001:db8::53]:53"), "2001:db8::53")
+        XCTAssertNil(DNSApplier.serverAddress("10.11.0.53:5353"))
+        XCTAssertNil(DNSApplier.serverAddress("fe80::53%tun0"))
+    }
+
+    /// resolvconf: the resolv.conf the system reads must still name the servers it was given.
+    func testReconnectCheckReadsResolvconfsFile() throws {
+        try makeFakeTool(resolvconf, name: "resolvconf")
+        let session = try session()
+        let system = makeSystem(session)
+        XCTAssertTrue(system.setDNS(dns(primary: true)), system.dnsFailure ?? "")
+        // The fake records the call only: the merged file is written here as resolvconf would.
+        try "nameserver 10.11.0.53\nnameserver 192.0.2.1\nsearch example.com\n".write(toFile: resolvConf, atomically: false, encoding: .utf8)
+        XCTAssertTrue(system.hasDNS(dns(primary: true)), system.dnsFailure ?? "")
+        try Self.original.write(toFile: resolvConf, atomically: false, encoding: .utf8)
+        XCTAssertFalse(system.hasDNS(dns(primary: true)))
+        XCTAssertEqual(system.dnsFailure, "\(resolvConf) no longer names the VPN's DNS servers")
+    }
+
     func testDNSFailureSaysWhy() throws {
         let session = try session()
         let system = makeSystem(session)

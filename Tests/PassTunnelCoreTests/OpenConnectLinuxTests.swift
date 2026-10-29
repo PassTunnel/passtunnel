@@ -274,13 +274,15 @@ final class OpenConnectLinuxTests: XCTestCase {
         return le16(UInt16(length)) + le16(type) + value + [UInt8](repeating: 0, count: Netlink.align(length) - length)
     }
 
-    /// An RTM_NEWROUTE payload: `struct rtmsg`, then RTA_DST, RTA_OIF, RTA_GATEWAY, RTA_PRIORITY, RTA_MULTIPATH.
+    /// An RTM_NEWROUTE payload: `struct rtmsg`, then RTA_DST, RTA_SRC, RTA_OIF, RTA_GATEWAY, RTA_PRIORITY,
+    /// RTA_MULTIPATH.
     func route(
         _ destination: [UInt8], _ length: UInt8, family: UInt8 = 2, table: UInt8 = 254, type: UInt8 = 1, oif: UInt32? = nil,
-        gateway: [UInt8]? = nil, priority: UInt32? = nil, hops: [(UInt32, [UInt8])] = []
+        gateway: [UInt8]? = nil, priority: UInt32? = nil, hops: [(UInt32, [UInt8])] = [], source: ([UInt8], UInt8)? = nil
     ) -> Netlink.Route? {
-        var body: [UInt8] = [family, length, 0, 0, table, 3, 0, type] + le32(0)
+        var body: [UInt8] = [family, length, source?.1 ?? 0, 0, table, 3, 0, type] + le32(0)
         if !destination.isEmpty { body += attribute(1, destination) }
+        if let source { body += attribute(2, source.0) }
         if let oif { body += attribute(4, le32(oif)) }
         if let gateway { body += attribute(5, gateway) }
         if let priority { body += attribute(6, le32(priority)) }
@@ -335,6 +337,50 @@ final class OpenConnectLinuxTests: XCTestCase {
         XCTAssertTrue(routes[0].is(.init(IPNetwork("10.0.0.0/8")!, via: .interface("tun0"))))
         XCTAssertTrue(routes[1].is(.init(IPNetwork("0.0.0.0/1")!, via: .reject)))
         XCTAssertFalse(routes[1].is(.init(IPNetwork("0.0.0.0/1")!, via: .interface("tun0"))))
+    }
+
+    /// A source-specific route (`from <prefix>`, IPv6 source routing on a multihomed host) only applies to some
+    /// traffic: never the default gateway, never in the way of a route the hook adds, never one it made or
+    /// holds, so a source-specific reject route does not count as the IPv6 block.
+    func testSourceSpecificRoutesAreNotForAllTraffic() throws {
+        let names: [Int32: String] = [1: "lo", 3: "wlan0", 4: "eth1"]
+        let fe80a: [UInt8] = [0xFE, 0x80] + [UInt8](repeating: 0, count: 13) + [0xA]
+        let fe80: [UInt8] = [0xFE, 0x80] + [UInt8](repeating: 0, count: 13) + [1]
+        let prefixA: [UInt8] = [0x20, 0x01, 0x0D, 0xB8, 0x00, 0x0A] + [UInt8](repeating: 0, count: 10)
+        let parsed = [
+            // default from 2001:db8:a::/48 via fe80::a dev eth1 (metric 0), then the ordinary default (1024).
+            route([], 0, family: 10, oif: 4, gateway: fe80a, source: (prefixA, 48)),
+            route([], 0, family: 10, oif: 3, gateway: fe80, priority: 1024),
+            // unreachable ::/1 from 2001:db8:a::/48: not a block of all IPv6.
+            route([], 1, family: 10, type: 7, oif: 1, source: (prefixA, 48)),
+            route([], 0, oif: 3, gateway: [198, 51, 100, 1])
+        ].compactMap { $0 }
+        XCTAssertEqual(parsed.count, 4)
+        XCTAssertEqual(parsed[0].sourceLength, 48)
+        XCTAssertEqual(parsed[0].source, prefixA)
+        XCTAssertEqual(parsed[3].sourceLength, 0)
+        let routes = KernelRoute.linux(parsed) { names[$0] }
+        XCTAssertEqual(routes.filter(\.sourceSpecific).count, 2)
+        XCTAssertFalse(routes.filter(\.sourceSpecific).contains(where: \.holdsDestination))
+
+        let underlay = OpenConnectPlan.Underlay(routes: routes, attached: [], tunnel: "tun0")
+        XCTAssertEqual(underlay.ipv6?.description, "fe80::1 wlan0", "not the source-specific default")
+        let block = OpenConnectPlan.Route(IPNetwork("::/1")!, via: .reject)
+        XCTAssertFalse(routes.contains { $0.is(block) })
+        XCTAssertEqual(OpenConnectHook.finding(block, in: routes, claimed: [], attached: []), .absent)
+
+        // The hook sets up the real block next to it, and a reconnect that finds only the source-specific one
+        // fails.
+        system.table = routes
+        XCTAssertFalse(run(.connect(Self.full)).stopTool)
+        XCTAssertTrue(system.log.contains(ip("-6 route add unreachable ::/1")), "\(system.log)")
+        XCTAssertTrue(system.log.contains(ip("-4 route add 192.0.2.10/32 via 198.51.100.1 dev wlan0")), "\(system.log)")
+        system.table.removeAll { $0.reject && !$0.sourceSpecific && $0.network == IPNetwork("::/1")! }
+        let outcome = run(.reconnect(Self.full))
+        XCTAssertTrue(outcome.stopTool)
+        XCTAssertEqual(
+            outcome.lines.last,
+            VPNHook.failureLine("the network changed while the connection was re-established: the route for ::/1 is no longer as it was set up"))
     }
 
     // MARK: - The distribution's openconnect

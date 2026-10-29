@@ -51,9 +51,13 @@ public struct KernelRoute: Equatable, Sendable {
     /// Made by the kernel for a destination in use or a neighbour (`RTF_WASCLONED`, `RTF_LLINFO`): an added
     /// route replaces it, so it never stands in the way.
     public var cloned: Bool
+    /// Linux: a source-specific route (`from <prefix>`): only for traffic from that prefix, another entry than
+    /// a route of the same destination for all traffic.
+    public var sourceSpecific: Bool
 
     public init(
-        network: IPNetwork, gateway: IPAddress? = nil, interface: String, reject: Bool = false, scoped: Bool = false, cloned: Bool = false
+        network: IPNetwork, gateway: IPAddress? = nil, interface: String, reject: Bool = false, scoped: Bool = false, cloned: Bool = false,
+        sourceSpecific: Bool = false
     ) {
         self.network = network
         self.gateway = gateway
@@ -61,6 +65,7 @@ public struct KernelRoute: Equatable, Sendable {
         self.reject = reject
         self.scoped = scoped
         self.cloned = cloned
+        self.sourceSpecific = sourceSpecific
     }
 
     /// The entry a `route add` of `route` makes.
@@ -74,9 +79,10 @@ public struct KernelRoute: Equatable, Sendable {
         }
     }
 
-    /// Whether a `route add` of this destination would find this entry in its way: an unscoped route the
-    /// kernel does not replace by itself.
-    public var holdsDestination: Bool { !scoped && !cloned }
+    /// Whether a `route add` of this destination would find this entry in its way: an unscoped route for all
+    /// traffic (not source-specific) the kernel does not replace by itself. `is` and the default gateway
+    /// (`Underlay`) only ever see such routes.
+    public var holdsDestination: Bool { !scoped && !cloned && !sourceSpecific }
 
     /// Whether this entry is `route` as the hook adds it: the same destination and the same next hop (the
     /// interface, the gateway on its interface, or a reject route).
@@ -353,7 +359,9 @@ extension OpenConnectPlan.Underlay {
     /// no tunnel, if there is exactly one. The attached networks come from the interfaces' own addresses.
     public init(routes: [KernelRoute], attached: [OpenConnectPlan.Attached], tunnel: String) {
         func defaultGateway(_ family: IPAddress.Family) -> OpenConnectPlan.Gateway? {
-            let defaults = routes.filter { $0.network.family == family && $0.network.prefixLength == 0 && !$0.reject && !$0.cloned }
+            let defaults = routes.filter {
+                $0.network.family == family && $0.network.prefixLength == 0 && !$0.reject && !$0.cloned && !$0.sourceSpecific
+            }
             if let main = defaults.first(where: { !$0.scoped }), main.interface != tunnel {
                 return OpenConnectPlan.Gateway(address: main.gateway, interface: main.interface)
             }

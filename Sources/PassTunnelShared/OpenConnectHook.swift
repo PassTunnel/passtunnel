@@ -425,7 +425,7 @@ public struct OpenConnectHook {
                 if !table.contains(where: { $0.is(route) }) { return "the route for \(route.network) is no longer as it was set up" }
             case .dns(let dns):
                 if !system.hasDNS(OpenConnectDNSSettings(dns, addresses: addresses)) {
-                    return "the DNS settings are no longer as they were set up"
+                    return "the DNS settings are no longer as they were set up" + (system.dnsFailure.map { " (\($0))" } ?? "")
                 }
             }
         }

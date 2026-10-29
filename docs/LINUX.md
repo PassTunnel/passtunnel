@@ -684,7 +684,11 @@ when asked.
   - *The routing table* from rtnetlink dumps (`Netlink`, moved to PassTunnelShared from Core, which reads
     it for the other-VPN check): the main table's routes with their type (`blackhole`, `unreachable`,
     `prohibit` are reject routes), metric, output interfaces and next hops (`KernelRoute.linux`, ordered
-    by metric so the default gateway is the one the kernel uses). Chosen over `ip -j route`: no program
+    by metric so the default gateway is the one the kernel uses), and the source selector: a
+    source-specific route (`default from 2001:db8:a::/48 via …`, IPv6 source routing on a multihomed host)
+    applies to some traffic only, so it is never the default gateway, never a route in the way, the
+    session's own or its IPv6 block (`KernelRoute.sourceSpecific`). The other readers of these dumps (the
+    other-VPN check, a FortiGate session's routes) do not look at the source and are unchanged. Chosen over `ip -j route`: no program
     run and no tool's text parsed for each look (the hook reads the table several times a run), the
     kernel's own fields (table, type, metric) rather than a format that changed between iproute2
     versions, and no privileges needed. rtnetlink writes may replace `ip` later.
@@ -696,10 +700,13 @@ when asked.
     is the default route, `~.`); otherwise the split DNS and default domains are routing domains
     (`~domain`) and the default domains are searched. On the resolvconf and file backends, which cannot
     route names, every name goes through the tunnel. Only the session's own service
-    (`passtunnel-<uid>-<id>`) is set or removed. A reconnect's check (`hasDNS`) holds while `DNSApplier`'s
-    record names the tunnel with the index it has now (and, on the file backend, the same servers and
-    search domains); what systemd-resolved or resolvconf hold is theirs and not read back. A failure's
-    reason (`DNSApplier`'s) reaches the failure line (`OpenConnectSystem.dnsFailure`).
+    (`passtunnel-<uid>-<id>`) is set or removed. A reconnect's check (`hasDNS`, `DNSApplier.verify`) reads
+    back where the DNS took effect, never only the record: with systemd-resolved the link's servers, domains
+    and default route as `resolvectl dns`, `domain` and `default-route` report them for the recorded index;
+    with resolvconf the resolv.conf the system reads must still name the servers; with the file backend
+    `/etc/resolv.conf` must still be exactly what PassTunnel wrote last. Anything that differs or cannot be
+    established fails the check, and the session is stopped. A failure's reason (`DNSApplier`'s) reaches
+    the failure line (`OpenConnectSystem.dnsFailure`).
 - **Revert after a kill** (`SessionRestore`): when a session's tool has exited (stopped, killed or
   crashed), when the daemon stops, and in a starting daemon (`PreviousInstance`), the daemon runs
   `OpenConnectHook.restoreAfterExit` in-process, as the Mac's helper does: `stopping` set, a running hook

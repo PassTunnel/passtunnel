@@ -177,6 +177,137 @@ public struct DNSApplier {
         }
     }
 
+    // MARK: - Checking
+
+    /// Whether the DNS `session` records is still in effect as `settings` set it up (openconnect's
+    /// reconnect check, docs/LINUX.md): nil when it is, else why not. Read back from where it took effect,
+    /// never only from the record:
+    /// - systemd-resolved: the link's servers, domains and default route as `resolvectl dns`, `domain` and
+    ///   `default-route` report them for the recorded index (after `checkLink`), compared as sets;
+    /// - resolvconf: the resolv.conf the system reads (`system.resolvConf`, a link followed) names each of
+    ///   the servers it was given as a `nameserver`;
+    /// - the file: the record holds these servers and search domains, and `/etc/resolv.conf` is still
+    ///   exactly what PassTunnel wrote last (the run root's state), with no change under way.
+    /// What cannot be established (a tool that fails or answers in another form, a file that cannot be read)
+    /// counts as not in effect.
+    public func verify(_ settings: DNSSettings, in session: SessionDirectory) -> String? {
+        let record: DNSRecord
+        do {
+            guard let loaded = try DNSRecord.load(in: session) else { return "nothing is recorded" }
+            record = loaded
+        } catch {
+            return "the record cannot be read"
+        }
+        do {
+            switch record.backend {
+            case .resolved:
+                guard let tool = try trustedTool(system.resolvectl) else { return "resolvectl is not installed" }
+                try checkLink(record)
+                let link = String(record.index)
+                var domains = settings.searchDomains + settings.routingDomains.map { "~" + $0 }
+                if settings.fullTunnel { domains.append("~.") }
+                let servers = Set(settings.servers)
+                guard let shown = try linkValue(tool, "dns", link, record), Set(shown.compactMap(Self.serverAddress)) == servers,
+                    shown.count == servers.count
+                else { return "systemd-resolved no longer has the link's DNS servers" }
+                guard let shownDomains = try linkValue(tool, "domain", link, record), Set(shownDomains) == Set(domains) else {
+                    return "systemd-resolved no longer has the link's DNS domains"
+                }
+                guard let route = try linkValue(tool, "default-route", link, record),
+                    route == [settings.fullTunnel ? "yes" : "no"]
+                else { return "systemd-resolved no longer has the link's DNS default route" }
+                return nil
+            case .resolvconf:
+                guard let text = Self.readEffective(system.resolvConf, owner: system.owner) else {
+                    return "\(system.resolvConf) cannot be read"
+                }
+                let named = Set(Self.nameservers(text))
+                guard settings.servers.prefix(Self.maxNameservers).allSatisfy(named.contains) else {
+                    return "\(system.resolvConf) no longer names the VPN's DNS servers"
+                }
+                return nil
+            case .file:
+                // The block of the session is made from its record: it must be what was asked for.
+                guard record.settings?.servers == settings.servers, record.settings?.searchDomains == settings.searchDomains else {
+                    return "the recorded DNS settings are not these"
+                }
+                let root = try lock()
+                defer { close(root) }
+                guard let current = try readResolvConf(), let state = ResolvConfBaseline.load(in: root, path: runRoot),
+                    state.pending == nil, state.written == HelperCore.sha256Hex(current.data)
+                else { return "\(system.resolvConf) was changed by something else" }
+                return nil
+            }
+        } catch {
+            return String(describing: error)
+        }
+    }
+
+    /// The words `resolvectl <command> <index>` prints for the link: its line `Link <index> (<name>): …`;
+    /// nil when it answers in another form or fails.
+    private func linkValue(_ tool: String, _ command: String, _ link: String, _ record: DNSRecord) throws -> [String]? {
+        guard let result = system.run(tool, [command, link], nil), result.status == 0 else { return nil }
+        return Self.linkLine(result.output, index: record.index, interface: record.interface)
+    }
+
+    /// The words after `Link <index> (<interface>):` in `resolvectl`'s output; nil without that line.
+    static func linkLine(_ output: String, index: UInt32, interface: String) -> [String]? {
+        let prefix = "Link \(index) (\(interface)):"
+        for line in output.split(whereSeparator: \.isNewline) where line.hasPrefix(prefix) {
+            return line.dropFirst(prefix.count).split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        }
+        return nil
+    }
+
+    /// A server as `resolvectl dns` shows it, in `DNSSettings.address`'s form: a plain address, or one with a
+    /// port, interface or name (`[2001:db8::53]:53`, `192.0.2.53:53#dns.example.com`) only when the port is
+    /// 53 and no interface is given; nil otherwise.
+    static func serverAddress(_ word: String) -> String? {
+        var text = Substring(word)
+        if let hash = text.firstIndex(of: "#") { text = text[..<hash] }
+        guard !text.contains("%") else { return nil }
+        if text.hasPrefix("[") {
+            guard let close = text.firstIndex(of: "]") else { return nil }
+            let rest = text[text.index(after: close)...]
+            guard rest.isEmpty || rest == ":53" else { return nil }
+            text = text[text.index(after: text.startIndex)..<close]
+        } else if text.filter({ $0 == ":" }).count == 1 {
+            guard text.hasSuffix(":53") else { return nil }
+            text = text.dropLast(3)
+        }
+        return try? DNSSettings.address(String(text))
+    }
+
+    /// The `nameserver` addresses of a resolv.conf, in `DNSSettings.address`'s form.
+    static func nameservers(_ text: String) -> [String] {
+        text.split(whereSeparator: \.isNewline).compactMap { line in
+            let words = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
+            guard words.count >= 2, words[0] == "nameserver" else { return nil }
+            return try? DNSSettings.address(String(words[1]))
+        }
+    }
+
+    /// The resolv.conf the system reads, a link followed (resolvconf's own file): a regular file of `owner`
+    /// of at most `maxResolvConfBytes`; nil otherwise.
+    static func readEffective(_ path: String, owner: uid_t) -> String? {
+        let fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+        guard fd >= 0 else { return nil }
+        defer { close(fd) }
+        var st = stat()
+        guard fstat(fd, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG, st.st_uid == owner, st.st_size <= maxResolvConfBytes else {
+            return nil
+        }
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 8192)
+        while data.count <= maxResolvConfBytes {
+            let n = read(fd, &buffer, buffer.count)
+            if n < 0, errno == EINTR { continue }
+            guard n > 0 else { break }
+            data.append(contentsOf: buffer[0..<n])
+        }
+        return data.count <= maxResolvConfBytes ? String(decoding: data, as: UTF8.self) : nil
+    }
+
     // MARK: - Reverting
 
     /// Reverts what `session` records, then removes the record. Nil when nothing was recorded, else a

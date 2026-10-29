@@ -53,6 +53,10 @@ public enum Netlink {
         public var nextHops: [NextHop]
         /// RTA_PRIORITY: the metric. Of two routes of a destination the kernel uses the lower.
         public var priority: UInt32
+        /// The source selector (`rtm_src_len`, RTA_SRC): a route `from <prefix>` (IPv6 source-specific
+        /// routing) applies only to traffic from that prefix. 0 (and no source) for every other route.
+        public var sourceLength: Int = 0
+        public var source: [UInt8] = []
 
         /// Output interfaces (RTA_OIF, or each next hop of RTA_MULTIPATH).
         public var interfaces: [Int32] { nextHops.map(\.interface) }
@@ -68,7 +72,7 @@ public enum Netlink {
 
         public init(
             family: UInt8, destination: [UInt8], prefixLength: Int, table: UInt32, type: UInt8, nextHops: [NextHop],
-            priority: UInt32 = 0
+            priority: UInt32 = 0, sourceLength: Int = 0, source: [UInt8] = []
         ) {
             self.family = family
             self.destination = destination
@@ -77,6 +81,8 @@ public enum Netlink {
             self.type = type
             self.nextHops = nextHops
             self.priority = priority
+            self.sourceLength = sourceLength
+            self.source = source
         }
     }
 
@@ -207,15 +213,16 @@ extension Netlink.Route {
     public static let rejectTypes: Set<UInt8> = [6, 7, 8]
 
     /// An RTM_NEWROUTE payload: `struct rtmsg` (family, dst_len, src_len, tos, table, protocol, scope,
-    /// type, flags), then RTA_DST, RTA_OIF, RTA_GATEWAY, RTA_PRIORITY, RTA_MULTIPATH (each next hop's
-    /// interface and RTA_GATEWAY) and RTA_TABLE among the attributes. Cached routes (RTM_F_CLONED) and
-    /// those of other families are left out.
+    /// type, flags), then RTA_DST, RTA_SRC, RTA_OIF, RTA_GATEWAY, RTA_PRIORITY, RTA_MULTIPATH (each next
+    /// hop's interface and RTA_GATEWAY) and RTA_TABLE among the attributes. Cached routes (RTM_F_CLONED)
+    /// and those of other families are left out.
     public init?(_ body: ArraySlice<UInt8>) {
         guard body.count >= 12 else { return nil }
         let s = body.startIndex
         family = body[s]
         guard family == Netlink.inet || family == Netlink.inet6, Netlink.u32(body, s + 8) & 0x200 == 0 else { return nil }
         prefixLength = Int(body[s + 1])
+        sourceLength = Int(body[s + 2])
         table = UInt32(body[s + 4])
         type = body[s + 7]
         destination = []
@@ -227,6 +234,7 @@ extension Netlink.Route {
         for (attribute, value) in Netlink.attributes(body, from: s + 12) {
             switch attribute {
             case 1: destination = Array(value)  // RTA_DST
+            case 2: source = Array(value)  // RTA_SRC
             case 4: if let i = Netlink.u32(value) { oif = Int32(bitPattern: i) }  // RTA_OIF
             case 5: gateway = Array(value)  // RTA_GATEWAY
             case 6: priority = Netlink.u32(value) ?? 0  // RTA_PRIORITY
@@ -375,7 +383,9 @@ extension KernelRoute {
     /// The main table's routes of an rtnetlink dump as the hook compares them with its own (Linux's
     /// `OpenConnectSystem.routes`), the preferred first: by metric (`RTA_PRIORITY`), the kernel's order among
     /// equals kept. One entry per next hop of a route; `name` gives an interface index's name. A
-    /// `blackhole`, `unreachable` or `prohibit` route is a reject route. Linux has no scoped or cloned routes in
+    /// `blackhole`, `unreachable` or `prohibit` route is a reject route. A source-specific route (`from
+    /// <prefix>`) is marked as such (`KernelRoute.sourceSpecific`): it applies only to some traffic, so it is
+    /// never a default gateway, a route in the way, nor one the hook made. Linux has no scoped or cloned routes in
     /// the main table (cached ones are left out of the dump), and a route whose destination has host bits set is
     /// left out, as the Mac's reader does.
     public static func linux(_ routes: [Netlink.Route], name: (Int32) -> String?) -> [KernelRoute] {
@@ -392,7 +402,12 @@ extension KernelRoute {
                 let gateway = hop.gateway.count == size ? IPAddress(bytes: hop.gateway) : nil
                 let interface = hop.interface > 0 ? name(hop.interface) ?? "" : ""
                 out.append(
-                    (route.priority, KernelRoute(network: network, gateway: reject ? nil : gateway, interface: interface, reject: reject)))
+                    (
+                        route.priority,
+                        KernelRoute(
+                            network: network, gateway: reject ? nil : gateway, interface: interface, reject: reject,
+                            sourceSpecific: route.sourceLength > 0 || !route.source.isEmpty)
+                    ))
             }
         }
         // A stable sort: `sorted` is not guaranteed to keep the order of equals.

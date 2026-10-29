@@ -195,17 +195,22 @@ public final class LinuxOpenConnectSystem: OpenConnectSystem {
         }
     }
 
-    /// Whether the session's DNS is still as it was set up: `DNSApplier`'s record is there, for this tunnel
-    /// with the index it has now (the link systemd-resolved or resolvconf holds the settings for), and on the
-    /// file backend with the servers and search domains it was set up with. What systemd-resolved or
-    /// resolvconf hold for the link is theirs, and not read back.
+    /// Whether the session's DNS is still in effect as it was set up: `DNSApplier`'s record is there, for this
+    /// tunnel with the index it has now, and what the system resolves with says so (`DNSApplier.verify`: the
+    /// link's servers, domains and default route as systemd-resolved reports them, the servers in the
+    /// resolv.conf resolvconf writes, or `/etc/resolv.conf` still exactly as PassTunnel wrote it). Anything
+    /// that differs or cannot be established fails openconnect's reconnect check.
     public func hasDNS(_ settings: OpenConnectDNSSettings) -> Bool {
+        dnsFailure = nil
         guard let session, isOwnService(settings.service), let record = try? DNSRecord.load(in: session),
-            record.interface == settings.dns.interface, kernel.interfaceIndex(record.interface) == record.index
+            record.interface == settings.dns.interface, kernel.interfaceIndex(record.interface) == record.index,
+            let wanted = try? Self.settings(settings.dns)
         else { return false }
-        guard record.backend == .file else { return true }
-        guard let wanted = try? Self.settings(settings.dns) else { return false }
-        return record.settings?.servers == wanted.servers && record.settings?.searchDomains == wanted.searchDomains
+        if let mismatch = dns.verify(wanted, in: session) {
+            dnsFailure = mismatch
+            return false
+        }
+        return true
     }
 
     /// Reverts the session's DNS (`DNSApplier.revert(in:)`): true once nothing is recorded any more. Why a
