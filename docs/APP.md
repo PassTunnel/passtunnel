@@ -150,11 +150,12 @@ The main window (`MainSplitView`, decision D-23) is a `NavigationSplitView`, abo
   profile (`SidebarRow`): the name, the short status in the state's color with its dot (`ProfileStatusRow`) and the
   live code in 13 pt SF Mono on the right ("••• •••" while the detail masks it, below). No icons, no buttons in the
   rows. Drag to reorder (`order`), the context menu below, Return and double-click run the detail's main button. A
-  bottom bar holds `+`, which opens the add view below (the File menu keeps the five add and import items), and a
+  bottom bar holds `+`, which opens the add view below (the File menu keeps the six add and import items), and a
   gear that opens Settings. Without profiles the section says "No profiles yet." / "Add one to get started."
 - **Detail** (`ProfileDetailView`): the name (28 bold), where it connects (`vpn.example.com:1194 · OpenVPN · UDP`
   from the first `remote` of `config.ovpn`, `OVPNAnalyzer.endpoint`, with "+N more" when there are several;
-  `gw.example.net:443 · FortiGate`), the main button on the right and the long status line below
+  `gw.example.net:443 · FortiGate`; `vpn.example.com:8443/engineering · Cisco AnyConnect` with the user group), the
+  main button on the right and the long status line below
   (`ProfileStatusLine`); then the code cards below. The main button is `DisplayStatus.action`: Connect
   (also after a drop), Cancel while connecting or waiting for a fresh code, Disconnect once connected, Stop during
   an automatic reconnect, Try again after a failure; Connect, Disconnect and Try again are primary capsules, Cancel
@@ -227,6 +228,20 @@ The main window (`MainSplitView`, decision D-23) is a `NavigationSplitView`, abo
     only the system's own view of the network, never a claim that other sites answer, decision D-13), "203.0.113.10:443
     didn’t answer" with the tool's reason, "On a guest or hotel network?", Try now (`retryNow`, while tries go on) and
     Copy details (`ConnectionManager.failureDetails`, ordinary text on the pasteboard, "Copied ✓" for 1.6 s).
+  - **Server not trusted** (`ServerTrustCard`, Cisco AnyConnect: openconnect did not trust the certificate and named
+    the key, `ConnectionFailure.serverCert`; status "Server not trusted"): "This Mac doesn’t trust the server’s
+    certificate (signer not found). Your password and code were not sent.", the key's `pin-sha256:…` in SF Mono
+    (selectable), "Check the fingerprint first", and **Trust This Server…** (primary) with Copy details. The button
+    asks first, naming the server and the full pin ("Trust vpn.example.com:8443/engineering?" / "PassTunnel will accept
+    only the server key with this fingerprint: …"; Trust Server, Cancel), then saves only the pin in `server_cert`
+    (`AppModel.trustServer`, `ConnectionManager.trustServer`); Try again then uses it ("This profile trusts this key
+    now"). It is offered only while the profile still names the server of the failed sign-in with the pin it had
+    (`ServerTrustOffer`). A profile whose pinned key the server no longer presents gets "The server presented another
+    key than the one this profile trusts.", a warning that someone may be intercepting the connection, and **Trust the
+    New Key…**, whose confirmation shows the key it replaces too.
+  - **Host scan required** (`HostScanCard`, Cisco AnyConnect, status "Host scan required"): the server asked for a host
+    scan (Cisco Secure Desktop), which PassTunnel never runs; the password and code were not sent; "Ask your IT team"
+    and Copy details.
   - **Host not found and other failures** (`MessageCard`): the tool's reason, and that the password and code were not
     sent; a name that was not found also points to the profile's address.
   - **Overlapping tunnels** (`OverlapSheet`): connecting a profile whose routes or DNS names overlap with a connected
@@ -245,7 +260,8 @@ The main window (`MainSplitView`, decision D-23) is a `NavigationSplitView`, abo
   - one tile per other way in, as wide as each other (`AddOption`): "Scan a QR code on screen" / "Select the
     authenticator QR open in your browser." (macOS 14 and later, hidden on macOS 13; the editor's Scan QR on screen,
     `ScreenQRScanner`, then like a QR image, `ImportActions.newProfileFromScreen`), "Use a QR image" (an image file;
-    its code is read as everywhere, then "What kind of VPN is this code for?" asks OpenVPN or FortiGate and a new
+    its code is read as everywhere, then "What kind of VPN is this code for?" asks OpenVPN, FortiGate or Cisco
+    AnyConnect (`ImportActions.typeAlert`) and a new
     profile's editor opens with the code filled in and the issuer as its name, `ImportActions.startProfile`) and
     "Enter details by hand" (the same question, then the editor). No footnote about Screen Recording: the picker
     needs no permission, and the fallback that does explains itself first;
@@ -290,6 +306,15 @@ The main window (`MainSplitView`, decision D-23) is a `NavigationSplitView`, abo
   fields, with the TOTP pre-filled when available.
 - **Context menu** of a sidebar row (`ProfileMenuItems`): Edit…, Copy Code, Copy Password + Code, Share… (export
   `.passtunnel`), Show Log, Pin to Menu Bar, Default Profile, Delete….
+- **Cisco AnyConnect below macOS 15.4** (`AppModel.connectRefusal`, `DisplayStatus.unavailable`; owner decision in
+  #2): the app runs on macOS 13, but the bundled openconnect needs 15.4. A Cisco AnyConnect profile is listed with
+  "Requires macOS 15.4 or later" in amber and no code; its detail says "Cisco AnyConnect requires macOS 15.4 or
+  later." with a card that it can still be shared or deleted, and Connect (also Return, ⌘↩ and the menu bar switch)
+  and Edit are disabled. Connecting, editing or creating one is refused with that message before Touch ID, the
+  Keychain or the helper is asked anything; none of its secrets is read or unlocked (`profilesWithUsableSecrets`: no
+  code in the window, the menu bar or the copy items, Copy Code and Copy Password + Code disabled and refused); an imported one is selected instead of opened in the editor, and scanned
+  codes never go to it. The type question of the add view shows Cisco AnyConnect disabled, with the sentence under
+  the question, and File → New Cisco AnyConnect Profile… is disabled with the note as its tooltip.
 - **A profile of a newer VPN type** (`UnsupportedProfile`: its `type` is not one this version knows) is listed under the
   others with "Needs a newer PassTunnel" in amber (`UnsupportedSidebarRow`). Its detail says so and offers only
   Delete… (so does its context menu); it is not in the menu bar, cannot be edited, shared, made the default or
@@ -323,7 +348,8 @@ The main window (`MainSplitView`, decision D-23) is a `NavigationSplitView`, abo
 ## Profile editor (sheet)
 
 About 660 × 700 pt, shared by every window that edits profiles (`ProfileEditorView`, built from the design
-system below). Title "Edit “Work”" / "New OpenVPN Profile" / "New FortiGate Profile". Four hairline cards with the
+system below). Title "Edit “Work”" / "New OpenVPN Profile" / "New FortiGate Profile" / "New Cisco AnyConnect
+Profile" (File → New Cisco AnyConnect Profile…, ⌥⌘N). Four hairline cards with the
 labels right-aligned in a 150 pt column (they wrap, never truncate), then an **Advanced** disclosure; the cards
 scroll above the footer, with a hairline between them when they do not fit. Footer: **Delete Profile…** (red, on
 the left, saved profiles only, `editor.delete`: the row menu's confirmation, `profileDeleteConfirmation`, then
@@ -335,7 +361,20 @@ the sheet closes and `AppModel.delete` runs), Cancel, Save (Add Profile for a ne
    and password fill empty fields, saved to the profile and the Keychain on Save). FortiGate (interim, decision
    D-19) → Gateway, Port, Trusted certificate (with "Fetch Fingerprint" that reads the server cert SHA-256 via a
    TLS handshake and asks to confirm), DNS and Routes checkboxes. User name (empty = ask; FortiGate: at most 64
-   bytes, openfortivpn's limit, checked inline). Password: one secure field when it is kept in the Keychain (no
+   bytes, openfortivpn's limit, checked inline). Cisco AnyConnect → Server: one field for the address as users get
+   it, `https://vpn.example.com[:port][/group]` (`editor.server`; pasted or typed, `https://` optional), which sets
+   the host, port and user group as soon as it is one (`AnyConnectServer.parse`, `AnyConnectEditing.applyServer`);
+   otherwise one line says what is wrong (another scheme, a user name, a query or fragment, percent escapes, the
+   host, the port, the path), never repeating what was typed. Group (`authgroup`, "Server’s default" when empty,
+   blanks dropped on save), Server key (`server_cert`, optional, `pin-sha256:…` in small SF Mono, normalized with
+   `OpenConnectPin`) with **Fetch Fingerprint**, which reads the key's pin with the same aborted TLS handshake
+   (`TLSFingerprint.fetchServerKeyPin`: the SHA-256 of the certificate's SubjectPublicKeyInfo, `ServerKeyPin`) and asks
+   "Trust this server’s key?" with the server and the full pin first; DTLS ("Use TLS only (no DTLS)", `tls_only`);
+   DNS and Routes as for FortiGate. User name: at most 255 bytes, no control characters, no leading "=". Nothing is
+   fetched without the click. A fetched fingerprint (FortiGate's too) is bound to the server it was read from
+   (`FingerprintFetch`: type, host, port, user group): editing any of them while the fetch runs ends it, a result for
+   another server than the one the profile names is dropped, and the confirmation names the server the key came
+   from. Save checks everything again (`checkAnyConnectFields` in `ProfileStore.save`). Password: one secure field when it is kept in the Keychain (no
    confirm field; placeholder "Saved in Keychain" when one is saved, and empty keeps it), else the words for "Ask
    each time" or "None — certificate only".
 2. **One-time code** (the hero card): with a secret, "Secret added · 6 digits · 30 s" (the issuer · account of a
@@ -362,7 +401,8 @@ the sheet closes and `AppModel.delete` runs), Cancel, Save (Add Profile for a ne
    permission it says where to allow it. Nothing found: "No QR code was found on the screen. Make sure the whole
    code is visible, then scan again."
 3. **Code format** (when a code is used): one popup, Append, Prepend, password:code, password,code, Custom
-   template (a monospaced field validated with `OTPComposer.validate`) and Sent separately (`otpDelivery`
+   template (a monospaced field validated with `OTPComposer.validate`; for Cisco AnyConnect also one line of at most
+   4,095 bytes) and Sent separately (Cisco AnyConnect's default: the answer to the server's next prompt; `otpDelivery`
    `.separate`: the OpenVPN static challenge or the FortiGate OTP field; the template is kept for switching back).
    **Server receives**: what the sign-in sends, from `OTPComposer.parts` and the profile's real user name: the
    password always as eight bullets (the editor never has it to show), the live code, or example digits dimmed when
@@ -381,7 +421,8 @@ the sheet closes and `AppModel.delete` runs), Cancel, Save (Add Profile for a ne
    drops" (`autoReconnect`), disabled with the reason when the profile is not `unattended`.
 
 **Advanced** (closed when the sheet opens; Save opens it when the first problem is there), in three cards:
-Sign-in — type (read-only after creation), Password: Save in Keychain / Ask each time / None — certificate only
+Sign-in — type (read-only after creation; a menu of the three, Cisco AnyConnect disabled with its note below macOS
+15.4), Password: Save in Keychain / Ask each time / None — certificate only
 (OpenVPN only), One-time code: None / Generate / Ask each time, and for Generate the Secret field (a secret or an
 `otpauth://` link, typed or pasted; its errors show under it), digits, period, algorithm. Connection — the
 configuration file and its import date with Reveal in Finder (saved OpenVPN profiles), session limit, health
@@ -424,7 +465,9 @@ The menu bar item (decision D-23) is a status item and a panel under it (`MenuBa
 - Panel, 330 pt wide, on the system's window material: header "PassTunnel · 2 connected" (just "PassTunnel" while
   nothing is connected); one row per listed profile (at least 44 pt): 8 pt dot, name and the short `DisplayStatus` in its
   color, the code in SF Mono 13 ("••• •••" while locked or hidden; `hideCodes` is never revealed here) and a switch,
-  on while the profile is connected, connecting or reconnecting (turning it off disconnects or cancels). More than
+  on while the profile is connected, connecting or reconnecting (turning it off disconnects or cancels). A profile
+  this Mac cannot connect (Cisco AnyConnect below macOS 15.4) shows its note, no code and a dimmed switch that
+  beeps. More than
   four rows scroll. Then, for `AppModel.copyTarget` (`CopyTarget`, Core: the default profile when it has a code, else
   the one that sent a code last, `ConnectionManager.lastCodeSent` from `.last-otp`, else the first with a code):
   "Copy Work code ⌘C", "Copy Work password + code ⇧⌘C" (with a password in the Keychain) and, while auto-type is on,
@@ -767,9 +810,11 @@ are in `Editor/EditorComponents.swift`) use them; the credential sheet and the o
   fresh code, connecting); then the last error, a drop not seen yet, and at rest "Touch ID to connect" (either level
   of "Confirm with Touch ID": the editor shows one switch) or "Disconnected". Each state has a short form for
   rows and the menu bar panel ("Connected · 1h 12m") and a long one for the detail ("Connected · 1h 12m · 10.8.0.6",
-  "Waiting for a fresh code · sends in 4 s", "Dropped · next try in 12 s" after a failed attempt). A failure is only
-  its message for now; once Core reports why (a rejected sign-in, a server that does not answer), each reason
-  becomes a `DisplayStatus.Failure` case. `Views/ProfileStatusViews.swift` adds the icon and color and the views
+  "Waiting for a fresh code · sends in 4 s", "Dropped · next try in 12 s" after a failed attempt). A failure Core
+  reports a reason for is a `DisplayStatus.Failure` case (a rejected sign-in, a name not found, a server that does not
+  answer, an untrusted Cisco AnyConnect server, a host scan); others are their message. A type this Mac cannot
+  connect (`Facts.refusal`) is `unavailable` ahead of any failure and of the state at rest, with Connect disabled
+  (`allowsAction`). `Views/ProfileStatusViews.swift` adds the icon and color and the views
   `ProfileStatusLine` (detail), `ProfileStatusRow` (dot and short words) and `ProfileStatusDot`, fed by
   `AppModel.displayStatus(_:)`; the main window and the menu bar panel show them (the status item's badges use
   `StatusKind`). On a selected row's accent color the words turn white (macOS 14 and later; macOS 13 keeps the
@@ -784,7 +829,11 @@ are in `Editor/EditorComponents.swift`) use them; the credential sheet and the o
   files next to it) and `-narrow` at the window's smallest size.
   The `error-` renders show the error states (`AppModel.previewFailures`): `error-rejected-clock` (with the banner),
   `error-rejected`, `error-rejected-clock-ok`, `error-unreachable`, `-offline`, `-ended`, `error-host-not-found`,
-  `error-other`, `error-clock-banner` (and `-narrow`), and `overlap-sheet`.
+  `error-other`, `error-clock-banner` (and `-narrow`), and `overlap-sheet`. Cisco AnyConnect, on a profile made for
+  them: `anyconnect-detail` (connected), `error-server-not-trusted`, `error-server-key-changed`, `error-server-trusted`,
+  `error-host-scan`, and below macOS 15.4 (`ConnectionManager.systemVersion` 14.7) `anyconnect-unavailable`,
+  `menubar-panel-anyconnect-unavailable` and the add view's type question `add-vpn-type-unavailable` (beside
+  `add-vpn-type`); the editor renders add `editor-new-anyconnect`, `editor-anyconnect` and `editor-anyconnect-errors`.
   Offscreen, the glass sidebar of macOS 26 draws without its rows, so there the render lays the window's sidebar
   and detail out side by side, the sidebar on its flat list background. `first-run` (with the helper card, light and
   dark), `first-run-approval`, `add-vpn` and `main-split-login` show the first run, the add view and the question

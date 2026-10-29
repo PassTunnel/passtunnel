@@ -145,6 +145,7 @@ enum RenderSnapshots {
 
             renderSplitWindow(model, sample: sample, store: store, now: now, to: out)
             try renderImportReview(model, home: home, store: store, now: now, to: out)
+            try renderAnyConnect(model, store: store, now: now, to: out)
 
             // The menu bar panel. Pinned Work and Travel with the connected, connecting
             // and dropped ones (four of six listed, badges for them); Home Lab dropped without being pinned; nothing
@@ -486,6 +487,166 @@ enum RenderSnapshots {
                         .background(Palette.background).environmentObject(model),
                     size: nil, dark: dark, to: out, name: "overlap-sheet")
             }
+        }
+    }
+
+    /// Cisco AnyConnect in the main window, light and dark, on a profile made for them and deleted after:
+    /// `anyconnect-detail` (connected, selected), `error-server-not-trusted` (openconnect did not trust the certificate
+    /// and named its key: Trust This Server…), `error-server-key-changed` (the server presented another key than the
+    /// pinned one), `error-server-trusted` (the key trusted since: Try again uses it), `error-host-scan` (the server
+    /// asked for a host scan), `anyconnect-unavailable` (macOS older than 15.4: the note in the row and the status, Connect
+    /// and Edit disabled), `menubar-panel-anyconnect-unavailable` (its row with the switch disabled), and the type question
+    /// of the add view, `add-vpn-type` and `add-vpn-type-unavailable` (Cisco AnyConnect disabled, and why).
+    private static func renderAnyConnect(_ model: AppModel, store: ProfileStore, now: Date, to out: URL) throws {
+        var p = try store.create(name: "Corp AnyConnect", type: .anyconnect)
+        p.host = "vpn.example.com"
+        p.port = 8443
+        p.usergroup = "engineering"
+        p.authgroup = "Employees"
+        p.username = "sam"
+        p.otpMode = .totp
+        p.otpDelivery = .separate
+        p.setDNS = true
+        try store.save(p)
+        try Secrets.set(p.id, .totp, "MZXW6YTBOI3DEMBZGQ2TMNZYHE4DCMRR")
+        try Secrets.set(p.id, .password, "sample-password")
+        let id = p.id
+        let olderMac = OperatingSystemVersion(majorVersion: 14, minorVersion: 7, patchVersion: 0)
+        let (states, errors, activity, selection, version) = (
+            model.previewStates, model.previewErrors, model.previewActivity, model.selection, model.connections.systemVersion
+        )
+        defer {
+            model.previewStates = states
+            model.previewErrors = errors
+            model.previewActivity = activity
+            model.previewFailures = FailurePreview()
+            model.selection = selection
+            model.connections.systemVersion = version
+            for kind in SecretKind.allCases { Secrets.delete(id, kind) }
+            try? store.delete(id)
+            model.reload()
+        }
+        model.connections.systemVersion = OperatingSystemVersion(majorVersion: 15, minorVersion: 4, patchVersion: 0)
+        model.reload()
+        model.selection = id
+        func event(_ ago: TimeInterval, _ kind: ActivityEvent.Kind) -> ActivityEvent { ActivityEvent(at: now.addingTimeInterval(-ago), kind) }
+        func render(_ name: String) {
+            for dark in [false, true] {
+                snapshot(
+                    SplitWindowRender().environmentObject(model), size: CGSize(width: 1080, height: 700), dark: dark, to: out,
+                    name: name, window: true)
+            }
+        }
+        let connecting = event(64, .connecting(host: "vpn.example.com", port: 8443, transport: "tcp"))
+
+        // Connected, with the code sent on its own after the password.
+        model.previewStates = (states ?? [:]).merging([id: .connected(ip: "10.11.0.2", since: now.addingTimeInterval(-61))]) { $1 }
+        model.previewErrors = errors ?? [:]
+        model.previewActivity = [
+            id: [
+                connecting,
+                event(
+                    62,
+                    .sending(
+                        .init(
+                            username: "sam", password: true, code: true, codePrefix: "604", secondsLeft: 22,
+                            format: "separate"))),
+                event(61, .connected(address: "10.11.0.2"))
+            ]
+        ]
+        render("anyconnect-detail")
+
+        // The certificate failures, as `ConnectionManager` reports them: openconnect's reason and the key it named.
+        let presented = "pin-sha256:B9S1MyM7eI6e0MBVCfgWo0zkSVpzyFfkmueG8/HAbiY="
+        func failure(_ name: String, reason: String, pinned: String) throws {
+            try store.update(id) { $0.serverCert = pinned }
+            model.reload()
+            var f = ConnectionFailure(kind: .configuration, at: now.addingTimeInterval(-2), reason: reason)
+            f.serverCert = presented
+            model.previewStates = states?.filter { $0.key != id }
+            model.previewErrors = (errors ?? [:]).merging([
+                id: PTError.serverCertificateRejected(reason: reason, pin: presented, log: "").localizedDescription
+            ]) { $1 }
+            model.previewFailures = FailurePreview(failures: [id: f])
+            model.previewActivity = [
+                id: [
+                    event(3, .connecting(host: "vpn.example.com", port: 8443, transport: "tcp")),
+                    event(2, .failed(kind: .configuration, reason: reason, credentialsSent: false))
+                ]
+            ]
+            render(name)
+        }
+        try failure("error-server-not-trusted", reason: "signer not found", pinned: "")
+        try failure("error-server-key-changed", reason: "not the pinned key", pinned: "pin-sha256:E86EpKhiszwwyqu937GB+mox53WHxoGiVhwY7ZXxrwQ=")
+        try failure("error-server-trusted", reason: "signer not found", pinned: presented)
+        try store.update(id) { $0.serverCert = "" }
+        model.reload()
+
+        // A host scan the server asked for.
+        model.previewFailures = FailurePreview(failures: [id: ConnectionFailure(kind: .hostScanRequired, at: now.addingTimeInterval(-2))])
+        model.previewErrors = (errors ?? [:]).merging([id: PTError.hostScanRequired(log: "").localizedDescription]) { $1 }
+        model.previewActivity = [
+            id: [
+                event(3, .connecting(host: "vpn.example.com", port: 8443, transport: "tcp")),
+                event(2, .failed(kind: .hostScanRequired, reason: nil, credentialsSent: false))
+            ]
+        ]
+        render("error-host-scan")
+
+        // macOS older than 15.4: listed with the note, Connect and Edit disabled.
+        model.connections.systemVersion = olderMac
+        model.previewFailures = FailurePreview()
+        model.previewErrors = errors ?? [:]
+        model.previewStates = states?.filter { $0.key != id }
+        model.previewActivity = [:]
+        render("anyconnect-unavailable")
+        try store.update(id) { $0.pinned = true }
+        model.reload()
+        // Only the pinned profiles (Work, Travel and this one), none of them active.
+        let dropped = model.droppedUnseen
+        model.previewStates = [:]
+        model.setPreviewDropped([])
+        defer { model.setPreviewDropped(dropped) }
+        for dark in [false, true] {
+            snapshot(
+                MenuBarPanelPreview(now: now).environmentObject(model), size: nil, dark: dark, to: out,
+                name: "menubar-panel-anyconnect-unavailable")
+        }
+
+        // The type question of the add view ("Enter details by hand"), on this macOS and below 15.4.
+        for (name, refusal) in [
+            ("add-vpn-type", { (_: VPNType) -> PTError? in nil }),
+            ("add-vpn-type-unavailable", { ConnectionManager.connectRefusal($0, macOS: olderMac) })
+        ] {
+            for dark in [false, true] {
+                snapshotAlert(ImportActions.typeAlert(for: nil, refusal: refusal), dark: dark, to: out, name: name)
+            }
+        }
+    }
+
+    /// An alert's window as `runModal` would show it, without showing it.
+    private static func snapshotAlert(_ alert: NSAlert, dark: Bool, to dir: URL, name: String) {
+        let appearance = NSAppearance(named: dark ? .darkAqua : .aqua)!
+        alert.window.appearance = appearance
+        alert.layout()
+        guard let view = alert.window.contentView else { return }
+        view.layoutSubtreeIfNeeded()
+        let rep = bitmap(view.bounds.size, scale: scale)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        appearance.performAsCurrentDrawingAppearance {
+            NSColor.windowBackgroundColor.setFill()
+            NSRect(origin: .zero, size: view.bounds.size).fill()
+        }
+        NSGraphicsContext.restoreGraphicsState()
+        let content = bitmap(view.bounds.size, scale: scale)
+        view.cacheDisplay(in: view.bounds, to: content)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        content.draw(in: NSRect(origin: .zero, size: view.bounds.size))
+        NSGraphicsContext.restoreGraphicsState()
+        if let png = rep.representation(using: .png, properties: [:]) {
+            try? png.write(to: dir.appendingPathComponent("\(name)\(dark ? "-dark" : "").png"))
         }
     }
 

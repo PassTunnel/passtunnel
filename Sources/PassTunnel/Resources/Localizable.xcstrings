@@ -643,6 +643,16 @@
         }
       }
     },
+    "A user name can have at most 255 bytes, no control characters and no “=” at the start." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kullanıcı adı en fazla 255 bayt olabilir; denetim karakteri ve başta “=” içeremez."
+          }
+        }
+      }
+    },
     "A variable for scripts. PassTunnel runs none." : {
       "localizations" : {
         "tr" : {
@@ -773,6 +783,26 @@
         }
       }
     },
+    "Ask your IT team" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "BT ekibinize sorun"
+          }
+        }
+      }
+    },
+    "Check the fingerprint first" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Önce parmak izini kontrol edin"
+          }
+        }
+      }
+    },
     "Cisco AnyConnect cannot be used here: %@" : {
       "localizations" : {
         "tr" : {
@@ -793,12 +823,152 @@
         }
       }
     },
+    "Connect again to use it." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kullanmak için yeniden bağlanın."
+          }
+        }
+      }
+    },
+    "Connecting to the server…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucuya bağlanılıyor…"
+          }
+        }
+      }
+    },
     "Create an empty profile. --server https://vpn.example.com[:port][/group] fills in the server of a Cisco AnyConnect profile." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Boş bir profil oluşturur. --server https://vpn.example.com[:port][/grup] bir Cisco AnyConnect profilinin sunucusunu doldurur."
+          }
+        }
+      }
+    },
+    "DTLS" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "DTLS"
+          }
+        }
+      }
+    },
+    "Enter a host name or IP address, with an IPv6 address in brackets." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir sunucu adı ya da IP adresi girin; IPv6 adresini köşeli parantez içinde yazın."
+          }
+        }
+      }
+    },
+    "Enter the group as the server lists it: at most 255 bytes, without line breaks and without “=” at the start." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grubu sunucunun listelediği şekilde girin: en fazla 255 bayt, satır sonu olmadan ve başında “=” olmadan."
+          }
+        }
+      }
+    },
+    "Enter the server address, e.g. https://vpn.example.com." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu adresini girin, örneğin https://vpn.example.com."
+          }
+        }
+      }
+    },
+    "Enter “pin-sha256:” and the key’s fingerprint (44 base64 characters), or leave it empty." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“pin-sha256:” ve anahtarın parmak izini (44 base64 karakter) girin ya da boş bırakın."
+          }
+        }
+      }
+    },
+    "For networks that block UDP. The tunnel is then slower." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "UDP’yi engelleyen ağlar için. Tünel bu durumda daha yavaş olur."
+          }
+        }
+      }
+    },
+    "Group" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grup"
+          }
+        }
+      }
+    },
+    "Host scan required" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cihaz taraması gerekiyor"
+          }
+        }
+      }
+    },
+    "If the server got a new key, your IT team can confirm this fingerprint. Otherwise someone may be intercepting the connection." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucuya yeni bir anahtar verildiyse BT ekibiniz bu parmak izini doğrulayabilir. Aksi halde biri bağlantıya müdahale ediyor olabilir."
+          }
+        }
+      }
+    },
+    "It replaces the key the profile trusts now:" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profilin şu anda güvendiği anahtarın yerini alır:"
+          }
+        }
+      }
+    },
+    "Leave out anything from “?” or “#” on." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“?” veya “#” işaretinden sonrasını yazmayın."
+          }
+        }
+      }
+    },
+    "Leave the user name out of the address and enter it under User name." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kullanıcı adını adrese yazmayın; Kullanıcı adı alanına girin."
           }
         }
       }
@@ -813,12 +983,92 @@
         }
       }
     },
+    "Needed when the server’s certificate is not signed by an authority your Mac trusts. Only this key is then accepted." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucunun sertifikası Mac’inizin güvendiği bir yetkili tarafından imzalanmamışsa gerekir. Bu durumda yalnızca bu anahtar kabul edilir."
+          }
+        }
+      }
+    },
+    "New Cisco AnyConnect Profile…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni Cisco AnyConnect Profili…"
+          }
+        }
+      }
+    },
     "Next: passtunnel set %@ username=alice" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sonraki adım: passtunnel set %@ username=alice"
+          }
+        }
+      }
+    },
+    "PassTunnel connects Cisco AnyConnect with openconnect, which runs on macOS %@ or later. Update macOS to connect or edit this profile. You can still share or delete it." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel, Cisco AnyConnect’e macOS %@ veya üstünde çalışan openconnect ile bağlanır. Bu profile bağlanmak veya profili düzenlemek için macOS’i güncelleyin. Profili yine de paylaşabilir veya silebilirsiniz."
+          }
+        }
+      }
+    },
+    "PassTunnel will accept only the server key with this fingerprint:" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel yalnızca bu parmak izine sahip sunucu anahtarını kabul edecek:"
+          }
+        }
+      }
+    },
+    "Paste the address your IT team gave you, with its :port and /path if it has them." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "BT ekibinizin verdiği adresi, varsa :port ve /yol kısmıyla birlikte yapıştırın."
+          }
+        }
+      }
+    },
+    "pin-sha256:… (optional)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "pin-sha256:… (isteğe bağlı)"
+          }
+        }
+      }
+    },
+    "Replace Key" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anahtarı Değiştir"
+          }
+        }
+      }
+    },
+    "Replace the key PassTunnel trusts for %@?" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel’ın %@ için güvendiği anahtar değiştirilsin mi?"
           }
         }
       }
@@ -833,12 +1083,112 @@
         }
       }
     },
+    "Server key" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu anahtarı"
+          }
+        }
+      }
+    },
+    "Server not trusted" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucuya güvenilmiyor"
+          }
+        }
+      }
+    },
+    "Server’s default" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucunun varsayılanı"
+          }
+        }
+      }
+    },
+    "The code is sent as the answer to the server’s next prompt, after the password." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kod, paroladan sonra sunucunun bir sonraki sorusunun yanıtı olarak gönderilir."
+          }
+        }
+      }
+    },
+    "The group you choose when you sign in, as the server lists it. Leave empty for the server’s default." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oturum açarken seçtiğiniz grup, sunucunun listelediği şekliyle. Sunucunun varsayılanı için boş bırakın."
+          }
+        }
+      }
+    },
+    "The path after the address may use letters, digits, and - _ . ~ / only." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adresten sonraki yol yalnızca harf, rakam ve - _ . ~ / içerebilir."
+          }
+        }
+      }
+    },
+    "The profile’s server settings changed after the sign-in failed. Connect again to check the server." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oturum açma başarısız olduktan sonra profilin sunucu ayarları değişti. Sunucuyu kontrol etmek için yeniden bağlanın."
+          }
+        }
+      }
+    },
+    "The server %@ presented a certificate whose key has this fingerprint:\n\n%@\n\nTrust it only if it matches the fingerprint your administrator gave you." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ sunucusu, anahtarı bu parmak izine sahip bir sertifika sundu:\n\n%2$@\n\nYalnızca yöneticinizin verdiği parmak iziyle eşleşiyorsa güvenin."
+          }
+        }
+      }
+    },
+    "The server asked for a host scan (Cisco Secure Desktop) before the sign-in. PassTunnel never runs it." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu oturum açmadan önce bir cihaz taraması (Cisco Secure Desktop) istedi. PassTunnel bunu hiçbir zaman çalıştırmaz."
+          }
+        }
+      }
+    },
     "The server asked for more than the password and the one-time code. Check how the profile sends the code." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sunucu parola ve tek kullanımlık koddan fazlasını istedi. Profilin kodu nasıl gönderdiğini kontrol edin."
+          }
+        }
+      }
+    },
+    "The server presented another key than the one this profile trusts." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu, bu profilin güvendiğinden farklı bir anahtar sundu."
           }
         }
       }
@@ -863,12 +1213,52 @@
         }
       }
     },
+    "The server’s certificate could not be read." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucunun sertifikası okunamadı."
+          }
+        }
+      }
+    },
+    "The server’s certificate is not trusted" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucunun sertifikasına güvenilmiyor"
+          }
+        }
+      }
+    },
     "The server’s certificate was not trusted (%@). Your sign-in was not sent." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sunucunun sertifikasına güvenilmedi (%@). Oturum açma bilgileriniz gönderilmedi."
+          }
+        }
+      }
+    },
+    "The server’s key" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucunun anahtarı"
+          }
+        }
+      }
+    },
+    "The server’s key changed" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucunun anahtarı değişti"
           }
         }
       }
@@ -3313,6 +3703,16 @@
         }
       }
     },
+    "The template must be one line of at most 4,095 bytes." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Şablon en fazla 4.095 baytlık tek bir satır olmalı."
+          }
+        }
+      }
+    },
     "The VPN tool does not run on this macOS" : {
       "localizations" : {
         "tr" : {
@@ -3329,6 +3729,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bu profilin henüz etkinlik kaydı yok."
+          }
+        }
+      }
+    },
+    "This Mac doesn’t trust the server’s certificate (%@)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu Mac sunucunun sertifikasına güvenmiyor (%@)."
+          }
+        }
+      }
+    },
+    "This Mac doesn’t trust the server’s certificate." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu Mac sunucunun sertifikasına güvenmiyor."
           }
         }
       }
@@ -3389,6 +3809,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bu profil şunları soruyor: %@."
+          }
+        }
+      }
+    },
+    "This profile trusts this key now" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu profil artık bu anahtara güveniyor"
           }
         }
       }
@@ -3463,6 +3893,86 @@
         }
       }
     },
+    "Trust %@?" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ sunucusuna güvenilsin mi?"
+          }
+        }
+      }
+    },
+    "Trust it only if it matches the fingerprint your IT team gave you." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yalnızca BT ekibinizin verdiği parmak iziyle eşleşiyorsa güvenin."
+          }
+        }
+      }
+    },
+    "Trust Key" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anahtara Güven"
+          }
+        }
+      }
+    },
+    "Trust Server" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucuya Güven"
+          }
+        }
+      }
+    },
+    "Trust the New Key…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni Anahtara Güven…"
+          }
+        }
+      }
+    },
+    "Trust the server only if this fingerprint matches the one your IT team gave you." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucuya yalnızca bu parmak izi BT ekibinizin verdiğiyle eşleşiyorsa güvenin."
+          }
+        }
+      }
+    },
+    "Trust this server’s key?" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu sunucunun anahtarına güvenilsin mi?"
+          }
+        }
+      }
+    },
+    "Trust This Server…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu Sunucuya Güven…"
+          }
+        }
+      }
+    },
     "Try again" : {
       "localizations" : {
         "tr" : {
@@ -3499,6 +4009,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ kodunu yaz"
+          }
+        }
+      }
+    },
+    "Type the address without percent escapes (%)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adresi yüzde kodlaması (%) olmadan yazın."
           }
         }
       }
@@ -3559,6 +4079,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "QR görüntüsü kullan"
+          }
+        }
+      }
+    },
+    "Use an https:// address." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "https:// ile başlayan bir adres kullanın."
+          }
+        }
+      }
+    },
+    "Use TLS only (no DTLS)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yalnızca TLS kullan (DTLS yok)"
           }
         }
       }
@@ -9323,6 +9863,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sonra sunucuyu, kullanıcı adını, parolayı ve kodun gizli anahtarını girersiniz."
+          }
+        }
+      }
+    },
+    "Your account may be allowed to sign in without the host scan, or the server may offer a group that doesn’t ask for it." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hesabınızın cihaz taraması olmadan oturum açmasına izin verilebilir ya da sunucu bunu istemeyen bir grup sunabilir."
           }
         }
       }

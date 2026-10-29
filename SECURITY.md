@@ -427,7 +427,7 @@ bundled tool (#179), the configuration checks (#180), the profile (#181), the he
 session (#182: the helper accepts a start request, checks every field of it again and runs
 `openconnect` as described below), the Mac's hook that sets up and undoes the network (#183), tested
 against a simulated Mac, and the sign-in and connect in PassTunnel's core (#184, macOS 15.4 and later;
-the app and the command line do not offer the type yet, #185 and #186), and Linux (#187: `passtunneld`
+the command line and MCP tools since #185, the app since #186), and Linux (#187: `passtunneld`
 runs the distribution's `openconnect` and is its hook, tested against a simulated system); what only a real
 server and tunnel show is checked against a test server (#188).
 
@@ -482,6 +482,12 @@ server and tunnel show is checked against a test server (#188).
   value: openconnect itself would accept a prefix as short as 4 characters, which PassTunnel
   refuses), which is then the only trust, or the system's root-owned CA bundle passed explicitly
   (`/etc/ssl/cert.pem` on the Mac). The CA store compiled into Homebrew's GnuTLS is never used.
+  The app's *Fetch fingerprint* reads the key's pin with a TLS handshake that is aborted once the
+  certificate is received (only when you click it; you confirm the pin before it goes into the
+  profile). When a connect fails because the certificate is not trusted, *Trust This Server…*
+  offers the key openconnect named, showing the server and the full pin first; it is saved only for
+  the server that sign-in went to, and only if the profile still names that server with the pin it
+  had then.
 
 ### The session cookie
 

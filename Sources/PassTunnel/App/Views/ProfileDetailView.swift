@@ -18,6 +18,8 @@ struct ProfileDetailView: View {
                 // Trailing (`primaryAction` is the leading edge on macOS).
                 ToolbarItemGroup(placement: .automatic) {
                     Button(String(localized: "Edit")) { model.edit(profile) }
+                        .disabled(model.editRefusal(profile) != nil)
+                        .help(model.editRefusal(profile)?.unavailableNote ?? "")
                         .accessibilityIdentifier("profile.\(profile.id).edit")
                     DetailMoreMenu(profile: profile)
                 }
@@ -61,7 +63,9 @@ private struct DetailPage: View {
                     DetailActionButton(profile: profile, action: status.action)
                 }
                 ProfileStatusLine(status: status, server: server.address, now: model.previewNow)
-                if model.showsFailureCard(profile, status) {
+                if case .unavailable = status {
+                    UnavailableCard(profile: profile)
+                } else if model.showsFailureCard(profile, status) {
                     FailureCard(profile: profile, status: status, server: server.address)
                 } else {
                     DetailCodeCards(profile: profile, sentAt: sentAt)
@@ -98,10 +102,41 @@ struct DetailActionButton: View {
             }
         }
         .buttonStyle(CapsuleButtonStyle(kind: action.isProminent ? .primary : .secondary, size: .large))
+        // Connect stays in its place, disabled, for a type this Mac cannot connect (`DisplayStatus.unavailable`).
+        .disabled(!model.displayStatus(profile).allowsAction)
         // On the button itself: a label set inside the button's label can leave the button without a name.
         .accessibilityLabel(Text(verbatim: action.title))
         .accessibilityHint(Text(verbatim: profile.name))
         .accessibilityIdentifier("profile.\(profile.id).primary")
+    }
+}
+
+/// A profile of a type this Mac cannot connect (`DisplayStatus.unavailable`: Cisco AnyConnect below macOS 15.4), in
+/// place of the code cards: why, and what still works. Connect and Edit are disabled; sharing and deleting are not.
+private struct UnavailableCard: View {
+    @EnvironmentObject private var model: AppModel
+    let profile: Profile
+
+    var body: some View {
+        Card(style: .compact) {
+            Text(text)
+                .typography(.body)
+                .foregroundStyle(Palette.fg)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("profile.\(profile.id).unavailable")
+    }
+
+    private var text: String {
+        guard case .anyConnectRequiresMacOS(let version)? = model.connectRefusal(profile.type) else {
+            return model.connectRefusal(profile.type)?.localizedDescription ?? ""
+        }
+        return String(
+            localized:
+                "PassTunnel connects Cisco AnyConnect with openconnect, which runs on macOS \(version) or later. Update macOS to connect or edit this profile. You can still share or delete it."
+        )
     }
 }
 
@@ -116,7 +151,7 @@ private struct DetailMoreMenu: View {
             Button(String(localized: "Copy Code")) { model.copyCode(p) }
                 .disabled(model.code(for: p) == nil && !model.isCodeLocked(p))
             Button(String(localized: "Copy Password + Code")) { model.copyPasswordAndCode(p) }
-                .disabled(p.passwordMode != .keychain)
+                .disabled(!model.canCopyPassword(p))
             Divider()
             Button(String(localized: "Share…")) { model.share(p) }
             Button(String(localized: "Show Log")) { model.showLog(p) }
@@ -172,7 +207,9 @@ extension AppModel {
             let host = p.host.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !host.isEmpty else { return ("", p.type.displayName) }
             let address = OVPNAnalyzer.Endpoint.address(host: host, port: String(p.port))
-            return (address, [address, p.type.displayName].joined(separator: " · "))
+            // Cisco AnyConnect: the user group the address leads to ("vpn.example.com:443/engineering").
+            let shown = p.type == .anyconnect && !p.usergroup.isEmpty ? address + "/" + p.usergroup : address
+            return (address, [shown, p.type.displayName].joined(separator: " · "))
         }
     }
 }

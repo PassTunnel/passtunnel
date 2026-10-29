@@ -165,17 +165,6 @@ public struct ProfileDestination: Equatable, Sendable {
     }
 }
 
-extension VPNType {
-    /// The types the Mac app offers to create and shows as ordinary profiles (its type picker and list). Cisco
-    /// AnyConnect is not among them until the editor handles its settings (#186): the app still shows such a
-    /// profile as needing a newer PassTunnel (`UnsupportedProfile(profile)`). The `passtunnel` command and the
-    /// MCP tools do not use this: they handle every `VPNType` (#185) and ask `ConnectionManager.connectRefusal`
-    /// whether a type can be connected on this system.
-    public static let connectable: [VPNType] = [.openvpn, .forti]
-
-    public var isConnectable: Bool { Self.connectable.contains(self) }
-}
-
 /// An automatic reconnect found the profile's server settings changed since the user confirmed the
 /// session: its secrets are not sent to the new destination without a new confirmation.
 public struct DestinationChangedError: Error, Equatable, LocalizedError {
@@ -413,6 +402,9 @@ public final class ConnectionManager: ObservableObject {
     @Published public private(set) var lastErrorLog: [String: String] = [:]
     /// Why the last connect failed, typed (also for a cancelled one, which leaves `lastError` empty).
     @Published public private(set) var failures: [String: ConnectionFailure] = [:]
+    /// "Trust this server": the Cisco AnyConnect server whose certificate the last connect did not trust, and its
+    /// key's pin (`serverTrustOffer`). Set and cleared with `failures`.
+    var trustOffers: [String: ServerTrustOffer] = [:]
     @Published public private(set) var health: [String: HealthState] = [:]
     @Published public private(set) var reconnecting: [String: ReconnectInfo] = [:]
     /// Why the last helper `status` call failed (nil when it worked).
@@ -955,6 +947,7 @@ public final class ConnectionManager: ObservableObject {
         lastError[id] = nil
         lastErrorLog[id] = nil
         failures[id] = nil
+        trustOffers[id] = nil
         warnings[id] = nil
         setState(id, .connecting(Phase.preparing))
         var progress = AttemptProgress()
@@ -962,6 +955,7 @@ public final class ConnectionManager: ObservableObject {
         do {
             // Always the profile as stored now (the CLI may have changed it), never a cached copy.
             let p = try store.get(id)
+            progress.profile = p
             try Self.checkConnectable(p, macOS: systemVersion)
             let status = await currentStatus()
             if let session = session(id, in: status) {
@@ -1535,6 +1529,8 @@ public final class ConnectionManager: ObservableObject {
         var anyConnect = false
         /// Whether the sign-in's credentials can have reached the server, when this process knows it.
         var credentialsSent: Bool?
+        /// The profile as the attempt read it.
+        var profile: Profile?
     }
 
     /// Keeps why the attempt failed (`failures`), records it in the activity of a session this manager
@@ -1551,6 +1547,7 @@ public final class ConnectionManager: ObservableObject {
         // A try of the retries counts on from the ones before it.
         if failure.kind == .unreachable, let retry = unreachableRetries[id] { failure.tries = retry.tries + (failure.tries ?? 1) }
         failures[id] = failure
+        trustOffers[id] = progress.profile.flatMap { ServerTrustOffer($0, pin: failure.serverCert) }
         if failure.kind == .authRejected && progress.owned { checkGatewayClock(id, after: failure) }
         if let used = progress.usedCode, !failure.credentialsSent, failure.kind != .cancelled, usedCode(id) == used.written {
             restoreUsedCode(id, used.previous)
@@ -2320,6 +2317,7 @@ public final class ConnectionManager: ObservableObject {
         lastError[id] = nil
         lastErrorLog[id] = nil
         failures[id] = nil
+        trustOffers[id] = nil
         clockOffsets[id] = nil
         sessionActive.remove(id)
         userStopped.remove(id)

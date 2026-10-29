@@ -31,7 +31,8 @@ struct ProfileEditorView: View {
         _model = StateObject(
             wrappedValue: EditorModel(
                 profileID: profileID, newType: newType,
-                vault: AppModel.shared?.vault ?? SecretVault()))
+                vault: AppModel.shared?.vault ?? SecretVault(),
+                typeRefusal: { AppModel.shared?.connectRefusal($0) ?? ConnectionManager.connectRefusal($0) }))
         self.onClose = onClose
     }
 
@@ -87,13 +88,21 @@ struct ProfileEditorView: View {
         }
         .frame(minWidth: 620, idealWidth: 660, minHeight: 560, idealHeight: 700)
         .onAppear { if model.isNew { focus = .name } }
-        .alert(Text("Trust this certificate?"), isPresented: fingerprintAlertShown) {
-            Button("Trust Certificate") { model.acceptFetchedFingerprint() }
+        .alert(fingerprintAlertTitle, isPresented: fingerprintAlertShown) {
+            Button(p.type == .anyconnect ? LocalizedStringKey("Trust Key") : LocalizedStringKey("Trust Certificate")) {
+                model.acceptFetchedFingerprint()
+            }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text(
-                "The gateway \(p.host) presented a certificate with this SHA-256 fingerprint:\n\n\(TLSFingerprint.display(model.fetchedFingerprint ?? ""))\n\nTrust it only if it matches the fingerprint your administrator gave you."
-            )
+            if p.type == .anyconnect {
+                Text(
+                    "The server \(model.fetchedServer) presented a certificate whose key has this fingerprint:\n\n\(model.fetchedFingerprint ?? "")\n\nTrust it only if it matches the fingerprint your administrator gave you."
+                )
+            } else {
+                Text(
+                    "The gateway \(model.fetchedServer) presented a certificate with this SHA-256 fingerprint:\n\n\(TLSFingerprint.display(model.fetchedFingerprint ?? ""))\n\nTrust it only if it matches the fingerprint your administrator gave you."
+                )
+            }
         }
         .profileDeleteConfirmation($pendingDelete) { profile in
             onClose()
@@ -192,7 +201,7 @@ struct ProfileEditorView: View {
             switch p.type {
             case .openvpn: configurationRow
             case .forti: fortiRows
-            case .anyconnect: EmptyView()  // not edited by this version (shown as unsupported)
+            case .anyconnect: anyConnectRows
             }
 
             if model.usesCredentials {
@@ -281,18 +290,9 @@ struct ProfileEditorView: View {
                 .font(.system(.body, design: .monospaced))
                 .focused($focus, equals: .trustedCert)
                 .editorField(focused: focus == .trustedCert)
-            HStack(spacing: Spacing.xs) {
-                Button("Fetch Fingerprint") { model.fetchFingerprint() }
-                    .buttonStyle(.secondaryCapsule(.compact))
-                    .disabled(
-                        model.fetchingFingerprint
-                            || !FortiConfig.isValidHost(p.host.trimmingCharacters(in: .whitespaces)))
-                if model.fetchingFingerprint {
-                    ProgressView().controlSize(.small)
-                    Text("Connecting to the gateway…").typography(.hint).foregroundStyle(Palette.fg2)
-                }
-            }
-            .padding(.top, 2)
+            fetchFingerprintButton(
+                enabled: FortiConfig.isValidHost(p.host.trimmingCharacters(in: .whitespaces)),
+                progress: Text("Connecting to the gateway…"))
             EditorInlineError(message: model.error(.trustedCert) ?? model.fingerprintError)
             EditorHint("Needed when the gateway’s certificate is not signed by an authority your Mac trusts.")
         }
@@ -304,6 +304,74 @@ struct ProfileEditorView: View {
         EditorRow(Text("Routes")) {
             Toggle("Add the routes the gateway sends", isOn: $model.draft.setRoutes).toggleStyle(.checkbox)
         }
+    }
+
+    /// The server as one address (`https://vpn.example.com[:port][/group]`, `EditorModel.setServerText`), the group,
+    /// the server's key pin with "Fetch Fingerprint", TLS only, DNS and routes.
+    @ViewBuilder private var anyConnectRows: some View {
+        EditorRow(Text("Server")) {
+            TextField(
+                "Server", text: Binding(get: { model.serverText }, set: { model.setServerText($0) }),
+                prompt: Text(verbatim: "https://vpn.example.com")
+            )
+            .focused($focus, equals: .host)
+            .editorField(focused: focus == .host)
+            .accessibilityIdentifier("editor.server")
+            EditorInlineError(message: model.error(.host) ?? model.error(.port))
+            EditorHint("Paste the address your IT team gave you, with its :port and /path if it has them.")
+        }
+        .id(Self.anchor(.host))
+
+        EditorRow(Text("Group")) {
+            TextField("Group", text: $model.draft.authgroup, prompt: Text("Server’s default"))
+                .focused($focus, equals: .authgroup)
+                .editorField(focused: focus == .authgroup)
+                .accessibilityIdentifier("editor.authgroup")
+            EditorInlineError(message: model.error(.authgroup))
+            EditorHint("The group you choose when you sign in, as the server lists it. Leave empty for the server’s default.")
+        }
+        .id(Self.anchor(.authgroup))
+
+        EditorRow(Text("Server key")) {
+            TextField("Server key", text: $model.draft.serverCert, prompt: Text("pin-sha256:… (optional)"))
+                // Small enough for the 55 characters of a pin to fit.
+                .font(.system(size: 11.5, design: .monospaced))
+                .focused($focus, equals: .serverCert)
+                .editorField(focused: focus == .serverCert)
+                .accessibilityIdentifier("editor.serverCert")
+            fetchFingerprintButton(enabled: model.serverIsValid, progress: Text("Connecting to the server…"))
+            EditorInlineError(message: model.error(.serverCert) ?? model.fingerprintError)
+            EditorHint("Needed when the server’s certificate is not signed by an authority your Mac trusts. Only this key is then accepted.")
+        }
+        .id(Self.anchor(.serverCert))
+
+        EditorRow(Text("DTLS")) {
+            Toggle("Use TLS only (no DTLS)", isOn: $model.draft.tlsOnly)
+                .toggleStyle(.checkbox)
+                .accessibilityIdentifier("editor.tlsOnly")
+            EditorHint("For networks that block UDP. The tunnel is then slower.")
+        }
+        EditorRow(Text("DNS")) {
+            Toggle("Use the VPN’s DNS servers", isOn: $model.draft.setDNS).toggleStyle(.checkbox)
+        }
+        EditorRow(Text("Routes")) {
+            Toggle("Add the routes the gateway sends", isOn: $model.draft.setRoutes).toggleStyle(.checkbox)
+        }
+    }
+
+    /// "Fetch Fingerprint" and, while it runs, `progress`. Nothing is fetched without this click.
+    private func fetchFingerprintButton(enabled: Bool, progress: Text) -> some View {
+        HStack(spacing: Spacing.xs) {
+            Button("Fetch Fingerprint") { model.fetchFingerprint() }
+                .buttonStyle(.secondaryCapsule(.compact))
+                .disabled(model.fetchingFingerprint || !enabled)
+                .accessibilityIdentifier("editor.fetchFingerprint")
+            if model.fetchingFingerprint {
+                ProgressView().controlSize(.small)
+                progress.typography(.hint).foregroundStyle(Palette.fg2)
+            }
+        }
+        .padding(.top, 2)
     }
 
     /// One secure field for a password kept in the Keychain (no confirm field); otherwise what happens instead.
@@ -542,8 +610,10 @@ struct ProfileEditorView: View {
         switch p.type {
         case .openvpn:
             return String(localized: "The code is sent as the answer to the server’s challenge prompt (static-challenge), not inside the password.")
-        case .forti, .anyconnect:
+        case .forti:
             return String(localized: "The code is sent in the gateway’s own one-time code field, after the password.")
+        case .anyconnect:
+            return String(localized: "The code is sent as the answer to the server’s next prompt, after the password.")
         }
     }
 
@@ -657,11 +727,19 @@ struct ProfileEditorView: View {
         EditorRow(Text("Type")) {
             if model.allowsTypeChange {
                 Picker("Type", selection: Binding(get: { p.type }, set: { model.changeType($0) })) {
-                    ForEach(VPNType.connectable, id: \.self) { Text(verbatim: Self.typeName($0)).tag($0) }
+                    ForEach(VPNType.allCases, id: \.self) { type in
+                        // A type this Mac cannot connect is listed, disabled, with the reason (macOS 15.4).
+                        if let note = model.typeRefusal(type)?.unavailableNote {
+                            Text(verbatim: "\(Self.typeName(type)) – \(note)").tag(type).disabled(true)
+                        } else {
+                            Text(verbatim: Self.typeName(type)).tag(type)
+                        }
+                    }
                 }
-                .pickerStyle(.segmented)
+                .pickerStyle(.menu)
                 .labelsHidden()
                 .fixedSize()
+                .accessibilityIdentifier("editor.type")
             } else {
                 Text(verbatim: Self.typeName(p.type))
                     .typography(.body)
@@ -852,10 +930,14 @@ struct ProfileEditorView: View {
 
     // MARK: alerts
 
+    private var fingerprintAlertTitle: Text {
+        p.type == .anyconnect ? Text("Trust this server’s key?") : Text("Trust this certificate?")
+    }
+
     private var fingerprintAlertShown: Binding<Bool> {
         Binding(
             get: { model.fetchedFingerprint != nil },
-            set: { if !$0 { model.fetchedFingerprint = nil } })
+            set: { if !$0 { model.discardFetchedFingerprint() } })
     }
 
     private struct ContentHeight: PreferenceKey {

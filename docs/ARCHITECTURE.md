@@ -4,7 +4,7 @@ PassTunnel is a macOS app (13+) that connects VPNs **without ever typing a one-t
 TOTP secrets in the Keychain and fills the code (and password) automatically when it connects.
 Supported VPN types: OpenVPN, FortiGate SSL VPN (openfortivpn). More types = new backend; Cisco
 AnyConnect (openconnect) is being added: Core connects it on macOS 15.4 and later (#184), the CLI and MCP
-tools handle it (#185), the editor and Linux follow ([below](#cisco-anyconnect-backend-planned)).
+tools (#185), the app (#186) and Linux (#187) handle it ([below](#cisco-anyconnect-backend-planned)).
 
 ```
 PassTunnel.app/Contents/
@@ -81,7 +81,7 @@ it needs macOS 15.4 or later."), not as a failure.
 | `PassTunnelVPNConfig` | `OVPNSanitizer`, `FortiConfig`: the configurations the helper runs as root | — |
 | `PassTunnelKit` | the portable logic (Foundation, CryptoKit and Security only; builds for macOS 13, iOS 17 and Linux): model, `PTError`, `JSONCoding`, `TOTP`, `OTPAuthURI`, `OTPComposer`, `OVPNAnalyzer`, `OVPNInliner`, `OVPNSkipRules`, `OVPNImportReport`, `ShareFile`, `UnsupportedProfile`, `AnyConnectServer`, `Slug`, `ProfileFields`, `ProfileMerge`, `SecretEnvelope`, `HealthCheck` (parsing), `ClockOffset` (clock offset, HTTP dates) | VPNConfig (and swift-crypto on Linux) |
 | `PassTunnelShared` | XPC protocol, request/response types, `HelperCore` (request decoding, path checks, tool environment; `HelperCore+DNSHook`: the Mac's DNS script wrapper and its record), `SessionPolicy`, `CodeSignature`, `Spawner` (verified, suspended launch), `PinnedTools`, `ToolStager` (root-owned copy of the tools and their dylibs), `HelperBuild`, identifiers | VPNConfig (and swift-crypto on Linux) |
-| `PassTunnelCore` | `ProfileStore` + `ImportDraft`, `ProfilesWatcher`, `Secrets` + `SecretStore` (Keychain; on Linux `SecretStores`: secret-service, systemd-creds, file), `SecretVault` + `UserAuthenticator` (Secure Enclave protection), `Preferences`, `HealthCheck.check` (the probe), `QRDecoder`, `OpenedFiles` (files the app is asked to open), `ScannedCodeTarget` (where a scanned code goes), `TLSFingerprint`, `ServerClock` + `SNTP` (clock checks), `HelperClient`, `HelperAutoUpdate`, `ConnectionManager` + `ProfileDestination`, `ConnectionFailure`, `UnreachableRetry`, `FailureDetails` ("Copy details"), `NetworkPath` + `NetworkStatus`, `ActivityLog` + `ActivityEvent`, `LoginConnector` (connect at login), CLI parsing (`CLICommand`, `CLIInvocation`), automation objects + `AutomationService`, `MCPServer` + `MCPTools` + `JSONValue` | Kit, VPNConfig, Shared (and swift-crypto's Crypto and CryptoExtras on Linux) |
+| `PassTunnelCore` | `ProfileStore` + `ImportDraft`, `ProfilesWatcher`, `Secrets` + `SecretStore` (Keychain; on Linux `SecretStores`: secret-service, systemd-creds, file), `SecretVault` + `UserAuthenticator` (Secure Enclave protection), `Preferences`, `HealthCheck.check` (the probe), `QRDecoder`, `OpenedFiles` (files the app is asked to open), `ScannedCodeTarget` (where a scanned code goes), `TLSFingerprint` + `ServerKeyPin` (a certificate's SHA-256, a key's `pin-sha256:`), `AnyConnectEditing` + `ServerTrustOffer` (the app's Cisco AnyConnect fields and "Trust this server"), `ServerClock` + `SNTP` (clock checks), `HelperClient`, `HelperAutoUpdate`, `ConnectionManager` + `ProfileDestination`, `ConnectionFailure`, `UnreachableRetry`, `FailureDetails` ("Copy details"), `NetworkPath` + `NetworkStatus`, `ActivityLog` + `ActivityEvent`, `LoginConnector` (connect at login), CLI parsing (`CLICommand`, `CLIInvocation`), automation objects + `AutomationService`, `MCPServer` + `MCPTools` + `JSONValue` | Kit, VPNConfig, Shared (and swift-crypto's Crypto and CryptoExtras on Linux) |
 | `PassTunnelCLI` | the `passtunnel` command: `PassTunnelCLI.run` (entry, `CLIHelp`), `CLIRunner`, `CLICompletions`, `CLITerminal`, `CLIClipboard`; `Pasteboard` (macOS: the app's too) | Core, Kit, Shared |
 | `PassTunnelHelper` | `main.swift` XPC listener, process supervision | Shared (and through it VPNConfig) |
 | `PassTunnel` | SwiftUI app, menu bar, first run, updates (`AppUpdater`), Scan QR on screen (`ScreenQRScanner`, ScreenCaptureKit, macOS 14 and later); CLI mode runs `PassTunnelCLI` | CLI, Core, Kit, VPNConfig, Shared, Sparkle |
@@ -170,7 +170,7 @@ The platform seams (Linux code stays in the same files behind `#if`; the Mac's b
   `sun_len`) for the management socket, the health probe and the SNTP client; Linux pings with `ping -n -q -c 1 -W <s>` (`-6` for IPv6)
   from `/usr/bin`, `/bin`, `/usr/sbin` or `/sbin`, never `PATH`.
 - **macOS only** (`#if os(macOS)`): `ProfilesWatcher`, `LoginItem`, `HelperInstaller`,
-  `HelperClient`, `QRDecoder`, `TLSFingerprint.fetch` (its digest formats are portable), `ServerClock.gateway`
+  `HelperClient`, `QRDecoder`, `TLSFingerprint.fetch` and `fetchServerKeyPin` (the digest formats and `ServerKeyPin` are portable), `ServerClock.gateway`
   (`#if canImport(Network)`; on Linux it fails with `unavailable`, LINUX.md),
   `HelperSessions.currentProcesses`, `RoutingTable.ipv4Routes` and `parse`, `ConfirmationWording`, and in Shared
   `CodeSignature`, `Spawner`, `ToolStager`, the XPC protocol and `HelperCore`'s `F_GETPATH` (Linux
@@ -331,11 +331,8 @@ is created. The error is `config_invalid` in the CLI and MCP tools, and its mess
 PassTunnel. `list` and `list_profiles` show the profile with its stored `type` and `needs_newer_version: true`.
 
 `anyconnect` is a known type that Core connects (#184, [Cisco AnyConnect backend](#cisco-anyconnect-backend-planned)) and
-the `passtunnel` command and MCP tools handle (#185); the Mac app does not offer it yet. Its keys and rules are in
-[Profile (#181)](#profile-181) below. `VPNType.connectable` (what the Mac app offers to create and shows as ordinary
-profiles) stays `[.openvpn, .forti]` until the editor (#186) handles the type; the command and the tools do not use
-it. Such a profile (created with `passtunnel add`, imported from a share file, or written by a newer build) is
-treated as follows:
+the `passtunnel` command, the MCP tools (#185) and the Mac app (#186) handle as an ordinary profile. Its keys and
+rules are in [Profile (#181)](#profile-181) below. Such a profile is treated as follows:
 - **Core**: `ConnectionManager.connectRefusal(type)` says whether a type can be connected on this system: nil for OpenVPN
   and FortiGate; for Cisco AnyConnect `PTError.anyConnectRequiresMacOS("15.4")` ("Cisco AnyConnect requires macOS 15.4
   or later.") below macOS 15.4 (`HelperCore.Tool.minimumMacOS`; the macOS comes from `ConnectionManager.systemVersion`,
@@ -361,11 +358,17 @@ treated as follows:
   the refusal and the profile's other problems (host, user name, group and pin fields, saved password/TOTP secret).
   `CLIRunner` takes the system's macOS, the manager and the change signal as parameters, so its tests run on a fake
   helper and an injected macOS (or none: Linux).
-- **App** (until #186): shown like a profile of an unknown type (`UnsupportedProfile(profile)`: the row, the detail,
-  Delete only); `startConnect` and the overlap check refuse the profile as stored now before Touch ID or the helper; the
-  editor never opens on it (an import selects it instead), the type pickers offer only `VPNType.connectable`, and the
-  menu bar and scanned codes never see it. #186 shows the type and such a profile disabled with `connectRefusal`'s
-  message where it applies.
+- **App** (#186): an ordinary type in the type question of the add view, the File menu ("New Cisco AnyConnect
+  Profile…"), the editor (docs/APP.md, "Profile editor"), the list, the detail, the menu bar and scanned codes.
+  `AppModel.connectRefusal(type)` is the manager's (its `systemVersion`): below macOS 15.4 the type is shown, disabled,
+  in the type question (with the sentence) and the File menu (with the note as tooltip), and a profile of it is listed
+  as `DisplayStatus.unavailable` ("Requires macOS 15.4 or later" in the row, the sentence in the status line, a card
+  that says what still works), with Connect, Edit and the menu bar switch disabled and no code in its rows;
+  `startConnect`, the overlap check, `edit` and `newProfile` refuse it with the message before Touch ID, the Keychain or
+  the helper, an import selects it instead of opening the editor, and scanned codes never target it; its secrets are
+  never read, reconciled or unlocked (`ConnectionManager.profilesWithUsableSecrets`; the copy actions refuse it). Sharing and
+  deleting it work. There is no `VPNType.connectable` any more: every known type is one the app shows as a profile;
+  only a type this version does not know is an `UnsupportedProfile`.
 - The helper accepts `startOpenConnect` (protocol 4, #182), and so does `passtunneld` (#187, docs/LINUX.md).
 
 ## Core APIs
@@ -1070,8 +1073,8 @@ stops and adopts `openconnect`; the hook that sets up and reverts the network on
 [The hook](#the-hook-vpn-hook-182-183-macos-187-linux)); and connecting in Core (#184): the user's
 sign-in, the start request, the state and failures from the log, on macOS 15.4 and later; and Linux (#187):
 `passtunneld` runs the distribution's openconnect and is its hook ([LINUX.md](LINUX.md#cisco-anyconnect)), and the
-sign-in runs the distribution's openconnect. Still to come: the CLI and MCP (#185), the editor (#186), the tests
-against a real server (#188), the user docs (#189). This is the design of Phase 1 of #2: Cisco AnyConnect through OpenConnect,
+sign-in runs the distribution's openconnect; the CLI and MCP (#185); the Mac app's editor, views and "Trust this
+server" (#186). Still to come: the tests against a real server (#188), the user docs (#189). This is the design of Phase 1 of #2: Cisco AnyConnect through OpenConnect,
 with a password and a TOTP code (no SAML or other single sign-on), on the Mac and on Linux. The
 issues #179–#189 implement it, each named below where its part lands; until they do, everything
 above is all PassTunnel runs (`openvpn`, `openfortivpn`). Before any of it, #177 makes `Profile`
@@ -1356,12 +1359,22 @@ i.e. no credentials left the machine; a failure after that is `ConnectionFailure
   credentials went to.
 - With `non-inter` a failed check never prompts (`main.c` 2600–2630); the log's `Server certificate
   verify failed: …` and `--servercert pin-sha256:…` lines become "Trust this server" in the editor
-  (#186), as openfortivpn's `--trusted-cert` hint does. "Fetch fingerprint" needs the SPKI digest
-  (`TLSFingerprint` hashes the whole certificate today): #186 parses the certificate's DER with
-  bounds checks (tbsCertificate's optional `[0]` version, then serial number, signature algorithm,
-  issuer, validity and subject) and hashes the complete DER of the SubjectPublicKeyInfo that
-  follows, tested with fixtures with and without the version field. Linux has no fetch; the pin
-  comes from the log hint.
+  (#186): `ConnectionFailure.serverCert`, and `DisplayStatus.Failure.serverNotTrusted` in the app,
+  whose card offers "Trust This Server…" ("Trust the New Key…" when another key was pinned).
+  `ConnectionManager` keeps the offer (`ServerTrustOffer`: the profile's host, port, user group and
+  pin as the attempt read them, and the hinted pin) beside the failure; `serverTrustOffer(id)`
+  gives it only while the stored profile still names that server with that pin, and
+  `trustServer(offer)` writes only `server_cert`, after the user confirmed the server and the full
+  pin (else `ServerTrustOffer.Stale`). "Fetch fingerprint" needs the SPKI digest, not
+  `TLSFingerprint.fetch`'s hash of the whole certificate: `TLSFingerprint.fetchServerKeyPin` reads
+  the leaf certificate the same way and `ServerKeyPin` parses its DER with bounds checks
+  (tbsCertificate's optional `[0]` version, then serial number, signature algorithm, issuer,
+  validity and subject; definite, minimal lengths only) and hashes the complete DER of the
+  SubjectPublicKeyInfo that follows. Golden tests (`ServerKeyPinTests`, Tests/Fixtures/certificates:
+  RSA 2048, EC P-256 and P-384, Ed25519, and an RSA version 1 certificate without the version field)
+  hold the pins `openssl x509 -pubkey | openssl pkey -pubin -outform der | openssl dgst -sha256`
+  gives, which openconnect 9.21 printed as its hint for the same certificates. Linux has no fetch;
+  the pin comes from the log hint.
 
 ### The root configuration (#180, #182)
 
@@ -2051,9 +2064,8 @@ unchanged, so older Macs and the phone apps keep importing them. A reader takes 
 OpenVPN, which they would have done before #191. A version 1 file with type `anyconnect` (which no PassTunnel writes)
 is read too. Import copies the new keys, normalizing the pin, then `save` checks them.
 
-Connecting is in Core (#184, with the macOS 15.4 check) and the CLI and MCP handle the type (#185). The editor
-(#186) and the user docs (#189) follow; `passtunneld` on Linux is #187 (done). Until the editor handles the type, the
-Mac app lists such a profile as needing a newer PassTunnel (see "Model").
+Connecting is in Core (#184, with the macOS 15.4 check), the CLI and MCP handle the type (#185), and so does the Mac
+app (#186, see "Model"); `passtunneld` on Linux is #187 (done). The user docs (#189) follow.
 
 ### Tests (#188)
 

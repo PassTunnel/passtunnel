@@ -22,9 +22,9 @@ struct OverlapRequest: Identifiable {
 extension AppModel {
     /// Connects `p` at once when no connected tunnel overlaps with it; else asks (`overlapRequest`).
     func connectUnlessOverlapping(_ p: Profile) {
-        // Not even the helper is asked about a profile this version does not connect.
+        // Not even the helper is asked about a profile this Mac does not connect (`connectRefusal`).
         if let stored = storedProfile(p) {
-            do { try ConnectionManager.checkConnectable(stored) } catch { return showError(error) }
+            do { try ConnectionManager.checkConnectable(stored, macOS: connections.systemVersion) } catch { return showError(error) }
         }
         Task {
             let overlaps = await connections.overlaps(for: p.id)

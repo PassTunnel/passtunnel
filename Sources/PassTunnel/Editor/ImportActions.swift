@@ -172,8 +172,9 @@ enum ImportActions {
     @MainActor static func addCode(from item: DroppedItem, profileID: String?) {
         guard let uri = decode(item) else { return }
         let id: String
-        // Only profiles the editor opens (`AppModel.unsupported` are not).
-        switch ScannedCodeTarget.route(requested: profileID, profiles: ProfileStore().list().filter(\.type.isConnectable)) {
+        // Only profiles the editor opens (not `AppModel.unsupported`, nor a type this Mac cannot connect).
+        let editable = ProfileStore().list().filter { AppModel.shared?.editRefusal($0) == nil }
+        switch ScannedCodeTarget.route(requested: profileID, profiles: editable) {
         case .profile(let requested):
             id = requested
         case .choose(let profiles):
@@ -265,21 +266,36 @@ enum ImportActions {
         AppModel.shared?.newProfile(type)
     }
 
-    /// OpenVPN or FortiGate; nil when cancelled.
+    /// OpenVPN, FortiGate or Cisco AnyConnect; nil when cancelled.
     @MainActor private static func chooseType(for uri: OTPAuthURI?) -> VPNType? {
+        let alert = typeAlert(for: uri, refusal: { AppModel.shared?.connectRefusal($0) })
+        let index = alert.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+        return VPNType.allCases.indices.contains(index) ? VPNType.allCases[index] : nil
+    }
+
+    /// "What kind of VPN is it?" with a button per type (`VPNType.allCases`, in that order) and Cancel. A type this
+    /// Mac cannot connect (`refusal`: Cisco AnyConnect below macOS 15.4) is shown, disabled, and the text says why.
+    @MainActor static func typeAlert(for uri: OTPAuthURI?, refusal: (VPNType) -> PTError?) -> NSAlert {
         let alert = NSAlert()
+        var info: String
         if let uri {
             alert.messageText = String(localized: "What kind of VPN is this code for?")
-            alert.informativeText = codeNote(uri)
+            info = codeNote(uri)
         } else {
             alert.messageText = String(localized: "What kind of VPN is it?")
-            alert.informativeText = String(localized: "You enter the server, user name, password and code secret next.")
+            info = String(localized: "You enter the server, user name, password and code secret next.")
         }
-        let types = VPNType.connectable
-        for type in types { alert.addButton(withTitle: type.displayName) }
+        for type in VPNType.allCases {
+            let button = alert.addButton(withTitle: type.displayName)
+            if let refusal = refusal(type) {
+                button.isEnabled = false
+                button.toolTip = refusal.unavailableNote
+                info += "\n\n" + refusal.localizedDescription
+            }
+        }
+        alert.informativeText = info
         alert.addButton(withTitle: String(localized: "Cancel")).keyEquivalent = "\u{1b}"
-        let index = alert.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
-        return types.indices.contains(index) ? types[index] : nil
+        return alert
     }
 
     // MARK: drag & drop

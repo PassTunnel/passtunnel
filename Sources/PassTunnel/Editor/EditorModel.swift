@@ -7,8 +7,9 @@ import PassTunnelVPNConfig
 /// State of one editor sheet. Nothing is written to disk or the Keychain until `save()`.
 @MainActor
 final class EditorModel: ObservableObject {
+    /// `host` is FortiGate's gateway and Cisco AnyConnect's server address (`serverText`).
     enum Field: Hashable {
-        case name, config, host, port, trustedCert, sessionLimit, healthHost
+        case name, config, host, port, trustedCert, authgroup, serverCert, sessionLimit, healthHost
         case username, password, totpSecret, template, badge, general
     }
 
@@ -27,7 +28,10 @@ final class EditorModel: ObservableObject {
     let isPreview: Bool
     let palette: BadgePalette
 
-    @Published var draft: Profile
+    @Published var draft: Profile {
+        // A fingerprint fetched, or being fetched, for another server than the one the profile names now is dropped.
+        didSet { if fetch.profileChanged(draft) { fetchTask?.cancel() } }
+    }
     /// The stored profile when the sheet opened; Save applies only the differences to it.
     let original: Profile?
     @Published var attemptedSave = false
@@ -60,10 +64,20 @@ final class EditorModel: ObservableObject {
     let storedTOTPProtected: Bool
     @Published var customTemplate: Bool
 
-    // Forti fingerprint
-    @Published var fetchingFingerprint = false
-    @Published var fetchedFingerprint: String?
+    // Cisco AnyConnect: the server address as typed or pasted (`https://vpn.example.com[:port][/group]`), which
+    // sets `host`, `port` and `usergroup` whenever it is one (`AnyConnectServer.parse`).
+    @Published private(set) var serverText = ""
+
+    // FortiGate's certificate fingerprint, Cisco AnyConnect's key pin ("Fetch Fingerprint")
+    /// Bound to the server it reads (`FingerprintFetch`): a result is kept, shown and taken only for the server the
+    /// profile names.
+    @Published private(set) var fetch = FingerprintFetch()
+    private var fetchTask: Task<Void, Never>?
     @Published var fingerprintError: String?
+
+    var fetchingFingerprint: Bool { fetch.isFetching }
+    /// The fingerprint read, for the confirmation, while the profile still names the server it was read from.
+    var fetchedFingerprint: String? { fetch.value(for: draft) }
 
     // Health check
     @Published var testingHealth = false
@@ -71,12 +85,18 @@ final class EditorModel: ObservableObject {
 
     /// True when a new profile was started without a type, so the type can still be picked.
     let allowsTypeChange: Bool
+    /// Why this Mac cannot connect a type (`AppModel.connectRefusal`): the type picker shows it disabled with the note.
+    let typeRefusal: (VPNType) -> PTError?
     /// PassTunnel itself opens at login (its login item is on): without it, "Connect at login" has nothing to run it.
     let opensAtLogin: Bool
 
-    init(profileID: String?, newType: VPNType?, store: ProfileStore = ProfileStore(), vault: SecretVault) {
+    init(
+        profileID: String?, newType: VPNType?, store: ProfileStore = ProfileStore(), vault: SecretVault,
+        typeRefusal: @escaping (VPNType) -> PTError? = { ConnectionManager.connectRefusal($0) }
+    ) {
         self.store = store
         self.vault = vault
+        self.typeRefusal = typeRefusal
         self.allowsTypeChange = profileID == nil && newType == nil
         self.isPreview = false
         self.palette = Preferences.load(paths: store.paths).badgePalette
@@ -98,6 +118,7 @@ final class EditorModel: ObservableObject {
         draft = initial
         original = isNew ? nil : initial
         customTemplate = !Self.isPreset(initial.otpTemplate)
+        serverText = Self.serverText(initial)
         if isNew, let id = profileID { saveErrors[.general] = PTError.profileNotFound(id).localizedDescription }
         if !isNew { loadExistingConfig() }
         if let pending = ImportActions.takePendingTOTP(for: profileID) {
@@ -110,7 +131,8 @@ final class EditorModel: ObservableObject {
     /// For `EditorPreviewRenderer`: a fixed state with no store or Keychain access.
     init(
         preview profile: Profile, isNew: Bool, passwordStored: Bool = false, storedTOTP: Data? = nil,
-        storedTOTPProtected: Bool = false, configServer: String = "", opensAtLogin: Bool = true, now: Date? = nil
+        storedTOTPProtected: Bool = false, configServer: String = "", opensAtLogin: Bool = true, now: Date? = nil,
+        typeRefusal: @escaping (VPNType) -> PTError? = { _ in nil }, allowsTypeChange: Bool = false
     ) {
         self.store = ProfileStore(
             paths: AppPaths(
@@ -119,7 +141,8 @@ final class EditorModel: ObservableObject {
         self.vault = SecretVault()
         self.storedTOTPProtected = storedTOTPProtected
         self.isPreview = true
-        self.allowsTypeChange = false
+        self.allowsTypeChange = allowsTypeChange
+        self.typeRefusal = typeRefusal
         self.opensAtLogin = opensAtLogin
         self.palette = .pastel
         self.isNew = isNew
@@ -130,6 +153,7 @@ final class EditorModel: ObservableObject {
         self.configServer = configServer
         self.hasConfig = !configServer.isEmpty
         self.customTemplate = !Self.isPreset(profile.otpTemplate)
+        self.serverText = Self.serverText(profile)
         self.previewNow = now
     }
 
@@ -137,15 +161,31 @@ final class EditorModel: ObservableObject {
     private(set) var previewNow: Date?
 
     func changeType(_ type: VPNType) {
-        guard allowsTypeChange, type != draft.type else { return }
+        guard allowsTypeChange, type != draft.type, typeRefusal(type) == nil else { return }
         draft.type = type
         draft.otpDelivery = type.defaultOTPDelivery
         if type != .openvpn && draft.passwordMode == .none { draft.passwordMode = .keychain }
         configURL = nil
         configError = nil
         configServer = ""
+        serverText = Self.serverText(draft)
     }
 
+    /// The address a Cisco AnyConnect profile's server is shown as (`AnyConnectEditing.serverText`); "" for others.
+    static func serverText(_ p: Profile) -> String {
+        p.type == .anyconnect ? AnyConnectEditing.serverText(host: p.host, port: p.port, usergroup: p.usergroup) : ""
+    }
+
+    /// The Cisco AnyConnect server address typed or pasted: a valid one sets the host, port and user group at once;
+    /// an empty one clears them. Anything else leaves them as they were and shows why (`errors`).
+    func setServerText(_ text: String) {
+        serverText = text
+        AnyConnectEditing.applyServer(text, to: &draft)
+        fingerprintError = nil
+    }
+
+    /// The server address can be used ("Fetch Fingerprint").
+    var serverIsValid: Bool { AnyConnectEditing.serverProblem(serverText) == nil }
     static func blank(_ type: VPNType) -> Profile {
         var p = Profile(id: "new-profile", name: "", type: type)
         p.otpDelivery = type.defaultOTPDelivery
@@ -219,6 +259,10 @@ final class EditorModel: ObservableObject {
         p.healthHost = p.healthHost.trimmingCharacters(in: .whitespacesAndNewlines)
         let cert = p.trustedCert.trimmingCharacters(in: .whitespacesAndNewlines)
         p.trustedCert = cert.isEmpty ? "" : (TLSFingerprint.normalize(cert) ?? cert)
+        if p.type == .anyconnect {
+            p.serverCert = AnyConnectEditing.normalizedPin(p.serverCert)
+            p.authgroup = AnyConnectEditing.normalizedGroup(p.authgroup)
+        }
         if p.type != .openvpn && p.passwordMode == .none { p.passwordMode = .keychain }
         if p.passwordMode == .none { p.otpMode = .none }
         if !p.unattended { p.autoReconnect = false }
@@ -281,7 +325,12 @@ final class EditorModel: ObservableObject {
                 e[.trustedCert] = String(localized: "A trusted certificate is a SHA-256 fingerprint: 64 hexadecimal characters (colons are allowed).")
             }
         case .anyconnect:
-            break  // not edited by this version (`VPNType.connectable`)
+            // Never the text itself: a password pasted into the wrong field must not show up again.
+            if let problem = AnyConnectEditing.serverProblem(serverText), problem != .empty || attemptedSave {
+                e[.host] = problem.message
+            }
+            if let message = AnyConnectEditing.groupProblem(p.authgroup) { e[.authgroup] = message }
+            if let message = AnyConnectEditing.pinProblem(p.serverCert) { e[.serverCert] = message }
         }
 
         if p.sessionLimitMin < 0 { e[.sessionLimit] = String(localized: "The session limit cannot be negative.") }
@@ -289,7 +338,9 @@ final class EditorModel: ObservableObject {
             e[.healthHost] = String(localized: "Use an address (10.0.0.5) or host:port (intranet.example.com:443).")
         }
 
-        if p.passwordMode != .none {
+        if p.type == .anyconnect {
+            if let message = AnyConnectEditing.usernameProblem(p.username) { e[.username] = message }
+        } else if p.passwordMode != .none {
             do { try Profile.checkUsername(p.username, type: p.type) } catch { e[.username] = error.localizedDescription }
         }
 
@@ -308,6 +359,9 @@ final class EditorModel: ObservableObject {
             do { try OTPComposer.validate(template: p.otpTemplate) } catch {
                 e[.template] = error.localizedDescription
             }
+            if e[.template] == nil, p.type == .anyconnect, !Profile.isValidAnyConnectTemplate(p.otpTemplate) {
+                e[.template] = String(localized: "The template must be one line of at most 4,095 bytes.")
+            }
         }
         if protectionUnavailable && p.usesStoredSecrets { e[.general] = PTError.protectionUnavailable.localizedDescription }
         for (field, message) in saveErrors where e[field] == nil { e[field] = message }
@@ -318,7 +372,7 @@ final class EditorModel: ObservableObject {
 
     /// Order used to scroll to the first problem: the cards from the top, then Advanced.
     static let fieldOrder: [Field] = [
-        .name, .config, .host, .port, .trustedCert, .username, .password,
+        .name, .config, .host, .port, .trustedCert, .authgroup, .serverCert, .username, .password,
         .totpSecret, .template, .general, .sessionLimit, .healthHost
     ]
 
@@ -538,27 +592,48 @@ final class EditorModel: ObservableObject {
         scanError = error?.localizedDescription ?? CodeSecretInput.nothingToPaste
     }
 
-    // MARK: Forti fingerprint
+    // MARK: fingerprint
 
+    /// "Fetch Fingerprint", only when the user clicks it: the server's certificate from a TLS handshake that is then
+    /// aborted (`TLSFingerprint`). FortiGate takes the certificate's SHA-256, Cisco AnyConnect its key's pin
+    /// (`ServerKeyPin`). The result is shown to confirm before it goes into the field (`acceptFetchedFingerprint`).
     func fetchFingerprint() {
+        guard !isPreview, !fetchingFingerprint else { return }
         let host = draft.host.trimmingCharacters(in: .whitespacesAndNewlines)
         let port = draft.port
+        let anyConnect = draft.type == .anyconnect
+        if anyConnect && !serverIsValid { return }
         fingerprintError = nil
-        fetchingFingerprint = true
-        Task {
+        let destination = fetch.start(for: draft)
+        fetchTask = Task {
             do {
-                fetchedFingerprint = try await TLSFingerprint.fetch(host: host, port: port)
+                let value =
+                    anyConnect
+                    ? try await TLSFingerprint.fetchServerKeyPin(host: host, port: port)
+                    : try await TLSFingerprint.fetch(host: host, port: port)
+                // Kept only for the fetch under way, while the profile still names the server it read.
+                fetch.finish(value, for: destination, current: draft)
             } catch {
-                fingerprintError = error.localizedDescription
+                if fetch.pending == destination { fingerprintError = error.localizedDescription }
+                fetch.fail(for: destination)
             }
-            fetchingFingerprint = false
         }
     }
 
+    /// Where the fingerprint shown was read ("vpn.example.com:8443/engineering"): the server it was fetched from,
+    /// which is the one the profile names (else nothing is shown).
+    var fetchedServer: String { fetch.result?.destination.server ?? "" }
+
+    /// "Trust": the fingerprint goes into the field only while the profile still names the server it was read from.
     func acceptFetchedFingerprint() {
-        if let fp = fetchedFingerprint { draft.trustedCert = fp }
-        fetchedFingerprint = nil
+        if let fp = fetch.value(for: draft) {
+            if draft.type == .anyconnect { draft.serverCert = fp } else { draft.trustedCert = fp }
+        }
+        fetch.clearResult()
     }
+
+    /// The confirmation was dismissed without trusting.
+    func discardFetchedFingerprint() { fetch.clearResult() }
 
     // MARK: health
 
@@ -653,7 +728,11 @@ final class EditorModel: ObservableObject {
         case .invalidField(let name):
             switch name {
             case "port": return .port
-            case "host": return .host
+            case "host", "usergroup": return .host
+            case "authgroup": return .authgroup
+            case "server_cert": return .serverCert
+            case "username": return .username
+            case "otp_template": return .template
             case "health_host": return .healthHost
             case "session_limit_min": return .sessionLimit
             case "totp.digits", "totp.period": return .totpSecret

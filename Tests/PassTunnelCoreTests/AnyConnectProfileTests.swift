@@ -210,9 +210,8 @@ final class AnyConnectProfileTests: CoreTestCase {
 
     // MARK: how the front ends list it
 
-    /// The command and the MCP tools handle the type (#185); the Mac app still lists it as a profile of a
-    /// newer PassTunnel until the editor does (#186).
-    func testTheCommandListsItAndTheAppStillDoesNot() throws {
+    /// The command, the MCP tools (#185) and the Mac app (#186) list it as an ordinary profile.
+    func testItIsListedAsAnOrdinaryProfile() throws {
         let p = try makeAnyConnect()
         let open = try store.create(name: "Acme OpenVPN", type: .openvpn)
         XCTAssertEqual(store.list().map(\.id).sorted(), [p.id, open.id].sorted())
@@ -222,13 +221,6 @@ final class AnyConnectProfileTests: CoreTestCase {
         XCTAssertNil(summary.needsNewerVersion, "a known type is an ordinary profile for the command")
         XCTAssertNil(summary.connectRefusal)
         XCTAssertNil(ProfileSummary(open, isDefault: false).needsNewerVersion)
-        // The app: `AppModel` lists `VPNType.connectable` as profiles and the rest as `UnsupportedProfile(profile)`.
-        let shown = UnsupportedProfile(p)
-        XCTAssertEqual([shown.id, shown.name, shown.type], [p.id, "Acme AnyConnect", "anyconnect"])
-        XCTAssertEqual(shown.order, p.order)
-        XCTAssertEqual(shown.error, .unsupportedProfileType("anyconnect"))
-        XCTAssertEqual(VPNType.connectable, [.openvpn, .forti])
-        XCTAssertFalse(VPNType.anyconnect.isConnectable)
         // Core connects it where `connectRefusal` allows (AnyConnectConnectTests).
         let old = OperatingSystemVersion(majorVersion: 15, minorVersion: 3, patchVersion: 0)
         XCTAssertThrowsError(try ConnectionManager.checkConnectable(p, macOS: old)) {

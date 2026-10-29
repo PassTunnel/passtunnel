@@ -7,7 +7,7 @@ import Foundation
 public struct UnsupportedProfile: Identifiable, Equatable {
     public var id: String
     public var name: String
-    /// The `type` value as stored, e.g. "anyconnect".
+    /// The `type` value as stored, e.g. "globalprotect".
     public var type: String
     public var order: Int
 
@@ -22,16 +22,6 @@ public struct UnsupportedProfile: Identifiable, Equatable {
         self.name = name.isEmpty ? id : name
         self.type = type
         order = object["order"] as? Int ?? 0
-    }
-
-    /// A profile of a type this version knows but does not connect yet, for a front end that shows it the
-    /// same way (the Mac app, for Cisco AnyConnect until it connects such profiles).
-    public init(_ p: Profile) {
-        id = p.id
-        let name = p.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.name = name.isEmpty ? p.id : name
-        type = p.type.rawValue
-        order = p.order
     }
 
     /// The status shown in place of the connection state.

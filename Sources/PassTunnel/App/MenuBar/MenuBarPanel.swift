@@ -191,8 +191,8 @@ struct MenuBarPanel: View {
                     PanelStatusText(status: status, now: now)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                PanelCode(profile: p, now: now)
-                PanelSwitch(isOn: on)
+                if on || status.allowsAction { PanelCode(profile: p, now: now) }
+                PanelSwitch(isOn: on, enabled: on || status.allowsAction)
             }
             .padding(.vertical, 5)
         }
@@ -202,6 +202,7 @@ struct MenuBarPanel: View {
                 Text(on ? String(localized: "Disconnect \(p.name)") : String(localized: "Connect \(p.name)"))
             }
             .toggleStyle(.switch)
+            .disabled(!on && !status.allowsAction)
             .accessibilityHint(Text(hint(p, status)))
             .accessibilityIdentifier(PanelItem.profile(p.id).identifier)
         }
@@ -264,7 +265,7 @@ struct MenuBarPanel: View {
     private func copyActions(_ target: Profile?) -> [PanelItem] {
         guard let target else { return [] }
         var actions: [PanelItem] = [.copyCode]
-        if target.passwordMode == .keychain { actions.append(.copyPasswordAndCode) }
+        if model.canCopyPassword(target) { actions.append(.copyPasswordAndCode) }
         if model.prefs.autoType { actions.append(.typeCode) }
         return actions
     }
@@ -286,6 +287,8 @@ struct MenuBarPanel: View {
             model.disconnect(p)
             return
         }
+        // A type this Mac cannot connect (macOS 15.4): its row says why; nothing is asked or run.
+        guard model.connectRefusal(p.type) == nil else { return NSSound.beep() }
         model.connect(p)
         // The credential sheet lives in the main window. `connect` decides from the stored profile whether to ask.
         if model.credentialRequest != nil {
@@ -413,6 +416,8 @@ private struct PanelCode: View {
 /// the switch is only drawn: it takes no clicks and is hidden from VoiceOver.
 private struct PanelSwitch: View {
     let isOn: Bool
+    /// Off and dimmed for a profile this Mac cannot connect.
+    var enabled = true
 
     var body: some View {
         ZStack(alignment: isOn ? .trailing : .leading) {
@@ -426,6 +431,7 @@ private struct PanelSwitch: View {
                 .padding(2)
         }
         .frame(width: 38, height: 22)
+        .opacity(enabled ? 1 : 0.4)
         .animation(Motion.colorChange, value: isOn)
         .accessibilityHidden(true)
     }

@@ -59,6 +59,11 @@ struct AppCommands: Commands {
                 .keyboardShortcut("n")
             Button(String(localized: "New FortiGate Profile…")) { model.newProfile(.forti) }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
+            // Shown below macOS 15.4 too, disabled, with the reason as its tooltip (`AppModel.connectRefusal`).
+            Button(String(localized: "New Cisco AnyConnect Profile…")) { model.newProfile(.anyconnect) }
+                .keyboardShortcut("n", modifiers: [.command, .option])
+                .disabled(model.connectRefusal(.anyconnect) != nil)
+                .help(model.connectRefusal(.anyconnect)?.unavailableNote ?? "")
             Divider()
             Button(String(localized: "Import .ovpn…")) { ImportActions.importOVPN() }
                 .keyboardShortcut("i")
