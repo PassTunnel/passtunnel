@@ -55,6 +55,26 @@ enum EditorPreviewRenderer {
             out.append(State(name: "editor-forti\(dark ? "-dark" : "")", model: fortiModel(), dark: dark, height: 960))
         }
 
+        // Cisco AnyConnect: a new profile, a saved one (server with a port and a group path, a group, the key pinned,
+        // TLS only, the code sent on its own), and one with the problems the sheet shows (the text typed is never
+        // repeated).
+        for dark in [false, true] {
+            out.append(
+                State(
+                    name: "editor-new-anyconnect\(dark ? "-dark" : "")",
+                    model: EditorModel(preview: EditorModel.blank(.anyconnect), isNew: true, now: now), dark: dark,
+                    height: 1000))
+            out.append(State(name: "editor-anyconnect\(dark ? "-dark" : "")", model: anyConnectModel(), dark: dark, height: 1020))
+            let errors = EditorModel(preview: EditorModel.blank(.anyconnect), isNew: true, now: now)
+            errors.draft.name = "Corp"
+            errors.setServerText("http://vpn.example.com/engineering")
+            errors.draft.authgroup = "=Employees"
+            errors.draft.serverCert = "sha256:12ab"
+            errors.newPassword = "sample-password"
+            _ = errors.save()  // preview models only validate
+            out.append(State(name: "editor-anyconnect-errors\(dark ? "-dark" : "")", model: errors, dark: dark, height: 1060))
+        }
+
         // A saved OpenVPN profile with a secret just scanned from a QR code.
         for dark in [false, true] {
             out.append(State(name: "editor-totp\(dark ? "-dark" : "")", model: totpModel(), dark: dark))
@@ -175,6 +195,22 @@ enum EditorPreviewRenderer {
             preview: workProfile(), isNew: false, passwordStored: true,
             storedTOTP: try? TOTP.decodeSecret(sampleSecret), configServer: "vpn.example.com:1194 · UDP",
             opensAtLogin: opensAtLogin, now: now)
+    }
+
+    @MainActor private static func anyConnectModel() -> EditorModel {
+        var p = Profile(id: "corp", name: "Corp", type: .anyconnect)
+        p.host = "vpn.example.com"
+        p.port = 8443
+        p.usergroup = "engineering"
+        p.authgroup = "Employees"
+        p.serverCert = "pin-sha256:B9S1MyM7eI6e0MBVCfgWo0zkSVpzyFfkmueG8/HAbiY="
+        p.tlsOnly = true
+        p.setDNS = true
+        p.username = "alice"
+        p.otpMode = .totp
+        p.otpDelivery = .separate
+        return EditorModel(
+            preview: p, isNew: false, passwordStored: true, storedTOTP: try? TOTP.decodeSecret(sampleSecret), now: now)
     }
 
     @MainActor private static func fortiModel() -> EditorModel {

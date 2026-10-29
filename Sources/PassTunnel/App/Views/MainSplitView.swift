@@ -211,8 +211,8 @@ struct ProfileSidebar: View {
                 Button(String(localized: "Delete…"), role: .destructive) { model.pendingDeleteUnsupported = u }
             }
         } primaryAction: { ids in
-            // Return or double click: what the detail's main button does.
-            if let id = ids.first, let p = model.profile(id) { model.runAction(p) }
+            // Return or double click: what the detail's main button does (nothing where it is disabled).
+            if let id = ids.first, let p = model.profile(id), model.displayStatus(p).allowsAction { model.runAction(p) }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             HStack {
@@ -250,6 +250,7 @@ struct ProfileMenuItems: View {
     var body: some View {
         let p = profile
         Button(String(localized: "Edit…")) { model.edit(p) }
+            .disabled(model.editRefusal(p) != nil)
         Divider()
         Button(String(localized: "Copy Code")) { model.copyCode(p) }
             .disabled(model.code(for: p) == nil && !model.isCodeLocked(p))
@@ -325,7 +326,8 @@ struct SidebarRow: View {
                 ProfileStatusRow(status: status, now: model.previewNow)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            if model.hasCode(profile) {
+            // Not for a profile this Mac cannot connect: its row is the note ("Requires macOS 15.4 or later").
+            if model.hasCode(profile), status.allowsAction {
                 SidebarCode(profile: profile)
             }
         }
@@ -392,7 +394,7 @@ struct SplitWindowCommands: View {
             || model.overlapRequest != nil
         Button(String(localized: "Connect or Disconnect")) { selected.map(model.runAction) }
             .keyboardShortcut(.return, modifiers: [.command])
-            .disabled(selected == nil || blocked)
+            .disabled(selected.map { !model.displayStatus($0).allowsAction } ?? true || blocked)
         Button(String(localized: "Copy Code")) {
             if let p = selected, !Self.textFieldHasKey { model.copyCode(p) }
         }
@@ -403,7 +405,7 @@ struct SplitWindowCommands: View {
             .disabled(selected?.passwordMode != .keychain || blocked)
         Button(String(localized: "Edit…")) { selected.map(model.edit) }
             .keyboardShortcut("e")
-            .disabled(selected == nil || blocked)
+            .disabled(selected.map { model.editRefusal($0) != nil } ?? true || blocked)
     }
 
     /// ⌘C typed in a text field (the search field) with nothing selected: Edit → Copy is off then, and the key

@@ -135,8 +135,9 @@ final class AppModel: ObservableObject {
                 guard let self else { return }
                 self.reload()
                 let id = note.userInfo?["profileID"] as? String
-                // An imported profile this version cannot edit (`unsupported`) is selected instead.
-                if let id, self.unsupportedProfile(id) != nil {
+                // An imported profile this version or this Mac cannot edit (`unsupported`, `editRefusal`) is
+                // selected instead.
+                if let id, self.unsupportedProfile(id) != nil || self.profile(id).flatMap(self.editRefusal) != nil {
                     self.selection = id
                     return
                 }
@@ -167,10 +168,7 @@ final class AppModel: ObservableObject {
     /// Re-reads the profiles and their TOTP secrets. Cheap when nothing changed (no UI update),
     /// so it is safe to call after the app's own writes.
     func reload() {
-        let stored = store.list()
-        // A profile of a type this version does not connect yet (Cisco AnyConnect, from a share file or a newer
-        // build) is shown like one of an unknown type: listed, nothing but Delete.
-        let fresh = stored.filter(\.type.isConnectable)
+        let fresh = store.list()
         // A "Confirm with Touch ID" setting edited by hand: encrypt what it protects (no prompt).
         for p in fresh where p.requireAuth != .off { vault.reconcile(p) }
         // Server settings changed (editor, CLI, a file edit): secrets confirmed for the old ones are dropped.
@@ -181,12 +179,7 @@ final class AppModel: ObservableObject {
         } else if secretsChanged {
             objectWillChange.send()
         }
-        let unknown = (store.listUnsupported() + stored.filter { !$0.type.isConnectable }.map(UnsupportedProfile.init)).sorted {
-            if $0.order != $1.order { return $0.order < $1.order }
-            let byName = $0.name.localizedStandardCompare($1.name)
-            if byName != .orderedSame { return byName == .orderedAscending }
-            return $0.id < $1.id
-        }
+        let unknown = store.listUnsupported()
         if unknown != unsupported { unsupported = unknown }
         if let sel = selection, !fresh.contains(where: { $0.id == sel }), !unknown.contains(where: { $0.id == sel }) { selection = nil }
     }
@@ -235,6 +228,15 @@ final class AppModel: ObservableObject {
     func profile(_ id: String) -> Profile? { profiles.first { $0.id == id } }
 
     func unsupportedProfile(_ id: String) -> UnsupportedProfile? { unsupported.first { $0.id == id } }
+
+    /// Why this Mac cannot connect profiles of `type` (`ConnectionManager.connectRefusal`: Cisco AnyConnect below
+    /// macOS 15.4, for the manager's `systemVersion`), nil when it can. Such a profile is listed with the note, and
+    /// connecting, editing and creating one are refused with the message before anything is asked or run; deleting
+    /// and sharing it still work.
+    func connectRefusal(_ type: VPNType) -> PTError? { connections.connectRefusal(type) }
+
+    /// Why the editor does not open on `p`: `connectRefusal` of its type.
+    func editRefusal(_ p: Profile) -> PTError? { connectRefusal(p.type) }
 
     /// Nothing to show in the sidebar: the first-run view takes the window.
     var hasNoProfiles: Bool { profiles.isEmpty && unsupported.isEmpty }
@@ -573,7 +575,7 @@ final class AppModel: ObservableObject {
         droppedUnseen.remove(p.id)
         guard let p = storedProfile(p) else { return showError(PTError.profileNotFound(p.id)) }
         // The type as stored now (a pending overlap sheet may hold an older copy): refused before any confirmation.
-        do { try ConnectionManager.checkConnectable(p) } catch { return showError(error) }
+        do { try ConnectionManager.checkConnectable(p, macOS: connections.systemVersion) } catch { return showError(error) }
         let needs = p.needs
         guard !needs.isEmpty else { return connect(p, given: [:]) }
         whenUnlocked(p, SecretVault.kinds(for: .connect, p), .connect) { [self] prompted in
@@ -787,9 +789,15 @@ final class AppModel: ObservableObject {
 
     func share(_ p: Profile) { ShareActions.export(profileID: p.id) }
 
-    func edit(_ p: Profile) { editor = EditorRequest(profileID: p.id, newType: nil) }
+    func edit(_ p: Profile) {
+        if let refusal = editRefusal(p) { return showRefusal(refusal) }
+        editor = EditorRequest(profileID: p.id, newType: nil)
+    }
 
-    func newProfile(_ type: VPNType) { editor = EditorRequest(profileID: nil, newType: type) }
+    func newProfile(_ type: VPNType) {
+        if let refusal = connectRefusal(type) { return showRefusal(refusal) }
+        editor = EditorRequest(profileID: nil, newType: type)
+    }
 
     func move(fromOffsets source: IndexSet, toOffset destination: Int) {
         var list = profiles
@@ -810,6 +818,12 @@ final class AppModel: ObservableObject {
 
     func showToast(_ text: String) {
         toast = ToastMessage(text: text)
+    }
+
+    /// "Requires macOS 15.4 or later" / "Cisco AnyConnect requires macOS 15.4 or later." (`connectRefusal`).
+    func showRefusal(_ refusal: PTError) {
+        alert = AppAlert(
+            title: refusal.unavailableNote ?? String(localized: "Something went wrong"), message: refusal.localizedDescription)
     }
 
     func showError(_ error: Error) {
