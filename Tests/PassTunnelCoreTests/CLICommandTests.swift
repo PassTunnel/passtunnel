@@ -112,7 +112,6 @@ final class CLICommandTests: XCTestCase {
         XCTAssertEqual(try parse("add --type=openvpn Acme"), .add(name: "Acme", type: .openvpn))
         assertUsage("add Acme")
         assertUsage("add Acme --type wireguard")
-        assertUsage("add Acme --type anyconnect")  // not created by this version yet (`VPNType.connectable`)
         assertUsage("add --type forti")
         XCTAssertEqual(try parse("import ~/acme.ovpn --name Acme"), .importFile(path: "~/acme.ovpn", name: "Acme"))
         XCTAssertEqual(try parse("import a.passtunnel"), .importFile(path: "a.passtunnel", name: nil))

@@ -63,10 +63,13 @@ public struct ProfileStore {
     /// New profile with a unique slug id ("acme", "acme-2", …) of at most `Slug.maxIDLength`
     /// characters. FortiGate and Cisco AnyConnect profiles default to `.separate` OTP delivery. Keychain items still stored
     /// under the new id (left by a profile removed outside the app, or from before a reinstall) are
-    /// deleted first, so the new profile never uses secrets it was not given.
-    public func create(name: String, type: VPNType) throws -> Profile {
+    /// deleted first, so the new profile never uses secrets it was not given. `server`: the Cisco AnyConnect
+    /// server's address (`AnyConnectServer.parse`) saved as the profile's `host`, `port` and `usergroup`;
+    /// `PTError.invalidField("server")` for any other type.
+    public func create(name: String, type: VPNType, server: AnyConnectServer? = nil) throws -> Profile {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw PTError.emptyName }
+        if server != nil, type != .anyconnect { throw PTError.invalidField("server") }
         try paths.ensureDirectories()
         return try withLock {
             let existing = list()
@@ -75,6 +78,11 @@ public struct ProfileStore {
             var p = Profile(id: id, name: trimmed, type: type)
             p.order = (existing.map(\.order).max() ?? -1) + 1
             p.otpDelivery = type.defaultOTPDelivery
+            if let server {
+                p.host = server.host
+                p.port = server.port
+                p.usergroup = server.usergroup
+            }
             try save(p)
             return p
         }

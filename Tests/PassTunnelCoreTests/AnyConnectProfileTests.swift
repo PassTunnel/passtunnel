@@ -208,24 +208,28 @@ final class AnyConnectProfileTests: CoreTestCase {
             ProfileDestination.of(forti, store: store).fingerprint, "e8c4decb3733523dac388906fc2fe5680234bb7b6f0f114d16f9c622b7e7a3ec")
     }
 
-    // MARK: not connected yet
+    // MARK: how the front ends list it
 
-    func testListedAsNeedingANewerVersion() throws {
+    /// The command and the MCP tools handle the type (#185); the Mac app still lists it as a profile of a
+    /// newer PassTunnel until the editor does (#186).
+    func testTheCommandListsItAndTheAppStillDoesNot() throws {
         let p = try makeAnyConnect()
         let open = try store.create(name: "Acme OpenVPN", type: .openvpn)
         XCTAssertEqual(store.list().map(\.id).sorted(), [p.id, open.id].sorted())
         XCTAssertEqual(store.listUnsupported(), [])
         let summary = ProfileSummary(p, isDefault: false)
         XCTAssertEqual(summary.type, "anyconnect")
-        XCTAssertEqual(summary.needsNewerVersion, true)
+        XCTAssertNil(summary.needsNewerVersion, "a known type is an ordinary profile for the command")
+        XCTAssertNil(summary.connectRefusal)
         XCTAssertNil(ProfileSummary(open, isDefault: false).needsNewerVersion)
-        let shown = UnsupportedProfile(p)  // how the app lists it
+        // The app: `AppModel` lists `VPNType.connectable` as profiles and the rest as `UnsupportedProfile(profile)`.
+        let shown = UnsupportedProfile(p)
         XCTAssertEqual([shown.id, shown.name, shown.type], [p.id, "Acme AnyConnect", "anyconnect"])
         XCTAssertEqual(shown.order, p.order)
         XCTAssertEqual(shown.error, .unsupportedProfileType("anyconnect"))
-        // The front ends list it so until the CLI (#185) and the app (#186) handle it; Core connects it (#184)
-        // where `connectRefusal` allows (AnyConnectConnectTests).
         XCTAssertEqual(VPNType.connectable, [.openvpn, .forti])
+        XCTAssertFalse(VPNType.anyconnect.isConnectable)
+        // Core connects it where `connectRefusal` allows (AnyConnectConnectTests).
         let old = OperatingSystemVersion(majorVersion: 15, minorVersion: 3, patchVersion: 0)
         XCTAssertThrowsError(try ConnectionManager.checkConnectable(p, macOS: old)) {
             XCTAssertEqual($0 as? PTError, .anyConnectRequiresMacOS("15.4"))

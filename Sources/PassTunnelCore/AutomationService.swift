@@ -40,12 +40,15 @@ public final class AutomationService {
     public func summaries(withState: Bool) async -> [ProfileSummary] {
         if withState { await manager.refresh() }
         let def = store.defaultID
-        return store.list().map { ProfileSummary($0, isDefault: $0.id == def, state: withState ? manager.state($0.id) : nil) }
-            + store.listUnsupported().map { ProfileSummary($0, isDefault: $0.id == def) }
+        return store.list().map {
+            ProfileSummary(
+                $0, isDefault: $0.id == def, state: withState ? manager.state($0.id) : nil,
+                connectRefusal: manager.connectRefusal($0.type))
+        } + store.listUnsupported().map { ProfileSummary($0, isDefault: $0.id == def) }
     }
 
     public func summary(_ p: Profile) -> ProfileSummary {
-        ProfileSummary(p, isDefault: store.defaultID == p.id)
+        ProfileSummary(p, isDefault: store.defaultID == p.id, connectRefusal: manager.connectRefusal(p.type))
     }
 
     /// The state the manager last saw (no refresh).
@@ -55,7 +58,8 @@ public final class AutomationService {
             id: p.id, name: p.name, type: p.type.rawValue, state: "disconnected",
             isDefault: store.defaultID == p.id, protected: ProfileSummary.isProtected(p),
             autoReconnect: p.autoReconnect, error: m.lastError[p.id],
-            failure: m.failures[p.id].map { Self.redacted($0, id: p.id) })
+            failure: m.failures[p.id].map { Self.redacted($0, id: p.id) },
+            connectRefusal: m.connectRefusal(p.type).map(ErrorReport.init))
         if !m.state(p.id).isConnected, let retry = m.unreachableRetry(p.id) {
             s.nextTryAt = retry.nextTryAt
             s.tries = retry.tries

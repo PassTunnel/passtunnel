@@ -36,7 +36,8 @@ public enum CLICommand: Equatable {
     case list(json: Bool, quiet: Bool)  // quiet: ids only (used by shell completion)
     case show(id: String, json: Bool)
     case set(id: String, assignments: [Assignment], json: Bool = false)
-    case add(name: String, type: VPNType, json: Bool = false)
+    // server: Cisco AnyConnect's address (`--server https://vpn.example.com[:port][/group]`), saved as host, port and usergroup
+    case add(name: String, type: VPNType, json: Bool = false, server: AnyConnectServer? = nil)
     case importFile(path: String, name: String?, json: Bool = false)
     case export(id: String, output: String?, json: Bool = false)
     case remove(id: String, yes: Bool, json: Bool = false)
@@ -233,9 +234,11 @@ public enum CLICommand: Equatable {
             let id = try a.positional(String(localized: "profile"))
             let rest = a.remaining()
             guard !rest.isEmpty else { throw CLIUsageError(String(localized: "Give at least one key=value."), command: name) }
-            let assignments = try rest.map { item -> Assignment in
+            let assignments = try rest.enumerated().map { index, item -> Assignment in
                 guard let eq = item.firstIndex(of: "="), eq != item.startIndex else {
-                    throw CLIUsageError(String(localized: "“\(item)” is not in key=value form."), command: name)
+                    // The position, not the text: it may be a password typed without its key.
+                    let position = index + 2  // the profile is the first
+                    throw CLIUsageError(String(localized: "Argument \(position) is not in key=value form."), command: name)
                 }
                 return Assignment(key: String(item[..<eq]), value: String(item[item.index(after: eq)...]))
             }
@@ -243,18 +246,38 @@ public enum CLICommand: Equatable {
         case "add":
             let json = a.flag("--json")
             guard let typeText = try a.option("--type", "-t") else {
-                throw CLIUsageError(String(localized: "Missing --type openvpn|forti."), command: name)
+                throw CLIUsageError(String(localized: "Missing --type openvpn|forti|anyconnect."), command: name)
             }
-            guard let type = VPNType(rawValue: typeText.lowercased()) ?? (typeText.lowercased() == "fortigate" ? .forti : nil),
-                type.isConnectable
-            else {
-                throw CLIUsageError(String(localized: "Unknown VPN type “\(typeText)” (use openvpn or forti)."), command: name)
+            let type: VPNType
+            switch typeText.lowercased() {
+            case "openvpn": type = .openvpn
+            case "forti", "fortigate": type = .forti
+            case "anyconnect": type = .anyconnect
+            default:
+                throw CLIUsageError(
+                    String(localized: "Unknown VPN type “\(typeText)” (use openvpn, forti or anyconnect)."), command: name)
             }
+            let serverText = try a.option("--server")
             try a.rejectUnknownOptions()
+            var server: AnyConnectServer?
+            if let serverText {
+                guard type == .anyconnect else {
+                    throw CLIUsageError(String(localized: "--server is for Cisco AnyConnect profiles (--type anyconnect)."), command: name)
+                }
+                guard let parsed = AnyConnectServer.parse(serverText) else {
+                    // Never echoes the value: it may carry a password (user info) or a token (a query).
+                    throw CLIUsageError(
+                        String(
+                            localized:
+                                "--server needs an https:// address like https://vpn.example.com[:port][/group], without user info, a query or a fragment."
+                        ), command: name)
+                }
+                server = parsed
+            }
             let words = a.remaining()
             let joined = words.joined(separator: " ").trimmingCharacters(in: .whitespaces)
             guard !joined.isEmpty else { throw CLIUsageError(String(localized: "Missing profile name."), command: name) }
-            return .add(name: joined, type: type, json: json)
+            return .add(name: joined, type: type, json: json, server: server)
         case "import":
             let json = a.flag("--json")
             let newName = try a.option("--name", "-n")
@@ -454,7 +477,9 @@ public enum CLICommand: Equatable {
 
         func rejectUnknownOptions() throws {
             if let unknown = items.first(where: { $0.hasPrefix("-") && $0 != "-" }) {
-                throw CLIUsageError(String(localized: "Unknown option “\(unknown)”."), command: command)
+                // Without a value after "=": it could be a password or a token typed with the wrong option name.
+                let name = unknown.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)[0]
+                throw CLIUsageError(String(localized: "Unknown option “\(String(name))”."), command: command)
             }
         }
 

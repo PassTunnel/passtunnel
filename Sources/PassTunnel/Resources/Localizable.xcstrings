@@ -523,6 +523,26 @@
         }
       }
     },
+    "--server is for Cisco AnyConnect profiles (--type anyconnect)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--server yalnızca Cisco AnyConnect profilleri içindir (--type anyconnect)."
+          }
+        }
+      }
+    },
+    "--server needs an https:// address like https://vpn.example.com[:port][/group], without user info, a query or a fragment." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--server için https://vpn.example.com[:port][/grup] gibi bir https:// adresi gerekir; kullanıcı bilgisi, sorgu veya parça içeremez."
+          }
+        }
+      }
+    },
     "--timeout needs a number of seconds (1–86400)." : {
       "localizations" : {
         "tr" : {
@@ -743,6 +763,16 @@
         }
       }
     },
+    "Argument %lld is not in key=value form." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld. argüman anahtar=değer biçiminde değil."
+          }
+        }
+      }
+    },
     "Cisco AnyConnect is not supported on Linux yet." : {
       "localizations" : {
         "tr" : {
@@ -759,6 +789,56 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cisco AnyConnect için macOS %@ veya üstü gerekir."
+          }
+        }
+      }
+    },
+    "Create an empty profile. --server https://vpn.example.com[:port][/group] fills in the server of a Cisco AnyConnect profile." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Boş bir profil oluşturur. --server https://vpn.example.com[:port][/grup] bir Cisco AnyConnect profilinin sunucusunu doldurur."
+          }
+        }
+      }
+    },
+    "Missing --type openvpn|forti|anyconnect." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--type openvpn|forti|anyconnect eksik."
+          }
+        }
+      }
+    },
+    "Next: passtunnel set %@ username=alice" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sonraki adım: passtunnel set %@ username=alice"
+          }
+        }
+      }
+    },
+    "Not supported on Linux yet" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linux’ta henüz desteklenmiyor"
+          }
+        }
+      }
+    },
+    "Requires macOS %@ or later" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS %@ veya üstü gerekir"
           }
         }
       }
@@ -3443,6 +3523,16 @@
         }
       }
     },
+    "Unknown VPN type “%@” (use openvpn, forti or anyconnect)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilinmeyen VPN türü “%@” (openvpn, forti ya da anyconnect kullanın)."
+          }
+        }
+      }
+    },
     "Unreachable" : {
       "localizations" : {
         "tr" : {
@@ -5584,16 +5674,6 @@
         }
       }
     },
-    "Create an empty profile." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Boş bir profil oluşturur."
-          }
-        }
-      }
-    },
     "Created “%@” (%@)." : {
       "localizations" : {
         "tr" : {
@@ -6630,16 +6710,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Eksik: %@."
-          }
-        }
-      }
-    },
-    "Missing --type openvpn|forti." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "--type openvpn|forti eksik."
           }
         }
       }
@@ -8956,16 +9026,6 @@
         }
       }
     },
-    "Unknown VPN type “%@” (use openvpn or forti)." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bilinmeyen VPN türü “%@” (openvpn ya da forti kullanın)."
-          }
-        }
-      }
-    },
     "Unpin from Menu Bar" : {
       "localizations" : {
         "tr" : {
@@ -9393,16 +9453,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "“%@” geçerli bir profil kimliği değil."
-          }
-        }
-      }
-    },
-    "“%@” is not in key=value form." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "“%@” anahtar=değer biçiminde değil."
           }
         }
       }

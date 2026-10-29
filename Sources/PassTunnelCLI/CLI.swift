@@ -108,7 +108,7 @@ enum CLIHelp {
         ("list", "passtunnel list [--json] [-q|--quiet]"),
         ("show", "passtunnel show ID [--json]"),
         ("set", "passtunnel set ID key=value… [--json]"),
-        ("add", "passtunnel add NAME --type openvpn|forti [--json]"),
+        ("add", "passtunnel add NAME --type openvpn|forti|anyconnect [--server URL] [--json]"),
         ("import", "passtunnel import FILE [--name NAME] [--json]"),
         ("export", "passtunnel export ID [-o FILE] [--json]"),
         ("rm", "passtunnel rm ID [-y|--yes] [--json]"),
@@ -138,7 +138,11 @@ enum CLIHelp {
         case "list": return String(localized: "List profiles.")
         case "show": return String(localized: "Show the settings of a profile.")
         case "set": return String(localized: "Change settings, e.g. username=alice health_host=10.0.0.5 auto_reconnect=true.")
-        case "add": return String(localized: "Create an empty profile.")
+        case "add":
+            return String(
+                localized:
+                    "Create an empty profile. --server https://vpn.example.com[:port][/group] fills in the server of a Cisco AnyConnect profile."
+            )
         case "import": return String(localized: "Import an .ovpn/.conf file or a shared .passtunnel profile.")
         case "export": return String(localized: "Export a profile as a .passtunnel file (no passwords or secrets).")
         #if os(Linux)
