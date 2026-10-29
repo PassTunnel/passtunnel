@@ -207,12 +207,11 @@ extension PTError {
 
 extension PTError {
     /// The short note a list shows beside a profile of a type this system cannot connect (the full sentence is
-    /// the error's description): "Requires macOS 15.4 or later", "Not supported on Linux yet". Nil for any
-    /// other error.
+    /// the error's description): "Requires macOS 15.4 or later". Nil for any other error (Linux refuses no type
+    /// up front: the distribution's openconnect is checked when connecting).
     public var unavailableNote: String? {
         switch self {
         case .anyConnectRequiresMacOS(let version): return String(localized: "Requires macOS \(version) or later")
-        case .anyConnectNotSupported: return String(localized: "Not supported on Linux yet")
         default: return nil
         }
     }

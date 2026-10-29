@@ -823,16 +823,6 @@
         }
       }
     },
-    "Not supported on Linux yet" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Linux’ta henüz desteklenmiyor"
-          }
-        }
-      }
-    },
     "Requires macOS %@ or later" : {
       "localizations" : {
         "tr" : {

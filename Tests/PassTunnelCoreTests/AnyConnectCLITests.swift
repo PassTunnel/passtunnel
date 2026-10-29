@@ -244,8 +244,7 @@ final class AnyConnectCLITests: CoreTestCase {
     func testAddIsRefusedWhereTheProfileCannotConnect() async throws {
         let server = AnyConnectServer.parse("https://vpn.example.com")
         for (macOS, message) in [
-            (macOS153, "Cisco AnyConnect requires macOS 15.4 or later."), (macOS13, "Cisco AnyConnect requires macOS 15.4 or later."),
-            (nil, "Cisco AnyConnect is not supported on Linux yet.")
+            (macOS153, "Cisco AnyConnect requires macOS 15.4 or later."), (macOS13, "Cisco AnyConnect requires macOS 15.4 or later.")
         ] as [(OperatingSystemVersion?, String)] {
             let text = try await run(.add(name: "Acme", type: .anyconnect, server: server), macOS: macOS)
             XCTAssertEqual(text.code, AutomationErrorCode.configInvalid.exitCode)
@@ -378,8 +377,9 @@ final class AnyConnectCLITests: CoreTestCase {
         try makeProfile()
         let old = try await run(.show(id: "acme", json: false), macOS: macOS153)
         XCTAssertTrue(old.out.contains("Requires macOS 15.4 or later"), old.out)
+        // Linux refuses nothing up front (#187): the distribution's openconnect is checked when connecting.
         let linux = try await run(.show(id: "acme", json: false), macOS: nil)
-        XCTAssertTrue(linux.out.contains("Not supported on Linux yet"), linux.out)
+        XCTAssertFalse(linux.out.contains("Linux"), linux.out)
 
         let json = try await run(.show(id: "acme", json: true), macOS: macOS153)
         let refusal = try XCTUnwrap(json.json?["connect_refusal"] as? [String: Any])
@@ -387,8 +387,7 @@ final class AnyConnectCLITests: CoreTestCase {
         XCTAssertEqual(refusal["message"] as? String, "Cisco AnyConnect requires macOS 15.4 or later.")
         XCTAssertEqual((json.json?["profile"] as? [String: Any])?["type"] as? String, "anyconnect")
         let linuxJSON = try await run(.show(id: "acme", json: true), macOS: nil)
-        XCTAssertEqual(
-            (linuxJSON.json?["connect_refusal"] as? [String: Any])?["message"] as? String, "Cisco AnyConnect is not supported on Linux yet.")
+        XCTAssertNil(linuxJSON.json?["connect_refusal"])
         let ok = try await run(.show(id: "acme", json: true), macOS: macOS154)
         XCTAssertNil(ok.json?["connect_refusal"])
         // No password, TOTP secret or code in any of it.
@@ -429,8 +428,7 @@ final class AnyConnectCLITests: CoreTestCase {
         _ = try store.create(name: "Lab", type: .forti)
         let expected: [(OperatingSystemVersion?, String, String)] = [
             (macOS153, "Requires macOS 15.4 or later", "Cisco AnyConnect requires macOS 15.4 or later."),
-            (macOS13, "Requires macOS 15.4 or later", "Cisco AnyConnect requires macOS 15.4 or later."),
-            (nil, "Not supported on Linux yet", "Cisco AnyConnect is not supported on Linux yet.")
+            (macOS13, "Requires macOS 15.4 or later", "Cisco AnyConnect requires macOS 15.4 or later.")
         ]
         for (macOS, note, message) in expected {
             let text = try await run(.list(json: false, quiet: false), macOS: macOS)
@@ -474,7 +472,7 @@ final class AnyConnectCLITests: CoreTestCase {
         XCTAssertTrue(old.out.contains("disconnected"), old.out)
         XCTAssertTrue(old.out.contains("Requires macOS 15.4 or later"), old.out)
         let linux = try await run(.status(id: nil, json: false), macOS: nil)
-        XCTAssertTrue(linux.out.contains("Not supported on Linux yet"), linux.out)
+        XCTAssertFalse(linux.out.contains("Linux"), "nothing refused up front on Linux: \(linux.out)")
         let ok = try await run(.status(id: nil, json: false), macOS: macOS154)
         XCTAssertTrue(ok.out.contains("disconnected"), ok.out)
         XCTAssertFalse(ok.out.contains("Requires macOS"), ok.out)
@@ -488,9 +486,7 @@ final class AnyConnectCLITests: CoreTestCase {
         XCTAssertEqual(refusal["code"] as? String, "config_invalid")
         XCTAssertEqual(refusal["message"] as? String, "Cisco AnyConnect requires macOS 15.4 or later.")
         let all = try await run(.status(id: nil, json: true), macOS: nil)
-        XCTAssertEqual(
-            (all.jsonArray?.first?["connect_refusal"] as? [String: Any])?["message"] as? String,
-            "Cisco AnyConnect is not supported on Linux yet.")
+        XCTAssertNil(all.jsonArray?.first?["connect_refusal"])
         let fine = try await run(.status(id: "acme", json: true), macOS: macOS154)
         XCTAssertNil(fine.json?["connect_refusal"])
     }
@@ -501,7 +497,7 @@ final class AnyConnectCLITests: CoreTestCase {
         try makeProfile()
         try Secrets.set("acme", .password, "S3cr3t-Pa55")
         for (macOS, message) in [
-            (macOS153, "Cisco AnyConnect requires macOS 15.4 or later."), (nil, "Cisco AnyConnect is not supported on Linux yet.")
+            (macOS153, "Cisco AnyConnect requires macOS 15.4 or later.")
         ] as [(OperatingSystemVersion?, String)] {
             for command in [
                 CLICommand.connect(id: "acme"), .connect(id: nil), .toggle(id: "acme"), .connect(id: "acme", force: true, wait: true, timeout: 5)
@@ -536,7 +532,7 @@ final class AnyConnectCLITests: CoreTestCase {
         XCTAssertTrue(text.contains("\"anyconnect\""), text)
         XCTAssertTrue(text.contains("engineering"), text)
         XCTAssertFalse(text.contains("alice"), "the user name is not shared")
-        let imported = try await run(.importFile(path: url.path, name: "Copy", json: true), macOS: nil)
+        let imported = try await run(.importFile(path: url.path, name: "Copy", json: true), macOS: macOS153)
         XCTAssertEqual(imported.code, 0, imported.err)
         let summary = try XCTUnwrap(imported.json)
         XCTAssertEqual(summary["type"] as? String, "anyconnect")

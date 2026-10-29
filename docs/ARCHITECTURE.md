@@ -354,7 +354,7 @@ treated as follows:
   `show`, `list_profiles`, `get_status`) carry `connect_refusal` (an `ErrorReport` of `connectRefusal`'s error, from
   `AutomationService` and the runner's system) where the system cannot connect the type, and no `needs_newer_version`
   (that is for a type this version does not know). The text output notes it beside the profile: `PTError.unavailableNote`
-  ("Requires macOS 15.4 or later", "Not supported on Linux yet") in `list`, `status` and `show`. `connect`, `toggle`
+  ("Requires macOS 15.4 or later"; Linux refuses no type up front since #187) in `list`, `status` and `show`. `connect`, `toggle`
   and the MCP `connect` fail with `connectRefusal`'s error before the helper is asked anything or a secret is read
   (`checkConnectable` with the runner's or manager's `systemVersion`), and `add --type anyconnect` is refused with it
   too, so no profile that cannot connect is made here (a share file's is kept and shown the same way). `diagnose` has
