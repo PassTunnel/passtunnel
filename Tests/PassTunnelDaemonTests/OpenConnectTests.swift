@@ -435,7 +435,8 @@ final class LinuxVPNHookTests: DaemonTestCase {
 /// checked `ip` run, the attached networks from the interfaces' addresses.
 final class LinuxOpenConnectSystemTests: DNSTestCase {
     func makeSystem(
-        _ session: SessionDirectory?, ip: [String]? = nil, run: @escaping (String, [String], TimeInterval) -> ToolRunner.Result? = { _, _, _ in nil }
+        _ session: SessionDirectory?, ip: [String]? = nil, records: [String]? = nil,
+        run: @escaping (String, [String], TimeInterval) -> ToolRunner.Result? = { _, _, _ in nil }
     )
         -> LinuxOpenConnectSystem
     {
@@ -444,7 +445,7 @@ final class LinuxOpenConnectSystemTests: DNSTestCase {
         kernel.interfaceIndex = { indexes.get($0) }
         kernel.run = run
         var dnsSystem = system
-        dnsSystem.resolvconfRecords = [resolvconfRecords]
+        dnsSystem.resolvconfRecords = records ?? [resolvconfRecords]
         return LinuxOpenConnectSystem(
             session: session, dns: DNSApplier(system: dnsSystem, runRoot: runRoot), kernel: kernel,
             ipCandidates: ip ?? [root + "/usr/sbin/ip"], owner: me, base: base)
@@ -453,10 +454,12 @@ final class LinuxOpenConnectSystemTests: DNSTestCase {
     /// Where the fake resolvconf below keeps what it is given (Debian's `/run/resolvconf/interface`).
     var resolvconfRecords: String { root + "/run/resolvconf/interface" }
 
-    func dns(primary: Bool, servers: [String] = ["10.11.0.53"], search: [String] = ["example.com"]) -> OpenConnectDNSSettings {
+    func dns(primary: Bool, id: String = "acme", servers: [String] = ["10.11.0.53"], search: [String] = ["example.com"])
+        -> OpenConnectDNSSettings
+    {
         OpenConnectDNSSettings(
             OpenConnectPlan.DNS(
-                service: "passtunnel-\(me)-acme", interface: "tun0", primary: primary, servers: servers.map { IPAddress($0)! },
+                service: "passtunnel-\(me)-\(id)", interface: "tun0", primary: primary, servers: servers.map { IPAddress($0)! },
                 searchDomains: search, matchDomains: primary ? [] : ["corp.example.com"] + search),
             addresses: [IPAddress("10.11.0.2")!])
     }
@@ -595,30 +598,49 @@ final class LinuxOpenConnectSystemTests: DNSTestCase {
     }
 
     /// resolvconf: the record it was given for the interface, not the final resolv.conf, which a local cache
-    /// (dnsmasq) may fill with 127.0.0.1 alone.
+    /// (dnsmasq) may fill with 127.0.0.1 alone; found in each layout (Debian's `interface/`, openresolv's
+    /// `interfaces/` and, from 3.17, `keys/`), and its resolver lines exactly those given.
     func testReconnectCheckReadsResolvconfsRecord() throws {
-        try FileManager.default.createDirectory(atPath: resolvconfRecords, withIntermediateDirectories: true)
-        // Keeps what `-a <name>` reads in `interface/<name>`, as Debian's resolvconf does; `-d` removes it.
-        try """
-        #!/bin/sh
-        echo "resolvconf $*" >> '\(calls)'
-        if [ "$1" = "-a" ]; then cat > '\(resolvconfRecords)'/"$2"; fi
-        if [ "$1" = "-d" ]; then rm -f '\(resolvconfRecords)'/"$2"; fi
-        exit 0
+        let layouts = ["interface", "interfaces", "keys"].map { root + "/run/resolvconf/" + $0 }
+        for (n, store) in layouts.enumerated() {
+            try FileManager.default.createDirectory(atPath: store, withIntermediateDirectories: true)
+            // Keeps what `-a <name>` reads under `store`, as that resolvconf does; `-d` removes it.
+            try """
+            #!/bin/sh
+            echo "resolvconf $*" >> '\(calls)'
+            if [ "$1" = "-a" ]; then cat > '\(store)'/"$2"; fi
+            if [ "$1" = "-d" ]; then rm -f '\(store)'/"$2"; fi
+            exit 0
 
-        """.write(toFile: resolvconf, atomically: false, encoding: .utf8)
-        chmod(resolvconf, 0o755)
-        let session = try session()
-        let system = makeSystem(session)
-        XCTAssertTrue(system.setDNS(dns(primary: true)), system.dnsFailure ?? "")
-        try "nameserver 127.0.0.1\n".write(toFile: resolvConf, atomically: false, encoding: .utf8)
-        XCTAssertTrue(system.hasDNS(dns(primary: true)), system.dnsFailure ?? "")
-        try "nameserver 192.0.2.66\n".write(toFile: resolvconfRecords + "/tun0.passtunnel-7", atomically: false, encoding: .utf8)
-        XCTAssertFalse(system.hasDNS(dns(primary: true)))
-        XCTAssertEqual(system.dnsFailure, "resolvconf's record of tun0 is no longer the one it was given")
-        unlink(resolvconfRecords + "/tun0.passtunnel-7")
-        XCTAssertFalse(system.hasDNS(dns(primary: true)))
-        XCTAssertEqual(system.dnsFailure, "resolvconf no longer holds the record of tun0")
+            """.write(toFile: resolvconf, atomically: false, encoding: .utf8)
+            chmod(resolvconf, 0o755)
+            let session = try session("acme\(n)")
+            let system = makeSystem(session, records: layouts)
+            let settings = dns(primary: true, id: "acme\(n)", servers: ["10.11.0.53", "10.11.0.54"])
+            XCTAssertTrue(system.setDNS(settings), system.dnsFailure ?? "")
+            let record = store + "/tun0.passtunnel-7"
+            XCTAssertEqual(try String(contentsOfFile: record, encoding: .utf8), "nameserver 10.11.0.53\nnameserver 10.11.0.54\nsearch example.com\n")
+            try "nameserver 127.0.0.1\n".write(toFile: resolvConf, atomically: false, encoding: .utf8)
+            XCTAssertTrue(system.hasDNS(settings), "\(store): \(system.dnsFailure ?? "")")
+            // Comments and blank lines do not matter; anything else in the resolver lines does.
+            try "# from PassTunnel\nnameserver 10.11.0.53\n\nnameserver  10.11.0.54\nsearch example.com\n"
+                .write(toFile: record, atomically: false, encoding: .utf8)
+            XCTAssertTrue(system.hasDNS(settings), system.dnsFailure ?? "")
+            for changed in [
+                "nameserver 192.0.2.66\nnameserver 10.11.0.53\nnameserver 10.11.0.54\nsearch example.com\n",
+                "nameserver 10.11.0.54\nnameserver 10.11.0.53\nsearch example.com\n",
+                "nameserver 10.11.0.53\nnameserver 10.11.0.54\nsearch example.com example.net\n",
+                "nameserver 10.11.0.53\nnameserver 10.11.0.54\n"
+            ] {
+                try changed.write(toFile: record, atomically: false, encoding: .utf8)
+                XCTAssertFalse(system.hasDNS(settings), changed)
+                XCTAssertEqual(system.dnsFailure, "resolvconf's record of tun0 is no longer the one it was given")
+            }
+            unlink(record)
+            XCTAssertFalse(system.hasDNS(settings))
+            XCTAssertEqual(system.dnsFailure, "resolvconf no longer holds the record of tun0")
+            try FileManager.default.removeItem(atPath: store)
+        }
     }
 
     func testDNSFailureSaysWhy() throws {

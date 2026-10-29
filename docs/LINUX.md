@@ -711,8 +711,9 @@ when asked.
       listed as `~example.com` only);
     - resolvconf: `/etc/resolv.conf` still leads where it did (a link; a regular file that openresolv
       rewrites in place is not checked further), and resolvconf still holds the record it was given
-      (`/run/resolvconf/interface/<name>`, openresolv's `interfaces/<name>`) with the servers and search
-      domains; not the final resolv.conf, which a local cache (dnsmasq) may fill with `127.0.0.1` alone;
+      (Debian's `/run/resolvconf/interface/<name>`, openresolv's `interfaces/<name>` or, from 3.17,
+      `keys/<name>`), its `nameserver` and `search` lines exactly those given, in order (comments and blank
+      lines aside); not the final resolv.conf, which a local cache (dnsmasq) may fill with `127.0.0.1` alone;
     - the file backend: `/etc/resolv.conf` is still exactly what PassTunnel wrote last.
     Anything that differs or cannot be established fails the check, and the session is stopped (a new
     sign-in sets it up afresh). A failure's reason (`DNSApplier`'s) reaches

@@ -35,8 +35,8 @@ public struct DNSSystem {
     /// openresolv's configuration, read for `resolv_conf_mv` only.
     public var resolvconfConf = "/etc/resolvconf.conf"
     /// Where resolvconf keeps the record it was given for an interface (Debian's `interface/`, openresolv's
-    /// `interfaces/`): read back by `DNSApplier.verify`.
-    public var resolvconfRecords = ["/run/resolvconf/interface", "/run/resolvconf/interfaces"]
+    /// `interfaces/` and, from 3.17, `keys/`): read back by `DNSApplier.verify`, the first that holds it.
+    public var resolvconfRecords = ["/run/resolvconf/interface", "/run/resolvconf/interfaces", "/run/resolvconf/keys"]
     /// Who must own the tools, the paths above them and /etc/resolv.conf (root, but in tests), and where
     /// the `TrustedPath` checks start.
     public var owner: uid_t = 0
@@ -154,9 +154,7 @@ public struct DNSApplier {
                 try run(tool, "resolvectl", arguments)
             }
         case .resolvconf:
-            var text = settings.servers.prefix(Self.maxNameservers).map { "nameserver \($0)\n" }.joined()
-            if !settings.searchDomains.isEmpty { text += "search " + settings.searchDomains.joined(separator: " ") + "\n" }
-            try run(tool!, "resolvconf", ["-a", Self.resolvconfRecord(record)], input: Data(text.utf8))
+            try run(tool!, "resolvconf", ["-a", Self.resolvconfRecord(record)], input: Data(Self.resolvconfInput(settings).utf8))
         case .file:
             try updateResolvConf(root: root, sessions: fileSessions())
         }
@@ -193,7 +191,8 @@ public struct DNSApplier {
     ///   `domain` and `default-route` report them for the recorded index (after `checkLink`), compared as
     ///   systemd-resolved stores them (`resolvedDomains`: one entry per domain, the last routing flag given);
     /// - resolvconf: `/etc/resolv.conf` still leads where it did, and resolvconf still holds the record it was
-    ///   given for the interface (`resolvconfRecords`) with these servers and search domains; not the final
+    ///   given for the interface (`resolvconfRecords`), its `nameserver` and `search` lines exactly those it was
+    ///   given, in order; not the final
     ///   resolv.conf, where a local cache (dnsmasq) may legitimately stand in for every server;
     /// - the file: the record holds these servers and search domains, and `/etc/resolv.conf` is still
     ///   exactly what PassTunnel wrote last (the run root's state), with no change under way.
@@ -233,9 +232,9 @@ public struct DNSApplier {
                 let name = Self.resolvconfRecord(record)
                 guard let text = system.resolvconfRecords.lazy.compactMap({ Self.readEffective($0 + "/" + name, owner: self.system.owner) }).first
                 else { return "resolvconf no longer holds the record of \(record.interface)" }
-                let named = Set(Self.nameservers(text))
-                guard settings.servers.prefix(Self.maxNameservers).allSatisfy(named.contains), Self.searchDomains(text) == settings.searchDomains
-                else { return "resolvconf's record of \(record.interface) is no longer the one it was given" }
+                guard Self.resolverLines(text) == Self.resolverLines(Self.resolvconfInput(settings)) else {
+                    return "resolvconf's record of \(record.interface) is no longer the one it was given"
+                }
                 return nil
             case .file:
                 // The block of the session is made from its record: it must be what was asked for.
@@ -324,22 +323,21 @@ public struct DNSApplier {
         return try? DNSSettings.address(String(text))
     }
 
-    /// The words of the last `search` line of a resolv.conf (none: empty).
-    static func searchDomains(_ text: String) -> [String] {
-        var domains: [String] = []
-        for line in text.split(whereSeparator: \.isNewline) {
-            let words = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
-            if words.first == "search" { domains = words.dropFirst().map(String.init) }
-        }
-        return domains
+    /// What `resolvconf -a` is given for a tunnel: up to three `nameserver` lines, and a `search` line when
+    /// there are search domains.
+    static func resolvconfInput(_ settings: DNSSettings) -> String {
+        var text = settings.servers.prefix(maxNameservers).map { "nameserver \($0)\n" }.joined()
+        if !settings.searchDomains.isEmpty { text += "search " + settings.searchDomains.joined(separator: " ") + "\n" }
+        return text
     }
 
-    /// The `nameserver` addresses of a resolv.conf, in `DNSSettings.address`'s form.
-    static func nameservers(_ text: String) -> [String] {
+    /// The `nameserver` and `search` lines of a resolv.conf in order, each as its words joined by one space;
+    /// comments, blank lines and other options left out. A record must hold exactly the lines PassTunnel gave.
+    static func resolverLines(_ text: String) -> [String] {
         text.split(whereSeparator: \.isNewline).compactMap { line in
             let words = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
-            guard words.count >= 2, words[0] == "nameserver" else { return nil }
-            return try? DNSSettings.address(String(words[1]))
+            guard let first = words.first, first == "nameserver" || first == "search" else { return nil }
+            return words.joined(separator: " ")
         }
     }
 
