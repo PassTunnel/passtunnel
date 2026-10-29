@@ -20,13 +20,23 @@ import Foundation
 /// always gets the value under its name: `webvpn=<value>` for a bare value (whatever it holds: a bare value
 /// that happens to start with `webvpn=` is still a value), and the STRAP form unchanged (it names both parts).
 ///
-/// **Accepted** (`tunnelOption`, `isValidTunnelOption`), and nothing else: a `webvpn` value of RFC 6265
-/// cookie octets without `'` (printable ASCII but blanks, `"` `,` `;` `\`; so no `;` or blank that would split
-/// it differently); a STRAP key of standard base64; the tunnel option at most `OpenConnectConfig.maxCookieBytes`.
-/// Every part is a bearer secret: `secrets` lists them for the log maskers, and no error names a value.
+/// The STRAP form is recognised only by its complete structure (`openconnect_strapkey=<standard base64>;
+/// webvpn=<value>`); anything else, even text that merely starts with `openconnect_strapkey=`, is a bare value
+/// (a server may choose such a value). The tunnel option is then `webvpn=<that text>`, which the helper accepts
+/// as a value too: the client gives (`tunnelOption`) exactly the options the helper accepts
+/// (`isValidTunnelOption`).
+///
+/// **Accepted**, and nothing else: a `webvpn` value of RFC 6265 cookie octets without `'` (printable ASCII but
+/// blanks, `"` `,` `;` `\`; so no `;` or blank that would split it differently), at least `minValueBytes`; a STRAP
+/// key of standard base64, at least `minValueBytes` too; the tunnel option at most
+/// `OpenConnectConfig.maxCookieBytes`. Every part is a bearer secret: `secrets` lists them for the log maskers
+/// (which mask values of 3 bytes and more; no server issues a session cookie as short as 8), and no error names a
+/// value.
 public enum OpenConnectCookie {
     public static let name = "webvpn"
     public static let strapName = "openconnect_strapkey"
+    /// The shortest `webvpn` value or STRAP key accepted: long enough for every masker to hide it.
+    public static let minValueBytes = 8
     static let strapSeparator = "; " + name + "="
 
     /// The tunnel run's `cookie` option for what the sign-in printed, nil when it is neither shape.
@@ -39,7 +49,7 @@ public enum OpenConnectCookie {
     /// Whether `option` is one `tunnelOption` gives: `webvpn=<value>` or the STRAP form, within the limit.
     public static func isValidTunnelOption(_ option: String) -> Bool {
         guard option.utf8.count <= OpenConnectConfig.maxCookieBytes else { return false }
-        if option.hasPrefix(strapName + "=") { return strapParts(option) != nil }
+        if strapParts(option) != nil { return true }
         guard option.hasPrefix(name + "=") else { return false }
         return isValidValue(option.dropFirst(name.count + 1))
     }
@@ -58,9 +68,7 @@ public enum OpenConnectCookie {
 
     /// The STRAP key (nil for a bare value) and the `webvpn` value of what the sign-in printed.
     static func parts(ofPrinted printed: String) -> (key: Substring?, value: Substring)? {
-        if printed.hasPrefix(strapName + "=") {
-            return strapParts(printed).map { (key: $0.key, value: $0.value) }
-        }
+        if let strap = strapParts(printed) { return (key: strap.key, value: strap.value) }
         return isValidValue(Substring(printed)) ? (key: nil, value: Substring(printed)) : nil
     }
 
@@ -73,9 +81,9 @@ public enum OpenConnectCookie {
         return (key, value)
     }
 
-    /// RFC 6265's cookie-octet (`%x21 / %x23-2B / %x2D-3A / %x3C-5B / %x5D-7E`) without `'`, 1 byte or more.
+    /// RFC 6265's cookie-octet (`%x21 / %x23-2B / %x2D-3A / %x3C-5B / %x5D-7E`) without `'`, `minValueBytes` or more.
     static func isValidValue(_ s: Substring) -> Bool {
-        !s.isEmpty
+        s.utf8.count >= minValueBytes
             && s.utf8.allSatisfy { b in
                 (0x21...0x7E).contains(b) && !"\"',;\\".utf8.contains(b)
             }
@@ -84,7 +92,7 @@ public enum OpenConnectCookie {
     /// Standard base64 with its padding: groups of four of `A–Z a–z 0–9 + /`, `=` only at the end.
     static func isValidBase64(_ s: Substring) -> Bool {
         let bytes = Array(s.utf8)
-        guard !bytes.isEmpty, bytes.count % 4 == 0 else { return false }
+        guard bytes.count >= minValueBytes, bytes.count % 4 == 0 else { return false }
         let padding = bytes.reversed().prefix { $0 == UInt8(ascii: "=") }.count
         guard padding <= 2 else { return false }
         return bytes.dropLast(padding).allSatisfy { FortiConfig.isASCIIAlphanumeric($0) || $0 == UInt8(ascii: "+") || $0 == UInt8(ascii: "/") }

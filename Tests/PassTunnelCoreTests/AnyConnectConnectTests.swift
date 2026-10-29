@@ -344,6 +344,43 @@ extension ConnectionManagerTests {
         }
     }
 
+    /// A cookie the parser refuses (a ',' in it) is never used, and when the server repeats it on standard error it
+    /// is masked all the same, whole and in parts.
+    func testARefusedCookieEchoedByTheServerIsMasked() async throws {
+        let refused = [
+            "EXAMPLE-TOKEN,WITH-A-COMMA-0123", "webvpn=EXAMPLE-NAMED,TOKEN-4567",
+            "openconnect_strapkey=EXAMPLE-KEY-BYTES-89; webvpn=EXAMPLE,VALUE-0AB"
+        ]
+        for cookie in refused {
+            let p = try makeAnyConnect("Acme \(UUID().uuidString.prefix(8))")
+            let fake = FakeOpenConnect()
+            fake.results = [Out.output(stdout: Out.stdout(cookie: cookie), stderr: Out.signedIn + "Server: \(cookie)\n")]
+            let m = try makeAnyConnectManager(fake)
+            do {
+                try await m.connect(p.id)
+                XCTFail("connected")
+            } catch {
+                guard case .signInUnusable? = error as? PTError else { return XCTFail("\(error)") }
+            }
+            let log = VPNLog.read(store.logURL(p.id))
+            XCTAssertTrue(log.contains("Server: <redacted>"), log)
+            for part in ["EXAMPLE-TOKEN", "EXAMPLE-NAMED", "EXAMPLE-KEY-BYTES-89", "EXAMPLE,VALUE-0AB", "TOKEN-4567"] {
+                XCTAssertFalse(log.contains(part), "\(part) in \(log)")
+            }
+            XCTAssertTrue(openConnectStarts().isEmpty)
+        }
+    }
+
+    func testThePrintedCookieIsReadApartFromTheParser() {
+        let stdout = Array("COOKIE='a b; webvpn=c,d; k=v'\nHOST='x'\n".utf8)
+        XCTAssertEqual(
+            AnyConnectSignIn.printedCookieSecrets(stdout), ["a b; webvpn=c,d; k=v", "a b; webvpn=c,d; k=v", "a b", "webvpn=c,d", "c,d", "k=v", "v"])
+        XCTAssertEqual(
+            AnyConnectSignIn.printedCookieSecrets(Array("COOKIE='unterminated\nsecond".utf8)),
+            ["unterminated\nsecond", "unterminated", "unterminated", "second", "second"])
+        XCTAssertEqual(AnyConnectSignIn.printedCookieSecrets(Array("HOST='x'\n".utf8)), [])
+    }
+
     func testTheSignInLogHoldsNoPartOfTheCookie() async throws {
         typealias C = OpenConnectCookieTests
         let p = try makeAnyConnect()

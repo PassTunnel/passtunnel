@@ -302,7 +302,7 @@ final class OpenConnectRenderedCheckTests: XCTestCase {
         XCTAssertNoThrow(try OpenConnectAuthConfig.checkRendered(pinnedAuth, lineCount: 8, caFile: "/etc/ssl/cert.pem"))
         let keys = { (text: String) in text.split(separator: "\n").dropFirst().map { String($0.prefix { $0 != " " }) } }
         let fullRoot = try OpenConnectConfig(
-            host: "vpn.example.com", cookie: "webvpn=c", serverCert: examplePin, resolveAddress: "192.0.2.1", scriptPath: "/x",
+            host: "vpn.example.com", cookie: "webvpn=EXAMPLE-C", serverCert: examplePin, resolveAddress: "192.0.2.1", scriptPath: "/x",
             tlsOnly: true
         ).render()
         XCTAssertEqual(keys(fullRoot), OpenConnectConfig.renderedKeys)
@@ -599,8 +599,9 @@ final class OpenConnectAuthResultTests: XCTestCase {
         XCTAssertEqual(try OpenConnectAuthResult.parse(output(resolve: "\n")).resolve, "")
         // Cookie length limits: the value under its name fits the root option's limit.
         XCTAssertNoThrow(try OpenConnectAuthResult.parse(output(cookie: String(repeating: "c", count: 4089))))
-        XCTAssertNoThrow(try OpenConnectAuthResult.parse(output(cookie: "c")))
-        XCTAssertEqual(try OpenConnectAuthResult.parse(output(cookie: "=c")).tunnelCookie, "webvpn==c")
+        XCTAssertNoThrow(try OpenConnectAuthResult.parse(output(cookie: "12345678")))
+        XCTAssertThrowsError(try OpenConnectAuthResult.parse(output(cookie: "1234567")), "shorter than every masker hides")
+        XCTAssertEqual(try OpenConnectAuthResult.parse(output(cookie: "=EXAMPLE")).tunnelCookie, "webvpn==EXAMPLE")
         // The real shapes (OpenConnectCookieTests).
         XCTAssertEqual(
             try OpenConnectAuthResult.parse(output(cookie: OpenConnectCookieTests.ocservToken)).tunnelCookie,

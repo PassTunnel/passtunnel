@@ -1240,9 +1240,14 @@ code, nor parses the server's login forms (the most complex server-controlled pa
      a part without `=` is taken as the `webvpn` value: a bare value holding `=` (ocserv's base64 tokens)
      would become a cookie named after itself, and the server would get no session cookie ("no cookie
      found"). So the helper is sent the value under its name, `webvpn=<value>` (whatever the value holds),
-     or the STRAP form unchanged (`OpenConnectAuthResult.tunnelCookie`). Accepted, and nothing else: a
-     `webvpn` value of RFC 6265 cookie octets without `'` (no blank, `"`, `,`, `;` or `\`, so nothing can
-     split it differently), a STRAP key of standard base64, at most 4,096 bytes under its name. The helper
+     or the STRAP form unchanged (`OpenConnectAuthResult.tunnelCookie`). STRAP is recognised only by its
+     whole structure (`openconnect_strapkey=<standard base64>; webvpn=<value>`); a value that merely starts
+     like it is a bare value, sent as `webvpn=<value>`, so the client gives exactly the options the helper
+     accepts. Accepted, and nothing else: a `webvpn` value of RFC 6265 cookie octets without `'` (no blank,
+     `"`, `,`, `;` or `\`, so nothing can split it differently), a STRAP key of standard base64, each at least
+     8 bytes (the log maskers skip values under 3, and no server issues a session cookie that short), at most
+     4,096 bytes under its name. The sign-in's log also masks whatever `COOKIE='…'` held when the parser
+     refuses it (whole, per line, per `;` part and after each part's `=`), since the server may echo it. The helper
      and the root file's check (`checkRendered`) accept exactly `webvpn=<value>` and the STRAP form
      (`OpenConnectCookie.isValidTunnelOption`), never a bare value. The STRAP key is the client's own
      private key for the session's resumption, a secret like the value: both are masked on their own too.

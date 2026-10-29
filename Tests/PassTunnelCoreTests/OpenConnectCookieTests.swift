@@ -67,11 +67,53 @@ final class OpenConnectCookieTests: XCTestCase {
         XCTAssertEqual(strap.first?.value, Self.strapKey)
     }
 
+    /// Only the whole STRAP structure is STRAP: a bare value that merely starts like it is a value (a server may
+    /// choose one), and the helper accepts it under its name as the client sends it.
+    func testOnlyACompleteStrapFormIsStrap() {
+        for printed in ["openconnect_strapkey=abcdefgh", "openconnect_strapkey=\(Self.strapKey)", "openconnect_strapkey=="] {
+            let option = OpenConnectCookie.tunnelOption(printed: printed)
+            XCTAssertEqual(option, "webvpn=" + printed, printed)
+            XCTAssertTrue(OpenConnectCookie.isValidTunnelOption("webvpn=" + printed), printed)
+            XCTAssertEqual(webvpn("webvpn=" + printed), printed)
+        }
+        XCTAssertFalse(OpenConnectCookie.isValidTunnelOption("openconnect_strapkey=abcdefgh"), "not STRAP, and not named webvpn")
+    }
+
+    /// The client gives exactly the options the helper accepts: each accepted option comes from one printed text,
+    /// and each printed text the client takes gives an accepted option.
+    func testTheClientAndTheHelperAgree() {
+        let printed = [
+            Self.ocservToken, Self.asaToken, Self.strap, "webvpn=" + Self.asaToken, "openconnect_strapkey=abcdefgh", "12345678", "1234567",
+            "openconnect_strapkey=\(Self.strapKey); webvpn=1234567", "openconnect_strapkey=AAAA; webvpn=\(Self.asaToken)", "a,bcdefgh",
+            String(repeating: "c", count: 4089), String(repeating: "c", count: 4090)
+        ]
+        for text in printed {
+            if let option = OpenConnectCookie.tunnelOption(printed: text) {
+                XCTAssertTrue(OpenConnectCookie.isValidTunnelOption(option), text)
+            }
+        }
+        let options = printed + printed.map { "webvpn=" + $0 } + ["webvpn=", "WEBVPN=" + Self.asaToken, "x=" + Self.asaToken]
+        for option in options where OpenConnectCookie.isValidTunnelOption(option) {
+            let source = option.hasPrefix("webvpn=") ? String(option.dropFirst("webvpn=".count)) : option
+            XCTAssertEqual(OpenConnectCookie.tunnelOption(printed: source), option, option)
+        }
+    }
+
+    /// Every accepted value and key is at least 8 bytes, so every masker (which skips values under 3) hides it.
+    func testTooShortToMaskIsRefused() {
+        XCTAssertNil(OpenConnectCookie.tunnelOption(printed: "1234567"))
+        XCTAssertNotNil(OpenConnectCookie.tunnelOption(printed: "12345678"))
+        XCTAssertFalse(OpenConnectCookie.isValidTunnelOption("webvpn=abc"))
+        XCTAssertFalse(OpenConnectCookie.isValidTunnelOption("openconnect_strapkey=AAAA; webvpn=\(Self.asaToken)"))
+        XCTAssertTrue(OpenConnectCookie.isValidTunnelOption("openconnect_strapkey=AAAAAAAA; webvpn=\(Self.asaToken)"))
+        XCTAssertEqual(OutputMask.apply("x 12345678 y", secrets: OpenConnectCookie.secrets("webvpn=12345678")), "x <redacted> y")
+    }
+
     func testRefusedShapes() {
         let printed: [String] = [
             "", "a b", "a;b", "a,b", "a\"b", "a\\b", "a'b", "a\tb", "a\u{7F}", "çerez", String(repeating: "c", count: 4090),
             "openconnect_strapkey=\(Self.strapKey); webvpn=", "openconnect_strapkey=; webvpn=\(Self.ocservToken)",
-            "openconnect_strapkey=\(Self.strapKey)", "openconnect_strapkey=\(Self.strapKey);webvpn=\(Self.ocservToken)",
+            "openconnect_strapkey=\(Self.strapKey);webvpn=\(Self.ocservToken)",
             "openconnect_strapkey=\(Self.strapKey.dropLast()); webvpn=\(Self.ocservToken)",
             "openconnect_strapkey=\(Self.strapKey); webvpn=\(Self.ocservToken); other=x"
         ]

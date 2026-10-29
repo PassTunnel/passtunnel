@@ -24,7 +24,7 @@ func LLVMFuzzerTestOneInput(_ data: UnsafePointer<UInt8>?, _ size: Int) -> CInt 
         "the tunnel cookie is not the printed one under its name")
     precondition(OpenConnectPin.isValid(result.fingerprint))
     let other = try! OpenConnectAuthResult(
-        cookie: "x", host: result.host, connectURL: result.connectURL, fingerprint: result.fingerprint, resolve: result.resolve)
+        cookie: "xxxxxxxx", host: result.host, connectURL: result.connectURL, fingerprint: result.fingerprint, resolve: result.resolve)
     precondition(result.description == other.description, "the description depends on the cookie")
 
     // The profile the output claims: `https://<host>[:<port>]/`.
