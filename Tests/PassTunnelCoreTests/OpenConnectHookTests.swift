@@ -6,6 +6,10 @@ import XCTest
 /// A Mac that only exists in memory: the routing table, the interfaces and the DNS keys the hook reads and
 /// changes, and a log of every command line and DNS write. Nothing here touches the real network.
 final class FakeOpenConnectSystem: OpenConnectSystem {
+    /// The Mac's `ifconfig` and `route`, or (Linux tests) `ip`.
+    var tools: OpenConnectCommand.Tools = .macOS
+    /// What a failed `setDNS` says (Linux: `DNSApplier`'s reason).
+    var dnsFailure: String?
     var interfaces: [String: UInt32] = ["utun5": 20, "en0": 11, "en7": 12]
     var addresses: [String: [IPAddress]] = [:]
     var up: Set<String> = []
@@ -503,7 +507,7 @@ final class OpenConnectHookTests: XCTestCase {
 
     func testMissingInterfaceRoutesOrGateway() throws {
         system.interfaces["utun5"] = nil
-        XCTAssertEqual(run(.connect(Self.full)).lines, [VPNHook.failureLine("TUNDEV is not an interface of this Mac")])
+        XCTAssertEqual(run(.connect(Self.full)).lines, [VPNHook.failureLine("TUNDEV is not an existing interface")])
         XCTAssertEqual(system.log, [])
 
         try FileManager.default.removeItem(atPath: OpenConnectJournal.path(runDir: runDir))

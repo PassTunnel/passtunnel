@@ -98,7 +98,7 @@ public enum AutomationErrorCode: String, Codable, CaseIterable, Sendable {
             return .invalidArgument
         case .fileError, .fileTooLarge: return .fileError
         case .invalidFile, .unsupportedShareFile, .unsupportedProfileType, .ovpnReferencedFile, .ovpnNotAllowed, .missingConfig, .missingHost,
-            .anyConnectRequiresMacOS, .anyConnectNotSupported:
+            .anyConnectRequiresMacOS, .anyConnectToolUnavailable:
             return .configInvalid
         case .keychain, .protectedSecretUnreadable: return .keychainError
         case .missingPassword, .missingTOTPSecret, .missingCredential: return .credentialsMissing
@@ -198,7 +198,8 @@ public struct ProfileSummary: Codable, Equatable {
     /// a newer PassTunnel and can only be deleted. Left out otherwise.
     public var needsNewerVersion: Bool?
     /// Why this system cannot connect the profile, though it is a known type: Cisco AnyConnect on a macOS older
-    /// than 15.4, or on Linux (`ConnectionManager.connectRefusal`; code `config_invalid`). It can still be shown,
+    /// than 15.4 (`ConnectionManager.connectRefusal`; code `config_invalid`; none on Linux, where the
+    /// distribution's openconnect is checked when connecting). It can still be shown,
     /// edited, exported and deleted. Left out when the profile can connect.
     public var connectRefusal: ErrorReport?
 

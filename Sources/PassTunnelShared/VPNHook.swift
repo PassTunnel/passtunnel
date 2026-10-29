@@ -234,6 +234,13 @@ public enum VPNHook {
         public let runDir: String
         public let ownerUID: uid_t
         public let profileID: String
+
+        public init(toolPID: pid_t, runDir: String, ownerUID: uid_t, profileID: String) {
+            self.toolPID = toolPID
+            self.runDir = runDir
+            self.ownerUID = ownerUID
+            self.profileID = profileID
+        }
     }
 
     /// The PassTunnel session whose openconnect ran the hook, proven from the kernel's view of the process
@@ -280,6 +287,31 @@ public enum VPNHook {
     }
 
     // MARK: - The hook
+
+    /// The session's `policy` (0600, the helper's), which must name the session's user and profile.
+    public static func policy(of session: Session) throws -> OpenConnectPolicy {
+        guard let data = try? HelperCore.readOwnFile(session.runDir + "/" + OpenConnectPolicy.fileName, maxBytes: 4096),
+            let text = String(data: data, encoding: .utf8), let policy = OpenConnectPolicy.parse(text),
+            policy.uid == session.ownerUID, policy.profileID == session.profileID
+        else { throw OpenConnectHook.Failure.policy }
+        return policy
+    }
+
+    /// The process's environment as openconnect left it: raw `NAME=VALUE` bytes, decoded by nobody but
+    /// `OpenConnectNetwork.Environment`.
+    public static func rawEnvironment() -> [[UInt8]] {
+        var out: [[UInt8]] = []
+        var cursor: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?> = environ
+        while let entry = cursor.pointee {
+            out.append(Array(UnsafeRawBufferPointer(start: entry, count: strlen(entry))))
+            cursor += 1
+        }
+        return out
+    }
+
+    public static func writeLine(_ line: String) {
+        _ = line.withCString { write(STDERR_FILENO, $0, strlen($0)) }
+    }
 
     #if os(macOS)
     /// The hook's whole run (`PassTunnelHelper`'s `main` in hook mode); returns the exit status, which
@@ -331,31 +363,6 @@ public enum VPNHook {
             kill(session.toolPID, SIGTERM)
         }
         return outcome.stopTool || outcome.lines.contains(where: { $0.hasPrefix(revertFailurePrefix) }) ? 1 : 0
-    }
-
-    /// The session's `policy` (0600, the helper's), which must name the session's user and profile.
-    static func policy(of session: Session) throws -> OpenConnectPolicy {
-        guard let data = try? HelperCore.readOwnFile(session.runDir + "/" + OpenConnectPolicy.fileName, maxBytes: 4096),
-            let text = String(data: data, encoding: .utf8), let policy = OpenConnectPolicy.parse(text),
-            policy.uid == session.ownerUID, policy.profileID == session.profileID
-        else { throw OpenConnectHook.Failure.policy }
-        return policy
-    }
-
-    /// The process's environment as openconnect left it: raw `NAME=VALUE` bytes, decoded by nobody but
-    /// `OpenConnectNetwork.Environment`.
-    static func rawEnvironment() -> [[UInt8]] {
-        var out: [[UInt8]] = []
-        var cursor: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?> = environ
-        while let entry = cursor.pointee {
-            out.append(Array(UnsafeRawBufferPointer(start: entry, count: strlen(entry))))
-            cursor += 1
-        }
-        return out
-    }
-
-    static func writeLine(_ line: String) {
-        _ = line.withCString { write(STDERR_FILENO, $0, strlen($0)) }
     }
 
     /// The executable of `pid` as the kernel reports it (links resolved), nil when it cannot be read.

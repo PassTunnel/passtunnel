@@ -239,25 +239,6 @@ final class DaemonSessionTests: DaemonTestCase {
         XCTAssertTrue(try response(daemon.socketPath, .status).ok, "status stays allowed")
     }
 
-    /// Cisco AnyConnect is not run by passtunneld before #187: the request is refused, and nothing is
-    /// prepared or started for it.
-    func testOpenConnectIsNotSupportedYet() throws {
-        let daemon = try makeDaemon()
-        let request = OpenConnectStart(
-            profileID: "acme", profileDir: profileDir("acme"), logPath: profileDir("acme") + "/vpn.log", host: "vpn.example.com",
-            connectURL: "https://vpn.example.com/", resolve: "vpn.example.com:192.0.2.10", cookie: "EXAMPLE-COOKIE",
-            serverCert: "pin-sha256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk=")
-        let refused = try response(daemon.socketPath, .startOpenConnect(request))
-        XCTAssertFalse(refused.ok)
-        XCTAssertEqual(refused.error, "Cisco AnyConnect is not supported by passtunneld yet.")
-        XCTAssertFalse(exists(PT.sessionDir(uid: me, profileID: "acme", runRoot: runRoot)), "nothing prepared")
-        XCTAssertFalse(exists(profileDir("acme") + "/vpn.log"), "no log")
-        XCTAssertEqual(try response(daemon.socketPath, .status).running, [:])
-        // Outsiders get the usual refusal first.
-        caller.uid = stranger
-        XCTAssertTrue(try response(daemon.socketPath, .startOpenConnect(request)).error?.contains("“passtunnel”") == true)
-    }
-
     /// FortiGate: openfortivpn with the config the daemon wrote (password and code in it, never in the
     /// arguments), the distribution's CA bundle, resolv.conf left to the daemon; then status and stop.
     func testFortiStartStatusStop() throws {

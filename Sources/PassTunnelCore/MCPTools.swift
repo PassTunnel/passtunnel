@@ -18,9 +18,9 @@ enum MCPWording {
     static let timeServer = "the NTP server this computer is set up with"
     static let diagnoseTools = ""
     static let anyConnectPlatform =
-        "Cisco AnyConnect cannot be connected on Linux yet: it is refused with config_invalid, and list_profiles shows that as connect_refusal."
+        "Cisco AnyConnect needs the distribution's openconnect 9.01 or later: when it is missing or older, connect is refused with config_invalid before the one-time code is used."
     static let instructionsAnyConnect =
-        "Cisco AnyConnect is not supported on Linux yet; a profile that cannot be connected here says why in connect_refusal."
+        "Cisco AnyConnect needs the distribution's openconnect 9.01 or later; connect says why when it is missing or too old."
     #else
     static let thisMachines = "this Mac's"
     static let theMachines = "the Mac's"

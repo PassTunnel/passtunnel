@@ -419,7 +419,7 @@ final class MCPServerTests: XCTestCase {
         XCTAssertEqual(
             instructions,
             "PassTunnel manages this computer's VPN connections " + base
-                + " Cisco AnyConnect is not supported on Linux yet; a profile that cannot be connected here says why in connect_refusal."
+                + " Cisco AnyConnect needs the distribution's openconnect 9.01 or later; connect says why when it is missing or too old."
                 + " connect and disconnect are enabled. A protected profile cannot be connected on Linux yet: connect refuses it with auth_unavailable."
         )
         XCTAssertTrue(
@@ -676,8 +676,7 @@ final class MCPServerTests: XCTestCase {
     func testAnOlderSystemRefusesAnyConnectAndSaysWhy() async throws {
         let cases: [(OperatingSystemVersion?, String)] = [
             (Self.macOS153, "Cisco AnyConnect requires macOS 15.4 or later."),
-            (OperatingSystemVersion(majorVersion: 13, minorVersion: 6, patchVersion: 1), "Cisco AnyConnect requires macOS 15.4 or later."),
-            (nil, "Cisco AnyConnect is not supported on Linux yet.")
+            (OperatingSystemVersion(majorVersion: 13, minorVersion: 6, patchVersion: 1), "Cisco AnyConnect requires macOS 15.4 or later.")
         ]
         try makeAnyConnect()
         try makeOpenVPN()
@@ -779,11 +778,11 @@ final class MCPServerTests: XCTestCase {
         XCTAssertEqual(found["no-host"]?.count, 2)
         XCTAssertEqual(
             (report["profiles"] as? [[String: Any]])?.first { $0["id"] as? String == "corp" }?["ok"] as? Bool, true)
-        // Linux says so for the profile too.
+        // Linux refuses nothing up front (#187): the distribution's openconnect is checked when connecting.
         macOS = nil
         server = makeServer()
         report = try await structured(server, "diagnose")
-        XCTAssertEqual(problems(report)["corp"], ["config_invalid: Cisco AnyConnect is not supported on Linux yet."])
+        XCTAssertEqual(problems(report)["corp"], [])
         let text = sent.map { String(decoding: $0, as: UTF8.self) }.joined()
         XCTAssertFalse(text.contains(password), "no secret in any report")
     }
@@ -803,7 +802,7 @@ final class MCPServerTests: XCTestCase {
         XCTAssertTrue(connect.contains("Cisco AnyConnect"), connect)
         XCTAssertTrue(connect.contains("config_invalid"), connect)
         #if os(Linux)
-        XCTAssertTrue(connect.contains("cannot be connected on Linux yet"), connect)
+        XCTAssertTrue(connect.contains("the distribution's openconnect 9.01 or later"), connect)
         #else
         XCTAssertTrue(connect.contains("needs macOS 15.4 or later"), connect)
         #endif

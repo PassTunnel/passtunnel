@@ -339,8 +339,10 @@ treated as follows:
 - **Core**: `ConnectionManager.connectRefusal(type)` says whether a type can be connected on this system: nil for OpenVPN
   and FortiGate; for Cisco AnyConnect `PTError.anyConnectRequiresMacOS("15.4")` ("Cisco AnyConnect requires macOS 15.4
   or later.") below macOS 15.4 (`HelperCore.Tool.minimumMacOS`; the macOS comes from `ConnectionManager.systemVersion`,
-  replaced in tests), `PTError.anyConnectNotSupported` ("Cisco AnyConnect is not supported on Linux yet.") on Linux
-  until #187, both `config_invalid`. `checkConnectable` throws it at the start of `connect` (following an attempt
+  replaced in tests), `config_invalid`; nothing on Linux (#187), where the sign-in checks the distribution's openconnect
+  first (`AnyConnectSignIn.distributionTool`: missing, untrusted or older than 9.01 is
+  `PTError.anyConnectToolUnavailable` with the reason, also `config_invalid`, before the code is used).
+  `checkConnectable` throws the refusal at the start of `connect` (following an attempt
   too), `checkCanStart` and the attempt itself, before a confirmation is asked for, a secret is read, openconnect runs
   or the helper is asked anything (its status included); `diagnose` reports it with the profile's other problems.
   Otherwise the profile connects as described under [Cisco AnyConnect backend](#cisco-anyconnect-backend-planned).
@@ -352,7 +354,7 @@ treated as follows:
   `show`, `list_profiles`, `get_status`) carry `connect_refusal` (an `ErrorReport` of `connectRefusal`'s error, from
   `AutomationService` and the runner's system) where the system cannot connect the type, and no `needs_newer_version`
   (that is for a type this version does not know). The text output notes it beside the profile: `PTError.unavailableNote`
-  ("Requires macOS 15.4 or later", "Not supported on Linux yet") in `list`, `status` and `show`. `connect`, `toggle`
+  ("Requires macOS 15.4 or later"; Linux refuses no type up front since #187) in `list`, `status` and `show`. `connect`, `toggle`
   and the MCP `connect` fail with `connectRefusal`'s error before the helper is asked anything or a secret is read
   (`checkConnectable` with the runner's or manager's `systemVersion`), and `add --type anyconnect` is refused with it
   too, so no profile that cannot connect is made here (a share file's is kept and shown the same way). `diagnose` has
@@ -364,7 +366,7 @@ treated as follows:
   editor never opens on it (an import selects it instead), the type pickers offer only `VPNType.connectable`, and the
   menu bar and scanned codes never see it. #186 shows the type and such a profile disabled with `connectRefusal`'s
   message where it applies.
-- The helper accepts `startOpenConnect` (protocol 4, #182); `passtunneld` refuses it until #187.
+- The helper accepts `startOpenConnect` (protocol 4, #182), and so does `passtunneld` (#187, docs/LINUX.md).
 
 ## Core APIs
 
@@ -627,7 +629,7 @@ public enum HelperRequest: Codable {
                                            // configSHA256? ("config_sha256": hex SHA-256 of the config.ovpn the app checked)
                                            // (mgmtPort: Int? still decodes for protocol 1 payloads but is ignored)
     case startForti(FortiStart)            // profileID, profileDir, host, port, username, password, otp?, trustedCert, setDNS, setRoutes, logPath
-    case startOpenConnect(OpenConnectStart) // protocol 4: Cisco AnyConnect ("Helper protocol 4" below); passtunneld refuses it until #187
+    case startOpenConnect(OpenConnectStart) // protocol 4: Cisco AnyConnect ("Helper protocol 4" below); passtunneld too since #187
     case stop(profileID: String)
     case status                            // → running profile IDs with pid
 }
@@ -1066,9 +1068,10 @@ tunnel. Hence:
 accepts `startOpenConnect` (protocol 4), checks it, renders the root configuration and runs, supervises,
 stops and adopts `openconnect`; the hook that sets up and reverts the network on the Mac (#183,
 [The hook](#the-hook-vpn-hook-182-183-macos-187-linux)); and connecting in Core (#184): the user's
-sign-in, the start request, the state and failures from the log, on macOS 15.4 and later. Still to come:
-the CLI and MCP (#185), the editor (#186), Linux (#187), the tests against a real server (#188), the user
-docs (#189). This is the design of Phase 1 of #2: Cisco AnyConnect through OpenConnect,
+sign-in, the start request, the state and failures from the log, on macOS 15.4 and later; and Linux (#187):
+`passtunneld` runs the distribution's openconnect and is its hook ([LINUX.md](LINUX.md#cisco-anyconnect)), and the
+sign-in runs the distribution's openconnect. Still to come: the CLI and MCP (#185), the editor (#186), the tests
+against a real server (#188), the user docs (#189). This is the design of Phase 1 of #2: Cisco AnyConnect through OpenConnect,
 with a password and a TOTP code (no SAML or other single sign-on), on the Mac and on Linux. The
 issues #179–#189 implement it, each named below where its part lands; until they do, everything
 above is all PassTunnel runs (`openvpn`, `openfortivpn`). Before any of it, #177 makes `Profile`
@@ -1077,7 +1080,7 @@ keep a profile of an unknown `type` intact instead of decoding it as OpenVPN (`M
 profile. Phase 2 (GlobalProtect) and Phase 3 (Pulse/Ivanti) get their own issues. References like
 `main.c 1593` are to the openconnect 9.21 sources, from which the tool's behavior below was read;
 the pull requests confirm it against the running tool (#188). Linux specifics:
-[LINUX.md](LINUX.md#cisco-anyconnect-planned); the threat model: [SECURITY.md](../SECURITY.md#cisco-anyconnect-planned).
+[LINUX.md](LINUX.md#cisco-anyconnect); the threat model: [SECURITY.md](../SECURITY.md#cisco-anyconnect-planned).
 
 ```
 passtunnel / app (the user)                          PassTunnelHelper / passtunneld (root)
@@ -1197,7 +1200,8 @@ code, nor parses the server's login forms (the most complex server-controlled pa
      external-browser SSO form anyway (`library.c` 1860–1868): openconnect then opens the server's
      URL with the default browser (`/usr/bin/open`, `xdg-open`) as the user, and the run ends at its
      timeout. `--non-inter` does not change that. The Mac's bundled 9.21 always gets the option; on
-     Linux the client renders it when `openconnect --help` lists it (a capability check, #184/#187).
+     Linux the client renders it when `openconnect --help` lists it (a capability check, #187:
+     `ToolSpec.openConnectHasNoExternalAuth`, so 9.01 runs without it).
 2. **Its output** is parsed strictly (`OpenConnectAuthResult.parse`, VPNConfig, #180): exactly
    `COOKIE='…'`, `HOST='…'`, `CONNECT_URL='…'`, `FINGERPRINT='pin-sha256:…'` and
    `RESOLVE='<host>:<address>'`, each on its own line and in this order, or a last `RESOLVE=` that
@@ -1500,7 +1504,12 @@ and revert. Instead the hook is PassTunnel's own code:
   session, runs the hook once more for `disconnect` and exits, and the helper cleans up. Exit status 1
   after a failure, otherwise 0; openconnect ignores both. (#182 shipped a stub here that failed every
   set-up, so no session outlived the 60 s deadline.)
-- **Linux:** `<run>/<uid>/<id>/vpn-hook`, a link to `passtunneld` (as `dns-hook`).
+- **Linux (#187):** `<run>/<uid>/<id>/vpn-hook`, a link to `passtunneld` (as `dns-hook`), made with the
+  session's `policy`; `passtunneld`'s `main` runs `LinuxVPNHook` when it was started under that name, before
+  anything of the daemon. The same steps as the Mac's (`LinuxVPNHook`: the session proven from `/proc` and the
+  daemon's `state`, the generation, the environment parsed for `.linux`, `OpenConnectHook`), through
+  `LinuxOpenConnectSystem`: `ip` for the commands (`OpenConnectCommand.Tools.linux`, below), the routing
+  table from rtnetlink, DNS through `DNSApplier` ([LINUX.md](LINUX.md#cisco-anyconnect)).
 - The validation and the plan are shared (`OpenConnectNetwork`, `OpenConnectPlan`, `OpenConnectRecord`,
   `VPNHook.Report`, PassTunnelShared, pure; the address and domain rules are `IPAddress` and
   `DomainName`, which the Linux `DNSSettings` uses too), and so is the run (`OpenConnectHook`: the
@@ -1587,8 +1596,8 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
    of the run), then it is killed; macOS: `/sbin/ifconfig`, `/sbin/route`, DNS through the
    SystemConfiguration API; Linux: `ip` and `DNSApplier` (LINUX.md).
 
-   **The commands** (`OpenConnectCommand`, golden-tested to the byte; `route` always with `-n`, the family
-   and the length spelled out, never a class or a name):
+   **The commands** (`OpenConnectCommand`, the platform's programs from `OpenConnectSystem.tools`, golden-tested to
+   the byte; `route` always with `-n`, the family and the length spelled out, never a class or a name). macOS:
 
    ```
    ifconfig utun5 mtu 1406 up                                    link; revert: ifconfig utun5 down
@@ -1599,6 +1608,19 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
    route -n add -inet6 -net 2001:db8:5:: -prefixlen 48 fe80::1%en0   (a link-local next hop names its interface)
    route -n add -inet6 -net :: -prefixlen 1 ::1 -reject          (IPv4: 127.0.0.1 -reject)
    route -n delete -inet -net 0.0.0.0 -netmask 128.0.0.0         every route's revert: the destination only
+   ```
+
+   Linux (`ip` from the first of `/usr/sbin/ip`, `/sbin/ip`, `/usr/bin/ip`, `/bin/ip` that passes `TrustedPath`; a
+   route's revert names its next hop and type, so the kernel deletes only that route):
+
+   ```
+   ip link set dev tun0 up mtu 1406                              revert: ip link set dev tun0 down
+   ip -4 addr add 10.11.0.2/32 peer 10.11.0.2 dev tun0           revert: ip -4 addr del 10.11.0.2/32 peer 10.11.0.2 dev tun0
+   ip -6 addr add 2001:db8:1::2/128 dev tun0                     revert: ip -6 addr del 2001:db8:1::2/128 dev tun0
+   ip -4 route add 0.0.0.0/1 dev tun0                            revert: ip -4 route del 0.0.0.0/1 dev tun0
+   ip -4 route add 192.0.2.10/32 via 198.51.100.1 dev eth0       (dev ppp0 alone for a gateway link without an address)
+   ip -6 route add 2001:db8:5::/48 via fe80::1 dev eth0
+   ip -6 route add unreachable ::/1                              revert: ip -6 route del unreachable ::/1
    ```
 
    `/sbin/route` rather than a routing socket of our own: the commands are the ones every macOS VPN
@@ -1935,7 +1957,8 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
 with `versionMismatch` and is replaced as today (`HelperBuild.relation`: a lower protocol is `.older`),
 an older client's requests fail the helper's version check, and `passtunneld`'s `hello` reports 4 as
 well. `passtunneld` refuses `startOpenConnect` ("Cisco AnyConnect is not supported by passtunneld
-yet.") before preparing anything, until #187. The `status` reply has an optional `tunnels` key since #184:
+yet.") before preparing anything, until #187; since then it runs it as the helper does (LINUX.md). The `status`
+reply has an optional `tunnels` key since #184:
 profile ID → `TunnelStatus` (`state`, `reason`, `interface`) for the caller's own openconnect sessions,
 from each one's record (above). It stays within protocol 4, which no released helper speaks, and the app
 only works with the helper of its own build (`ensureCompatible`); a reply without the key reads as before.
@@ -2029,8 +2052,8 @@ OpenVPN, which they would have done before #191. A version 1 file with type `any
 is read too. Import copies the new keys, normalizing the pin, then `save` checks them.
 
 Connecting is in Core (#184, with the macOS 15.4 check) and the CLI and MCP handle the type (#185). The editor
-(#186) and the user docs (#189) follow; `passtunneld` on Linux is #187. Until the editor handles the type, the Mac app
-lists such a profile as needing a newer PassTunnel (see "Model").
+(#186) and the user docs (#189) follow; `passtunneld` on Linux is #187 (done). Until the editor handles the type, the
+Mac app lists such a profile as needing a newer PassTunnel (see "Model").
 
 ### Tests (#188)
 

@@ -427,8 +427,9 @@ bundled tool (#179), the configuration checks (#180), the profile (#181), the he
 session (#182: the helper accepts a start request, checks every field of it again and runs
 `openconnect` as described below), the Mac's hook that sets up and undoes the network (#183), tested
 against a simulated Mac, and the sign-in and connect in PassTunnel's core (#184, macOS 15.4 and later;
-the app and the command line do not offer the type yet, #185 and #186); what only a real server and
-tunnel show is checked against a test server (#188).
+the app and the command line do not offer the type yet, #185 and #186), and Linux (#187: `passtunneld`
+runs the distribution's `openconnect` and is its hook, tested against a simulated system); what only a real
+server and tunnel show is checked against a test server (#188).
 
 ### What changes
 
@@ -441,7 +442,7 @@ tunnel show is checked against a test server (#188).
   AnyConnect start request (macOS 15.4 and later only), which PassTunnel sends since #184. `diagnose`
   runs `openconnect --version` as you (macOS 15.4 and later only). Below macOS 15.4 a Cisco AnyConnect
   profile is refused before anything is asked, read or run ("Cisco AnyConnect requires macOS 15.4 or
-  later."); on Linux it is refused the same way until passtunneld runs openconnect (#187).
+  later."). On Linux the distribution's `openconnect` is used (below), 9.01 or later.
 - **Signing in runs as you, not as root.** Your password and one-time code go to an `openconnect
   --authenticate` run under your own account, on its standard input. The helper receives only what
   that run returns: the session cookie, the server's public key fingerprint and the address it
@@ -640,9 +641,35 @@ requires a host scan PassTunnel does not run (`host_scan_required`). It is not r
 
 ### Linux
 
-`passtunneld` uses the distribution's `openconnect` (9.01 or later), from fixed paths checked like
-the other tools (root-owned, not pinned by hash), and acts as the hook itself, applying DNS through
-the same code as for OpenVPN ([docs/LINUX.md](docs/LINUX.md#cisco-anyconnect-planned)).
+Since #187 (not in any release: the Linux packages are not published yet).
+
+- **The distribution's `openconnect`, 9.01 or later**, from fixed paths (`/usr/sbin/openconnect`,
+  `/usr/bin/openconnect`, never `PATH`) checked like the other tools: every directory of its real path
+  and the file itself root's and not writable by anyone else; not pinned by hash, so trust rests on the
+  package manager, as for `openvpn` and `openfortivpn`. Older versions (Ubuntu 22.04's 8.20) are refused,
+  naming the minimum; the same check runs before your sign-in, before the one-time code is used. Its
+  vulnerabilities apply as root while a session runs. Its environment is fixed (`PATH`, `LC_ALL=C`,
+  `P11_KIT_NO_USER_CONFIG=1`); the distribution's GnuTLS and p11-kit configuration, root's files, applies.
+- **Sign-in as you**, as on the Mac, with the distribution's CA bundle (checked as a tool is) when the
+  profile has no pin. `no-external-auth` is used when that `openconnect` lists it (9.10 and later); 9.01
+  offers the server a browser sign-in, which then opens with `xdg-open` as you, and the run fails.
+- **The hook is `passtunneld` itself**, through a link in the root-only session directory, acting as the hook
+  only when it was started under that name. It proves its session from `/proc` and the daemon's root-only
+  files (its parent is the session's recorded `openconnect`, or the shell `/bin/sh` is, whose parent is; that
+  `openconnect` works in the session directory; the recorded boot, start time and executable match), checks
+  every value as on the Mac, and runs iproute2's `ip` from a fixed, checked path with argument lists, at most
+  10 seconds each. It reads the routing table straight from the kernel (rtnetlink), not from a tool's
+  output. DNS goes through the same code, backends and records as OpenVPN's on Linux (systemd-resolved per
+  link, resolvconf, or a marked block in `/etc/resolv.conf`); with the latter two, every name goes through
+  a tunnel that has DNS (they cannot send only some domains there). A full tunnel without IPv6 gets
+  `unreachable` routes for both halves of IPv6. A revert names the route's next hop, so the kernel never
+  deletes another route of that destination.
+- **Supervision** as for the other tools, and what the hook recorded is reverted by the daemon after a
+  kill and by the next daemon after a crash; a session the daemon cannot restore keeps only its records
+  (the cookie goes) and blocks a new start of that profile until it is restored.
+- **What is not verified yet**: the whole path against a real server and tunnel (#188). The tests run the
+  hook's logic against a simulated system, and CI starts the distribution's `openconnect` without a tunnel.
+  See [docs/LINUX.md](docs/LINUX.md#cisco-anyconnect).
 
 ## Secrets and files
 

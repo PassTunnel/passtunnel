@@ -12,8 +12,8 @@ public final class Daemon {
         /// The daemon's own executable, which must be a `TrustedPath` (part of trusting the DNS hook it
         /// will serve as). Nil only in tests.
         public var ownExecutable: String? = "/proc/self/exe"
-        /// What OpenVPN runs as its DNS hook: the real path of `ownExecutable` unless set (tests); none
-        /// without either.
+        /// What OpenVPN runs as its DNS hook, and openconnect as its `vpn-hook`: the real path of
+        /// `ownExecutable` unless set (tests); none without either (and no Cisco AnyConnect).
         public var dnsHook: String?
         /// Where DNS is changed and reverted (`DNSApplier`); a fake root in tests.
         public var dns = DNSSystem()
@@ -34,10 +34,15 @@ public final class Daemon {
         public var maxConnections = 64
         public var maxConnectionsPerUser = 8
         public var stopGrace: TimeInterval = 5
-        /// How long a DNS change waits for the run root's lock, and how often DNS that could not be
-        /// restored yet is tried again.
+        /// How long a DNS change waits for the run root's lock, and how often DNS (or an openconnect
+        /// session's network) that could not be restored yet is tried again.
         public var dnsLockTimeout: TimeInterval = 10
         public var dnsRetryInterval: TimeInterval = 15
+        /// What an openconnect session's network is set up and restored with: `LinuxOpenConnectSystem` for the
+        /// session's directory; a fake in tests.
+        public var openConnectSystem: ((SessionDirectory, DNSApplier) -> OpenConnectSystem)?
+        /// How openconnect sessions are followed (the record's interval, the set-up and reconnect deadlines).
+        var openConnectTiming = OpenConnectTiming()
         /// Who is on the other end of an accepted connection (`SO_PEERCRED`); replaced in tests.
         public var peer: (Int32) -> Caller? = Caller.of(socket:)
 
@@ -98,18 +103,23 @@ public final class Daemon {
         self.options = options
         var dns = DNSApplier(system: options.dns, runRoot: options.runRoot)
         dns.lockTimeout = options.dnsLockTimeout
+        let applier = dns
+        let makeSystem = options.openConnectSystem ?? { session, dns in LinuxOpenConnectSystem(session: session, dns: dns) }
+        let restorer = SessionRestore(
+            runRoot: options.runRoot, dns: dns, openConnect: { makeSystem($0, applier) }, hookExecutable: hook)
+        // The network lock stays: a hook of an earlier instance's openconnect may still hold it.
         let previous = PreviousInstance.cleanUp(
-            runRoot: options.runRoot, keep: [PT.daemonSocketName, Self.lockName],
-            grace: options.stopGrace, dns: dns)
+            runRoot: options.runRoot, keep: [PT.daemonSocketName, Self.lockName, OpenConnectLock.fileName],
+            grace: options.stopGrace, restore: restorer)
         var core = HelperCore(
             runRoot: options.runRoot, dnsUpdownSource: nil,
             homeDirectory: options.users.home, userName: options.users.name)
         core.dnsHook = hook
         core.interfaceExists = options.interfaces.exists
         supervisor = Supervisor(
-            core: core, tools: options.tools, dns: dns, interfaces: options.interfaces,
+            core: core, tools: options.tools, dns: dns, restorer: restorer, interfaces: options.interfaces,
             reportWait: options.reportWait, stopGrace: options.stopGrace,
-            pendingDNS: previous.pendingDNS, retryInterval: options.dnsRetryInterval)
+            pending: previous.pending, retryInterval: options.dnsRetryInterval, openConnectTiming: options.openConnectTiming)
     }
 
     deinit {

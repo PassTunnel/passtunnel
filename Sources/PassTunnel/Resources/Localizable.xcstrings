@@ -773,12 +773,12 @@
         }
       }
     },
-    "Cisco AnyConnect is not supported on Linux yet." : {
+    "Cisco AnyConnect cannot be used here: %@" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cisco AnyConnect henüz Linux’ta desteklenmiyor."
+            "value" : "Cisco AnyConnect burada kullanılamıyor: %@"
           }
         }
       }
@@ -819,16 +819,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sonraki adım: passtunnel set %@ username=alice"
-          }
-        }
-      }
-    },
-    "Not supported on Linux yet" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Linux’ta henüz desteklenmiyor"
           }
         }
       }

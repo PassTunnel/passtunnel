@@ -184,7 +184,8 @@ public struct HelperCore {
     public var openVPNHasDNSUpdown = true
     #if os(Linux)
     /// The daemon's own executable (resolved and checked), which OpenVPN runs as its DNS hook through
-    /// the link `dnsHookName` in the session directory (docs/LINUX.md, "DNS"). Nil: no DNS hook.
+    /// the link `dnsHookName` in the session directory (docs/LINUX.md, "DNS"), and openconnect as its
+    /// `script` through the link `vpn-hook` (`vpnHookPath`). Nil: no DNS hook, and no Cisco AnyConnect.
     public var dnsHook: String?
     #endif
     /// The DNS hook's name in the session directory: on Linux the link to the daemon, also the hook's

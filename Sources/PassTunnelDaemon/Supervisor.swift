@@ -3,12 +3,15 @@ import PassTunnelShared
 
 /// Starts, tracks and stops the VPN tools, as the Mac's helper does; all state is confined to `queue`.
 /// Sessions are keyed by (owner uid, profile ID) (`SessionPolicy`). Each child has a thread of its own
-/// that waits for it to exit; then the DNS its session recorded is reverted (normally its hook has done
-/// that already) and the session directory removed. There is no adoption: tools recorded by an earlier
-/// instance are stopped when the daemon starts (`PreviousInstance`). FortiGate sessions print into a
-/// pipe the daemon reads (`OutputCopier`): it copies their output into the log and, for a profile with
-/// `set_dns`, sets the DNS openfortivpn reports there for the session's ppp interface (`FortiDNSWatch`,
-/// `SessionInterface`, `DNSApplier`), off the queue, on `dnsQueue`.
+/// that waits for it to exit; then what its session recorded is restored (`SessionRestore`: an openconnect
+/// session's network, the DNS; normally its hook has done that already) and the session directory removed.
+/// There is no adoption: tools recorded by an earlier instance are stopped when the daemon starts
+/// (`PreviousInstance`). FortiGate sessions print into a pipe the daemon reads (`OutputCopier`): it copies
+/// their output into the log and, for a profile with `set_dns`, sets the DNS openfortivpn reports there for
+/// the session's ppp interface (`FortiDNSWatch`, `SessionInterface`, `DNSApplier`), off the queue, on
+/// `dnsQueue`. Cisco AnyConnect sessions print through `MaskingCopier` (the cookie never reaches the log);
+/// their hook (`LinuxVPNHook`) records the network it sets up, which the daemon follows
+/// (`superviseOpenConnect`) and reports (`tunnels`).
 final class Supervisor {
     typealias Key = SessionPolicy.Key
 
@@ -17,6 +20,7 @@ final class Supervisor {
         let ownerUID: uid_t
         let pid: pid_t
         let executable: String
+        let tool: HelperCore.Tool
         let sessionDir: SessionDirectory
         let mgmtSocket: String?
         /// Our copy of the tool's log descriptor, for `HelperCore.capLog`.
@@ -35,7 +39,7 @@ final class Supervisor {
     }
 
     static let logCheckInterval: TimeInterval = 60
-    static let stateFileName = "state"
+    static let stateFileName = SessionState.fileName
     static let noServers = "the gateway named no DNS servers; DNS is left as it is"
 
     let queue = DispatchQueue(label: "passtunneld.supervisor")
@@ -45,15 +49,20 @@ final class Supervisor {
     private let tools: ToolResolving
     /// Reverts what a session's DNS hook left, and sets FortiGate's (`DNSApplier`).
     let dns: DNSApplier
+    /// Restores what an ended session left: an openconnect session's network, then its DNS.
+    let restorer: SessionRestore
+    /// How often each openconnect session's record is looked at, and the set-up and reconnect deadlines
+    /// (`superviseOpenConnect`).
+    let openConnectTiming: OpenConnectTiming
     private let interfaces: InterfaceSystem
     /// How long the DNS set-up waits, once openfortivpn says the tunnel is up, for what it did not
     /// report yet.
     private let reportWait: TimeInterval
     private let stopGrace: TimeInterval
     private var jobs: [Key: Job] = [:]
-    /// Ended sessions whose DNS is not restored yet (`DNSApplier.revert(in:)` kept their record): their
-    /// directories stay, with the record only, and are tried again every `retryInterval`.
-    private var pendingDNS: [Key: SessionDirectory] = [:]
+    /// Ended sessions not restored yet (an openconnect network or DNS whose revert failed kept its record):
+    /// their directories stay, with the records only, and are tried again every `retryInterval`.
+    private var pending: [Key: SessionDirectory] = [:]
     private var logTimer: DispatchSourceTimer?
     private var retryTimer: DispatchSourceTimer?
 
@@ -63,19 +72,26 @@ final class Supervisor {
         }
     }
 
-    /// `pendingDNS`: sessions of an earlier instance whose DNS it could not restore yet (`PreviousInstance`).
+    /// `pending`: sessions of an earlier instance it could not restore yet (`PreviousInstance`).
     init(
-        core: HelperCore, tools: ToolResolving, dns: DNSApplier, interfaces: InterfaceSystem = InterfaceSystem(),
-        reportWait: TimeInterval = 10, stopGrace: TimeInterval = 5, pendingDNS: [Key] = [], retryInterval: TimeInterval = 15
+        core: HelperCore, tools: ToolResolving, dns: DNSApplier, restorer: SessionRestore? = nil,
+        interfaces: InterfaceSystem = InterfaceSystem(), reportWait: TimeInterval = 10, stopGrace: TimeInterval = 5,
+        pending: [Key] = [], retryInterval: TimeInterval = 15, openConnectTiming: OpenConnectTiming = OpenConnectTiming()
     ) {
         self.core = core
         self.tools = tools
         self.dns = dns
+        let runRoot = core.runRoot
+        self.restorer =
+            restorer
+            ?? SessionRestore(
+                runRoot: runRoot, dns: dns, openConnect: { LinuxOpenConnectSystem(session: $0, dns: dns) }, hookExecutable: core.dnsHook)
+        self.openConnectTiming = openConnectTiming
         self.interfaces = interfaces
         self.reportWait = reportWait
         self.stopGrace = stopGrace
-        for key in pendingDNS {
-            if let session = try? core.openRunDir(profileID: key.profileID, uid: key.uid) { self.pendingDNS[key] = session }
+        for key in pending {
+            if let session = try? core.openRunDir(profileID: key.profileID, uid: key.uid) { self.pending[key] = session }
         }
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + Self.logCheckInterval, repeating: Self.logCheckInterval)
@@ -84,7 +100,7 @@ final class Supervisor {
         logTimer = timer
         let retry = DispatchSource.makeTimerSource(queue: queue)
         retry.schedule(deadline: .now() + retryInterval, repeating: retryInterval)
-        retry.setEventHandler { [weak self] in self?.retryDNS() }
+        retry.setEventHandler { [weak self] in self?.retryRestores() }
         retry.resume()
         retryTimer = retry
     }
@@ -94,34 +110,34 @@ final class Supervisor {
         retryTimer?.cancel()
     }
 
-    // MARK: - DNS not restored yet
+    // MARK: - Not restored yet
 
-    /// Removes the directory of an ended session, unless its DNS is not restored yet: then only its
-    /// record stays (the tool's config, auth file and socket go), and it is tried again (`retryDNS`).
+    /// Removes the directory of an ended session once what it recorded is restored (`SessionRestore`);
+    /// otherwise only its records stay (the tool's config, auth file, cookie and socket go), and it is tried
+    /// again (`retryRestores`).
     private func release(_ key: Key, _ session: SessionDirectory) {
-        guard DNSRecord.isRecorded(in: session) else {
+        guard OpenConnectJournal.exists(runDir: session.path) || DNSRecord.isRecorded(in: session) else {
             return core.removeRunDir(profileID: key.profileID, uid: key.uid)
         }
-        PreviousInstance.keepOnlyDNSRecord(in: session.path)
-        pendingDNS[key] = session
-        DaemonLog.info("\(key.profileID) of uid \(key.uid): DNS not restored yet, kept to try again")
+        PreviousInstance.keepOnlyRecords(in: session.path)
+        pending[key] = session
+        DaemonLog.info("\(key.profileID) of uid \(key.uid): not restored yet, kept to try again")
     }
 
-    /// Tries again to restore the DNS of `key`'s ended session; true once nothing is left of it.
+    /// Tries again to restore `key`'s ended session; true once nothing is left of it.
     @discardableResult
-    private func retryDNS(_ key: Key) -> Bool {
-        guard let session = pendingDNS[key] else { return true }
-        if let message = dns.revert(in: session) { DaemonLog.info("\(key.profileID) of uid \(key.uid): \(message)") }
-        guard !DNSRecord.isRecorded(in: session) else { return false }
-        pendingDNS[key] = nil
+    private func retryRestore(_ key: Key) -> Bool {
+        guard let session = pending[key] else { return true }
+        guard restorer.restore(session, key: key) else { return false }
+        pending[key] = nil
         core.removeRunDir(profileID: key.profileID, uid: key.uid)
         return true
     }
 
-    /// Every ended session whose DNS is not restored yet, and what the file backend's state says is
-    /// left to do (`DNSApplier.recover`).
-    private func retryDNS() {
-        for key in pendingDNS.keys { retryDNS(key) }
+    /// Every ended session not restored yet, and what the file backend's state says is left to do
+    /// (`DNSApplier.recover`).
+    private func retryRestores() {
+        for key in pending.keys where jobs[key] == nil { retryRestore(key) }
         if let message = dns.recover() { DaemonLog.info(message) }
     }
 
@@ -154,24 +170,39 @@ final class Supervisor {
                         core.fortiHandlesDNS = false
                         return try core.prepareForti(s, uid: uid)
                     })
-            case .startOpenConnect:
-                // Cisco AnyConnect on Linux is #187; nothing is checked, written or started until then.
-                reply(.failure(Supervisor.openConnectNotSupported))
+            case .startOpenConnect(let s):
+                reply(
+                    self.start(profileID: s.profileID, uid: uid, tool: .openconnect) { _, core in
+                        // The request checked as the Mac's helper checks it, the root configuration rendered with
+                        // `script` the session's `vpn-hook` link (made with the policy), its output masked.
+                        try core.prepareOpenConnect(s, uid: uid) { try core.vpnHookPath(profileID: s.profileID, uid: uid) }
+                    })
             case .stop(let id):
                 self.stop(profileID: id, uid: uid, reply: reply)
             case .status:
                 reply(
                     .success(
                         running: SessionPolicy.visible(to: uid, sessions: self.sessions),
-                        mgmtSockets: SessionPolicy.sockets(visibleTo: uid, sessions: self.sessions)))
+                        mgmtSockets: SessionPolicy.sockets(visibleTo: uid, sessions: self.sessions),
+                        tunnels: self.tunnels(visibleTo: uid)))
             }
         }
     }
 
-    static let openConnectNotSupported = "Cisco AnyConnect is not supported by passtunneld yet."
+    /// The network of each of `uid`'s openconnect sessions, from its root-owned record
+    /// (`HelperCore.tunnelStatus`), for the `status` reply; nil when there are none.
+    private func tunnels(visibleTo uid: uid_t) -> [String: TunnelStatus]? {
+        dispatchPrecondition(condition: .onQueue(queue))
+        var out: [String: TunnelStatus] = [:]
+        for job in jobs.values where job.ownerUID == uid && job.tool == .openconnect {
+            out[job.profileID] = HelperCore.tunnelStatus(runDir: job.sessionDir.path)
+        }
+        return out.isEmpty ? nil : out
+    }
 
     /// Where a tool's output goes: straight into the log (OpenVPN), or through `OutputCopier`
-    /// (openfortivpn), followed for DNS when the profile has `set_dns`.
+    /// (openfortivpn), followed for DNS when the profile has `set_dns`. A plan with secrets to mask
+    /// (openconnect's cookie, `LaunchPlan.maskedSecrets`) goes through `MaskingCopier` instead.
     enum Output {
         case log
         case copied(setDNS: Bool)
@@ -189,10 +220,10 @@ final class Supervisor {
         } catch {
             return .failure(String(describing: error))
         }
-        // A new session would replace the directory that still holds the last one's DNS record.
-        guard retryDNS(Key(uid: uid, profileID: profileID)) else {
-            DaemonLog.info("start of \(profileID) for uid \(uid) refused: the last session's DNS is not restored yet")
-            return .failure("The DNS settings of the last \(profileID) session are not restored yet. Try again shortly.")
+        // A new session would replace the directory that still holds the last one's records.
+        guard retryRestore(Key(uid: uid, profileID: profileID)) else {
+            DaemonLog.info("start of \(profileID) for uid \(uid) refused: the last session is not restored yet")
+            return .failure("The network settings of the last \(profileID) session are not restored yet. Try again shortly.")
         }
         let tool: ResolvedTool
         let plan: HelperCore.LaunchPlan
@@ -207,19 +238,39 @@ final class Supervisor {
         defer { close(plan.logFD) }
         var pipeFDs: (read: Int32, write: Int32)?
         do {
-            if case .copied = output { pipeFDs = try Sys.makePipe() }
+            let masked = plan.maskedSecrets != nil
+            if masked { pipeFDs = try Sys.makePipe() } else if case .copied = output { pipeFDs = try Sys.makePipe() }
             defer { pipeFDs.map { _ = close($0.write) } }  // the tool has its own copy
             let indexAtStart = pipeFDs == nil ? 0 : interfaces.highestIndex()
             let pid = try Sys.spawn(
                 executable: tool.path, arguments: plan.arguments,
-                environment: HelperCore.fixedEnvironment,
+                environment: HelperCore.environment(for: plan.tool),
                 workingDirectory: plan.runDir, outputFD: pipeFDs?.write ?? plan.logFD)
-            writeState(plan: plan, pid: pid, executable: tool.path)
+            do {
+                try writeState(plan: plan, pid: pid, executable: tool.path)
+            } catch  where plan.tool == .openconnect {
+                // Its hook proves its session by `state`: without it, nothing would set up or revert its network.
+                kill(pid, SIGKILL)
+                var status: Int32 = 0
+                while waitpid(pid, &status, 0) == -1, errno == EINTR {}
+                throw error
+            } catch {
+                DaemonLog.info("not recording the state of \(plan.profileID): \(error)")
+            }
             let logCopy = fcntl(plan.logFD, F_DUPFD_CLOEXEC, 0)
             var job = Job(
-                profileID: plan.profileID, ownerUID: plan.ownerUID, pid: pid, executable: tool.path,
+                profileID: plan.profileID, ownerUID: plan.ownerUID, pid: pid, executable: tool.path, tool: plan.tool,
                 sessionDir: plan.sessionDir, mgmtSocket: plan.mgmtSocket, logFD: logCopy)
-            if let fds = pipeFDs, case .copied(let setDNS) = output {
+            if let fds = pipeFDs, let secrets = plan.maskedSecrets {
+                // The copier takes both descriptors over; the tool's output is lost, never the tool, without a log.
+                let logFD = fcntl(plan.logFD, F_DUPFD_CLOEXEC, 0)
+                if logFD >= 0 {
+                    MaskingCopier(readFD: fds.read, logFD: logFD, secrets: secrets).start(name: "passtunneld.output.\(pid)")
+                } else {
+                    close(fds.read)
+                }
+                pipeFDs = (-1, fds.write)
+            } else if let fds = pipeFDs, case .copied(let setDNS) = output {
                 let key = job.key
                 let copier = OutputCopier(readFD: fds.read, logFD: fcntl(plan.logFD, F_DUPFD_CLOEXEC, 0)) { [weak self] line in
                     guard let self else { return }
@@ -234,6 +285,7 @@ final class Supervisor {
             jobs[job.key] = job
             watch(job.key, pid: pid)
             if plan.mgmtSocket != nil { restrictSocketWhenReady(job.key, pid: pid, attempt: 0) }
+            if plan.tool == .openconnect { superviseOpenConnect(job.key, pid: pid, since: Date()) }
             DaemonLog.info("started \(spec.name) \(tool.version) for \(profileID), uid \(uid), pid \(pid)")
             return .success(pid: pid, mgmtSocket: plan.mgmtSocket)
         } catch {
@@ -268,8 +320,11 @@ final class Supervisor {
     }
 
     /// SIGTERM now, SIGKILL to the whole process group after the grace period. The child is reaped
-    /// only on the queue (`exited`), so its pid cannot be reused while the job is listed.
+    /// only on the queue (`exited`), so its pid cannot be reused while the job is listed. An openconnect
+    /// session is marked as stopping first: a hook running now applies no further change
+    /// (`OpenConnectMarks`).
     private func terminate(_ job: Job) {
+        if job.tool == .openconnect { OpenConnectMarks.setStopping(runDir: job.sessionDir.path) }
         kill(job.pid, SIGTERM)
         queue.asyncAfter(deadline: .now() + stopGrace) { [weak self] in
             guard let self, let current = self.jobs[job.key], current.pid == job.pid else { return }
@@ -294,18 +349,24 @@ final class Supervisor {
             for job in jobs.values {
                 kill(-job.pid, SIGKILL)
                 endDNSTask(job)
-                revertDNS(job)
+                restore(job)
                 release(job.key, job.sessionDir)  // one not restored yet is left to the next instance
             }
         }
     }
 
-    /// What the session's DNS hook (or, for FortiGate, the daemon) recorded and did not revert itself
-    /// (the tool was killed, or died; FortiGate's is always reverted here).
-    private func revertDNS(_ job: Job) {
-        if let message = dns.revert(in: job.sessionDir) {
-            DaemonLog.info("\(job.profileID) of uid \(job.ownerUID): \(message)")
-        }
+    /// What the session's hook (or, for FortiGate, the daemon) recorded and did not revert itself (the
+    /// tool was killed, or died; FortiGate's DNS is always reverted here): an openconnect session's network,
+    /// then the DNS. A revert that fails says so in the session's log.
+    private func restore(_ job: Job) {
+        guard !restorer.restore(job.sessionDir, key: job.key), job.tool == .openconnect else { return }
+        note(job, "restoring the network failed; trying again")
+    }
+
+    /// One line of the daemon's own in the session's log (`passtunneld: …`), one `write`.
+    private func note(_ job: Job, _ text: String) {
+        let line = OutputCopier.notePrefix + DaemonLog.oneLine(text) + "\n"
+        _ = line.withCString { write(job.logFD, $0, strlen($0)) }
     }
 
     // MARK: - Exit
@@ -329,10 +390,10 @@ final class Supervisor {
         kill(-pid, SIGTERM)  // anything left in its process group
         var status: Int32 = 0
         while waitpid(pid, &status, 0) == -1, errno == EINTR {}
-        close(job.logFD)
         jobs[key] = nil
         endDNSTask(job)
-        revertDNS(job)
+        restore(job)
+        close(job.logFD)
         release(key, job.sessionDir)  // config, auth file, socket, state
         DaemonLog.info("\(job.profileID) of uid \(job.ownerUID) exited (pid \(pid), status \(status))")
         job.waiters.forEach { $0() }
@@ -424,20 +485,77 @@ final class Supervisor {
         dnsQueue.sync {}
     }
 
+    // MARK: - openconnect
+
+    /// openconnect ignores its hook's result and keeps a tunnel nothing set up, so every `checkInterval` the
+    /// daemon reads the session's record and stops a session whose set-up failed, that was not reported up
+    /// within the set-up deadline of its start, or that stayed `reconnecting` for the reconnect deadline,
+    /// whether or not a client is still waiting for it (docs/ARCHITECTURE.md, "Report and enforcement"). A
+    /// record that cannot be read right now (the hook is writing it) is looked at again next time.
+    private func superviseOpenConnect(_ key: Key, pid: pid_t, since started: Date, reconnectingSince: Date? = nil) {
+        let timing = openConnectTiming
+        queue.asyncAfter(deadline: .now() + timing.checkInterval) { [weak self] in
+            guard let self, let job = self.jobs[key], job.pid == pid else { return }
+            let now = Date()
+            var since = reconnectingSince
+            var reason: String?
+            switch Result(catching: { try OpenConnectJournal.read(OpenConnectJournal.path(runDir: job.sessionDir.path)) }) {
+            case .failure:
+                break
+            case .success(let record):
+                switch record?.status {
+                case .failed?:
+                    reason = "the network set-up failed; stopping"
+                case .up?:
+                    since = nil
+                case .reconnecting?:
+                    let first = since ?? now
+                    since = first
+                    if now.timeIntervalSince(first) >= timing.reconnectDeadline {
+                        reason = "the connection did not come back within \(Int(timing.reconnectDeadline)) seconds; stopping"
+                    }
+                case nil:
+                    if now.timeIntervalSince(started) >= timing.setupDeadline {
+                        reason = "the network was not set up within \(Int(timing.setupDeadline)) seconds; stopping"
+                    }
+                }
+            }
+            guard let reason else {
+                return self.superviseOpenConnect(key, pid: pid, since: started, reconnectingSince: since)
+            }
+            DaemonLog.info("stopping \(job.profileID) of uid \(job.ownerUID) (pid \(pid)): \(reason)")
+            self.note(job, reason)
+            self.terminate(job)
+        }
+    }
+
     // MARK: - State of the previous instance
 
     /// Records pid, owner, executable, profile directory, management socket, boot ID and start time, so
     /// that the next instance can stop a tool this one leaves behind, and only that process
-    /// (`PreviousInstance`). The child is not reaped yet: its pid, and so its start time, is its own.
-    private func writeState(plan: HelperCore.LaunchPlan, pid: pid_t, executable: String) {
+    /// (`PreviousInstance`), and openconnect's hook can prove its session (`LinuxVPNHook`). The child is not
+    /// reaped yet: its pid, and so its start time, is its own. Written next to its place, then renamed over
+    /// it, so a hook never reads half of it.
+    private func writeState(plan: HelperCore.LaunchPlan, pid: pid_t, executable: String) throws {
         let text =
             "\(pid)\n\(plan.ownerUID)\n\(executable)\n\(plan.profileDir.path)\n\(plan.mgmtSocket ?? "")\n"
             + PreviousInstance.identityLines(of: pid)
-        do {
-            try HelperCore.checkLines(text, count: 7, file: Self.stateFileName)
-            try HelperCore.writeNewFile(plan.runDir + "/" + Self.stateFileName, Data(text.utf8), mode: 0o600)
-        } catch {
-            DaemonLog.info("not recording the state of \(plan.profileID): \(error)")
+        try HelperCore.checkLines(text, count: 7, file: Self.stateFileName)
+        let path = plan.runDir + "/" + Self.stateFileName
+        let temporary = path + ".new"
+        try HelperCore.writeNewFile(temporary, Data(text.utf8), mode: 0o600)
+        guard rename(temporary, path) == 0 else {
+            let error = errno
+            HelperCore.removeEntry(temporary)
+            throw HelperCore.Failure.system("rename \(temporary)", error)
         }
     }
+}
+
+/// How the daemon follows its openconnect sessions (`Supervisor.superviseOpenConnect`): the Mac's
+/// intervals and deadlines (`VPNHook.setupDeadline`, `VPNHook.reconnectDeadline`); shorter in tests.
+struct OpenConnectTiming {
+    var checkInterval: TimeInterval = 5
+    var setupDeadline: TimeInterval = VPNHook.setupDeadline
+    var reconnectDeadline: TimeInterval = VPNHook.reconnectDeadline
 }

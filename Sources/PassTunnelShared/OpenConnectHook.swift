@@ -130,7 +130,7 @@ public struct OpenConnectHook {
     func connect(_ n: OpenConnectNetwork, policy: OpenConnectPolicy) -> Outcome {
         if let stop = interruption() { return fail(stop, interface: n.interface) }
         guard !OpenConnectJournal.exists(runDir: runDir) else { return fail("the network was set up already", interface: n.interface) }
-        guard let index = system.interfaceIndex(n.interface) else { return fail("TUNDEV is not an interface of this Mac", interface: n.interface) }
+        guard let index = system.interfaceIndex(n.interface) else { return fail("TUNDEV is not an existing interface", interface: n.interface) }
         let tunnel = Tunnel.index(index)
         guard var table = system.routes() else { return fail("the routing table cannot be read", interface: n.interface, tunnel: tunnel) }
         let underlay = OpenConnectPlan.Underlay(routes: table, attached: system.attachedNetworks(), tunnel: n.interface)
@@ -166,7 +166,7 @@ public struct OpenConnectHook {
         case .failure(let reason): return fail(reason.text, interface: n.interface)
         case .success(let j): journal = j
         }
-        guard let index = system.interfaceIndex(n.interface) else { return fail("TUNDEV is not an interface of this Mac", journal: journal) }
+        guard let index = system.interfaceIndex(n.interface) else { return fail("TUNDEV is not an existing interface", journal: journal) }
         let tunnel = Tunnel.index(index)
         do {
             try journal.append(.status(.reconnecting))
@@ -209,7 +209,7 @@ public struct OpenConnectHook {
         case .failure(let reason): return fail(reason.text, interface: n.interface)
         case .success(let j): journal = j
         }
-        guard let index = system.interfaceIndex(n.interface) else { return fail("TUNDEV is not an interface of this Mac", journal: journal) }
+        guard let index = system.interfaceIndex(n.interface) else { return fail("TUNDEV is not an existing interface", journal: journal) }
         let tunnel = Tunnel.index(index)
         guard let table = system.routes() else { return fail("the routing table cannot be read", journal: journal, tunnel: tunnel) }
         let underlay = OpenConnectPlan.Underlay(routes: table, attached: system.attachedNetworks(), tunnel: n.interface)
@@ -381,9 +381,9 @@ public struct OpenConnectHook {
     func make(_ change: Change, context: Context, table: inout [KernelRoute]) -> Made {
         switch change {
         case .link(let interface, let mtu):
-            return run(.link(interface, mtu: mtu)).map(Made.failed) ?? .made
+            return run(.link(interface: interface, mtu: mtu)).map(Made.failed) ?? .made
         case .address(let interface, let address):
-            guard let failure = run(.addAddress(interface, address)) else { return .made }
+            guard let failure = run(.addAddress(interface: interface, address)) else { return .made }
             return system.interfaceAddresses(interface).contains(address) ? .there(shared: false) : .failed(failure)
         case .route(let route):
             if let failure = run(.addRoute(route)) {
@@ -398,7 +398,7 @@ public struct OpenConnectHook {
             return .made
         case .dns(let dns):
             return system.setDNS(OpenConnectDNSSettings(dns, addresses: context.addresses))
-                ? .made : .failed("the DNS settings could not be written")
+                ? .made : .failed(system.dnsFailure ?? "the DNS settings could not be written")
         }
     }
 
@@ -425,7 +425,7 @@ public struct OpenConnectHook {
                 if !table.contains(where: { $0.is(route) }) { return "the route for \(route.network) is no longer as it was set up" }
             case .dns(let dns):
                 if !system.hasDNS(OpenConnectDNSSettings(dns, addresses: addresses)) {
-                    return "the DNS settings are no longer as they were set up"
+                    return "the DNS settings are no longer as they were set up" + (system.dnsFailure.map { " (\($0))" } ?? "")
                 }
             }
         }
@@ -460,9 +460,10 @@ public struct OpenConnectHook {
         return nil
     }
 
-    /// Runs `command` for at most `toolLimit` and what is left of the run; the reason it failed, nil when it
-    /// succeeded.
-    func run(_ command: OpenConnectCommand) -> String? {
+    /// Runs the command that makes `effect` on this system (`OpenConnectCommand.Tools`) for at most `toolLimit`
+    /// and what is left of the run; the reason it failed, nil when it succeeded.
+    func run(_ effect: OpenConnectCommand.Effect) -> String? {
+        let command = OpenConnectCommand(effect, tools: system.tools)
         let left = deadline.timeIntervalSince(now())
         guard left > 0 else { return "no time was left for \(command.line)" }
         let result = system.run(command, timeout: min(Self.toolLimit, left))
@@ -528,10 +529,10 @@ public struct OpenConnectHook {
         switch change {
         case .link(let interface, _):
             guard isTunnel(interface) else { return nil }
-            return run(.linkDown(interface))
+            return run(.linkDown(interface: interface))
         case .address(let interface, let address):
             guard isTunnel(interface), system.interfaceAddresses(interface).contains(address) else { return nil }
-            guard let failure = run(.deleteAddress(interface, address)) else { return nil }
+            guard let failure = run(.deleteAddress(interface: interface, address)) else { return nil }
             return system.interfaceAddresses(interface).contains(address) ? failure : nil
         case .route(let route):
             if case .interface(let interface) = route.via, !isTunnel(interface) { return nil }

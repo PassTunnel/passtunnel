@@ -5,6 +5,13 @@ import PassTunnelShared
 // passtunneld, the root daemon of PassTunnel on Linux (docs/LINUX.md), started by systemd through
 // passtunnel.socket, or by hand (containers, development) with a socket of its own.
 
+// Also openconnect's hook (run through the session directory's `vpn-hook` link): that mode only sets up
+// or reverts one Cisco AnyConnect session's network and exits, before anything of the daemon.
+if LinuxVPNHook.isInvocation(CommandLine.arguments) {
+    umask(0o077)
+    exit(LinuxVPNHook.main())
+}
+
 // Also OpenVPN's DNS hook (`passtunneld dns-hook`, run through the session directory's `dns-hook`
 // link): that mode only sets up or reverts one session's DNS and exits, before anything of the daemon.
 if DNSHook.isInvocation(CommandLine.arguments) {
