@@ -429,7 +429,7 @@ session (#182: the helper accepts a start request, checks every field of it agai
 against a simulated Mac, and the sign-in and connect in PassTunnel's core (#184, macOS 15.4 and later;
 the command line and MCP tools since #185, the app since #186), and Linux (#187: `passtunneld`
 runs the distribution's `openconnect` and is its hook, tested against a simulated system); what only a real
-server and tunnel show is checked against a test server (#188).
+server and tunnel show is checked against an ocserv test server (#188).
 
 ### What changes
 
@@ -675,9 +675,10 @@ Since #187 (not in any release: the Linux packages are not published yet).
 - **Supervision** as for the other tools, and what the hook recorded is reverted by the daemon after a
   kill and by the next daemon after a crash; a session the daemon cannot restore keeps only its records
   (the cookie goes) and blocks a new start of that profile until it is restored.
-- **What is not verified yet**: the whole path against a real server and tunnel (#188). The tests run the
-  hook's logic against a simulated system, and CI starts the distribution's `openconnect` without a tunnel.
-  See [docs/LINUX.md](docs/LINUX.md#cisco-anyconnect).
+- **What CI does not cover**: a tunnel on the Mac. The Mac's hook is tested against a simulated system and
+  checked by hand against the ocserv test image; on Linux, real tunnels run against that image in an opt-in
+  workflow, and every CI run signs in against it (#188). See
+  [docs/LINUX.md](docs/LINUX.md#cisco-anyconnect) and [Tests/ocserv](Tests/ocserv/README.md).
 
 ## Secrets and files
 

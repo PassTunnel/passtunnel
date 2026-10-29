@@ -2084,7 +2084,7 @@ OpenVPN, which they would have done before #191. A version 1 file with type `any
 is read too. Import copies the new keys, normalizing the pin, then `save` checks them.
 
 Connecting is in Core (#184, with the macOS 15.4 check), the CLI and MCP handle the type (#185), and so does the Mac
-app (#186, see "Model"); `passtunneld` on Linux is #187 (done). The user docs (#189) follow.
+app (#186, see "Model"); `passtunneld` on Linux is #187 (done). The user docs (#189) are in the README and [APP.md](APP.md).
 
 ### Tests (#188)
 
