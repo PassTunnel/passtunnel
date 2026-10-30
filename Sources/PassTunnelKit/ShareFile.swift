@@ -3,7 +3,8 @@ import Foundation
 /// Portable profile file:
 /// `{"passtunnel_profile": 1, "profile": {…}, "files": {"config.ovpn": "<base64>"}}`.
 /// The profile omits the per-user fields (username, last_username, order, mgmt_port, pinned, require_auth,
-/// connect_at_login, config_imported_at). Secrets are never included.
+/// connect_at_login, config_imported_at). Secrets are never included, and neither are the keys of the profile this
+/// version does not know (`Profile.unknownKeys`); keys of an imported profile this version does not know are ignored.
 ///
 /// `passtunnel_profile` is the oldest format version that can read the file, not the writer's: a reader
 /// refuses a file of a version it does not know. Version 2 added the type `anyconnect`, so a Cisco
@@ -55,6 +56,8 @@ public struct ShareFile: Codable {
         } catch {
             throw PTError.unsupportedShareFile
         }
+        // Not for the profile an import creates or updates: this version cannot check them.
+        profile.unknownKeys = UnknownProfileKeys()
         files = c.lenient([String: Data].self, .files) ?? [:]
     }
 

@@ -1,0 +1,320 @@
+{
+  "about": "profile.json as a save writes it back after reading it (and changing the type or setting fields, as `passtunnel set` does): the keys a newer version added are kept as read, unless the type changed; keys of another type and keys inside `totp` are not kept.",
+  "save": [
+    {
+      "name": "a key a newer version added survives a save",
+      "stored": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "openvpn",
+        "future_option": "on"
+      },
+      "saved": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "connect_at_login": false,
+        "future_option": "on",
+        "health_host": "",
+        "host": "",
+        "icon": "",
+        "id": "acme",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "Acme",
+        "order": 0,
+        "otp_delivery": "combined",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "openvpn",
+        "username": ""
+      }
+    },
+    {
+      "name": "every kind of value is written back as read",
+      "stored": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "forti",
+        "host": "vpn.example.com",
+        "future_flag": true,
+        "future_count": 3,
+        "future_ratio": 0.25,
+        "future_nothing": null,
+        "future_list": [
+          1,
+          "two",
+          false,
+          null,
+          {
+            "nested_key": "x"
+          }
+        ],
+        "future_proxy": {
+          "host_name": "proxy.example.com",
+          "port": 8080,
+          "auth": {
+            "user_name": "alice"
+          }
+        }
+      },
+      "saved": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "connect_at_login": false,
+        "future_count": 3,
+        "future_flag": true,
+        "future_list": [
+          1,
+          "two",
+          false,
+          null,
+          {
+            "nested_key": "x"
+          }
+        ],
+        "future_nothing": null,
+        "future_proxy": {
+          "auth": {
+            "user_name": "alice"
+          },
+          "host_name": "proxy.example.com",
+          "port": 8080
+        },
+        "future_ratio": 0.25,
+        "health_host": "",
+        "host": "vpn.example.com",
+        "icon": "",
+        "id": "acme",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "Acme",
+        "order": 0,
+        "otp_delivery": "separate",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "forti",
+        "username": ""
+      }
+    },
+    {
+      "name": "setting fields keeps them",
+      "stored": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "anyconnect",
+        "host": "vpn.example.com",
+        "future_option": "on"
+      },
+      "set": [
+        {
+          "key": "name",
+          "value": "Acme Prod"
+        },
+        {
+          "key": "authgroup",
+          "value": "Staff"
+        },
+        {
+          "key": "auto_reconnect",
+          "value": "yes"
+        }
+      ],
+      "saved": {
+        "authgroup": "Staff",
+        "auto_reconnect": true,
+        "badge": "",
+        "badge_style": "letter",
+        "connect_at_login": false,
+        "future_option": "on",
+        "health_host": "",
+        "host": "vpn.example.com",
+        "icon": "",
+        "id": "acme",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "Acme Prod",
+        "order": 0,
+        "otp_delivery": "separate",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "server_cert": "",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "tls_only": false,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "anyconnect",
+        "usergroup": "",
+        "username": ""
+      }
+    },
+    {
+      "name": "changing the type drops them",
+      "stored": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "openvpn",
+        "future_option": "on"
+      },
+      "type": "forti",
+      "saved": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "connect_at_login": false,
+        "health_host": "",
+        "host": "",
+        "icon": "",
+        "id": "acme",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "Acme",
+        "order": 0,
+        "otp_delivery": "combined",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "forti",
+        "username": ""
+      }
+    },
+    {
+      "name": "keys of another type are known ones, not kept",
+      "note": "usergroup, authgroup, server_cert and tls_only are Cisco AnyConnect's; otp_format is read only (otp_delivery replaced it)",
+      "stored": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "openvpn",
+        "usergroup": "staff",
+        "tls_only": true,
+        "otp_format": "scrv1"
+      },
+      "saved": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "connect_at_login": false,
+        "health_host": "",
+        "host": "",
+        "icon": "",
+        "id": "acme",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "Acme",
+        "order": 0,
+        "otp_delivery": "separate",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "openvpn",
+        "username": ""
+      }
+    },
+    {
+      "name": "keys inside totp are not kept",
+      "stored": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "openvpn",
+        "otp_mode": "totp",
+        "totp": {
+          "digits": 8,
+          "future_counter": 5
+        }
+      },
+      "saved": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "connect_at_login": false,
+        "health_host": "",
+        "host": "",
+        "icon": "",
+        "id": "acme",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "Acme",
+        "order": 0,
+        "otp_delivery": "combined",
+        "otp_mode": "totp",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 8,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "openvpn",
+        "username": ""
+      }
+    }
+  ]
+}

@@ -2,7 +2,8 @@
 
 The behavior the Mac app, the iPhone app and the Android app share, as JSON cases: TOTP codes,
 `otpauth://` links, code formats, OpenVPN configs, `.passtunnel` share files, profile identifiers,
-profile fields and merging, Cisco AnyConnect server URLs ([docs/MOBILE.md](../docs/MOBILE.md), "Shared logic").
+profile fields and merging, what a save writes back to `profile.json`, Cisco AnyConnect server URLs
+([docs/MOBILE.md](../docs/MOBILE.md), "Shared logic").
 
 - `swift test` runs every case against `PassTunnelKit` (`Tests/PassTunnelKitTests/FixtureTests.swift`),
   so the files are always what the Mac app does.
@@ -40,7 +41,9 @@ hex (`secret_hex`, `hex`) or Base64 (`binary_files`); profiles use the keys of `
 (snake_case, see [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md), "Model"), and a profile in an output
 lists every field; `null` is "none". `type` is `openvpn`, `forti` or `anyconnect` (Cisco AnyConnect); the keys
 `usergroup`, `authgroup`, `server_cert` and `tls_only` are a Cisco AnyConnect profile's alone and are listed only for
-that type (a file of another type that has them decodes without them). Invisible characters (BOM, no-break space, zero-width space, NUL
+that type (a file of another type that has them decodes without them). Keys starting with `future_` stand for keys a
+newer version added ([docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md), "Keys of a newer version"): a profile in an output lists
+them where they are kept. Invisible characters (BOM, no-break space, zero-width space, NUL
 and other control characters, line separator) are written as `\uXXXX` escapes. Example hosts and names follow the repository's rules (`vpn.example.com`,
 `203.0.113.x`, `Acme`, `alice`).
 
@@ -70,6 +73,7 @@ and other control characters, line separator) are written as `\uXXXX` escapes. E
 | | `suffixed` | `base`, `n` | `id` | `Slug.suffixed` |
 | | `is_valid` | `id` | `valid` | `Slug.isValid` |
 | `profile-merge.json` | `merge` | `original`, `edited`, `current` (profiles; missing fields take their defaults) | `merged` (every field), `changed_fields` | `ProfileMerge` |
+| `profile-json.json` | `save` | `stored` (the `profile.json` read), `type` (optional: the type it is changed to), `set` (optional: `key`/`value` pairs set in order, as `passtunnel set`) | `saved` (the `profile.json` written: every field, and the keys a newer version added unless the type changed), or `error` | `Profile` coding, `ProfileFields.set` |
 | `profile-fields.json` | `set` | `type`, `key`, `value` (on a new profile `acme`) | `canonical_key`, `stored` (the value as `passtunnel show` prints it), or `error` | `ProfileFields.set` |
 | `anyconnect-servers.json` | `parse` | `url` (what the user pastes) | `server`: `host`, `port`, `usergroup`, or `null` when it is refused | `AnyConnectServer.parse` |
 
