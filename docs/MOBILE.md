@@ -22,7 +22,9 @@ VPN talks only to the user's VPN server). FortiGate is not on either phone for n
 library we may use under MIT, and FortiOS 7.6.3 removed SSL VPN tunnel mode altogether. It is
 revisited after the Android VPN ships. Cisco AnyConnect (type `anyconnect`, in share files of version 2)
 is not on either phone either: the shared model reads and keeps such a profile and its keys (the
-fixtures), and the phones do not connect it.
+fixtures), and the phones do not connect it. Palo Alto GlobalProtect (type `globalprotect`, planned in
+#226, also in share files of version 2) is handled the same way once the shared model knows it: read and
+kept with its keys, not connected ([GlobalProtect profiles](#globalprotect-profiles)).
 
 ## Shared logic
 
@@ -41,14 +43,37 @@ FortiGate config, share files, slugs, profile fields and merging, and the secret
 - **`fixtures/`** in this repository is a corpus of golden cases in JSON: RFC 6238 vectors and
   PassTunnel's own TOTP cases, every code format and template, `otpauth://` URIs that parse and
   ones that must fail, OpenVPN configs the sanitizer accepts and rejects, inlining results, the
-  import review (which refused lines are skipped, which block the file), and `.passtunnel` files with
-  their decoded profiles. The Swift tests read it, so it can never be
-  wrong for the Mac; the Android tests read a copy pinned to a commit of this repository, and a
+  import review (which refused lines are skipped, which block the file), `.passtunnel` files with
+  their decoded profiles, and what a save writes back to `profile.json` (keys of a newer version
+  included). The Swift tests read it, so it can never be wrong for the Mac; the Android tests read a copy pinned to a commit of this repository, and a
   check fails when the copy is not that commit's corpus. A change to shared behavior lands here
   first (code, tests and fixtures), then in Android.
 
 Swift on Android (official SDK since Swift 6.3) is reconsidered when its Java bridge reaches 1.0;
 until then the Kotlin port is simpler and safer.
+
+### GlobalProtect profiles
+
+Planned (#226; the Mac's side is G2 in [ARCHITECTURE.md](ARCHITECTURE.md#profile-g2)). What the ports follow:
+
+- **Before a port knows the type**, a `globalprotect` profile or share file is a VPN type it does not know: kept as
+  it is, listed as needing a newer PassTunnel, refused everywhere but delete (above). Nothing else is needed for
+  safety: the share file is version 2, which every port that reads Cisco AnyConnect files reads already.
+- **Once it knows the type** (the iPhone through `PassTunnelKit` at a newer pin, Android in its Kotlin model): the type
+  and its keys as `PassTunnelKit` defines them: `host`, `port`, `gateway` (a gateway's label, AnyConnect's `authgroup`
+  rule), `skip_portal` (boolean), `server_cert` and `gateway_server_cert` (full `pin-sha256:` pins, normalized),
+  `tls_only`, `set_dns`, `set_routes`, the user name, password mode and TOTP keys, `otp_delivery` defaulting to
+  `separate`. They are written only for this type (`usergroup` and `authgroup` stay AnyConnect's), read for any type
+  and dropped on another type's save; keys a newer version adds to the type are kept as for every known type. Share
+  files of this type are written as version 2. A port that does not connect the type never renders openconnect files
+  or reads a cookie: the keys are stored, shown, edited and shared only. Where a port names the type it adds the same
+  "Experimental" label, from `VPNType.isExperimental` (iPhone, through the Kit) or a Kotlin constant that mirrors it,
+  dropped together when the Mac drops it.
+- **Golden cases** land in `fixtures/` with the Mac's G2, before any port changes: `share-files.json` (decode and
+  encode, version 2, the type's keys dropped on another type and AnyConnect's on this one), `profile-json.json` (what a
+  save writes back, a change of the type), `profile-fields.json` (setting `gateway`, `skip_portal`,
+  `gateway_server_cert`; `wrong_profile_type` on another type), `codes.json` (`compose` for this type) and
+  `globalprotect-servers.json` (`[https://]host[:port]`, no path). The Android copy is updated by moving its pin.
 
 ## Android: the VPN client
 
@@ -81,6 +106,16 @@ until then the Kotlin port is simpler and safer.
   a share file with such a type is refused the same way instead of creating an OpenVPN profile. A
   missing `type` is still an old OpenVPN profile. The Mac app and `PassTunnelKit` do this
   (`UnsupportedProfile`, `PTError.unsupportedProfileType`); the Kotlin model must match.
+- **Keys of a newer version**: a profile of a known type keeps the top-level keys the app does not know
+  (a newer version added them) as read, in order, and writes them back unchanged on every save (editing,
+  setting fields, reordering, pinning, remembering the user name). Changing the profile's type drops them.
+  Share export never writes them, share import ignores those of the incoming file, and an import merged
+  into an existing profile keeps the existing profile's. Keys the app knows (also those of another type,
+  such as Cisco AnyConnect's `usergroup` on an OpenVPN profile) and keys inside `totp` are not kept. A newer
+  version never changes the meaning of an existing key: it adds a new key, or bumps the `type` or the
+  share-file version ([ARCHITECTURE.md](ARCHITECTURE.md), "Keys of a newer version"); the ports follow the
+  same rule when they are the newer version. The Mac does this in `PassTunnelKit` (`UnknownProfileKeys`);
+  the golden cases are in `profile-json.json`, `profile-merge.json` and `share-files.json`.
 - **Play**: the listing states that the app uses `VpnService`; the VPN declaration and its demo
   video are filed when the VPN ships (phase 2), not before.
 
@@ -93,7 +128,8 @@ until then the Kotlin port is simpler and safer.
   codes from the camera or a photo. The Mac app exports the `.passtunnel` type (see phase 0); the
   iPhone imports it. Share files carry no secrets, so the TOTP QR is scanned again on the phone.
   A profile or share file of a VPN type this version does not know is handled as described for Android
-  (kept as it is, listed as needing a newer version, refused everywhere but delete).
+  (kept as it is, listed as needing a newer version, refused everywhere but delete), and so are keys a
+  newer version added to a known type (`PassTunnelKit` keeps them).
 - **Handing off**: "Open in OpenVPN Connect" shares the profile's configuration (no credentials)
   through the share sheet. FortiClient has no documented import format, so none is generated.
 - **Phase 3 additions**: an AutoFill credential provider that offers password-plus-code as the

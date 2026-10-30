@@ -119,6 +119,8 @@ class SecretStoreTestCase: XCTestCase {
     /// Executables that exist.
     var executables: Set<String> = ["/usr/bin/secret-tool", "/usr/bin/systemd-creds"]
     var sockets: Set<String> = []
+    /// Directories that exist: by default systemd runs as the service manager.
+    var directories: Set<String> = [SystemdCredsStore.runningPath]
     var kdfCalls = 0
 
     override func setUpWithError() throws {
@@ -166,6 +168,7 @@ class SecretStoreTestCase: XCTestCase {
             isRoot: isRoot, runner: tools, interaction: interaction,
             isExecutable: { [unowned self] in self.executables.contains($0) },
             isSocket: { [unowned self] in self.sockets.contains($0) },
+            isDirectory: { [unowned self] in self.directories.contains($0) },
             deriveKey: deriveKey(), scryptParameters: Self.testParameters)
     }
 
@@ -188,7 +191,7 @@ final class SecretStoreSelectionTests: SecretStoreTestCase {
         env: String? = nil, setting: SecretStoreChoice = .auto, recorded: SecretStoreChoice? = nil,
         detected: SecretStoreChoice = .file
     ) throws -> SecretStoreSelection {
-        try SecretStoreSelection.resolve(environment: env, setting: setting, recorded: recorded) { detected }
+        try SecretStoreSelection.resolve(environment: env, setting: setting, recorded: recorded) { .init(store: detected) }
     }
 
     func testOrder() throws {
@@ -217,7 +220,7 @@ final class SecretStoreSelectionTests: SecretStoreTestCase {
 
     func testDetection() {
         func detect(root: Bool, _ available: Set<SecretStoreChoice>) -> SecretStoreChoice {
-            SecretStoreSelection.detect(isRoot: root) { available.contains($0) }
+            SecretStoreSelection.detect(isRoot: root) { available.contains($0) ? nil : SecretStoreUnavailable("no \($0.rawValue)") }.store
         }
         XCTAssertEqual(detect(root: false, [.secretService, .systemdCreds, .file]), .secretService)
         XCTAssertEqual(detect(root: false, [.systemdCreds, .file]), .systemdCreds)
@@ -226,8 +229,26 @@ final class SecretStoreSelectionTests: SecretStoreTestCase {
         XCTAssertEqual(detect(root: true, [.secretService]), .file)
     }
 
-    /// Detection asks the real conditions: a session bus and an answering secret-tool; systemd 256+
-    /// for `--user`.
+    /// Detection says why it passed over each store before the one it took.
+    func testDetectionKeepsWhyStoresWereSkipped() throws {
+        let detection = SecretStoreSelection.detect(isRoot: false) { $0 == .file ? nil : SecretStoreUnavailable("no \($0.rawValue)") }
+        XCTAssertEqual(
+            detection,
+            SecretStoreSelection.Detection(
+                store: .file,
+                skipped: [
+                    SkippedSecretStore(name: "secret-service", error: "no secret-service"),
+                    SkippedSecretStore(name: "systemd-creds", error: "no systemd-creds")
+                ]))
+        XCTAssertEqual(SecretStoreSelection.detect(isRoot: false) { _ in nil }, SecretStoreSelection.Detection(store: .secretService))
+        let selection = try SecretStoreSelection.resolve(environment: nil, setting: .auto, recorded: nil) { detection }
+        XCTAssertEqual(selection.skipped, detection.skipped)
+        let named = try SecretStoreSelection.resolve(environment: "file", setting: .auto, recorded: nil) { detection }
+        XCTAssertEqual(named.skipped, [], "nothing detected, nothing skipped")
+    }
+
+    /// Detection asks the real conditions: a session bus and an answering secret-tool; for systemd-creds
+    /// systemd 256+ and systemd running for `--user`, and a round trip that works.
     func testDetectionAsksTheTools() {
         let desktop = system()
         XCTAssertEqual(SecretStores.chosen(system: desktop).name, "secret-service")
@@ -239,6 +260,65 @@ final class SecretStoreSelectionTests: SecretStoreTestCase {
         XCTAssertEqual(SecretStores.chosen(system: ssh).name, "systemd-creds", "root uses the host key")
         executables = []
         XCTAssertEqual(SecretStores.chosen(system: system()).name, "file")
+    }
+
+    /// systemd-creds installed, systemd not running (a container without systemd as init): `auto`
+    /// takes the file and says why; root, whose host key needs no service, still uses systemd-creds
+    /// as long as its round trip works.
+    func testAutoSkipsSystemdCredsWhereSystemdIsNotRunning() throws {
+        directories = []
+        let ssh = system(environment: ["HOME": "/home/alice", "PASSTUNNEL_HOME": root.path])
+        XCTAssertEqual(SecretStores.chosen(system: ssh).name, "file")
+        XCTAssertFalse(tools.calls.contains { $0.arguments.first == "encrypt" }, "no round trip without systemd")
+        let report = SecretStores.report(system: ssh)
+        XCTAssertEqual(report.name, "file")
+        XCTAssertEqual(report.chosenBy, "auto")
+        XCTAssertEqual(
+            report.skipped,
+            [
+                SkippedSecretStore(name: "secret-service", error: SecretStoreUnavailable.secretServiceNoBus.message),
+                SkippedSecretStore(name: "systemd-creds", error: SecretStoreUnavailable.systemdNotRunning.message)
+            ])
+        let json = String(decoding: try AutomationJSON.encoder().encode(report), as: UTF8.self)
+        XCTAssertTrue(json.contains("\"skipped\" : ["), json)
+        XCTAssertTrue(json.contains("\"name\" : \"systemd-creds\""), json)
+
+        var asRoot = ssh
+        asRoot.isRoot = true
+        XCTAssertEqual(SecretStores.chosen(system: asRoot).name, "systemd-creds")
+        tools.override = { call in
+            call.arguments.first == "encrypt" ? FakeTools.failed(1, "Failed to determine local credential host secret: Read-only file system\n") : nil
+        }
+        XCTAssertEqual(SecretStores.chosen(system: asRoot).name, "file", "a round trip that fails")
+        XCTAssertEqual(
+            SecretStores.report(system: asRoot).skipped,
+            [
+                SkippedSecretStore(
+                    name: "systemd-creds",
+                    error: SecretStoreUnavailable.systemdCredsProbeFailed("Failed to determine local credential host secret: Read-only file system")
+                        .message)
+            ])
+    }
+
+    /// Named explicitly, a systemd-creds that cannot work is reported and fails: no fallback.
+    func testANamedSystemdCredsThatCannotWorkFails() throws {
+        directories = []
+        let env = ["HOME": "/home/alice", "PASSTUNNEL_HOME": root.path, "PASSTUNNEL_SECRET_STORE": "systemd-creds"]
+        let report = SecretStores.report(system: system(environment: env))
+        XCTAssertEqual(
+            report,
+            SecretStoreReport(
+                name: "systemd-creds", available: false, setting: "auto", chosenBy: "environment",
+                error: SecretStoreUnavailable.systemdNotRunning.message))
+        let chosen = SecretStores.chosen(system: system(environment: env))
+        XCTAssertThrowsError(try chosen.write("acme/password", Data("pw".utf8))) {
+            XCTAssertEqual($0 as? SecretStoreUnavailable, .systemdNotRunning)
+        }
+        XCTAssertThrowsError(try chosen.read("acme/password")) {
+            XCTAssertEqual($0 as? SecretStoreUnavailable, .systemdNotRunning, "says why, not “missing”")
+        }
+        XCTAssertNil(Preferences.load(paths: AppPaths(root: root)).secretStoreUsed, "nothing recorded")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("secrets.enc").path), "not the file instead")
     }
 
     /// The first successful write records the store; later runs use it even where another would be
@@ -522,6 +602,63 @@ final class SystemdCredsStoreTests: SecretStoreTestCase {
         XCTAssertNil(store(root: true).unavailability())
         executables = []
         XCTAssertEqual(store(root: true).unavailability(), .systemdCredsToolMissing)
+    }
+
+    /// Available only after a throwaway value went through encrypt and decrypt, with a short timeout,
+    /// over standard input and output: no file is written.
+    func testAvailabilityIsARoundTrip() throws {
+        XCTAssertNil(store().unavailability())
+        let uses = tools.calls.filter { $0.arguments != ["--version"] }
+        XCTAssertEqual(
+            uses.map(\.arguments),
+            [
+                ["encrypt", "--name=passtunnel-probe", "--user", "-", "-"],
+                ["decrypt", "--name=passtunnel-probe", "--newline=no", "--user", "-", "-"]
+            ])
+        XCTAssertEqual(uses.map(\.timeout), [10, 10])
+        XCTAssertTrue(String(decoding: uses[0].input, as: UTF8.self).hasPrefix("probe "), "a throwaway value")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path), [], "nothing written")
+
+        tools.calls = []
+        XCTAssertNil(store(root: true).unavailability())
+        XCTAssertEqual(
+            tools.calls.map(\.arguments),
+            [["encrypt", "--name=passtunnel-probe", "-", "-"], ["decrypt", "--name=passtunnel-probe", "--newline=no", "-", "-"]],
+            "root: the system's key")
+    }
+
+    /// systemd not running: `--user` is refused before any round trip, and every use says why.
+    func testUsersNeedSystemdRunning() {
+        directories = []
+        XCTAssertEqual(store().unavailability(), .systemdNotRunning)
+        XCTAssertFalse(tools.calls.contains { $0.arguments.first == "encrypt" })
+        XCTAssertThrowsError(try store().write("acme/password", Data("pw".utf8))) {
+            XCTAssertEqual($0 as? SecretStoreUnavailable, .systemdNotRunning)
+        }
+        XCTAssertThrowsError(try store().read("acme/password")) {
+            XCTAssertEqual($0 as? SecretStoreUnavailable, .systemdNotRunning)
+        }
+        XCTAssertNil(store(root: true).unavailability(), "root's host key needs no service")
+    }
+
+    /// systemd-creds installed but not working: the round trip's failure, a timeout, or a value that
+    /// does not come back.
+    func testAFailingRoundTripIsUnavailable() {
+        let noService = "Failed to connect to io.systemd.Credentials: No such file or directory"
+        tools.override = { call in call.arguments.first == "encrypt" ? FakeTools.failed(1, noService + "\n") : nil }
+        XCTAssertEqual(store().unavailability(), .systemdCredsProbeFailed(noService))
+        tools.override = { call in call.arguments.first == "decrypt" ? FakeTools.failed(1, "Failed to decrypt credential: Bad message\n") : nil }
+        XCTAssertEqual(store().unavailability(), .systemdCredsProbeFailed("Failed to decrypt credential: Bad message"))
+        tools.override = { call in call.arguments.first == "encrypt" ? FakeTools.ok() : nil }
+        XCTAssertEqual(store().unavailability(), .systemdCredsProbeFailed("exit status 0"), "nothing sealed")
+        tools.override = { call in call.arguments.first == "decrypt" ? FakeTools.ok(Data("something else".utf8)) : nil }
+        XCTAssertEqual(store().unavailability(), .systemdCredsProbeFailed("the test value did not decrypt to itself"))
+        tools.override = { call in
+            if call.arguments.first == "encrypt" { throw ToolTimeout(seconds: Int(call.timeout)) }
+            return nil
+        }
+        XCTAssertEqual(store().unavailability(), .systemdCredsTimeout(10))
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path), [], "nothing written")
     }
 
     func testFailuresAndTimeouts() throws {

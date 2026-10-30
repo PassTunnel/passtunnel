@@ -1154,6 +1154,51 @@
       "error": {
         "kind": "unsupported_share_file"
       }
+    },
+    {
+      "name": "keys this version does not know are not imported",
+      "file": {
+        "passtunnel_profile": 1,
+        "future_top_level": 1,
+        "profile": {
+          "name": "Acme",
+          "type": "openvpn",
+          "future_option": "on"
+        }
+      },
+      "files": {},
+      "profile": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "connect_at_login": false,
+        "health_host": "",
+        "host": "",
+        "icon": "",
+        "id": "",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "Acme",
+        "order": 0,
+        "otp_delivery": "combined",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "openvpn",
+        "username": ""
+      }
     }
   ],
   "encode": [
@@ -1348,6 +1393,46 @@
           "trusted_cert": "",
           "type": "anyconnect",
           "usergroup": "engineering"
+        }
+      }
+    },
+    {
+      "name": "keys a newer version added are not exported",
+      "profile": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "forti",
+        "host": "vpn.example.com",
+        "future_option": "on"
+      },
+      "files": {},
+      "file": {
+        "files": {},
+        "passtunnel_profile": 1,
+        "profile": {
+          "auto_reconnect": false,
+          "badge": "",
+          "badge_style": "letter",
+          "health_host": "",
+          "host": "vpn.example.com",
+          "icon": "",
+          "id": "acme",
+          "name": "Acme",
+          "otp_delivery": "separate",
+          "otp_mode": "none",
+          "otp_template": "{password}{otp}",
+          "password_mode": "keychain",
+          "port": 443,
+          "session_limit_min": 0,
+          "set_dns": false,
+          "set_routes": true,
+          "totp": {
+            "algorithm": "sha1",
+            "digits": 6,
+            "period": 30
+          },
+          "trusted_cert": "",
+          "type": "forti"
         }
       }
     }

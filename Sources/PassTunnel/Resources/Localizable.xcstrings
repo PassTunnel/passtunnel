@@ -2523,6 +2523,16 @@
         }
       }
     },
+    "Not used: %@: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kullanılmadı: %1$@: %2$@"
+          }
+        }
+      }
+    },
     "Not connected yet" : {
       "localizations" : {
         "tr" : {
@@ -4189,6 +4199,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "systemd-creds bir kullanıcı için kimlik bilgilerini systemd 256’dan itibaren şifreler; bu sistemde systemd %lld var."
+          }
+        }
+      }
+    },
+    "systemd-creds cannot encrypt and decrypt here: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "systemd-creds burada şifreleyip şifre çözemiyor: %@"
+          }
+        }
+      }
+    },
+    "systemd-creds encrypts credentials for a user through systemd, which is not running here (as in a container without systemd as init)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "systemd-creds bir kullanıcının kimlik bilgilerini systemd aracılığıyla şifreler; systemd burada çalışmıyor (init olarak systemd olmayan bir kapsayıcıda olduğu gibi)."
           }
         }
       }
@@ -9096,6 +9126,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "gizli anahtar eksik"
+          }
+        }
+      }
+    },
+    "the test value did not decrypt to itself" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "deneme değeri şifresi çözüldüğünde aynı çıkmadı"
           }
         }
       }

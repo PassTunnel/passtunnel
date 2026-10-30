@@ -4,6 +4,8 @@ import Foundation
 /// from (`original`) and what it holds now (`edited`) are applied to the stored profile (`current`),
 /// so changes made elsewhere meanwhile (CLI, reordering, connecting) survive a Save. Nested objects
 /// such as `totp` merge field by field. Works on the encoded form, so new fields are covered too.
+/// The keys a newer version added (`Profile.unknownKeys`) are no editor's: the merged profile has the stored
+/// profile's, unless the edit changed the type (then none, as for any change of the type).
 public enum ProfileMerge {
     /// Encoded keys (dotted for nested ones, e.g. `totp.digits`) that differ between the two.
     public static func changedFields(from original: Profile, to edited: Profile) throws -> [String] {
@@ -13,17 +15,19 @@ public enum ProfileMerge {
     }
 
     /// `current` with every field changed from `original` to `edited` set to the edited value.
-    /// The ID is always the current one.
+    /// The ID is always the current one, and so are the unknown keys when the type stays the current one.
     public static func merge(original: Profile, edited: Profile, current: Profile) throws -> Profile {
         let merged = mergeObjects(try object(original), try object(edited), try object(current))
         let data = try JSONSerialization.data(withJSONObject: merged)
         var p = try JSONCoding.decode(Profile.self, from: data, name: "profile.json")
         p.id = current.id
+        if p.type == current.type { p.unknownKeys = current.unknownKeys }
         return p
     }
 
+    /// The encoded profile without its unknown keys.
     static func object(_ p: Profile) throws -> [String: Any] {
-        let data = try JSONCoding.encode(p)
+        let data = try JSONCoding.encode(p, userInfo: [.passTunnelOmitUnknownKeys: true])
         guard let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw PTError.invalidFile("profile.json")
         }

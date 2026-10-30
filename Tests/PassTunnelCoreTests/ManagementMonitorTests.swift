@@ -404,4 +404,60 @@ extension PersistentManagementQuerierTests {
         _ = try? close.command("state", timeout: 0.5)
         server.wait()
     }
+
+    /// A query that missed the live session just before another query's open finished joins that
+    /// session instead of opening a second connection (which the interface would refuse as busy).
+    func testQueryMissingJustBeforeTheOpenFinishesReusesIt() async throws {
+        var accepted = 0
+        let server = FakeManagementServer(
+            path: sock,
+            handlers: [
+                { fd in
+                    accepted += 1
+                    Self.open(fd, state: Self.connected)
+                    var b: UInt8 = 0
+                    while read(fd, &b, 1) == 1 {}
+                },
+                { _ in accepted += 1 }
+            ])
+        waitForSocket()
+        let q = PersistentManagementQuerier()
+        let misses = MissCounter()
+        let first = TaskBox()
+        q.afterMissHook = {
+            // The second query pauses here until the first has finished opening.
+            if misses.next() == 1 { _ = try? await first.task?.value }
+        }
+        let path = sock
+        first.task = Task { try await q.state(socketPath: path, timeout: 2) }
+        while misses.count < 1 { await Task.yield() }
+        let x = try await q.state(socketPath: path, timeout: 2)
+        let y = try await first.task!.value
+        XCTAssertEqual(x, y)
+        XCTAssertEqual(accepted, 1)
+        q.releaseAll()
+        let close = ManagementSocket(path: sock)
+        _ = try? close.command("state", timeout: 0.5)
+        server.wait()
+    }
+}
+
+private final class MissCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var n = 0
+    var count: Int { lock.withLock { n } }
+    func next() -> Int {
+        lock.withLock {
+            defer { n += 1 }; return n
+        }
+    }
+}
+
+private final class TaskBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _task: Task<ManagementState, Error>?
+    var task: Task<ManagementState, Error>? {
+        get { lock.withLock { _task } }
+        set { lock.withLock { _task = newValue } }
+    }
 }

@@ -641,11 +641,12 @@ your Mac may exist and belong to whoever installed Homebrew. Each is kept out of
 
 ### Host checks are refused
 
-Some servers require the client to download and run a host scan (Cisco Secure Desktop; in later
-phases GlobalProtect's HIP report and Pulse's Host Checker). PassTunnel never runs such code,
-neither the server's nor the scripts Homebrew ships for it: openconnect refuses the request when it
-is not given a wrapper, PassTunnel never gives one, and the connection fails saying the server
-requires a host scan PassTunnel does not run (`host_scan_required`). It is not retried.
+Some servers require the client to download and run a host scan (Cisco Secure Desktop; in a later
+phase Pulse's Host Checker). PassTunnel never runs such code, neither the server's nor the scripts
+Homebrew ships for it: openconnect refuses the request when it is not given a wrapper, PassTunnel
+never gives one, and the connection fails saying the server requires a host scan PassTunnel does
+not run (`host_scan_required`). It is not retried. GlobalProtect's host information report (HIP) is
+never sent either, but there the connection goes on (see [Palo Alto GlobalProtect](#palo-alto-globalprotect)).
 
 ### Linux
 
@@ -679,6 +680,61 @@ Since #187 (not in any release: the Linux packages are not published yet).
   checked by hand against the ocserv test image; on Linux, real tunnels run against that image in an opt-in
   workflow, and every CI run signs in against it (#188). See
   [docs/LINUX.md](docs/LINUX.md#cisco-anyconnect) and [Tests/ocserv](Tests/ocserv/README.md).
+
+## Palo Alto GlobalProtect
+
+Planned (issue #2, Phase 2; designed in #226, not built yet): Palo Alto GlobalProtect through the same
+`openconnect`, with a password and a one-time code, no single sign-on, on macOS 15.4 and later and on Linux. It ships
+marked *experimental*: its sign-in is tested against openconnect's own test server, but no test runs a real
+GlobalProtect tunnel, so reports from real gateways are asked for. Everything
+under [Cisco AnyConnect](#cisco-anyconnect) applies unchanged (the bundled tool and its pins, signing in as you, the
+helper receiving only the cookie and the server's identity, the hook and every check of the server's network values,
+the masked log, the compiled-in paths); this is what differs. The details are in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#palo-alto-globalprotect-backend).
+
+- **Two servers.** You sign in to a *portal*, which names the *gateway* the tunnel goes to, often another host.
+  openconnect goes there by itself after the portal answered, and usually resends the portal's credentials (your
+  password, or the portal's last answer with its code) to the gateway, or signs in there a second time. PassTunnel
+  accepts a sign-in that touched at most those two servers, the profile's and the one the portal named, in that
+  order, and binds the tunnel to the gateway's address and key as for Cisco AnyConnect. The gateway's key must pass
+  the same trust as the portal's: one of the profile's pinned keys (a GlobalProtect profile can pin the portal's and
+  the gateway's), or, without pins, the system's CA bundle for the gateway's own name. Which gateway the portal names
+  is the portal's decision: a portal you trust can send the tunnel, and your credentials, to any server that passes
+  that trust. A profile can instead sign in to one gateway directly, without the portal.
+- **The second code.** When both portal and gateway ask for a code and the portal gives no cookie that spares the
+  second sign-in, PassTunnel answers the gateway with your password and the code of the *next* time window, written
+  only after the first code's window has ended, so no code is sent twice for two sign-ins (openconnect's own resend
+  of the portal's answer aside, which a gateway that refuses a used code rejects, leading to the second sign-in). Both
+  codes count as used.
+- **The session cookie** holds, besides the secret `authcookie`, your user name as the gateway names it, the portal's
+  name, a domain, the addresses it assigned before, and this computer's host name (all sent by the client to the
+  server anyway). It is masked in every log as a whole and its `authcookie` on its own; the user name thus reaches the
+  root-only configuration file inside it. On a disconnect openconnect logs out, and the gateway's answer says whether it
+  ended the session ("Logout successful."); after a kill, a crash, a broken connection or a failed logout, treat the
+  cookie as valid until the gateway's own lifetime for it.
+- **The portal's override cookies.** A portal may hand out cookies that let a client sign in to its gateways without
+  password or code for as long as the administrator set. openconnect prints them during the sign-in; PassTunnel masks
+  them in the sign-in's log, and they never leave the sign-in run (they are never sent to the helper or kept).
+- **No single sign-on.** A portal that asks for SAML is refused before anything is sent ("signs in with single
+  sign-on, which PassTunnel does not support"); openconnect's command-line tool opens no browser for GlobalProtect. A
+  gateway behind a password portal that asks for it is refused the same way, after the portal's sign-in (and possibly
+  openconnect's resend of it to that gateway).
+- **HIP is never sent.** The gateway may ask for a host information report. PassTunnel never runs a script for it
+  (it would run as root, in the tunnel), Homebrew's `hipreport.sh` is not bundled, and the option that names one is
+  refused. openconnect then goes on without a report, and so does the connection: the gateway may limit what you can
+  reach or end the session, and PassTunnel shows a notice that access may be limited. The notice comes from the
+  session's log, part of which the server writes, so it decides nothing.
+- **ESP.** With ESP on (the default), the tunnel's packets go over UDP to the gateway with keys the gateway sent inside
+  the TLS-protected configuration; they are never logged. When ESP does not come up within 5 seconds openconnect uses
+  the TLS tunnel instead; *TLS only* in the profile turns ESP off. Routes, DNS and IPv6 are handled by the same hook
+  and rules as for Cisco AnyConnect. openconnect also reconnects to the gateway by itself at the gateway's rekey
+  interval, and each reconnect is checked by the hook as after a dropped connection.
+- **Linux.** GlobalProtect needs the distribution's `openconnect` 9.11 or later (Cisco AnyConnect keeps 9.01): before
+  9.10 it cannot read one of the forms in which gateways ask for the code, and 9.10 breaks ESP. Before 9.20 it also
+  reads a gateway's IPv6 routes for the
+  tunnel as routes *around* it, so PassTunnel keeps IPv6 off GlobalProtect tunnels with those versions (IPv6 is then
+  blocked in a full tunnel, as when the server assigns no IPv6 address). See
+  [docs/LINUX.md](docs/LINUX.md#palo-alto-globalprotect).
 
 ## Secrets and files
 

@@ -440,7 +440,7 @@ and fakes for the system tools; the Mac's tests a Keychain service of their own)
 | Store | Where | Used by default when |
 |---|---|---|
 | `secret-service` | The desktop keyring (GNOME Keyring, KDE Wallet, KeePassXC) through `secret-tool` (libsecret's command-line tool): attributes `service=PassTunnel`, `account=<id>/<kind>`, label `PassTunnel (<id>/<kind>)`, values over stdin/stdout as they are, never in arguments or the environment | A user (not root) whose session bus answers (the default on desktops; the design names it in the import review) |
-| `systemd-creds` | `~/.local/share/passtunnel/secrets/<account>.cred` (folder 0700, files 0600), sealed with `systemd-creds encrypt/decrypt` (host key and TPM2): the system's scope for root, `--user` for other users (systemd 256 or later) | root; other users without a Secret Service, when their systemd is new enough |
+| `systemd-creds` | `~/.local/share/passtunnel/secrets/<account>.cred` (folder 0700, files 0600), sealed with `systemd-creds encrypt/decrypt` (host key and TPM2): the system's scope for root, `--user` for other users (systemd 256 or later) | root; other users without a Secret Service, when their systemd is new enough and running; only when a test round trip works |
 | `file` | `~/.local/share/passtunnel/secrets.enc` (0600): scrypt from swift-crypto (N = 2^17, r = 8, p = 1) and AES-256-GCM; passphrase from `PASSTUNNEL_PASSPHRASE_FILE` or the terminal | The fallback |
 
 - **Choosing.** The setting `secret_store` in config.json (`auto`, the default, or a store's name;
@@ -452,11 +452,14 @@ and fakes for the system tools; the Mac's tests a Keychain service of their own)
   then the file. So a profile set up in a desktop session is still looked for in the keyring over
   SSH, which then says it cannot reach it rather than reporting the secret missing. Secrets are
   never moved between stores: after changing the store, save them again with `passtunnel secret`.
-  `diagnose` (`secret_store`) and `passtunnel secret-store` name the store, how it was chosen and
-  whether it can be used from that process.
+  `diagnose` (`secret_store`) and `passtunnel secret-store` name the store, how it was chosen,
+  whether it can be used from that process and, when `auto` detected it, why it passed over each
+  store before it (`skipped`). A store named in `PASSTUNNEL_SECRET_STORE` or the setting is used even
+  when it cannot work, and then fails with its reason: there is no silent fallback.
 - **Errors.** Any store failure is `keychain_error` (`SecretStoreUnavailable`) with the store's own
   message: no `secret-tool` or `systemd-creds`, no session bus, a locked keyring that did not answer,
-  systemd older than 256 for `--user`, no passphrase, a file that does not decrypt.
+  systemd older than 256 or not running for `--user`, a systemd-creds round trip that failed, no
+  passphrase, a file that does not decrypt.
 - **secret-service.** `secret-tool` is taken from `/usr/bin`, `/bin` or `/usr/local/bin`, never
   `PATH`, and gets only `DBUS_SESSION_BUS_ADDRESS` (or `unix:path=$XDG_RUNTIME_DIR/bus` when that
   socket exists), `XDG_RUNTIME_DIR`, `HOME` and `LANG=C`. It stores what it reads on standard input
@@ -471,6 +474,15 @@ and fakes for the system tools; the Mac's tests a Keychain service of their own)
   `%XX` (`acme%2Fpassword.cred`); `--name` seals the name in, so a renamed file does not decrypt.
   Values go over standard input and output (`encrypt|decrypt --name=… [--user] - -`, `--newline=no`),
   the result is written atomically. The version comes from `systemd-creds --version`; 30 s timeout.
+  For `--user`, systemd's credential service does the encryption, so systemd must be running as the
+  service manager (`/run/systemd/system` exists, as `sd_booted` checks): in a container without
+  systemd as init the store is unavailable without a round trip, and every use fails saying so. It is
+  available only once a throwaway value (`probe` and a random UUID, under the name
+  `passtunnel-probe`) went through `encrypt` and `decrypt` over standard input and output and came
+  back unchanged, within 10 s each; nothing is written. A probe that worked is not repeated in that
+  process. For root, whose system key is the host key (and the TPM2), the probe is all there is: the
+  first one may make the host key, `/var/lib/systemd/credential.secret`, as the first secret saved
+  would.
 - **file.** `"PTSF"`, version 1, KDF 1 (scrypt), log2 N, r, p, a 32-byte salt and a 12-byte nonce (53
   bytes, all of it the AES-GCM additional data), then the ciphertext of the JSON object account →
   value (Base64) and the 16-byte tag. The salt and parameters are fixed when the file is made (files
@@ -588,7 +600,8 @@ and fakes for the system tools; the Mac's tests a Keychain service of their own)
 
 FortiGate IPsec/IKEv2 is out of scope: its one-time-code prompts use extensions only FortiClient
 implements. Cisco AnyConnect through OpenConnect (#2, Phase 1) runs on Linux since #187: see
-[Cisco AnyConnect](#cisco-anyconnect) below.
+[Cisco AnyConnect](#cisco-anyconnect) below. Palo Alto GlobalProtect (Phase 2) is designed (#226):
+[Palo Alto GlobalProtect](#palo-alto-globalprotect).
 
 ## Cisco AnyConnect
 
@@ -760,6 +773,47 @@ when asked.
   cut its connection, and the daemon's revert after a SIGKILL of openconnect
   (`Tests/ocserv/tunnel-test.sh`, only with `PASSTUNNEL_TEST_OCSERV=1`). That workflow is the exception
   to "tests never start a tunnel" (Rules), marked like `RealSecretServiceTests`.
+
+## Palo Alto GlobalProtect
+
+**Design only (#226).** The design is in [ARCHITECTURE.md](ARCHITECTURE.md#palo-alto-globalprotect-backend); on Linux
+everything of [Cisco AnyConnect](#cisco-anyconnect) above applies (the tool's paths and checks, the sign-in as the user,
+`prepareOpenConnect`, `MaskingCopier`, the `vpn-hook` mode, `LinuxOpenConnectSystem`, DNS, supervision, the revert after
+a kill), with these differences (G7). The type is labelled experimental here too (`passtunnel`'s output, ARCHITECTURE.md,
+"Experimental").
+
+- **Minimum 9.11 for this type**, checked like AnyConnect's 9.01 (`ToolSpec` per type, the daemon before the start and
+  `AnyConnectSignIn.distributionTool`'s counterpart before the code is used): "openconnect 9.01 is too old for Palo Alto
+  GlobalProtect: PassTunnel needs 9.11 or later. Update the openconnect package." The reasons, from openconnect's sources:
+  9.01 cannot read a challenge wrapped in HTML (`gpst.c` 309–316 came with 9.10, openconnect issue 495), so a gateway that
+  asks for the code that way fails the sign-in; 9.10 left ESP not working (fixed in 9.11). Packaged on 2026-10-27:
+  Ubuntu 24.04 and 26.04, Debian 13, Fedora and EPEL 10 have 9.12 (supported); Debian 12 and EPEL 9 have 9.01 (Cisco
+  AnyConnect only); Ubuntu 22.04's 8.20 neither. CI tests 9.12.
+- **IPv6 before 9.20.** openconnect 9.01–9.12 take only `access-routes` as split includes and every other route list,
+  `access-routes-v6` included, as excludes (`gpst.c` 532 in 9.12; fixed in 9.20 by openconnect commit 64f0c03d).
+  With an IPv6 address the hook would then send all IPv6 into the tunnel except the networks the gateway meant for it.
+  So with
+  those versions both GlobalProtect files get `disable-ipv6` (the daemon decides it from the version it checked; the
+  sign-in from its own check of the same tool): no IPv6 address is taken and `ipv6-support=no` is sent, so the hook
+  blocks IPv6 in a full tunnel and leaves it alone in a split one. 9.20 and later (the Mac's 9.21) carry IPv6 as for
+  Cisco AnyConnect. 9.12 also uses an IPv6 ESP address only with an IPv6 client address (`gpst.c` 604–609 in 9.12), so
+  with IPv6 off a gateway that sends both falls back to the TLS tunnel; it works, more slowly.
+- **Single sign-on.** 9.12 sends no `cas-support` and its command-line tool opens no browser for GlobalProtect, so SAML is
+  refused the same way as on the Mac (its error line reads `:field_name`); `no-external-auth` is rendered where
+  `openconnect --help` lists it, as for AnyConnect.
+- **Gateway order.** Before 9.20 openconnect does not sort a portal's gateways by the region's priority; it does not
+  matter here, since a portal with more than one gateway needs the profile's `gateway` anyway.
+- **DNS.** A gateway's `dns-suffix` entries are default domains (GlobalProtect has no split-DNS list): with
+  systemd-resolved they are search and routing domains of the tunnel's link in a split tunnel, as AnyConnect's
+  `CISCO_DEF_DOMAIN`; the other backends send every name through the tunnel, as before.
+- **Protocol 5.** `passtunneld`'s `hello` reports 5 with the helper; a daemon of protocol 4 refuses a client of 5 (and
+  the other way round) with the version message, so the CLI and the daemon come from the same package. Until G7 the
+  daemon refuses `protocol gp` ("Palo Alto GlobalProtect is not supported by passtunneld yet.") before preparing
+  anything, as #182 did for AnyConnect.
+- **Tests.** The CI jobs' sign-in tests against the GlobalProtect test server (ARCHITECTURE.md, "Tests (G8)") run with
+  Ubuntu's 9.12, `disable-ipv6` rendered; the daemon's tests cover the version gate (a stand-in printing 9.01), the
+  rendered files with and without `disable-ipv6`, and a start against a local socket that never answers, as for
+  AnyConnect. No GlobalProtect tunnel runs in CI (no open-source gateway exists).
 
 ## Rules
 
