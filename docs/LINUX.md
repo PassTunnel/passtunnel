@@ -830,9 +830,10 @@ a kill), with these differences (G7). The type is labelled experimental here too
   for GlobalProtect while AnyConnect keeps 9.01; 9.11 and 9.12 with `disable-ipv6`, 9.20 and 9.21 without; never for
   AnyConnect), and refused requests. The CI job "Cisco AnyConnect in passtunneld (no tunnel)" also starts GlobalProtect
   through the daemon: a stand-in printing 9.01 refused with the message above, then Ubuntu's 9.12 against a local socket
-  that never answers, with `protocol gp` and `disable-ipv6`. The sign-in tests against the GlobalProtect test server
-  (ARCHITECTURE.md, "Tests (G8)") run with Ubuntu's 9.12, `disable-ipv6` rendered. No GlobalProtect tunnel runs in CI (no
-  open-source gateway exists).
+  that never answers, with `protocol gp` and `disable-ipv6`. Sign-in tests against openconnect's GlobalProtect test
+  server (ARCHITECTURE.md, "Tests (G8)") are planned in #235, to run with Ubuntu's 9.12 and `disable-ipv6` rendered;
+  until then the Linux sign-in is tested only with a fake runner, never against a server. No GlobalProtect tunnel runs
+  in CI (no open-source gateway exists).
 
 ## Rules
 

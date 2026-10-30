@@ -629,6 +629,7 @@ jobs:
           grep -qx "cookie $gpcookie" "$gprun/openconnect.conf"
           grep -qx "script $gprun/vpn-hook" "$gprun/openconnect.conf"
           version="$(openconnect --version | sed -n 's/^OpenConnect version v\([0-9]*\.[0-9]*\).*/\1/p' | head -n 1)"
+          if [ -z "$version" ]; then echo "could not read the version of openconnect"; openconnect --version; exit 1; fi
           if [ "$version" != 9.20 ] && [ "$(printf '%s\n9.20\n' "$version" | sort -V | head -n 1)" = "$version" ]; then
             grep -qx 'disable-ipv6' "$gprun/openconnect.conf"
           elif grep -q 'disable-ipv6' "$gprun/openconnect.conf"; then
