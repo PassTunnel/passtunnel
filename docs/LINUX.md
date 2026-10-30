@@ -600,7 +600,8 @@ and fakes for the system tools; the Mac's tests a Keychain service of their own)
 
 FortiGate IPsec/IKEv2 is out of scope: its one-time-code prompts use extensions only FortiClient
 implements. Cisco AnyConnect through OpenConnect (#2, Phase 1) runs on Linux since #187: see
-[Cisco AnyConnect](#cisco-anyconnect) below.
+[Cisco AnyConnect](#cisco-anyconnect) below. Palo Alto GlobalProtect (Phase 2) is designed (#226):
+[Palo Alto GlobalProtect](#palo-alto-globalprotect).
 
 ## Cisco AnyConnect
 
@@ -772,6 +773,46 @@ when asked.
   cut its connection, and the daemon's revert after a SIGKILL of openconnect
   (`Tests/ocserv/tunnel-test.sh`, only with `PASSTUNNEL_TEST_OCSERV=1`). That workflow is the exception
   to "tests never start a tunnel" (Rules), marked like `RealSecretServiceTests`.
+
+## Palo Alto GlobalProtect
+
+**Design only (#226).** The design is in [ARCHITECTURE.md](ARCHITECTURE.md#palo-alto-globalprotect-backend); on Linux
+everything of [Cisco AnyConnect](#cisco-anyconnect) above applies (the tool's paths and checks, the sign-in as the user,
+`prepareOpenConnect`, `MaskingCopier`, the `vpn-hook` mode, `LinuxOpenConnectSystem`, DNS, supervision, the revert after
+a kill), with these differences (G7):
+
+- **Minimum 9.11 for this type**, checked like AnyConnect's 9.01 (`ToolSpec` per type, the daemon before the start and
+  `AnyConnectSignIn.distributionTool`'s counterpart before the code is used): "openconnect 9.01 is too old for Palo Alto
+  GlobalProtect: PassTunnel needs 9.11 or later. Update the openconnect package." The reasons, from openconnect's sources:
+  9.01 cannot read a challenge wrapped in HTML (`gpst.c` 309–316 came with 9.10, openconnect issue 495), so a gateway that
+  asks for the code that way fails the sign-in; 9.10 left ESP not working (fixed in 9.11). Packaged on 2026-10-27:
+  Ubuntu 24.04 and 26.04, Debian 13, Fedora and EPEL 10 have 9.12 (supported); Debian 12 and EPEL 9 have 9.01 (Cisco
+  AnyConnect only); Ubuntu 22.04's 8.20 neither. CI tests 9.12.
+- **IPv6 before 9.20.** openconnect 9.01–9.12 take only `access-routes` as split includes and every other route list,
+  `access-routes-v6` included, as excludes (`gpst.c` 532 in 9.12; fixed in 9.20 by openconnect commit 64f0c03d).
+  With an IPv6 address the hook would then send all IPv6 into the tunnel except the networks the gateway meant for it.
+  So with
+  those versions both GlobalProtect files get `disable-ipv6` (the daemon decides it from the version it checked; the
+  sign-in from its own check of the same tool): no IPv6 address is taken and `ipv6-support=no` is sent, so the hook
+  blocks IPv6 in a full tunnel and leaves it alone in a split one. 9.20 and later (the Mac's 9.21) carry IPv6 as for
+  Cisco AnyConnect. 9.12 also uses an IPv6 ESP address only with an IPv6 client address (`gpst.c` 604–609 in 9.12), so
+  with IPv6 off a gateway that sends both falls back to the TLS tunnel; it works, more slowly.
+- **Single sign-on.** 9.12 sends no `cas-support` and its command-line tool opens no browser for GlobalProtect, so SAML is
+  refused the same way as on the Mac (its error line reads `:field_name`); `no-external-auth` is rendered where
+  `openconnect --help` lists it, as for AnyConnect.
+- **Gateway order.** Before 9.20 openconnect does not sort a portal's gateways by the region's priority; it does not
+  matter here, since a portal with more than one gateway needs the profile's `gateway` anyway.
+- **DNS.** A gateway's `dns-suffix` entries are default domains (GlobalProtect has no split-DNS list): with
+  systemd-resolved they are search and routing domains of the tunnel's link in a split tunnel, as AnyConnect's
+  `CISCO_DEF_DOMAIN`; the other backends send every name through the tunnel, as before.
+- **Protocol 5.** `passtunneld`'s `hello` reports 5 with the helper; a daemon of protocol 4 refuses a client of 5 (and
+  the other way round) with the version message, so the CLI and the daemon come from the same package. Until G7 the
+  daemon refuses `protocol gp` ("Palo Alto GlobalProtect is not supported by passtunneld yet.") before preparing
+  anything, as #182 did for AnyConnect.
+- **Tests.** The CI jobs' sign-in tests against the GlobalProtect test server (ARCHITECTURE.md, "Tests (G8)") run with
+  Ubuntu's 9.12, `disable-ipv6` rendered; the daemon's tests cover the version gate (a stand-in printing 9.01), the
+  rendered files with and without `disable-ipv6`, and a start against a local socket that never answers, as for
+  AnyConnect. No GlobalProtect tunnel runs in CI (no open-source gateway exists).
 
 ## Rules
 
