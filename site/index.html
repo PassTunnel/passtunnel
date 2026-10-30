@@ -9,14 +9,14 @@
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
 <title>PassTunnel: connect your VPN without typing one-time codes</title>
-<meta name="description" content="PassTunnel is a free, open-source macOS app for OpenVPN, FortiGate SSL VPN and Cisco AnyConnect. It keeps your TOTP secret in the Keychain and sends the current one-time code with your password when you click Connect.">
+<meta name="description" content="PassTunnel is a free, open-source macOS app for OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect (experimental). It keeps your TOTP secret in the Keychain and sends the current one-time code with your password when you click Connect.">
 <link rel="canonical" href="https://passtunnel.github.io/">
 <link rel="icon" type="image/png" sizes="64x64" href="assets/img/favicon.png">
 <link rel="apple-touch-icon" href="assets/img/apple-touch-icon.png">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="PassTunnel">
 <meta property="og:title" content="PassTunnel: connect your VPN without typing one-time codes">
-<meta property="og:description" content="Free, open-source macOS app for OpenVPN, FortiGate SSL VPN and Cisco AnyConnect. Your TOTP secret stays in the Keychain; PassTunnel sends the current code with your password.">
+<meta property="og:description" content="Free, open-source macOS app for OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect (experimental). Your TOTP secret stays in the Keychain; PassTunnel sends the current code with your password.">
 <meta property="og:url" content="https://passtunnel.github.io/">
 <meta property="og:image" content="https://passtunnel.github.io/assets/img/og.png">
 <meta property="og:image:width" content="1200">
@@ -25,7 +25,7 @@
 <meta property="og:locale" content="en_US">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="PassTunnel: connect your VPN without typing one-time codes">
-<meta name="twitter:description" content="Free, open-source macOS app for OpenVPN, FortiGate SSL VPN and Cisco AnyConnect. Your TOTP secret stays in the Keychain; PassTunnel sends the current code with your password.">
+<meta name="twitter:description" content="Free, open-source macOS app for OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect (experimental). Your TOTP secret stays in the Keychain; PassTunnel sends the current code with your password.">
 <meta name="twitter:image" content="https://passtunnel.github.io/assets/img/og.png">
 <meta name="twitter:image:alt" content="PassTunnel: Connect your VPN without ever typing a one-time code again. The main window lists the VPN profiles and shows the selected one with its live code and what the server receives.">
 <link rel="alternate" type="text/plain" href="llms.txt" title="llms.txt">
@@ -98,7 +98,7 @@
 
 <section class="hero" aria-labelledby="hero-title">
   <div class="hero-intro">
-    <p class="pill-eyebrow">For OpenVPN, FortiGate SSL VPN and Cisco AnyConnect on macOS</p>
+    <p class="pill-eyebrow">For OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect on macOS</p>
     <h1 id="hero-title">Connect your VPN without ever typing a one-time code again.</h1>
     <p class="hero-sub">PassTunnel keeps your TOTP secret in the macOS Keychain, computes the current code and sends it with your password when you click Connect.</p>
     <div class="hero-ctas">
@@ -226,7 +226,7 @@
               <p class="fmt-row"><span class="fmt-row-label">Password</span><span class="fmt-row-value seg-pw"><span aria-hidden="true">••••••••</span><span class="sr-only">your password</span></span></p>
               <p class="fmt-row"><span class="fmt-row-label">One-time code</span><span class="fmt-row-value seg-code">482913</span></p>
             </div>
-            <p class="fmt-note">In its own field: the OpenVPN static challenge, the FortiGate OTP field or Cisco AnyConnect’s second password field.</p>
+            <p class="fmt-note">In its own field: the OpenVPN static challenge, the FortiGate OTP field or the second password field of Cisco AnyConnect and Palo Alto GlobalProtect.</p>
           </div>
         </div>
       </article>
@@ -270,7 +270,7 @@
         <p class="eyebrow">VPN client</p>
         <h2 class="h2" id="client-title">A complete VPN client. Nothing else to install.</h2>
       </div>
-      <p class="lead">OpenVPN, FortiGate SSL VPN and Cisco AnyConnect, with signed <code>openvpn</code>, <code>openfortivpn</code> and <code>openconnect</code> bundled inside the app.</p>
+      <p class="lead">OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect (experimental), with signed <code>openvpn</code>, <code>openfortivpn</code> and <code>openconnect</code> bundled inside the app.</p>
     </div>
 
     <article class="card card-soft mb-card">
@@ -443,7 +443,7 @@
         <p class="eyebrow">Install</p>
         <h2 class="h2" id="install-title">Three ways in.</h2>
       </div>
-      <p class="lead">macOS 13 or later on Apple silicon (Cisco AnyConnect needs macOS 15.4). Free and open source under the MIT license.</p>
+      <p class="lead">macOS 13 or later on Apple silicon (Cisco AnyConnect and Palo Alto GlobalProtect need macOS 15.4). Free and open source under the MIT license.</p>
     </div>
 
     <div class="grid-cards install-grid">
@@ -505,7 +505,7 @@
       </details>
       <details class="faq-item">
         <summary><span>Which VPN types does it support?</span><span class="faq-toggle" aria-hidden="true"><svg class="icon icon-bold" width="16" height="16"><use href="#i-plus"/></svg></span></summary>
-        <p class="faq-body">OpenVPN, FortiGate SSL VPN and Cisco AnyConnect. Signed <code>openvpn</code>, <code>openfortivpn</code> and <code>openconnect</code> are bundled, so there is nothing else to install, and you can connect several VPNs at once. Cisco AnyConnect signs in with a password and a one-time code and needs macOS 15.4 or later; sign-in through a web browser (SAML), host scan, client certificates and RSA SecurID are not supported.</p>
+        <p class="faq-body">OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect. Signed <code>openvpn</code>, <code>openfortivpn</code> and <code>openconnect</code> are bundled, so there is nothing else to install, and you can connect several VPNs at once. Cisco AnyConnect signs in with a password and a one-time code and needs macOS 15.4 or later; sign-in through a web browser (SAML), host scan, client certificates and RSA SecurID are not supported. Palo Alto GlobalProtect is experimental: it signs in to the portal and the gateway with a password and a one-time code (macOS 15.4 or later), without single sign-on, client certificates or the host information report (HIP, which is never sent), and has only been tested against openconnect’s own test server. If you use it, please <a href="https://github.com/PassTunnel/passtunnel/issues/new?template=globalprotect_report.md">tell us how it works</a>.</p>
       </details>
       <details class="faq-item">
         <summary><span>Does it work without TOTP?</span><span class="faq-toggle" aria-hidden="true"><svg class="icon icon-bold" width="16" height="16"><use href="#i-plus"/></svg></span></summary>
@@ -521,7 +521,7 @@
     <div class="cta-inner">
       <img class="cta-icon" src="assets/img/app-icon-72.webp" srcset="assets/img/app-icon-72.webp 1x, assets/img/app-icon-72@2x.webp 2x" width="72" height="72" alt="" loading="lazy" decoding="async">
       <h2 id="cta-title">Click Connect. Keep your phone in your pocket.</h2>
-      <p>Free and open source under the MIT license. macOS 13+ on Apple silicon (Cisco AnyConnect needs 15.4).</p>
+      <p>Free and open source under the MIT license. macOS 13+ on Apple silicon (Cisco AnyConnect and Palo Alto GlobalProtect need 15.4).</p>
       <div class="cta-buttons">
         <a class="btn btn-primary btn-lg" href="https://github.com/PassTunnel/passtunnel/releases/latest/download/PassTunnel.dmg">
           <svg class="icon icon-bold" width="19" height="19" aria-hidden="true"><use href="#i-download"/></svg>
@@ -558,7 +558,7 @@
         </ul>
       </nav>
     </div>
-    <p class="legal">PassTunnel is not affiliated with OpenVPN Inc., Fortinet or Cisco. OpenVPN, FortiGate and Cisco AnyConnect are trademarks of their respective owners.</p>
+    <p class="legal">PassTunnel is not affiliated with OpenVPN Inc., Fortinet, Cisco or Palo Alto Networks. OpenVPN, FortiGate, Cisco AnyConnect and Palo Alto GlobalProtect are trademarks of their respective owners.</p>
   </div>
 </footer>
 
