@@ -202,6 +202,7 @@ struct ProfileEditorView: View {
             case .openvpn: configurationRow
             case .forti: fortiRows
             case .anyconnect: anyConnectRows
+            case .globalprotect: EmptyView()  // not edited by this version (`VPNType.isConnectable`)
             }
 
             if model.usesCredentials {
@@ -612,7 +613,7 @@ struct ProfileEditorView: View {
             return String(localized: "The code is sent as the answer to the server’s challenge prompt (static-challenge), not inside the password.")
         case .forti:
             return String(localized: "The code is sent in the gateway’s own one-time code field, after the password.")
-        case .anyconnect:
+        case .anyconnect, .globalprotect:
             return String(localized: "The code is sent as the answer to the server’s next prompt, after the password.")
         }
     }
@@ -727,7 +728,7 @@ struct ProfileEditorView: View {
         EditorRow(Text("Type")) {
             if model.allowsTypeChange {
                 Picker("Type", selection: Binding(get: { p.type }, set: { model.changeType($0) })) {
-                    ForEach(VPNType.allCases, id: \.self) { type in
+                    ForEach(VPNType.connectable, id: \.self) { type in
                         // A type this Mac cannot connect is listed, disabled, with the reason (macOS 15.4).
                         if let note = model.typeRefusal(type)?.unavailableNote {
                             Text(verbatim: "\(Self.typeName(type)) – \(note)").tag(type).disabled(true)
@@ -956,7 +957,7 @@ struct ProfileEditorView: View {
         switch type {
         case .openvpn: return "OpenVPN"  // product names stay untranslated
         case .forti: return "FortiGate SSL VPN"
-        case .anyconnect: return "Cisco AnyConnect"
+        case .anyconnect, .globalprotect: return type.displayName
         }
     }
 

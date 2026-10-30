@@ -202,6 +202,7 @@ final class EditorModel: ObservableObject {
             case .openvpn: return String(localized: "New OpenVPN Profile")
             case .forti: return String(localized: "New FortiGate Profile")
             case .anyconnect: return String(localized: "New Cisco AnyConnect Profile")
+            case .globalprotect: return String(localized: "New Palo Alto GlobalProtect Profile")
             }
         }
         return String(localized: "Edit “\(draft.name)”")
@@ -331,6 +332,8 @@ final class EditorModel: ObservableObject {
             }
             if let message = AnyConnectEditing.groupProblem(p.authgroup) { e[.authgroup] = message }
             if let message = AnyConnectEditing.pinProblem(p.serverCert) { e[.serverCert] = message }
+        case .globalprotect:
+            break  // not edited by this version (`VPNType.isConnectable`: the editor is refused)
         }
 
         if p.sessionLimitMin < 0 { e[.sessionLimit] = String(localized: "The session limit cannot be negative.") }

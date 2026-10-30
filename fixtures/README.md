@@ -2,8 +2,8 @@
 
 The behavior the Mac app, the iPhone app and the Android app share, as JSON cases: TOTP codes,
 `otpauth://` links, code formats, OpenVPN configs, `.passtunnel` share files, profile identifiers,
-profile fields and merging, what a save writes back to `profile.json`, Cisco AnyConnect server URLs
-([docs/MOBILE.md](../docs/MOBILE.md), "Shared logic").
+profile fields and merging, what a save writes back to `profile.json`, Cisco AnyConnect server URLs and Palo Alto
+GlobalProtect portal addresses ([docs/MOBILE.md](../docs/MOBILE.md), "Shared logic").
 
 - `swift test` runs every case against `PassTunnelKit` (`Tests/PassTunnelKitTests/FixtureTests.swift`),
   so the files are always what the Mac app does.
@@ -39,9 +39,10 @@ A failure is the output `error`: `{"kind": "…", "detail": "…"}`, `detail` on
 Conventions: times are seconds since 1970 (fractions and negative values allowed); bytes are lower-case
 hex (`secret_hex`, `hex`) or Base64 (`binary_files`); profiles use the keys of `profile.json`
 (snake_case, see [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md), "Model"), and a profile in an output
-lists every field; `null` is "none". `type` is `openvpn`, `forti` or `anyconnect` (Cisco AnyConnect); the keys
-`usergroup`, `authgroup`, `server_cert` and `tls_only` are a Cisco AnyConnect profile's alone and are listed only for
-that type (a file of another type that has them decodes without them). Keys starting with `future_` stand for keys a
+lists every field; `null` is "none". `type` is `openvpn`, `forti`, `anyconnect` (Cisco AnyConnect) or `globalprotect`
+(Palo Alto GlobalProtect); the keys `usergroup` and `authgroup` are a Cisco AnyConnect profile's alone, `gateway`,
+`skip_portal` and `gateway_server_cert` a Palo Alto GlobalProtect profile's alone, and `server_cert` and `tls_only`
+belong to both; each is listed only for its types (a file of another type that has them decodes without them). Keys starting with `future_` stand for keys a
 newer version added ([docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md), "Keys of a newer version"): a profile in an output lists
 them where they are kept. Invisible characters (BOM, no-break space, zero-width space, NUL
 and other control characters, line separator) are written as `\uXXXX` escapes. Example hosts and names follow the repository's rules (`vpn.example.com`,
@@ -58,7 +59,7 @@ and other control characters, line separator) are written as `\uXXXX` escapes. E
 | `otpauth.json` | `parse` | `uri` | `label`, `account`, `issuer`, `secret_hex`, `digits`, `period`, `algorithm`, or `error` | `OTPAuthURI` |
 | `codes.json` | `presets` | `preset` | `template` | `OTPTemplatePreset` |
 | | `validate_template` | `template` | `valid: true` or `error` | `OTPComposer.validate` |
-| | `compose` | `password`, `otp` (or `null`), `delivery`, `template`, `type` | `secret` (what is sent as the password), `separate_otp` (FortiGate's code field, Cisco AnyConnect's second answer, or `null`) | `OTPComposer.compose` |
+| | `compose` | `password`, `otp` (or `null`), `delivery`, `template`, `type` | `secret` (what is sent as the password), `separate_otp` (FortiGate's code field, Cisco AnyConnect's and Palo Alto GlobalProtect's second answer, or `null`) | `OTPComposer.compose` |
 | `ovpn-sanitizer.json` | `tokens` | `line` | `tokens` (`[]` for blank and comment lines, `null` for lines OpenVPN rejects) | `OVPNSanitizer.tokens(of:)` |
 | | `sanitize` | `config` | `output` (the config to run; unchanged unless something is stripped), or `violations` (`line`, `directive`, `reason`; line 0 is the file as a whole, a config without any `remote`) | `OVPNSanitizer.sanitize` |
 | | `verbosity` | `config` | `verb` (or `null`) | `OVPNSanitizer.verbosity(of:)` |
@@ -68,7 +69,7 @@ and other control characters, line separator) are written as `\uXXXX` escapes. E
 | | `strip_credentials` | `config`, `blocks` (optional; default both) | `output`, `username`, `password`, `removed` (sorted) | `OVPNInliner.strippingCredentials` |
 | `ovpn-import.json` | `review` | `config`, `files`, `binary_files` (as `inline`) | `stored` (the config an import stores, `null` when a line blocks it), `skipped` and `blocking` (`line` of the file as given, `directive`, `text`, `reason`: a skip reason code or the sanitizer's words), `servers` (`host`, `port`, `tcp`), `certificates` (`name`, `file` or `null`), `password_mode`, `otp_mode`, `otp_delivery`, `username`, `password`, `needs`; or `error` | `OVPNImportReport.make` |
 | `share-files.json` | `decode` | `file` (the file's JSON; a string is the raw text) | `profile` (every field), `files` (name → text), or `error` | `ShareFile.decode` |
-| | `encode` | `profile` (missing fields take their defaults), `files` (name → text) | `file` (the JSON written; `files` in Base64; `passtunnel_profile` 2 for a Cisco AnyConnect profile, 1 otherwise) | `ShareFile.data` |
+| | `encode` | `profile` (missing fields take their defaults), `files` (name → text) | `file` (the JSON written; `files` in Base64; `passtunnel_profile` 2 for a Cisco AnyConnect or Palo Alto GlobalProtect profile, 1 otherwise) | `ShareFile.data` |
 | `slugs.json` | `make` | `profile_name`, `max_length` (optional, default 24) | `id` | `Slug.make` |
 | | `suffixed` | `base`, `n` | `id` | `Slug.suffixed` |
 | | `is_valid` | `id` | `valid` | `Slug.isValid` |
@@ -76,6 +77,7 @@ and other control characters, line separator) are written as `\uXXXX` escapes. E
 | `profile-json.json` | `save` | `stored` (the `profile.json` read), `type` (optional: the type it is changed to), `set` (optional: `key`/`value` pairs set in order, as `passtunnel set`) | `saved` (the `profile.json` written: every field, and the keys a newer version added unless the type changed), or `error` | `Profile` coding, `ProfileFields.set` |
 | `profile-fields.json` | `set` | `type`, `key`, `value` (on a new profile `acme`) | `canonical_key`, `stored` (the value as `passtunnel show` prints it), or `error` | `ProfileFields.set` |
 | `anyconnect-servers.json` | `parse` | `url` (what the user pastes) | `server`: `host`, `port`, `usergroup`, or `null` when it is refused | `AnyConnectServer.parse` |
+| `globalprotect-servers.json` | `parse` | `url` (what the user pastes) | `server`: `host`, `port`, or `null` when it is refused (a path too) | `GlobalProtectServer.parse` |
 
 `inline`, `prepare` and `review` write `files` and `binary_files` into a new temporary folder: the
 config's folder is `config/` in it, so `../shared/ca.crt` is a file next to that folder. Paths are always

@@ -823,6 +823,16 @@
         }
       }
     },
+    "Palo Alto GlobalProtect requires macOS %@ or later." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Palo Alto GlobalProtect için macOS %@ veya üstü gerekir."
+          }
+        }
+      }
+    },
     "Connect again to use it." : {
       "localizations" : {
         "tr" : {
@@ -7370,6 +7380,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Yeni Cisco AnyConnect Profili"
+          }
+        }
+      }
+    },
+    "New Palo Alto GlobalProtect Profile" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni Palo Alto GlobalProtect Profili"
           }
         }
       }

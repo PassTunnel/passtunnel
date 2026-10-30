@@ -22,9 +22,9 @@ VPN talks only to the user's VPN server). FortiGate is not on either phone for n
 library we may use under MIT, and FortiOS 7.6.3 removed SSL VPN tunnel mode altogether. It is
 revisited after the Android VPN ships. Cisco AnyConnect (type `anyconnect`, in share files of version 2)
 is not on either phone either: the shared model reads and keeps such a profile and its keys (the
-fixtures), and the phones do not connect it. Palo Alto GlobalProtect (type `globalprotect`, planned in
-#226, also in share files of version 2) is handled the same way once the shared model knows it: read and
-kept with its keys, not connected ([GlobalProtect profiles](#globalprotect-profiles)).
+fixtures), and the phones do not connect it. Palo Alto GlobalProtect (type `globalprotect`, designed in
+#226, in `PassTunnelKit` since #229, also in share files of version 2) is handled the same way once a port's model
+knows it: read and kept with its keys, not connected ([GlobalProtect profiles](#globalprotect-profiles)).
 
 ## Shared logic
 
@@ -54,7 +54,8 @@ until then the Kotlin port is simpler and safer.
 
 ### GlobalProtect profiles
 
-Planned (#226; the Mac's side is G2 in [ARCHITECTURE.md](ARCHITECTURE.md#profile-g2)). What the ports follow:
+Designed in #226; the Mac's side is G2 in [ARCHITECTURE.md](ARCHITECTURE.md#profile-g2), in `PassTunnelKit` since
+#229 (the golden cases below are in `fixtures/`). What the ports follow:
 
 - **Before a port knows the type**, a `globalprotect` profile or share file is a VPN type it does not know: kept as
   it is, listed as needing a newer PassTunnel, refused everywhere but delete (above). Nothing else is needed for
@@ -69,7 +70,7 @@ Planned (#226; the Mac's side is G2 in [ARCHITECTURE.md](ARCHITECTURE.md#profile
   or reads a cookie: the keys are stored, shown, edited and shared only. Where a port names the type it adds the same
   "Experimental" label, from `VPNType.isExperimental` (iPhone, through the Kit) or a Kotlin constant that mirrors it,
   dropped together when the Mac drops it.
-- **Golden cases** land in `fixtures/` with the Mac's G2, before any port changes: `share-files.json` (decode and
+- **Golden cases** are in `fixtures/` since the Mac's G2, before any port changes: `share-files.json` (decode and
   encode, version 2, the type's keys dropped on another type and AnyConnect's on this one), `profile-json.json` (what a
   save writes back, a change of the type), `profile-fields.json` (setting `gateway`, `skip_portal`,
   `gateway_server_cert`; `wrong_profile_type` on another type), `codes.json` (`compose` for this type) and

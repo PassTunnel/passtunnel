@@ -2,12 +2,21 @@ import Foundation
 import PassTunnelVPNConfig
 
 /// `anyconnect`: Cisco AnyConnect through openconnect (docs/ARCHITECTURE.md, "Cisco AnyConnect backend").
+/// `globalprotect`: Palo Alto GlobalProtect through the same openconnect ("Palo Alto GlobalProtect backend").
 public enum VPNType: String, Codable, CaseIterable {
-    case openvpn, forti, anyconnect
+    case openvpn, forti, anyconnect, globalprotect
 
-    /// How a new profile of this type sends the code: on its own for FortiGate (the `otp` field) and Cisco
-    /// AnyConnect (a second answer), with the password (`otpTemplate`) for OpenVPN.
+    /// How a new profile of this type sends the code: on its own for FortiGate (the `otp` field), Cisco
+    /// AnyConnect and Palo Alto GlobalProtect (a second answer), with the password (`otpTemplate`) for OpenVPN.
     public var defaultOTPDelivery: OTPDelivery { self == .openvpn ? .combined : .separate }
+
+    /// Signed in to through openconnect (Cisco AnyConnect, Palo Alto GlobalProtect): its rules for the host,
+    /// the user name, the server pin and the code template.
+    public var usesOpenConnect: Bool { self == .anyconnect || self == .globalprotect }
+
+    /// Shipped labelled experimental (docs/ARCHITECTURE.md, "Experimental"): the one place every front end
+    /// reads the label from. A label only: nothing stores it, and the type works as any other.
+    public var isExperimental: Bool { self == .globalprotect }
 }
 public enum PasswordMode: String, Codable, CaseIterable { case keychain, ask, none }  // none = certificate only
 public enum OTPMode: String, Codable, CaseIterable { case none, totp, ask }
@@ -110,7 +119,7 @@ public struct Profile: Codable, Identifiable, Equatable {
     public var configSourceName: String?
     /// When the current configuration was imported; nil for older profiles.
     public var configImportedAt: Date?
-    // FortiGate and Cisco AnyConnect (`trustedCert` FortiGate only)
+    // FortiGate, Cisco AnyConnect and Palo Alto GlobalProtect (`trustedCert` FortiGate only)
     public var host = ""
     public var port = 443
     public var trustedCert = ""
@@ -121,11 +130,21 @@ public struct Profile: Codable, Identifiable, Equatable {
     public var usergroup = ""
     /// Matched against the server's group list; empty to take the server's default.
     public var authgroup = ""
+    // Cisco AnyConnect and Palo Alto GlobalProtect (written only for those types)
     /// `pin-sha256:` and the full base64 SHA-256 of the server's public key (`OpenConnectPin`, stored
     /// normalized), or empty to verify the server with the system's CAs. Not `trustedCert`: another hash.
+    /// For GlobalProtect the portal's key (or, with `skipPortal`, the only server's).
     public var serverCert = ""
-    /// TLS only (openconnect's `no-dtls`); DTLS is used by default.
+    /// TLS only (openconnect's `no-dtls`); DTLS (for GlobalProtect: ESP) is used by default.
     public var tlsOnly = false
+    // Palo Alto GlobalProtect only (written only for that type)
+    /// The gateway's label as the portal lists it (rendered as openconnect's `authgroup`); empty to take the
+    /// portal's only gateway.
+    public var gateway = ""
+    /// Sign in to `host` as a gateway (the URL path `gateway`), without the portal.
+    public var skipPortal = false
+    /// The gateway's pin when its key is not the portal's (`OpenConnectPin`, stored normalized), or empty.
+    public var gatewayServerCert = ""
     /// The keys of the stored file this version does not know (a newer version added them), written back
     /// unchanged by every save; never in share files.
     public internal(set) var unknownKeys = UnknownProfileKeys()
@@ -149,7 +168,7 @@ public struct Profile: Codable, Identifiable, Equatable {
 
     /// Throws `PTError.usernameTooLong` for a FortiGate user name (trimmed, as it is sent) longer than
     /// openfortivpn keeps: it would cut the name off and the sign-in would fail without a reason. For Cisco
-    /// AnyConnect, `PTError.invalidField("username")` for one that is not a value of openconnect's config file
+    /// AnyConnect and Palo Alto GlobalProtect, `PTError.invalidField("username")` for one that is not a value of openconnect's config file
     /// (`OpenConnectAuthConfig.isValidUsername`: at most 255 bytes, no control character). Empty is fine (asked
     /// each time).
     public static func checkUsername(_ username: String, type: VPNType) throws {
@@ -160,14 +179,14 @@ public struct Profile: Codable, Identifiable, Equatable {
             guard sent.utf8.count <= FortiConfig.maxUsernameBytes else {
                 throw PTError.usernameTooLong(maxBytes: FortiConfig.maxUsernameBytes)
             }
-        case .anyconnect:
+        case .anyconnect, .globalprotect:
             guard sent.isEmpty || OpenConnectAuthConfig.isValidUsername(sent) else { throw PTError.invalidField("username") }
         }
     }
 
     /// Throws `PTError.invalidField` for a gateway host (`host`) or health-check host (`health_host`)
     /// that is set but not usable: one with a port, a scheme, whitespace or control characters (Cisco
-    /// AnyConnect: also an IPv6 zone id, which a URL cannot carry). Both are checked exactly as stored,
+    /// AnyConnect and Palo Alto GlobalProtect: also an IPv6 zone id, which a URL cannot carry). Both are checked exactly as stored,
     /// because that is what connecting and probing use.
     public func checkHosts() throws {
         if !host.isEmpty, !Self.isValidHost(host, type: type) { throw PTError.invalidField("host") }
@@ -176,7 +195,7 @@ public struct Profile: Codable, Identifiable, Equatable {
 
     /// A gateway host as `type` takes it (not empty).
     public static func isValidHost(_ host: String, type: VPNType) -> Bool {
-        type == .anyconnect ? OpenConnectAuthConfig.isValidHost(host) : FortiConfig.isValidHost(host)
+        type.usesOpenConnect ? OpenConnectAuthConfig.isValidHost(host) : FortiConfig.isValidHost(host)
     }
 
     /// Throws `PTError.invalidField` for a Cisco AnyConnect setting openconnect could not be given as stored:
@@ -195,9 +214,28 @@ public struct Profile: Codable, Identifiable, Equatable {
         }
     }
 
+    /// Throws `PTError.invalidField` for a Palo Alto GlobalProtect setting openconnect could not be given as
+    /// stored: `gateway` not by its rule (`OpenConnectAuthConfig.isValidGateway`, AnyConnect's `authgroup`
+    /// rule), `server_cert` or `gateway_server_cert` not a pin in its normalized form, `password_mode` none
+    /// (there is no certificate sign-in), or an `otp_template` that is used and is not one line
+    /// (`isValidAnyConnectTemplate`). Nothing for other types. The host and user name are `checkHosts` and
+    /// `checkUsername`.
+    public func checkGlobalProtectFields() throws {
+        guard type == .globalprotect else { return }
+        if !gateway.isEmpty, !OpenConnectAuthConfig.isValidGateway(gateway) { throw PTError.invalidField("gateway") }
+        if !serverCert.isEmpty, !OpenConnectPin.isValid(serverCert) { throw PTError.invalidField("server_cert") }
+        if !gatewayServerCert.isEmpty, !OpenConnectPin.isValid(gatewayServerCert) {
+            throw PTError.invalidField("gateway_server_cert")
+        }
+        if passwordMode == .none { throw PTError.invalidField("password_mode") }
+        if otpMode != .none, otpDelivery == .combined, !Self.isValidAnyConnectTemplate(otpTemplate) {
+            throw PTError.invalidField("otp_template")
+        }
+    }
+
     /// A code template whose text stays on the one line openconnect reads as the answer
     /// (`OpenConnectAnswers`): at most 4,095 bytes, without LF, CR or NUL. The composed answer, with the
-    /// password and the code, is checked again when it is sent.
+    /// password and the code, is checked again when it is sent. The rule of both openconnect types.
     public static func isValidAnyConnectTemplate(_ template: String) -> Bool {
         let bytes = template.utf8
         return bytes.count <= OpenConnectAnswers.maxLineBytes && !bytes.contains { $0 == 0x0A || $0 == 0x0D || $0 == 0 }
@@ -228,6 +266,7 @@ public struct Profile: Codable, Identifiable, Equatable {
         case sessionLimitMin, autoReconnect, connectAtLogin, healthHost, otpDelivery, otpTemplate
         case mgmtPort, host, port, trustedCert, setRoutes
         case usergroup, authgroup, serverCert, tlsOnly
+        case gateway, skipPortal, gatewayServerCert
         case configSourceName, configImportedAt
         case setDNS = "setDns"  // matches "set_dns" under the snake_case strategies
         case otpFormat  // legacy, read only
@@ -275,6 +314,9 @@ public struct Profile: Codable, Identifiable, Equatable {
         authgroup = c.lenient(String.self, .authgroup) ?? ""
         serverCert = c.lenient(String.self, .serverCert) ?? ""
         tlsOnly = c.lenient(Bool.self, .tlsOnly) ?? false
+        gateway = c.lenient(String.self, .gateway) ?? ""
+        skipPortal = c.lenient(Bool.self, .skipPortal) ?? false
+        gatewayServerCert = c.lenient(String.self, .gatewayServerCert) ?? ""
         configSourceName = c.lenient(String.self, .configSourceName).flatMap { $0.isEmpty ? nil : $0 }
         configImportedAt = c.lenientDate(.configImportedAt)
         unknownKeys = try UnknownProfileKeys.decode(from: decoder, known: Self.knownKeys)
@@ -309,11 +351,13 @@ public struct Profile: Codable, Identifiable, Equatable {
         try put(healthHost, .healthHost); try put(otpDelivery, .otpDelivery); try put(otpTemplate, .otpTemplate)
         try put(mgmtPort, .mgmtPort); try put(host, .host); try put(port, .port)
         try put(trustedCert, .trustedCert); try put(setDNS, .setDNS); try put(setRoutes, .setRoutes)
-        // Only for the type that uses them: OpenVPN and FortiGate files stay as older versions write them.
-        if type == .anyconnect {
-            try put(usergroup, .usergroup); try put(authgroup, .authgroup)
-            try put(serverCert, .serverCert); try put(tlsOnly, .tlsOnly)
+        // Only for the types that use them: OpenVPN, FortiGate and Cisco AnyConnect files stay as older versions
+        // write them.
+        if type == .anyconnect { try put(usergroup, .usergroup); try put(authgroup, .authgroup) }
+        if type == .globalprotect {
+            try put(gateway, .gateway); try put(skipPortal, .skipPortal); try put(gatewayServerCert, .gatewayServerCert)
         }
+        if type.usesOpenConnect { try put(serverCert, .serverCert); try put(tlsOnly, .tlsOnly) }
         if let configSourceName { try put(configSourceName, .configSourceName) }
         if let configImportedAt { try put(Profile.dateFormatter.string(from: configImportedAt), .configImportedAt) }
         // Never in a share file: this version cannot vouch for them in the profile an import creates.

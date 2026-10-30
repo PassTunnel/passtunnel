@@ -243,7 +243,9 @@ public enum PT {
 ```swift
 public enum VPNType: String, Codable, CaseIterable {
     case openvpn, forti, anyconnect   // anyconnect: Cisco AnyConnect (openconnect), macOS 15.4 and later (below)
-    var defaultOTPDelivery: OTPDelivery  // .combined for OpenVPN, .separate for FortiGate and Cisco AnyConnect
+    case globalprotect                // Palo Alto GlobalProtect (the same openconnect), "Profile (G2)" below
+    var defaultOTPDelivery: OTPDelivery  // .combined for OpenVPN, .separate for the other types
+    var isExperimental: Bool             // .globalprotect only: the one source of the label ("Experimental")
 }
 public enum PasswordMode: String, Codable, CaseIterable { case keychain, ask, none }   // none = certificate only
 public enum OTPMode: String, Codable, CaseIterable { case none, totp, ask }
@@ -298,6 +300,11 @@ public struct Profile: Codable, Identifiable, Equatable {
     public var authgroup = ""             // matched against the server's group list
     public var serverCert = ""            // "pin-sha256:…" (OpenConnectPin, normalized) or "" for the system CAs
     public var tlsOnly = false            // openconnect's no-dtls; DTLS by default
+    // serverCert and tlsOnly also Palo Alto GlobalProtect's; written only for these two types
+    // Palo Alto GlobalProtect only; written only for that type
+    public var gateway = ""               // the portal's gateway label, rendered as authgroup
+    public var skipPortal = false         // sign in to host as a gateway (path "gateway")
+    public var gatewayServerCert = ""     // the gateway's pin when its key is not the portal's
     public var configSourceName: String?    // file name the OpenVPN config was imported from
     public var configImportedAt: Date?      // ISO 8601, whole seconds
     public internal(set) var unknownKeys: UnknownProfileKeys   // keys of a newer version, written back (below)
@@ -310,6 +317,7 @@ public struct Profile: Codable, Identifiable, Equatable {
     public static func checkUsername(_: String, type: VPNType) throws   // Forti: usernameTooLong; AnyConnect: invalidField
     public func checkHosts() throws                                     // host (by type), health_host
     public func checkAnyConnectFields() throws                          // usergroup, authgroup, server_cert, password_mode, otp_template
+    public func checkGlobalProtectFields() throws                       // gateway, server_cert, gateway_server_cert, password_mode, otp_template
 }
 public enum AuthRequirement: String, Codable, CaseIterable, Comparable { case off, connect, always }   // ordered
 public enum CredentialField: String, Codable { case username, password, otp }
@@ -382,8 +390,9 @@ with the user name a connect remembers, `setOVPN`, the editor's Save, a `Profile
 default writes only `config.json`. The rules:
 
 - Keys this version knows are never in it, also those it writes only for another type (`usergroup`, `authgroup`,
-  `server_cert` and `tls_only` of an OpenVPN or FortiGate profile are dropped on its next save, as before) and the
-  read-only `otp_format`. Keys inside `totp` are not kept: a newer version adds its keys at the top level.
+  `server_cert` and `tls_only` of an OpenVPN or FortiGate profile are dropped on its next save, as before, and so are
+  `gateway`, `skip_portal` and `gateway_server_cert` of any type but Palo Alto GlobalProtect) and the read-only
+  `otp_format`. Keys inside `totp` are not kept: a newer version adds its keys at the top level.
 - They belong to the type the profile was read with: setting `type` to another type empties `unknownKeys`, so a save
   after a change of the type writes none.
 - `ProfileMerge` compares and merges the known keys only (`changedFields` never lists an unknown one); the merged
@@ -2145,8 +2154,10 @@ openconnect's own reconnect, and kills openconnect to check the daemon's revert 
 ## Palo Alto GlobalProtect backend
 
 **Designed in #226. In place:** the configurations, the cookie and the checks of the sign-in's output in VPNConfig
-(G1, #228); the helper's side, protocol 5 (G3, #230: the Mac's helper starts a GlobalProtect session it is sent,
-`passtunneld` refuses one); no client sends one yet. Phase 2 of #2: Palo Alto GlobalProtect through the same
+(G1, #228); the profiles in PassTunnelKit (G2, #229), kept, checked, set and shared but not connected yet
+([Profile (G2)](#profile-g2)); the helper's side, protocol 5 (G3, #230: the Mac's helper starts a GlobalProtect
+session it is sent, `passtunneld` refuses one); no client sends one yet. Phase 2 of #2: Palo Alto GlobalProtect
+through the same
 openconnect (`protocol gp`), with a password and a TOTP code, no SAML or other single sign-on, on macOS 15.4 and
 later and on Linux, shipped labelled experimental ([Experimental](#experimental-g2-g5-g6-g9)). It reuses the
 [Cisco AnyConnect backend](#cisco-anyconnect-backend) wherever that holds, and this
@@ -2589,7 +2600,18 @@ keeps them for this type only, a type change drops them), `profile-fields.json` 
 AnyConnect) and `globalprotect-servers.json`.
 
 macOS below 15.4: the type is shown and refused exactly as AnyConnect is (#2's owner decision of 2026-10-28, the
-same closure), with "Requires macOS 15.4 or later". Linux: [LINUX.md](LINUX.md#palo-alto-globalprotect).
+same closure), with "Requires macOS 15.4 or later" (`PTError.globalProtectRequiresMacOS`: "Palo Alto GlobalProtect
+requires macOS 15.4 or later.", `config_invalid`, failure kind `tool_unsupported`). Linux:
+[LINUX.md](LINUX.md#palo-alto-globalprotect).
+
+**Until the type connects (G4).** G2 ships the type before anything connects it, as #181 did for Cisco AnyConnect:
+`VPNType.connectable` (Core) is every type but `globalprotect`, and `ConnectionManager.connectRefusal(.globalprotect)`
+is, after the macOS check, `PTError.unsupportedProfileType("globalprotect")` on every system ("needs a newer
+PassTunnel", note "Needs a newer PassTunnel"). So a GlobalProtect profile that arrives in a share file, or is written
+by a newer version, is listed with that `connect_refusal`, shown, set, shared and deleted, and `connect`, the MCP
+`connect`, the app's Connect and editor refuse it before anything is asked, read or sent; `passtunnel add` and the
+app's type lists (the editor's type picker, Add VPN's type question) do not offer the type. `diagnose` reports the
+refusal and the profile's field problems. G4 adds the type to `VPNType.connectable`; G5 and G6 then offer it.
 
 ### Tests (G8)
 

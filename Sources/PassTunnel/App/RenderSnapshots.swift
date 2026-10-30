@@ -299,7 +299,7 @@ enum RenderSnapshots {
         // A profile of a VPN type a newer PassTunnel added (`UnsupportedProfile`): its row under the others, selected.
         let future = "branch-office"
         try? FileIO.makeDirectory(store.dir(future))
-        try? Data(#"{"id": "branch-office", "name": "Branch office", "order": 9, "type": "globalprotect"}"#.utf8)
+        try? Data(#"{"id": "branch-office", "name": "Branch office", "order": 9, "type": "wireguard"}"#.utf8)
             .write(to: store.dir(future).appendingPathComponent("profile.json"))
         model.reload()
         model.selection = future

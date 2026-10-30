@@ -518,7 +518,8 @@ final class CLIRunner {
         switch type {
         case .openvpn: return "OpenVPN"
         case .forti: return "FortiGate"
-        case .anyconnect: return "Cisco AnyConnect"
+        case .anyconnect: return "Cisco AnyConnect"  // as the helper names it (`OpenConnectProtocol.displayName`)
+        case .globalprotect: return "Palo Alto GlobalProtect"
         }
     }
 
@@ -622,6 +623,8 @@ final class CLIRunner {
                 CLITerminal.err(CLITerminal.dim(String(localized: "Next: passtunnel set \(p.id) username=alice")))
             }
             CLITerminal.err(CLITerminal.dim(String(localized: "Save the password with: passtunnel secret \(p.id) password")))
+        case .globalprotect:
+            break  // refused above: not connected by this version yet (`VPNType.isConnectable`)
         }
         return Exit.ok
     }

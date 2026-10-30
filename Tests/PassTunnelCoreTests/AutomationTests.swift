@@ -818,7 +818,7 @@ final class MCPServerTests: XCTestCase {
         XCTAssertNotNil(try properties("connect", [])["connect_refusal"])
         XCTAssertEqual(
             (try properties("list_profiles", ["properties", "profiles", "items"])["type"] as? [String: Any])?["enum"] as? [String],
-            ["openvpn", "forti", "anyconnect"])
+            ["openvpn", "forti", "anyconnect", "globalprotect"])
         // Nothing in the texts offers a way to read a secret or to change a profile.
         for text in descriptions.values { XCTAssertFalse(text.lowercased().contains("password value"), text) }
         XCTAssertEqual(tools.map { $0["name"] as? String }, ["list_profiles", "get_status", "get_logs", "diagnose", "connect", "disconnect"])

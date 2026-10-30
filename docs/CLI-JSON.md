@@ -112,7 +112,8 @@ From `list`, `add`, `import`, `pin`, `unpin` and the MCP tool `list_profiles`.
 }
 ```
 
-`protected`: connecting asks for Touch ID or the Mac password. `type`: `openvpn`, `forti` or `anyconnect`.
+`protected`: connecting asks for Touch ID or the Mac password. `type`: `openvpn`, `forti`, `anyconnect` or
+`globalprotect`.
 `password_mode`: `keychain`, `ask` or `none`; `otp_mode`: `none`, `totp` or `ask`; `require_auth`:
 `off`, `connect` or `always`. `connect_at_login`: the app connects the profile when it opens at login
 (one that asks first gets a notification instead). The MCP tool adds `state` (as in ProfileStatus); `list` does not ask
@@ -145,6 +146,12 @@ and the MCP tool `connect` fail with that error before anything is asked or read
 with it as well. `connect_refusal` is left out when the profile can connect, and for the other types. `status` and
 `show` carry it too ([ProfileStatus](#profilestatus), [Commands](#commands)); `diagnose` reports it among the
 profile's `problems`.
+
+A Palo Alto GlobalProtect profile (`"type" : "globalprotect"`, from a share file or a newer version) is listed the same
+way. This version does not connect it yet, so it always has `connect_refusal`: `Palo Alto GlobalProtect requires
+macOS 15.4 or later.` on an older macOS, otherwise the `config_invalid` error of a type that needs a newer PassTunnel.
+`set` and `show` take its keys (`gateway`, `skip_portal`, `server_cert`, `gateway_server_cert`, `tls_only`, and the
+keys every type has); `add --type globalprotect` is not accepted yet.
 
 ### ProfileStatus
 

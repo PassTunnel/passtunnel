@@ -24,6 +24,18 @@ public struct AnyConnectServer: Equatable, Sendable {
     /// user info (`alice@`), a query or a fragment (`?`, `#`, even empty), percent escapes, whitespace or
     /// control characters inside.
     public static func parse(_ text: String) -> AnyConnectServer? {
+        guard let split = OpenConnectServerAddress.split(text) else { return nil }
+        guard split.path.isEmpty || OpenConnectAuthConfig.isValidUsergroup(split.path) else { return nil }
+        return AnyConnectServer(host: split.host, port: split.port, usergroup: split.path)
+    }
+}
+
+/// The part of a server address both openconnect types share: `[https://]host[:port][/path]`.
+enum OpenConnectServerAddress {
+    /// The lowercased host (an IPv6 literal without its brackets), the port (443 when none) and the path after
+    /// the first `/` as written (empty for none); nil when the scheme, the host or the port is not one by
+    /// `AnyConnectServer.parse`'s rules, or the text has `@ ? # %` anywhere. The path is not checked.
+    static func split(_ text: String) -> (host: String, port: Int, path: String)? {
         var rest = Substring(text.trimmingCharacters(in: .whitespacesAndNewlines))
         guard !rest.isEmpty, !rest.contains(where: { "@?#%".contains($0) }) else { return nil }
         if let schemeEnd = rest.range(of: "://") {
@@ -61,7 +73,6 @@ public struct AnyConnectServer: Equatable, Sendable {
             else { return nil }
             port = p
         }
-        guard path.isEmpty || OpenConnectAuthConfig.isValidUsergroup(String(path)) else { return nil }
-        return AnyConnectServer(host: host.lowercased(), port: port, usergroup: String(path))
+        return (host.lowercased(), port, String(path))
     }
 }

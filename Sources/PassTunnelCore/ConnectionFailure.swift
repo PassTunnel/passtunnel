@@ -121,7 +121,7 @@ public struct ConnectionFailure: Codable, Equatable, Sendable {
         case PTError.toolUnsupported(let reason, _):
             f.kind = .toolUnsupported
             f.reason = reason
-        case PTError.anyConnectRequiresMacOS(let version):
+        case PTError.anyConnectRequiresMacOS(let version), PTError.globalProtectRequiresMacOS(let version):
             f.kind = .toolUnsupported
             f.reason = "requires macOS \(version) or later"
         case PTError.hostScanRequired:

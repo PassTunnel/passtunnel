@@ -116,6 +116,8 @@ public enum ProfileNetwork {
             let current = VPNLog.read(store.logURL(p.id))
             guard let report = VPNLog.openConnectReport(current) ?? VPNLog.openConnectReport(log) else { return nil }
             return anyConnectOptions(report, routes: p.setRoutes ? tunnelRoutes(report.interface) : [])
+        case .globalprotect:
+            return nil  // not connected by this version (`ConnectionManager.connectRefusal`)
         }
     }
 
@@ -178,6 +180,8 @@ public enum ProfileNetwork {
             // As FortiGate: a tunnel that is up and has no file is read now.
             let options = savedOptions(p, store: store) ?? (live ? observedOptions(p, store: store, tunnelRoutes: tunnelRoutes) : nil)
             return OVPNAnalyzer.networkClaims("", pushed: options ?? [])
+        case .globalprotect:
+            return OVPNAnalyzer.networkClaims("", pushed: savedOptions(p, store: store) ?? [])  // not connected yet
         }
     }
 
