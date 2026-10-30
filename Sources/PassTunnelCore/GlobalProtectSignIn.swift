@@ -78,6 +78,8 @@ struct GlobalProtectSignIn: @unchecked Sendable {
     struct SecondPart: @unchecked Sendable {
         /// The end of the first code's window: the part is written at this time or later.
         var notBefore: Date
+        /// The profile's TOTP parameters (the windows).
+        var params: TOTPParams
         /// The time now (the manager's clock).
         var now: () -> Date
         /// Makes the answers at `date`, with the code of that time: the lines, and what else of them the log must not
@@ -86,7 +88,14 @@ struct GlobalProtectSignIn: @unchecked Sendable {
         /// Records the code of `date` as sent (`.last-otp`), before its answers are handed to the runner, so another
         /// process that connects the profile meanwhile waits for a later window. Called from the runner's thread.
         var record: (_ date: Date) -> Void
+        /// Whether `.last-otp` already holds the window of `date`: another process sent that window's code while this
+        /// run waited, so this one waits for the next window (a server refuses a code it has seen).
+        var isUsed: (_ date: Date) -> Bool
     }
+
+    /// The fixed text of a sign-in whose second code could not be of a window no other connect had used within the
+    /// time limit.
+    static let codeInUseReason = "Another connect of this profile used the next code's time window. Connect again."
 
     /// How long standard error must have stayed as it is, with openconnect's prompt after the gateway's prelogin, before
     /// the second part is written: openconnect then waits for its answer, and text that only looked like the second
@@ -118,6 +127,23 @@ struct GlobalProtectSignIn: @unchecked Sendable {
             _at = date
             _secrets = secrets
             lock.unlock()
+        }
+
+        private var _windowTaken = false
+
+        /// Standard input was closed without the second part because no window another connect had not used came
+        /// within the time limit.
+        var windowTaken: Bool {
+            get {
+                lock.lock()
+                defer { lock.unlock() }
+                return _windowTaken
+            }
+            set {
+                lock.lock()
+                _windowTaken = newValue
+                lock.unlock()
+            }
         }
     }
 
@@ -180,7 +206,8 @@ struct GlobalProtectSignIn: @unchecked Sendable {
             return failed(error)
         }
 
-        let input = Self.input(answers, second: second, config: config, written: written)
+        let input = Self.input(
+            answers, second: second, config: config, written: written, deadline: second.map { $0.now().addingTimeInterval(timeout) })
         defer { input.wipeFirst() }
         var output: ToolOutput
         do {
@@ -204,9 +231,13 @@ struct GlobalProtectSignIn: @unchecked Sendable {
         let secrets = secrets + written.secrets + AnyConnectSignIn.printedCookieSecrets(stdout) + Self.printedCookieParts(stdout)
         guard output.status == 0 else {
             let redacted = AnyConnectSignIn.redacted(output.errorOutput, secrets: secrets)
-            let error = VPNLog.globalProtectSignInError(
-                redacted, status: output.status, credentialsSent: sent, gateway: config.gateway, host: config.host, port: config.port,
-                server: server)
+            // Standard input closed for want of an unused window: say so, not that the server refused the sign-in.
+            let error =
+                written.windowTaken
+                ? PTError.signInUnusable(Self.codeInUseReason)
+                : VPNLog.globalProtectSignInError(
+                    redacted, status: output.status, credentialsSent: sent, gateway: config.gateway, host: config.host,
+                    port: config.port, server: server)
             var gateways: [String]?
             var reason: String?
             if case .invalidField("gateway") = error { gateways = VPNLog.globalProtectGateways(redacted)?.labels }
@@ -255,7 +286,13 @@ struct GlobalProtectSignIn: @unchecked Sendable {
     /// `VPNLog.globalProtectSecondPart`, which also holds the run to the two-server rule so far), openconnect has
     /// waited at its prompt for `promptQuietTime` and the first code's window has ended; standard input is closed after
     /// them, or without them when the run shows none can follow or went elsewhere.
-    static func input(_ answers: [UInt8], second: SecondPart?, config: OpenConnectAuthConfig, written: Written) -> ToolInput {
+    ///
+    /// When `.last-otp` already holds the window of the moment (another process sent that code meanwhile), it waits
+    /// for the next window; when that would come too late for `deadline` (the run's time limit), it closes standard
+    /// input (`written.windowTaken`).
+    static func input(
+        _ answers: [UInt8], second: SecondPart?, config: OpenConnectAuthConfig, written: Written, deadline: Date? = nil
+    ) -> ToolInput {
         guard let second else { return ToolInput(answers) }
         let quiet = Quiet()
         return ToolInput(
@@ -277,7 +314,14 @@ struct GlobalProtectSignIn: @unchecked Sendable {
                 case .due:
                     let now = second.now()
                     let waited = quiet.unchanged(errorOutput.count, at: now) >= promptQuietTime
-                    return waited && now >= second.notBefore ? .write : .wait
+                    guard waited, now >= second.notBefore else { return .wait }
+                    guard second.isUsed(now) else { return .write }
+                    let next = GlobalProtectAnswers.secondPartNotBefore(codeTime: now, params: second.params)
+                    if let deadline, next.addingTimeInterval(promptQuietTime) >= deadline {
+                        written.windowTaken = true
+                        return .close
+                    }
+                    return .wait
                 }
             })
     }

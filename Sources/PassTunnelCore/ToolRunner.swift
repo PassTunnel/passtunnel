@@ -110,15 +110,27 @@ final class ToolInput: @unchecked Sendable {
     /// `second` appends the second part to the buffer it is given when it is to be written, and answers whether it
     /// did (false: none, and standard input is closed); `decide` reads standard error so far. Without either,
     /// standard input is closed after `first`, which is copied into a buffer of this input's own.
-    init(_ first: [UInt8], second: ((inout Data) -> Bool)? = nil, decide: ((Data) -> Decision)? = nil) {
-        held = SecretBytes(Self.copy(first))
+    convenience init(_ first: [UInt8], second: ((inout Data) -> Bool)? = nil, decide: ((Data) -> Decision)? = nil) {
+        self.init(held: SecretBytes(Self.copy(first)), second: second, decide: decide)
+    }
+
+    /// Standard input that is `data`, copied straight into this input's own buffer (no other copy is made), and
+    /// nothing after it.
+    convenience init(copying data: Data) {
+        self.init(held: SecretBytes(Self.copy(data)), second: nil, decide: nil)
+    }
+
+    private init(held: SecretBytes, second: ((inout Data) -> Bool)?, decide: ((Data) -> Decision)?) {
+        self.held = held
         self.second = decide == nil ? nil : second
         self.decide = second == nil ? nil : decide
     }
 
-    /// Standard input that is `data`, copied, and nothing after it.
-    convenience init(copying data: Data) {
-        self.init([UInt8](data))
+    /// `data` in a buffer of its own, copied once.
+    static func copy(_ data: Data) -> [UInt8] {
+        [UInt8](unsafeUninitializedCapacity: data.count) { buffer, count in
+            count = data.copyBytes(to: buffer)
+        }
     }
 
     /// Written when the run starts.

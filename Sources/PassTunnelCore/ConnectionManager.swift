@@ -1234,7 +1234,8 @@ public final class ConnectionManager: ObservableObject {
             let directory = store.dir(id)
             let usedURL = usedCodeURL(id)
             second = GlobalProtectSignIn.SecondPart(
-                notBefore: GlobalProtectAnswers.secondPartNotBefore(codeTime: codeTime, params: params), now: { clock.now() },
+                notBefore: GlobalProtectAnswers.secondPartNotBefore(codeTime: codeTime, params: params), params: params,
+                now: { clock.now() },
                 answers: { date in
                     let code = TOTP.code(secret: secret, params: params, at: date)
                     let lines = GlobalProtectAnswers.lines(password: password, code: code, delivery: delivery, template: template)
@@ -1244,6 +1245,10 @@ public final class ConnectionManager: ObservableObject {
                     // From the runner's thread, before the code leaves this process: another process (the CLI, the
                     // MCP server) that connects the profile meanwhile, or after a crash, waits for a later window.
                     Self.writeUsedCode(Self.usedWindow(params, at: date), to: usedURL, in: directory)
+                },
+                isUsed: { date in
+                    // Another process may have sent this window's code while the run waited (`.last-otp`).
+                    (try? JSONCoding.read(UsedOTPWindow.self, from: usedURL)) == Self.usedWindow(params, at: date)
                 })
         } else {
             second = nil

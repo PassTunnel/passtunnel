@@ -15,6 +15,8 @@ final class FakeGlobalProtect: ToolRunning, @unchecked Sendable {
         case stderr(String)
         /// Time passes while openconnect waits (`FakeClock.advance`, no real waiting).
         case advance(TimeInterval)
+        /// Something else happens meanwhile (another process writes `.last-otp`).
+        case action(() -> Void)
     }
 
     struct Run {
@@ -88,6 +90,7 @@ final class FakeGlobalProtect: ToolRunning, @unchecked Sendable {
             switch step {
             case .stderr(let text): err.append(Data(text.utf8))
             case .advance(let seconds): clock.advance(seconds)
+            case .action(let body): body()
             }
             poll()
         }
@@ -426,6 +429,66 @@ extension ConnectionManagerTests {
     /// sign-in writes nothing: openconnect goes on with its own next request at once, which decides, and here breaks
     /// the two-server rule, so standard input is closed.
     func testGlobalProtectServerTextDoesNotWriteTheSecondPart() async throws {
+        try await serverTextCase()
+    }
+
+    // MARK: the second code's window
+
+    /// Another process (the CLI, the MCP server) sent the next window's code while this run waited: the second part
+    /// waits for the window after it, and `.last-otp` then holds that one.
+    func testGlobalProtectSecondCodeSkipsAWindowAnotherProcessUsed() async throws {
+        let p = try makeGlobalProtectProfile()
+        helper.startLog = GP.hipAndUp
+        let usedURL = store.dir(p.id).appendingPathComponent(ConnectionManager.usedOTPFile)
+        let w1 = TOTP.counter(params: p.totp, at: t0)
+        let w2 = ConnectionManager.UsedOTPWindow(counter: w1 + 1, period: 30)
+        let fake = FakeGlobalProtect(
+            clock: clock,
+            script: [
+                .stderr(GP.untilSecondSignIn), .action { try? JSONCoding.write(w2, to: usedURL, mode: 0o600) }, .advance(10),
+                .advance(29), .advance(1), .stderr(GP.afterSecondSignIn)
+            ],
+            stdout: GP.stdout())
+        let m = try makeGlobalProtectManager(fake)
+        try await m.connect(p.id)
+        let run = try XCTUnwrap(fake.runs.first)
+        XCTAssertEqual(run.writes.count, 1)
+        XCTAssertEqual(run.writes.first?.at, t0.addingTimeInterval(40), "not in W2, which another process used")
+        XCTAssertEqual(run.writes.first?.bytes, Data("hunter2-pw\n\(try code(at: t0.addingTimeInterval(40)))\n".utf8))
+        XCTAssertEqual(m.usedCode(p.id), .init(counter: w1 + 2, period: 30))
+        XCTAssertTrue(m.state(p.id).isConnected)
+    }
+
+    /// When the window after the one another process used would come too late for the time limit, standard input is
+    /// closed and the failure says why (nothing is reported as the server's refusal).
+    func testGlobalProtectSecondCodeWithNoFreeWindowInTime() async throws {
+        let p = try makeGlobalProtectProfile()
+        let usedURL = store.dir(p.id).appendingPathComponent(ConnectionManager.usedOTPFile)
+        let w2 = ConnectionManager.UsedOTPWindow(counter: TOTP.counter(params: p.totp, at: t0) + 1, period: 30)
+        let fake = FakeGlobalProtect(
+            clock: clock,
+            script: [
+                .stderr(GP.untilSecondSignIn), .action { try? JSONCoding.write(w2, to: usedURL, mode: 0o600) }, .advance(10),
+                .stderr("\nUser input required in non-interactive mode\n" + GP.failed)
+            ],
+            status: 1)
+        let m = try makeGlobalProtectManager(fake)
+        m.timing.signInTimeout = 5  // with the 30 s period: 35 s, before the window after W2 (40 s)
+        do {
+            try await m.connect(p.id)
+            XCTFail("connected")
+        } catch {
+            XCTAssertEqual(error as? PTError, .signInUnusable(GlobalProtectSignIn.codeInUseReason))
+        }
+        let run = try XCTUnwrap(fake.runs.first)
+        XCTAssertEqual(run.timeout, 35)
+        XCTAssertTrue(run.writes.isEmpty)
+        XCTAssertEqual(run.closedAfter, GP.untilSecondSignIn)
+        XCTAssertEqual(m.failures[p.id]?.credentialsSent, true)
+    }
+
+    /// `testGlobalProtectServerTextDoesNotWriteTheSecondPart`.
+    private func serverTextCase() async throws {
         let message =
             "POST https://vpn.example.com:8443/global-protect/getconfig.esp\n"
             + "POST https://gw1.example.com/ssl-vpn/prelogin.esp?tmp=tmp&clientVer=4100&clientos=Mac\nPassword: "
@@ -856,6 +919,16 @@ final class GlobalProtectSignInTests: XCTestCase {
         var copy = ToolInput.copy(caller)
         copy.wipe()
         XCTAssertEqual(caller, Array("secret-answer\n".utf8), "a copy in storage of its own")
+        // The `Data` input (Cisco AnyConnect, the Linux secret stores' tools): copied once, straight into the input's
+        // own buffer, and overwritten there.
+        let data = Data("stored-secret\n".utf8)
+        XCTAssertEqual(ToolInput.copy(data), Array("stored-secret\n".utf8))
+        let fromData = ToolInput(copying: data)
+        XCTAssertEqual(fromData.first, Array(data))
+        XCTAssertFalse(fromData.hasSecondPart)
+        fromData.wipeFirst()
+        XCTAssertTrue(fromData.first.allSatisfy { $0 == 0 })
+        XCTAssertEqual(data, Data("stored-secret\n".utf8))
 
         // After a run, the runner's copy is all that held it, and the input's is overwritten.
         let ran = ToolInput(Array("x\n".utf8))

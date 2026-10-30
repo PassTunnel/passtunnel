@@ -2559,7 +2559,19 @@ CSD's `hostScanRequired` lines do not exist in this protocol (`auth.c` is AnyCon
   has no later window); only then is the time limit `signInTimeout` plus the TOTP period. Its code is recorded in
   `.last-otp` from the runner's thread just before it is handed to the runner (`SecondPart.record`,
   `ConnectionManager.writeUsedCode`), so another process (the CLI, the MCP server) that connects the profile while
-  the run lasts, or after a crash, waits for a later window.
+  the run lasts, or after a crash, waits for a later window. The other way round, it reads `.last-otp` before it
+  writes (`SecondPart.isUsed`): when another process already sent the code of that window, it waits for the next one;
+  when that would come too late for the time limit, it closes standard input and the connect fails with
+  `signInUnusable` ("Another connect of this profile used the next code's time window. Connect again."), not as a
+  refused sign-in.
+- **The prompt it waits for** is always an unfinished line: openconnect prints a prompt with `fprintf(stderr, "%s",
+  prompt)` and no line break before it reads the answer (`prompt_for_input`, `main.c` 2702–2710; a hidden field's
+  line break is printed only after the answer was read, `read_stdin`, 778–789). At the second sign-in the user name is hidden (the portal's login saved it,
+  `auth-globalprotect.c` 779–781, 180–185) and the first prompt is the password's, labelled `"%s: "` with the
+  prelogin's `password-label`, trimmed of trailing white space, or "Password" (`auth-globalprotect.c` 95, 195;
+  `xmlnode_get_trimmed_val`, `auth-common.c` 84–104); a challenge, in any of its three encodings, goes through
+  `challenge_cb` and is labelled "Challenge: " (`gpst.c` 133–209, 296–316; `auth-globalprotect.c` 232–275, 265). So the label
+  ends in ": " and the wait for the prompt cannot miss it.
 - **The two-server rule** (`VPNLog.globalProtectRouteIsAllowed`) reads every `POST https://` of the whole standard
   error as it came; standard error past what is kept fails it (`signInUnusable`, fixed text), as a request that does
   not read as one does.
