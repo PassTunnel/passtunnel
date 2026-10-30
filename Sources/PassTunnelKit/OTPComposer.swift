@@ -23,8 +23,8 @@ public enum OTPComposer {
     ///   values are never re-scanned for placeholders). Without a code (`otp` nil or empty) the secret is
     ///   the plain password. An invalid template falls back to `OTPTemplatePreset.append`.
     /// - `.separate` + OpenVPN: `SCRV1:b64(password):b64(otp)`; without a code, the plain password.
-    /// - `.separate` + Forti or AnyConnect: secret = password, separateOTP = otp (Forti's `otp` field,
-    ///   AnyConnect's second answer line).
+    /// - `.separate` + Forti, AnyConnect or GlobalProtect: secret = password, separateOTP = otp (Forti's `otp` field,
+    ///   the openconnect types' second answer line).
     public static func compose(
         password: String, otp: String?, delivery: OTPDelivery, template: String,
         type: VPNType
@@ -37,7 +37,7 @@ public enum OTPComposer {
             return (render(t, password: password, otp: code), nil)
         case .separate:
             switch type {
-            case .forti, .anyconnect:
+            case .forti, .anyconnect, .globalprotect:
                 return (password, code)
             case .openvpn:
                 guard let code else { return (password, nil) }

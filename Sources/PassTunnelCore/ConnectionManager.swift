@@ -105,7 +105,9 @@ public enum ConnectionEvent: Equatable, Sendable {
 /// Where a profile sends its credentials, as one fingerprint: SHA-256 over the type and, for OpenVPN,
 /// the exact bytes of config.ovpn (servers, CA, proxies, everything the helper runs); for FortiGate,
 /// host, port and trusted certificate; for Cisco AnyConnect, host, port, user group and server pin
-/// (the group name is not a destination: it is matched against the server's list). Secrets the user confirmed are bound to the fingerprint the
+/// (the group name is not a destination: it is matched against the server's list); for Palo Alto
+/// GlobalProtect, host, port, `skip_portal` and both pins (the gateway is the portal's to offer, and the
+/// fingerprint binds the portal, never the gateway it names). Secrets the user confirmed are bound to the fingerprint the
 /// profile had then (`SecretVault`, session secrets) and are not sent anywhere else. The helper reads
 /// config.ovpn again later, so the start request carries `configSHA256` of the bytes fingerprinted
 /// here and the helper refuses any other file.
@@ -158,11 +160,28 @@ public struct ProfileDestination: Equatable, Sendable {
             field(p.usergroup)
             // Stored normalized; a hand-edited file's spelling must not move the binding either.
             field(OpenConnectPin.normalize(p.serverCert) ?? p.serverCert.trimmingCharacters(in: .whitespacesAndNewlines))
+        case .globalprotect:
+            host = p.host.trimmingCharacters(in: .whitespacesAndNewlines)
+            field(host.lowercased())
+            field(String(p.port))
+            field(String(p.skipPortal))
+            field(OpenConnectPin.normalize(p.serverCert) ?? p.serverCert.trimmingCharacters(in: .whitespacesAndNewlines))
+            field(
+                OpenConnectPin.normalize(p.gatewayServerCert) ?? p.gatewayServerCert.trimmingCharacters(in: .whitespacesAndNewlines))
         }
         return ProfileDestination(
             fingerprint: hash.finalize().map { String(format: "%02x", $0) }.joined(), host: host,
             configSHA256: configSHA256)
     }
+}
+
+extension VPNType {
+    /// The types this version connects, and so offers to create (the app's type lists, `passtunnel add`). Palo
+    /// Alto GlobalProtect is known (its profiles are kept, checked, shown, set, shared and deleted) but is not
+    /// connected yet (#231): `ConnectionManager.connectRefusal` refuses it on every system.
+    public static let connectable = allCases.filter { $0 != .globalprotect }
+
+    public var isConnectable: Bool { Self.connectable.contains(self) }
 }
 
 /// An automatic reconnect found the profile's server settings changed since the user confirmed the
@@ -685,6 +704,9 @@ public final class ConnectionManager: ObservableObject {
             guard let tunnel, tunnel.isUp else { return (.connecting(Phase.configuring), false) }
             let ip = VPNLog.openConnectAddress(VPNLog.read(store.logURL(p.id)), interface: tunnel.interface)
             return (.connected(ip: ip, since: connectedAt[p.id] ?? logCreated(p.id)), false)
+        case .globalprotect:
+            // Not started by this version (`connectRefusal`).
+            return (isRunning ? .connecting(Phase.connecting) : .disconnected, false)
         }
     }
 
@@ -899,6 +921,7 @@ public final class ConnectionManager: ObservableObject {
         case .openvpn: return VPNLog.openVPNIsUp(log)
         case .forti: return VPNLog.fortiIsUp(log)
         case .anyconnect: return VPNLog.openConnectIsUp(log)
+        case .globalprotect: return false  // never started by this version (`connectRefusal`)
         }
     }
 
@@ -1014,6 +1037,8 @@ public final class ConnectionManager: ObservableObject {
                 request = try await signIn(
                     p, username: creds.username ?? "", password: creds.password ?? "", composed: composed, otp: otp,
                     codeTime: codeTime, token: token, progress: &progress)
+            case .globalprotect:
+                throw PTError.unsupportedProfileType(p.type.rawValue)  // refused above (`checkConnectable`)
             }
             let response = try await helper.perform(request, timeout: timing.helperTimeout)
             guard response.ok else {
@@ -1219,16 +1244,26 @@ public final class ConnectionManager: ObservableObject {
     /// later (`HelperCore.Tool.minimumMacOS`: dyld stops the bundled openconnect on anything older; owner
     /// decision, #2): `PTError.anyConnectRequiresMacOS`. On Linux (`macOS` nil) nothing is refused here: the
     /// distribution's openconnect is checked when the sign-in starts (`AnyConnectSignIn.distributionTool`).
+    /// Palo Alto GlobalProtect is refused below macOS 15.4 the same way (`PTError.globalProtectRequiresMacOS`), and
+    /// everywhere else until this version connects it (`VPNType.isConnectable`): `PTError.unsupportedProfileType`.
     public nonisolated static func connectRefusal(_ type: VPNType, macOS: OperatingSystemVersion? = currentMacOS) -> PTError? {
         switch type {
         case .openvpn, .forti:
             return nil
         case .anyconnect:
-            guard let macOS else { return nil }
-            let tool = HelperCore.Tool.openconnect
-            guard !tool.runs(on: macOS), let minimum = tool.minimumMacOS else { return nil }
-            return .anyConnectRequiresMacOS(HelperCore.Tool.versionText(minimum))
+            return openConnectMinimum(macOS).map(PTError.anyConnectRequiresMacOS)
+        case .globalprotect:
+            if let version = openConnectMinimum(macOS) { return .globalProtectRequiresMacOS(version) }
+            return type.isConnectable ? nil : .unsupportedProfileType(type.rawValue)
         }
+    }
+
+    /// The macOS the bundled openconnect needs ("15.4") when `macOS` is older; nil when it runs, and on Linux.
+    private nonisolated static func openConnectMinimum(_ macOS: OperatingSystemVersion?) -> String? {
+        guard let macOS else { return nil }
+        let tool = HelperCore.Tool.openconnect
+        guard !tool.runs(on: macOS), let minimum = tool.minimumMacOS else { return nil }
+        return HelperCore.Tool.versionText(minimum)
     }
 
     /// `connectRefusal` for this manager's system.
@@ -1398,6 +1433,8 @@ public final class ConnectionManager: ObservableObject {
             // As stored, which is what the sign-in uses; a profile.json changed outside the app fails here.
             guard Profile.isValidHost(p.host, type: .anyconnect) else { throw PTError.invalidField("host") }
             try p.checkAnyConnectFields()
+        case .globalprotect:
+            throw PTError.unsupportedProfileType(p.type.rawValue)  // not connected yet (`connectRefusal`)
         }
         // A store that cannot be read says so (`SecretStoreUnavailable`), rather than "missing".
         if p.passwordMode == .keychain, try !Secrets.exists(id, .password) { throw PTError.missingPassword(id) }
@@ -1605,7 +1642,7 @@ public final class ConnectionManager: ObservableObject {
         switch p.type {
         case .openvpn: timeout = timing.openVPNTimeout
         case .forti: timeout = timing.fortiTimeout
-        case .anyconnect: timeout = timing.anyConnectTimeout
+        case .anyconnect, .globalprotect: timeout = timing.anyConnectTimeout
         }
         let started = clock.now()
         var lastProcessCheck = started
@@ -1677,6 +1714,8 @@ public final class ConnectionManager: ObservableObject {
                 }
             case .anyconnect:
                 break  // above
+            case .globalprotect:
+                break  // never started by this version (`connectRefusal`)
             }
 
             let now = clock.now()
@@ -1870,7 +1909,8 @@ public final class ConnectionManager: ObservableObject {
         case .authFailed, .missingPassword, .missingTOTPSecret, .missingCredential, .missingConfig,
             .missingHost, .usernameTooLong, .invalidSecret, .profileNotFound, .otherVPNActive, .setupFailed,
             .userConfirmationCancelled, .userConfirmationFailed, .confirmationRequired, .protectedSecretUnreadable,
-            .protectionUnavailable, .anyConnectRequiresMacOS, .anyConnectToolUnavailable, .hostScanRequired,
+            .protectionUnavailable, .anyConnectRequiresMacOS, .anyConnectToolUnavailable, .globalProtectRequiresMacOS,
+            .hostScanRequired,
             .serverCertificateRejected, .signInNeedsMoreAnswers, .signInUnusable:
             return false
         default:
@@ -2269,7 +2309,7 @@ public final class ConnectionManager: ObservableObject {
             let config = (try? FileIO.readText(store.ovpnURL(p.id), maxSize: ProfileStore.maxOVPNSize)) ?? ""
             guard let e = OVPNAnalyzer.endpoint(config) else { return .connecting(host: "", port: nil, transport: "udp") }
             return .connecting(host: ActivityEvent.clean(e.host, limit: 255), port: Int(e.port), transport: e.tcp ? "tcp" : "udp")
-        case .forti, .anyconnect:
+        case .forti, .anyconnect, .globalprotect:
             return .connecting(host: ActivityEvent.clean(p.host, limit: 255), port: p.port, transport: "tcp")
         }
     }

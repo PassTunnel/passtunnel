@@ -316,8 +316,9 @@ public final class AutomationService {
                 problems.append(PTError.invalidField("host"))
             }
             do { try Profile.checkUsername(p.username, type: p.type) } catch { problems.append(error) }
-        case .anyconnect:
-            if let refusal = manager.connectRefusal(p.type) { problems.append(refusal) }  // macOS 15.4, Linux
+        case .anyconnect, .globalprotect:
+            // macOS 15.4; Palo Alto GlobalProtect is not connected by this version yet.
+            if let refusal = manager.connectRefusal(p.type) { problems.append(refusal) }
             if p.host.trimmingCharacters(in: .whitespaces).isEmpty {
                 problems.append(PTError.missingHost(p.id))
             } else if !Profile.isValidHost(p.host, type: p.type) {
@@ -325,6 +326,7 @@ public final class AutomationService {
             }
             do { try Profile.checkUsername(p.username, type: p.type) } catch { problems.append(error) }
             do { try p.checkAnyConnectFields() } catch { problems.append(error) }
+            do { try p.checkGlobalProtectFields() } catch { problems.append(error) }
         }
         /// Whether `kind` is saved; nil, and the store's error once, when the store cannot be read.
         func saved(_ kind: SecretKind, missing: PTError) -> Bool? {

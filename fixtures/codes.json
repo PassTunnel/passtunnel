@@ -715,6 +715,36 @@
       "type": "anyconnect",
       "secret": "pw,123456",
       "separate_otp": null
+    },
+    {
+      "name": "Palo Alto GlobalProtect, separate: the code is the second answer",
+      "password": "pw",
+      "otp": "123456",
+      "delivery": "separate",
+      "template": "{password}{otp}",
+      "type": "globalprotect",
+      "secret": "pw",
+      "separate_otp": "123456"
+    },
+    {
+      "name": "Palo Alto GlobalProtect, separate, without a code",
+      "password": "pw",
+      "otp": null,
+      "delivery": "separate",
+      "template": "{password}{otp}",
+      "type": "globalprotect",
+      "secret": "pw",
+      "separate_otp": null
+    },
+    {
+      "name": "Palo Alto GlobalProtect, combined: one answer",
+      "password": "pw",
+      "otp": "123456",
+      "delivery": "combined",
+      "template": "{otp}",
+      "type": "globalprotect",
+      "secret": "123456",
+      "separate_otp": null
     }
   ]
 }

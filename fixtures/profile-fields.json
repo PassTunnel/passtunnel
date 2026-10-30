@@ -837,6 +837,368 @@
         "kind": "wrong_profile_type",
         "detail": "acme"
       }
+    },
+    {
+      "name": "Palo Alto GlobalProtect: host",
+      "type": "globalprotect",
+      "key": "host",
+      "value": "vpn.example.com",
+      "canonical_key": "host",
+      "stored": "vpn.example.com"
+    },
+    {
+      "type": "globalprotect",
+      "key": "host",
+      "value": "2001:db8::1",
+      "canonical_key": "host",
+      "stored": "2001:db8::1"
+    },
+    {
+      "note": "a URL cannot carry a zone id",
+      "type": "globalprotect",
+      "key": "host",
+      "value": "fe80::1%en0",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "host"
+      }
+    },
+    {
+      "type": "globalprotect",
+      "key": "host",
+      "value": "https://vpn.example.com/global-protect",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "host"
+      }
+    },
+    {
+      "type": "globalprotect",
+      "key": "host",
+      "value": "vpn.example.com:4443",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "host"
+      }
+    },
+    {
+      "type": "globalprotect",
+      "key": "port",
+      "value": "4443",
+      "canonical_key": "port",
+      "stored": "4443"
+    },
+    {
+      "type": "globalprotect",
+      "key": "gateway",
+      "value": "US East",
+      "canonical_key": "gateway",
+      "stored": "US East"
+    },
+    {
+      "note": "blanks around a value are dropped",
+      "type": "globalprotect",
+      "key": "gateway",
+      "value": "  Avrupa (İstanbul)  ",
+      "canonical_key": "gateway",
+      "stored": "Avrupa (İstanbul)"
+    },
+    {
+      "type": "globalprotect",
+      "key": "gateway",
+      "value": "",
+      "canonical_key": "gateway",
+      "stored": ""
+    },
+    {
+      "note": "openconnect would skip the =",
+      "type": "globalprotect",
+      "key": "gateway",
+      "value": "=US East",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "gateway"
+      }
+    },
+    {
+      "type": "globalprotect",
+      "key": "gateway",
+      "value": "US East\u0000x",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "gateway"
+      }
+    },
+    {
+      "type": "globalprotect",
+      "key": "gateway",
+      "value": "US East\u2028x",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "gateway"
+      }
+    },
+    {
+      "type": "globalprotect",
+      "key": "gateway",
+      "value": "US\nEast",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "gateway"
+      }
+    },
+    {
+      "note": "256 bytes: at most 255",
+      "type": "globalprotect",
+      "key": "gateway",
+      "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "gateway"
+      }
+    },
+    {
+      "type": "globalprotect",
+      "key": "gateway",
+      "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "canonical_key": "gateway",
+      "stored": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "type": "globalprotect",
+      "key": "skip_portal",
+      "value": "yes",
+      "canonical_key": "skip_portal",
+      "stored": "true"
+    },
+    {
+      "type": "globalprotect",
+      "key": "skip-portal",
+      "value": "off",
+      "canonical_key": "skip_portal",
+      "stored": "false"
+    },
+    {
+      "type": "globalprotect",
+      "key": "skip_portal",
+      "value": "maybe",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "skip_portal"
+      }
+    },
+    {
+      "note": "stored normalized: blanks dropped, the prefix lowercased",
+      "type": "globalprotect",
+      "key": "server_cert",
+      "value": "  PIN-SHA256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk=\n",
+      "canonical_key": "server_cert",
+      "stored": "pin-sha256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk="
+    },
+    {
+      "note": "stored normalized, as server_cert",
+      "type": "globalprotect",
+      "key": "gateway_server_cert",
+      "value": "  PIN-SHA256:VIvehxhDt2KjN5O2MU6TnoXZFEsHIwCppUURj1ynWsE=\n",
+      "canonical_key": "gateway_server_cert",
+      "stored": "pin-sha256:VIvehxhDt2KjN5O2MU6TnoXZFEsHIwCppUURj1ynWsE="
+    },
+    {
+      "type": "globalprotect",
+      "key": "gateway_server_cert",
+      "value": "",
+      "canonical_key": "gateway_server_cert",
+      "stored": ""
+    },
+    {
+      "note": "a prefix of the pin: openconnect would take it, PassTunnel does not",
+      "type": "globalprotect",
+      "key": "gateway_server_cert",
+      "value": "pin-sha256:VIvehxhD",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "gateway_server_cert"
+      }
+    },
+    {
+      "type": "globalprotect",
+      "key": "gateway_server_cert",
+      "value": "sha256:cf91af8c750c0ae0f8cde07a3dca5a7d503a39992cf9cf0f1b1480b80c741e09",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "gateway_server_cert"
+      }
+    },
+    {
+      "type": "globalprotect",
+      "key": "server_cert",
+      "value": "pin-sha256:z5GvjHUM",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "server_cert"
+      }
+    },
+    {
+      "type": "globalprotect",
+      "key": "tls_only",
+      "value": "yes",
+      "canonical_key": "tls_only",
+      "stored": "true"
+    },
+    {
+      "type": "globalprotect",
+      "key": "set_dns",
+      "value": "on",
+      "canonical_key": "set_dns",
+      "stored": "true"
+    },
+    {
+      "type": "globalprotect",
+      "key": "set_routes",
+      "value": "off",
+      "canonical_key": "set_routes",
+      "stored": "false"
+    },
+    {
+      "type": "globalprotect",
+      "key": "username",
+      "value": "alice",
+      "canonical_key": "username",
+      "stored": "alice"
+    },
+    {
+      "type": "globalprotect",
+      "key": "username",
+      "value": "=alice",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "username"
+      }
+    },
+    {
+      "type": "globalprotect",
+      "key": "username",
+      "value": "alice\u0001",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "username"
+      }
+    },
+    {
+      "type": "globalprotect",
+      "key": "password_mode",
+      "value": "none",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "password_mode"
+      }
+    },
+    {
+      "type": "globalprotect",
+      "key": "otp_delivery",
+      "value": "combined",
+      "canonical_key": "otp_delivery",
+      "stored": "combined"
+    },
+    {
+      "type": "globalprotect",
+      "key": "otp_template",
+      "value": "{password},{otp}",
+      "canonical_key": "otp_template",
+      "stored": "{password},{otp}"
+    },
+    {
+      "note": "the answer is one line",
+      "type": "globalprotect",
+      "key": "otp_template",
+      "value": "{password}\n{otp}",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "otp_template"
+      }
+    },
+    {
+      "note": "Cisco AnyConnect's: the path is skip_portal's",
+      "type": "globalprotect",
+      "key": "usergroup",
+      "value": "engineering",
+      "error": {
+        "kind": "wrong_profile_type",
+        "detail": "acme"
+      }
+    },
+    {
+      "note": "Cisco AnyConnect's: the portal's gateway is gateway",
+      "type": "globalprotect",
+      "key": "authgroup",
+      "value": "Employees",
+      "error": {
+        "kind": "wrong_profile_type",
+        "detail": "acme"
+      }
+    },
+    {
+      "type": "globalprotect",
+      "key": "trusted_cert",
+      "value": "ab12",
+      "error": {
+        "kind": "wrong_profile_type",
+        "detail": "acme"
+      }
+    },
+    {
+      "type": "anyconnect",
+      "key": "gateway",
+      "value": "US East",
+      "error": {
+        "kind": "wrong_profile_type",
+        "detail": "acme"
+      }
+    },
+    {
+      "type": "anyconnect",
+      "key": "skip_portal",
+      "value": "yes",
+      "error": {
+        "kind": "wrong_profile_type",
+        "detail": "acme"
+      }
+    },
+    {
+      "type": "anyconnect",
+      "key": "gateway_server_cert",
+      "value": "pin-sha256:VIvehxhDt2KjN5O2MU6TnoXZFEsHIwCppUURj1ynWsE=",
+      "error": {
+        "kind": "wrong_profile_type",
+        "detail": "acme"
+      }
+    },
+    {
+      "type": "forti",
+      "key": "gateway",
+      "value": "US East",
+      "error": {
+        "kind": "wrong_profile_type",
+        "detail": "acme"
+      }
+    },
+    {
+      "type": "openvpn",
+      "key": "skip_portal",
+      "value": "yes",
+      "error": {
+        "kind": "wrong_profile_type",
+        "detail": "acme"
+      }
+    },
+    {
+      "type": "openvpn",
+      "key": "gateway_server_cert",
+      "value": "pin-sha256:VIvehxhDt2KjN5O2MU6TnoXZFEsHIwCppUURj1ynWsE=",
+      "error": {
+        "kind": "wrong_profile_type",
+        "detail": "acme"
+      }
     }
   ]
 }

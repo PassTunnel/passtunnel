@@ -10,7 +10,8 @@ import Foundation
 /// refuses a file of a version it does not know. Version 2 added the type `anyconnect`, so a Cisco
 /// AnyConnect profile is written as 2 and refused by an older PassTunnel (which would have imported it as
 /// OpenVPN before it knew to refuse unknown types); OpenVPN and FortiGate profiles are still written as 1,
-/// unchanged, so every older reader takes them.
+/// unchanged, so every older reader takes them. A Palo Alto GlobalProtect profile is written as 2 as well:
+/// every reader of version 2 keeps and refuses a profile of a type it does not know.
 public struct ShareFile: Codable {
     /// The newest version this one reads.
     public static let currentVersion = 2
@@ -32,11 +33,12 @@ public struct ShareFile: Codable {
         self.files = files
     }
 
-    /// The version a file with a profile of `type` is written as: the first one that has the type.
+    /// The version a file with a profile of `type` is written as: the first one whose readers do not misread it.
+    /// Palo Alto GlobalProtect is version 2 too: every reader of version 2 refuses a type it does not know.
     public static func version(for type: VPNType) -> Int {
         switch type {
         case .openvpn, .forti: return 1
-        case .anyconnect: return 2
+        case .anyconnect, .globalprotect: return 2
         }
     }
 

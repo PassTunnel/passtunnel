@@ -43,6 +43,8 @@ public enum PTError: Error, Equatable, LocalizedError {
     // Cisco AnyConnect
     case anyConnectRequiresMacOS(String)  // the macOS openconnect needs ("15.4"): refused before anything runs
     case anyConnectToolUnavailable(String)  // Linux: the distribution's openconnect is missing, untrusted or older than 9.01; why
+    // Palo Alto GlobalProtect
+    case globalProtectRequiresMacOS(String)  // the macOS openconnect needs ("15.4"): refused before anything runs
     case hostScanRequired(log: String)  // the server asked for a CSD host scan, which PassTunnel never runs; log tail
     /// openconnect did not trust the server's certificate (or key): its reason, and the pin of the key it saw
     /// (`pin-sha256:…`, openconnect's own hint) when it printed one; log tail. Nothing was sent.
@@ -149,6 +151,8 @@ public enum PTError: Error, Equatable, LocalizedError {
             return String(localized: "Cisco AnyConnect requires macOS \(version) or later.")
         case .anyConnectToolUnavailable(let reason):
             return String(localized: "Cisco AnyConnect cannot be used here: \(reason)")
+        case .globalProtectRequiresMacOS(let version):
+            return String(localized: "Palo Alto GlobalProtect requires macOS \(version) or later.")
         case .hostScanRequired:
             return String(
                 localized:
@@ -207,11 +211,14 @@ extension PTError {
 
 extension PTError {
     /// The short note a list shows beside a profile of a type this system cannot connect (the full sentence is
-    /// the error's description): "Requires macOS 15.4 or later". Nil for any other error (Linux refuses no type
-    /// up front: the distribution's openconnect is checked when connecting).
+    /// the error's description): "Requires macOS 15.4 or later", or for a type this version does not connect yet
+    /// "Needs a newer PassTunnel". Nil for any other error (Linux refuses no type up front for its macOS: the
+    /// distribution's openconnect is checked when connecting).
     public var unavailableNote: String? {
         switch self {
-        case .anyConnectRequiresMacOS(let version): return String(localized: "Requires macOS \(version) or later")
+        case .anyConnectRequiresMacOS(let version), .globalProtectRequiresMacOS(let version):
+            return String(localized: "Requires macOS \(version) or later")
+        case .unsupportedProfileType: return UnsupportedProfile.statusText
         default: return nil
         }
     }

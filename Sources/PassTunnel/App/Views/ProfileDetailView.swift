@@ -203,7 +203,7 @@ extension AppModel {
             guard let e = ConfigEndpoints.endpoint(store.ovpnURL(p.id)) else { return ("", p.type.displayName) }
             // Protocol names stay untranslated.
             return (e.address, [e.server, p.type.displayName, e.tcp ? "TCP" : "UDP"].joined(separator: " · "))
-        case .forti, .anyconnect:
+        case .forti, .anyconnect, .globalprotect:
             let host = p.host.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !host.isEmpty else { return ("", p.type.displayName) }
             let address = OVPNAnalyzer.Endpoint.address(host: host, port: String(p.port))
