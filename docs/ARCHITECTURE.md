@@ -1116,7 +1116,8 @@ with a password and a TOTP code (no SAML or other single sign-on), on the Mac an
 issues #179–#189 implemented it, each named below where its part landed. Before any of it, #177 makes `Profile`
 keep a profile of an unknown `type` intact instead of decoding it as OpenVPN (`Model.swift`,
 `lenientEnum(…) ?? .openvpn`), so an older or a companion build cannot rewrite an AnyConnect
-profile. Phase 2 (GlobalProtect) and Phase 3 (Pulse/Ivanti) get their own issues. References like
+profile. Phase 2 (GlobalProtect) is designed under [Palo Alto GlobalProtect backend](#palo-alto-globalprotect-backend)
+(#226); Phase 3 (Pulse/Ivanti) gets its own issues. References like
 `main.c 1593` are to the openconnect 9.21 sources, from which the tool's behavior below was read;
 the pull requests confirm it against the running tool (#188). Linux specifics:
 [LINUX.md](LINUX.md#cisco-anyconnect); the threat model: [SECURITY.md](../SECURITY.md#cisco-anyconnect).
@@ -1511,11 +1512,12 @@ no-dtls                                       (only with tls_only)
   `juniper`, `usergroup`, `no-passwd`, `no-xmlpost`, `compression`, `deflate` and the others that are
   not needed. Each file's own keys are refused in the other (the root run never signs in; the
   sign-in never gets the cookie, the hook or `resolve`).
-- CSD host scan (and in later phases GlobalProtect's HIP report and Pulse's TNCC) is refused in every
-  phase: without `csd-wrapper` or `csd-user` openconnect refuses a server that asks for it ("Server
-  asked us to run CSD hostscan", "… 'Cisco Secure Desktop' trojan …", `auth.c` 1176–1187), and the
-  client turns those lines into a failure that says the server requires a host scan PassTunnel does
-  not run.
+- CSD host scan (and in Phase 3 Pulse's TNCC) is refused in every phase: without `csd-wrapper` or
+  `csd-user` openconnect refuses a server that asks for it ("Server asked us to run CSD hostscan", "…
+  'Cisco Secure Desktop' trojan …", `auth.c` 1176–1187), and the client turns those lines into a
+  failure that says the server requires a host scan PassTunnel does not run. GlobalProtect's HIP report
+  is never run either, but openconnect goes on without it, and so does the connection (with a notice:
+  [HIP](#hip-never-run-the-user-is-told-g4)).
 
 ### Fixed environment (#182, #184)
 
@@ -2138,6 +2140,555 @@ Ubuntu's openconnect, and on a Mac with Homebrew's against Docker Desktop. The w
 passtunneld in containers, one per Linux DNS backend, sets and reverts routes and DNS, follows
 openconnect's own reconnect, and kills openconnect to check the daemon's revert — an exception to
 "tests never start a tunnel", marked as such.
+
+## Palo Alto GlobalProtect backend
+
+**Design only (#226); nothing of it is built yet.** Phase 2 of #2: Palo Alto GlobalProtect through the same
+openconnect (`protocol gp`), with a password and a TOTP code, no SAML or other single sign-on, on macOS 15.4 and
+later and on Linux, shipped labelled experimental ([Experimental](#experimental-g2-g5-g6-g9)). It reuses the
+[Cisco AnyConnect backend](#cisco-anyconnect-backend) wherever that holds, and this
+section says only where GlobalProtect differs. References like `auth-globalprotect.c 652–658` are to openconnect
+9.21, the bundled version (the Homebrew tarball, SHA-256 `5b323694…0944a58`); 9.01 and 9.12 are cited where the
+Linux distributions' versions differ. The implementation issues are at the end (G1–G9, to be numbered when they are
+opened); the threat model is [SECURITY.md](../SECURITY.md#palo-alto-globalprotect), Linux
+[LINUX.md](LINUX.md#palo-alto-globalprotect).
+
+```
+passtunnel / app (the user)                                     PassTunnelHelper / passtunneld (root)
+  openconnect --authenticate --config=<file>   (protocol gp)
+    portal  vpn.example.com:  prelogin, getconfig.esp ─ password, code
+      └─ gateway gw1.example.com: prelogin, login.esp ─ (replayed, or password and a new code)
+    stdout: COOKIE (authcookie=…&user=…), HOST, CONNECT_URL (the gateway), FINGERPRINT, RESOLVE
+  HelperRequest.startOpenConnect (protocol 5: protocol gp) ─▶ <run>/openconnect.conf (0600)
+                                                                openconnect --config=<run>/openconnect.conf
+                                                                  getconfig.esp, HIP check (never a report),
+                                                                  ESP or HTTPS tunnel; script: vpn-hook
+```
+
+### What is reused unchanged
+
+The bundled tool and its pins (#179: the same `openconnect` closure; Homebrew's build lists `gp` among its protocols
+and has ESP, so nothing is added to the bundle and nothing of `libexec/openconnect`, `hipreport.sh` included, is ever
+taken); the macOS 15.4 gate (`Tool.minimumMacOS`); the split sign-in (the user's `--authenticate` run, root gets only
+the cookie and the server's identity); the fixed environment and the neutralized Homebrew paths; `vpn-hook` and
+everything it does (the script environment is built by protocol-independent code, `script.c`, from what
+`gpst_parse_config_xml` installs: `ip-address`, `netmask`, `dns`/`dns-v6`, `dns-suffix` as `CISCO_DEF_DOMAIN`,
+`access-routes`/`exclude-access-routes` and their `-v6` forms as split includes and excludes, `gpst.c` 431–539; a
+GlobalProtect gateway sends no split-DNS list, so its suffixes are the default domains); supervision, the deadlines
+(60 s set-up, 120 s reconnecting), the masked log copy, the status from the hook's record; `reconnect-timeout 60`;
+trust (an optional full `pin-sha256:` pin, otherwise `no-system-trust` with the system's CA bundle) and "Trust this
+server"; the user name in the file, never in argv; IPv6 blocked in a full tunnel without an IPv6 address.
+
+### Signing in: portal, then gateway (G4)
+
+openconnect's GlobalProtect sign-in (`gpst_obtain_cookie`, `auth-globalprotect.c` 807–845) decides by the URL's
+path: `portal` signs in to a portal, `gateway` to a gateway, no path tries the portal first and, when the server
+answers "GlobalProtect portal does not exist", the gateway (823–837; `-EEXIST`, `gpst.c` 333–336). A `:<field>` at
+the end of the path (`portal:portal-userauthcookie`, `gateway:prelogin-cookie`) names a field that carries a SAML
+cookie instead of the password (812–821); PassTunnel never renders one. Each login (`gpst_login`, 674–805):
+
+1. **Prelogin:** `POST <server>/global-protect/prelogin.esp?tmp=tmp&clientVer=4100&clientos=Mac` (`ssl-vpn/…` for a
+   gateway; `clientos=Linux` on Linux), with `cas-support=yes` in the body unless `no-external-auth` is given
+   (699–700; 9.01 and 9.12 never send it). It carries no credentials and follows redirects (`HTTP_REDIRECT`). The
+   `prelogin-response` gives the labels and the message (`username-label`, `password-label`,
+   `authentication-message`, `region`) or a SAML request (below); `parse_prelogin_xml` (78–227) builds the form
+   `_login`: `user` (text; hidden once a user name succeeded) and `passwd`. Without a token mode (PassTunnel never
+   gives one, as in Phase 1) the secret field is always a password field, whatever its label (206–212,
+   `can_gen_tokencode` is `-EINVAL`, `auth-common.c` 281–302).
+2. **The form**, answered by `process_auth_form_cb` (`main.c` 2828–2947): `user` from the `user` option (the field's
+   name starts with "user", 2888–2893), the first password field from the line `passwd-on-stdin` read at option
+   parsing (2023–2025, 2904–2908), every later password field from the next line of standard input (2909–2911,
+   `prompt_for_input` 2702–2725; `fgets` blocks while the pipe is open and nothing is there, `main.c` 784). The
+   server's message is printed to standard error (2844–2845).
+3. **Submit:** `POST …/global-protect/getconfig.esp` (portal) or `…/ssl-vpn/login.esp` (gateway) with the form, the
+   client's description (`clientos`, `os-version`, `server`, `computer` = this machine's host name, library.c
+   222–230) and `inputStr` when it answers a challenge (737–755). The answer is one of:
+   - **a challenge** (the second factor): `var respStatus = "Challenge"; var respMsg = "…"; thisForm.inputStr.value
+     = "…";`, or the same wrapped in `<html><body>` (9.10 and later), or `<challenge><inputstr>…</inputstr><respmsg>…
+     </respmsg></challenge>` (`gpst.c` 133–209, 296–316). `challenge_cb` (232–275) turns the form into `_challenge`:
+     `user` hidden, `passwd` labelled "Challenge: ", the server's `respMsg` as the message and `inputStr` kept for the
+     next submission; it is a password field again (no token mode), so it gets the next line. Any number of
+     challenges can follow one another.
+   - **HTTP 512** (wrong user name or password): the same form again, empty (`http.c` 991–992; 769–777 here), so it reads
+     the next line, and so on until standard input has none ("User input required in non-interactive mode").
+   - **the portal's configuration** (`parse_portal_xml`, 432–666): its gateways (`policy/gateways/external/list`,
+     each `<entry name="host[:port]"><description>label</description>`, with an optional per-region priority), the
+     HIP interval, the portal's version (sent back as `app-version`), and its authentication-override cookies
+     (`portal-userauthcookie`, `portal-prelogonuserauthcookie`). openconnect prints `N gateway servers available:`
+     and one line per gateway (`  <label> (<host>) [priority P]` or `[unprioritized]`; 9.01 and 9.12 print
+     `  <label> (<host>)` and do not sort), sorts them by priority (9.20 and later, 626), asks the gateway form
+     (below) and goes to the chosen one: `https://<host[:port]>` through `handle_redirect` (652–658), which, for
+     another host or port, closes the connection and drops the HTTP cookies (`http.c` 669–677).
+   - **the gateway's login** (`<jnlp>`, `parse_login_xml`, 318–416): the session cookie (below). Done.
+4. **Portal → gateway** (785–795): after the portal's configuration openconnect goes on as a gateway login. When the
+   portal sent an authentication-override cookie, or its login was neither a challenge nor a SAML one, it first
+   **replays the portal's last form unchanged** to the gateway's `login.esp`, with the cookie when there is one (the
+   password, or the challenge's answer and its `inputStr`): no line is read. When that is refused (512), or when
+   there was nothing to replay (the portal's login ended with a challenge and gave no cookie), it starts over at the
+   gateway's prelogin (step 1): a **second sign-in**, which asks for the password (the user name now hidden) and,
+   if the gateway has a second factor, a code.
+
+So, by the portal's and the gateway's configuration, the server asks for: the password alone; password and code
+(at the portal, with the gateway taking the portal's cookie or the replay; or at the gateway after the replay of the
+password); or password, code, password, code (both ask, no override cookie). A server whose first form wants the
+code alone (some RADIUS set-ups label it "Passcode") gets the profile's `combined` delivery with the template
+`{otp}`.
+
+**Choosing the gateway.** The gateway form is a select (`_portal`, field `gateway`, `authgroup_opt`). openconnect
+pre-selects the portal's first entry (636–637), but the command-line tool still answers the form itself
+(`main.c` 2849–2861): with the `authgroup` option it picks the entry whose **label** (the portal's description, as
+the GlobalProtect app lists them) is that text, compared without regard to case, whole or as the only entry it
+starts with (`match_choice_label`, 2664–2700); the entry's host is not compared. Without `authgroup`, or when the
+text matches none, `prompt_opt_select` takes the only entry of a one-gateway list (2748–2750) and otherwise **reads
+the choice from standard input** (2752): the next answer line (the code) would be taken as a gateway's label
+(`Auth choice "<code>" not available`, then the prompt again). The design:
+
+- The profile's `gateway` (empty, or a label; rendered as `authgroup`, the AnyConnect `authgroup` rule) names the
+  gateway. With one gateway on the portal it may stay empty: the server's choice is used.
+- A portal that lists more than one gateway needs it. Without it (or with a label the portal does not list) the
+  sign-in fails as `invalidField("gateway")` (`ConnectionFailure` kind `configuration`) with the portal's labels
+  (`ConnectionFailure.gateways`, read from the `N gateway servers available:` line and the N lines after it in
+  openconnect's form; each label printable ASCII of at most 64 bytes, at most 32, else none and "see the log"), so
+  the editor and the CLI can offer them. The portal's form was submitted by then: the code counts as sent.
+- `skip_portal` signs in to the profile's host as a gateway (path `gateway`), without the portal: one login, the
+  profile's own host as the tunnel's server, no gateway list. For users who know their gateway's address and for
+  portals whose second sign-in is unwanted.
+
+(#226 first said "the gateway is chosen by the server unless the profile names one". With the command-line tool
+that holds for a one-gateway portal only; answering openconnect's prompt with the first label it prints would need a
+reader of the run's partial output lines that writes the answer when the prompt appears, and the labels are the
+server's text. So a portal with more than one gateway needs a named one: [Decided](#decided-226), 1.)
+
+### The answers, and the second code (G4)
+
+`GlobalProtectAnswers` (Core) are positional like `OpenConnectAnswers` (each line 1–4,095 bytes without LF, CR or NUL),
+with one addition for the second sign-in:
+
+- **First part**, written when the run starts: `.separate` → the password, then the code; `.combined` → the composed
+  secret; no code → the password alone.
+- **Second part**, only with a code and without `skip_portal`: the same answers again, **composed with the code of
+  a later TOTP window**: `.separate` → the password and the new code, `.combined` → the secret composed with it.
+  Standard input stays open (a pipe, not a file; openconnect waits in `fgets` meanwhile), and the second part is
+  written once both hold: the run's standard error shows the second sign-in (a `POST https://…/ssl-vpn/prelogin.esp…`
+  line after a `POST https://…/global-protect/getconfig.esp` line, openconnect's own request lines), and the first
+  code's window has ended (so the two codes are of different time steps: a server that refuses a code it has seen,
+  as most OTP servers do, accepts the second). Then standard input is closed. It is closed without the second part
+  when the run shows that none can follow: a refused login (`Unexpected 512 result from server`, `http.c` 986–988)
+  that answers the portal's `getconfig.esp` or a `login.esp` after a gateway prelogin (not the gateway's refusal of
+  openconnect's replay, which leads to the second sign-in), or openconnect asking for the gateway (the portal's list of
+  two or more gateways while the profile names none, or `Auth choice "<the profile's gateway>" not available`), before
+  the second sign-in shows; and with `skip_portal` it is closed after the first part, as in Phase 1. A wrong
+  password thus costs the account two refused attempts (the password, then the code in the retry form), as in
+  Phase 1, not four. The second code is recorded in `.last-otp` when it is written, so the next connect waits for a
+  window after it.
+- The sign-in's time limit is 60 s plus the profile's TOTP period (90 s for 30-second codes), since a second
+  sign-in may wait for the window; a third prompt within one login (a server chaining challenges) waits for that
+  limit. `ToolRunning` gains this input (`ToolInput`: bytes now, more bytes when the caller's condition holds,
+  closed after; `SecretBytes` overwritten once written), read from the run's standard error as it comes and
+  cancelled like the run.
+
+Positional answers keep Phase 1's limits: after a wrong password the retry form gets the code as a password (the
+code is spent); a challenge that asks something other than the code gets the code. openconnect's own replay sends the
+portal's answer (with a combined secret, its code) to the gateway a second time; a gateway that refuses a code it
+saw answers 512, openconnect starts the second sign-in, and the second part answers it.
+
+### Single sign-on is refused (G4)
+
+A prelogin answer with `saml-auth-method` and `saml-request` is a SAML sign-in. openconnect's command-line tool has
+no web view (`main.c` sets none), so it neither opens a browser nor sends anything: it prints `SAML <method>
+authentication is required via <url>` and the error line `When SAML authentication is complete, specify destination
+form field by appending field_name to login URL.` (`auth-globalprotect.c` 146–154; 9.01 and 9.12 write
+`:field_name`) and the sign-in ends ("Failed to parse XML server response", "Failed to complete authentication").
+That exact error line, wherever it stands, is `PTError.ssoRequired` (`ConnectionFailure` kind `sso_required`, new):
+"This server signs in with single sign-on (SAML), which PassTunnel does not support." At the portal nothing was
+submitted (only prelogin requests), so the code is given back; at a gateway after the portal (a gateway with SAML
+behind a password portal) the portal's form was, and it counts as sent. Two exceptions in openconnect continue past
+a SAML prelogin without a browser: an alternative secret field from the path (never rendered) and a portal
+authentication-override cookie from this same run (102–105), which then signs in at the gateway with that cookie
+and the form; that is no SSO prompt and is allowed. `no-external-auth` is rendered where the tool has it, as in
+Phase 1 (on the Mac always; it also keeps `cas-support=yes` out of the prelogin).
+
+### Output, cookie and destination (G1, G4)
+
+`--authenticate` prints the same five lines for every protocol (`main.c` 2403–2424), here for the server openconnect
+ended on: after the portal's hop **the gateway**. `CONNECT_URL` is `https://<gateway host>[:<port>]/` (no path:
+`openconnect_get_connect_url` adds one only for Pulse, `library.c` 953–980), `HOST` and `RESOLVE` the gateway's
+address, `FINGERPRINT` the gateway's key. `OpenConnectAuthResult.parse` takes them as in Phase 1; the cookie's shape
+is GlobalProtect's:
+
+- **`GlobalProtectCookie`** (VPNConfig). openconnect builds it from the gateway's `<jnlp>` arguments (`gp_login_args`,
+  `auth-globalprotect.c` 293–315, saved ones URL-decoded at 359 and appended with `append_opt`, `auth-common.c`
+  143–156): `authcookie=…&portal=…&user=…&domain=…&preferred-ip=…&preferred-ipv6=…&computer=…`, in that order, an
+  argument left out when the server sent it empty, `(null)` or `-1`; `authcookie` and `user` are required (the login
+  fails without them, `err_missing`), `computer` (this machine's host name, 394) is always last. Every name and value
+  is URL-encoded by `buf_append_urlencoded` (`textbuf.c` 138–149): only `A–Z a–z 0–9 - _ . ~` and `%` with two
+  lower-case hex digits. Accepted, and nothing else: exactly those keys in that order, each once, `authcookie` of at
+  least 8 bytes, every value in that alphabet (`computer` may be empty), at most 4,096 bytes in all; no `'`, blank or
+  `;` can be in it. The tunnel run takes it unchanged (`cookie`, `main.c` 2050–2052; only the AnyConnect, FortiGate,
+  F5 and Juniper code splits cookies, `internal_split_cookies`), so `OpenConnectCookie`'s `webvpn=` naming does not
+  apply: the helper is sent the cookie as printed and checks it with `GlobalProtectCookie.isValidTunnelOption`.
+- **What is secret in it:** `authcookie` is the bearer secret; with `user` and `portal` it opens the session (getconfig,
+  the tunnel's `GET /ssl-tunnel-connect.sslvpn?user=…&authcookie=…`, the HIP check and the logout all send it,
+  `gpst.c` 665, 743, 880, `auth-globalprotect.c` 865). `user` (the account as the gateway names it) and `computer` are personal but no
+  secrets, `portal`, `domain` and the preferred addresses none. The whole cookie and the `authcookie` value alone are
+  literal secrets of the log masks (`MaskingCopier`, `LogRedactor`, as `OpenConnectCookie.secrets` for AnyConnect), and
+  `OutputMask` masks `authcookie=` values and the `cookie` configuration line. The user name thus reaches root inside
+  the cookie (the start request still has no user name field, and no password or code).
+- **The portal's override cookies** are printed by openconnect itself in the sign-in run when the gateway's `<jnlp>`
+  carries them (`GlobalProtect login returned portal-userauthcookie=<value>`, `…portal-prelogonuserauthcookie=…`,
+  `show` at 310–311, printed at 382–385): they sign in to the portal's gateways without the password or code for as
+  long as the administrator set. `LogRedactor`'s pass over the sign-in's standard error masks the value of those two
+  lines to the end of the line, and of every `GlobalProtect login returned unexpected argument value arg[N]=…` line
+  (an argument openconnect does not know, 365–369). They never leave the sign-in run.
+
+**Where the sign-in may go.** The portal's hop to its gateway is a change of host that openconnect makes itself
+(above), and in most GlobalProtect deployments with more than one gateway the gateways are other hosts than the
+portal. Phase 1 refuses a sign-in that ended on another host (ASA load balancing); for GlobalProtect the rule is
+(`OpenConnectAuthResult.checkDestination(protocol: .gp, …)`):
+
+- `CONNECT_URL`'s host and port are the profile's (a gateway on the portal's host; `skip_portal`; a gateway reached
+  by the no-portal fallback), or, without `skip_portal`, another host only as the portal's hop: the run's
+  `POST https://…` lines (openconnect's own, `http.c` 893–899) name at most two servers, the profile's
+  (`global-protect/…` requests) and `CONNECT_URL`'s (`ssl-vpn/…` requests, all after the portal's
+  `getconfig.esp`); a third server, or a request to the other one before the portal's `getconfig.esp`, fails the
+  connect (`signInUnusable`, fixed text), as Phase 1's check of a redirect after the fact.
+- `RESOLVE` and `HOST` are checked against `CONNECT_URL`'s host as Phase 1 checks them against the profile's (a name
+  resolved to `HOST`; an IP-literal gateway, which portals often list, compared as an address and no `resolve`).
+- `FINGERPRINT` must be one of the profile's pins when it has any (below).
+- What binds the gateway: its key passed the same trust as the portal's (a pin, or the system CA for the gateway's
+  own name), and the portal (whose key the profile trusts) named it. The credentials reach it either way: openconnect
+  replays the portal's form there. `ProfileDestination` binds the portal (below), never the gateway.
+
+**Trust: two keys.** openconnect checks every TLS connection of the run, the gateway's too, against the `servercert`
+options, and any `servercert` turns system trust off for the whole run (`main.c` 1968–1982, 2589–2616): a pinned portal
+with a gateway of another key fails at the gateway, and the two cannot be mixed (pin for one, CA for the other). So
+the profile has two optional pins, `server_cert` (the portal's, or the only server's) and `gateway_server_cert`
+(the gateway's when its key is another), and the sign-in file has a `servercert` line for each one that is set (each
+accepted for any host, which openconnect's option does: `host == NULL`), or `no-system-trust` and `cafile` when
+neither is. The tunnel run gets `servercert` = the `FINGERPRINT` the sign-in accepted (the gateway's), as in Phase 1.
+"Trust this server" (Phase 1) for the portal writes `server_cert`. A gateway's key that fails comes after the
+portal's answer (the code is spent): the line `Certificate from VPN server "<host>" failed verification.` with its
+`    --servercert pin-sha256:…` hint (2622–2626), or `None of the N fingerprint(s) specified via --servercert match
+server's certificate: pin-sha256:…` (2611–2615), for the gateway host the run went to, becomes
+`serverCertificateRejected` with a `ServerTrustOffer` for the gateway ("Trust This Gateway…", writing
+`gateway_server_cert`). These lines follow text of the portal's, which the portal could imitate; the user confirms the
+host and the full pin as in Phase 1, and only the portal, already trusted, could make them up. When the portal had no
+pin, trusting the gateway's key turns system trust off for the portal too, so the offer also pins the portal's key,
+read with `TLSFingerprint.fetchServerKeyPin` and shown for confirmation (Mac; on Linux both pins come from log hints).
+
+### The configurations (G1)
+
+The sign-in file (`OpenConnectAuthConfig` with `protocol: .gp`):
+
+```
+# Generated by PassTunnel. Do not edit.
+protocol gp
+server https://vpn.example.com/                (https://vpn.example.com/gateway with skip_portal)
+user alice
+authgroup US East                              (only when the profile names a gateway)
+servercert pin-sha256:<44 characters>          (server_cert, when set)
+servercert pin-sha256:<44 characters>          (gateway_server_cert, when set)
+no-system-trust                                (only without either pin)
+cafile /etc/ssl/cert.pem                       (only without either pin)
+non-inter
+passwd-on-stdin
+no-external-auth                               (where the tool has it)
+disable-ipv6                                   (Linux, openconnect before 9.20)
+```
+
+The root file (`OpenConnectConfig` with `protocol: .gp`):
+
+```
+# Generated by PassTunnel. Do not edit.
+protocol gp
+server https://gw1.example.com/                (the gateway: CONNECT_URL, rendered from the request's host and port)
+cookie authcookie=<…>&portal=<…>&user=<…>&domain=<…>&computer=<…>
+servercert pin-sha256:<44 characters>
+resolve gw1.example.com:192.0.2.20             (only for a host name)
+script <staged build directory>/Resources/bin/vpn-hook
+non-inter
+reconnect-timeout 60
+no-dtls                                        (only with tls_only: no ESP)
+disable-ipv6                                   (Linux, openconnect before 9.20)
+```
+
+Changes to Phase 1's checks (`checkRendered`, `OpenConnectOptions`), and nothing else:
+
+- `protocol` is `anyconnect` or `gp`, and the rest of the file is checked by that protocol's rules.
+- `server`'s path in the sign-in file is empty or `gateway` (no user group, no `:<field>`: a SAML cookie field); in
+  the root file empty, as before.
+- `servercert` may appear twice in a GlobalProtect sign-in file (still once in every other file); `authgroup` renders
+  `gateway`.
+- `cookie` in a GlobalProtect root file is `GlobalProtectCookie.isValidTunnelOption`'s shape, not `webvpn=`/STRAP.
+- `disable-ipv6`, refused in Phase 1 as not needed, is rendered in both GlobalProtect files when the Linux openconnect
+  is older than 9.20 ([LINUX.md](LINUX.md#palo-alto-globalprotect): 9.01–9.12 read a gateway's IPv6 split includes as
+  excludes, `gpst.c` 532 in 9.12, fixed in 9.20 by openconnect commit 64f0c03d); it keeps IPv6 off the tunnel (no
+  IPv6 address is taken, `gpst.c` 434–436, and `ipv6-support=no` is sent), so the hook blocks IPv6 in a full tunnel
+  and leaves it alone in a split one. Refused everywhere else, and in AnyConnect files.
+- Still refused, with GlobalProtect reasons added to the table: `csd-wrapper`, `csd-user`, `force-trojan` (the HIP
+  script would run **as root, in the tunnel run**: openconnect runs it from `gpst_setup`, after the sign-in, and again
+  every interval, `gpst.c` 1058–1109, 1295–1317), `usergroup` (the path decides portal or gateway and can name a SAML
+  cookie field), `form-entry` (could fill `_portal:gateway` or any login field), `os` and `version-string`
+  (`clientos`/`app-version`, by which gateways choose HIP and client policies), `local-hostname` (`computer`),
+  `useragent` (openconnect sends `PAN GlobalProtect` itself, `auth-globalprotect.c` 34–45), and the rest as in Phase 1.
+
+### HIP: never run, the user is told (G4)
+
+openconnect never runs anything for HIP without `csd-wrapper`. In the tunnel run, after the configuration and after
+every reconnect, it asks the gateway (`POST …/ssl-vpn/hipreportcheck.esp` with an MD5 of the cookie's stable parts,
+`gpst.c` 843–911); when the answer is `<hip-report-needed>yes`, `run_hip_script` (913–937) prints once per run, as
+ERR:
+
+```
+WARNING: Server asked us to submit HIP report with md5sum <32 hex digits>.
+    VPN connectivity may be disabled or limited without HIP report submission.
+    You need to provide a --csd-wrapper argument with the HIP report submission script.
+```
+
+and **goes on** (it returns 0); the check is repeated at the portal's interval (`hip-report-interval` − 60 s,
+`auth-globalprotect.c` 499–511) or hourly (`GlobalProtect HIP check due`), without the warning again. A gateway that
+enforces HIP lets the tunnel up and limits what it reaches (a quarantine policy) or ends the session. PassTunnel
+reads those three lines, whole, in that wording, from the session log (`VPNLog.globalProtectHIPRequested`) and shows
+a notice on the connected profile: "The gateway asked for a host information report, which PassTunnel does not
+send. Access may be limited." (`ConnectionStatus.notices`: `hip_report_not_sent`; app, `status`, MCP `get_status`).
+The log is partly the server's: the notice is display only and decides nothing, like the address shown. This
+replaces Phase 1's line that HIP would be refused like CSD: a HIP request is no failure (owner decision, #226).
+
+### The tunnel: ESP or HTTPS, reconnect, logout (G3, G4)
+
+- **Configuration:** `POST …/ssl-vpn/getconfig.esp` with the cookie (`gpst_get_config`, `gpst.c` 642–717): the
+  addresses, DNS, suffixes, routes, the MTU (usually 0: openconnect computes one and prints `No MTU received.
+  Calculated <n> for …`, 687–711), the idle timeout, the tunnel's rekey interval (`timeout`), the session's lifetime,
+  and the ESP keys and UDP port (`ipsec`, 540–566). openconnect's "DTLS" is ESP for this protocol (`udp_protocol`
+  `ESP`, `library.c` 331): with ESP on, it probes the gateway's address over UDP and uses ESP once the probe is
+  answered (`ESP session established with server`, `esp.c` 255–256; `ESP tunnel connected; exiting HTTPS mainloop.`),
+  and after 5 s without it falls back to the HTTPS tunnel (`Failed to connect ESP tunnel; using HTTPS instead.`,
+  `gpst.c` 1143–1160); without keys `Did not receive ESP keys and matching gateway in GlobalProtect config; tunnel will
+  be TLS only.` (624–627). Starting the HTTPS tunnel voids the ESP keys (726–731, 792–795). `tls_only` renders
+  `no-dtls`: no ESP, the HTTPS tunnel at once (the switch for networks where UDP to the gateway is blocked or
+  broken). ESP goes to the same address as the TLS connection (`VPNGATEWAY`), so the hook's host route for the server
+  covers it; its keys travel in the TLS-protected configuration and are never logged at the default level.
+- **Reconnect:** DPD every 10 s (589–593); a dead peer, a failed read or write, or the rekey interval (`GlobalProtect
+  rekey due`, 1319–1337, at `timeout` − 60 s) makes openconnect reconnect with the same cookie: a new getconfig (with
+  the addresses it had as `preferred-ip`), the HIP check, the tunnel. That runs the hook's `attempt-reconnect` and
+  `reconnect` (Phase 1's check: the same settings pass, other ones stop the session), so a GlobalProtect session sees
+  them at every rekey too, not only after a drop. The budget is `reconnect-timeout 60` and the supervisor's 120 s, as
+  in Phase 1; after them `ConnectionManager` signs in afresh (portal and gateway, new codes). The gateway refuses the
+  cookie with "Invalid authentication cookie", "Portal name not found", "Valid client certificate is required" or
+  "Allow Automatic Restoration of SSL VPN is disabled" (`gpst.c` 337–343), HTTP 502 on the tunnel request (776–777) or
+  "errors getting SSL/VPN config" (682–683): openconnect exits with "Cookie was rejected by server; exiting." (status
+  2), a drop, and the next connect signs in again. The cookie's lifetime is the gateway's (`lifetime`, 441–442;
+  `Session authentication will expire at …`, `main.c` 1668–1675).
+- **Stop:** SIGTERM makes openconnect log out (`gpst_bye`, `auth-globalprotect.c` 847–895, from `mainloop.c` 412–413):
+  `POST …/ssl-vpn/logout.esp` with the cookie, then `Logout successful.` or `Logout failed.`. Unlike AnyConnect's BYE,
+  the logout has an answer: after "Logout successful." the gateway has ended the session and the cookie is void.
+  After a kill, a crash, a broken connection or "Logout failed." it stays valid until its lifetime.
+- **Log** (display only, as Phase 1's): besides the lines above, `POST https://<gateway>/ssl-vpn/getconfig.esp`,
+  `Configured as <addresses>, with SSL connected and ESP in progress` (`main.c` 1659–1667; `… and ESP disabled` with
+  `tls_only`), `GlobalProtect IPv6 support is experimental. …` (ERR, whenever an IPv6 address is assigned,
+  `gpst.c` 596–599), `GPST Dead Peer Detection detected dead peer!`, `Reconnect failed`. The state comes from the hook's
+  record, never from these.
+
+### Failures (G4)
+
+`VPNLog.globalProtectSignInError` reads the sign-in's whole redacted standard error as Phase 1's does (whole LF lines
+of printable ASCII in openconnect's 9.21 wording, `openConnectLines`), in this order:
+
+1. dyld stopped openconnect: `toolUnsupported`.
+2. the SAML line: `ssoRequired` (counted as sent or not by the next rule).
+3. **Credentials sent** (`VPNLog.globalProtectCredentialsSent`): any `POST https://…` that is not a prelogin
+   (`…/global-protect/prelogin.esp?tmp=tmp&clientVer=4100&clientos=<Mac|Linux>`, `…/ssl-vpn/prelogin.esp?…`, the only
+   requests without credentials; a portal and a gateway prelogin of the no-portal fallback are two requests and still
+   none sent). A redirected prelogin is printed with the redirect's path and so counts as sent, as Phase 1's count
+   does; a run stopped at its deadline or past what is kept counts as sent. Once sent: the gateway list
+   (`invalidField("gateway")` with the labels), a gateway's certificate (`serverCertificateRejected` for the gateway,
+   above); anything else `authFailed`, never retried.
+4. Before any form was sent: the lines before the first TLS session as Phase 1 (certificate, name, no answer); "Server
+   is neither a GlobalProtect portal nor a gateway." (`auth-globalprotect.c` 835: `invalidField("host")`, "This server
+   is not a GlobalProtect portal or gateway"); "User input required in non-interactive mode" (`signInNeedsMoreAnswers`);
+   else `connectFailed`.
+
+CSD's `hostScanRequired` lines do not exist in this protocol (`auth.c` is AnyConnect's) and are not read for it.
+
+### Helper protocol 5 (G3)
+
+`PT.helperProtocolVersion` becomes 5, and `passtunneld`'s `hello` too. The start request gains `protocol`
+(`anyconnect` or `gp`, required) and `profile_gateway_server_cert`, and `host`/`port` now mean the server the tunnel
+connects to: for AnyConnect the profile's (as before), for GlobalProtect the gateway the sign-in ended on (from
+`CONNECT_URL`). A protocol-4 helper (1.6.0 released it) decodes with `Codable`, which ignores keys it does not know,
+so without the bump it would take a GlobalProtect start for an AnyConnect one; with it, an older helper or daemon fails
+the version check and is replaced (Mac) or refuses (Linux, until its package is updated).
+
+```swift
+case startOpenConnect(OpenConnectStart)   // + protocol (.anyconnect | .gp), + profileGatewayServerCert
+```
+
+JSON keys: Phase 1's and `protocol`, `profile_gateway_server_cert` (empty for AnyConnect). `prepareOpenConnect` per
+protocol, in Phase 1's order: (1) the macOS 15.4 check, with the protocol's name ("Palo Alto GlobalProtect requires
+macOS 15.4 or later."); (2) the fields: for `gp` `usergroup` must be empty, the cookie `GlobalProtectCookie`'s shape,
+`connectURL` exactly `https://<host>[:<port>]/` for the request's host and port, `resolve` as before, and `serverCert`
+equal to `profileServerCert` or `profileGatewayServerCert` when either is set; (3)–(6) as before, the text checked
+against the line count the request implies (header and seven options, `resolve`, `no-dtls`, and on Linux
+`disable-ipv6`, which the daemon decides from its own openconnect's version, never from the request). The masks the
+helper's `MaskingCopier` gets are the protocol's cookie secrets. The description and mirror hide the cookie,
+`connect_url`, `resolve` and `server_cert` as before; `host` (the gateway) is shown.
+
+### Profile (G2)
+
+`VPNType.globalprotect` (`--type globalprotect`, "Palo Alto GlobalProtect"), in `PassTunnelKit`, rules from
+`OpenConnectAuthConfig` (VPNConfig) like AnyConnect's:
+
+| Key | Rule |
+|---|---|
+| `host`, `port` | as AnyConnect: the portal (or, with `skip_portal`, the gateway) |
+| `gateway` | empty or a gateway's label as the portal lists it: AnyConnect's `authgroup` rule (1–255 bytes, no control characters or line separators, no leading or trailing whitespace, no leading `=`); rendered as `authgroup` |
+| `skip_portal` | boolean, default false: sign in to `host` as a gateway (path `gateway`) |
+| `server_cert` | as AnyConnect: the portal's key (or the only server's) |
+| `gateway_server_cert` | empty or a full pin, normalized as `server_cert`; the gateway's key when it is not the portal's |
+| `tls_only` | boolean, default false: `no-dtls` (no ESP) |
+| `set_dns`, `set_routes`, `username`, `password_mode`, TOTP, `otp_delivery`, `otp_template` | as AnyConnect (`otp_delivery` defaults to `.separate`; a `.combined` template at most 4,095 bytes without LF, CR or NUL) |
+
+A new key `gateway` rather than AnyConnect's `authgroup`: the value is matched against another list (the portal's
+gateway labels, not the server's group list), the editor and CLI name it so, and no key changes its meaning between
+types ("Keys of a newer version"). `usergroup` and `authgroup` are AnyConnect's alone (`wrong_profile_type` on this
+type); `gateway`, `skip_portal` and `gateway_server_cert` are this type's alone; `server_cert`, `tls_only` are
+written for both types. As for AnyConnect they are read for any type and written only for theirs, so OpenVPN,
+FortiGate and AnyConnect files stay exactly as before. `ProfileDestination.of`: after `passtunnel-destination-1` and
+the type, the host, port, `skip_portal`, `server_cert` and `gateway_server_cert` (normalized); `gateway`, `tls_only`,
+`set_dns` and `set_routes` are not part of it (the gateway is the portal's to offer, as AnyConnect's group is the
+server's). Addresses: `GlobalProtectServer.parse` takes `[https://]host[:port]`, as `AnyConnectServer.parse` but
+without a path (a GlobalProtect address has none; `/global-protect…` or `/ssl-vpn…` pasted from a browser is refused
+with that reason). Golden cases `fixtures/globalprotect-servers.json`.
+
+**Share files:** version 2, as AnyConnect (`ShareFile.version(for: .globalprotect)`; `currentVersion` stays 2). Every
+reader of version 2 keeps and refuses a profile of a type it does not know (#191 came first), so 1.6.0 lists such an
+import as needing a newer PassTunnel, and version-1-only readers refuse the file. A new version is needed only for a
+change an older reader of version 2 would misread, which this is not. An older version, or a port, that does not know
+the type keeps the whole profile object unchanged (`UnsupportedProfile`); one that knows it keeps the keys a newer
+version adds to it (#200). The golden cases ([MOBILE.md](MOBILE.md#shared-logic)): `share-files.json` (decode, encode
+as version 2, this type's keys dropped on another type and AnyConnect's on this one), `profile-json.json` (a save
+keeps them for this type only, a type change drops them), `profile-fields.json` (`gateway`, `skip_portal`,
+`gateway_server_cert`; `wrong_profile_type` elsewhere), `codes.json` (`compose` for this type: separate by default, as
+AnyConnect) and `globalprotect-servers.json`.
+
+macOS below 15.4: the type is shown and refused exactly as AnyConnect is (#2's owner decision of 2026-10-28, the
+same closure), with "Requires macOS 15.4 or later". Linux: [LINUX.md](LINUX.md#palo-alto-globalprotect).
+
+### Tests (G8)
+
+No open-source server speaks GlobalProtect's tunnel, so no test runs a real GlobalProtect tunnel; that is why the
+type ships [experimental](#experimental-g2-g5-g6-g9). The sign-in is tested on every CI run against openconnect's own
+test portal and gateway, `tests/fake-gp-server.py` (owner decision, #226):
+
+- **Where it comes from:** the openconnect release tarball
+  `https://www.infradead.org/openconnect/download/openconnect-<version>.tar.gz`, at the version `release.env` pins as
+  `OPENCONNECT_VERSION` (9.21) and checked against a SHA-256 kept next to the test
+  (`Tests/globalprotect/fake-gp-server.sha256`; 9.21: `5b32369467db6e5f317aa1ed12cfcbb81ed00bdbc765450b6bfcbdc300944a58`,
+  the value Homebrew's formula pins too). The CI job downloads it, checks the hash, extracts that one file and runs
+  it unchanged; a version bump updates the hash in the same pull request.
+- **Its license:** LGPL-2.1 or later (the file's header), like openconnect. It is test code that is only run: never
+  copied into this repository, never modified, never part of the app, the Linux tarball, the Docker image or any
+  release, so it adds nothing to `THIRD_PARTY_NOTICES.md`. It needs Python 3 and Flask, from the test container's
+  distribution packages (the image pinned by digest, as the ocserv image is).
+- **What it offers** (its `/CONFIGURE` endpoint): one or more gateways (all on its own host and port), a challenge at
+  the portal, the gateway or both in each of the three encodings (and it clears `inputStr`, so a blind replay of a
+  challenge fails as a real gateway's would), the two override cookies, SAML at either, the HIP check. It accepts any
+  password and code, so a code's reuse and a gateway on another host are covered by unit tests with a fake runner
+  instead.
+
+Cases, through `ConnectionManager` with the distribution's (Linux) or Homebrew's (Mac, by hand) openconnect and a fake
+helper: password only; code at the portal with and without an override cookie; code at the gateway after the replay;
+both, with the second part written after the first code's window; a portal with two gateways, with and without
+`gateway`, and with an unknown one; `skip_portal`; SAML at the portal (code given back) and at the gateway (spent);
+pins; the masking of the override cookies; the cookie's checks and the helper's refusal of every wrong field. The hook
+needs no new code; `Tests/Fixtures/openconnect-env.json` gains environments as `gpst.c` builds them (many DNS
+suffixes, IPv6 includes, `0.0.0.0/0` includes).
+
+### Experimental (G2, G5, G6, G9)
+
+GlobalProtect ships marked **experimental** until reports from real gateways come in (owner decision, #226): only
+openconnect's test server and unit tests stand behind the tunnel path. It is a label and nothing else: no feature
+flag, no opt-in, no setting; the type connects exactly as designed above.
+
+- **One source of truth:** `VPNType.isExperimental` in `PassTunnelKit` (`Model.swift`), `self == .globalprotect`.
+  Every place below reads it; dropping the label later is that one line (and the docs' sentences). Nothing stores it:
+  no profile key, no share-file field, no `config.json` value.
+- **Mac app** (G6): an "Experimental" badge (a small capsule beside the type's name, localized) in Add VPN's type
+  question and the File menu item's title, the editor's type header, the profile list row's type line and the detail
+  view's header. The detail view and the failure card add a link "Report how it works…" to the issue template below.
+  The menu bar shows no badge (it lists profiles by name only).
+- **CLI, human output** (G5): `(experimental)` after the type's name in `list`, `show`, `status` and `diagnose`, and one
+  line after `add --type globalprotect` and `import` of such a profile: "Palo Alto GlobalProtect support is
+  experimental. Please report how it works: <the template's URL>" (to standard error, so scripts reading standard
+  output are unaffected).
+- **`--json` and MCP** (G5): `"experimental": true` on every profile object of an experimental type
+  (`ProfileSummary`/`ProfileStatus`: `list`, `status`, `show`, MCP `list_profiles` and `get_status`), left out for the
+  other types, so their output stays byte for byte as it is; CLI-JSON.md documents the key (additive, as its stability
+  rules allow) and that it may disappear when the type stops being experimental.
+- **Docs and website** (G9): README's and APP.md's type lists and the website's feature list say "Palo Alto
+  GlobalProtect (experimental)" with one sentence asking for reports through the template. The release that first
+  makes the type usable says so in its notes: the notes are the commit subjects (RELEASING.md), so that pull request's
+  title ends in "(experimental)" (G4: `feat: connect Palo Alto GlobalProtect profiles (experimental)`), and so do
+  the other `feat` titles of this phase that can land in a release before it.
+- **Issue template** (G9): `.github/ISSUE_TEMPLATE/globalprotect_report.md` ("GlobalProtect report", label
+  `globalprotect`): worked or not; macOS or Linux and the openconnect version; portal and gateways (one host or
+  several, how many gateways); where the code is asked (portal, gateway, both) and whether an override cookie is used;
+  ESP or TLS only; HIP asked or not; and the profile's log with a reminder to replace host names, user names and
+  addresses (example hosts as in this repository) and that PassTunnel already masks cookies and codes. It links
+  SECURITY.md for anything security-related.
+- **Phones:** a port that shows the type names it with the same label, from the Kit's constant (iPhone) or its Kotlin
+  counterpart ([MOBILE.md](MOBILE.md#globalprotect-profiles)).
+
+### Decided (#226)
+
+Owner decisions on what this design adds to, or changes in, #226's first list:
+
+1. **Gateway choice:** a portal with more than one gateway needs the profile's `gateway`; without it the sign-in fails
+   and lists the portal's gateways. The server chooses only on a one-gateway portal.
+2. **Gateway on another host:** allowed within the two-server rule (the portal, then the gateway it names), the
+   gateway's key under the same trust as the portal's. No list of allowed gateway hosts.
+3. **A second pin,** `gateway_server_cert`, since openconnect cannot pin one server and trust the CA for the other.
+4. **The second code** waits for the next TOTP window; the sign-in's time limit is 60 s plus the TOTP period.
+5. **Linux minimum 9.11** for this type (Debian 12 and EPEL 9 keep Cisco AnyConnect only), `disable-ipv6` before 9.20.
+6. **Helper protocol 5.**
+7. **The sign-in tests** run openconnect's `tests/fake-gp-server.py` unchanged, in CI only, never shipped, fetched from
+   the pinned openconnect release and checked by its SHA-256 ([Tests](#tests-g8)).
+8. **Experimental:** the type ships labelled experimental until real gateways have been reported working; a label
+   only, from one constant ([Experimental](#experimental-g2-g5-g6-g9)).
+
+### Implementation issues
+
+In dependency order, mirroring Phase 1's #179–#189; nothing replaces #179 (the bundle already has `gp` and ESP) or
+#183 (the hook is reused unchanged):
+
+- **G1** `feat: render and check GlobalProtect configurations` (VPNConfig): `protocol gp` in `OpenConnectAuthConfig`
+  and `OpenConnectConfig` (path, `gateway`, two pins, `disable-ipv6`), `GlobalProtectCookie` (parse, check, secrets),
+  `OpenConnectAuthResult` for gp (output, `checkDestination` with the gateway host, `tunnelConfig`), the options
+  table's changes and reasons; golden and fuzz tests.
+- **G2** `feat: GlobalProtect profiles in PassTunnelKit`: `VPNType.globalprotect`, the keys and their rules,
+  `ProfileFields`, `ProfileStore` checks, `ProfileDestination`, share files (version 2), `GlobalProtectServer.parse`,
+  the fixtures, the macOS 15.4 availability, `VPNType.isExperimental` (the one source of the experimental label).
+  Needs G1 (the rules live in VPNConfig).
+- **G3** `feat: start GlobalProtect sessions in the helper (protocol 5)`: `OpenConnectStart.protocol` and
+  `profileGatewayServerCert`, `prepareOpenConnect` per protocol, the 15.4 message, the cookie masks in
+  `MaskingCopier`/`OutputMask`; `passtunneld` reports 5 and refuses `gp` until G7. Needs G1.
+- **G4** `feat: connect Palo Alto GlobalProtect profiles (experimental)` (the title the release notes show): the
+  sign-in (`GlobalProtectSignIn`), `ToolInput` with the second part and `.last-otp`, the credentials-sent rule, the
+  POST-host rule, the failures (`sso_required`, the gateway list, a gateway's key, not a GlobalProtect server), the
+  override-cookie masks, the start request, the HIP notice, the time limits. Needs G1–G3.
+- **G5** `feat: GlobalProtect in the CLI and MCP`: `add --type globalprotect [--server]`, `set`/`show`, the failure
+  kinds and the notice in `--json` and MCP, the experimental label (`(experimental)` and the report line in human
+  output, `"experimental": true` in `--json` and MCP), CLI-JSON.md. Needs G4.
+- **G6** `feat: GlobalProtect in the Mac app`: the type in Add VPN and the File menu, the editor (Gateway with the
+  portal's list after a failure, Skip portal, the two pins, "Trust This Gateway…"), the HIP notice, the
+  "Experimental" badge and the "Report how it works…" link. Needs G4.
+- **G7** `feat(linux): GlobalProtect in passtunneld`: the daemon accepts `gp`, the per-type minimum 9.11 (daemon and
+  sign-in), `disable-ipv6` before 9.20, its tests. Needs G3, G4.
+- **G8** `test: GlobalProtect sign-in against openconnect's test server`: the container (Python and Flask from the
+  distribution, image pinned by digest), fetching `fake-gp-server.py` from the pinned tarball with its SHA-256, the CI
+  job, the cases above; the manual check against a real gateway. Needs G4, G7.
+- **G9** `docs: Palo Alto GlobalProtect support (experimental)`: README, APP.md, the website's feature list, each
+  marked experimental with the request for reports, and the issue template `globalprotect_report.md`. Last.
 
 ## Rules for all code
 

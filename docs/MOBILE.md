@@ -22,7 +22,9 @@ VPN talks only to the user's VPN server). FortiGate is not on either phone for n
 library we may use under MIT, and FortiOS 7.6.3 removed SSL VPN tunnel mode altogether. It is
 revisited after the Android VPN ships. Cisco AnyConnect (type `anyconnect`, in share files of version 2)
 is not on either phone either: the shared model reads and keeps such a profile and its keys (the
-fixtures), and the phones do not connect it.
+fixtures), and the phones do not connect it. Palo Alto GlobalProtect (type `globalprotect`, planned in
+#226, also in share files of version 2) is handled the same way once the shared model knows it: read and
+kept with its keys, not connected ([GlobalProtect profiles](#globalprotect-profiles)).
 
 ## Shared logic
 
@@ -49,6 +51,29 @@ FortiGate config, share files, slugs, profile fields and merging, and the secret
 
 Swift on Android (official SDK since Swift 6.3) is reconsidered when its Java bridge reaches 1.0;
 until then the Kotlin port is simpler and safer.
+
+### GlobalProtect profiles
+
+Planned (#226; the Mac's side is G2 in [ARCHITECTURE.md](ARCHITECTURE.md#profile-g2)). What the ports follow:
+
+- **Before a port knows the type**, a `globalprotect` profile or share file is a VPN type it does not know: kept as
+  it is, listed as needing a newer PassTunnel, refused everywhere but delete (above). Nothing else is needed for
+  safety: the share file is version 2, which every port that reads Cisco AnyConnect files reads already.
+- **Once it knows the type** (the iPhone through `PassTunnelKit` at a newer pin, Android in its Kotlin model): the type
+  and its keys as `PassTunnelKit` defines them: `host`, `port`, `gateway` (a gateway's label, AnyConnect's `authgroup`
+  rule), `skip_portal` (boolean), `server_cert` and `gateway_server_cert` (full `pin-sha256:` pins, normalized),
+  `tls_only`, `set_dns`, `set_routes`, the user name, password mode and TOTP keys, `otp_delivery` defaulting to
+  `separate`. They are written only for this type (`usergroup` and `authgroup` stay AnyConnect's), read for any type
+  and dropped on another type's save; keys a newer version adds to the type are kept as for every known type. Share
+  files of this type are written as version 2. A port that does not connect the type never renders openconnect files
+  or reads a cookie: the keys are stored, shown, edited and shared only. Where a port names the type it adds the same
+  "Experimental" label, from `VPNType.isExperimental` (iPhone, through the Kit) or a Kotlin constant that mirrors it,
+  dropped together when the Mac drops it.
+- **Golden cases** land in `fixtures/` with the Mac's G2, before any port changes: `share-files.json` (decode and
+  encode, version 2, the type's keys dropped on another type and AnyConnect's on this one), `profile-json.json` (what a
+  save writes back, a change of the type), `profile-fields.json` (setting `gateway`, `skip_portal`,
+  `gateway_server_cert`; `wrong_profile_type` on another type), `codes.json` (`compose` for this type) and
+  `globalprotect-servers.json` (`[https://]host[:port]`, no path). The Android copy is updated by moving its pin.
 
 ## Android: the VPN client
 
