@@ -1,4 +1,5 @@
 import Foundation
+import PassTunnelVPNConfig
 import XCTest
 
 @testable import PassTunnelCore
@@ -75,9 +76,9 @@ final class OpenConnectDaemonTests: DaemonTestCase {
     ) -> OpenConnectStart {
         let dir = profileDir(id)
         return OpenConnectStart(
-            profileID: id, profileDir: dir, logPath: dir + "/vpn.log", host: host, usergroup: usergroup, connectURL: connectURL,
-            resolve: resolve, cookie: cookie, serverCert: serverCert, profileServerCert: profileServerCert, tlsOnly: tlsOnly,
-            setDNS: true, setRoutes: true)
+            protocol: .anyconnect, profileID: id, profileDir: dir, logPath: dir + "/vpn.log", host: host, usergroup: usergroup,
+            connectURL: connectURL, resolve: resolve, cookie: cookie, serverCert: serverCert, profileServerCert: profileServerCert,
+            tlsOnly: tlsOnly, setDNS: true, setRoutes: true)
     }
 
     func makeOpenConnectDaemon(_ configure: (inout Daemon.Options) -> Void = { _ in }) throws -> Daemon {
@@ -188,6 +189,41 @@ final class OpenConnectDaemonTests: DaemonTestCase {
         // Outsiders get the usual refusal first.
         caller.uid = stranger
         XCTAssertTrue(try response(daemon.socketPath, .startOpenConnect(request())).error?.contains("“passtunnel”") == true)
+    }
+
+    /// Palo Alto GlobalProtect (protocol 5's `gp`) is refused before anything is checked or written, until the
+    /// daemon runs it (#234): even a request the Mac's helper would accept, and with no openconnect installed.
+    func testGlobalProtectIsRefusedUntilTheDaemonRunsIt() throws {
+        let daemon = try makeOpenConnectDaemon()
+        let gpCookie = "authcookie=0123456789abcdef0123456789abcdef&portal=Acme&user=alice&computer=alice-pc"
+        var gp = request(
+            host: "gw1.example.com", connectURL: "https://gw1.example.com/", resolve: "gw1.example.com:192.0.2.20", cookie: gpCookie)
+        gp.protocol = OpenConnectProtocol.gp
+        var invalid = gp
+        invalid.cookie = "a\nb"
+        invalid.profileDir = "/etc"
+        for start in [gp, invalid] {
+            let reply = try response(daemon.socketPath, .startOpenConnect(start))
+            XCTAssertFalse(reply.ok)
+            XCTAssertEqual(reply.error, "Palo Alto GlobalProtect is not supported by passtunneld yet.")
+        }
+        unlink(openConnectPath)
+        XCTAssertEqual(
+            try response(daemon.socketPath, .startOpenConnect(gp)).error, "Palo Alto GlobalProtect is not supported by passtunneld yet.")
+        XCTAssertFalse(exists(runDir), "nothing prepared")
+        XCTAssertFalse(exists(profileDir("acme") + "/vpn.log"), "no log")
+        XCTAssertEqual(try response(daemon.socketPath, .status).running, [:])
+        // A Cisco AnyConnect start that carries GlobalProtect's cookie or gateway pin is refused by its own checks.
+        try makeOpenConnect(version: "v9.12")
+        var mixed = request(cookie: gpCookie)
+        XCTAssertTrue(try response(daemon.socketPath, .startOpenConnect(mixed)).error?.contains("cookie") == true)
+        mixed = request()
+        mixed.profileGatewayServerCert = Self.pin
+        XCTAssertTrue(try response(daemon.socketPath, .startOpenConnect(mixed)).error?.contains("gateway server certificate") == true)
+        XCTAssertFalse(exists(runDir))
+        // Outsiders get the usual refusal first.
+        caller.uid = stranger
+        XCTAssertTrue(try response(daemon.socketPath, .startOpenConnect(gp)).error?.contains("“passtunnel”") == true)
     }
 
     /// Ubuntu 22.04's openconnect 8.20 (and anything before 9.01) is refused with the minimum named; so is a

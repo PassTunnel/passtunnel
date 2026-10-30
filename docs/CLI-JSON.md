@@ -303,9 +303,9 @@ From `helper status` and inside the MCP tools `get_status` and `diagnose`.
 
 ```json
 {
-  "expected_protocol_version" : 4,
+  "expected_protocol_version" : 5,
   "outdated" : false,
-  "protocol_version" : 4,
+  "protocol_version" : 5,
   "responding" : true,
   "state" : "enabled"
 }
@@ -362,7 +362,7 @@ connecting, without connecting and without any secret's value.
 {
   "app_path" : "/Applications/PassTunnel.app",
   "build" : "45",
-  "helper" : { "expected_protocol_version" : 4, "protocol_version" : 4, "responding" : true, "state" : "enabled" },
+  "helper" : { "expected_protocol_version" : 5, "protocol_version" : 5, "responding" : true, "state" : "enabled" },
   "in_applications" : true,
   "network" : { "interface" : "wifi", "online" : true },
   "profiles" : [
@@ -496,7 +496,7 @@ the ones you do not know.
 | `log ID --activity [-n N]` | LogReport with `"source": "activity"` and `events`, the last N events (at most 500) |
 | `diagnose [--check-clock]` | DiagnoseReport; `--check-clock` asks the time server too (exit 0 also when that fails: `clock_error`) |
 | `helper status` | HelperReport (exit 5 unless enabled, answering and current) |
-| `version` | `{"version": "1.1.0", "build": "12", "app_path": "/Applications/PassTunnel.app", "helper_protocol_version": 4}` |
+| `version` | `{"version": "1.1.0", "build": "12", "app_path": "/Applications/PassTunnel.app", "helper_protocol_version": 5}` |
 
 `import` adds `skipped` to the ProfileSummary: the lines of an `.ovpn` that PassTunnel left out of the
 stored configuration (kept there as comments, see

@@ -60,8 +60,8 @@ final class DaemonSocketTests: DaemonTestCase {
             (#"{"op":"reboot"}"#, "Unknown operation “reboot”"),
             (#"{"op":"perform"}"#, "without a “request”"),
             (#"{"op":"perform","request":{"type":"status"}}"#, "Protocol version mismatch"),
-            (#"{"op":"perform","request":{"type":"shell","protocol_version":4}}"#, "Unknown request type “shell”"),
-            (#"{"op":"perform","request":{"type":"stop","protocol_version":4}}"#, "field “profile_id”")
+            (#"{"op":"perform","request":{"type":"shell","protocol_version":5}}"#, "Unknown request type “shell”"),
+            (#"{"op":"perform","request":{"type":"stop","protocol_version":5}}"#, "field “profile_id”")
         ]
         for (line, expected) in cases {
             let reply = try HelperResponse(jsonData: Data(try exchange(daemon.socketPath, line).utf8))
@@ -73,7 +73,7 @@ final class DaemonSocketTests: DaemonTestCase {
     func testLineLimit() throws {
         let daemon = try makeDaemon()
         // A request that fills the line exactly is read (and judged by decodeRequest).
-        var line = #"{"op":"perform","request":{"type":"status","protocol_version":4}}"#
+        var line = #"{"op":"perform","request":{"type":"status","protocol_version":5}}"#
         line += String(repeating: " ", count: DaemonProtocol.maxLineBytes - line.utf8.count)
         XCTAssertTrue(try HelperResponse(jsonData: Data(try exchange(daemon.socketPath, line).utf8)).ok)
         let reply = try HelperResponse(jsonData: Data(try exchange(daemon.socketPath, line + " ").utf8))
@@ -819,7 +819,7 @@ final class UnixSocketClientTests: DaemonTestCase {
 
         let daemon = try makeDaemon()
         let current = await SystemHelperInspector(socketPath: daemon.socketPath, expectedBuild: "test-build").report()
-        XCTAssertEqual(current, HelperReport(state: "enabled", responding: true, protocolVersion: 4, outdated: false))
+        XCTAssertEqual(current, HelperReport(state: "enabled", responding: true, protocolVersion: 5, outdated: false))
         XCTAssertTrue(current.isUsable)
         let outdated = await SystemHelperInspector(socketPath: daemon.socketPath, expectedBuild: "older").report()
         XCTAssertEqual(outdated.outdated, true)

@@ -34,8 +34,9 @@ public struct HelperCore {
         case deviceExists(String)
         /// A line-based file for a root process failed the final check (`checkLines`).
         case unsafeFile(String)
-        /// The tool needs a later macOS than this one (`Tool.minimumMacOS`; "15.4").
-        case requiresNewerMacOS(Tool, String)
+        /// The tool needs a later macOS than this one (`Tool.minimumMacOS`; "15.4"): the VPN type's name ("Cisco
+        /// AnyConnect", "Palo Alto GlobalProtect") and that version.
+        case requiresNewerMacOS(String, String)
         case system(String, Int32)
 
         public var description: String {
@@ -64,7 +65,7 @@ public struct HelperCore {
                     + "it creates. Use “dev tun” or “dev tap” so that the system picks a free name, or a name no "
                     + "device has."
             case .unsafeFile(let name): return "Refusing to write \(name): its contents failed the final check."
-            case .requiresNewerMacOS(let tool, let version): return "\(tool.displayName) requires macOS \(version) or later."
+            case .requiresNewerMacOS(let vpn, let version): return "\(vpn) requires macOS \(version) or later."
             case .system(let what, let err): return "\(what): \(String(cString: strerror(err)))"
             }
         }
@@ -199,6 +200,10 @@ public struct HelperCore {
     /// (`set-dns`, `pppd-use-peerdns`), as on the Mac. The Linux daemon applies DNS itself and turns
     /// this off.
     public var fortiHandlesDNS = true
+    /// Whether a Palo Alto GlobalProtect root configuration gets `disable-ipv6`: on Linux for an openconnect older
+    /// than 9.20 (docs/LINUX.md, "Palo Alto GlobalProtect"), which the daemon decides from the version of the tool
+    /// it checked, never from the request. Off on the Mac (9.21) and for Cisco AnyConnect, which never gets it.
+    public var openConnectDisableIPv6 = false
     /// Whether the kernel has a network device of that name; nil: not checked (the Mac). The Linux daemon
     /// sets it: there a `dev` with a name of its own could attach OpenVPN to a persistent device created
     /// earlier, which its owner can still open (`namedDevices`). Throws when it cannot tell.

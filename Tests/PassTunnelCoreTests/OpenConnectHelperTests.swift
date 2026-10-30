@@ -3,14 +3,15 @@ import XCTest
 @testable import PassTunnelShared
 @testable import PassTunnelVPNConfig
 
-/// The helper's side of a Cisco AnyConnect session that needs no files: the request (protocol 4), its
+/// The helper's side of a Cisco AnyConnect session that needs no files: the request (protocols 4 and 5), its
 /// checks, the environment and arguments, the session and policy records, and the hook stub's decisions.
+/// GlobalProtect's are in GlobalProtectHelperTests.
 final class OpenConnectRequestTests: XCTestCase {
     static let cookie = "webvpn=EXAMPLE-COOKIE-3F2A@1234@ABCD"
 
     static func start(_ change: (inout OpenConnectStart) -> Void = { _ in }) -> OpenConnectStart {
         var s = OpenConnectStart(
-            profileID: "acme", profileDir: "/d/acme", logPath: "/d/acme/vpn.log", host: "vpn.example.com", port: 8443,
+            protocol: .anyconnect, profileID: "acme", profileDir: "/d/acme", logPath: "/d/acme/vpn.log", host: "vpn.example.com", port: 8443,
             usergroup: "staff", connectURL: "https://vpn.example.com:8443/", resolve: "vpn.example.com:192.0.2.10",
             cookie: cookie, serverCert: examplePin, profileServerCert: examplePin, tlsOnly: false, setDNS: true, setRoutes: true)
         change(&s)
@@ -38,11 +39,14 @@ final class OpenConnectRequestTests: XCTestCase {
         XCTAssertEqual(
             Set(object.keys),
             [
-                "type", "protocol_version", "profile_id", "profile_dir", "log_path", "host", "port", "usergroup", "connect_url",
-                "resolve", "cookie", "server_cert", "profile_server_cert", "tls_only", "set_dns", "set_routes"
+                "type", "protocol_version", "protocol", "profile_id", "profile_dir", "log_path", "host", "port", "usergroup",
+                "connect_url", "resolve", "cookie", "server_cert", "profile_server_cert", "profile_gateway_server_cert", "tls_only",
+                "set_dns", "set_routes"
             ])
         XCTAssertEqual(object["type"] as? String, "start_openconnect")
-        XCTAssertEqual(object["protocol_version"] as? Int, 4)
+        XCTAssertEqual(object["protocol_version"] as? Int, 5)
+        XCTAssertEqual(object["protocol"] as? String, "anyconnect")
+        XCTAssertEqual(object["profile_gateway_server_cert"] as? String, "")
         XCTAssertEqual(object["connect_url"] as? String, "https://vpn.example.com:8443/")
         XCTAssertEqual(object["server_cert"] as? String, examplePin)
         XCTAssertEqual(object["port"] as? Int, 8443)
@@ -56,9 +60,10 @@ final class OpenConnectRequestTests: XCTestCase {
 
     func testMissingAndMistypedFieldsAreNamedNeverEchoed() throws {
         let full = try JSONSerialization.jsonObject(with: try HelperRequest.startOpenConnect(Self.start()).jsonData()) as! [String: Any]
+        // `protocol` above all: a protocol-5 request without it is refused, never read as Cisco AnyConnect.
         for key in [
-            "profile_id", "profile_dir", "log_path", "host", "port", "usergroup", "connect_url", "cookie", "server_cert",
-            "profile_server_cert", "tls_only", "set_dns", "set_routes"
+            "protocol", "profile_id", "profile_dir", "log_path", "host", "port", "usergroup", "connect_url", "cookie", "server_cert",
+            "profile_server_cert", "profile_gateway_server_cert", "tls_only", "set_dns", "set_routes"
         ] {
             var json = full
             json[key] = nil
@@ -68,7 +73,12 @@ final class OpenConnectRequestTests: XCTestCase {
                 XCTAssertFalse(String(describing: $0).contains(Self.cookie))
             }
         }
-        for (key, value) in [("cookie", [Self.cookie] as Any), ("port", "443" as Any), ("tls_only", "yes" as Any)] {
+        // An unknown protocol, or one in another spelling, is no protocol.
+        for (key, value) in [
+            ("cookie", [Self.cookie] as Any), ("port", "443" as Any), ("tls_only", "yes" as Any), ("protocol", "pulse" as Any),
+            ("protocol", "GP" as Any), ("protocol", "" as Any), ("protocol", 1 as Any), ("protocol", NSNull() as Any),
+            ("profile_gateway_server_cert", NSNull() as Any)
+        ] {
             var json = full
             json[key] = value
             XCTAssertThrowsError(try HelperCore.decodeRequest(try JSONSerialization.data(withJSONObject: json)), key) {
@@ -186,7 +196,20 @@ final class OpenConnectRequestTests: XCTestCase {
             ("cookie NUL", { $0.cookie = "abc\u{0}def" }, { if case .invalidValue("cookie", _)? = $0 as? V { return true } else { return false } }),
             ("server cert", { $0.serverCert = "sha256:00" }, { ($0 as? V) == .invalidServerCert }),
             ("server cert empty", { $0.serverCert = "" }, { ($0 as? V) == .invalidServerCert }),
-            ("pin mismatch", { $0.serverCert = otherExamplePin }, { ($0 as? D) == .fingerprintMismatch })
+            ("pin mismatch", { $0.serverCert = otherExamplePin }, { ($0 as? D) == .fingerprintMismatch }),
+            // GlobalProtect's alone: a gateway pin, its cookie.
+            (
+                "gateway pin", { $0.profileGatewayServerCert = otherExamplePin },
+                { if case .invalidValue("gateway server certificate", _)? = $0 as? V { return true } else { return false } }
+            ),
+            (
+                "gateway pin, the accepted key", { $0.profileGatewayServerCert = examplePin },
+                { if case .invalidValue("gateway server certificate", _)? = $0 as? V { return true } else { return false } }
+            ),
+            (
+                "GlobalProtect cookie", { $0.cookie = exampleGPCookie },
+                { if case .invalidValue("cookie", _)? = $0 as? V { return true } else { return false } }
+            )
         ]
         for (name, change, expected) in cases {
             var start = Self.start()
@@ -213,6 +236,9 @@ final class OpenConnectRequestTests: XCTestCase {
             let text = try HelperCore.openConnectConfig(s, scriptPath: exampleHook).render()
             XCTAssertEqual(text.split(separator: "\n").count, HelperCore.openConnectLineCount(s))
             XCTAssertNoThrow(try OpenConnectConfig.checkRendered(text, lineCount: HelperCore.openConnectLineCount(s)))
+            // `disable-ipv6` is GlobalProtect's alone: the daemon's setting never reaches a Cisco AnyConnect file.
+            XCTAssertEqual(HelperCore.openConnectLineCount(s, disableIPv6: true), HelperCore.openConnectLineCount(s))
+            XCTAssertEqual(try HelperCore.openConnectConfig(s, scriptPath: exampleHook, disableIPv6: true).render(), text)
         }
     }
 
@@ -222,17 +248,20 @@ final class OpenConnectRequestTests: XCTestCase {
             (13, 0, 0, false), (14, 7, 6, false), (15, 3, 2, false), (15, 4, 0, true), (15, 4, 1, true), (26, 0, 0, true)
         ] {
             core.systemVersion = OperatingSystemVersion(majorVersion: major, minorVersion: minor, patchVersion: patch)
-            if runs {
-                XCTAssertNoThrow(try core.checkOpenConnectRuns(), "\(major).\(minor).\(patch)")
-            } else {
-                XCTAssertThrowsError(try core.checkOpenConnectRuns(), "\(major).\(minor).\(patch)") {
-                    XCTAssertEqual($0 as? HelperCore.Failure, .requiresNewerMacOS(.openconnect, "15.4"))
-                    XCTAssertEqual(String(describing: $0), "Cisco AnyConnect requires macOS 15.4 or later.")
+            for (p, name) in [(OpenConnectProtocol.anyconnect, "Cisco AnyConnect"), (.gp, "Palo Alto GlobalProtect")] {
+                if runs {
+                    XCTAssertNoThrow(try core.checkOpenConnectRuns(p), "\(major).\(minor).\(patch)")
+                } else {
+                    XCTAssertThrowsError(try core.checkOpenConnectRuns(p), "\(major).\(minor).\(patch)") {
+                        XCTAssertEqual($0 as? HelperCore.Failure, .requiresNewerMacOS(name, "15.4"))
+                        XCTAssertEqual(String(describing: $0), "\(name) requires macOS 15.4 or later.")
+                    }
                 }
             }
         }
         core.systemVersion = nil  // Linux: not checked
-        XCTAssertNoThrow(try core.checkOpenConnectRuns())
+        XCTAssertNoThrow(try core.checkOpenConnectRuns(.anyconnect))
+        XCTAssertNoThrow(try core.checkOpenConnectRuns(.gp))
     }
 
     // MARK: Environment and arguments

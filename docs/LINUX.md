@@ -57,14 +57,15 @@ parameter), resolved and checked as the tools are (below).
 
 One request per connection, one JSON object per line, at most 64 KiB:
 
-- `{"op":"hello"}` → `{"protocol":4,"build":"<hex SHA-256 of passtunneld>","build_number":N}`. The
+- `{"op":"hello"}` → `{"protocol":5,"build":"<hex SHA-256 of passtunneld>","build_number":N}`. The
   client's `ensureCompatible()` uses it as the `version` and `build` XPC calls are used on the Mac.
   The daemon hashes `/proc/self/exe` once at start. `build_number` (and `helper_build` in every
   reply) is the build number a release build compiles in (`DaemonBuild`, see Distribution);
   development builds have none and leave both out.
 - `{"op":"perform","request":<HelperRequest>}` → `<HelperResponse>`. Request decoding is
   `HelperCore.decodeRequest`, unchanged, and so are the request types and `PT.helperProtocolVersion`
-  (`startOpenConnect` since #187, below; the `status` reply's `tunnels` for the caller's own Cisco
+  (`startOpenConnect` since #187, below, with protocol 5's `protocol`, whose `gp` the daemon refuses for now:
+  [Palo Alto GlobalProtect](#palo-alto-globalprotect); the `status` reply's `tunnels` for the caller's own Cisco
   AnyConnect sessions).
   The daemon hands it the bytes of the `request` member exactly as sent (`DaemonCall.parse`).
 
@@ -776,7 +777,7 @@ when asked.
 
 ## Palo Alto GlobalProtect
 
-**Design only (#226).** The design is in [ARCHITECTURE.md](ARCHITECTURE.md#palo-alto-globalprotect-backend); on Linux
+**Designed (#226); in place: protocol 5 and the refusal below (#230).** The design is in [ARCHITECTURE.md](ARCHITECTURE.md#palo-alto-globalprotect-backend); on Linux
 everything of [Cisco AnyConnect](#cisco-anyconnect) above applies (the tool's paths and checks, the sign-in as the user,
 `prepareOpenConnect`, `MaskingCopier`, the `vpn-hook` mode, `LinuxOpenConnectSystem`, DNS, supervision, the revert after
 a kill), with these differences (G7). The type is labelled experimental here too (`passtunnel`'s output, ARCHITECTURE.md,

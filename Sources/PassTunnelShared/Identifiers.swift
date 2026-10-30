@@ -11,7 +11,10 @@ public enum PT {
     /// 3: sessions keyed by (uid, profile ID); the socket moved to the root-owned session directory
     ///    (`mgmtSocketPath`), `status` also returns socket paths, requests must carry the version.
     /// 4: `startOpenConnect` (Cisco AnyConnect, #2).
-    public static let helperProtocolVersion = 4
+    /// 5: `startOpenConnect` carries `protocol` (`anyconnect` or `gp`, Palo Alto GlobalProtect) and
+    ///    `profile_gateway_server_cert`; `host` and `port` are the server the tunnel connects to. A protocol-4
+    ///    helper would ignore the new keys and read a GlobalProtect start as a Cisco AnyConnect one.
+    public static let helperProtocolVersion = 5
 
     /// Code-signing requirement the helper enforces on its XPC clients.
     public static let clientRequirement =

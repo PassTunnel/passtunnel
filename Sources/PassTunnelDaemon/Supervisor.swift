@@ -1,5 +1,6 @@
 import Foundation
 import PassTunnelShared
+import PassTunnelVPNConfig
 
 /// Starts, tracks and stops the VPN tools, as the Mac's helper does; all state is confined to `queue`.
 /// Sessions are keyed by (owner uid, profile ID) (`SessionPolicy`). Each child has a thread of its own
@@ -150,6 +151,11 @@ final class Supervisor {
 
     // MARK: - Requests
 
+    /// The refusal of an openconnect protocol passtunneld does not run yet.
+    static func unsupportedOpenConnect(_ protocol: OpenConnectProtocol) -> String {
+        "\(`protocol`.displayName) is not supported by passtunneld yet."
+    }
+
     func handle(_ request: HelperRequest, uid: uid_t, reply: @escaping (HelperResponse) -> Void) {
         queue.async {
             switch request {
@@ -170,6 +176,10 @@ final class Supervisor {
                         core.fortiHandlesDNS = false
                         return try core.prepareForti(s, uid: uid)
                     })
+            case .startOpenConnect(let s) where s.protocol != .anyconnect:
+                // Palo Alto GlobalProtect (protocol 5) runs here from #234 (docs/LINUX.md): refused before anything
+                // is checked, read, resolved or written.
+                reply(.failure(Self.unsupportedOpenConnect(s.protocol)))
             case .startOpenConnect(let s):
                 reply(
                     self.start(profileID: s.profileID, uid: uid, tool: .openconnect) { _, core in

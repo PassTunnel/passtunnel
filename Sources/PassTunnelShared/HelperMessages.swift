@@ -121,19 +121,26 @@ extension FortiConfig {
     }
 }
 
-/// Start a Cisco AnyConnect profile through openconnect (protocol 4). The user's own `openconnect
-/// --authenticate` run signed in; this carries what it returned (`OpenConnectAuthResult`) and the profile's
-/// own fields, from which the helper renders `<run>/openconnect.conf` (docs/ARCHITECTURE.md, "Helper
-/// protocol 4"). The helper trusts none of it: every field is checked again
-/// (`HelperCore.prepareOpenConnect`). `connectURL`, `resolve` and `serverCert` are the sign-in's
-/// `CONNECT_URL`, `RESOLVE` (nil for an IP-address host) and `FINGERPRINT`; `profileServerCert` is the
-/// profile's own pin (normalized) or empty. `usergroup` is the profile's, checked but not used: the tunnel
-/// run connects without it. `cookie` is a bearer secret, and the server chose `connectURL`, `resolve` and
-/// `serverCert`, so it could have repeated the cookie in them: no description or mirror shows any of the
-/// four.
+/// Start a Cisco AnyConnect or Palo Alto GlobalProtect profile through openconnect (protocol 5). The user's own
+/// `openconnect --authenticate` run signed in; this carries what it returned (`OpenConnectAuthResult`) and the
+/// profile's own fields, from which the helper renders `<run>/openconnect.conf` (docs/ARCHITECTURE.md, "Helper
+/// protocol 4" and "Helper protocol 5"). The helper trusts none of it: every field is checked again
+/// (`HelperCore.prepareOpenConnect`).
+///
+/// `protocol` is required, in the JSON and here: a request without it is refused, never read as Cisco AnyConnect.
+/// `host` and `port` are the server the tunnel connects to: for Cisco AnyConnect the profile's, for GlobalProtect
+/// the gateway the sign-in ended on (`CONNECT_URL`'s). `connectURL`, `resolve` and `serverCert` are the sign-in's
+/// `CONNECT_URL`, `RESOLVE` (nil for an IP-address host) and `FINGERPRINT`; `profileServerCert` and
+/// `profileGatewayServerCert` are the profile's own pins (normalized) or empty, the latter always empty for Cisco
+/// AnyConnect. `usergroup` is the profile's for Cisco AnyConnect, checked but not used (the tunnel run connects
+/// without it), and empty for GlobalProtect. `cookie` is a bearer secret (a GlobalProtect one also holds the user
+/// name), and the server chose `connectURL`, `resolve` and `serverCert`, so it could have repeated the cookie in
+/// them: no description or mirror shows any of the four. For GlobalProtect the portal also chose `host` and `port`
+/// (the gateway), so they are hidden too, as `OpenConnectConfig`'s description hides them.
 public struct OpenConnectStart: Codable, Equatable, CustomStringConvertible, CustomDebugStringConvertible,
     CustomReflectable
 {
+    public var `protocol`: OpenConnectProtocol
     public var profileID: String
     public var profileDir: String
     public var logPath: String
@@ -145,15 +152,18 @@ public struct OpenConnectStart: Codable, Equatable, CustomStringConvertible, Cus
     public var cookie: String
     public var serverCert: String
     public var profileServerCert: String
+    public var profileGatewayServerCert: String
     public var tlsOnly: Bool
     public var setDNS: Bool
     public var setRoutes: Bool
 
     public init(
-        profileID: String, profileDir: String, logPath: String, host: String, port: Int = 443, usergroup: String = "",
-        connectURL: String, resolve: String?, cookie: String, serverCert: String, profileServerCert: String = "",
-        tlsOnly: Bool = false, setDNS: Bool = false, setRoutes: Bool = true
+        protocol: OpenConnectProtocol, profileID: String, profileDir: String, logPath: String, host: String, port: Int = 443,
+        usergroup: String = "", connectURL: String, resolve: String?, cookie: String, serverCert: String,
+        profileServerCert: String = "", profileGatewayServerCert: String = "", tlsOnly: Bool = false, setDNS: Bool = false,
+        setRoutes: Bool = true
     ) {
+        self.protocol = `protocol`
         self.profileID = profileID
         self.profileDir = profileDir
         self.logPath = logPath
@@ -165,21 +175,25 @@ public struct OpenConnectStart: Codable, Equatable, CustomStringConvertible, Cus
         self.cookie = cookie
         self.serverCert = serverCert
         self.profileServerCert = profileServerCert
+        self.profileGatewayServerCert = profileGatewayServerCert
         self.tlsOnly = tlsOnly
         self.setDNS = setDNS
         self.setRoutes = setRoutes
     }
 
     enum CodingKeys: String, CodingKey {
-        case profileID = "profile_id", profileDir = "profile_dir", logPath = "log_path", host, port, usergroup
-        case connectURL = "connect_url", resolve, cookie, serverCert = "server_cert"
-        case profileServerCert = "profile_server_cert", tlsOnly = "tls_only", setDNS = "set_dns", setRoutes = "set_routes"
+        case `protocol`, profileID = "profile_id", profileDir = "profile_dir", logPath = "log_path", host, port, usergroup
+        case connectURL = "connect_url", resolve, cookie, serverCert = "server_cert", profileServerCert = "profile_server_cert"
+        case profileGatewayServerCert = "profile_gateway_server_cert", tlsOnly = "tls_only", setDNS = "set_dns"
+        case setRoutes = "set_routes"
     }
 
     public var description: String {
-        "OpenConnectStart(profileID: \(profileID), profileDir: \(profileDir), logPath: \(logPath), host: \(host), "
-            + "port: \(port), usergroup: \(usergroup), connectURL: <redacted>, resolve: \(resolve == nil ? "nil" : "<redacted>"), "
-            + "cookie: <redacted>, serverCert: <redacted>, profileServerCert: \(profileServerCert.isEmpty ? "<none>" : profileServerCert), "
+        "OpenConnectStart(protocol: \(self.protocol.rawValue), profileID: \(profileID), profileDir: \(profileDir), "
+            + "logPath: \(logPath), host: \(shownHost), port: \(shownPort), usergroup: \(usergroup), connectURL: <redacted>, "
+            + "resolve: \(resolve == nil ? "nil" : "<redacted>"), cookie: <redacted>, serverCert: <redacted>, "
+            + "profileServerCert: \(profileServerCert.isEmpty ? "<none>" : profileServerCert), "
+            + "profileGatewayServerCert: \(profileGatewayServerCert.isEmpty ? "<none>" : profileGatewayServerCert), "
             + "tlsOnly: \(tlsOnly), setDNS: \(setDNS), setRoutes: \(setRoutes))"
     }
     public var debugDescription: String { description }
@@ -188,23 +202,31 @@ public struct OpenConnectStart: Codable, Equatable, CustomStringConvertible, Cus
         Mirror(
             self,
             children: [
-                "profileID": profileID, "profileDir": profileDir, "logPath": logPath, "host": host, "port": port,
-                "usergroup": usergroup, "connectURL": "<redacted>", "resolve": resolve == nil ? "nil" : "<redacted>",
-                "cookie": "<redacted>", "serverCert": "<redacted>",
+                "protocol": self.protocol.rawValue, "profileID": profileID, "profileDir": profileDir, "logPath": logPath,
+                "host": shownHost, "port": self.protocol == .gp ? "<redacted>" as Any : port, "usergroup": usergroup,
+                "connectURL": "<redacted>",
+                "resolve": resolve == nil ? "nil" : "<redacted>", "cookie": "<redacted>", "serverCert": "<redacted>",
                 "profileServerCert": profileServerCert.isEmpty ? "<none>" : profileServerCert,
+                "profileGatewayServerCert": profileGatewayServerCert.isEmpty ? "<none>" : profileGatewayServerCert,
                 "tlsOnly": tlsOnly, "setDNS": setDNS, "setRoutes": setRoutes
             ])
     }
+
+    /// The host and port as descriptions show them: the profile's for Cisco AnyConnect, redacted for GlobalProtect
+    /// (the gateway's, the portal's choice).
+    var shownHost: String { self.protocol == .gp ? "<redacted>" : host }
+    var shownPort: String { self.protocol == .gp ? "<redacted>" : String(port) }
 }
 
 /// Request sent to the helper. Encoded as a flat JSON object with a `type` discriminator and the
-/// sender's protocol version, e.g. `{"profile_id":"acme","protocol_version":4,"type":"stop"}`.
+/// sender's protocol version, e.g. `{"profile_id":"acme","protocol_version":5,"type":"stop"}`.
 /// Use `jsonData()` / `init(jsonData:)` so both sides agree on the encoder settings; the helper
 /// decodes through `HelperCore.decodeRequest`, which also enforces size and version.
 public enum HelperRequest: Codable, Equatable {
     case startOpenVPN(OpenVPNStart)
     case startForti(FortiStart)
-    /// Protocol 4. The Linux daemon refuses it until it runs openconnect (#187).
+    /// Protocol 4: Cisco AnyConnect (passtunneld too since #187). Protocol 5 adds `protocol`, and with it Palo
+    /// Alto GlobalProtect (`gp`), which passtunneld refuses until it runs it (#234).
     case startOpenConnect(OpenConnectStart)
     case stop(profileID: String)
     case status
