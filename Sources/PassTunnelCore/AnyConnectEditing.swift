@@ -135,42 +135,75 @@ public enum AnyConnectEditing {
 /// pin of its key (`ConnectionFailure.serverCert`); this is the offer to keep that pin in the profile's
 /// `server_cert`. It holds the server the sign-in went to, so it is only taken while the profile still names that
 /// server with the pin it had then (`matches`), and only after the user confirmed the host and the pin.
+///
+/// Palo Alto GlobalProtect (docs/ARCHITECTURE.md, "Trust: two keys"): for the portal (or, with `skip_portal`, the
+/// only server) the same, writing `server_cert`; for the gateway the portal sent the sign-in to ("Trust This
+/// Gateway…", `gateway` set) it writes `gateway_server_cert`. When the profile has no `server_cert` then, a pin for
+/// the gateway turns system trust off for the portal too, so the portal's key must be pinned with it
+/// (`needsPortalPin`: the front end reads it with `TLSFingerprint.fetchServerKeyPin` and shows it for confirmation;
+/// `ConnectionManager.trustServer(_:portalPin:)` writes both).
 public struct ServerTrustOffer: Equatable, Sendable {
     public var profileID: String
-    /// The profile's host, port and user group when the sign-in failed.
+    /// The profile's type: Cisco AnyConnect or Palo Alto GlobalProtect.
+    public var type: VPNType
+    /// The profile's host, port and user group (Cisco AnyConnect) when the sign-in failed.
     public var host: String
     public var port: Int
     public var usergroup: String
+    /// Palo Alto GlobalProtect: the profile's `skip_portal` when the sign-in failed.
+    public var skipPortal: Bool
+    /// Palo Alto GlobalProtect: the gateway whose key was not trusted (`host:port`, an IPv6 literal in brackets), as
+    /// the redacted sign-in log named it; nil when the key is the profile's own server's.
+    public var gateway: String?
     /// The key's pin, normalized (`OpenConnectPin.normalize`).
     public var pin: String
     /// The pin the profile had then: empty when it had none (the system's CAs did not trust the certificate),
-    /// else the key the server no longer presents.
+    /// else the key the server no longer presents. For a gateway, `gateway_server_cert`.
     public var replacing: String
+    /// A gateway's offer: the profile's `server_cert` then (normalized; empty when it had none).
+    public var portalPin: String
 
-    /// The offer for `p` (Cisco AnyConnect) and the pin openconnect printed; nil when `pin` is not a full pin or
-    /// the profile already has it.
-    public init?(_ p: Profile, pin: String?) {
-        guard p.type == .anyconnect, let pin = pin.flatMap(OpenConnectPin.normalize) else { return nil }
-        let current = AnyConnectEditing.normalizedPin(p.serverCert)
+    /// The offer for `p` (Cisco AnyConnect or Palo Alto GlobalProtect) and the pin openconnect printed; `gateway`
+    /// for a GlobalProtect gateway's key. nil when `pin` is not a full pin or the profile already has it.
+    public init?(_ p: Profile, pin: String?, gateway: String? = nil) {
+        guard p.type == .anyconnect || p.type == .globalprotect, let pin = pin.flatMap(OpenConnectPin.normalize) else { return nil }
+        guard gateway == nil || p.type == .globalprotect else { return nil }
+        let current = AnyConnectEditing.normalizedPin(gateway == nil ? p.serverCert : p.gatewayServerCert)
         guard current != pin else { return nil }
         profileID = p.id
+        type = p.type
         host = p.host.trimmingCharacters(in: .whitespacesAndNewlines)
         port = p.port
-        usergroup = p.usergroup
+        usergroup = p.type == .anyconnect ? p.usergroup : ""
+        skipPortal = p.type == .globalprotect && p.skipPortal
+        self.gateway = gateway
         self.pin = pin
         replacing = current
+        portalPin = gateway == nil ? "" : AnyConnectEditing.normalizedPin(p.serverCert)
     }
 
-    /// "vpn.example.com:8443/engineering": where the key was presented.
+    /// "vpn.example.com:8443/engineering": where the key was presented (a gateway's `host:port`).
     public var server: String {
-        AnyConnectEditing.serverText(host: host, port: port, usergroup: usergroup).replacingOccurrences(of: "https://", with: "")
+        if let gateway { return gateway }
+        return AnyConnectEditing.serverText(host: host, port: port, usergroup: usergroup).replacingOccurrences(of: "https://", with: "")
     }
 
-    /// The profile still names the server of the failed sign-in, with the pin it had then.
+    /// A gateway's key, and the profile pins no portal key: trusting it needs the portal's pin as well.
+    public var needsPortalPin: Bool { gateway != nil && portalPin.isEmpty }
+
+    /// The profile still names the server of the failed sign-in, with the pins it had then.
     public func matches(_ p: Profile) -> Bool {
-        p.id == profileID && p.type == .anyconnect
-            && p.host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == host.lowercased() && p.port == port
-            && p.usergroup == usergroup && AnyConnectEditing.normalizedPin(p.serverCert) == replacing
+        guard p.id == profileID, p.type == type,
+            p.host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == host.lowercased(), p.port == port
+        else { return false }
+        switch type {
+        case .globalprotect:
+            guard p.skipPortal == skipPortal else { return false }
+            if gateway == nil { return AnyConnectEditing.normalizedPin(p.serverCert) == replacing }
+            return AnyConnectEditing.normalizedPin(p.gatewayServerCert) == replacing && AnyConnectEditing.normalizedPin(p.serverCert) == portalPin
+        default:
+            return p.usergroup == usergroup && AnyConnectEditing.normalizedPin(p.serverCert) == replacing
+        }
     }
 
     /// The profile changed since the sign-in failed: its server or pin is not the one the offer was made for.
@@ -179,6 +212,19 @@ public struct ServerTrustOffer: Equatable, Sendable {
 
         public var errorDescription: String? {
             String(localized: "The profile’s server settings changed after the sign-in failed. Connect again to check the server.")
+        }
+    }
+
+    /// A gateway's key was to be trusted without the portal's (`needsPortalPin`), or with a portal pin that is not a
+    /// full pin.
+    public struct PortalPinRequired: Error, Equatable, LocalizedError {
+        public init() {}
+
+        public var errorDescription: String? {
+            String(
+                localized:
+                    "Trusting the gateway’s key turns off the system’s trust for the portal too, so the portal’s key must be trusted with it."
+            )
         }
     }
 }
@@ -194,14 +240,27 @@ extension ConnectionManager {
         return offer
     }
 
-    /// Keeps the offer's pin in the profile's `server_cert` (only that field, on the profile as stored now). Throws
-    /// `ServerTrustOffer.Stale` when the profile no longer matches the offer, and the store's errors. The caller
-    /// asks the user first, showing the server and the pin.
+    /// Keeps the offer's pin in the profile's `server_cert` (only that field, on the profile as stored now); for a
+    /// Palo Alto GlobalProtect gateway's key in `gateway_server_cert`, and, when the offer `needsPortalPin`,
+    /// `portalPin` (the portal's key, which the user confirmed too) in `server_cert`. Throws
+    /// `ServerTrustOffer.Stale` when the profile no longer matches the offer, `ServerTrustOffer.PortalPinRequired`
+    /// without a full portal pin where one is needed, and the store's errors. The caller asks the user first,
+    /// showing the server and the pin (and the portal's).
     @discardableResult
-    public func trustServer(_ offer: ServerTrustOffer) throws -> Profile {
+    public func trustServer(_ offer: ServerTrustOffer, portalPin: String? = nil) throws -> Profile {
+        var portal: String?
+        if offer.needsPortalPin {
+            guard let pin = portalPin.flatMap(OpenConnectPin.normalize) else { throw ServerTrustOffer.PortalPinRequired() }
+            portal = pin
+        }
         let saved = try store.update(offer.profileID) { p in
             guard offer.matches(p) else { throw ServerTrustOffer.Stale() }
-            p.serverCert = offer.pin
+            if offer.gateway == nil {
+                p.serverCert = offer.pin
+            } else {
+                p.gatewayServerCert = offer.pin
+                if let portal { p.serverCert = portal }
+            }
         }
         trustOffers[offer.profileID] = nil
         return saved

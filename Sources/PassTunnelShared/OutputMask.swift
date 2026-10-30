@@ -7,7 +7,8 @@ import Glibc
 /// Removes a bearer secret from a line of a tool's output before it is written to the user's log: every
 /// literal occurrence of the given secrets, and every cookie-shaped field (`COOKIE=…`, a `webvpn…=` or
 /// `openconnect_strapkey=` value, a GlobalProtect `authcookie=` value (also inside `…userauthcookie=`), a `Cookie:`
-/// or `Set-Cookie:` header to the end of the line, a `cookie …` configuration line). openconnect at its default
+/// or `Set-Cookie:` header to the end of the line, a `cookie …` configuration line), and the GlobalProtect sign-in's
+/// override-cookie and unknown-argument lines to the end of the line. openconnect at its default
 /// level prints no cookie, but a server chooses some of what it prints (the CONNECT reply's status line, say) and
 /// could reflect the cookie there.
 public enum OutputMask {
@@ -17,6 +18,11 @@ public enum OutputMask {
         (#"(?i)\b(COOKIE=)\S+"#, "$1" + mask),
         (#"(?i)\b((?:set-)?cookie\s*:\s*).+"#, "$1" + mask),
         (#"(?i)\b(webvpn[a-z_]*=|openconnect_strapkey=)[^;\s]+"#, "$1" + mask),
+        // A GlobalProtect portal's authentication-override cookies, which openconnect prints while signing in
+        // (auth-globalprotect.c 382–385), and any argument of the gateway's it does not know (365–369): to the end
+        // of the line, whatever the value holds.
+        (#"(GlobalProtect login returned (?:portal-userauthcookie|portal-prelogonuserauthcookie)=).*"#, "$1" + mask),
+        (#"(GlobalProtect login returned unexpected argument value arg\[[0-9]+\]=).*"#, "$1" + mask),
         // GlobalProtect's bearer secret, as an argument of the cookie or of a request (`…&authcookie=…&…`).
         (#"(?i)(authcookie=)[^&;\s]+"#, "$1" + mask),
         // openconnect's configuration option, lowercase: not its "Cookie was rejected by server" message.

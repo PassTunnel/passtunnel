@@ -148,9 +148,9 @@ with it as well. `connect_refusal` is left out when the profile can connect, and
 profile's `problems`.
 
 A Palo Alto GlobalProtect profile (`"type" : "globalprotect"`, from a share file or a newer version) is listed the same
-way. This version does not connect it yet, so it always has `connect_refusal`: `Palo Alto GlobalProtect requires
-macOS 15.4 or later.` on an older macOS, otherwise the `config_invalid` error of a type that needs a newer PassTunnel.
-`set` and `show` take its keys (`gateway`, `skip_portal`, `server_cert`, `gateway_server_cert`, `tls_only`, and the
+way, and connected like a Cisco AnyConnect profile (experimental). It has `connect_refusal` where it cannot connect:
+`Palo Alto GlobalProtect requires macOS 15.4 or later.` on an older macOS, and on Linux, until `passtunneld` runs it,
+the `config_invalid` error of a type that needs a newer PassTunnel. `set` and `show` take its keys (`gateway`, `skip_portal`, `server_cert`, `gateway_server_cert`, `tls_only`, and the
 keys every type has); `add --type globalprotect` is not accepted yet.
 
 ### ProfileStatus
@@ -262,6 +262,7 @@ and MCP).
 | `cancelled` | `cancelled`, `auth_cancelled`, `connect_failed` | Stopped before it finished |
 | `tool_unsupported` | `connect_failed`, `config_invalid` | The VPN tool does not run on this version of macOS: dyld stopped it at launch (`reason`: `Symbol not found: _strchrnul`, `Library not loaded: …`), or it needs a later macOS than this one (Cisco AnyConnect: `reason` `requires macOS 15.4 or later`). Nothing was sent |
 | `host_scan_required` | `connect_failed` | Cisco AnyConnect: the server requires a host scan (Cisco Secure Desktop), which PassTunnel never runs. Nothing was sent; not retried |
+| `sso_required` | `connect_failed` | Palo Alto GlobalProtect: the portal or the gateway signs in with single sign-on (SAML), which PassTunnel does not support. At the portal nothing was sent; at a gateway behind it the portal's sign-in was (`credentials_sent`); not retried |
 | `failed` | `connect_failed`, `helper_*`, … | Anything else |
 
 `credentials_sent`: the sign-in reached the server (OpenVPN finished the TLS handshake, which sends
@@ -271,9 +272,12 @@ went with it, so that code's period is used up; when it did not, PassTunnel give
 the next connect sends a code at once (not after `cancelled`). Present only when they apply: `reply` (the server's answer,
 `auth_rejected`), `reason` (the VPN tool's words, e.g. `Connection refused`, `Name or service not
 known`, `certificate has expired`), `code_seconds_left` (the code's seconds left when it was sent),
-`tries` (`unreachable`), `server_cert` (`configuration`, Cisco AnyConnect: the `pin-sha256:…` of the key
-whose certificate was not trusted, as openconnect reported it, to trust it in the profile's `server_cert`
-after checking it), `clock` (`auth_rejected`: a [ClockOffset](#clockoffset), how far the clock was
+`tries` (`unreachable`), `server_cert` (`configuration`, Cisco AnyConnect and Palo Alto GlobalProtect: the
+`pin-sha256:…` of the key whose certificate was not trusted, as openconnect reported it, to trust it in the profile's
+`server_cert`, or for a GlobalProtect gateway's key `gateway_server_cert`, after checking it), `gateways`
+(`configuration`, Palo Alto GlobalProtect: the portal lists more than one gateway and the profile's `gateway` names none
+of them; the portal's labels in its order, each printable ASCII of at most 64 bytes, at most 32, absent when they could
+not be read that way), `clock` (`auth_rejected`: a [ClockOffset](#clockoffset), how far the clock was
 off when it was measured after the rejection or checked on request since; see below). `reply` and
 `reason` pass through the same redaction as `log --json`. New kinds may be added.
 
@@ -469,7 +473,7 @@ One event of the activity log (`profiles/<id>/activity.jsonl`, the last 500 even
 | `unreachable` | `tries`, `reason` (the tool's words, e.g. `Connection refused`) | The server did not answer; the sign-in was not sent |
 | `next_try` | `next_at` | The next automatic attempt starts then |
 | `rejected` | `reply` (what the server answered, e.g. `AUTH_FAILED`; absent when it said nothing) | The server refused the sign-in; not retried |
-| `failed` | `failure` (a [ConnectionFailure](#connectionfailure) `kind`: `host_not_found`, `configuration`, `setup`, `timeout`, `tool_unsupported`, `host_scan_required` or `failed`), `reason`, `credentials_sent` | The attempt failed otherwise |
+| `failed` | `failure` (a [ConnectionFailure](#connectionfailure) `kind`: `host_not_found`, `configuration`, `setup`, `timeout`, `tool_unsupported`, `host_scan_required`, `sso_required` or `failed`), `reason`, `credentials_sent` | The attempt failed otherwise |
 | `stopped_by_user` | | A connect, a code wait or the automatic reconnects were stopped |
 | `disconnected_by_user` | | A connection that was up was ended |
 

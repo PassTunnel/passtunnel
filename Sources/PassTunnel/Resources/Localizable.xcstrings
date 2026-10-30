@@ -833,6 +833,66 @@
         }
       }
     },
+    "This server signs in with single sign-on (SAML), which PassTunnel does not support." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu sunucu tek oturum açma (SAML) ile giriş yapıyor; PassTunnel bunu desteklemiyor."
+          }
+        }
+      }
+    },
+    "The gateway’s certificate was not trusted (%@)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ağ geçidinin sertifikasına güvenilmedi (%@)."
+          }
+        }
+      }
+    },
+    "The server requires single sign-on" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu tek oturum açma istiyor"
+          }
+        }
+      }
+    },
+    "This server is not a GlobalProtect portal or gateway" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu sunucu bir GlobalProtect portalı ya da ağ geçidi değil"
+          }
+        }
+      }
+    },
+    "The gateway asked for a host information report, which PassTunnel does not send. Access may be limited." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ağ geçidi bir cihaz bilgi raporu (HIP) istedi; PassTunnel bunu göndermez. Erişim kısıtlanabilir."
+          }
+        }
+      }
+    },
+    "Trusting the gateway’s key turns off the system’s trust for the portal too, so the portal’s key must be trusted with it." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ağ geçidinin anahtarına güvenmek, portal için de sistemin güvenini kapatır; bu yüzden portalın anahtarına da birlikte güvenilmelidir."
+          }
+        }
+      }
+    },
     "Connect again to use it." : {
       "localizations" : {
         "tr" : {

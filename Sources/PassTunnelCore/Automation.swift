@@ -103,7 +103,7 @@ public enum AutomationErrorCode: String, Codable, CaseIterable, Sendable {
         case .keychain, .protectedSecretUnreadable: return .keychainError
         case .missingPassword, .missingTOTPSecret, .missingCredential: return .credentialsMissing
         case .helperFailed, .connectFailed, .setupFailed, .connectCancelled, .toolUnsupported, .hostScanRequired,
-            .serverCertificateRejected, .signInNeedsMoreAnswers, .signInUnusable:
+            .serverCertificateRejected, .signInNeedsMoreAnswers, .signInUnusable, .ssoRequired, .gatewayCertificateRejected:
             return .connectFailed
         case .serverUnreachable: return .serverUnreachable
         case .hostNotFound: return .hostNotFound

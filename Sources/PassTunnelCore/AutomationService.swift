@@ -317,7 +317,7 @@ public final class AutomationService {
             }
             do { try Profile.checkUsername(p.username, type: p.type) } catch { problems.append(error) }
         case .anyconnect, .globalprotect:
-            // macOS 15.4; Palo Alto GlobalProtect is not connected by this version yet.
+            // macOS 15.4; Palo Alto GlobalProtect on Linux until passtunneld runs it (#234).
             if let refusal = manager.connectRefusal(p.type) { problems.append(refusal) }
             if p.host.trimmingCharacters(in: .whitespaces).isEmpty {
                 problems.append(PTError.missingHost(p.id))

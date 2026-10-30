@@ -2030,7 +2030,7 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
   through the interface but its own addresses). Every failure is a `ConnectionFailure` kind:
   `auth_rejected`, `host_not_found`, `unreachable`, `configuration` (certificate or key, with `server_cert`; more
   answers asked for; an unknown group), `host_scan_required` (new), `setup`, `timeout`, `tool_unsupported` (dyld,
-  or this macOS older than 15.4), `cancelled`, `failed`.
+  or this macOS older than 15.4), `cancelled`, `failed`; Palo Alto GlobalProtect adds `sso_required` (#231).
 
 ### Helper protocol 4 (#182)
 
@@ -2154,9 +2154,11 @@ openconnect's own reconnect, and kills openconnect to check the daemon's revert 
 ## Palo Alto GlobalProtect backend
 
 **Designed in #226. In place:** the configurations, the cookie and the checks of the sign-in's output in VPNConfig
-(G1, #228); the profiles in PassTunnelKit (G2, #229), kept, checked, set and shared but not connected yet
+(G1, #228); the profiles in PassTunnelKit (G2, #229), kept, checked, set and shared
 ([Profile (G2)](#profile-g2)); the helper's side, protocol 5 (G3, #230: the Mac's helper starts a GlobalProtect
-session it is sent, `passtunneld` refuses one); no client sends one yet. Phase 2 of #2: Palo Alto GlobalProtect
+session it is sent, `passtunneld` refuses one); connecting in Core (G4, #231: the sign-in, the start request, the
+failures, the HIP notice; on macOS 15.4 and later, Linux refused until G7, [As built (G4)](#as-built-g4-231)). Phase 2
+of #2: Palo Alto GlobalProtect
 through the same
 openconnect (`protocol gp`), with a password and a TOTP code, no SAML or other single sign-on, on macOS 15.4 and
 later and on Linux, shipped labelled experimental ([Experimental](#experimental-g2-g5-g6-g9)). It reuses the
@@ -2526,6 +2528,77 @@ of printable ASCII in openconnect's 9.21 wording, `openConnectLines`), in this o
 
 CSD's `hostScanRequired` lines do not exist in this protocol (`auth.c` is AnyConnect's) and are not read for it.
 
+### As built (G4, #231)
+
+- **`GlobalProtectSignIn`** (Core) runs as `AnyConnectSignIn` does (program, argv, the 0600 file in its own directory,
+  the fixed environment, the redacted log cut to 64 KiB) with `OpenConnectAuthConfig(protocol: .gp, …)`, and is called
+  by `ConnectionManager` for `.globalprotect`. `GlobalProtectAnswers.lines` composes each part (`OTPComposer.compose`
+  with the type); `secondPartNotBefore` is the end of the first code's TOTP window.
+- **`ToolInput`** (Core, `ToolRunner.swift`): `first` bytes, copied into a buffer of the input's own that is
+  overwritten once the runner has taken its copy (`wipeFirst`; `SystemToolRunner` and the runners that write `first`
+  only do it); an optional `second` closure that, when the part is to be written, appends it straight to the runner's
+  own buffer (emptied and overwritten first, and overwritten after the run) and overwrites what it made it in, so no
+  other copy is handed around; and `decide`, called by the runner with standard error so far after `first` is
+  written, whenever standard error grows and at least every quarter second: `.wait`, `.write` (then closed) or
+  `.close`. `ToolRunning` gains `run(…, input: ToolInput, …)`; a runner that does not implement it writes `first`
+  only. `SystemToolRunner` keeps standard input open while a second part may follow; its `Data` input goes through
+  a `ToolInput` of its own copy the same way. Tests drive the decision with a fake runner and `FakeClock`, never
+  real waiting.
+- **When the second part is written** (`VPNLog.globalProtectSecondPart`, then `GlobalProtectSignIn.input`): the run
+  so far must keep the two-server rule (before the portal's `getconfig.esp` only the profile's server; after it the
+  first `ssl-vpn/…` request names the gateway, and every later request is an `ssl-vpn/…` one to it; anything else,
+  a request that does not read as one included, closes standard input at once, so a prelogin redirected elsewhere
+  never gets the answers); `.due` needs the latest request to be that gateway's prelogin and openconnect's prompt
+  after it (an unfinished last line); and then standard error must have stayed unchanged for
+  `GlobalProtectSignIn.promptQuietTime` (1 s) and the first code's window must have ended. The wait at the prompt is
+  what keeps a server's text (a form's message, which openconnect prints among its own lines) from triggering it:
+  such text is followed at once by openconnect's own next request, which decides. What remains: a portal that both
+  prints such text and then stops openconnect at a prompt of its own (a third prompt) gets the second part itself;
+  it is the portal the profile trusts, and nothing else can.
+- **The second part** is made only with a code from the profile's TOTP secret and without `skip_portal` (a typed code
+  has no later window); only then is the time limit `signInTimeout` plus the TOTP period. Its code is recorded in
+  `.last-otp` from the runner's thread just before it is handed to the runner (`SecondPart.record`,
+  `ConnectionManager.writeUsedCode`), so another process (the CLI, the MCP server) that connects the profile while
+  the run lasts, or after a crash, waits for a later window. The other way round, it reads `.last-otp` before it
+  writes (`SecondPart.isUsed`): when another process already sent the code of that window, it waits for the next one;
+  when that would come too late for the time limit, it closes standard input and the connect fails with
+  `signInUnusable` ("Another connect of this profile used the next code's time window. Connect again."), not as a
+  refused sign-in.
+- **The prompt it waits for** is always an unfinished line: openconnect prints a prompt with `fprintf(stderr, "%s",
+  prompt)` and no line break before it reads the answer (`prompt_for_input`, `main.c` 2702–2710; a hidden field's
+  line break is printed only after the answer was read, `read_stdin`, 778–789). At the second sign-in the user name is hidden (the portal's login saved it,
+  `auth-globalprotect.c` 779–781, 180–185) and the first prompt is the password's, labelled `"%s: "` with the
+  prelogin's `password-label`, trimmed of trailing white space, or "Password" (`auth-globalprotect.c` 95, 195;
+  `xmlnode_get_trimmed_val`, `auth-common.c` 84–104); a challenge, in any of its three encodings, goes through
+  `challenge_cb` and is labelled "Challenge: " (`gpst.c` 133–209, 296–316; `auth-globalprotect.c` 232–275, 265). So the label
+  ends in ": " and the wait for the prompt cannot miss it.
+- **The two-server rule** (`VPNLog.globalProtectRouteIsAllowed`) reads every `POST https://` of the whole standard
+  error as it came; standard error past what is kept fails it (`signInUnusable`, fixed text), as a request that does
+  not read as one does.
+- **Failures** (`VPNLog.globalProtectSignInError`): as listed, with these as-built forms. A gateway's key is the new
+  `PTError.gatewayCertificateRejected(gateway:reason:pin:log:)` ("The gateway’s certificate was not trusted (…)."),
+  not `serverCertificateRejected`, whose message says the sign-in was not sent; it maps to kind `configuration` with
+  `server_cert` and `credentials_sent`. Openconnect asking for the gateway also counts when the profile's gateway
+  `matches multiple options` (main.c 2690–2694), the same situation as `not available`. `invalidField("host")` for a
+  server that is neither portal nor gateway carries `ConnectionFailure.reason` "This server is not a GlobalProtect
+  portal or gateway". `PTError.ssoRequired(log:)`, kind `sso_required`. The labels are
+  `VPNLog.globalProtectGateways(_:)` (`count`, `labels`), read from the redacted log.
+- **"Trust This Gateway…"** (Core): `ServerTrustOffer` gains `type`, `skipPortal`, `gateway` (the gateway's
+  `host:port` as the redacted log named it; nil for the portal's or the only server's key) and `portalPin`;
+  `needsPortalPin` when the profile pins no portal key. `ConnectionManager.trustServer(_:portalPin:)` writes
+  `gateway_server_cert`, and then `server_cert` from `portalPin` (`ServerTrustOffer.PortalPinRequired` without it);
+  the front end reads the portal's key with `TLSFingerprint.fetchServerKeyPin` and shows it for confirmation (G6).
+- **The HIP notice** is `StatusNotice.hipReportNotSent` (`hip_report_not_sent`, `message`), from
+  `VPNLog.globalProtectHIPRequested`; `ConnectionManager.notices(_:)` gives a connected profile's notices. G5 puts them
+  in `--json` and MCP (`notices`), G6 in the app.
+- **The override-cookie masks** are `OutputMask` patterns, so the helper's `MaskingCopier` applies them to the tunnel
+  run's log too.
+- **Front ends until G5/G6:** the CLI's `add` does not take the type yet (G5); the app connects such a profile but its
+  type lists and editor leave the type out (`AppModel.editableTypes`; the editor is refused with "needs a newer
+  PassTunnel") until G6 adds the type's fields.
+- The Mac helper's refusal while the last session's network is still being restored names the request's type
+  (`HelperCore.stillRestoringMessage`).
+
 ### Helper protocol 5 (G3)
 
 `PT.helperProtocolVersion` becomes 5, and `passtunneld`'s `hello` too. The start request gains `protocol`
@@ -2612,6 +2685,12 @@ by a newer version, is listed with that `connect_refusal`, shown, set, shared an
 `connect`, the app's Connect and editor refuse it before anything is asked, read or sent; `passtunnel add` and the
 app's type lists (the editor's type picker, Add VPN's type question) do not offer the type. `diagnose` reports the
 refusal and the profile's field problems. G4 adds the type to `VPNType.connectable`; G5 and G6 then offer it.
+
+As built (G4, #231): `VPNType.connectable` is every type, and `connectRefusal(.globalprotect)` is the macOS 15.4 check
+on the Mac and, on Linux (`macOS` nil), still `unsupportedProfileType("globalprotect")` until G7 (#234) makes
+`passtunneld` run it and the sign-in check the distribution's openconnect for 9.11: refusing up front spends no code on
+a sign-in whose cookie the daemon would refuse. The app's type lists and editor keep leaving the type out until G6
+(`AppModel.editableTypes`), and `passtunnel add` until G5; `connect`, the MCP `connect` and the app's Connect connect it.
 
 ### Tests (G8)
 

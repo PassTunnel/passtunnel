@@ -30,6 +30,10 @@ public struct ConnectionFailure: Codable, Equatable, Sendable {
         /// The server requires a host scan (Cisco AnyConnect's Cisco Secure Desktop), which PassTunnel never
         /// runs. Nothing was sent.
         case hostScanRequired = "host_scan_required"
+        /// Palo Alto GlobalProtect: the portal or the gateway signs in with single sign-on (SAML), which PassTunnel
+        /// does not support (`PTError.ssoRequired`). At the portal nothing was sent; at a gateway behind a password
+        /// portal the portal's sign-in was (`credentialsSent`).
+        case ssoRequired = "sso_required"
         /// Anything else (the helper refused, the tool exited without a reason PassTunnel knows).
         case failed
     }
@@ -43,6 +47,12 @@ public struct ConnectionFailure: Codable, Equatable, Sendable {
     /// configuration, Cisco AnyConnect: the key of the server whose certificate openconnect did not trust, as
     /// openconnect's hint gives it (`pin-sha256:…`), for a front end to offer trusting it (`server_cert`).
     public var serverCert: String?
+    /// configuration, Palo Alto GlobalProtect, `PTError.invalidField("gateway")`: the portal lists more than one
+    /// gateway and the profile names none of them (or none it lists). The portal's labels as openconnect listed them,
+    /// in its order, for a front end to offer as the profile's `gateway` (`VPNLog.globalProtectGateways`: each
+    /// printable ASCII of 1–64 bytes, at most 32, read from the redacted log); nil when they could not be read that
+    /// way (the log has them).
+    public var gateways: [String]?
     /// The credentials reached the server: the TLS session with it came up (OpenVPN "Control Channel",
     /// openfortivpn "Connected to gateway"), or it answered the sign-in.
     public var credentialsSent: Bool
@@ -131,6 +141,14 @@ public struct ConnectionFailure: Codable, Equatable, Sendable {
             f.kind = .configuration
             f.reason = reason
             f.serverCert = pin
+        case PTError.gatewayCertificateRejected(_, let reason, let pin, _):
+            f.kind = .configuration
+            f.reason = reason
+            f.serverCert = pin
+            f.credentialsSent = true
+        case PTError.ssoRequired:
+            f.kind = .ssoRequired
+            f.reason = nil
         case PTError.signInNeedsMoreAnswers:
             f.kind = .configuration
             f.reason = nil
@@ -167,6 +185,8 @@ public struct ConnectionFailure: Codable, Equatable, Sendable {
         case .unreachable, .hostNotFound:
             if let tries, tries > 1 { parts.append(String(localized: "No answer after \(tries) tries.")) }
         case .failed:
+            if !credentialsSent { parts.append(String(localized: "Your sign-in was not sent.")) }
+        case .ssoRequired:
             if !credentialsSent { parts.append(String(localized: "Your sign-in was not sent.")) }
         case .configuration, .setup, .timeout, .cancelled, .toolUnsupported, .hostScanRequired:
             break

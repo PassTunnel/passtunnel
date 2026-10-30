@@ -624,7 +624,7 @@ final class CLIRunner {
             }
             CLITerminal.err(CLITerminal.dim(String(localized: "Save the password with: passtunnel secret \(p.id) password")))
         case .globalprotect:
-            break  // refused above: not connected by this version yet (`VPNType.isConnectable`)
+            break  // not offered by `add` yet (#232: `--type` does not take it)
         }
         return Exit.ok
     }

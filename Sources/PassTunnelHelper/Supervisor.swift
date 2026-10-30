@@ -87,7 +87,7 @@ final class Supervisor {
                 // The config names the staged hook, so the tools are staged while it is prepared. Only
                 // this start stages the hook: a failure there never affects the other tools.
                 reply(
-                    self.start(profileID: s.profileID, uid: uid) { stage in
+                    self.start(profileID: s.profileID, uid: uid, typeName: s.protocol.displayName) { stage in
                         try self.core.prepareOpenConnect(s, uid: uid) { try self.stager.stageHook(in: try stage()) }
                     })
             case .stop(let id):
@@ -115,9 +115,11 @@ final class Supervisor {
 
     /// `prepare` checks the request and writes the session's files; it is given `stage`, which stages the
     /// tools once per start (openconnect's config names the staged hook), and they are staged after it
-    /// otherwise.
+    /// otherwise. `typeName` names the profile's type in messages ("Palo Alto GlobalProtect"), nil for a type whose
+    /// sessions leave no network to restore.
     private func start(
-        profileID: String, uid: uid_t, prepare: (_ stage: () throws -> ToolStager.Staged) throws -> HelperCore.LaunchPlan
+        profileID: String, uid: uid_t, typeName: String? = nil,
+        prepare: (_ stage: () throws -> ToolStager.Staged) throws -> HelperCore.LaunchPlan
     ) -> HelperResponse {
         dispatchPrecondition(condition: .onQueue(queue))
         do {
@@ -131,7 +133,7 @@ final class Supervisor {
         if pendingRestores.contains(key) {
             let dir = PT.sessionDir(uid: uid, profileID: profileID, runRoot: core.runRoot)
             guard restoreNetwork(key, runDir: dir, outputFD: nil) else {
-                return .failure("The network settings of this profile's last Cisco AnyConnect session are still being restored. Try again shortly.")
+                return .failure(HelperCore.stillRestoringMessage(typeName: typeName))
             }
             core.removeRunDir(profileID: profileID, uid: uid)
         }

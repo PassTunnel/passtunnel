@@ -285,7 +285,7 @@ final class FakeClock: ConnectionClock, @unchecked Sendable {
 
     func now() -> Date { lock.lock(); defer { lock.unlock() }; return current }
 
-    private func advance(_ seconds: TimeInterval) {
+    func advance(_ seconds: TimeInterval) {
         lock.lock()
         _sleeps.append(seconds)
         current = current.addingTimeInterval(max(0, seconds))
