@@ -1,0 +1,5 @@
+COOKIE='authcookie=0123456789abcdef&user=alice&preferred-ipv6=2001%3adb8%3a%3a30&computer='
+HOST='[2001:db8::20]'
+CONNECT_URL='https://[2001:db8::20]:4443/'
+FINGERPRINT='pin-sha256:/+9qLXvY4QvSoKy/ojXS6HTlG1iniUJkmUyKWlahaLE='
+RESOLVE='[2001:db8::20]:2001:db8::20'

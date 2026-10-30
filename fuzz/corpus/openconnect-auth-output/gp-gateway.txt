@@ -1,0 +1,5 @@
+COOKIE='authcookie=0123456789abcdef0123456789abcdef&portal=Acme-Portal&user=alice&domain=%28empty_domain%29&preferred-ip=192.0.2.30&computer=alice-mac'
+HOST='192.0.2.20'
+CONNECT_URL='https://gw1.example.com/'
+FINGERPRINT='pin-sha256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk='
+RESOLVE='gw1.example.com:192.0.2.20'

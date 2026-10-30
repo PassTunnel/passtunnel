@@ -57,15 +57,25 @@ public enum OpenConnectOptions {
         .init(name: "mca-key-password", takesValue: true)
     ]
 
-    /// Options neither rendered file ever contains, each with the reason. Together with the two files'
-    /// `renderedKeys` this covers `all`.
+    /// Options neither rendered file ever contains, each with the reason (for either protocol, Cisco
+    /// AnyConnect's and Palo Alto GlobalProtect's). Together with the two files' `renderedKeys` this covers
+    /// `all`. `disable-ipv6` is rendered only in GlobalProtect files (for a Linux openconnect older than 9.20)
+    /// and refused in every other.
     public static let refused: [(option: String, reason: String)] = [
         // Run a program, or change who or what runs.
         ("script-tun", "hands the tunnel to a program instead of a tun device"),
-        ("csd-user", "runs the server's host-scan (CSD) program, as the named user"),
-        ("csd-wrapper", "runs a program for the server's host scan (CSD, HIP, TNCC)"),
+        (
+            "csd-user",
+            "runs the server's host-scan (CSD) program, as the named user; for GlobalProtect the HIP script, "
+                + "which would run as root in the tunnel run"
+        ),
+        (
+            "csd-wrapper",
+            "runs a program for the server's host scan (CSD, HIP, TNCC); GlobalProtect's HIP script would run as root, "
+                + "in the tunnel run, after the sign-in and again at every interval"
+        ),
         ("external-browser", "runs a program for single sign-on"),
-        ("force-trojan", "runs the host-scan program again at an interval"),
+        ("force-trojan", "runs the host-scan program again at an interval (for GlobalProtect the HIP script, as root)"),
         ("setuid", "drops root after the tunnel is up, so the hook would run unprivileged"),
         ("background", "forks away from the supervisor"),
         ("config", "reads options from another file (and cannot be nested)"),
@@ -110,12 +120,27 @@ public enum OpenConnectOptions {
         ("printcookie", "prints the cookie"),
         ("cookie-on-stdin", "the cookie is in the root file; stdin is /dev/null"),
         // Change what the client tells the server, or how it signs in.
-        ("useragent", "no user agent field in Phase 1; a line break would add HTTP headers"),
-        ("version-string", "claims another client version"),
-        ("local-hostname", "sends a chosen host name to the server"),
-        ("os", "claims another operating system (it picks the host-scan program)"),
-        ("usergroup", "the group is the sign-in URL's path; the tunnel run connects without it"),
-        ("form-entry", "submits arbitrary sign-in form values"),
+        (
+            "useragent",
+            "no user agent field in Phase 1; a line break would add HTTP headers; for GlobalProtect openconnect sends "
+                + "PAN GlobalProtect itself"
+        ),
+        (
+            "version-string",
+            "claims another client version (for GlobalProtect app-version, by which gateways choose HIP and client policies)"
+        ),
+        ("local-hostname", "sends a chosen host name to the server (for GlobalProtect computer, also in the cookie)"),
+        (
+            "os",
+            "claims another operating system (it picks the host-scan program; for GlobalProtect clientos, by which gateways "
+                + "choose HIP and client policies)"
+        ),
+        (
+            "usergroup",
+            "the group is the sign-in URL's path; the tunnel run connects without it; for GlobalProtect the path decides "
+                + "portal or gateway and can name a single sign-on cookie field"
+        ),
+        ("form-entry", "submits arbitrary sign-in form values (for GlobalProtect also the portal's gateway choice)"),
         ("no-passwd", "turns off password sign-in"),
         ("no-xmlpost", "changes the sign-in protocol (9.21 exits on it)"),
         ("juniper", "selects another protocol (`nc`)"),
@@ -129,7 +154,6 @@ public enum OpenConnectOptions {
         ("base-mtu", "not needed; the server's value applies"),
         ("queue-len", "not needed"),
         ("cert-expire-warning", "not needed"),
-        ("disable-ipv6", "not needed; the hook blocks IPv6 a full tunnel does not carry"),
         ("no-http-keepalive", "not needed"),
         ("help", "prints help and exits"),
         ("version", "prints the version and exits")

@@ -305,8 +305,9 @@ final class OpenConnectRenderedCheckTests: XCTestCase {
             host: "vpn.example.com", cookie: "webvpn=EXAMPLE-C", serverCert: examplePin, resolveAddress: "192.0.2.1", scriptPath: "/x",
             tlsOnly: true
         ).render()
-        XCTAssertEqual(keys(fullRoot), OpenConnectConfig.renderedKeys)
-        XCTAssertEqual(keys(auth), OpenConnectAuthConfig.renderedKeys.filter { $0 != "servercert" })
+        // `disable-ipv6` is GlobalProtect's alone (GlobalProtectConfigTests).
+        XCTAssertEqual(keys(fullRoot), OpenConnectConfig.renderedKeys.filter { $0 != "disable-ipv6" })
+        XCTAssertEqual(keys(auth), OpenConnectAuthConfig.renderedKeys.filter { $0 != "servercert" && $0 != "disable-ipv6" })
     }
 
     func testTheCheckRefusesWhatAValidatorGapWouldLetThrough() {
@@ -481,7 +482,7 @@ final class OpenConnectRefusedOptionTests: XCTestCase {
         XCTAssertTrue(OpenConnectOptions.refused.allSatisfy { !$0.reason.isEmpty })
         for option in Self.listed { XCTAssertTrue(refused.contains(option), option) }
         // The rendered keys take a value exactly when the renderers write one.
-        let noValue: Set = ["non-inter", "no-dtls", "no-system-trust", "passwd-on-stdin", "no-external-auth"]
+        let noValue: Set = ["non-inter", "no-dtls", "no-system-trust", "passwd-on-stdin", "no-external-auth", "disable-ipv6"]
         for o in OpenConnectOptions.all where rendered.contains(o.name) { XCTAssertEqual(o.takesValue, !noValue.contains(o.name), o.name) }
     }
 

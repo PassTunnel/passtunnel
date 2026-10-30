@@ -1,0 +1,1 @@
+gw1.example.com8443alicepin-sha256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk=authcookie=0123456789abcdef&user=alice&computer=192.0.2.20/x/vpn-hookts6/etc/ssl/certs/ca-certificates.crtpin-sha256:/+9qLXvY4QvSoKy/ojXS6HTlG1iniUJkmUyKWlahaLE=
