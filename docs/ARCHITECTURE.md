@@ -2534,17 +2534,32 @@ CSD's `hostScanRequired` lines do not exist in this protocol (`auth.c` is AnyCon
   the fixed environment, the redacted log cut to 64 KiB) with `OpenConnectAuthConfig(protocol: .gp, …)`, and is called
   by `ConnectionManager` for `.globalprotect`. `GlobalProtectAnswers.lines` composes each part (`OTPComposer.compose`
   with the type); `secondPartNotBefore` is the end of the first code's TOTP window.
-- **`ToolInput`** (Core, `ToolRunner.swift`): `first` bytes, an optional `second` closure that makes the part when it is
-  written (it computes the code at that moment, from the manager's clock), and `decide`, called by the runner with
-  standard error so far after `first` is written, whenever standard error grows and at least every quarter second:
-  `.wait`, `.write` (then closed) or `.close`. `ToolRunning` gains `run(…, input: ToolInput, …)`; a runner that does
-  not implement it writes `first` only. `SystemToolRunner` keeps standard input open while a second part may follow.
-  The decision is `VPNLog.globalProtectSecondPart` (`.pending`, `.due`, `.none`, by the rules above) and, for `.due`,
-  the manager's clock at or past `secondPartNotBefore`. Tests drive it with a fake runner and `FakeClock`, never real
-  waiting.
+- **`ToolInput`** (Core, `ToolRunner.swift`): `first` bytes, copied into a buffer of the input's own that is
+  overwritten once the runner has taken its copy (`wipeFirst`; `SystemToolRunner` and the runners that write `first`
+  only do it); an optional `second` closure that, when the part is to be written, appends it straight to the runner's
+  own buffer (emptied and overwritten first, and overwritten after the run) and overwrites what it made it in, so no
+  other copy is handed around; and `decide`, called by the runner with standard error so far after `first` is
+  written, whenever standard error grows and at least every quarter second: `.wait`, `.write` (then closed) or
+  `.close`. `ToolRunning` gains `run(…, input: ToolInput, …)`; a runner that does not implement it writes `first`
+  only. `SystemToolRunner` keeps standard input open while a second part may follow; its `Data` input goes through
+  a `ToolInput` of its own copy the same way. Tests drive the decision with a fake runner and `FakeClock`, never
+  real waiting.
+- **When the second part is written** (`VPNLog.globalProtectSecondPart`, then `GlobalProtectSignIn.input`): the run
+  so far must keep the two-server rule (before the portal's `getconfig.esp` only the profile's server; after it the
+  first `ssl-vpn/…` request names the gateway, and every later request is an `ssl-vpn/…` one to it; anything else,
+  a request that does not read as one included, closes standard input at once, so a prelogin redirected elsewhere
+  never gets the answers); `.due` needs the latest request to be that gateway's prelogin and openconnect's prompt
+  after it (an unfinished last line); and then standard error must have stayed unchanged for
+  `GlobalProtectSignIn.promptQuietTime` (1 s) and the first code's window must have ended. The wait at the prompt is
+  what keeps a server's text (a form's message, which openconnect prints among its own lines) from triggering it:
+  such text is followed at once by openconnect's own next request, which decides. What remains: a portal that both
+  prints such text and then stops openconnect at a prompt of its own (a third prompt) gets the second part itself;
+  it is the portal the profile trusts, and nothing else can.
 - **The second part** is made only with a code from the profile's TOTP secret and without `skip_portal` (a typed code
   has no later window); only then is the time limit `signInTimeout` plus the TOTP period. Its code is recorded in
-  `.last-otp` as soon as the run returns (the next connect, of this process or another, cannot start before).
+  `.last-otp` from the runner's thread just before it is handed to the runner (`SecondPart.record`,
+  `ConnectionManager.writeUsedCode`), so another process (the CLI, the MCP server) that connects the profile while
+  the run lasts, or after a crash, waits for a later window.
 - **The two-server rule** (`VPNLog.globalProtectRouteIsAllowed`) reads every `POST https://` of the whole standard
   error as it came; standard error past what is kept fails it (`signInUnusable`, fixed text), as a request that does
   not read as one does.

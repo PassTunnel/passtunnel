@@ -73,7 +73,9 @@ struct GlobalProtectSignIn: @unchecked Sendable {
     var disableIPv6 = false
 
     /// The second part of standard input (`GlobalProtectAnswers`).
-    struct SecondPart {
+    ///
+    /// `@unchecked Sendable`: its closures are called from the runner's thread only, one at a time.
+    struct SecondPart: @unchecked Sendable {
         /// The end of the first code's window: the part is written at this time or later.
         var notBefore: Date
         /// The time now (the manager's clock).
@@ -81,7 +83,15 @@ struct GlobalProtectSignIn: @unchecked Sendable {
         /// Makes the answers at `date`, with the code of that time: the lines, and what else of them the log must not
         /// show (the code alone); nil when they cannot be made, which closes standard input instead.
         var answers: (_ date: Date) -> (lines: [String], secrets: [String])?
+        /// Records the code of `date` as sent (`.last-otp`), before its answers are handed to the runner, so another
+        /// process that connects the profile meanwhile waits for a later window. Called from the runner's thread.
+        var record: (_ date: Date) -> Void
     }
+
+    /// How long standard error must have stayed as it is, with openconnect's prompt after the gateway's prelogin, before
+    /// the second part is written: openconnect then waits for its answer, and text that only looked like the second
+    /// sign-in (the server's, in a message) has been followed by openconnect's next lines.
+    static let promptQuietTime: TimeInterval = 1
 
     /// The second part as it was written.
     final class Written: @unchecked Sendable {
@@ -170,7 +180,8 @@ struct GlobalProtectSignIn: @unchecked Sendable {
             return failed(error)
         }
 
-        let input = Self.input(answers, second: second, gateway: config.gateway, written: written)
+        let input = Self.input(answers, second: second, config: config, written: written)
+        defer { input.wipeFirst() }
         var output: ToolOutput
         do {
             output = try runner.run(
@@ -225,23 +236,48 @@ struct GlobalProtectSignIn: @unchecked Sendable {
         }
     }
 
-    /// Standard input: `answers` now; with `second`, its answers once the run shows the second sign-in and its time
-    /// has come, standard input closed after them, or without them when the run shows none can follow.
-    static func input(_ answers: [UInt8], second: SecondPart?, gateway: String, written: Written) -> ToolInput {
+    /// Standard error's size and when it last changed, for `promptQuietTime`.
+    final class Quiet: @unchecked Sendable {
+        private var size = -1
+        private var since = Date.distantPast
+
+        /// How long standard error has been `size` bytes, at `now`.
+        func unchanged(_ size: Int, at now: Date) -> TimeInterval {
+            if size != self.size {
+                self.size = size
+                since = now
+            }
+            return now.timeIntervalSince(since)
+        }
+    }
+
+    /// Standard input: `answers` now; with `second`, its answers once the run shows the second sign-in (by
+    /// `VPNLog.globalProtectSecondPart`, which also holds the run to the two-server rule so far), openconnect has
+    /// waited at its prompt for `promptQuietTime` and the first code's window has ended; standard input is closed after
+    /// them, or without them when the run shows none can follow or went elsewhere.
+    static func input(_ answers: [UInt8], second: SecondPart?, config: OpenConnectAuthConfig, written: Written) -> ToolInput {
         guard let second else { return ToolInput(answers) }
+        let quiet = Quiet()
         return ToolInput(
             answers,
-            second: {
+            second: { sink in
                 let at = second.now()
-                guard let made = second.answers(at), let bytes = try? OpenConnectAnswers.stdin(made.lines) else { return nil }
+                guard let made = second.answers(at), var bytes = try? OpenConnectAnswers.stdin(made.lines) else { return false }
+                defer { bytes.wipe() }
+                second.record(at)
                 written.note(at, made.lines + made.secrets)
-                return bytes
+                sink.append(contentsOf: bytes)
+                return true
             },
             decide: { errorOutput in
-                switch VPNLog.globalProtectSecondPart(String(decoding: errorOutput, as: UTF8.self), gateway: gateway) {
+                let text = String(decoding: errorOutput, as: UTF8.self)
+                switch VPNLog.globalProtectSecondPart(text, gateway: config.gateway, host: config.host, port: config.port) {
                 case .pending: return .wait
                 case .none: return .close
-                case .due: return second.now() >= second.notBefore ? .write : .wait
+                case .due:
+                    let now = second.now()
+                    let waited = quiet.unchanged(errorOutput.count, at: now) >= promptQuietTime
+                    return waited && now >= second.notBefore ? .write : .wait
                 }
             })
     }

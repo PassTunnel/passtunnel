@@ -74,9 +74,11 @@ final class ToolCancellation: @unchecked Sendable {
 /// read from the run's standard error as it comes (`decide`), and standard input closed after it. `decide` may also
 /// close it without the second part. Without a second part standard input is closed once `first` is written.
 ///
-/// The second part's bytes are made only when they are written (`second`, which may compute a code for that
-/// moment), handed to the runner once and overwritten here (`SecretBytes`); the runner overwrites its own copy. A
-/// run that ends, is cancelled or reaches its deadline before the condition held never gets it.
+/// The second part's bytes are made only when they are written: `second` appends them straight to the runner's own
+/// buffer (which the runner overwrites after the run) and overwrites whatever it made them in, so no other copy is
+/// handed around. `first` is held in a buffer of its own (copied from the caller's), which `wipeFirst` overwrites once
+/// the runner has taken it. A run that ends, is cancelled or reaches its deadline before the condition held never
+/// gets the second part.
 ///
 /// `@unchecked Sendable`: its state is behind a lock; the runner calls `next` from one thread.
 final class ToolInput: @unchecked Sendable {
@@ -93,24 +95,44 @@ final class ToolInput: @unchecked Sendable {
     /// What the runner does next with standard input, once `first` is written.
     enum Action: Equatable {
         case wait
-        case write([UInt8])
+        /// The second part was appended to the runner's buffer: write it, then close.
+        case wrote
         case close
     }
 
-    /// Written when the run starts.
-    let first: [UInt8]
-    private let second: (() -> [UInt8]?)?
+    private let held: SecretBytes
+    private let second: ((inout Data) -> Bool)?
     private let decide: ((Data) -> Decision)?
     private let lock = NSLock()
     private var done = false
     private var _secondWritten = false
 
-    /// `second` makes the second part when it is to be written (nil, or no bytes: none, and standard input is
-    /// closed); `decide` reads standard error so far. Without either, standard input is closed after `first`.
-    init(_ first: [UInt8], second: (() -> [UInt8]?)? = nil, decide: ((Data) -> Decision)? = nil) {
-        self.first = first
+    /// `second` appends the second part to the buffer it is given when it is to be written, and answers whether it
+    /// did (false: none, and standard input is closed); `decide` reads standard error so far. Without either,
+    /// standard input is closed after `first`, which is copied into a buffer of this input's own.
+    init(_ first: [UInt8], second: ((inout Data) -> Bool)? = nil, decide: ((Data) -> Decision)? = nil) {
+        held = SecretBytes(Self.copy(first))
         self.second = decide == nil ? nil : second
         self.decide = second == nil ? nil : decide
+    }
+
+    /// Standard input that is `data`, copied, and nothing after it.
+    convenience init(copying data: Data) {
+        self.init([UInt8](data))
+    }
+
+    /// Written when the run starts.
+    var first: [UInt8] { held.bytes }
+
+    /// Overwrites this input's copy of `first` (the runner calls it once it has taken its own).
+    func wipeFirst() { held.wipe() }
+
+    /// A copy in a buffer of its own: overwriting it never touches the original's storage.
+    static func copy(_ bytes: [UInt8]) -> [UInt8] {
+        [UInt8](unsafeUninitializedCapacity: bytes.count) { buffer, count in
+            _ = buffer.initialize(from: bytes)
+            count = bytes.count
+        }
     }
 
     /// Whether anything may still follow `first`: the runner keeps standard input open after it only then.
@@ -129,8 +151,9 @@ final class ToolInput: @unchecked Sendable {
 
     /// Called by the runner once `first` is written, with standard error so far, again and again while it
     /// answers `.wait` (when standard error grows, and at least every quarter second, so a condition on the time
-    /// is seen in time). `.write` and `.close` are answered once; after them, `.close`.
-    func next(errorOutput: Data) -> Action {
+    /// is seen in time). On `.write` the second part is appended to `pending` (`.wrote`). `.wrote` and `.close` are
+    /// answered once; after them, `.close`.
+    func next(errorOutput: Data, into pending: inout Data) -> Action {
         lock.lock()
         defer { lock.unlock() }
         guard !done, let second, let decide else { return .close }
@@ -142,11 +165,10 @@ final class ToolInput: @unchecked Sendable {
             return .close
         case .write:
             done = true
-            guard let bytes = second(), !bytes.isEmpty else { return .close }
-            let held = SecretBytes(bytes)
-            defer { held.wipe() }
+            let before = pending.count
+            guard second(&pending), pending.count > before else { return .close }
             _secondWritten = true
-            return .write(held.bytes)
+            return .wrote
         }
     }
 }
@@ -189,6 +211,7 @@ extension ToolRunning {
         timeout: TimeInterval, cancellation: ToolCancellation?
     ) throws -> ToolOutput {
         var first = Data(input.first)
+        input.wipeFirst()
         defer { first.wipe() }
         return try run(path, arguments, environment: environment, input: first, timeout: timeout, cancellation: cancellation)
     }
@@ -212,7 +235,8 @@ struct SystemToolRunner: ToolRunning {
         _ path: String, _ arguments: [String], environment: [String: String], input: Data,
         timeout: TimeInterval, cancellation: ToolCancellation?
     ) throws -> ToolOutput {
-        try run(path, arguments, environment: environment, input: ToolInput(Array(input)), timeout: timeout, cancellation: cancellation)
+        // Its own copy, which `Streams` takes over and the input then overwrites.
+        try run(path, arguments, environment: environment, input: ToolInput(copying: input), timeout: timeout, cancellation: cancellation)
     }
 
     func run(
@@ -303,6 +327,7 @@ struct SystemToolRunner: ToolRunning {
             errorFD = errorOutput
             self.toolInput = toolInput
             pending = Data(toolInput.first)
+            toolInput.wipeFirst()
             for fd in [input, output, errorOutput] { _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK) }
             if pending.isEmpty { pendingWritten() }
         }
@@ -362,15 +387,18 @@ struct SystemToolRunner: ToolRunning {
 
         /// Asks `toolInput` what follows, from standard error so far.
         private mutating func askForInput() {
-            switch toolInput.next(errorOutput: errorOutput) {
+            // Everything pending is written: the second part goes into an empty buffer, so growing it never leaves a
+            // copy of the first part behind.
+            pending.wipe()
+            pending = Data()
+            written = 0
+            switch toolInput.next(errorOutput: errorOutput, into: &pending) {
             case .wait:
                 break
             case .close:
                 awaitingInput = false
                 closeInput()
-            case .write(var bytes):
-                pending.append(contentsOf: bytes)
-                bytes.wipe()
+            case .wrote:
                 awaitingInput = false
             }
         }

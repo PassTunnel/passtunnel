@@ -173,28 +173,44 @@ extension VPNLog {
         case none
     }
 
-    /// Reads the complete lines of the sign-in's standard error so far, in order, until one decides
-    /// (docs/ARCHITECTURE.md, "The answers, and the second code"):
-    /// - a gateway prelogin (`POST https://…/ssl-vpn/prelogin.esp…`) after a portal's `getconfig.esp`: `.due`;
+    /// Reads the complete lines of the sign-in's standard error so far, in order (docs/ARCHITECTURE.md, "The answers,
+    /// and the second code"). `host`, `port`: the profile's server. `.none` as soon as one of these shows:
+    /// - a request the two-server rule refuses so far (`globalProtectRouteIsAllowed`): before the portal's
+    ///   `getconfig.esp` any server but the profile's; after it, the first `ssl-vpn/…` request names the gateway, and
+    ///   every later request must be an `ssl-vpn/…` one to that server; or a request that does not read as one;
     /// - `Unexpected 512 result from server` (http.c 986–988: a refused password or code) answering the portal's
     ///   `getconfig.esp`, or a `login.esp` after a gateway prelogin (not the refusal of openconnect's replay of the
-    ///   portal's answer, which leads to the second sign-in): `.none`;
+    ///   portal's answer, which leads to the second sign-in);
     /// - openconnect asking for the gateway: the portal lists two or more (`N gateway servers available:`) and
     ///   the profile names none (`gateway` empty), or `Auth choice "<gateway>" not available` (or `matches multiple
-    ///   options`, main.c 2664–2700) for the profile's gateway: `.none`.
-    public static func globalProtectSecondPart(_ text: String, gateway: String) -> GlobalProtectSecondPart {
+    ///   options`, main.c 2664–2700) for the profile's gateway.
+    ///
+    /// `.due` when, after all lines, the latest request is that gateway's prelogin
+    /// (`POST https://<gateway>/ssl-vpn/prelogin.esp…`, after the portal's `getconfig.esp`) and openconnect has
+    /// printed a prompt after it (an unfinished last line: it waits for the answer). The server's text can stand among
+    /// these lines (a form's message), so the caller also waits until standard error has not changed for a while
+    /// (`GlobalProtectSignIn.promptQuietTime`): text that only looks like the second sign-in is followed by
+    /// openconnect's own next request, which then decides. `.pending` otherwise.
+    public static func globalProtectSecondPart(_ text: String, gateway: String, host: String, port: Int) -> GlobalProtectSecondPart {
         var portalConfig = false
         var gatewayPrelogin = false
+        var destination: GlobalProtectRequest?
         var last: GlobalProtectRequest?
         for line in openConnectLines(text) {
             if line.contains(openConnectPost) {
                 for request in globalProtectRequests(line + "\n") {
-                    guard let request else { continue }
-                    if request.isGatewayPrelogin {
-                        if portalConfig { return .due }
-                        gatewayPrelogin = true
+                    guard let request else { return .none }
+                    if let destination {
+                        guard request.isServer(host: destination.host, port: destination.port), request.path.hasPrefix("ssl-vpn/") else {
+                            return .none
+                        }
+                    } else if portalConfig && request.path.hasPrefix("ssl-vpn/") {
+                        destination = request
+                    } else {
+                        guard request.isServer(host: host, port: port) else { return .none }
                     }
                     if request.isPortalConfig { portalConfig = true }
+                    if request.isGatewayPrelogin { gatewayPrelogin = true }
                     last = request
                 }
                 continue
@@ -208,7 +224,10 @@ extension VPNLog {
                 return .none
             }
         }
-        return .pending
+        guard let destination, let last, portalConfig, last.isGatewayPrelogin,
+            last.isServer(host: destination.host, port: destination.port), !text.isEmpty, !text.hasSuffix("\n")
+        else { return .pending }
+        return .due
     }
 
     // MARK: the portal's gateways

@@ -36,6 +36,8 @@ final class FakeGlobalProtect: ToolRunning, @unchecked Sendable {
     var script: [Step]
     var status: Int32
     var stdout: String
+    /// Runs on the runner's thread right after the second part was handed over (while the run lasts).
+    var onWrite: (() -> Void)?
 
     init(clock: FakeClock, script: [Step], status: Int32 = 0, stdout: String = "") {
         self.clock = clock
@@ -69,14 +71,16 @@ final class FakeGlobalProtect: ToolRunning, @unchecked Sendable {
         var open = input.hasSecondPart
         func poll() {
             guard open else { return }
-            switch input.next(errorOutput: err) {
+            var pending = Data()
+            switch input.next(errorOutput: err, into: &pending) {
             case .wait: break
             case .close:
                 open = false
                 run.closedAfter = String(decoding: err, as: UTF8.self)
-            case .write(let bytes):
+            case .wrote:
                 open = false
-                run.writes.append((clock.now(), Data(bytes)))
+                run.writes.append((clock.now(), pending))
+                onWrite?()
             }
         }
         poll()
@@ -125,11 +129,15 @@ enum GlobalProtectOutput {
         + "GlobalProtect login returned unexpected argument value arg[17]=ARG-SECRET-7170\n"
     static let failed = "Failed to complete authentication\n"
 
+    /// The gateway's form after its prelogin: its message, and the password's prompt, where openconnect waits.
+    static let gatewayPrompt = "Please enter your username and password\nPassword: "
     /// Password at the portal, a challenge for the code, the replay refused by the gateway, and the second sign-in
-    /// there: up to the gateway's prelogin, where openconnect waits for the password.
-    static let untilSecondSignIn =
+    /// there: up to the gateway's prelogin, without its answer yet.
+    static let untilGatewayPrelogin =
         portalPrelogin + portalTLS + portalConfig + "Challenge: " + portalConfig + oneGateway + gatewayLogin + gatewayTLS + refused
         + gatewayPrelogin
+    /// The same, with the gateway's form: openconnect waits for the password.
+    static let untilSecondSignIn = untilGatewayPrelogin + gatewayPrompt
     /// The second sign-in answered (password, then the challenge), and the gateway's cookie.
     static let afterSecondSignIn = gatewayLogin + "Challenge: " + gatewayLogin + loginReturned
 
@@ -225,12 +233,19 @@ extension ConnectionManagerTests {
         let fake = FakeGlobalProtect(
             clock: clock, script: [.stderr(GP.untilSecondSignIn), .advance(4), .advance(6), .stderr(GP.afterSecondSignIn)],
             stdout: GP.stdout())
+        // What another process reads in `.last-otp` the moment the second part is handed over, while the run lasts.
+        let usedURL = store.dir(p.id).appendingPathComponent(ConnectionManager.usedOTPFile)
+        let seen = Locked<ConnectionManager.UsedOTPWindow?>(nil)
+        fake.onWrite = { seen.mutate { $0 = try? JSONCoding.read(ConnectionManager.UsedOTPWindow.self, from: usedURL) } }
         let m = try makeGlobalProtectManager(fake)
         try await m.connect(p.id)
 
         let code1 = try code(at: t0)
         let code2 = try code(at: t0.addingTimeInterval(10))
         XCTAssertNotEqual(code1, code2)
+        XCTAssertEqual(
+            seen.value, .init(counter: TOTP.counter(params: p.totp, at: t0) + 1, period: 30),
+            "the second code is spent before it leaves, not when the run returns")
         let run = try XCTUnwrap(fake.runs.first)
         XCTAssertEqual(run.first, Data("hunter2-pw\n\(code1)\n".utf8), "the password, then the code")
         XCTAssertTrue(run.hadSecondPart)
@@ -301,15 +316,19 @@ extension ConnectionManagerTests {
             clock: clock,
             script: [
                 .stderr(GP.portalPrelogin + GP.portalTLS + GP.portalConfig + GP.oneGateway + GP.gatewayLogin), .advance(15),
-                .stderr(GP.gatewayTLS + GP.refused), .advance(1), .stderr(GP.gatewayPrelogin), .stderr(GP.gatewayLogin + GP.loginReturned)
+                .stderr(GP.gatewayTLS + GP.refused), .advance(1), .stderr(GP.gatewayPrelogin),
+                // Waiting for the gateway's answer: no prompt yet.
+                .advance(3), .stderr(GP.gatewayPrompt),
+                // At the prompt, but only just: openconnect may still go on by itself.
+                .advance(0.5), .advance(0.5), .stderr(GP.gatewayLogin + GP.loginReturned)
             ],
             stdout: GP.stdout())
         let m = try makeGlobalProtectManager(fake)
         try await m.connect(p.id)
         let run = try XCTUnwrap(fake.runs.first)
         XCTAssertEqual(run.first, Data("hunter2-pw:\(try code(at: t0))\n".utf8))
-        XCTAssertEqual(run.writes.first?.at, t0.addingTimeInterval(16), "when the second sign-in showed, the window over")
-        XCTAssertEqual(run.writes.first?.bytes, Data("hunter2-pw:\(try code(at: t0.addingTimeInterval(16)))\n".utf8))
+        XCTAssertEqual(run.writes.first?.at, t0.addingTimeInterval(20), "a second after the prompt showed, the window over")
+        XCTAssertEqual(run.writes.first?.bytes, Data("hunter2-pw:\(try code(at: t0.addingTimeInterval(20)))\n".utf8))
         XCTAssertTrue(m.state(p.id).isConnected)
     }
 
@@ -403,21 +422,64 @@ extension ConnectionManagerTests {
         XCTAssertEqual(r.manager.usedCode(r.profile.id), .init(counter: TOTP.counter(params: r.profile.totp, at: t0), period: 30))
     }
 
+    /// A portal's message (printed by openconnect among its own lines, main.c 2844–2845) that looks like the second
+    /// sign-in writes nothing: openconnect goes on with its own next request at once, which decides, and here breaks
+    /// the two-server rule, so standard input is closed.
+    func testGlobalProtectServerTextDoesNotWriteTheSecondPart() async throws {
+        let message =
+            "POST https://vpn.example.com:8443/global-protect/getconfig.esp\n"
+            + "POST https://gw1.example.com/ssl-vpn/prelogin.esp?tmp=tmp&clientVer=4100&clientos=Mac\nPassword: "
+        // Past the first code's window already: only the wait at the prompt holds it back.
+        clock.advance(30)
+        let fake = FakeGlobalProtect(
+            clock: clock,
+            script: [
+                .stderr(GP.portalPrelogin + GP.portalTLS + message), .advance(0.1), .stderr(GP.portalConfig + GP.oneGateway),
+                .advance(20), .stderr(GP.gatewayLogin + GP.refused + GP.gatewayPrelogin + GP.gatewayPrompt), .advance(5),
+                .stderr("***\nUser input required in non-interactive mode\n" + GP.failed)
+            ],
+            status: 1)
+        let r = try await globalProtectFailure(fake)
+        let run = try XCTUnwrap(fake.runs.first)
+        XCTAssertTrue(run.writes.isEmpty, "nothing more is sent because of the server's text")
+        XCTAssertEqual(run.closedAfter, GP.portalPrelogin + GP.portalTLS + message + GP.portalConfig + GP.oneGateway)
+        XCTAssertEqual(r.failure.kind, .authRejected)
+        // The pure reading alone would take it for the second sign-in: the wait at the prompt is what holds.
+        XCTAssertEqual(
+            VPNLog.globalProtectSecondPart(GP.portalPrelogin + GP.portalTLS + message, gateway: "US East", host: "vpn.example.com", port: 8443),
+            .due)
+    }
+
     /// The gateway refusing openconnect's replay of the portal's answer is no reason to close: the second sign-in
-    /// follows. A refusal after the gateway's prelogin is.
+    /// follows. A refusal after the gateway's prelogin is, and so is any request the two-server rule refuses.
     func testGlobalProtectSecondPartDecisions() {
         typealias S = VPNLog.GlobalProtectSecondPart
-        func step(_ text: String, gateway: String = "US East") -> S { VPNLog.globalProtectSecondPart(text, gateway: gateway) }
+        func step(_ text: String, gateway: String = "US East") -> S {
+            VPNLog.globalProtectSecondPart(text, gateway: gateway, host: "vpn.example.com", port: 8443)
+        }
         let portal = GP.portalPrelogin + GP.portalTLS + GP.portalConfig
         XCTAssertEqual(step(GP.portalPrelogin + GP.portalTLS), .pending)
         XCTAssertEqual(step(portal), .pending)
         XCTAssertEqual(step(portal + GP.oneGateway + GP.gatewayLogin + GP.gatewayTLS + GP.refused), .pending, "the replay refused")
         XCTAssertEqual(step(GP.untilSecondSignIn), .due)
-        XCTAssertEqual(step(portal + GP.oneGateway + "Challenge: " + GP.gatewayPrelogin), .due, "after a prompt on the same line")
-        XCTAssertEqual(step(String(GP.untilSecondSignIn.dropLast())), .pending, "a line not complete yet")
+        XCTAssertEqual(step(GP.untilGatewayPrelogin), .pending, "the gateway has not answered yet: no prompt")
+        XCTAssertEqual(step(portal + GP.oneGateway + "Challenge: " + GP.gatewayPrelogin + GP.gatewayPrompt), .due, "after a prompt on the line")
         XCTAssertEqual(step(portal + GP.refused), .none, "the portal refused the password")
         XCTAssertEqual(step(portal + "Challenge: " + GP.portalConfig + GP.refused), .none, "or the code")
-        XCTAssertEqual(step(GP.untilSecondSignIn + GP.gatewayLogin + GP.refused), .due, "decided at the second sign-in")
+        XCTAssertEqual(step(GP.untilSecondSignIn + GP.gatewayLogin + GP.refused), .none, "the gateway refused the second password")
+        // A gateway on the portal's own server.
+        let sameHost =
+            portal + "1 gateway servers available:\n  Main (vpn.example.com:8443) [unprioritized]\n"
+            + "POST https://vpn.example.com:8443/ssl-vpn/login.esp\n" + GP.refused
+            + "POST https://vpn.example.com:8443/ssl-vpn/prelogin.esp?tmp=tmp&clientVer=4100&clientos=Mac\n" + GP.gatewayPrompt
+        XCTAssertEqual(step(sameHost, gateway: "Main"), .due)
+        // Somewhere else than the portal and the gateway it named: closed at once, the code never made.
+        let third = "POST https://gw9.example.com/ssl-vpn/prelogin.esp?tmp=tmp&clientVer=4100&clientos=Mac\n"
+        XCTAssertEqual(step(GP.untilGatewayPrelogin + third + GP.gatewayPrompt), .none, "the gateway's prelogin redirected")
+        XCTAssertEqual(step(portal + GP.oneGateway + GP.gatewayLogin + third), .none)
+        XCTAssertEqual(step(GP.portalPrelogin + GP.gatewayPrelogin), .none, "the gateway before the portal's configuration")
+        XCTAssertEqual(step(GP.untilGatewayPrelogin + GP.portalConfig), .none, "the portal after the gateway")
+        XCTAssertEqual(step(GP.portalPrelogin + "POST https://vpn.example.com:8443\n"), .none, "not a request")
         // The no-portal fallback: a gateway prelogin without the portal's configuration, then its refusal.
         let fallback =
             GP.portalPrelogin + GP.portalTLS + "POST https://vpn.example.com:8443/ssl-vpn/prelogin.esp?tmp=tmp&clientVer=4100&clientos=Mac\n"
@@ -747,31 +809,67 @@ final class GlobalProtectSignInTests: XCTestCase {
     }
 
     func testToolInputParts() {
+        var sink = Data()
         XCTAssertFalse(ToolInput(Array("a\n".utf8)).hasSecondPart)
-        XCTAssertEqual(ToolInput(Array("a\n".utf8)).next(errorOutput: Data()), .close)
+        XCTAssertEqual(ToolInput(Array("a\n".utf8)).next(errorOutput: Data(), into: &sink), .close)
 
         var made = 0
         var answer: ToolInput.Decision = .wait
         let input = ToolInput(
             Array("a\n".utf8),
-            second: {
-                made += 1; return Array("b\n".utf8)
+            second: { pending in
+                made += 1
+                pending.append(contentsOf: Array("b\n".utf8))
+                return true
             }, decide: { _ in answer })
         XCTAssertTrue(input.hasSecondPart)
-        XCTAssertEqual(input.next(errorOutput: Data()), .wait)
+        XCTAssertEqual(input.next(errorOutput: Data(), into: &sink), .wait)
         XCTAssertEqual(made, 0, "made only when it is written")
         answer = .write
-        XCTAssertEqual(input.next(errorOutput: Data()), .write(Array("b\n".utf8)))
+        XCTAssertEqual(input.next(errorOutput: Data(), into: &sink), .wrote)
+        XCTAssertEqual(sink, Data("b\n".utf8), "straight into the runner's buffer")
         XCTAssertTrue(input.secondWritten)
-        XCTAssertEqual(input.next(errorOutput: Data()), .close, "once")
+        XCTAssertEqual(input.next(errorOutput: Data(), into: &sink), .close, "once")
         XCTAssertEqual(made, 1)
         XCTAssertFalse(input.hasSecondPart)
 
-        let closing = ToolInput(Array("a\n".utf8), second: { Array("b\n".utf8) }, decide: { _ in .close })
-        XCTAssertEqual(closing.next(errorOutput: Data()), .close)
+        let closing = ToolInput(
+            Array("a\n".utf8),
+            second: {
+                $0.append(1); return true
+            }, decide: { _ in .close })
+        XCTAssertEqual(closing.next(errorOutput: Data(), into: &sink), .close)
         XCTAssertFalse(closing.secondWritten)
-        let none = ToolInput(Array("a\n".utf8), second: { nil }, decide: { _ in .write })
-        XCTAssertEqual(none.next(errorOutput: Data()), .close, "nothing to write closes it")
+        let none = ToolInput(Array("a\n".utf8), second: { _ in false }, decide: { _ in .write })
+        XCTAssertEqual(none.next(errorOutput: Data(), into: &sink), .close, "nothing to write closes it")
+    }
+
+    /// `first` lives in a buffer of the input's own, which is overwritten once the runner has taken it; the caller's
+    /// bytes are never the ones overwritten (or kept).
+    func testToolInputKeepsAndWipesItsOwnCopy() throws {
+        let caller = Array("secret-answer\n".utf8)
+        let input = ToolInput(caller)
+        XCTAssertEqual(input.first, caller)
+        input.wipeFirst()
+        XCTAssertTrue(input.first.allSatisfy { $0 == 0 }, "overwritten")
+        XCTAssertEqual(caller, Array("secret-answer\n".utf8), "the caller's own bytes are the caller's to overwrite")
+        var copy = ToolInput.copy(caller)
+        copy.wipe()
+        XCTAssertEqual(caller, Array("secret-answer\n".utf8), "a copy in storage of its own")
+
+        // After a run, the runner's copy is all that held it, and the input's is overwritten.
+        let ran = ToolInput(Array("x\n".utf8))
+        _ = try SystemToolRunner().run("/bin/sh", ["-c", "read a"], environment: [:], input: ran, timeout: 10, cancellation: nil)
+        XCTAssertTrue(ran.first.allSatisfy { $0 == 0 })
+        // A runner that writes the first part only overwrites it too.
+        final class FirstOnly: ToolRunning {
+            func run(_ path: String, _ arguments: [String], environment: [String: String], input: Data, timeout: TimeInterval) throws
+                -> ToolOutput
+            { ToolOutput(status: 0, output: Data(), errorOutput: Data()) }
+        }
+        let other = ToolInput(Array("y\n".utf8))
+        _ = try FirstOnly().run("/bin/true", [], environment: [:], input: other, timeout: 1, cancellation: nil)
+        XCTAssertTrue(other.first.allSatisfy { $0 == 0 })
     }
 
     /// `SystemToolRunner` writes the second part when the tool's standard error shows it is due, and closes standard
@@ -780,7 +878,11 @@ final class GlobalProtectSignInTests: XCTestCase {
         let script = "read a; echo ready >&2; read b; echo \"$a|$b\"; read c && echo more"
         func run(_ decision: @escaping (String) -> ToolInput.Decision) throws -> (String, ToolInput) {
             let input = ToolInput(
-                Array("first\n".utf8), second: { Array("second\n".utf8) }, decide: { decision(String(decoding: $0, as: UTF8.self)) })
+                Array("first\n".utf8),
+                second: {
+                    $0.append(contentsOf: Array("second\n".utf8))
+                    return true
+                }, decide: { decision(String(decoding: $0, as: UTF8.self)) })
             let out = try SystemToolRunner().run("/bin/sh", ["-c", script], environment: [:], input: input, timeout: 10, cancellation: nil)
             return (String(decoding: out.output, as: UTF8.self), input)
         }

@@ -1231,12 +1231,19 @@ public final class ConnectionManager: ObservableObject {
             let delivery = p.otpDelivery
             let template = p.otpTemplate
             let clock = self.clock
+            let directory = store.dir(id)
+            let usedURL = usedCodeURL(id)
             second = GlobalProtectSignIn.SecondPart(
                 notBefore: GlobalProtectAnswers.secondPartNotBefore(codeTime: codeTime, params: params), now: { clock.now() },
                 answers: { date in
                     let code = TOTP.code(secret: secret, params: params, at: date)
                     let lines = GlobalProtectAnswers.lines(password: password, code: code, delivery: delivery, template: template)
                     return (lines, [code])
+                },
+                record: { date in
+                    // From the runner's thread, before the code leaves this process: another process (the CLI, the
+                    // MCP server) that connects the profile meanwhile, or after a crash, waits for a later window.
+                    Self.writeUsedCode(Self.usedWindow(params, at: date), to: usedURL, in: directory)
                 })
         } else {
             second = nil
@@ -1272,13 +1279,13 @@ public final class ConnectionManager: ObservableObject {
             cancellation.cancel()
         }
 
-        // The second code went to openconnect: spent too, so the next connect waits for a window after it.
+        // The second code went to openconnect: `record` kept it in `.last-otp` before it was written.
         let secondAt: Date?
         switch outcome {
         case .success(let s): secondAt = s.secondPartAt
         case .failure(let f): secondAt = f.secondPartAt
         }
-        if let secondAt { progress.usedCode = (progress.usedCode?.previous, rememberUsedCode(p, at: secondAt)) }
+        if let secondAt { progress.usedCode = (progress.usedCode?.previous, Self.usedWindow(p.totp, at: secondAt)) }
 
         switch outcome {
         case .failure(let failure):
@@ -1651,10 +1658,21 @@ public final class ConnectionManager: ObservableObject {
 
     @discardableResult
     private func rememberUsedCode(_ p: Profile, at date: Date) -> UsedOTPWindow {
-        let used = UsedOTPWindow(counter: TOTP.counter(params: p.totp, at: date), period: max(1, p.totp.period))
-        guard FileManager.default.fileExists(atPath: store.dir(p.id).path) else { return used }
-        try? JSONCoding.write(used, to: usedCodeURL(p.id), mode: 0o600)
+        let used = Self.usedWindow(p.totp, at: date)
+        Self.writeUsedCode(used, to: usedCodeURL(p.id), in: store.dir(p.id))
         return used
+    }
+
+    /// The TOTP window of a code of `date`.
+    nonisolated static func usedWindow(_ params: TOTPParams, at date: Date) -> UsedOTPWindow {
+        UsedOTPWindow(counter: TOTP.counter(params: params, at: date), period: max(1, params.period))
+    }
+
+    /// Writes `.last-otp` (`url`) while the profile's directory exists; from any thread (a GlobalProtect sign-in's
+    /// second code is recorded from the runner's).
+    nonisolated static func writeUsedCode(_ used: UsedOTPWindow, to url: URL, in directory: URL) {
+        guard FileManager.default.fileExists(atPath: directory.path) else { return }
+        try? JSONCoding.write(used, to: url, mode: 0o600)
     }
 
     /// Puts back the record that a code which never reached the server replaced (none: removes it).
