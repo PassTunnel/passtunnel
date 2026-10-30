@@ -331,8 +331,17 @@ The main window (`MainSplitView`, decision D-23) is a `NavigationSplitView`, abo
   code in the window, the menu bar or the copy items, Copy Code and Copy Password + Code disabled and refused); an imported one is selected instead of opened in the editor, and scanned
   codes never go to it. The type question of the add view shows Cisco AnyConnect disabled, with the sentence under
   the question, and File → New Cisco AnyConnect Profile… is disabled with the note as its tooltip.
-- **Palo Alto GlobalProtect** (#233, experimental; the design is in
-  [ARCHITECTURE.md](ARCHITECTURE.md#palo-alto-globalprotect-backend)): offered and refused below macOS 15.4 exactly
+- **Palo Alto GlobalProtect** (user-facing summary; experimental: please
+  [report how it works](https://github.com/PassTunnel/passtunnel/issues/new?template=globalprotect_report.md), whether it worked or not; the design is in
+  [ARCHITECTURE.md](ARCHITECTURE.md#palo-alto-globalprotect-backend), the threat model in
+  [SECURITY.md](../SECURITY.md#palo-alto-globalprotect)): a profile has a portal (or, with Skip portal, one
+  gateway), an optional gateway name, optional pinned keys for the portal and the gateway, the user name, the
+  password and the one-time code. Connect signs in first, as the user, to the portal and then to the gateway it
+  names (the code goes to whichever asks for it, the second one from the next time window), and gives the helper
+  only the session cookie that results. Needs macOS 15.4 or later, and on Linux `openconnect` 9.11 or later
+  ([LINUX.md](LINUX.md#palo-alto-globalprotect)). What it does not do: sign in through a web page (SAML / single
+  sign-on), send a host information report (HIP; the connection goes on and a notice says access may be limited),
+  or use client certificates. The details of the UI follow (#233): offered and refused below macOS 15.4 exactly
   as Cisco AnyConnect (the type question, File → New Palo Alto GlobalProtect Profile (Experimental)…, the detail's
   "Palo Alto GlobalProtect requires macOS 15.4 or later." card). The **"Experimental" badge** (`ExperimentalBadge`, a
   small capsule in the foreground around it, from `VPNType.isExperimental` and nothing else) follows the type's name
@@ -674,7 +683,7 @@ passtunnel connect [ID] --force              even if another VPN already takes a
 passtunnel connect|disconnect … --wait [--timeout S]   bound the wait (default 60 s; --timeout implies --wait)
 passtunnel code [ID] [-c|--copy]             live code + seconds left
 passtunnel list / show ID / set ID key=value…   (keys as in the editor)
-passtunnel add NAME --type openvpn|forti|anyconnect [--server URL] / import FILE [--name N] / export ID [-o FILE] / rm ID
+passtunnel add NAME --type openvpn|forti|anyconnect|globalprotect [--server URL] / import FILE [--name N] / export ID [-o FILE] / rm ID
 passtunnel secret ID password|totp           reads from TTY (no echo) or stdin; totp accepts base32 or otpauth://
 passtunnel secret-store [STORE]              Linux only: the secret store in use; STORE sets it (below)
 passtunnel default ID / pin ID / unpin ID
