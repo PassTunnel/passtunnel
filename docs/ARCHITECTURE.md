@@ -670,6 +670,7 @@ public enum HelperRequest: Codable {
                                            // (mgmtPort: Int? still decodes for protocol 1 payloads but is ignored)
     case startForti(FortiStart)            // profileID, profileDir, host, port, username, password, otp?, trustedCert, setDNS, setRoutes, logPath
     case startOpenConnect(OpenConnectStart) // protocol 4: Cisco AnyConnect ("Helper protocol 4" below); passtunneld too since #187
+                                            // protocol 5: + protocol (anyconnect | gp), profileGatewayServerCert ("Helper protocol 5")
     case stop(profileID: String)
     case status                            // → running profile IDs with pid
 }
@@ -2144,7 +2145,8 @@ openconnect's own reconnect, and kills openconnect to check the daemon's revert 
 ## Palo Alto GlobalProtect backend
 
 **Designed in #226. In place:** the configurations, the cookie and the checks of the sign-in's output in VPNConfig
-(G1, #228); nothing uses them yet. Phase 2 of #2: Palo Alto GlobalProtect through the same
+(G1, #228); the helper's side, protocol 5 (G3, #230: the Mac's helper starts a GlobalProtect session it is sent,
+`passtunneld` refuses one); no client sends one yet. Phase 2 of #2: Palo Alto GlobalProtect through the same
 openconnect (`protocol gp`), with a password and a TOTP code, no SAML or other single sign-on, on macOS 15.4 and
 later and on Linux, shipped labelled experimental ([Experimental](#experimental-g2-g5-g6-g9)). It reuses the
 [Cisco AnyConnect backend](#cisco-anyconnect-backend) wherever that holds, and this
@@ -2534,7 +2536,19 @@ equal to `profileServerCert` or `profileGatewayServerCert` when either is set; (
 against the line count the request implies (header and seven options, `resolve`, `no-dtls`, and on Linux
 `disable-ipv6`, which the daemon decides from its own openconnect's version, never from the request). The masks the
 helper's `MaskingCopier` gets are the protocol's cookie secrets. The description and mirror hide the cookie,
-`connect_url`, `resolve` and `server_cert` as before; `host` (the gateway) is shown.
+`connect_url`, `resolve` and `server_cert` as before, and for `gp` `host` and `port` too: the portal chose the
+gateway and could make a valid host name repeat the cookie (as `OpenConnectConfig`'s description hides them, #228).
+No helper or daemon log line or error names the gateway's host, and the masker's literal secrets match regardless
+of case, so a gateway name that repeats the `authcookie` lowercased is masked in openconnect's output too.
+
+As built (#230): `protocol` is required in the JSON and in `OpenConnectStart.init` alike (a missing or unknown value
+is `invalidField("protocol")`); for `anyconnect`, `profile_gateway_server_cert` must be empty and the cookie
+`OpenConnectCookie`'s shape, so a GlobalProtect start labelled `anyconnect` fails too. Step (5) also checks that the
+rendered file's `protocol` line is the request's, since `checkRendered` applies the rules of the file's own line.
+`disable-ipv6` comes from `HelperCore.openConnectDisableIPv6` (false until #234 sets it from the checked tool's
+version; never rendered for AnyConnect). `OutputMask` masks `authcookie=` values wherever they stand (also inside
+`…userauthcookie=`). `passtunneld` refuses `gp` ("Palo Alto GlobalProtect is not supported by passtunneld yet.")
+after the access check and before anything is checked, resolved or written.
 
 ### Profile (G2)
 

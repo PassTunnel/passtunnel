@@ -1162,7 +1162,7 @@ public final class ConnectionManager: ObservableObject {
             let r = success.result
             return .startOpenConnect(
                 OpenConnectStart(
-                    profileID: id, profileDir: store.dir(id).path, logPath: store.logURL(id).path, host: p.host, port: p.port,
+                    protocol: .anyconnect, profileID: id, profileDir: store.dir(id).path, logPath: store.logURL(id).path, host: p.host, port: p.port,
                     usergroup: p.usergroup, connectURL: r.connectURL, resolve: success.resolve, cookie: r.tunnelCookie,
                     serverCert: r.fingerprint, profileServerCert: pin, tlsOnly: p.tlsOnly, setDNS: p.setDNS,
                     setRoutes: p.setRoutes))

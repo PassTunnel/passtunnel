@@ -39,9 +39,9 @@ final class DaemonCallTests: XCTestCase {
         XCTAssertEqual(data, try request.jsonData())
         XCTAssertEqual(try HelperCore.decodeRequest(data), request)
 
-        let spaced = #"{ "request" : { "type": "status", "protocol_version": 4 } , "op": "perform" }"#
+        let spaced = #"{ "request" : { "type": "status", "protocol_version": 5 } , "op": "perform" }"#
         guard case .perform(let raw) = try parse(spaced) else { return XCTFail("not perform") }
-        XCTAssertEqual(String(decoding: raw, as: UTF8.self), #"{ "type": "status", "protocol_version": 4 }"#)
+        XCTAssertEqual(String(decoding: raw, as: UTF8.self), #"{ "type": "status", "protocol_version": 5 }"#)
         XCTAssertEqual(try HelperCore.decodeRequest(raw), .status)
         // Whatever the request is, it is HelperCore's to judge.
         guard case .perform(let scalar) = try parse(#"{"op":"perform","request":42}"#) else { return XCTFail("not perform") }
@@ -90,13 +90,13 @@ final class DaemonCallTests: XCTestCase {
         let hello = DaemonHello(build: "ab12", buildNumber: 214)
         XCTAssertEqual(
             String(decoding: try hello.jsonData(), as: UTF8.self),
-            #"{"build":"ab12","build_number":214,"protocol":4}"#)
+            #"{"build":"ab12","build_number":214,"protocol":5}"#)
         XCTAssertEqual(
             String(decoding: try DaemonHello(build: "ab12").jsonData(), as: UTF8.self),
-            #"{"build":"ab12","protocol":4}"#, "no number in development builds")
+            #"{"build":"ab12","protocol":5}"#, "no number in development builds")
         XCTAssertEqual(
-            try DaemonHello(jsonData: Data(#"{"protocol":4,"build":"x"}"#.utf8)),
-            DaemonHello(protocolVersion: 4, build: "x"))
+            try DaemonHello(jsonData: Data(#"{"protocol":5,"build":"x"}"#.utf8)),
+            DaemonHello(protocolVersion: 5, build: "x"))
     }
 }
 
