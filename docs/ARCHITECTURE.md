@@ -2594,9 +2594,9 @@ CSD's `hostScanRequired` lines do not exist in this protocol (`auth.c` is AnyCon
   in `--json` and MCP (`notices`), G6 in the app.
 - **The override-cookie masks** are `OutputMask` patterns, so the helper's `MaskingCopier` applies them to the tunnel
   run's log too.
-- **Front ends until G5/G6:** the CLI's `add` does not take the type yet (G5); the app connects such a profile but its
-  type lists and editor leave the type out (`AppModel.editableTypes`; the editor is refused with "needs a newer
-  PassTunnel") until G6 adds the type's fields.
+- **Front ends until G6:** the app connects such a profile but its type lists and editor leave the type out
+  (`AppModel.editableTypes`; the editor is refused with "needs a newer PassTunnel") until G6 adds the type's fields.
+  The CLI and MCP take the type since G5 ([Experimental](#experimental-g2-g5-g6-g9)).
 - The Mac helper's refusal while the last session's network is still being restored names the request's type
   (`HelperCore.stillRestoringMessage`).
 
@@ -2715,7 +2715,7 @@ on the Mac and, on Linux (`macOS` nil), was `unsupportedProfileType("globalprote
 `passtunneld` run it and the sign-in check the distribution's openconnect for 9.11: refusing up front spent no code on
 a sign-in whose cookie the daemon would refuse. Since G7 Linux refuses nothing up front, as for Cisco AnyConnect
 ([As built (G7)](#as-built-g7-234)). The app's type lists and editor keep leaving the type out until G6
-(`AppModel.editableTypes`), and `passtunnel add` until G5; `connect`, the MCP `connect` and the app's Connect connect it.
+(`AppModel.editableTypes`); `passtunnel add` takes it since G5; `connect`, the MCP `connect` and the app's Connect connect it.
 
 ### Tests (G8)
 
@@ -2781,6 +2781,20 @@ flag, no opt-in, no setting; the type connects exactly as designed above.
   SECURITY.md for anything security-related.
 - **Phones:** a port that shows the type names it with the same label, from the Kit's constant (iPhone) or its Kotlin
   counterpart ([MOBILE.md](MOBILE.md#globalprotect-profiles)).
+
+As built (G5, #232): `add --type globalprotect [--server]` (`--server [https://]host[:port]` by
+`GlobalProtectServer.parse`, carried in `CLICommand.add` as an `AnyConnectServer` with an empty `usergroup`, which
+`ProfileStore.create` accepts for this type only; a rejected value is never echoed, as for AnyConnect). `set` and `show`
+need no change: `ProfileFields` already has the keys. `experimental` is `ProfileSummary.experimental`,
+`ProfileStatus.experimental`, `ProfileCheck.experimental` (`diagnose`) and, in `show --json` and `set --json`, a key of the
+`profile` object; each is `true` or absent. The notices are `ProfileStatus.notices`, a list of `{kind, message}`
+(`NoticeReport`, from `ConnectionManager.notices(_:)`), set while connected, also in the result of `connect`; the human
+`status` prints them under the profile and `connect` to standard error. The human label is `(experimental)` after the type
+in `list`, `show` and `diagnose`, and after the state in `status` (which shows no type otherwise). The report line
+goes to standard error after `add` and `import` in human output only (`--json` keeps standard error quiet) and points at
+`https://github.com/PassTunnel/passtunnel/issues/new?template=globalprotect_report.md`, the template #236 adds. The MCP
+tools' output schemas gain `experimental`, `notices` and the failure's `server_cert` and `gateways`, their descriptions
+the `sso_required` kind, and the server's instructions one sentence on the label and the notice.
 
 ### Decided (#226)
 

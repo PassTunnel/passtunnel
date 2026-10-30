@@ -181,14 +181,14 @@ final class AnyConnectCLITests: CoreTestCase {
         }
         XCTAssertThrowsError(try parse(["add", "Acme", "--type", "anyconnect", "--server"]))
         XCTAssertThrowsError(try parse(["add", "--type", "anyconnect", "--server", "vpn.example.com"]))  // no name
-        XCTAssertThrowsError(try parse(["add", "Acme", "--type", "globalprotect"]))
+        XCTAssertNoThrow(try parse(["add", "Acme", "--type", "globalprotect"]))  // GlobalProtectCLITests
         XCTAssertThrowsError(try parse(["add", "Acme", "--type", "cisco"]))
         XCTAssertThrowsError(try parse(["add", "Acme"]))
     }
 
     func testUsageAndCompletionNameTheType() {
         let usage = CLIHelp.usage(for: "add")
-        XCTAssertTrue(usage.contains("--type openvpn|forti|anyconnect [--server URL]"), usage)
+        XCTAssertTrue(usage.contains("--type openvpn|forti|anyconnect|globalprotect [--server URL]"), usage)
         XCTAssertTrue(usage.contains("Cisco AnyConnect"), usage)
         XCTAssertTrue(
             CLIHelp.usage(for: "set").contains(

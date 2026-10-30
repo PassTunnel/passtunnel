@@ -71,6 +71,8 @@ public final class AutomationService {
             s.state = "connected"; s.ip = ip; s.since = since; s.warning = m.warnings[p.id]
             if let since { s.durationSeconds = Self.wholeSeconds(from: since, to: now) }
             if m.statusUnavailable.contains(p.id) { s.statusUnavailable = true }
+            let notices = m.notices(p.id)
+            if !notices.isEmpty { s.notices = notices.map(NoticeReport.init) }
             switch m.health[p.id] {
             case .reachable?: s.health = "reachable"
             case .unreachable?: s.health = "unreachable"
@@ -351,7 +353,8 @@ public final class AutomationService {
             id: p.id, name: p.name, type: p.type.rawValue, ok: problems.isEmpty,
             server: ProfileDestination.of(p, store: store).host, protected: ProfileSummary.isProtected(p),
             passwordSaved: passwordSaved, totpSaved: totpSaved, asksFor: p.needs.map(\.rawValue),
-            problems: problems.map(ErrorReport.init), clock: manager.lastClock(p.id))
+            problems: problems.map(ErrorReport.init), clock: manager.lastClock(p.id),
+            experimental: p.type.isExperimental ? true : nil)
     }
 }
 

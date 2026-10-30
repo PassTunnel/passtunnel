@@ -460,10 +460,14 @@ extension AnyConnectCLITests {
         XCTAssertNil(entry["needs_newer_version"])
         XCTAssertEqual((entry["connect_refusal"] as? [String: Any])?["message"] as? String, "Palo Alto GlobalProtect requires macOS 15.4 or later.")
 
-        let connect = try await run(.connect(id: p.id), macOS: nil)
+        let connect = try await run(.connect(id: p.id), macOS: macOS153)
         XCTAssertNotEqual(connect.code, 0)
         XCTAssertTrue(helper.starts.isEmpty, "nothing started")
 
-        XCTAssertThrowsError(try CLICommand.parse(["add", "Acme", "--type", "globalprotect"]), "not offered by add yet (#232)")
+        // `add` offers the type since #232 (and refuses it here, as `connect` does).
+        XCTAssertNoThrow(try CLICommand.parse(["add", "Acme", "--type", "globalprotect"]))
+        let add = try await run(.add(name: "Acme 2", type: .globalprotect), macOS: macOS153)
+        XCTAssertNotEqual(add.code, 0)
+        XCTAssertEqual(store.list().count, 1, "nothing made")
     }
 }

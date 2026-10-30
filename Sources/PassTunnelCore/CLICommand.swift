@@ -36,7 +36,8 @@ public enum CLICommand: Equatable {
     case list(json: Bool, quiet: Bool)  // quiet: ids only (used by shell completion)
     case show(id: String, json: Bool)
     case set(id: String, assignments: [Assignment], json: Bool = false)
-    // server: Cisco AnyConnect's address (`--server https://vpn.example.com[:port][/group]`), saved as host, port and usergroup
+    // server: Cisco AnyConnect's address (`--server https://vpn.example.com[:port][/group]`), saved as host, port and usergroup;
+    // Palo Alto GlobalProtect's (`--server https://vpn.example.com[:port]`, no path), saved as host and port (usergroup empty)
     case add(name: String, type: VPNType, json: Bool = false, server: AnyConnectServer? = nil)
     case importFile(path: String, name: String?, json: Bool = false)
     case export(id: String, output: String?, json: Bool = false)
@@ -246,33 +247,49 @@ public enum CLICommand: Equatable {
         case "add":
             let json = a.flag("--json")
             guard let typeText = try a.option("--type", "-t") else {
-                throw CLIUsageError(String(localized: "Missing --type openvpn|forti|anyconnect."), command: name)
+                throw CLIUsageError(String(localized: "Missing --type openvpn|forti|anyconnect|globalprotect."), command: name)
             }
             let type: VPNType
             switch typeText.lowercased() {
             case "openvpn": type = .openvpn
             case "forti", "fortigate": type = .forti
             case "anyconnect": type = .anyconnect
+            case "globalprotect": type = .globalprotect
             default:
                 throw CLIUsageError(
-                    String(localized: "Unknown VPN type “\(typeText)” (use openvpn, forti or anyconnect)."), command: name)
+                    String(localized: "Unknown VPN type “\(typeText)” (use openvpn, forti, anyconnect or globalprotect)."), command: name)
             }
             let serverText = try a.option("--server")
             try a.rejectUnknownOptions()
             var server: AnyConnectServer?
             if let serverText {
-                guard type == .anyconnect else {
-                    throw CLIUsageError(String(localized: "--server is for Cisco AnyConnect profiles (--type anyconnect)."), command: name)
-                }
-                guard let parsed = AnyConnectServer.parse(serverText) else {
-                    // Never echoes the value: it may carry a password (user info) or a token (a query).
+                switch type {
+                case .anyconnect:
+                    guard let parsed = AnyConnectServer.parse(serverText) else {
+                        // Never echoes the value: it may carry a password (user info) or a token (a query).
+                        throw CLIUsageError(
+                            String(
+                                localized:
+                                    "--server needs an https:// address like https://vpn.example.com[:port][/group], without user info, a query or a fragment."
+                            ), command: name)
+                    }
+                    server = parsed
+                case .globalprotect:
+                    guard let parsed = GlobalProtectServer.parse(serverText) else {
+                        // Never echoes the value, as above.
+                        throw CLIUsageError(
+                            String(
+                                localized:
+                                    "--server needs an address like vpn.example.com[:port] or https://vpn.example.com[:port], without a path, user info, a query or a fragment."
+                            ), command: name)
+                    }
+                    server = AnyConnectServer(host: parsed.host, port: parsed.port)
+                case .openvpn, .forti:
                     throw CLIUsageError(
                         String(
-                            localized:
-                                "--server needs an https:// address like https://vpn.example.com[:port][/group], without user info, a query or a fragment."
-                        ), command: name)
+                            localized: "--server is for Cisco AnyConnect and Palo Alto GlobalProtect profiles (--type anyconnect or globalprotect)."),
+                        command: name)
                 }
-                server = parsed
             }
             let words = a.remaining()
             let joined = words.joined(separator: " ").trimmingCharacters(in: .whitespaces)
