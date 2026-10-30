@@ -22,6 +22,9 @@ public enum AnyConnectEditing {
         case port
         /// The path after the host (the user group) is not one `OpenConnectAuthConfig.isValidUsergroup` takes.
         case group
+        /// Palo Alto GlobalProtect: a path after the host, which a GlobalProtect address never has
+        /// (`GlobalProtectServer.parse`; `/global-protect/…` pasted from a browser).
+        case path
 
         public var message: String {
             switch self {
@@ -34,6 +37,8 @@ public enum AnyConnectEditing {
             case .port: return String(localized: "The port must be between 1 and 65535.")
             case .group:
                 return String(localized: "The path after the address may use letters, digits, and - _ . ~ / only.")
+            case .path:
+                return String(localized: "Leave out the path after the address, such as /global-protect/….")
             }
         }
     }

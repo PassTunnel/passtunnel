@@ -53,6 +53,14 @@ struct PassTunnelApp: App {
 struct AppCommands: Commands {
     @ObservedObject var model: AppModel
 
+    /// "New Palo Alto GlobalProtect Profile (Experimental)…": a menu item has no room for the badge, so an experimental
+    /// type says it in words.
+    static func newProfileTitle(_ type: VPNType) -> String {
+        type.isExperimental
+            ? String(localized: "New \(type.displayName) Profile (\(ExperimentalLabel.title))…")
+            : String(localized: "New \(type.displayName) Profile…")
+    }
+
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
             Button(String(localized: "New OpenVPN Profile…")) { model.newProfile(.openvpn) }
@@ -64,6 +72,10 @@ struct AppCommands: Commands {
                 .keyboardShortcut("n", modifiers: [.command, .option])
                 .disabled(model.connectRefusal(.anyconnect) != nil)
                 .help(model.connectRefusal(.anyconnect)?.unavailableNote ?? "")
+            // Labelled experimental (`VPNType.isExperimental`); disabled below macOS 15.4 like Cisco AnyConnect.
+            Button(Self.newProfileTitle(.globalprotect)) { model.newProfile(.globalprotect) }
+                .disabled(model.connectRefusal(.globalprotect) != nil)
+                .help(model.connectRefusal(.globalprotect)?.unavailableNote ?? "")
             Divider()
             Button(String(localized: "Import .ovpn…")) { ImportActions.importOVPN() }
                 .keyboardShortcut("i")

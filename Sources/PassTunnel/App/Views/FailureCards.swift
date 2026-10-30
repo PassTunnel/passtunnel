@@ -16,6 +16,10 @@ struct FailurePreview {
     var network = NetworkStatus.unknown
     /// The clock measurements the banner chooses from.
     var clocks: [ClockOffset] = []
+    /// Palo Alto GlobalProtect: the portal's gateways after a failure for want of one, and the gateway whose
+    /// certificate was not trusted.
+    var gatewayChoices: [String: GatewayChoice] = [:]
+    var failedGateways: [String: String] = [:]
 }
 
 extension AppModel {
@@ -48,23 +52,53 @@ extension AppModel {
         guard case .failed(let reason) = status else { return false }
         switch reason {
         case .signInRejected, .serverNotTrusted: return failure(p.id) != nil
-        case .unreachable, .hostNotFound, .hostScanRequired: return true
+        case .unreachable, .hostNotFound, .hostScanRequired, .ssoRequired, .gatewayRequired, .notGlobalProtectServer: return true
         case .message:
             return failure(p.id).map { !MessageCard.lines($0, shown: status.line(at: now)).isEmpty } ?? false
         }
     }
 
-    /// "Trust this server": the offer to keep the key of the Cisco AnyConnect server whose certificate the last connect
-    /// of `p` did not trust (`ConnectionManager.serverTrustOffer`); nil when there is none or the profile changed since.
+    /// "Trust this server": the offer to keep the key of the Cisco AnyConnect or Palo Alto GlobalProtect server (or
+    /// GlobalProtect gateway) whose certificate the last connect of `p` did not trust
+    /// (`ConnectionManager.serverTrustOffer`); nil when there is none or the profile changed since.
     func serverTrustOffer(_ p: Profile) -> ServerTrustOffer? {
-        if previewStates != nil { return ServerTrustOffer(p, pin: failure(p.id)?.serverCert) }
+        if previewStates != nil {
+            let stored = profile(p.id) ?? p
+            return ServerTrustOffer(stored, pin: failure(p.id)?.serverCert, gateway: previewFailures.failedGateways[p.id])
+        }
         return connections.serverTrustOffer(p.id)
     }
 
-    /// Keeps the offer's pin in the profile (only its `server_cert`), once the user confirmed the server and the pin.
-    func trustServer(_ offer: ServerTrustOffer) {
+    /// Keeps the offer's pin in the profile (only its `server_cert`; for a GlobalProtect gateway `gateway_server_cert`
+    /// and, when the profile pinned no portal key, `portalPin` in `server_cert`), once the user confirmed the server and
+    /// the pins.
+    func trustServer(_ offer: ServerTrustOffer, portalPin: String? = nil) {
         guard previewStates == nil else { return }
-        do { try connections.trustServer(offer) } catch { showError(error) }
+        do { try connections.trustServer(offer, portalPin: portalPin) } catch { showError(error) }
+        reload()
+    }
+
+    /// The gateway (`host:port`) whose certificate the last connect of `p` did not trust; nil for the profile's own
+    /// server.
+    func failedGateway(_ p: Profile) -> String? {
+        if previewStates != nil { return failure(p.id)?.serverCert == nil ? nil : previewFailures.failedGateways[p.id] }
+        return connections.failedGateway(p.id)
+    }
+
+    /// The portal's gateways after the last connect of `p` failed for want of one (`ConnectionManager.gatewayChoice`);
+    /// nil when there is none or the profile names another portal since.
+    func gatewayChoice(_ p: Profile) -> GatewayChoice? {
+        if previewStates != nil {
+            guard let choice = previewFailures.gatewayChoices[p.id], choice.matches(profile(p.id) ?? p) else { return nil }
+            return choice
+        }
+        return connections.gatewayChoice(p.id)
+    }
+
+    /// Puts one of the portal's gateways into the profile's `gateway` (only that field).
+    func chooseGateway(_ choice: GatewayChoice, label: String) {
+        guard previewStates == nil else { return }
+        do { try connections.chooseGateway(choice, label: label) } catch { showError(error) }
         reload()
     }
 
@@ -101,6 +135,12 @@ struct FailureCard: View {
             if let failure { ServerTrustCard(profile: profile, failure: failure) }
         case .failed(.hostScanRequired):
             HostScanCard(profile: profile, failure: failure)
+        case .failed(.ssoRequired):
+            SingleSignOnCard(profile: profile, failure: failure)
+        case .failed(.gatewayRequired):
+            GatewayChoiceCard(profile: profile, choice: model.gatewayChoice(profile))
+        case .failed(.notGlobalProtectServer):
+            MessageCard(profile: profile, failure: failure, shown: status.line(at: model.now), editsAddress: true)
         case .failed(.message):
             MessageCard(profile: profile, failure: failure, shown: status.line(at: model.now))
         default:
@@ -198,6 +238,7 @@ struct RejectedCard: View {
                 )
                 .accessibilityIdentifier("profile.\(profile.id).failure.password")
             }
+            ExperimentalReportRow(profile: profile)
             ClockCheckButton(check: check)
         }
         .accessibilityElement(children: .contain)
@@ -271,6 +312,7 @@ struct UnreachableCard: View {
             DiagnosisRow(
                 symbol: .info, title: Text(String(localized: "On a guest or hotel network?")),
                 detail: Text(String(localized: "Some networks block VPN traffic. Try another network or ask your IT team.")))
+            ExperimentalReportRow(profile: profile)
             HStack(spacing: Spacing.xs) {
                 if let retry {
                     Button {
@@ -349,7 +391,7 @@ struct MessageCard: View {
 
     var body: some View {
         let lines = failure.map { Self.lines($0, shown: shown) } ?? []
-        if !lines.isEmpty || editsAddress {
+        if !lines.isEmpty || editsAddress || profile.type.isExperimental {
             Card(style: .compact) {
                 ForEach(lines, id: \.self) { Lead(text: Text(verbatim: $0)) }
                 if editsAddress {
@@ -357,6 +399,7 @@ struct MessageCard: View {
                         symbol: .info, title: Text(String(localized: "Is the server’s address right?")),
                         link: (String(localized: "Check it in PassTunnel"), { model.edit(profile) }))
                 }
+                ExperimentalReportRow(profile: profile)
             }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("profile.\(profile.id).failure")
@@ -404,22 +447,33 @@ private struct CopyDetailsButton: View {
 /// key it named (`ConnectionFailure.serverCert`) and "Trust This Server…", which keeps that key in the profile after
 /// the user confirmed the server and the key (`AppModel.trustServer`). A profile that had another key pinned is told
 /// that the key changed. Once the profile trusts the key, the card says so and Try again uses it.
+///
+/// Palo Alto GlobalProtect: the same for the portal (or, with Skip portal, the only server); for the gateway the portal
+/// sent the sign-in to (`AppModel.failedGateway`) "Trust This Gateway…", whose confirmation (`GatewayTrustSheet`) also
+/// reads and shows the portal's key when the profile pins none, and saves the gateway's key only with it.
 struct ServerTrustCard: View {
     @EnvironmentObject private var model: AppModel
     let profile: Profile
     let failure: ConnectionFailure
     @State private var confirming: ServerTrustOffer?
+    @State private var gatewayTrust: GatewayTrustRequest?
 
     var body: some View {
         let offer = model.serverTrustOffer(profile)
+        let gateway = offer?.gateway ?? model.failedGateway(profile)
         let pin = failure.serverCert.flatMap(OpenConnectPin.normalize) ?? ""
-        let trusted = !pin.isEmpty && AnyConnectEditing.normalizedPin(profile.serverCert) == pin
-        let changedKey = offer.map { !$0.replacing.isEmpty } ?? (!trusted && !profile.serverCert.isEmpty)
+        let pinned = AnyConnectEditing.normalizedPin(gateway == nil ? profile.serverCert : profile.gatewayServerCert)
+        let trusted = !pin.isEmpty && pinned == pin
+        let changedKey = offer.map { !$0.replacing.isEmpty } ?? (!trusted && !pinned.isEmpty)
         Card(style: .compact) {
-            Lead(text: lead(changedKey: changedKey))
+            Lead(text: lead(changedKey: changedKey, gateway: gateway))
             if !pin.isEmpty {
-                DiagnosisRow(symbol: .info, title: Text(String(localized: "The server’s key")), detail: Text.mono(pin, part: pin))
-                    .textSelection(.enabled)
+                DiagnosisRow(
+                    symbol: .info,
+                    title: Text(gateway == nil ? String(localized: "The server’s key") : String(localized: "The gateway’s key")),
+                    detail: Text.mono(pin, part: pin)
+                )
+                .textSelection(.enabled)
             }
             if trusted {
                 DiagnosisRow(
@@ -427,23 +481,39 @@ struct ServerTrustCard: View {
                     detail: Text(String(localized: "Connect again to use it.")))
             } else if changedKey {
                 DiagnosisRow(
-                    symbol: .warning, title: Text(String(localized: "The server’s key changed")),
+                    symbol: .warning,
+                    title: Text(gateway == nil ? String(localized: "The server’s key changed") : String(localized: "The gateway’s key changed")),
                     detail: Text(
                         String(
                             localized:
                                 "If the server got a new key, your IT team can confirm this fingerprint. Otherwise someone may be intercepting the connection."
                         )))
+            } else if let gateway {
+                DiagnosisRow(
+                    symbol: .info, title: Text(String(localized: "Check the fingerprint first")),
+                    detail: Text(
+                        offer?.needsPortalPin == true
+                            ? String(
+                                localized:
+                                    "Trust the gateway \(gateway) only if this fingerprint matches the one your IT team gave you. The portal’s key is read and shown for you to check too."
+                            )
+                            : String(localized: "Trust the gateway \(gateway) only if this fingerprint matches the one your IT team gave you.")))
             } else {
                 DiagnosisRow(
                     symbol: .info, title: Text(String(localized: "Check the fingerprint first")),
                     detail: Text(String(localized: "Trust the server only if this fingerprint matches the one your IT team gave you.")))
             }
+            ExperimentalReportRow(profile: profile)
             HStack(spacing: Spacing.xs) {
                 if let offer, !trusted {
                     Button {
-                        confirming = offer
+                        if let trust = GatewayTrust(offer) {
+                            gatewayTrust = GatewayTrustRequest(trust: trust)
+                        } else {
+                            confirming = offer
+                        }
                     } label: {
-                        Text(changedKey ? String(localized: "Trust the New Key…") : String(localized: "Trust This Server…"))
+                        Text(buttonTitle(changedKey: changedKey, gateway: offer.gateway != nil))
                     }
                     .buttonStyle(.primaryCapsule(.compact))
                     .accessibilityIdentifier("profile.\(profile.id).failure.trustServer")
@@ -465,15 +535,34 @@ struct ServerTrustCard: View {
         } message: { offer in
             Text(verbatim: Self.message(offer))
         }
+        .sheet(item: $gatewayTrust) { request in
+            GatewayTrustSheet(profile: profile, trust: request.trust).environmentObject(model)
+        }
     }
 
-    /// Why it stopped, with openconnect's reason ("signer not found") when it gave one.
-    private func lead(changedKey: Bool) -> Text {
+    private func buttonTitle(changedKey: Bool, gateway: Bool) -> String {
+        if changedKey { return String(localized: "Trust the New Key…") }
+        return gateway ? String(localized: "Trust This Gateway…") : String(localized: "Trust This Server…")
+    }
+
+    /// Why it stopped, with openconnect's reason ("signer not found") when it gave one. A gateway's key comes after the
+    /// portal took the sign-in, so nothing is said about what was sent.
+    private func lead(changedKey: Bool, gateway: String?) -> Text {
         let notSent = failure.credentialsSent ? "" : " " + String(localized: "Your password and code were not sent.")
+        let reason = failure.reason?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if let gateway {
+            if changedKey {
+                return Text.mono(String(localized: "The gateway \(gateway) presented another key than the one this profile trusts."), part: gateway)
+            }
+            let sentence =
+                reason.isEmpty
+                ? String(localized: "The portal sent the sign-in on to the gateway \(gateway), whose certificate this Mac doesn’t trust.")
+                : String(localized: "The portal sent the sign-in on to the gateway \(gateway), whose certificate this Mac doesn’t trust (\(reason)).")
+            return Text.mono(sentence, part: gateway)
+        }
         if changedKey {
             return Text(String(localized: "The server presented another key than the one this profile trusts.") + notSent)
         }
-        let reason = failure.reason?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let sentence =
             reason.isEmpty
             ? String(localized: "This Mac doesn’t trust the server’s certificate.")
@@ -520,5 +609,106 @@ struct HostScanCard: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("profile.\(profile.id).failure")
+    }
+}
+
+// MARK: - Palo Alto GlobalProtect
+
+/// The portal or the gateway signs in with single sign-on (SAML), which PassTunnel does not support
+/// (`DisplayStatus.Failure.ssoRequired`). At the portal nothing was sent; at a gateway behind a password portal the
+/// portal's sign-in was.
+struct SingleSignOnCard: View {
+    let profile: Profile
+    let failure: ConnectionFailure?
+
+    var body: some View {
+        Card(style: .compact) {
+            Lead(
+                text: Text(
+                    String(
+                        localized:
+                            "This server signs in with single sign-on (SAML) in a web page. PassTunnel signs in only with a password and a one-time code."
+                    ) + (failure?.credentialsSent == true ? "" : " " + String(localized: "Your password and code were not sent."))))
+            DiagnosisRow(
+                symbol: .info, title: Text(String(localized: "Ask your IT team")),
+                detail: Text(
+                    String(
+                        localized:
+                            "Your account may be allowed to sign in with a password and code, or there may be a gateway you can sign in to directly (Skip portal)."
+                    )))
+            ExperimentalReportRow(profile: profile)
+            CopyDetailsButton(profile: profile).padding(.top, 2)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("profile.\(profile.id).failure")
+    }
+}
+
+/// The portal lists more than one gateway and the profile names none of them (`DisplayStatus.Failure.gatewayRequired`):
+/// the portal's gateways (`GatewayChoice`, its labels as Core read them) under **Choose Gateway**, which puts the one
+/// picked into the profile's `gateway` (`AppModel.chooseGateway`); Try again then signs in to it. Without readable
+/// labels, the profile's editor and the log.
+struct GatewayChoiceCard: View {
+    @EnvironmentObject private var model: AppModel
+    let profile: Profile
+    let choice: GatewayChoice?
+
+    var body: some View {
+        let labels = choice?.options(for: profile) ?? []
+        let chosen = labels.contains(profile.gateway) && profile.gateway != choice?.gateway ? profile.gateway : nil
+        Card(style: .compact) {
+            Lead(text: Text(lead))
+            if let chosen {
+                DiagnosisRow(
+                    symbol: .check, title: Text(String(localized: "This profile uses the gateway “\(chosen)” now")),
+                    detail: Text(String(localized: "Connect again to use it.")))
+            } else if labels.isEmpty {
+                DiagnosisRow(
+                    symbol: .info, title: Text(String(localized: "The portal’s list couldn’t be read")),
+                    detail: Text(String(localized: "Show Log has it. Enter the gateway’s name as the portal lists it in the profile.")),
+                    link: (String(localized: "Enter it in PassTunnel"), { model.edit(profile) }))
+            } else {
+                DiagnosisRow(
+                    symbol: .info,
+                    title: Text(String(localized: "The portal lists \(labels.count) gateways")),
+                    detail: Text(String(localized: "Choose the one your IT team told you to use, or the nearest one.")))
+            }
+            ExperimentalReportRow(profile: profile)
+            HStack(spacing: Spacing.xs) {
+                if let choice, !labels.isEmpty {
+                    Menu {
+                        ForEach(labels, id: \.self) { label in
+                            Button {
+                                model.chooseGateway(choice, label: label)
+                            } label: {
+                                if label == profile.gateway {
+                                    Label(label, systemImage: "checkmark")
+                                } else {
+                                    Text(verbatim: label)
+                                }
+                            }
+                        }
+                    } label: {
+                        Text(chosen == nil ? String(localized: "Choose Gateway") : String(localized: "Change Gateway"))
+                    }
+                    .menuIndicator(.visible)
+                    .fixedSize()
+                    .accessibilityIdentifier("profile.\(profile.id).failure.chooseGateway")
+                }
+                CopyDetailsButton(profile: profile)
+            }
+            .padding(.top, 2)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("profile.\(profile.id).failure")
+    }
+
+    /// Why the sign-in stopped: no gateway named, or one the portal does not list.
+    private var lead: String {
+        let named = choice?.gateway ?? ""
+        let shown = named.count > 64 ? String(named.prefix(64)) + "…" : named
+        return named.isEmpty
+            ? String(localized: "The portal lists more than one gateway, and this profile doesn’t name one. Choose the gateway to connect to.")
+            : String(localized: "The portal doesn’t list the gateway “\(shown)” this profile names. Choose one of its gateways.")
     }
 }

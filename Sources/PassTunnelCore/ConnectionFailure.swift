@@ -53,6 +53,25 @@ public struct ConnectionFailure: Codable, Equatable, Sendable {
     /// printable ASCII of 1–64 bytes, at most 32, read from the redacted log); nil when they could not be read that
     /// way (the log has them).
     public var gateways: [String]?
+    /// What Core knows about a `configuration` failure beyond its kind, typed where it classified it (the GlobalProtect
+    /// sign-in, `GlobalProtectSignIn`), for the app's status and card. Not part of the JSON (`CodingKeys`): `status
+    /// --json` and the MCP tools report the kind, `reason` and `gateways` as before.
+    public var detail: Detail?
+
+    /// See `detail`.
+    public enum Detail: String, Equatable, Sendable {
+        /// Palo Alto GlobalProtect: the portal lists more than one gateway and the profile names none of them
+        /// (`PTError.invalidField("gateway")` from the sign-in, `gateways` when the labels could be read).
+        case gatewayRequired = "gateway_required"
+        /// Palo Alto GlobalProtect: the server is neither a portal nor a gateway (`PTError.invalidField("host")` from the
+        /// sign-in; `reason` is `VPNLog.notGlobalProtectServer`, in the user's language).
+        case notGlobalProtectServer = "not_globalprotect_server"
+    }
+
+    /// The JSON keys: every stored property but `detail`.
+    enum CodingKeys: String, CodingKey {
+        case kind, at, reply, reason, serverCert, gateways, credentialsSent, codeSent, codeSecondsLeft, tries, clock
+    }
     /// The credentials reached the server: the TLS session with it came up (OpenVPN "Control Channel",
     /// openfortivpn "Connected to gateway"), or it answered the sign-in.
     public var credentialsSent: Bool

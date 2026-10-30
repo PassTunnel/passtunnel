@@ -2623,6 +2623,25 @@ Linux, as [LINUX.md](LINUX.md#palo-alto-globalprotect) describes it:
   nothing contacted) and lists `globalProtectToolUnavailable` among each such profile's problems. Cisco AnyConnect's
   checks are unchanged.
 
+### As built (G6, #233)
+
+- **Core** (`GlobalProtectEditing.swift`): `GlobalProtectEditing` (the editor's server address, gateway and user name
+  checks; `AnyConnectEditing.ServerProblem.path` for a pasted path), `GatewayChoice` (the portal's labels after
+  `invalidField("gateway")`, filtered to printable ASCII of at most 64 bytes that `gateway` takes, at most 32, and
+  bound to the portal's host and port and `skip_portal`), `GatewayTrust` (the confirmation of "Trust This Gateway…":
+  the portal's key is read for the offer and only then can both be trusted). `ConnectionManager` keeps the choice and
+  the failed gateway's `host:port` with `failures` (`gatewayChoice(_:)`, `chooseGateway(_:label:)`, which writes only
+  `gateway`, and `failedGateway(_:)`). The sign-in types what it classified: `ConnectionFailure.detail`
+  (`gatewayRequired` for its `invalidField("gateway")`, `notGlobalProtectServer` for its `invalidField("host")`), kept
+  out of the JSON (`CodingKeys`), so `status --json` and MCP report `configuration` with `reason` and `gateways` as
+  before (G5 maps no other kind for them). `DisplayStatus.Failure` gains `ssoRequired` (the kind), `gatewayRequired` and
+  `notGlobalProtectServer` (the detail; never the reason's text, which is in the user's language); a gateway's key stays
+  `serverNotTrusted`. The manager keeps the gateway choice only for a failure with that detail, not for a stored
+  `gateway` the profile check refused.
+- **App:** `AppModel.editableTypes` is every type; the rest is [APP.md](APP.md#main-window) (Palo Alto
+  GlobalProtect). The report link is the repository's `issues/new?template=globalprotect_report.md` (G9 adds the
+  template); menus, which cannot show the badge, say "(Experimental)" in words.
+
 ### Helper protocol 5 (G3)
 
 `PT.helperProtocolVersion` becomes 5, and `passtunneld`'s `hello` too. The start request gains `protocol`

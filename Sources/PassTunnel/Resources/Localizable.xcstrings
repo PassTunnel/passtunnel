@@ -171,6 +171,16 @@
         }
       }
     },
+    "%@ support is experimental" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ desteği deneyseldir"
+          }
+        }
+      }
+    },
     "%@ types the current code into the focused field instead of copying it." : {
       "localizations" : {
         "tr" : {
@@ -793,12 +803,52 @@
         }
       }
     },
+    "Change Gateway" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ağ Geçidini Değiştir"
+          }
+        }
+      }
+    },
     "Check the fingerprint first" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Önce parmak izini kontrol edin"
+          }
+        }
+      }
+    },
+    "Choose Gateway" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ağ Geçidi Seç"
+          }
+        }
+      }
+    },
+    "Choose a gateway" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir ağ geçidi seçin"
+          }
+        }
+      }
+    },
+    "Choose the one your IT team told you to use, or the nearest one." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "BT ekibinizin kullanmanızı söylediğini ya da en yakın olanı seçin."
           }
         }
       }
@@ -823,6 +873,166 @@
         }
       }
     },
+    "Connecting to the portal…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Portala bağlanılıyor…"
+          }
+        }
+      }
+    },
+    "ESP" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ESP"
+          }
+        }
+      }
+    },
+    "Enter it in PassTunnel" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel’a girin"
+          }
+        }
+      }
+    },
+    "Enter the gateway as the portal lists it: at most 255 bytes, without line breaks and without “=” at the start." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ağ geçidini portalın listelediği gibi girin: en çok 255 bayt, satır sonu olmadan ve başında “=” olmadan."
+          }
+        }
+      }
+    },
+    "Enter the gateway’s address as the server. For when you know your gateway, or the portal’s second sign-in is not wanted." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu olarak ağ geçidinin adresini girin. Ağ geçidinizi bildiğinizde ya da portalın ikinci oturum açması istenmediğinde."
+          }
+        }
+      }
+    },
+    "Experimental" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deneysel"
+          }
+        }
+      }
+    },
+    "Gateway %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ağ geçidi %@"
+          }
+        }
+      }
+    },
+    "Gateway key" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ağ geçidi anahtarı"
+          }
+        }
+      }
+    },
+    "Leave out the path after the address, such as /global-protect/…." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adresten sonraki yolu, örneğin /global-protect/… kısmını yazmayın."
+          }
+        }
+      }
+    },
+    "Needed when the certificate is not signed by an authority your Mac trusts. Only the keys pinned here are then accepted." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sertifika, Mac’inizin güvendiği bir yetkili tarafından imzalanmadığında gerekir. Bu durumda yalnızca burada sabitlenen anahtarlar kabul edilir."
+          }
+        }
+      }
+    },
+    "Needed when the gateway the portal sends you to has another key than the portal. “Trust This Gateway…” after a failed connect sets it." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Portalın sizi yönlendirdiği ağ geçidinin anahtarı portalınkinden farklı olduğunda gerekir. Başarısız bir bağlantıdan sonra “Bu Ağ Geçidine Güven…” bunu ayarlar."
+          }
+        }
+      }
+    },
+    "New %@ Profile (%@)…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni %1$@ Profili (%2$@)…"
+          }
+        }
+      }
+    },
+    "New %@ Profile…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni %@ Profili…"
+          }
+        }
+      }
+    },
+    "Not a GlobalProtect server" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GlobalProtect sunucusu değil"
+          }
+        }
+      }
+    },
+    "Not used when you sign in to the gateway directly." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Doğrudan ağ geçidinde oturum açtığınızda kullanılmaz."
+          }
+        }
+      }
+    },
+    "Opens a report form on GitHub in your browser." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tarayıcınızda GitHub’daki bir bildirim formunu açar."
+          }
+        }
+      }
+    },
     "Palo Alto GlobalProtect requires macOS %@ or later." : {
       "localizations" : {
         "tr" : {
@@ -839,6 +1049,326 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Palo Alto GlobalProtect burada kullanılamıyor: %@"
+          }
+        }
+      }
+    },
+    "PassTunnel connects Palo Alto GlobalProtect with openconnect, which runs on macOS %@ or later. Update macOS to connect or edit this profile. You can still share or delete it." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel, Palo Alto GlobalProtect’e macOS %@ veya üstünde çalışan openconnect ile bağlanır. Bu profile bağlanmak veya profili düzenlemek için macOS’i güncelleyin. Profili yine de paylaşabilir veya silebilirsiniz."
+          }
+        }
+      }
+    },
+    "PassTunnel will accept only these two keys when this profile signs in." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu profil oturum açarken PassTunnel yalnızca bu iki anahtarı kabul edecek."
+          }
+        }
+      }
+    },
+    "PassTunnel will accept only this key for the gateway when this profile signs in." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu profil oturum açarken PassTunnel ağ geçidi için yalnızca bu anahtarı kabul edecek."
+          }
+        }
+      }
+    },
+    "Portal" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Portal"
+          }
+        }
+      }
+    },
+    "Portal %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Portal %@"
+          }
+        }
+      }
+    },
+    "Portal key" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Portal anahtarı"
+          }
+        }
+      }
+    },
+    "Portal’s Gateways" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Portalın Ağ Geçitleri"
+          }
+        }
+      }
+    },
+    "Portal’s choice" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Portalın seçimi"
+          }
+        }
+      }
+    },
+    "Reading the portal’s key…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Portalın anahtarı okunuyor…"
+          }
+        }
+      }
+    },
+    "Replaces the gateway key trusted now" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Şu an güvenilen ağ geçidi anahtarının yerini alır"
+          }
+        }
+      }
+    },
+    "Report how it works…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nasıl çalıştığını bildirin…"
+          }
+        }
+      }
+    },
+    "Show Log has it. Enter the gateway’s name as the portal lists it in the profile." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Listeyi Günlüğü Göster’de bulabilirsiniz. Ağ geçidinin adını portalın listelediği gibi profile girin."
+          }
+        }
+      }
+    },
+    "Single sign-on required" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Çoklu oturum açma gerekiyor"
+          }
+        }
+      }
+    },
+    "Skip the portal and sign in to the gateway directly" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Portalı atla ve doğrudan ağ geçidinde oturum aç"
+          }
+        }
+      }
+    },
+    "The gateway %@ presented another key than the one this profile trusts." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ağ geçidi, bu profilin güvendiğinden başka bir anahtar sundu."
+          }
+        }
+      }
+    },
+    "The gateway’s address, with its :port if it has one." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ağ geçidinin adresi, varsa :port ile birlikte."
+          }
+        }
+      }
+    },
+    "The gateway’s key" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ağ geçidinin anahtarı"
+          }
+        }
+      }
+    },
+    "The gateway’s key changed" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ağ geçidinin anahtarı değişti"
+          }
+        }
+      }
+    },
+    "The gateway’s name as the portal lists it. Needed when the portal lists more than one; leave empty otherwise." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ağ geçidinin portalın listelediği adı. Portal birden fazla listelediğinde gerekir; aksi halde boş bırakın."
+          }
+        }
+      }
+    },
+    "The portal doesn’t list the gateway “%@” this profile names. Choose one of its gateways." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Portal, bu profilin belirttiği “%@” ağ geçidini listelemiyor. Portalın ağ geçitlerinden birini seçin."
+          }
+        }
+      }
+    },
+    "The portal listed these gateways when you last connected. Choose the one your IT team told you to use." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Portal son bağlandığınızda bu ağ geçitlerini listeledi. BT ekibinizin kullanmanızı söylediğini seçin."
+          }
+        }
+      }
+    },
+    "The portal lists %lld gateways" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Portal %lld ağ geçidi listeliyor"
+          }
+        }
+      }
+    },
+    "The portal lists more than one gateway" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Portal birden fazla ağ geçidi listeliyor"
+          }
+        }
+      }
+    },
+    "The portal lists more than one gateway, and this profile doesn’t name one. Choose the gateway to connect to." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Portal birden fazla ağ geçidi listeliyor ve bu profil birini belirtmiyor. Bağlanılacak ağ geçidini seçin."
+          }
+        }
+      }
+    },
+    "The portal sent the sign-in on to the gateway %@, whose certificate this Mac doesn’t trust (%@)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Portal oturum açmayı %1$@ ağ geçidine iletti; bu Mac o ağ geçidinin sertifikasına güvenmiyor (%2$@)."
+          }
+        }
+      }
+    },
+    "The portal sent the sign-in on to the gateway %@, whose certificate this Mac doesn’t trust." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Portal oturum açmayı %@ ağ geçidine iletti; bu Mac o ağ geçidinin sertifikasına güvenmiyor."
+          }
+        }
+      }
+    },
+    "The portal’s address your IT team gave you, with its :port if it has one." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "BT ekibinizin verdiği portal adresi, varsa :port ile birlikte."
+          }
+        }
+      }
+    },
+    "The portal’s key could not be read." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Portalın anahtarı okunamadı."
+          }
+        }
+      }
+    },
+    "The portal’s list couldn’t be read" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Portalın listesi okunamadı"
+          }
+        }
+      }
+    },
+    "The server signs in with single sign-on (SAML)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu çoklu oturum açma (SAML) ile oturum açtırıyor"
+          }
+        }
+      }
+    },
+    "This profile uses the gateway “%@” now" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu profil artık “%@” ağ geçidini kullanıyor"
+          }
+        }
+      }
+    },
+    "This server signs in with single sign-on (SAML) in a web page. PassTunnel signs in only with a password and a one-time code." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu sunucu, bir web sayfasında çoklu oturum açma (SAML) ile oturum açtırıyor. PassTunnel yalnızca parola ve tek kullanımlık kodla oturum açar."
           }
         }
       }
@@ -889,6 +1419,86 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ağ geçidi bir cihaz bilgi raporu (HIP) istedi; PassTunnel bunu göndermez. Erişim kısıtlanabilir."
+          }
+        }
+      }
+    },
+    "Trust Both Keys" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "İki Anahtara da Güven"
+          }
+        }
+      }
+    },
+    "Trust Gateway" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ağ Geçidine Güven"
+          }
+        }
+      }
+    },
+    "Trust This Gateway…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu Ağ Geçidine Güven…"
+          }
+        }
+      }
+    },
+    "Trust the gateway %@ only if this fingerprint matches the one your IT team gave you." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ağ geçidine yalnızca bu parmak izi BT ekibinizin verdiğiyle eşleşiyorsa güvenin."
+          }
+        }
+      }
+    },
+    "Trust the gateway %@ only if this fingerprint matches the one your IT team gave you. The portal’s key is read and shown for you to check too." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ağ geçidine yalnızca bu parmak izi BT ekibinizin verdiğiyle eşleşiyorsa güvenin. Portalın anahtarı da okunur ve kontrol etmeniz için gösterilir."
+          }
+        }
+      }
+    },
+    "Trust the gateway %@?" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ağ geçidine güvenilsin mi?"
+          }
+        }
+      }
+    },
+    "Trust them only if they match the fingerprints your IT team gave you." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bunlara yalnızca BT ekibinizin verdiği parmak izleriyle eşleşiyorlarsa güvenin."
+          }
+        }
+      }
+    },
+    "Trusting a gateway’s key turns off the system’s trust for the portal too, so the portal’s key is trusted with it. It was read from the portal just now." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir ağ geçidinin anahtarına güvenmek, portal için de sistemin güvenini kapatır; bu yüzden portalın anahtarına da onunla birlikte güvenilir. Anahtar az önce portaldan okundu."
           }
         }
       }
@@ -1119,6 +1729,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "BT ekibinizin verdiği adresi, varsa :port ve /yol kısmıyla birlikte yapıştırın."
+          }
+        }
+      }
+    },
+    "Use TLS only (no ESP)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yalnızca TLS kullan (ESP yok)"
+          }
+        }
+      }
+    },
+    "With only a gateway key, the portal must present that key too. Add the portal’s key above." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yalnızca ağ geçidi anahtarı olduğunda portalın da o anahtarı sunması gerekir. Portalın anahtarını yukarıya ekleyin."
+          }
+        }
+      }
+    },
+    "Your account may be allowed to sign in with a password and code, or there may be a gateway you can sign in to directly (Skip portal)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hesabınızın parola ve kodla oturum açmasına izin verilebilir ya da doğrudan oturum açabileceğiniz bir ağ geçidi olabilir (Portalı atla)."
           }
         }
       }

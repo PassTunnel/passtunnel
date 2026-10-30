@@ -426,6 +426,10 @@ public final class ConnectionManager: ObservableObject {
     /// "Trust this server": the Cisco AnyConnect server whose certificate the last connect did not trust, and its
     /// key's pin (`serverTrustOffer`). Set and cleared with `failures`.
     var trustOffers: [String: ServerTrustOffer] = [:]
+    /// Palo Alto GlobalProtect: the portal's gateways after a connect failed for want of one (`gatewayChoice`), and the
+    /// gateway whose certificate it did not trust (`failedGateway`). Set and cleared with `failures`.
+    var gatewayChoices: [String: GatewayChoice] = [:]
+    var failedGateways: [String: String] = [:]
     @Published public private(set) var health: [String: HealthState] = [:]
     @Published public private(set) var reconnecting: [String: ReconnectInfo] = [:]
     /// Why the last helper `status` call failed (nil when it worked).
@@ -971,6 +975,8 @@ public final class ConnectionManager: ObservableObject {
         lastErrorLog[id] = nil
         failures[id] = nil
         trustOffers[id] = nil
+        gatewayChoices[id] = nil
+        failedGateways[id] = nil
         warnings[id] = nil
         setState(id, .connecting(Phase.preparing))
         var progress = AttemptProgress()
@@ -1314,6 +1320,7 @@ public final class ConnectionManager: ObservableObject {
             progress.credentialsSent = failure.credentialsSent
             progress.gateways = failure.gateways
             progress.failureReason = failure.reason
+            progress.failureDetail = failure.detail
             if !failure.log.isEmpty { writeSignInLog(id, failure.log) }
             progress.toolRan = !failure.log.isEmpty
             if actionToken[id] != token { throw PTError.connectCancelled }
@@ -1725,6 +1732,8 @@ public final class ConnectionManager: ObservableObject {
         var gateways: [String]?
         /// Palo Alto GlobalProtect: the reason the sign-in's failure gives beside its error.
         var failureReason: String?
+        /// Palo Alto GlobalProtect: what the sign-in's failure showed, typed (`ConnectionFailure.detail`).
+        var failureDetail: ConnectionFailure.Detail?
         /// The profile as the attempt read it.
         var profile: Profile?
     }
@@ -1744,10 +1753,17 @@ public final class ConnectionManager: ObservableObject {
         if failure.kind == .unreachable, let retry = unreachableRetries[id] { failure.tries = retry.tries + (failure.tries ?? 1) }
         if case PTError.invalidField("gateway") = error { failure.gateways = progress.gateways }
         if let reason = progress.failureReason { failure.reason = reason }
+        failure.detail = progress.failureDetail
         failures[id] = failure
         var gateway: String?
         if case PTError.gatewayCertificateRejected(let host, _, _, _) = error { gateway = host }
         trustOffers[id] = progress.profile.flatMap { ServerTrustOffer($0, pin: failure.serverCert, gateway: gateway) }
+        failedGateways[id] = failure.serverCert == nil ? nil : gateway
+        if failure.detail == .gatewayRequired {
+            gatewayChoices[id] = progress.profile.flatMap { GatewayChoice($0, labels: failure.gateways) }
+        } else {
+            gatewayChoices[id] = nil
+        }
         if failure.kind == .authRejected && progress.owned { checkGatewayClock(id, after: failure) }
         if let used = progress.usedCode, !failure.credentialsSent, failure.kind != .cancelled, usedCode(id) == used.written {
             restoreUsedCode(id, used.previous)
@@ -2520,6 +2536,8 @@ public final class ConnectionManager: ObservableObject {
         lastErrorLog[id] = nil
         failures[id] = nil
         trustOffers[id] = nil
+        gatewayChoices[id] = nil
+        failedGateways[id] = nil
         clockOffsets[id] = nil
         sessionActive.remove(id)
         userStopped.remove(id)

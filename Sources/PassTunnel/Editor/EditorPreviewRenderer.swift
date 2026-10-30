@@ -75,6 +75,36 @@ enum EditorPreviewRenderer {
             out.append(State(name: "editor-anyconnect-errors\(dark ? "-dark" : "")", model: errors, dark: dark, height: 1060))
         }
 
+        // Palo Alto GlobalProtect: a new profile; a saved one (the portal's key pinned, a gateway named, the portal's
+        // gateways offered after a failure for want of one, TLS only, the code sent on its own); one with the problems the
+        // sheet shows (a path pasted from a browser, a gateway with "=" at the start, pins that are not pins); one that
+        // skips the portal; and one that pins only the gateway's key (the sheet warns).
+        for dark in [false, true] {
+            let suffix = dark ? "-dark" : ""
+            out.append(
+                State(
+                    name: "editor-new-globalprotect\(suffix)",
+                    model: EditorModel(preview: EditorModel.blank(.globalprotect), isNew: true, now: now), dark: dark, height: 1180))
+            out.append(State(name: "editor-globalprotect\(suffix)", model: globalProtectModel(), dark: dark, height: 1200))
+            let errors = EditorModel(preview: EditorModel.blank(.globalprotect), isNew: true, now: now)
+            errors.draft.name = "Corp"
+            errors.setServerText("https://vpn.example.com/global-protect/login.esp")
+            errors.draft.gateway = "=US East"
+            errors.draft.serverCert = "sha256:12ab"
+            errors.draft.gatewayServerCert = "pin-sha256:short"
+            errors.newPassword = "sample-password"
+            _ = errors.save()  // preview models only validate
+            out.append(State(name: "editor-globalprotect-errors\(suffix)", model: errors, dark: dark, height: 1260))
+            let skip = globalProtectModel()
+            skip.draft.skipPortal = true
+            skip.setServerText("gw1.example.com")
+            out.append(State(name: "editor-globalprotect-skip-portal\(suffix)", model: skip, dark: dark, height: 1200))
+            let gatewayOnly = globalProtectModel()
+            gatewayOnly.draft.serverCert = ""
+            gatewayOnly.draft.gatewayServerCert = "pin-sha256:E86EpKhiszwwyqu937GB+mox53WHxoGiVhwY7ZXxrwQ="
+            out.append(State(name: "editor-globalprotect-gateway-key-only\(suffix)", model: gatewayOnly, dark: dark, height: 1200))
+        }
+
         // A saved OpenVPN profile with a secret just scanned from a QR code.
         for dark in [false, true] {
             out.append(State(name: "editor-totp\(dark ? "-dark" : "")", model: totpModel(), dark: dark))
@@ -211,6 +241,22 @@ enum EditorPreviewRenderer {
         p.otpDelivery = .separate
         return EditorModel(
             preview: p, isNew: false, passwordStored: true, storedTOTP: try? TOTP.decodeSecret(sampleSecret), now: now)
+    }
+
+    @MainActor private static func globalProtectModel() -> EditorModel {
+        var p = Profile(id: "corp", name: "Corp", type: .globalprotect)
+        p.host = "vpn.example.com"
+        p.port = 443
+        p.gateway = "US East"
+        p.serverCert = "pin-sha256:B9S1MyM7eI6e0MBVCfgWo0zkSVpzyFfkmueG8/HAbiY="
+        p.tlsOnly = true
+        p.setDNS = true
+        p.username = "alice"
+        p.otpMode = .totp
+        p.otpDelivery = .separate
+        return EditorModel(
+            preview: p, isNew: false, passwordStored: true, storedTOTP: try? TOTP.decodeSecret(sampleSecret), now: now,
+            gatewayChoice: GatewayChoice(p, labels: ["US East", "US West", "Europe"]))
     }
 
     @MainActor private static func fortiModel() -> EditorModel {

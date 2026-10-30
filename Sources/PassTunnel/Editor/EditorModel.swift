@@ -7,9 +7,10 @@ import PassTunnelVPNConfig
 /// State of one editor sheet. Nothing is written to disk or the Keychain until `save()`.
 @MainActor
 final class EditorModel: ObservableObject {
-    /// `host` is FortiGate's gateway and Cisco AnyConnect's server address (`serverText`).
+    /// `host` is FortiGate's gateway and the server address of Cisco AnyConnect and Palo Alto GlobalProtect
+    /// (`serverText`); `gateway` and `gatewayServerCert` are GlobalProtect's.
     enum Field: Hashable {
-        case name, config, host, port, trustedCert, authgroup, serverCert, sessionLimit, healthHost
+        case name, config, host, port, trustedCert, authgroup, gateway, serverCert, gatewayServerCert, sessionLimit, healthHost
         case username, password, totpSecret, template, badge, general
     }
 
@@ -65,8 +66,13 @@ final class EditorModel: ObservableObject {
     @Published var customTemplate: Bool
 
     // Cisco AnyConnect: the server address as typed or pasted (`https://vpn.example.com[:port][/group]`), which
-    // sets `host`, `port` and `usergroup` whenever it is one (`AnyConnectServer.parse`).
+    // sets `host`, `port` and `usergroup` whenever it is one (`AnyConnectServer.parse`); Palo Alto GlobalProtect:
+    // `[https://]host[:port]`, which sets `host` and `port` (`GlobalProtectServer.parse`).
     @Published private(set) var serverText = ""
+
+    /// Palo Alto GlobalProtect: the portal's gateways after the last connect failed for want of one
+    /// (`ConnectionManager.gatewayChoice`), offered beside the Gateway field while the profile names that portal.
+    let gatewayChoice: GatewayChoice?
 
     // FortiGate's certificate fingerprint, Cisco AnyConnect's key pin ("Fetch Fingerprint")
     /// Bound to the server it reads (`FingerprintFetch`): a result is kept, shown and taken only for the server the
@@ -92,11 +98,13 @@ final class EditorModel: ObservableObject {
 
     init(
         profileID: String?, newType: VPNType?, store: ProfileStore = ProfileStore(), vault: SecretVault,
-        typeRefusal: @escaping (VPNType) -> PTError? = { ConnectionManager.connectRefusal($0) }
+        typeRefusal: @escaping (VPNType) -> PTError? = { ConnectionManager.connectRefusal($0) },
+        gatewayChoice: GatewayChoice? = nil
     ) {
         self.store = store
         self.vault = vault
         self.typeRefusal = typeRefusal
+        self.gatewayChoice = gatewayChoice
         self.allowsTypeChange = profileID == nil && newType == nil
         self.isPreview = false
         self.palette = Preferences.load(paths: store.paths).badgePalette
@@ -132,8 +140,10 @@ final class EditorModel: ObservableObject {
     init(
         preview profile: Profile, isNew: Bool, passwordStored: Bool = false, storedTOTP: Data? = nil,
         storedTOTPProtected: Bool = false, configServer: String = "", opensAtLogin: Bool = true, now: Date? = nil,
-        typeRefusal: @escaping (VPNType) -> PTError? = { _ in nil }, allowsTypeChange: Bool = false
+        typeRefusal: @escaping (VPNType) -> PTError? = { _ in nil }, allowsTypeChange: Bool = false,
+        gatewayChoice: GatewayChoice? = nil
     ) {
+        self.gatewayChoice = gatewayChoice
         self.store = ProfileStore(
             paths: AppPaths(
                 root: FileManager.default.temporaryDirectory
@@ -171,21 +181,45 @@ final class EditorModel: ObservableObject {
         serverText = Self.serverText(draft)
     }
 
-    /// The address a Cisco AnyConnect profile's server is shown as (`AnyConnectEditing.serverText`); "" for others.
+    /// The address a Cisco AnyConnect or Palo Alto GlobalProtect profile's server is shown as
+    /// (`AnyConnectEditing.serverText`, `GlobalProtectEditing.serverText`); "" for others.
     static func serverText(_ p: Profile) -> String {
-        p.type == .anyconnect ? AnyConnectEditing.serverText(host: p.host, port: p.port, usergroup: p.usergroup) : ""
+        switch p.type {
+        case .anyconnect: return AnyConnectEditing.serverText(host: p.host, port: p.port, usergroup: p.usergroup)
+        case .globalprotect: return GlobalProtectEditing.serverText(host: p.host, port: p.port)
+        case .openvpn, .forti: return ""
+        }
     }
 
-    /// The Cisco AnyConnect server address typed or pasted: a valid one sets the host, port and user group at once;
-    /// an empty one clears them. Anything else leaves them as they were and shows why (`errors`).
+    /// The server address typed or pasted: a valid one sets the host, port (and Cisco AnyConnect's user group) at
+    /// once; an empty one clears them. Anything else leaves them as they were and shows why (`errors`).
     func setServerText(_ text: String) {
         serverText = text
-        AnyConnectEditing.applyServer(text, to: &draft)
+        if draft.type == .globalprotect {
+            GlobalProtectEditing.applyServer(text, to: &draft)
+        } else {
+            AnyConnectEditing.applyServer(text, to: &draft)
+        }
         fingerprintError = nil
     }
 
+    /// Why the server address is not one the type takes, or nil.
+    var serverProblem: AnyConnectEditing.ServerProblem? {
+        draft.type == .globalprotect ? GlobalProtectEditing.serverProblem(serverText) : AnyConnectEditing.serverProblem(serverText)
+    }
+
     /// The server address can be used ("Fetch Fingerprint").
-    var serverIsValid: Bool { AnyConnectEditing.serverProblem(serverText) == nil }
+    var serverIsValid: Bool { serverProblem == nil }
+
+    /// Palo Alto GlobalProtect: the portal's gateways to offer for the Gateway field, while the profile still names the
+    /// portal that listed them (`GatewayChoice.options`).
+    var gatewayOptions: [String] { gatewayChoice?.options(for: draft) ?? [] }
+
+    /// Picks one of the portal's gateways for the Gateway field.
+    func chooseGateway(_ label: String) {
+        guard gatewayOptions.contains(label) else { return }
+        draft.gateway = label
+    }
     static func blank(_ type: VPNType) -> Profile {
         var p = Profile(id: "new-profile", name: "", type: type)
         p.otpDelivery = type.defaultOTPDelivery
@@ -264,6 +298,11 @@ final class EditorModel: ObservableObject {
             p.serverCert = AnyConnectEditing.normalizedPin(p.serverCert)
             p.authgroup = AnyConnectEditing.normalizedGroup(p.authgroup)
         }
+        if p.type == .globalprotect {
+            p.serverCert = AnyConnectEditing.normalizedPin(p.serverCert)
+            p.gatewayServerCert = AnyConnectEditing.normalizedPin(p.gatewayServerCert)
+            p.gateway = GlobalProtectEditing.normalizedGateway(p.gateway)
+        }
         if p.type != .openvpn && p.passwordMode == .none { p.passwordMode = .keychain }
         if p.passwordMode == .none { p.otpMode = .none }
         if !p.unattended { p.autoReconnect = false }
@@ -333,7 +372,11 @@ final class EditorModel: ObservableObject {
             if let message = AnyConnectEditing.groupProblem(p.authgroup) { e[.authgroup] = message }
             if let message = AnyConnectEditing.pinProblem(p.serverCert) { e[.serverCert] = message }
         case .globalprotect:
-            break  // not edited by this version yet (`AppModel.editableTypes`, #233: the editor is refused)
+            // Never the text itself, as for Cisco AnyConnect.
+            if let problem = serverProblem, problem != .empty || attemptedSave { e[.host] = problem.message }
+            if let message = GlobalProtectEditing.gatewayProblem(p.gateway) { e[.gateway] = message }
+            if let message = AnyConnectEditing.pinProblem(p.serverCert) { e[.serverCert] = message }
+            if let message = AnyConnectEditing.pinProblem(p.gatewayServerCert) { e[.gatewayServerCert] = message }
         }
 
         if p.sessionLimitMin < 0 { e[.sessionLimit] = String(localized: "The session limit cannot be negative.") }
@@ -343,6 +386,8 @@ final class EditorModel: ObservableObject {
 
         if p.type == .anyconnect {
             if let message = AnyConnectEditing.usernameProblem(p.username) { e[.username] = message }
+        } else if p.type == .globalprotect {
+            if let message = GlobalProtectEditing.usernameProblem(p.username) { e[.username] = message }
         } else if p.passwordMode != .none {
             do { try Profile.checkUsername(p.username, type: p.type) } catch { e[.username] = error.localizedDescription }
         }
@@ -362,7 +407,7 @@ final class EditorModel: ObservableObject {
             do { try OTPComposer.validate(template: p.otpTemplate) } catch {
                 e[.template] = error.localizedDescription
             }
-            if e[.template] == nil, p.type == .anyconnect, !Profile.isValidAnyConnectTemplate(p.otpTemplate) {
+            if e[.template] == nil, p.type.usesOpenConnect, !Profile.isValidAnyConnectTemplate(p.otpTemplate) {
                 e[.template] = String(localized: "The template must be one line of at most 4,095 bytes.")
             }
         }
@@ -375,7 +420,7 @@ final class EditorModel: ObservableObject {
 
     /// Order used to scroll to the first problem: the cards from the top, then Advanced.
     static let fieldOrder: [Field] = [
-        .name, .config, .host, .port, .trustedCert, .authgroup, .serverCert, .username, .password,
+        .name, .config, .host, .port, .trustedCert, .authgroup, .gateway, .serverCert, .gatewayServerCert, .username, .password,
         .totpSecret, .template, .general, .sessionLimit, .healthHost
     ]
 
@@ -598,13 +643,14 @@ final class EditorModel: ObservableObject {
     // MARK: fingerprint
 
     /// "Fetch Fingerprint", only when the user clicks it: the server's certificate from a TLS handshake that is then
-    /// aborted (`TLSFingerprint`). FortiGate takes the certificate's SHA-256, Cisco AnyConnect its key's pin
-    /// (`ServerKeyPin`). The result is shown to confirm before it goes into the field (`acceptFetchedFingerprint`).
+    /// aborted (`TLSFingerprint`). FortiGate takes the certificate's SHA-256, Cisco AnyConnect and Palo Alto
+    /// GlobalProtect (the portal's, or with Skip portal the gateway's) its key's pin (`ServerKeyPin`). The result is shown
+    /// to confirm before it goes into the field (`acceptFetchedFingerprint`).
     func fetchFingerprint() {
         guard !isPreview, !fetchingFingerprint else { return }
         let host = draft.host.trimmingCharacters(in: .whitespacesAndNewlines)
         let port = draft.port
-        let anyConnect = draft.type == .anyconnect
+        let anyConnect = draft.type.usesOpenConnect
         if anyConnect && !serverIsValid { return }
         fingerprintError = nil
         let destination = fetch.start(for: draft)
@@ -630,7 +676,7 @@ final class EditorModel: ObservableObject {
     /// "Trust": the fingerprint goes into the field only while the profile still names the server it was read from.
     func acceptFetchedFingerprint() {
         if let fp = fetch.value(for: draft) {
-            if draft.type == .anyconnect { draft.serverCert = fp } else { draft.trustedCert = fp }
+            if draft.type.usesOpenConnect { draft.serverCert = fp } else { draft.trustedCert = fp }
         }
         fetch.clearResult()
     }
@@ -731,9 +777,11 @@ final class EditorModel: ObservableObject {
         case .invalidField(let name):
             switch name {
             case "port": return .port
-            case "host", "usergroup": return .host
+            case "host", "usergroup", "skip_portal": return .host
             case "authgroup": return .authgroup
+            case "gateway": return .gateway
             case "server_cert": return .serverCert
+            case "gateway_server_cert": return .gatewayServerCert
             case "username": return .username
             case "otp_template": return .template
             case "health_host": return .healthHost
