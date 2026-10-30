@@ -151,11 +151,6 @@ final class Supervisor {
 
     // MARK: - Requests
 
-    /// The refusal of an openconnect protocol passtunneld does not run yet.
-    static func unsupportedOpenConnect(_ protocol: OpenConnectProtocol) -> String {
-        "\(`protocol`.displayName) is not supported by passtunneld yet."
-    }
-
     func handle(_ request: HelperRequest, uid: uid_t, reply: @escaping (HelperResponse) -> Void) {
         queue.async {
             switch request {
@@ -176,16 +171,16 @@ final class Supervisor {
                         core.fortiHandlesDNS = false
                         return try core.prepareForti(s, uid: uid)
                     })
-            case .startOpenConnect(let s) where s.protocol != .anyconnect:
-                // Palo Alto GlobalProtect (protocol 5) runs here from #234 (docs/LINUX.md): refused before anything
-                // is checked, read, resolved or written.
-                reply(.failure(Self.unsupportedOpenConnect(s.protocol)))
             case .startOpenConnect(let s):
+                // Cisco AnyConnect or Palo Alto GlobalProtect (docs/LINUX.md): the tool checked for the type's minimum
+                // (9.01; GlobalProtect 9.11), the request as the Mac's helper checks it, the root configuration
+                // rendered with `script` the session's `vpn-hook` link (made with the policy), its output masked.
                 reply(
-                    self.start(profileID: s.profileID, uid: uid, tool: .openconnect) { _, core in
-                        // The request checked as the Mac's helper checks it, the root configuration rendered with
-                        // `script` the session's `vpn-hook` link (made with the policy), its output masked.
-                        try core.prepareOpenConnect(s, uid: uid) { try core.vpnHookPath(profileID: s.profileID, uid: uid) }
+                    self.start(profileID: s.profileID, uid: uid, tool: .openconnect(for: s.protocol)) { tool, core in
+                        // GlobalProtect before 9.20 reads the gateway's IPv6 routes as excludes: `disable-ipv6`, decided
+                        // from the version just checked, never from the request.
+                        core.openConnectDisableIPv6 = ToolSpec.openConnectDisablesIPv6(s.protocol, version: tool.version)
+                        return try core.prepareOpenConnect(s, uid: uid) { try core.vpnHookPath(profileID: s.profileID, uid: uid) }
                     })
             case .stop(let id):
                 self.stop(profileID: id, uid: uid, reply: reply)

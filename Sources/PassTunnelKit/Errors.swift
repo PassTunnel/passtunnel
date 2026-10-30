@@ -45,6 +45,7 @@ public enum PTError: Error, Equatable, LocalizedError {
     case anyConnectToolUnavailable(String)  // Linux: the distribution's openconnect is missing, untrusted or older than 9.01; why
     // Palo Alto GlobalProtect
     case globalProtectRequiresMacOS(String)  // the macOS openconnect needs ("15.4"): refused before anything runs
+    case globalProtectToolUnavailable(String)  // Linux: the distribution's openconnect is missing, untrusted or older than 9.11; why
     /// The portal or the gateway asked for single sign-on (SAML), which PassTunnel does not support; log tail. Whether
     /// anything was sent is the failure's `credentialsSent` (at the portal nothing was; at a gateway behind it, the
     /// portal's sign-in was).
@@ -161,6 +162,8 @@ public enum PTError: Error, Equatable, LocalizedError {
             return String(localized: "Cisco AnyConnect cannot be used here: \(reason)")
         case .globalProtectRequiresMacOS(let version):
             return String(localized: "Palo Alto GlobalProtect requires macOS \(version) or later.")
+        case .globalProtectToolUnavailable(let reason):
+            return String(localized: "Palo Alto GlobalProtect cannot be used here: \(reason)")
         case .ssoRequired:
             return String(localized: "This server signs in with single sign-on (SAML), which PassTunnel does not support.")
         case .gatewayCertificateRejected(_, let reason, _, _):

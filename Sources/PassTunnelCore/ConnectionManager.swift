@@ -484,9 +484,11 @@ public final class ConnectionManager: ObservableObject {
     /// The openconnect the sign-in runs: the app bundle's (`AnyConnectSignIn.bundledTool`); nil outside one and
     /// on Linux, where `locateOpenConnect` finds the distribution's.
     var openConnectPath: String? = AnyConnectSignIn.bundledTool()
-    /// Without `openConnectPath`: finds and checks the distribution's openconnect, what it supports and the CA
-    /// bundle (`AnyConnectSignIn.distributionTool`); replaced in tests.
-    var locateOpenConnect: (ToolRunning) throws -> AnyConnectSignIn.Tool = AnyConnectSignIn.distributionTool
+    /// Without `openConnectPath`: finds and checks the distribution's openconnect for the protocol's minimum, what it
+    /// supports and the CA bundle (`AnyConnectSignIn.distributionTool`); replaced in tests.
+    var locateOpenConnect: (OpenConnectProtocol, ToolRunning) throws -> AnyConnectSignIn.Tool = {
+        try AnyConnectSignIn.distributionTool(for: $0, runner: $1)
+    }
     /// Cisco AnyConnect sign-ins under way, which `disconnect` stops.
     private var signIns: [String: ToolCancellation] = [:]
 
@@ -1120,7 +1122,7 @@ public final class ConnectionManager: ObservableObject {
     ) async throws -> HelperRequest {
         let id = p.id
         progress.anyConnect = true
-        let tool = try await openConnectTool()
+        let tool = try await openConnectTool(for: .anyconnect)
         let pin = p.serverCert.isEmpty ? "" : OpenConnectPin.normalize(p.serverCert) ?? p.serverCert
         let config = OpenConnectAuthConfig(
             host: p.host, port: p.port, usergroup: p.usergroup, username: username, authgroup: p.authgroup, serverCert: pin)
@@ -1185,11 +1187,26 @@ public final class ConnectionManager: ObservableObject {
         }
     }
 
-    /// The openconnect a sign-in runs: the app bundle's, or on Linux the distribution's, checked before the code is
-    /// used (it runs the tool twice, as the user).
-    private func openConnectTool() async throws -> AnyConnectSignIn.Tool {
+    /// `diagnose` on Linux (`systemVersion` nil, no bundled openconnect): why the distribution's openconnect cannot be
+    /// used for `protocol`'s VPN type, as its sign-in would refuse it (missing, untrusted, older than the type's
+    /// minimum: `PTError.globalProtectToolUnavailable` with the version found and needed); nil when it can, and on the
+    /// Mac. Runs the tool as the sign-in's check does (`--version`, `--help`, as the user); nothing is contacted.
+    public func openConnectToolProblem(_ protocol: OpenConnectProtocol) async -> Error? {
+        guard systemVersion == nil, openConnectPath == nil else { return nil }
+        do {
+            _ = try await openConnectTool(for: `protocol`)
+            return nil
+        } catch {
+            return error
+        }
+    }
+
+    /// The openconnect a sign-in of `protocol` runs: the app bundle's, or on Linux the distribution's, checked for the
+    /// protocol's minimum before the code is used (it runs the tool twice, as the user).
+    private func openConnectTool(for protocol: OpenConnectProtocol) async throws -> AnyConnectSignIn.Tool {
         if let path = openConnectPath { return AnyConnectSignIn.Tool(path: path) }
-        let lookup = AnyConnectSignIn.Lookup(locate: locateOpenConnect, runner: toolRunner)
+        let locate = locateOpenConnect
+        let lookup = AnyConnectSignIn.Lookup(locate: { try locate(`protocol`, $0) }, runner: toolRunner)
         let found = await withCheckedContinuation { (done: CheckedContinuation<Result<AnyConnectSignIn.Tool, Error>, Never>) in
             DispatchQueue.global(qos: .userInitiated).async { done.resume(returning: lookup.run()) }
         }
@@ -1209,7 +1226,7 @@ public final class ConnectionManager: ObservableObject {
     ) async throws -> HelperRequest {
         let id = p.id
         progress.anyConnect = true
-        let tool = try await openConnectTool()
+        let tool = try await openConnectTool(for: .gp)
         func normalized(_ pin: String) -> String { pin.isEmpty ? "" : OpenConnectPin.normalize(pin) ?? pin }
         let pin = normalized(p.serverCert)
         let gatewayPin = normalized(p.gatewayServerCert)
@@ -1264,7 +1281,7 @@ public final class ConnectionManager: ObservableObject {
         let run = GlobalProtectSignIn(
             toolPath: tool.path, runner: toolRunner,
             timeout: GlobalProtectSignIn.timeout(base: timing.signInTimeout, secondPartPeriod: second == nil ? nil : p.totp.period),
-            caFile: tool.caFile, noExternalAuth: tool.noExternalAuth)
+            caFile: tool.caFile, noExternalAuth: tool.noExternalAuth, disableIPv6: tool.disableIPv6)
         let cancellation = ToolCancellation()
         signIns[id] = cancellation
         defer { if signIns[id] === cancellation { signIns[id] = nil } }
@@ -1369,10 +1386,9 @@ public final class ConnectionManager: ObservableObject {
     /// later (`HelperCore.Tool.minimumMacOS`: dyld stops the bundled openconnect on anything older; owner
     /// decision, #2): `PTError.anyConnectRequiresMacOS`. On Linux (`macOS` nil) nothing is refused here: the
     /// distribution's openconnect is checked when the sign-in starts (`AnyConnectSignIn.distributionTool`).
-    /// Palo Alto GlobalProtect is refused below macOS 15.4 the same way (`PTError.globalProtectRequiresMacOS`), and on
-    /// Linux (`macOS` nil) until `passtunneld` runs it and its sign-in checks the distribution's openconnect for the
-    /// type's 9.11 (#234): `PTError.unsupportedProfileType` ("needs a newer PassTunnel"), before any code is used,
-    /// rather than a sign-in whose cookie the daemon would refuse.
+    /// Palo Alto GlobalProtect is refused below macOS 15.4 the same way (`PTError.globalProtectRequiresMacOS`); on
+    /// Linux it is not refused here either (#234): its sign-in checks the distribution's openconnect for the type's
+    /// 9.11 before any code is used (`PTError.globalProtectToolUnavailable`), as `passtunneld` checks it again.
     public nonisolated static func connectRefusal(_ type: VPNType, macOS: OperatingSystemVersion? = currentMacOS) -> PTError? {
         switch type {
         case .openvpn, .forti:
@@ -1380,9 +1396,7 @@ public final class ConnectionManager: ObservableObject {
         case .anyconnect:
             return openConnectMinimum(macOS).map(PTError.anyConnectRequiresMacOS)
         case .globalprotect:
-            guard macOS != nil else { return .unsupportedProfileType(type.rawValue) }
-            if let version = openConnectMinimum(macOS) { return .globalProtectRequiresMacOS(version) }
-            return type.isConnectable ? nil : .unsupportedProfileType(type.rawValue)
+            return openConnectMinimum(macOS).map(PTError.globalProtectRequiresMacOS)
         }
     }
 
@@ -2057,6 +2071,7 @@ public final class ConnectionManager: ObservableObject {
             .missingHost, .usernameTooLong, .invalidSecret, .profileNotFound, .otherVPNActive, .setupFailed,
             .userConfirmationCancelled, .userConfirmationFailed, .confirmationRequired, .protectedSecretUnreadable,
             .protectionUnavailable, .anyConnectRequiresMacOS, .anyConnectToolUnavailable, .globalProtectRequiresMacOS,
+            .globalProtectToolUnavailable,
             .hostScanRequired, .ssoRequired, .gatewayCertificateRejected,
             .serverCertificateRejected, .signInNeedsMoreAnswers, .signInUnusable:
             return false

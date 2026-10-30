@@ -339,11 +339,8 @@ final class GlobalProtectProfileTests: CoreTestCase {
         for macOS in [macOS154, OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0)] {
             XCTAssertNil(ConnectionManager.connectRefusal(.globalprotect, macOS: macOS))
         }
-        // Linux: refused as a type that needs a newer PassTunnel until passtunneld runs it (#234).
-        let linux = ConnectionManager.connectRefusal(.globalprotect, macOS: nil)
-        XCTAssertEqual(linux, .unsupportedProfileType("globalprotect"))
-        XCTAssertEqual(linux?.unavailableNote, UnsupportedProfile.statusText)
-        XCTAssertEqual(linux.map(AutomationErrorCode.of), .configInvalid)
+        // Linux: not refused up front since passtunneld runs it (#234); its sign-in checks the distribution's openconnect.
+        XCTAssertNil(ConnectionManager.connectRefusal(.globalprotect, macOS: nil))
         // The same sentence as the helper's refusal (protocol 5), and the same name everywhere.
         for (type, proto, refusal) in [
             (VPNType.globalprotect, OpenConnectProtocol.gp, PTError.globalProtectRequiresMacOS("15.4")),
@@ -356,14 +353,14 @@ final class GlobalProtectProfileTests: CoreTestCase {
         XCTAssertTrue(VPNType.globalprotect.isConnectable)
         // The other types are as before.
         XCTAssertEqual(ConnectionManager.connectRefusal(.anyconnect, macOS: macOS153), .anyConnectRequiresMacOS("15.4"))
-        for type in VPNType.connectable where type != .globalprotect {
+        for type in VPNType.connectable {
             XCTAssertNil(ConnectionManager.connectRefusal(type, macOS: macOS154), "\(type)")
             XCTAssertNil(ConnectionManager.connectRefusal(type, macOS: nil), "\(type)")
         }
     }
 
-    /// Listed as an ordinary profile of a known type; connectable on macOS 15.4, with the refusal on Linux.
-    func testItIsListedWithTheRefusal() throws {
+    /// Listed as an ordinary profile of a known type; connectable on macOS 15.4 and on Linux.
+    func testItIsListedWithoutARefusal() throws {
         let p = try makeGlobalProtect()
         XCTAssertEqual(store.list().map(\.id), [p.id])
         XCTAssertEqual(store.listUnsupported(), [])
@@ -373,18 +370,19 @@ final class GlobalProtectProfileTests: CoreTestCase {
         XCTAssertNil(mac.connectRefusal)
         XCTAssertNoThrow(try ConnectionManager.checkConnectable(p, macOS: macOS154))
         let linux = ProfileSummary(p, isDefault: false, connectRefusal: ConnectionManager.connectRefusal(p.type, macOS: nil))
-        XCTAssertEqual(linux.connectRefusal?.code, "config_invalid")
-        XCTAssertThrowsError(try ConnectionManager.checkConnectable(p, macOS: nil)) {
-            XCTAssertEqual($0 as? PTError, .unsupportedProfileType("globalprotect"))
-        }
+        XCTAssertNil(linux.connectRefusal)
+        XCTAssertNoThrow(try ConnectionManager.checkConnectable(p, macOS: nil))
+        let old = ProfileSummary(p, isDefault: false, connectRefusal: ConnectionManager.connectRefusal(p.type, macOS: macOS153))
+        XCTAssertEqual(old.connectRefusal?.code, "config_invalid")
     }
 }
 
 extension ConnectionManagerTests {
     /// Nothing is asked, read, run or sent for a Palo Alto GlobalProtect profile this system does not connect: below
-    /// macOS 15.4, and on Linux until passtunneld runs it (#234).
+    /// macOS 15.4. (Linux connects it since #234; an openconnect too old for it is refused at the sign-in, before the
+    /// code is used: `GlobalProtectConnectTests`.)
     func testGlobalProtectIsRefusedBeforeAnything() async throws {
-        for macOS in [macOS153, nil] {
+        for macOS: OperatingSystemVersion? in [macOS153, OperatingSystemVersion(majorVersion: 13, minorVersion: 0, patchVersion: 0)] {
             var p = try store.create(name: "Acme GlobalProtect \(String(describing: macOS?.minorVersion))", type: .globalprotect)
             p.host = "vpn.example.com"
             p.username = "alice"
@@ -421,8 +419,8 @@ extension ConnectionManagerTests {
 }
 
 extension AnyConnectCLITests {
-    /// `list`, `show`, `set` and `diagnose` handle a Palo Alto GlobalProtect profile; `connect` refuses it on Linux
-    /// and `add` does not make one yet.
+    /// `list`, `show`, `set` and `diagnose` handle a Palo Alto GlobalProtect profile; `connect` of one without a
+    /// user name or password starts nothing, and `add` does not make one yet.
     func testGlobalProtectInTheCommand() async throws {
         var p = try store.create(name: "Acme GP", type: .globalprotect)
         p.host = "vpn.example.com"
@@ -455,7 +453,7 @@ extension AnyConnectCLITests {
         XCTAssertFalse(line.contains(UnsupportedProfile.statusText), line)
         let linuxList = try await run(.list(json: false, quiet: false), macOS: nil)
         let linuxLine = try XCTUnwrap(linuxList.out.split(separator: "\n").first { $0.contains(p.id) }.map(String.init))
-        XCTAssertTrue(linuxLine.contains(UnsupportedProfile.statusText), linuxLine)
+        XCTAssertFalse(linuxLine.contains(UnsupportedProfile.statusText), "connected on Linux too (#234): \(linuxLine)")
         let json = try await run(.list(json: true, quiet: false), macOS: macOS153)
         let entry = try XCTUnwrap(json.jsonArray?.first { $0["id"] as? String == p.id })
         XCTAssertEqual(entry["type"] as? String, "globalprotect")

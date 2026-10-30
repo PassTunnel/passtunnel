@@ -952,8 +952,9 @@ extension ConnectionManagerTests {
             let distribution = try XCTUnwrap(m.openConnectPath)
             m.openConnectPath = nil
             var lookups = 0
-            m.locateOpenConnect = { runner in
+            m.locateOpenConnect = { proto, runner in
                 lookups += 1
+                XCTAssertEqual(proto, .anyconnect, "checked for Cisco AnyConnect's minimum")
                 XCTAssertTrue(runner as AnyObject === fake, "the manager's runner")
                 return AnyConnectSignIn.Tool(
                     path: distribution, caFile: "/etc/ssl/certs/ca-certificates.crt", noExternalAuth: noExternalAuth)
@@ -978,7 +979,7 @@ extension ConnectionManagerTests {
         let reason = ToolFailure.tooOld(
             name: "openconnect", version: ToolVersion(8, 20, twoDigitMinor: true), minimum: ToolSpec.openconnect.minimum,
             package: "openconnect")
-        m.locateOpenConnect = { _ in throw PTError.anyConnectToolUnavailable(reason.description) }
+        m.locateOpenConnect = { _, _ in throw PTError.anyConnectToolUnavailable(reason.description) }
         let before = helper.requests.count
         do { try await m.connect(p.id); XCTFail("connected") } catch {
             XCTAssertEqual(error as? PTError, .anyConnectToolUnavailable(reason.description))

@@ -683,7 +683,7 @@ Since #187 (not in any release: the Linux packages are not published yet).
 
 ## Palo Alto GlobalProtect
 
-Issue #2, Phase 2 (designed in #226; connecting on macOS 15.4 and later since #231, Linux to follow in #234): Palo Alto
+Issue #2, Phase 2 (designed in #226; connecting on macOS 15.4 and later since #231, on Linux since #234): Palo Alto
 GlobalProtect through the same `openconnect`, with a password and a one-time code, no single sign-on. It ships
 marked *experimental*: its sign-in is tested against openconnect's own test server, but no test runs a real
 GlobalProtect tunnel, so reports from real gateways are asked for. Everything

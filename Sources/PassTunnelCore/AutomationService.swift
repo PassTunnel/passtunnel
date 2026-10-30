@@ -270,10 +270,14 @@ public final class AutomationService {
     /// `--version` (`BundledTools`), which contacts nothing.
     public func diagnose(checkClock: Bool = false) async -> DiagnoseReport {
         let helper = await helperInspector.report()
+        let profiles = store.list()
+        // Linux: the distribution's openconnect checked for Palo Alto GlobalProtect's minimum (9.11) once, as its
+        // sign-in checks it (`ConnectionManager.openConnectToolProblem`; nil on the Mac).
+        let globalProtectTool = profiles.contains { $0.type == .globalprotect } ? await manager.openConnectToolProblem(.gp) : nil
         var report = DiagnoseReport(
             version: appInfo.version, build: appInfo.build, appPath: appInfo.appPath,
             inApplications: appInfo.inApplications, helper: helper,
-            profiles: store.list().map(check), secretStore: await Self.secretStoreReport(),
+            profiles: profiles.map { check($0, globalProtectTool: globalProtectTool) }, secretStore: await Self.secretStoreReport(),
             network: await network(), tools: await tools(appInfo))
         if checkClock {
             do { report.clock = try await manager.checkClock() } catch { report.clockError = error.localizedDescription }
@@ -292,8 +296,9 @@ public final class AutomationService {
     }
 
     /// What would stop `p` from connecting, from its files and Keychain items (whether they exist only;
-    /// nothing is decrypted, nothing is returned).
-    func check(_ p: Profile) -> ProfileCheck {
+    /// nothing is decrypted, nothing is returned). `globalProtectTool`: why the distribution's openconnect cannot
+    /// run a Palo Alto GlobalProtect profile (Linux), reported as such a profile's problem.
+    func check(_ p: Profile, globalProtectTool: Error? = nil) -> ProfileCheck {
         var problems: [Error] = []
         switch p.type {
         case .openvpn:
@@ -317,8 +322,9 @@ public final class AutomationService {
             }
             do { try Profile.checkUsername(p.username, type: p.type) } catch { problems.append(error) }
         case .anyconnect, .globalprotect:
-            // macOS 15.4; Palo Alto GlobalProtect on Linux until passtunneld runs it (#234).
+            // macOS 15.4; on Linux, an openconnect too old for Palo Alto GlobalProtect (9.11, #234).
             if let refusal = manager.connectRefusal(p.type) { problems.append(refusal) }
+            if p.type == .globalprotect, let globalProtectTool { problems.append(globalProtectTool) }
             if p.host.trimmingCharacters(in: .whitespaces).isEmpty {
                 problems.append(PTError.missingHost(p.id))
             } else if !Profile.isValidHost(p.host, type: p.type) {

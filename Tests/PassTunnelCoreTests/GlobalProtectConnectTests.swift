@@ -387,6 +387,138 @@ extension ConnectionManagerTests {
         XCTAssertEqual(s.port, 8443)
     }
 
+    // MARK: Linux (#234)
+
+    /// A manager as on Linux: no macOS, no bundled openconnect; `locate` stands in for the distribution's lookup.
+    func makeLinuxGlobalProtectManager(
+        _ fake: ToolRunning, locate: @escaping (OpenConnectProtocol, ToolRunning) throws -> AnyConnectSignIn.Tool
+    ) throws -> ConnectionManager {
+        let m = try makeGlobalProtectManager(fake)
+        m.systemVersion = nil
+        m.openConnectPath = nil
+        m.locateOpenConnect = locate
+        return m
+    }
+
+    /// Linux: the sign-in runs the distribution's openconnect found for GlobalProtect's minimum, with its CA bundle,
+    /// `no-external-auth` where it has it, and `disable-ipv6` exactly when that openconnect is older than 9.20; the
+    /// start request is the same as on the Mac (the daemon decides its own file's `disable-ipv6`).
+    func testLinuxGlobalProtectSignsInWithTheDistributionTool() async throws {
+        let distribution = try makeGlobalProtectManager(FakeGlobalProtect(clock: clock, script: [])).openConnectPath!
+        for disableIPv6 in [true, false] {
+            let p = try makeGlobalProtectProfile(disableIPv6 ? "Acme 9.12" : "Acme 9.21", gateway: "", skipPortal: true)
+            helper.startLog = GP.hipAndUp
+            let stderr =
+                "POST https://vpn.example.com:8443/ssl-vpn/prelogin.esp?tmp=tmp&clientVer=4100&clientos=Linux\n" + GP.portalTLS
+                + "POST https://vpn.example.com:8443/ssl-vpn/login.esp\nChallenge: POST https://vpn.example.com:8443/ssl-vpn/login.esp\n"
+            let fake = FakeGlobalProtect(
+                clock: clock, script: [.stderr(stderr)],
+                stdout: GP.stdout(
+                    host: "192.0.2.10", connectURL: "https://vpn.example.com:8443/", fingerprint: GP.portalPin,
+                    resolve: "vpn.example.com:192.0.2.10"))
+            var lookups: [OpenConnectProtocol] = []
+            let m = try makeLinuxGlobalProtectManager(fake) { proto, runner in
+                lookups.append(proto)
+                XCTAssertTrue(runner as AnyObject === fake, "the manager's runner")
+                return AnyConnectSignIn.Tool(
+                    path: distribution, caFile: "/etc/ssl/certs/ca-certificates.crt", noExternalAuth: true, disableIPv6: disableIPv6)
+            }
+            try await m.connect(p.id)
+            XCTAssertEqual(lookups, [.gp], "checked for GlobalProtect's minimum")
+            let run = try XCTUnwrap(fake.runs.first)
+            XCTAssertTrue(run.config.contains("protocol gp\n"), run.config)
+            XCTAssertTrue(run.config.contains("no-external-auth\n"), run.config)
+            XCTAssertEqual(run.config.contains("\ndisable-ipv6\n"), disableIPv6, run.config)
+            let s = try XCTUnwrap(globalProtectStarts().last)
+            XCTAssertEqual(s.protocol, .gp)
+            XCTAssertEqual(s.profileID, p.id)
+        }
+    }
+
+    /// Linux: an openconnect too old for GlobalProtect (Debian 12's 9.01) is refused with the version found and the
+    /// one needed before anything is run, the code used or the daemon asked; a missing one likewise.
+    func testLinuxRefusesAnOpenConnectTooOldForGlobalProtect() async throws {
+        let tooOld = ToolFailure.tooOld(
+            name: "openconnect", version: ToolVersion(9, 1, twoDigitMinor: true), minimum: ToolSpec.globalProtectOpenConnect.minimum,
+            package: "openconnect", purpose: ToolSpec.globalProtectOpenConnect.purpose)
+        let missing = ToolFailure.notInstalled(
+            name: "openconnect", candidates: ToolSpec.globalProtectOpenConnect.candidates, package: "openconnect",
+            minimum: ToolSpec.globalProtectOpenConnect.minimum)
+        for (n, reason) in [tooOld, missing].enumerated() {
+            let p = try makeGlobalProtectProfile("Acme \(n)")
+            let fake = FakeGlobalProtect(clock: clock, script: [])
+            let m = try makeLinuxGlobalProtectManager(fake) { proto, _ in
+                XCTAssertEqual(proto, .gp)
+                throw AnyConnectSignIn.unavailable(proto, reason.description)
+            }
+            let before = helper.requests.count
+            do { try await m.connect(p.id); XCTFail("connected") } catch {
+                XCTAssertEqual(error as? PTError, .globalProtectToolUnavailable(reason.description))
+                if n == 0 {
+                    XCTAssertEqual(
+                        error.localizedDescription,
+                        "Palo Alto GlobalProtect cannot be used here: openconnect 9.01 is too old for Palo Alto GlobalProtect: "
+                            + "PassTunnel needs 9.11 or later. Update the openconnect package.")
+                }
+            }
+            XCTAssertEqual(m.failures[p.id]?.kind, .configuration)
+            XCTAssertEqual(m.failures[p.id]?.credentialsSent, false)
+            XCTAssertTrue(globalProtectStarts().isEmpty, "the daemon is not asked to start anything")
+            XCTAssertLessThanOrEqual(helper.requests.count, before + 1, "at most the status")
+            XCTAssertTrue(fake.runs.isEmpty, "no sign-in ran")
+            XCTAssertNil(m.usedCode(p.id), "the code is unused")
+        }
+    }
+
+    /// Linux `diagnose`: the distribution's openconnect is checked once for GlobalProtect's minimum, and an
+    /// unusable one is each GlobalProtect profile's problem (Cisco AnyConnect's checks are unchanged); on the Mac
+    /// nothing is run.
+    func testLinuxDiagnoseReportsAnOpenConnectTooOldForGlobalProtect() async throws {
+        let gp = try makeGlobalProtectProfile()
+        let reason = ToolFailure.tooOld(
+            name: "openconnect", version: ToolVersion(9, 1, twoDigitMinor: true), minimum: ToolSpec.globalProtectOpenConnect.minimum,
+            package: "openconnect", purpose: ToolSpec.globalProtectOpenConnect.purpose
+        ).description
+        var anyConnect = try store.create(name: "Acme AnyConnect", type: .anyconnect)
+        anyConnect.host = "vpn.example.com"
+        anyConnect.username = "alice"
+        try store.save(anyConnect)
+        try Secrets.set(anyConnect.id, .password, "hunter2-pw")
+        var usable = true
+        var lookups: [OpenConnectProtocol] = []
+        let m = try makeLinuxGlobalProtectManager(FakeGlobalProtect(clock: clock, script: [])) { proto, _ in
+            lookups.append(proto)
+            guard usable else { throw AnyConnectSignIn.unavailable(proto, reason) }
+            return AnyConnectSignIn.Tool(path: "/usr/bin/openconnect")
+        }
+        let service = AutomationService(
+            store: store, manager: m, helperInspector: FixedHelperInspector(),
+            appInfo: AppInfo(version: "9.9.9", build: nil, appPath: "/usr/bin/passtunnel"), network: { NetworkStatus(online: true) },
+            tools: { _ in nil })
+        func problems(_ report: DiagnoseReport, _ id: String) -> [ErrorReport] {
+            report.profiles.first { $0.id == id }?.problems ?? []
+        }
+
+        var report = await service.diagnose()
+        XCTAssertEqual(lookups, [.gp], "once, for GlobalProtect's minimum")
+        XCTAssertEqual(problems(report, gp.id), [], "a usable openconnect")
+        XCTAssertEqual(report.profiles.first { $0.id == gp.id }?.ok, true)
+
+        usable = false
+        report = await service.diagnose()
+        XCTAssertEqual(problems(report, gp.id).map(\.code), ["config_invalid"])
+        XCTAssertEqual(problems(report, gp.id).map(\.message), ["Palo Alto GlobalProtect cannot be used here: " + reason])
+        XCTAssertEqual(report.profiles.first { $0.id == gp.id }?.ok, false)
+        XCTAssertEqual(problems(report, anyConnect.id), [], "Cisco AnyConnect's checks are unchanged")
+
+        // The Mac (a macOS version): nothing is run.
+        lookups = []
+        m.systemVersion = OperatingSystemVersion(majorVersion: 15, minorVersion: 4, patchVersion: 0)
+        report = await service.diagnose()
+        XCTAssertEqual(lookups, [])
+        XCTAssertEqual(problems(report, gp.id), [])
+    }
+
     /// Without a code (or with a code typed in) no second part can be made: the sign-in's own limit.
     func testGlobalProtectWithoutACodeOnlyThePassword() async throws {
         let p = try makeGlobalProtectProfile(otp: .none)

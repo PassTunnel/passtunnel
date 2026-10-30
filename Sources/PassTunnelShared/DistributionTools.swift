@@ -1,4 +1,5 @@
 import Foundation
+import PassTunnelVPNConfig
 
 // The distribution's tools on Linux (docs/LINUX.md, "Daemon security rules"): where each may be, the
 // version it needs, and the checks a path passes before root runs it. Pure apart from `lstat` and
@@ -130,6 +131,9 @@ public struct ToolSpec {
     public let package: String
     public let versionArguments: [String]
     public let parseVersion: (String) -> ToolVersion?
+    /// What `minimum` is for, when the tool has another minimum for something else ("Palo Alto GlobalProtect"):
+    /// named in the refusal of an older version.
+    public let purpose: String?
 
     public static let openvpn = ToolSpec(
         name: "OpenVPN", candidates: ["/usr/sbin/openvpn", "/usr/bin/openvpn"], minimum: ToolVersion(2, 6, 0),
@@ -151,9 +155,25 @@ public struct ToolSpec {
         minimum: ToolVersion(9, 1, twoDigitMinor: true), package: "openconnect", versionArguments: ["--version"],
         parseVersion: ToolSpec.openConnectVersion)
 
+    /// Palo Alto GlobalProtect's tool (docs/LINUX.md, "Palo Alto GlobalProtect"): the same openconnect, 9.11 or
+    /// later (owner decision 5, #226: 9.01 cannot read a challenge wrapped in HTML, 9.10 left ESP not working), so
+    /// Debian 12 and EPEL 9 (9.01) keep Cisco AnyConnect only. An older one is refused naming the type.
+    public static let globalProtectOpenConnect = ToolSpec(
+        name: openconnect.name, candidates: openconnect.candidates, minimum: ToolVersion(9, 11, twoDigitMinor: true),
+        package: openconnect.package, versionArguments: openconnect.versionArguments, parseVersion: openconnect.parseVersion,
+        purpose: OpenConnectProtocol.gp.displayName)
+
+    /// The openconnect a session or sign-in of `protocol` needs: the tool's minimum is the VPN type's.
+    public static func openconnect(for protocol: OpenConnectProtocol) -> ToolSpec {
+        switch `protocol` {
+        case .anyconnect: return openconnect
+        case .gp: return globalProtectOpenConnect
+        }
+    }
+
     public init(
         name: String, candidates: [String], minimum: ToolVersion, package: String, versionArguments: [String],
-        parseVersion: @escaping (String) -> ToolVersion?
+        parseVersion: @escaping (String) -> ToolVersion?, purpose: String? = nil
     ) {
         self.name = name
         self.candidates = candidates
@@ -161,6 +181,7 @@ public struct ToolSpec {
         self.package = package
         self.versionArguments = versionArguments
         self.parseVersion = parseVersion
+        self.purpose = purpose
     }
 
     /// The version on the first line of `openvpn --version`: "OpenVPN 2.6.9 x86_64-pc-linux-gnu […]".
@@ -198,6 +219,17 @@ extension ToolSpec {
         return nil
     }
 
+    /// The first openconnect that reads a GlobalProtect gateway's IPv6 routes as includes (openconnect commit
+    /// 64f0c03d): 9.01–9.12 take every route list but `access-routes`, `access-routes-v6` included, as excludes.
+    public static let openConnectIPv6RoutesVersion = ToolVersion(9, 20, twoDigitMinor: true)
+
+    /// Whether a Palo Alto GlobalProtect file for openconnect `version` gets `disable-ipv6` (docs/LINUX.md, "IPv6
+    /// before 9.20"): below 9.20, so the hook never sends all IPv6 into the tunnel but the gateway's own networks.
+    /// Decided from the version of the tool that was checked, never from a request; never for Cisco AnyConnect.
+    public static func openConnectDisablesIPv6(_ protocol: OpenConnectProtocol, version: ToolVersion) -> Bool {
+        `protocol` == .gp && version < openConnectIPv6RoutesVersion
+    }
+
     /// The option that keeps openconnect from offering the server a sign-in in a browser (9.10 and later).
     public static let noExternalAuthOption = "--no-external-auth"
     /// What `openconnect --help` is run with to tell which options it has.
@@ -226,7 +258,8 @@ public enum ToolFailure: Error, Equatable, CustomStringConvertible {
     case notInstalled(name: String, candidates: [String], package: String, minimum: ToolVersion)
     case untrusted(name: String, path: String, reason: String)
     case unknownVersion(name: String, path: String)
-    case tooOld(name: String, version: ToolVersion, minimum: ToolVersion, package: String)
+    /// `purpose`: what the minimum is for, when it is not the tool's own (`ToolSpec.purpose`).
+    case tooOld(name: String, version: ToolVersion, minimum: ToolVersion, package: String, purpose: String? = nil)
     case noCABundle(candidates: [String])
     case untrustedCABundle(path: String, reason: String)
 
@@ -239,8 +272,9 @@ public enum ToolFailure: Error, Equatable, CustomStringConvertible {
             return "Refusing to run \(name) from \(path): \(reason)"
         case .unknownVersion(let name, let path):
             return "Could not tell the version of \(name) at \(path)."
-        case .tooOld(let name, let version, let minimum, let package):
-            return "\(name) \(version) is too old: PassTunnel needs \(minimum) or later. Update the \(package) package."
+        case .tooOld(let name, let version, let minimum, let package, let purpose):
+            let what = purpose.map { " for \($0)" } ?? ""
+            return "\(name) \(version) is too old\(what): PassTunnel needs \(minimum) or later. Update the \(package) package."
         case .noCABundle(let candidates):
             return "No CA bundle to verify the gateway with (none of \(candidates.joined(separator: ", ")) exists). "
                 + "Install the distribution's ca-certificates package."
@@ -281,7 +315,8 @@ public enum DistributionTools {
             throw ToolFailure.unknownVersion(name: spec.name, path: real)
         }
         guard version >= spec.minimum else {
-            throw ToolFailure.tooOld(name: spec.name, version: version, minimum: spec.minimum, package: spec.package)
+            throw ToolFailure.tooOld(
+                name: spec.name, version: version, minimum: spec.minimum, package: spec.package, purpose: spec.purpose)
         }
         return ResolvedTool(path: real, version: version)
     }
