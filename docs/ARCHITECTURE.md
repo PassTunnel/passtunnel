@@ -79,7 +79,7 @@ it needs macOS 15.4 or later."), not as a failure.
 | Target | Owns | Depends on |
 |---|---|---|
 | `PassTunnelVPNConfig` | `OVPNSanitizer`, `FortiConfig`: the configurations the helper runs as root | — |
-| `PassTunnelKit` | the portable logic (Foundation, CryptoKit and Security only; builds for macOS 13, iOS 17 and Linux): model, `PTError`, `JSONCoding`, `TOTP`, `OTPAuthURI`, `OTPComposer`, `OVPNAnalyzer`, `OVPNInliner`, `OVPNSkipRules`, `OVPNImportReport`, `ShareFile`, `UnsupportedProfile`, `AnyConnectServer`, `Slug`, `ProfileFields`, `ProfileMerge`, `SecretEnvelope`, `HealthCheck` (parsing), `ClockOffset` (clock offset, HTTP dates) | VPNConfig (and swift-crypto on Linux) |
+| `PassTunnelKit` | the portable logic (Foundation, CryptoKit and Security only; builds for macOS 13, iOS 17 and Linux): model, `PTError`, `JSONCoding`, `TOTP`, `OTPAuthURI`, `OTPComposer`, `OVPNAnalyzer`, `OVPNInliner`, `OVPNSkipRules`, `OVPNImportReport`, `ShareFile`, `UnsupportedProfile`, `UnknownProfileKeys`, `AnyConnectServer`, `Slug`, `ProfileFields`, `ProfileMerge`, `SecretEnvelope`, `HealthCheck` (parsing), `ClockOffset` (clock offset, HTTP dates) | VPNConfig (and swift-crypto on Linux) |
 | `PassTunnelShared` | XPC protocol, request/response types, `HelperCore` (request decoding, path checks, tool environment; `HelperCore+DNSHook`: the Mac's DNS script wrapper and its record), `SessionPolicy`, `CodeSignature`, `Spawner` (verified, suspended launch), `PinnedTools`, `ToolStager` (root-owned copy of the tools and their dylibs), `HelperBuild`, identifiers | VPNConfig (and swift-crypto on Linux) |
 | `PassTunnelCore` | `ProfileStore` + `ImportDraft`, `ProfilesWatcher`, `Secrets` + `SecretStore` (Keychain; on Linux `SecretStores`: secret-service, systemd-creds, file), `SecretVault` + `UserAuthenticator` (Secure Enclave protection), `Preferences`, `HealthCheck.check` (the probe), `QRDecoder`, `OpenedFiles` (files the app is asked to open), `ScannedCodeTarget` (where a scanned code goes), `TLSFingerprint` + `ServerKeyPin` (a certificate's SHA-256, a key's `pin-sha256:`), `AnyConnectEditing` + `ServerTrustOffer` (the app's Cisco AnyConnect fields and "Trust this server"), `ServerClock` + `SNTP` (clock checks), `HelperClient`, `HelperAutoUpdate`, `ConnectionManager` + `ProfileDestination`, `ConnectionFailure`, `UnreachableRetry`, `FailureDetails` ("Copy details"), `NetworkPath` + `NetworkStatus`, `ActivityLog` + `ActivityEvent`, `LoginConnector` (connect at login), CLI parsing (`CLICommand`, `CLIInvocation`), automation objects + `AutomationService`, `MCPServer` + `MCPTools` + `JSONValue` | Kit, VPNConfig, Shared (and swift-crypto's Crypto and CryptoExtras on Linux) |
 | `PassTunnelCLI` | the `passtunnel` command: `PassTunnelCLI.run` (entry, `CLIHelp`), `CLIRunner`, `CLICompletions`, `CLITerminal`, `CLIClipboard`; `Pasteboard` (macOS: the app's too) | Core, Kit, Shared |
@@ -264,7 +264,7 @@ public struct TOTPParams: Codable, Equatable { var digits = 6; var period = 30; 
 public struct Profile: Codable, Identifiable, Equatable {
     public var id: String                 // slug, unique, immutable
     public var name: String
-    public var type: VPNType
+    public var type: VPNType              // changing it empties unknownKeys
     public var order = 0
     // appearance
     public var badge = ""                 // empty → first letter of name
@@ -300,6 +300,7 @@ public struct Profile: Codable, Identifiable, Equatable {
     public var tlsOnly = false            // openconnect's no-dtls; DTLS by default
     public var configSourceName: String?    // file name the OpenVPN config was imported from
     public var configImportedAt: Date?      // ISO 8601, whole seconds
+    public internal(set) var unknownKeys: UnknownProfileKeys   // keys of a newer version, written back (below)
     // derived
     public var displayBadge: String
     public var needs: [CredentialField]   // what must be asked before connecting (none if password == .none)
@@ -370,6 +371,42 @@ rules are in [Profile (#181)](#profile-181) below. Such a profile is treated as 
   deleting it work. There is no `VPNType.connectable` any more: every known type is one the app shows as a profile;
   only a type this version does not know is an `UnsupportedProfile`.
 - The helper accepts `startOpenConnect` (protocol 4, #182), and so does `passtunneld` (#187, docs/LINUX.md).
+
+### Keys of a newer version (#200)
+
+A newer PassTunnel may add keys to a type this version knows. `Profile.init(from:)` keeps every top-level key that is
+not one of its `CodingKeys` in `unknownKeys` (`UnknownProfileKeys`: opaque, the JSON values kept by kind with integers
+exact, in key order), and `encode(to:)` writes them back unchanged, so no save drops them: every write of
+`profile.json` is `ProfileStore.save` of a profile read from it (`passtunnel set`, `pin`/`unpin` and `secret`, `update`
+with the user name a connect remembers, `setOVPN`, the editor's Save, a `ProfileMerge` in `update`). Setting the
+default writes only `config.json`. The rules:
+
+- Keys this version knows are never in it, also those it writes only for another type (`usergroup`, `authgroup`,
+  `server_cert` and `tls_only` of an OpenVPN or FortiGate profile are dropped on its next save, as before) and the
+  read-only `otp_format`. Keys inside `totp` are not kept: a newer version adds its keys at the top level.
+- They belong to the type the profile was read with: setting `type` to another type empties `unknownKeys`, so a save
+  after a change of the type writes none.
+- `ProfileMerge` compares and merges the known keys only (`changedFields` never lists an unknown one); the merged
+  profile has `current`'s unknown keys, or none when the edit changed the type.
+- Share files never carry them: `encode` leaves them out of an export, and decoding a `ShareFile` empties them in its
+  profile (unknown top-level keys of the file are ignored, as before), because this version cannot check them for the
+  profile an import creates. An import that updates an existing profile (the Mac has none; a port may) keeps the
+  existing profile's unknown keys.
+- A key is kept as the decoder hands it (after `convertFromSnakeCase`) and written back through `convertToSnakeCase`.
+  That round trip is exact for every key `JSONCoding` writes (lower-case words of letters and digits, each starting
+  with a letter, joined by single underscores), so a newer version adds only such keys. A key that differs from a
+  known key, or from another unknown one, only in case and underscores is dropped (the strategy would write both under
+  one name, and a file with a key twice may not be read again), and so is a value `JSONDecoder` cannot read (a number
+  beyond `Double`).
+- What a newer version may rely on: an older version keeps a key it does not know, unchanged, and nothing more. A
+  newer version that changes what an existing key means, or gives it values an older version would misread (an
+  unknown enum value is read as the default and written back as that), must not rely on this: it adds a new key
+  instead, and when older versions must not use or rewrite the profile at all, it bumps the version they check: a new
+  `type` for `profile.json` (an `UnsupportedProfile` for them, never rewritten), a new `passtunnel_profile` for share
+  files (`ShareFile.version(for:)`; older readers refuse it).
+
+Golden cases: `fixtures/profile-json.json` (what a save writes back, also after a change of the type or `passtunnel set`),
+`fixtures/profile-merge.json` and `fixtures/share-files.json`.
 
 ## Core APIs
 

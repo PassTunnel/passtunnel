@@ -78,7 +78,10 @@ public struct TOTPParams: Codable, Equatable {
 public struct Profile: Codable, Identifiable, Equatable {
     public var id: String  // slug, unique, immutable
     public var name: String
-    public var type: VPNType
+    /// Changing it drops `unknownKeys`: they belonged to the type the profile was read with.
+    public var type: VPNType {
+        didSet { if type != oldValue { unknownKeys = UnknownProfileKeys() } }
+    }
     public var order = 0
     // appearance
     public var badge = ""  // empty → first letter of name
@@ -123,6 +126,9 @@ public struct Profile: Codable, Identifiable, Equatable {
     public var serverCert = ""
     /// TLS only (openconnect's `no-dtls`); DTLS is used by default.
     public var tlsOnly = false
+    /// The keys of the stored file this version does not know (a newer version added them), written back
+    /// unchanged by every save; never in share files.
+    public internal(set) var unknownKeys = UnknownProfileKeys()
 
     public init(id: String, name: String, type: VPNType) {
         self.id = id
@@ -216,7 +222,7 @@ public struct Profile: Codable, Identifiable, Equatable {
 
     // MARK: coding
 
-    enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey, CaseIterable {
         case id, name, type, order, badge, icon, badgeStyle, pinned
         case username, lastUsername, passwordMode, otpMode, totp, requireAuth
         case sessionLimitMin, autoReconnect, connectAtLogin, healthHost, otpDelivery, otpTemplate
@@ -226,6 +232,9 @@ public struct Profile: Codable, Identifiable, Equatable {
         case setDNS = "setDns"  // matches "set_dns" under the snake_case strategies
         case otpFormat  // legacy, read only
     }
+
+    /// Every key this version knows, as the decoder hands them: the rest is `unknownKeys`.
+    static let knownKeys = Set(CodingKeys.allCases.map(\.stringValue))
 
     /// Keys left out of share files.
     static let shareExcludedKeys: Set<CodingKeys> = [
@@ -268,6 +277,7 @@ public struct Profile: Codable, Identifiable, Equatable {
         tlsOnly = c.lenient(Bool.self, .tlsOnly) ?? false
         configSourceName = c.lenient(String.self, .configSourceName).flatMap { $0.isEmpty ? nil : $0 }
         configImportedAt = c.lenientDate(.configImportedAt)
+        unknownKeys = try UnknownProfileKeys.decode(from: decoder, known: Self.knownKeys)
 
         let template = c.lenient(String.self, .otpTemplate)
         otpTemplate = (template?.isEmpty == false) ? template! : OTPTemplatePreset.append.rawValue
@@ -283,6 +293,7 @@ public struct Profile: Codable, Identifiable, Equatable {
 
     public func encode(to encoder: Encoder) throws {
         let forShare = encoder.userInfo[.passTunnelShareExport] as? Bool == true
+        let withUnknownKeys = !forShare && encoder.userInfo[.passTunnelOmitUnknownKeys] as? Bool != true
         var c = encoder.container(keyedBy: CodingKeys.self)
         func put<T: Encodable>(_ value: T, _ key: CodingKeys) throws {
             if forShare && Profile.shareExcludedKeys.contains(key) { return }
@@ -305,6 +316,8 @@ public struct Profile: Codable, Identifiable, Equatable {
         }
         if let configSourceName { try put(configSourceName, .configSourceName) }
         if let configImportedAt { try put(Profile.dateFormatter.string(from: configImportedAt), .configImportedAt) }
+        // Never in a share file: this version cannot vouch for them in the profile an import creates.
+        if withUnknownKeys { try unknownKeys.encode(to: encoder) }
     }
 
     /// ISO 8601 (UTC) for dates in profile.json.
@@ -318,6 +331,8 @@ public struct Profile: Codable, Identifiable, Equatable {
 extension CodingUserInfoKey {
     /// When true, `Profile.encode` omits per-user fields (share-file export).
     static let passTunnelShareExport = CodingUserInfoKey(rawValue: "passtunnel.shareExport")!
+    /// When true, `Profile.encode` omits `unknownKeys` (`ProfileMerge` compares and merges only known keys).
+    static let passTunnelOmitUnknownKeys = CodingUserInfoKey(rawValue: "passtunnel.omitUnknownKeys")!
 }
 
 extension KeyedDecodingContainer {

@@ -114,6 +114,9 @@ enum FixtureRunner {
         "profile-fields.json": [
             "set": Group(inputs: ["type", "key", "value"], run: fieldsSet)
         ],
+        "profile-json.json": [
+            "save": Group(inputs: ["stored", "type", "set"], run: profileSave)
+        ],
         "anyconnect-servers.json": [
             "parse": Group(inputs: ["url"], run: anyConnectServer)
         ]
@@ -438,6 +441,32 @@ enum FixtureRunner {
             "merged": try encoded(merged),
             "changed_fields": .array(try ProfileMerge.changedFields(from: original, to: edited).map { .string($0) })
         ]
+    }
+
+    /// Reads `stored` as profile.json, changes the type (`type`) and sets fields (`set`, in order, as
+    /// `passtunnel set` does), and gives what a save writes.
+    static func profileSave(_ c: [String: JSON]) throws -> [String: JSON] {
+        var p: Profile
+        do {
+            p = try profile(c["stored"])
+        } catch let e as PTError {
+            return error(e)
+        }
+        if let value = c["type"] {
+            guard let type = value.string.flatMap(VPNType.init(rawValue:)) else { throw FixtureError("type") }
+            p.type = type
+        }
+        for change in c["set"]?.array ?? [] {
+            guard let key = change.object?["key"]?.string, let value = change.object?["value"]?.string else {
+                throw FixtureError("set: {key, value}")
+            }
+            do {
+                try ProfileFields.set(&p, key: key, value: value)
+            } catch {
+                return Self.error(error)
+            }
+        }
+        return ["saved": try encoded(p)]
     }
 
     static func anyConnectServer(_ c: [String: JSON]) throws -> [String: JSON] {
