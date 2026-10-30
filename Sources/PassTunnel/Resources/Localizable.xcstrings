@@ -10326,6 +10326,26 @@
           }
         }
       }
+    },
+    "(experimental)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(deneysel)"
+          }
+        }
+      }
+    },
+    "%@ support is experimental. Please report how it works: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ desteği deneyseldir. Nasıl çalıştığını lütfen bildirin: %@"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

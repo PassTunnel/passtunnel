@@ -537,7 +537,7 @@ final class CLIRunner {
         type.isExperimental ? typeName(type) + " " + experimentalLabel : typeName(type)
     }
 
-    static let experimentalLabel = "(experimental)"
+    static var experimentalLabel: String { String(localized: "(experimental)") }
 
     /// Where reports on an experimental type go: the issue template for GlobalProtect (docs/ARCHITECTURE.md,
     /// "Experimental").
@@ -546,7 +546,7 @@ final class CLIRunner {
     /// The one line after `add` or `import` of an experimental profile, to standard error.
     static func experimentalFeedbackLine(_ type: VPNType) -> String? {
         guard type.isExperimental else { return nil }
-        return "\(typeName(type)) support is experimental. Please report how it works: \(globalProtectReportURL)"
+        return String(localized: "\(typeName(type)) support is experimental. Please report how it works: \(globalProtectReportURL)")
     }
 
     /// A profile's `show --json` `profile` object: the stored settings, and `experimental` for an experimental type.
