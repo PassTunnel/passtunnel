@@ -830,10 +830,18 @@ a kill), with these differences (G7). The type is labelled experimental here too
   for GlobalProtect while AnyConnect keeps 9.01; 9.11 and 9.12 with `disable-ipv6`, 9.20 and 9.21 without; never for
   AnyConnect), and refused requests. The CI job "Cisco AnyConnect in passtunneld (no tunnel)" also starts GlobalProtect
   through the daemon: a stand-in printing 9.01 refused with the message above, then Ubuntu's 9.12 against a local socket
-  that never answers, with `protocol gp` and `disable-ipv6`. Sign-in tests against openconnect's GlobalProtect test
-  server (ARCHITECTURE.md, "Tests (G8)") are planned in #235, to run with Ubuntu's 9.12 and `disable-ipv6` rendered;
-  until then the Linux sign-in is tested only with a fake runner, never against a server. No GlobalProtect tunnel runs
-  in CI (no open-source gateway exists).
+  that never answers, with `protocol gp` and `disable-ipv6`. **Against a server** (#235,
+  [Tests/globalprotect](../Tests/globalprotect/README.md)): on every run, the CI job "Palo Alto GlobalProtect against
+  openconnect's test server" starts openconnect's own `tests/fake-gp-server.py` (from the pinned openconnect tarball,
+  checked by its SHA-256, run unchanged with Debian's Python and Flask) once per configuration, and signs in with
+  Ubuntu's 9.12 (`disable-ipv6` rendered, so no `preferred-ipv6` in the cookie) through `ConnectionManager` and a fake
+  helper (`FakeGPServerSignInTests`): the portal and its gateway, a code at the portal, at the gateway and at both
+  (the second code of a later window), `skip_portal`, two gateways with and without the profile's, SAML at the portal
+  and the gateway, the pins and the CA, a gateway's certificate failing after the portal, and the start request
+  through the daemon's checks and the root file it renders, run until the gateway refuses its configuration. Not a
+  required check. What the server cannot do (a refused password, code reuse, HIP, another gateway key) stays with the
+  fake-runner tests. No GlobalProtect tunnel runs in CI (no open-source gateway exists); a real gateway is checked by
+  hand (the README's checklist).
 
 ## Rules
 

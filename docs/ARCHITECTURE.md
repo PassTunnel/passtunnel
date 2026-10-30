@@ -2158,7 +2158,8 @@ openconnect's own reconnect, and kills openconnect to check the daemon's revert 
 ([Profile (G2)](#profile-g2)); the helper's side, protocol 5 (G3, #230: the Mac's helper starts a GlobalProtect
 session it is sent, `passtunneld` refuses one); connecting in Core (G4, #231: the sign-in, the start request, the
 failures, the HIP notice; on macOS 15.4 and later, [As built (G4)](#as-built-g4-231)); `passtunneld` running it with
-the distribution's openconnect 9.11 or later (G7, #234, [As built (G7)](#as-built-g7-234)). Phase 2
+the distribution's openconnect 9.11 or later (G7, #234, [As built (G7)](#as-built-g7-234)); the sign-in tested on
+every CI run against openconnect's own test server (G8, #235, [As built (G8)](#as-built-g8-235)). Phase 2
 of #2: Palo Alto GlobalProtect
 through the same
 openconnect (`protocol gp`), with a password and a TOTP code, no SAML or other single sign-on, on macOS 15.4 and
@@ -2765,6 +2766,42 @@ both, with the second part written after the first code's window; a portal with 
 pins; the masking of the override cookies; the cookie's checks and the helper's refusal of every wrong field. The hook
 needs no new code; `Tests/Fixtures/openconnect-env.json` gains environments as `gpst.c` builds them (many DNS
 suffixes, IPv6 includes, `0.0.0.0/0` includes).
+
+### As built (G8, #235)
+
+- **The image** (`Tests/globalprotect`, [its README](../Tests/globalprotect/README.md)): `start-server.sh` reads
+  `OPENCONNECT_VERSION` from `scripts/release.env`, refuses a `fake-gp-server.sha256` for another version, downloads
+  the tarball (or takes the one cached by its hash), checks its SHA-256 before reading anything from it, extracts
+  `tests/fake-gp-server.py` alone into a temporary directory and builds the image (Debian 13 by digest, its
+  `python3` and `python3-flask`; Dependabot watches the digest) with that file as the build context `fake-gp`; the
+  CA and one server key are made at build time. `entrypoint.sh` runs the script once per configuration, each on a
+  port of its own at the container's address (the script lists its gateways at the address it listens on), and sets
+  each through `/CONFIGURE`: one gateway; two; a code at the portal with `portal-userauthcookie`; at the gateway; at
+  both (no cookie); SAML at the portal; a code at the portal and SAML at the gateway; and one gateway whose
+  certificate names `vpn.example.com` only. The three challenge encodings are each used at least once.
+- **The tests** are `FakeGPServerSignInTests` (Core), only with `PASSTUNNEL_TEST_GP_SERVER`: real sign-ins through
+  `ConnectionManager` with the distribution's openconnect, the real clock and `FakeHelper`, as `OcservSignInTests`.
+  Each successful one checks the start request through the helper's wire format, `HelperCore.openConnectConfig` and
+  `checkRendered` (with `disable-ipv6` exactly when the tool is older than 9.20, which the cookie shows: the server
+  gives `preferred-ipv6` only when `ipv6-support=yes` was sent), and that no password, code, cookie or `authcookie`
+  reaches the log, the errors or the activity. The cases: [the README's list](../Tests/globalprotect/README.md#the-tests),
+  with the trust offers ("Trust this server", "Trust This Gateway…" with the portal's pin) and `chooseGateway` taken
+  through to a second, successful connect, and the root file run with the real cookie until the gateway refuses its
+  configuration (the server's state is an HTTP cookie of the sign-in run). Linux only: the container's address is not
+  reachable from macOS, so a Mac's run goes through the Swift container too, and openconnect 9.21's output stays
+  covered by the unit tests' fixtures.
+- **Not testable against it**, so unit-tested only (the README lists them): a refused password or code, code reuse
+  and the windows, a gateway with another key and the two-server rule's refusals (its gateways are always itself),
+  the HIP request (its check always answers "no", and only the tunnel run asks), "neither a portal nor a gateway",
+  `portal-prelogonuserauthcookie` and unknown `<jnlp>` arguments in the masks, server text imitating openconnect's
+  lines, `combined` delivery, and the tunnel itself.
+- **CI:** the job "Palo Alto GlobalProtect against openconnect's test server" (`ci.yml`) on every pull request and
+  push, with Ubuntu 24.04's openconnect 9.12 (`disable-ipv6` rendered); not a required check, for the reasons the
+  ocserv job is not one (infradead.org on a cache miss, Docker Hub, the mirrors).
+- **The hook:** three environments as `gpst.c` builds them in `openconnect-env.json` (a /32 address, access routes in
+  reverse order, the `dns-suffix` list as default domains without a split-DNS list or banner; `0.0.0.0/0`, a full
+  tunnel with IPv6 blocked; an IPv6 address with `access-routes-v6`); the hook's results are its Cisco AnyConnect ones.
+- **A real gateway** is checked by hand: [the README's checklist](../Tests/globalprotect/README.md#against-a-real-gateway-manual).
 
 ### Experimental (G2, G5, G6, G9)
 

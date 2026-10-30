@@ -412,7 +412,9 @@ build again and send the pins as a pull request (`fix(deps): bundle openvpn 2.7.
 The release workflow and the Repeatable build run `brew update`, install `openvpn`, `openfortivpn`
 and `openconnect` and upgrade exactly the bundled formulas (the runner image ships older versions of some, which
 `brew install` leaves alone), so both stop as soon as Homebrew has moved past a pin; the same pull
-request fixes that. For a local build against other
+request fixes that. A new `OPENCONNECT_VERSION` also needs that tarball's SHA-256 (Homebrew's formula
+pins it) in `Tests/globalprotect/fake-gp-server.sha256`, in the same pull request: the GlobalProtect sign-in
+tests take their server from it and stop on a hash file for another version. For a local build against other
 versions, `PASSTUNNEL_ALLOW_UNPINNED_TOOLS=1 scripts/build-app.sh` only warns; `release.sh`
 refuses to run with it set.
 

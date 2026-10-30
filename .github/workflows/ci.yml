@@ -29,10 +29,15 @@
 #   against ocserv    Docker network, and OcservSignInTests in the Swift container with Ubuntu's
 #                     openconnect: real sign-ins through ConnectionManager, no tunnel (Tests/ocserv/
 #                     README.md). The tunnel itself is ocserv-tunnel.yml, which is not a required check
+#   Palo Alto         openconnect's own GlobalProtect test server (tests/fake-gp-server.py from the
+#   GlobalProtect     pinned openconnect tarball, checked by its SHA-256, run unchanged; Tests/globalprotect)
+#   against           on a Docker network, and FakeGPServerSignInTests in the Swift container with
+#   openconnect's     Ubuntu's openconnect: real sign-ins to a portal and its gateways through
+#   test server       ConnectionManager, no tunnel (Tests/globalprotect/README.md). Not a required check
 #   Release scripts   shellcheck of next-version.sh, its test, build-linux.sh, coverage-report.sh, compare-app.sh,
 #                     verify-build.sh, check-tool-symbols.sh, its test, make-system-symbols.sh and
 #                     test-bundled-config-paths.sh, swift-retry.sh and its test, the scripts of
-#                     Tests/ocserv, and the self-tests of
+#                     Tests/ocserv and Tests/globalprotect, and the self-tests of
 #                     scripts/next-version.sh (in a temporary repository) and swift-retry.sh
 #   Site              shellcheck of the site scripts and scripts/check-site.sh, the static checks
 #                     of the website in site/ (docs/WEBSITE.md)
@@ -996,6 +1001,70 @@ jobs:
         if: always()
         run: docker logs ocserv 2>&1 | tail -n 200
 
+  # Palo Alto GlobalProtect's sign-in against openconnect's own test portal and gateway,
+  # tests/fake-gp-server.py, run unchanged with Debian's Python and Flask in the image of
+  # Tests/globalprotect: start-server.sh takes it from the openconnect tarball of the version
+  # scripts/release.env pins (cached here by its hash), checked against Tests/globalprotect/
+  # fake-gp-server.sha256 before anything is read from it, and starts one server per configuration at
+  # 172.31.212.10 on a network of its own, which the client container also knows as vpn.example.com.
+  # FakeGPServerSignInTests (only with PASSTUNNEL_TEST_GP_SERVER) runs Ubuntu's openconnect (9.12:
+  # disable-ipv6 rendered) through ConnectionManager with a fake helper: the portal and its gateway with
+  # the password alone, a code at the portal (with its override cookie, masked), at the gateway, at both
+  # (the second code of a later window), skip_portal, two gateways with and without the profile's, SAML
+  # at the portal and at the gateway, the pins, the CA, a gateway whose certificate fails after the
+  # portal and the offer to trust it, no server at a port, and the root file the helper renders, run
+  # with the real cookie up to the gateway's configuration. Not a required check
+  # (Tests/globalprotect/README.md, "In CI").
+  globalprotect:
+    name: Palo Alto GlobalProtect against openconnect's test server
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      # swift:6.4.1-noble, the image of the Linux jobs, pinned by the digest of its multi-arch index.
+      SWIFT_IMAGE: swift:6.4.1-noble@sha256:19cbe56bdaec1918f7cf5fdeba42b9bd55bdd8a6149c9990d0e0e3a89a127d63
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build/repositories
+          key: swiftpm-repositories-${{ hashFiles('Package.resolved') }}
+
+      # The tarball is checked against the hash on every run, cached or not.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/openconnect-tarball
+          key: openconnect-tarball-${{ hashFiles('Tests/globalprotect/fake-gp-server.sha256') }}
+
+      - name: Start the test server
+        run: Tests/globalprotect/start-server.sh "$RUNNER_TEMP/openconnect-tarball" "$RUNNER_TEMP/fake-gp"
+
+      - name: Sign in (no tunnel)
+        run: |
+          set -euo pipefail
+          docker run --rm --network passtunnel-fake-gp --add-host vpn.example.com:172.31.212.10 -v "$PWD:/src" -w /src \
+            -v "$RUNNER_TEMP/fake-gp:/fake-gp:ro" -e PASSTUNNEL_STRICT_WARNINGS=1 "$SWIFT_IMAGE" bash -c '
+            set -euo pipefail
+            git config --global --add safe.directory "*"
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update -qq
+            apt-get install -y -qq --no-install-recommends openconnect ca-certificates >/dev/null
+            openconnect --version | head -n 1
+            scripts/swift-retry.sh swift build --build-tests
+            PASSTUNNEL_TEST_GP_SERVER=172.31.212.10 PASSTUNNEL_TEST_GP_NAME=vpn.example.com PASSTUNNEL_TEST_GP_CA=/fake-gp/ca.pem \
+              PASSTUNNEL_TEST_GP_PIN="$(cat /fake-gp/pin.txt)" \
+              swift test --skip-build --filter FakeGPServerSignInTests 2>&1 | tee signin.txt
+            if grep -qE "^Test Case .* skipped" signin.txt; then echo "a test was skipped"; exit 1; fi
+            test "$(grep -c "^Test Case .FakeGPServerSignInTests\..* passed" signin.txt)" = 18'
+
+      - name: The server's log
+        if: always()
+        run: |
+          docker logs passtunnel-fake-gp 2>&1 | tail -n 20 || true
+          docker exec passtunnel-fake-gp sh -c 'for f in /var/log/fake-gp/*.log; do echo "--- $f"; tail -n 40 "$f"; done' || true
+
   scripts:
     name: Release scripts
     runs-on: ubuntu-latest
@@ -1012,7 +1081,8 @@ jobs:
             scripts/compare-app.sh scripts/verify-build.sh scripts/check-tool-symbols.sh scripts/test-check-tool-symbols.sh \
             scripts/make-system-symbols.sh scripts/test-bundled-config-paths.sh \
             scripts/swift-retry.sh scripts/test-swift-retry.sh \
-            Tests/ocserv/entrypoint.sh Tests/ocserv/cut.sh Tests/ocserv/tunnel-test.sh Tests/ocserv/run-tunnel-tests.sh
+            Tests/ocserv/entrypoint.sh Tests/ocserv/cut.sh Tests/ocserv/tunnel-test.sh Tests/ocserv/run-tunnel-tests.sh \
+            Tests/globalprotect/entrypoint.sh Tests/globalprotect/start-server.sh
 
       - name: Self-test of next-version.sh
         run: scripts/test-next-version.sh

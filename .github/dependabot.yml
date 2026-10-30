@@ -6,7 +6,8 @@
 #   Docker           "build(deps): bump …" no release (the Dockerfile's base images are not shipped)
 #
 # Docker covers the base images pinned by tag and digest in the root Dockerfile and in the test
-# server's and test clients' Tests/ocserv/Dockerfile and Tests/ocserv/client.Dockerfile. It does not see
+# server's and test clients' Tests/ocserv/Dockerfile and Tests/ocserv/client.Dockerfile, and in the
+# GlobalProtect test server's Tests/globalprotect/Dockerfile. It does not see
 # the images pinned in .github/workflows/ci.yml (`container:`, SWIFT_IMAGE and the BUILD_IMAGE /
 # CLEAN_IMAGE variables) and ocserv-tunnel.yml: Dependabot updates none of them, so those are bumped by hand,
 # together with the Dockerfile's build image, which is meant to stay the one of the Linux CI jobs.
@@ -40,7 +41,7 @@ updates:
         patterns: ["*"]
 
   - package-ecosystem: docker
-    directories: ["/", "/Tests/ocserv"]
+    directories: ["/", "/Tests/ocserv", "/Tests/globalprotect"]
     target-branch: dev
     schedule:
       interval: weekly
