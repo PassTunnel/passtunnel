@@ -701,8 +701,9 @@ safe to leave out; `--json` adds them as `skipped` (docs/CLI-JSON.md). A blockin
 command with `config_invalid`, listing every such line.
 
 `secret-store [STORE]` exists on Linux only (the Mac has the Keychain; there the command, its help and
-completion are absent). Without STORE it prints the store in use, how it was chosen and, when it
-cannot be used from this process, why (exit 1). STORE is `auto`, `secret-service`, `systemd-creds` or
+completion are absent). Without STORE it prints the store in use, how it was chosen, each store
+`auto` passed over with why ("Not used: systemd-creds: …") and, when it cannot be used from this
+process, why (exit 1). STORE is `auto`, `secret-service`, `systemd-creds` or
 `file` (anything else is a usage error): it is saved as the setting `secret_store`, and a store named
 explicitly is also recorded as the one in use (`secret_store_used`), so a later `auto` keeps it.
 Secrets are not moved: after a change it says to save them again with `passtunnel secret`. `--json`

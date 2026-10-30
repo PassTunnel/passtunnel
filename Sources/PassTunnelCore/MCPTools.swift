@@ -483,7 +483,8 @@ enum Schema {
     static let secretStore = result(
         [
             "name": string, "available": bool, "setting": oneOf(SecretStoreChoice.allCases.map(\.rawValue)),
-            "chosen_by": oneOf(["environment", "setting", "recorded", "auto"]), "error": string
+            "chosen_by": oneOf(["environment", "setting", "recorded", "auto"]), "error": string,
+            "skipped": array(result(["name": string, "error": string], required: ["name", "error"]))
         ], required: ["name", "available", "setting", "chosen_by"])
 
     /// `NetworkStatus`: online or not, and over what kind of interface (both absent when unknown).

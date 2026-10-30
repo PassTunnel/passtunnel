@@ -39,7 +39,9 @@ install -m 0755 "$BIN/passtunnel" /usr/local/bin/passtunnel
 getent group passtunnel >/dev/null || groupadd --system passtunnel
 id "$USER_NAME" >/dev/null 2>&1 || useradd --create-home --groups passtunnel "$USER_NAME"
 home="$(getent passwd "$USER_NAME" | cut -d: -f6)"
-pt() { runuser -u "$USER_NAME" -- env -i HOME="$home" PATH=/usr/bin:/bin PASSTUNNEL_SECRET_STORE=file PASSTUNNEL_PASSPHRASE_FILE="$home/passphrase" \
+# The secret store is detected (`auto`): with no session bus, and systemd-creds unusable for alice (not
+# installed, older than 256, or systemd not running as init), it is the file, with its passphrase file.
+pt() { runuser -u "$USER_NAME" -- env -i HOME="$home" PATH=/usr/bin:/bin PASSTUNNEL_PASSPHRASE_FILE="$home/passphrase" \
     LANG=C.UTF-8 /usr/local/bin/passtunnel "$@"; }
 
 /usr/local/sbin/passtunneld >>"$OUT/daemon.log" 2>&1 &
@@ -72,6 +74,16 @@ step "the profile"
 getent ahostsv4 "$SERVER" | sed -n 1p
 install -m 0600 -o "$USER_NAME" /dev/null "$home/passphrase"
 printf '%s\n' 'a passphrase for this test only' >"$home/passphrase"
+pt secret-store --json >"$OUT/secret-store.json" || { cat "$OUT/secret-store.json"; fail "no usable secret store"; }
+jq -c . "$OUT/secret-store.json"
+if [[ ! -d /run/systemd/system ]]; then
+    # Without systemd as init, auto must not take systemd-creds (#213), and must say why when it is installed.
+    jq -e '.name == "file" and .chosen_by == "auto"' "$OUT/secret-store.json" >/dev/null || fail "auto did not take the file"
+    if [[ -x /usr/bin/systemd-creds ]]; then
+        jq -e '[.skipped[]? | select(.name == "systemd-creds")] | length == 1' "$OUT/secret-store.json" >/dev/null \
+            || fail "secret-store does not say why systemd-creds is not used"
+    fi
+fi
 pt add Acme --type anyconnect --server "https://$SERVER/" --json | jq -e '.id == "acme"' >/dev/null
 pt set acme username="$USER_NAME" server_cert="$PIN" otp_mode=totp tls_only=true set_dns=true set_routes=true --json >/dev/null
 printf '%s' 'example-password' | pt secret acme password --json | jq -e .saved >/dev/null
