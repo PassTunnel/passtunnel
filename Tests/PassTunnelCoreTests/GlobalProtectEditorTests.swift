@@ -190,22 +190,28 @@ final class GlobalProtectEditorTests: XCTestCase {
     // MARK: statuses
 
     func testTheNewFailuresHaveTheirStatus() {
-        func status(_ failure: ConnectionFailure, gatewayRequired: Bool = false) -> DisplayStatus {
-            DisplayStatus(
-                DisplayStatus.Facts(Self.profile(), state: .disconnected, lastError: "x", failure: failure, gatewayRequired: gatewayRequired))
+        func status(_ failure: ConnectionFailure) -> DisplayStatus {
+            DisplayStatus(DisplayStatus.Facts(Self.profile(), state: .disconnected, lastError: "x", failure: failure))
         }
         let at = Date(timeIntervalSince1970: 1_800_000_000)
         XCTAssertEqual(status(ConnectionFailure(kind: .ssoRequired, at: at)), .failed(.ssoRequired))
         var list = ConnectionFailure(kind: .configuration, at: at, credentialsSent: true)
         XCTAssertEqual(status(list), .failed(.message("x")))
-        XCTAssertEqual(status(list, gatewayRequired: true), .failed(.gatewayRequired), "labels unreadable, the manager knows")
+        list.detail = .gatewayRequired
+        XCTAssertEqual(status(list), .failed(.gatewayRequired), "labels unreadable: the typed detail says it")
+        list.detail = nil
         list.gateways = ["US East"]
         XCTAssertEqual(status(list), .failed(.gatewayRequired))
+        var notGP = ConnectionFailure(kind: .configuration, at: at)
+        notGP.detail = .notGlobalProtectServer
+        XCTAssertEqual(status(notGP), .failed(.notGlobalProtectServer))
+        // The reason's text decides nothing: the words alone are another configuration failure.
         XCTAssertEqual(
-            status(ConnectionFailure(kind: .configuration, at: at, reason: VPNLog.notGlobalProtectServer)), .failed(.notGlobalProtectServer))
+            status(ConnectionFailure(kind: .configuration, at: at, reason: VPNLog.notGlobalProtectServer)), .failed(.message("x")))
         var key = ConnectionFailure(kind: .configuration, at: at, credentialsSent: true)
         key.serverCert = Self.pin
-        XCTAssertEqual(status(key, gatewayRequired: true), .failed(.serverNotTrusted), "a key first")
+        key.detail = .gatewayRequired
+        XCTAssertEqual(status(key), .failed(.serverNotTrusted), "a key first")
 
         for s in [DisplayStatus.failed(.ssoRequired), .failed(.gatewayRequired), .failed(.notGlobalProtectServer)] {
             XCTAssertFalse(s.summary(at: at).isEmpty)
@@ -213,6 +219,21 @@ final class GlobalProtectEditorTests: XCTestCase {
             XCTAssertEqual(s.action, .tryAgain)
         }
         XCTAssertEqual(DisplayStatus.failed(.notGlobalProtectServer).line(at: at), VPNLog.notGlobalProtectServer)
+    }
+
+    /// The detail is the app's: `status --json` and the MCP tools report the failure exactly as before.
+    func testTheDetailIsNotInTheJSON() throws {
+        let at = Date(timeIntervalSince1970: 1_800_000_000)
+        var failure = ConnectionFailure(kind: .configuration, at: at, reason: "r", credentialsSent: true)
+        failure.gateways = ["US East"]
+        let before = try JSONCoding.encoder().encode(failure)
+        failure.detail = .gatewayRequired
+        XCTAssertEqual(try JSONCoding.encoder().encode(failure), before)
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: before) as? [String: Any])
+        XCTAssertFalse(json.keys.contains { $0.lowercased().contains("detail") })
+        let decoded = try JSONCoding.decoder().decode(ConnectionFailure.self, from: before)
+        XCTAssertNil(decoded.detail)
+        XCTAssertEqual(decoded.gateways, ["US East"])
     }
 
     func testOnlyGlobalProtectIsExperimental() {
@@ -235,6 +256,7 @@ extension ConnectionManagerTests {
             status: 1)
         let r = try await globalProtectFailure(fake, profile: p)
         XCTAssertEqual(r.error as? PTError, .invalidField("gateway"))
+        XCTAssertEqual(r.failure.detail, .gatewayRequired)
         let choice = try XCTUnwrap(r.manager.gatewayChoice(p.id))
         XCTAssertEqual(choice.labels, ["US East", "EU West", "APAC"])
         XCTAssertEqual(choice.portal, "vpn.example.com:8443")
@@ -255,6 +277,37 @@ extension ConnectionManagerTests {
         XCTAssertNil(r.manager.gatewayChoice(p.id))
         XCTAssertThrowsError(try r.manager.chooseGateway(choice, label: "APAC"))
         XCTAssertEqual(try store.get(p.id).gateway, "EU West")
+    }
+
+    /// A server that is neither a GlobalProtect portal nor a gateway: the sign-in types it, so its status and card hold
+    /// in any language. The failure's reason and error are replaced with their Turkish translations from the catalog, as
+    /// the app shows them with Turkish active; the status still says "not a GlobalProtect server".
+    func testGlobalProtectNotAServerInTurkish() async throws {
+        let stderr =
+            GP.portalPrelogin + GP.portalTLS + "POST https://vpn.example.com:8443/ssl-vpn/prelogin.esp?tmp=tmp&clientVer=4100&clientos=Mac\n"
+            + "Server is neither a GlobalProtect portal nor a gateway.\n" + GP.failed
+        let r = try await globalProtectFailure(FakeGlobalProtect(clock: clock, script: [.stderr(stderr)], status: 1))
+        XCTAssertEqual(r.error as? PTError, .invalidField("host"))
+        XCTAssertEqual(r.failure.detail, .notGlobalProtectServer)
+        XCTAssertFalse(r.failure.credentialsSent)
+        XCTAssertNil(r.manager.gatewayChoice(r.profile.id))
+        XCTAssertEqual(DisplayStatus(DisplayStatus.Facts(r.profile, in: r.manager)), .failed(.notGlobalProtectServer))
+
+        let catalog = try LocalizationTests.loadCatalog()
+        func turkish(_ key: String) throws -> String { try XCTUnwrap(catalog.values[key]?["tr"]?.first, key) }
+        var failure = r.failure
+        failure.reason = try turkish("This server is not a GlobalProtect portal or gateway")
+        XCTAssertNotEqual(failure.reason, VPNLog.notGlobalProtectServer)
+        let error = try turkish("The value of “%@” is not valid.").replacingOccurrences(of: "%@", with: "host")
+        let status = DisplayStatus(DisplayStatus.Facts(r.profile, state: .disconnected, lastError: error, failure: failure))
+        XCTAssertEqual(status, .failed(.notGlobalProtectServer), "the card shows with Turkish active")
+        XCTAssertEqual(status.action, .tryAgain)
+
+        // The gateway list too: typed by the sign-in, whatever the labels or the language.
+        var list = ConnectionFailure(kind: .configuration, at: t0, credentialsSent: true)
+        list.detail = .gatewayRequired
+        XCTAssertEqual(
+            DisplayStatus(DisplayStatus.Facts(r.profile, state: .disconnected, lastError: error, failure: list)), .failed(.gatewayRequired))
     }
 
     /// The gateway's key: the card knows which gateway; the confirmation saves the gateway's key only with the portal's

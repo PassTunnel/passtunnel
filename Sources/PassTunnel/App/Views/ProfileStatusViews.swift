@@ -17,7 +17,7 @@ extension AppModel {
             DisplayStatus.Facts(
                 p, state: state(id), reconnect: reconnectInfo(id), codeWaitUntil: previewCodeWaits[id], lastError: error(id),
                 notResponding: isUnreachable(id), droppedUnseen: dropped, failure: failure(id), retry: unreachableRetry(id),
-                refusal: connectRefusal(p.type), gatewayRequired: previewFailures.gatewayChoices[id] != nil))
+                refusal: connectRefusal(p.type)))
     }
 }
 

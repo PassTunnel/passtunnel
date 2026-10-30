@@ -68,15 +68,15 @@ public enum DisplayStatus: Equatable, Sendable {
         /// does not support (`ConnectionFailure.Kind.ssoRequired`).
         case ssoRequired
         /// Palo Alto GlobalProtect: the portal lists more than one gateway and the profile names none of them
-        /// (`ConnectionFailure.gateways`, `ConnectionManager.gatewayChoice`).
+        /// (`ConnectionFailure.Detail.gatewayRequired`; the labels, when they could be read, `gateways`).
         case gatewayRequired
-        /// Palo Alto GlobalProtect: the server is neither a portal nor a gateway (`VPNLog.notGlobalProtectServer`).
+        /// Palo Alto GlobalProtect: the server is neither a portal nor a gateway
+        /// (`ConnectionFailure.Detail.notGlobalProtectServer`).
         case notGlobalProtectServer
 
-        /// The reason `failure` gives for the last error; the error's own words when the kind has no case.
-        /// `gatewayRequired`: the manager kept the portal's gateways (`ConnectionManager.gatewayChoice`), also when
-        /// their labels could not be read.
-        init(_ failure: ConnectionFailure?, error: String, gatewayRequired: Bool = false) {
+        /// The reason `failure` gives for the last error, from its kind and typed facts (never its text); the error's
+        /// own words when the kind has no case.
+        init(_ failure: ConnectionFailure?, error: String) {
             switch failure?.kind {
             case .authRejected?: self = .signInRejected
             case .hostNotFound?: self = .hostNotFound
@@ -84,8 +84,8 @@ public enum DisplayStatus: Equatable, Sendable {
             case .hostScanRequired?: self = .hostScanRequired
             case .ssoRequired?: self = .ssoRequired
             case .configuration? where failure?.serverCert != nil: self = .serverNotTrusted
-            case .configuration? where gatewayRequired || failure?.gateways != nil: self = .gatewayRequired
-            case .configuration? where failure?.reason == VPNLog.notGlobalProtectServer: self = .notGlobalProtectServer
+            case .configuration? where failure?.detail == .gatewayRequired || failure?.gateways != nil: self = .gatewayRequired
+            case .configuration? where failure?.detail == .notGlobalProtectServer: self = .notGlobalProtectServer
             default: self = .message(error)
             }
         }
@@ -118,15 +118,12 @@ public enum DisplayStatus: Equatable, Sendable {
         public var retry: UnreachableRetry?
         /// `ConnectionManager.connectRefusal`: why this system cannot connect the profile's type.
         public var refusal: PTError?
-        /// `ConnectionManager.gatewayChoice`: the last connect failed for want of one of the portal's gateways.
-        public var gatewayRequired: Bool
-
         public init(
             state: ConnectionState = .disconnected, reconnect: ReconnectInfo? = nil, codeWaitUntil: Date? = nil,
             lastError: String? = nil, warning: String? = nil, notResponding: Bool = false,
             statusUnavailable: Bool = false, droppedUnseen: Bool = false, asksToConnect: Bool = false,
             usesCode: Bool = false, failure: ConnectionFailure? = nil, retry: UnreachableRetry? = nil,
-            refusal: PTError? = nil, gatewayRequired: Bool = false
+            refusal: PTError? = nil
         ) {
             self.state = state
             self.reconnect = reconnect
@@ -141,7 +138,6 @@ public enum DisplayStatus: Equatable, Sendable {
             self.failure = failure
             self.retry = retry
             self.refusal = refusal
-            self.gatewayRequired = gatewayRequired
         }
 
         /// The facts about `p`; what follows from its settings is filled in.
@@ -149,13 +145,13 @@ public enum DisplayStatus: Equatable, Sendable {
             _ p: Profile, state: ConnectionState, reconnect: ReconnectInfo? = nil, codeWaitUntil: Date? = nil,
             lastError: String? = nil, warning: String? = nil, notResponding: Bool = false,
             statusUnavailable: Bool = false, droppedUnseen: Bool = false, failure: ConnectionFailure? = nil,
-            retry: UnreachableRetry? = nil, refusal: PTError? = nil, gatewayRequired: Bool = false
+            retry: UnreachableRetry? = nil, refusal: PTError? = nil
         ) {
             self.init(
                 state: state, reconnect: reconnect, codeWaitUntil: codeWaitUntil, lastError: lastError,
                 warning: warning, notResponding: notResponding, statusUnavailable: statusUnavailable,
                 droppedUnseen: droppedUnseen, asksToConnect: Facts.asksToConnect(p), usesCode: p.otpMode == .totp,
-                failure: failure, retry: retry, refusal: refusal, gatewayRequired: gatewayRequired)
+                failure: failure, retry: retry, refusal: refusal)
         }
 
         /// What `m` reports about `p` now. `droppedUnseen` is the app's to tell.
@@ -166,8 +162,7 @@ public enum DisplayStatus: Equatable, Sendable {
                 p, state: m.state(id), reconnect: m.reconnecting[id], codeWaitUntil: m.codeWaitUntil[id],
                 lastError: m.lastError[id], warning: m.warnings[id], notResponding: m.health[id] == .unreachable,
                 statusUnavailable: m.statusUnavailable.contains(id), droppedUnseen: droppedUnseen,
-                failure: m.failures[id], retry: m.unreachableRetries[id], refusal: m.connectRefusal(p.type),
-                gatewayRequired: m.gatewayChoices[id] != nil)
+                failure: m.failures[id], retry: m.unreachableRetries[id], refusal: m.connectRefusal(p.type))
         }
 
         /// The profile's "Confirm with Touch ID" setting asks before connecting: either level, since the redesign
@@ -204,7 +199,7 @@ public enum DisplayStatus: Equatable, Sendable {
         } else if let refusal = f.refusal {
             self = .unavailable(note: refusal.unavailableNote ?? refusal.localizedDescription, reason: refusal.localizedDescription)
         } else if let error = f.lastError {
-            self = .failed(Failure(f.failure, error: error, gatewayRequired: f.gatewayRequired))
+            self = .failed(Failure(f.failure, error: error))
         } else if f.droppedUnseen {
             self = .dropped
         } else {

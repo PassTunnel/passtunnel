@@ -353,7 +353,8 @@ The main window (`MainSplitView`, decision D-23) is a `NavigationSplitView`, abo
     port or skips the portal. Without readable labels, Show Log and the editor.
   - **Single sign-on required** (`SingleSignOnCard`): the server signs in with SAML in a web page; whether the password
     and code were sent, and "Ask your IT team".
-  - **Not a GlobalProtect server**: the reason and "Is the server’s address right?" (`MessageCard`).
+  - **Not a GlobalProtect server** (`ConnectionFailure.detail`, typed by the sign-in, so in any language): "Your
+    password and code were not sent." and "Is the server’s address right?" (`MessageCard`).
   - **Server not trusted** for the portal (or the only server) is Cisco AnyConnect's card. For the gateway the portal
     sent the sign-in to (`ConnectionManager.failedGateway`) it names the gateway and offers **Trust This Gateway…**,
     whose sheet (`GatewayTrustSheet`, rules in `GatewayTrust`) shows the gateway and its full pin and, when the profile

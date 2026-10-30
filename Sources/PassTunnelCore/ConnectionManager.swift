@@ -1320,6 +1320,7 @@ public final class ConnectionManager: ObservableObject {
             progress.credentialsSent = failure.credentialsSent
             progress.gateways = failure.gateways
             progress.failureReason = failure.reason
+            progress.failureDetail = failure.detail
             if !failure.log.isEmpty { writeSignInLog(id, failure.log) }
             progress.toolRan = !failure.log.isEmpty
             if actionToken[id] != token { throw PTError.connectCancelled }
@@ -1731,6 +1732,8 @@ public final class ConnectionManager: ObservableObject {
         var gateways: [String]?
         /// Palo Alto GlobalProtect: the reason the sign-in's failure gives beside its error.
         var failureReason: String?
+        /// Palo Alto GlobalProtect: what the sign-in's failure showed, typed (`ConnectionFailure.detail`).
+        var failureDetail: ConnectionFailure.Detail?
         /// The profile as the attempt read it.
         var profile: Profile?
     }
@@ -1750,12 +1753,13 @@ public final class ConnectionManager: ObservableObject {
         if failure.kind == .unreachable, let retry = unreachableRetries[id] { failure.tries = retry.tries + (failure.tries ?? 1) }
         if case PTError.invalidField("gateway") = error { failure.gateways = progress.gateways }
         if let reason = progress.failureReason { failure.reason = reason }
+        failure.detail = progress.failureDetail
         failures[id] = failure
         var gateway: String?
         if case PTError.gatewayCertificateRejected(let host, _, _, _) = error { gateway = host }
         trustOffers[id] = progress.profile.flatMap { ServerTrustOffer($0, pin: failure.serverCert, gateway: gateway) }
         failedGateways[id] = failure.serverCert == nil ? nil : gateway
-        if case PTError.invalidField("gateway") = error {
+        if failure.detail == .gatewayRequired {
             gatewayChoices[id] = progress.profile.flatMap { GatewayChoice($0, labels: failure.gateways) }
         } else {
             gatewayChoices[id] = nil

@@ -165,6 +165,8 @@ struct GlobalProtectSignIn: @unchecked Sendable {
         var gateways: [String]?
         /// A reason for the failure beside the error (`VPNLog.notGlobalProtectServer`).
         var reason: String?
+        /// What the sign-in's output showed, typed (`ConnectionFailure.detail`).
+        var detail: ConnectionFailure.Detail?
         var secondPartAt: Date?
     }
 
@@ -176,10 +178,14 @@ struct GlobalProtectSignIn: @unchecked Sendable {
         cancellation: ToolCancellation? = nil
     ) -> Result<Success, Failure> {
         let written = Written()
-        func failed(_ error: Error, log: String = "", sent: Bool = false, gateways: [String]? = nil, reason: String? = nil)
-            -> Result<Success, Failure>
-        {
-            .failure(Failure(error: error, log: log, credentialsSent: sent, gateways: gateways, reason: reason, secondPartAt: written.at))
+        func failed(
+            _ error: Error, log: String = "", sent: Bool = false, gateways: [String]? = nil, reason: String? = nil,
+            detail: ConnectionFailure.Detail? = nil
+        ) -> Result<Success, Failure> {
+            .failure(
+                Failure(
+                    error: error, log: log, credentialsSent: sent, gateways: gateways, reason: reason, detail: detail,
+                    secondPartAt: written.at))
         }
         guard config.protocol == .gp else { return failed(PTError.invalidField("type")) }
         let text: String
@@ -240,9 +246,16 @@ struct GlobalProtectSignIn: @unchecked Sendable {
                     port: config.port, server: server)
             var gateways: [String]?
             var reason: String?
-            if case .invalidField("gateway") = error { gateways = VPNLog.globalProtectGateways(redacted)?.labels }
-            if case .invalidField("host") = error { reason = VPNLog.notGlobalProtectServer }
-            return failed(error, log: AnyConnectSignIn.log(redacted), sent: sent, gateways: gateways, reason: reason)
+            var detail: ConnectionFailure.Detail?
+            if case .invalidField("gateway") = error {
+                gateways = VPNLog.globalProtectGateways(redacted)?.labels
+                detail = .gatewayRequired
+            }
+            if case .invalidField("host") = error {
+                reason = VPNLog.notGlobalProtectServer
+                detail = .notGlobalProtectServer
+            }
+            return failed(error, log: AnyConnectSignIn.log(redacted), sent: sent, gateways: gateways, reason: reason, detail: detail)
         }
         let result: OpenConnectAuthResult
         do {

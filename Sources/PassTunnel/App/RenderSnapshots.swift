@@ -716,6 +716,7 @@ enum RenderSnapshots {
         // The portal lists three gateways and the profile names none; then the same without a readable list.
         var gatewayFailure = ConnectionFailure(kind: .configuration, at: now.addingTimeInterval(-2), credentialsSent: true, codeSent: true)
         gatewayFailure.gateways = ["US East", "US West", "Europe"]
+        gatewayFailure.detail = .gatewayRequired
         let gatewayError = PTError.invalidField("gateway").localizedDescription
         failed(
             "error-gateway-required", gatewayFailure, error: gatewayError,
@@ -730,7 +731,8 @@ enum RenderSnapshots {
         // Single sign-on at the portal; a server that is neither portal nor gateway.
         let sso = ConnectionFailure(kind: .ssoRequired, at: now.addingTimeInterval(-2))
         failed("error-sso-required", sso, error: PTError.ssoRequired(log: "").localizedDescription, preview: FailurePreview(failures: [id: sso]))
-        let notGP = ConnectionFailure(kind: .configuration, at: now.addingTimeInterval(-2), reason: VPNLog.notGlobalProtectServer)
+        var notGP = ConnectionFailure(kind: .configuration, at: now.addingTimeInterval(-2), reason: VPNLog.notGlobalProtectServer)
+        notGP.detail = .notGlobalProtectServer
         failed(
             "error-not-globalprotect", notGP, error: PTError.invalidField("host").localizedDescription,
             preview: FailurePreview(failures: [id: notGP]))
