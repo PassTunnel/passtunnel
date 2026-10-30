@@ -64,12 +64,15 @@ public struct ProfileStore {
     /// characters. FortiGate, Cisco AnyConnect and Palo Alto GlobalProtect profiles default to `.separate` OTP delivery. Keychain items still stored
     /// under the new id (left by a profile removed outside the app, or from before a reinstall) are
     /// deleted first, so the new profile never uses secrets it was not given. `server`: the Cisco AnyConnect
-    /// server's address (`AnyConnectServer.parse`) saved as the profile's `host`, `port` and `usergroup`;
+    /// server's address (`AnyConnectServer.parse`) saved as the profile's `host`, `port` and `usergroup`; for Palo Alto
+    /// GlobalProtect the portal's, from `GlobalProtectServer.parse` as an `AnyConnectServer` with an empty `usergroup`
+    /// (a GlobalProtect profile has none: `PTError.invalidField("usergroup")` otherwise);
     /// `PTError.invalidField("server")` for any other type.
     public func create(name: String, type: VPNType, server: AnyConnectServer? = nil) throws -> Profile {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw PTError.emptyName }
-        if server != nil, type != .anyconnect { throw PTError.invalidField("server") }
+        if server != nil, type != .anyconnect, type != .globalprotect { throw PTError.invalidField("server") }
+        if let server, type == .globalprotect, !server.usergroup.isEmpty { throw PTError.invalidField("usergroup") }
         try paths.ensureDirectories()
         return try withLock {
             let existing = list()

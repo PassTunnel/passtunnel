@@ -202,6 +202,10 @@ public struct ProfileSummary: Codable, Equatable {
     /// distribution's openconnect is checked when connecting). It can still be shown,
     /// edited, exported and deleted. Left out when the profile can connect.
     public var connectRefusal: ErrorReport?
+    /// `true` for a profile of a type that ships labelled experimental (`VPNType.isExperimental`: Palo Alto
+    /// GlobalProtect); left out for every other type, so their output does not change. It may disappear when
+    /// the type stops being experimental.
+    public var experimental: Bool?
 
     /// A profile of an unknown type: only what the file says about it; every setting reads as off.
     public init(_ p: UnsupportedProfile, isDefault: Bool) {
@@ -236,6 +240,7 @@ public struct ProfileSummary: Codable, Equatable {
         connectAtLogin = p.connectAtLogin
         self.state = state.map(ProfileStatus.stateName)
         self.connectRefusal = connectRefusal.map(ErrorReport.init)
+        experimental = p.type.isExperimental ? true : nil
     }
 
     /// From the settings alone (no Keychain access).
@@ -277,6 +282,11 @@ public struct ProfileStatus: Codable, Equatable {
     public var tries: Int?
     /// Why this system cannot connect the profile (see `ProfileSummary.connectRefusal`); left out when it can.
     public var connectRefusal: ErrorReport?
+    /// `true` for a profile of an experimental type (see `ProfileSummary.experimental`); left out otherwise.
+    public var experimental: Bool?
+    /// What the user should know about a connection that is up (`StatusNotice`); only while connected, and left
+    /// out when there is none.
+    public var notices: [NoticeReport]?
 
     public init(
         id: String, name: String, type: String, state: String, phase: String? = nil, ip: String? = nil,
@@ -305,6 +315,7 @@ public struct ProfileStatus: Codable, Equatable {
         self.nextTryAt = nextTryAt
         self.tries = tries
         self.connectRefusal = connectRefusal
+        experimental = VPNType(rawValue: type)?.isExperimental == true ? true : nil
     }
 
     static func stateName(_ state: ConnectionState) -> String {
@@ -313,6 +324,17 @@ public struct ProfileStatus: Codable, Equatable {
         case .connecting: return "connecting"
         case .connected: return "connected"
         }
+    }
+}
+
+/// One `StatusNotice` in `notices`: `kind` (`hip_report_not_sent`) and `message`, the sentence a front end shows.
+public struct NoticeReport: Codable, Equatable {
+    public var kind: String
+    public var message: String
+
+    public init(_ notice: StatusNotice) {
+        kind = notice.rawValue
+        message = notice.message
     }
 }
 
@@ -468,6 +490,8 @@ public struct ProfileCheck: Codable, Equatable {
     public var problems: [ErrorReport]
     /// The last clock measurement for the profile (FortiGate: the gateway's time after a rejected sign-in).
     public var clock: ClockOffset?
+    /// `true` for a profile of an experimental type (see `ProfileSummary.experimental`); left out otherwise.
+    public var experimental: Bool?
 }
 
 /// App identity for `version` and `diagnose`.

@@ -464,6 +464,10 @@ extension AnyConnectCLITests {
         XCTAssertNotEqual(connect.code, 0)
         XCTAssertTrue(helper.starts.isEmpty, "nothing started")
 
-        XCTAssertThrowsError(try CLICommand.parse(["add", "Acme", "--type", "globalprotect"]), "not offered by add yet (#232)")
+        // `add` offers the type since #232 (and refuses it here, as `connect` does).
+        XCTAssertNoThrow(try CLICommand.parse(["add", "Acme", "--type", "globalprotect"]))
+        let add = try await run(.add(name: "Acme 2", type: .globalprotect), macOS: nil)
+        XCTAssertNotEqual(add.code, 0)
+        XCTAssertEqual(store.list().count, 1, "nothing made")
     }
 }

@@ -523,12 +523,12 @@
         }
       }
     },
-    "--server is for Cisco AnyConnect profiles (--type anyconnect)." : {
+    "--server is for Cisco AnyConnect and Palo Alto GlobalProtect profiles (--type anyconnect or globalprotect)." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "--server yalnızca Cisco AnyConnect profilleri içindir (--type anyconnect)."
+            "value" : "--server yalnızca Cisco AnyConnect ve Palo Alto GlobalProtect profilleri içindir (--type anyconnect veya globalprotect)."
           }
         }
       }
@@ -923,12 +923,12 @@
         }
       }
     },
-    "Create an empty profile. --server https://vpn.example.com[:port][/group] fills in the server of a Cisco AnyConnect profile." : {
+    "Create an empty profile. --server https://vpn.example.com[:port][/group] fills in the server of a Cisco AnyConnect or Palo Alto GlobalProtect profile (no /group for GlobalProtect)." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Boş bir profil oluşturur. --server https://vpn.example.com[:port][/grup] bir Cisco AnyConnect profilinin sunucusunu doldurur."
+            "value" : "Boş bir profil oluşturur. --server https://vpn.example.com[:port][/grup] bir Cisco AnyConnect veya Palo Alto GlobalProtect profilinin sunucusunu doldurur (GlobalProtect için /grup yok)."
           }
         }
       }
@@ -1053,12 +1053,12 @@
         }
       }
     },
-    "Missing --type openvpn|forti|anyconnect." : {
+    "Missing --type openvpn|forti|anyconnect|globalprotect." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "--type openvpn|forti|anyconnect eksik."
+            "value" : "--type openvpn|forti|anyconnect|globalprotect eksik."
           }
         }
       }
@@ -4123,12 +4123,12 @@
         }
       }
     },
-    "Unknown VPN type “%@” (use openvpn, forti or anyconnect)." : {
+    "Unknown VPN type “%@” (use openvpn, forti, anyconnect or globalprotect)." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bilinmeyen VPN türü “%@” (openvpn, forti ya da anyconnect kullanın)."
+            "value" : "Bilinmeyen VPN türü “%@” (openvpn, forti, anyconnect veya globalprotect kullanın)."
           }
         }
       }
@@ -10313,6 +10313,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "“%1$@ profiline geç” seçeneği önce %2$@ bağlantısını keser."
+          }
+        }
+      }
+    },
+    "--server needs an address like vpn.example.com[:port] or https://vpn.example.com[:port], without a path, user info, a query or a fragment." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--server şu biçimde bir adres bekler: vpn.example.com[:port] veya https://vpn.example.com[:port]; yol, kullanıcı bilgisi, sorgu veya parça içermemeli."
           }
         }
       }
