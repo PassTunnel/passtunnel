@@ -265,14 +265,19 @@ final class CLIRunner {
         try ConnectionManager.checkConnectable(p, macOS: macOS)
         await manager.refresh()
         if manager.state(p.id).isConnected {
-            if json { try printJSON(automation.status(p)) } else { CLITerminal.out(String(localized: "\(p.name) is already connected.")) }
+            if json {
+                try printJSON(automation.status(p))
+            } else {
+                CLITerminal.out(String(localized: "\(p.name) is already connected."))
+                printNotices(p)
+            }
             return Exit.ok
         }
         if manager.state(p.id).isConnecting {
             // Started elsewhere (the app, another terminal): wait for that connection instead.
             do {
                 try await connectShowingProgress(p, given: [:], joining: true, timeout: timeout)
-                if json { try printJSON(automation.status(p)) }
+                if json { try printJSON(automation.status(p)) } else { printNotices(p) }
                 return Exit.ok
             } catch is ConnectionManager.NothingToFollow {
                 // It ended before it could be followed: connect as usual, with the checks below.
@@ -295,10 +300,16 @@ final class CLIRunner {
         if json {
             try printJSON(automation.status(p, overlaps: overlaps))
         } else {
-            // Palo Alto GlobalProtect: the gateway asked for a host information report, which is never sent.
-            for notice in manager.notices(p.id) { CLITerminal.err(notice.message) }
+            printNotices(p)
         }
         return Exit.ok
+    }
+
+    /// Palo Alto GlobalProtect: what the user should know about the connection that is up (the gateway asked for
+    /// a host information report, which is never sent), on standard error. Every successful human-mode connect
+    /// path ends here, as the JSON paths include `notices`.
+    private func printNotices(_ p: Profile) {
+        for notice in manager.notices(p.id) { CLITerminal.err(notice.message) }
     }
 
     /// Tells the user, on stderr, that tunnels already connected claim some of what `p` does. The connect

@@ -303,7 +303,7 @@ final class GlobalProtectCLITests: CoreTestCase {
 
     func testSetAndShowWorkWhereTheProfileCannotConnect() async throws {
         try makeProfile()
-        for macOS in [macOS153, nil] as [OperatingSystemVersion?] {
+        for macOS in [macOS153, OperatingSystemVersion(majorVersion: 13, minorVersion: 0, patchVersion: 0)] as [OperatingSystemVersion?] {
             let set = try await run(.set(id: "acme", assignments: [.init(key: "gateway", value: "Gateway 2")]), macOS: macOS)
             XCTAssertEqual(set.code, 0, set.err)
             let show = try await run(.show(id: "acme", json: true), macOS: macOS)
@@ -398,6 +398,61 @@ final class GlobalProtectCLITests: CoreTestCase {
         let profiles = try XCTUnwrap(report.json?["profiles"] as? [[String: Any]])
         XCTAssertEqual(profiles.first { $0["id"] as? String == "acme" }?["experimental"] as? Bool, true)
         XCTAssertNil(profiles.first { $0["id"] as? String == "lab" }?["experimental"])
+    }
+
+    static let hipLog =
+        [
+            "WARNING: Server asked us to submit HIP report with md5sum 0123456789abcdef0123456789abcdef.",
+            "    VPN connectivity may be disabled or limited without HIP report submission.",
+            "    You need to provide a --csd-wrapper argument with the HIP report submission script."
+        ].joined(separator: "\n") + "\n"
+
+    /// Human-mode `connect` prints the notice on every successful path: already connected, joining a connection
+    /// another process is establishing, and (JSON has it on all of them) not otherwise.
+    func testConnectPrintsTheHIPNoticeWhenAlreadyConnected() async throws {
+        try makeProfile()
+        helper.simulateExternalStart("acme", profileDir: store.dir("acme").path, since: Date(timeIntervalSince1970: 1_700_000_000))
+        helper.setTunnel("acme", TunnelStatus(state: .up, interface: "utun5"))
+        try Self.hipLog.write(to: store.logURL("acme"), atomically: true, encoding: .utf8)
+        let human = try await run(.connect(id: "acme"))
+        XCTAssertEqual(human.code, 0, human.err)
+        XCTAssertTrue(human.out.contains("already connected"), human.out)
+        XCTAssertTrue(human.err.contains(StatusNotice.hipReportNotSent.message), human.err)
+        let json = try await run(.connect(id: "acme", json: true))
+        XCTAssertEqual((json.json?["notices"] as? [[String: Any]])?.count, 1)
+        XCTAssertEqual(json.err, "")
+    }
+
+    func testConnectPrintsTheHIPNoticeWhenJoiningAConnectionInProgress() async throws {
+        try makeProfile()
+        helper.simulateExternalStart("acme", profileDir: store.dir("acme").path, since: Date(timeIntervalSince1970: 1_700_000_000))
+        helper.setTunnel("acme", TunnelStatus(state: .settingUp))
+        try Self.hipLog.write(to: store.logURL("acme"), atomically: true, encoding: .utf8)
+        // The connection comes up while this process follows it (the clock here is virtual).
+        let helper = self.helper!
+        helper.onStatus = { call in
+            if call >= 4 { helper.setTunnel("acme", TunnelStatus(state: .up, interface: "utun5")) }
+        }
+        let human = try await run(.connect(id: "acme"))
+        XCTAssertEqual(human.code, 0, human.err)
+        XCTAssertTrue(human.err.contains("Already connecting"), human.err)
+        XCTAssertTrue(human.err.contains(StatusNotice.hipReportNotSent.message), human.err)
+    }
+
+    func testAConnectedProfileOfAnotherTypePrintsNoNotice() async throws {
+        let forti = try store.create(name: "Lab", type: .forti)
+        helper.simulateExternalStart(forti.id, profileDir: store.dir(forti.id).path, since: Date(timeIntervalSince1970: 1_700_000_000))
+        let human = try await run(.connect(id: forti.id))
+        XCTAssertFalse(human.err.contains("host information report"), human.err)
+    }
+
+    func testTheToolUnavailableErrorMapsToConfigInvalidAndConfigurationKind() {
+        let error = PTError.globalProtectToolUnavailable("openconnect 9.01 is too old")
+        XCTAssertEqual(AutomationErrorCode.of(error), .configInvalid)
+        XCTAssertEqual(ErrorReport(error).code, "config_invalid")
+        let failure = ConnectionFailure.of(error, log: nil, handed: nil, at: Date(timeIntervalSince1970: 0))
+        XCTAssertEqual(failure.kind, .configuration)
+        XCTAssertFalse(failure.credentialsSent)
     }
 
     func testAConnectedProfileShowsTheHIPNotice() async throws {
