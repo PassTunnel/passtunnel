@@ -635,6 +635,77 @@
       ],
       "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, full tunnel, IPv6 blocked"
     },
+    {
+      "name": "GlobalProtect (gpst.c 431-539): a /32 address, access routes in reverse order, the dns-suffix list as default domains, no split-DNS list, banner or CSTP options",
+      "env": {
+        "CISCO_BANNER": null, "CISCO_CSTP_OPTIONS": null, "CISCO_PROXY_PAC": null, "INTERNAL_IP4_NBNS": null,
+        "IDLE_TIMEOUT": "10800", "INTERNAL_IP4_MTU": "1400",
+        "INTERNAL_IP4_NETMASK": "255.255.255.255", "INTERNAL_IP4_NETMASKLEN": "32", "INTERNAL_IP4_NETADDR": "10.11.0.2",
+        "CISCO_DEF_DOMAIN": "corp.example.com lab.example.com example.com",
+        "CISCO_SPLIT_INC": "2",
+        "CISCO_SPLIT_INC_0_ADDR": "172.16.0.0", "CISCO_SPLIT_INC_0_MASK": "255.240.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "12",
+        "CISCO_SPLIT_INC_1_ADDR": "10.0.0.0", "CISCO_SPLIT_INC_1_MASK": "255.0.0.0", "CISCO_SPLIT_INC_1_MASKLEN": "8"
+      },
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1400",
+        "address utun5 10.11.0.2",
+        "route 172.16.0.0/12 interface utun5",
+        "route 10.0.0.0/8 interface utun5",
+        "dns passtunnel-501-acme utun5 split servers=10.11.0.53,10.11.0.54 search=corp.example.com,lab.example.com,example.com match=corp.example.com,lab.example.com,example.com"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, DNS 10.11.0.53 10.11.0.54, search corp.example.com lab.example.com example.com, split DNS corp.example.com lab.example.com example.com"
+    },
+    {
+      "name": "GlobalProtect: an access route of 0.0.0.0/0 is a full tunnel, IPv6 blocked without an IPv6 address (disable-ipv6), the suffixes searched",
+      "env": {
+        "CISCO_BANNER": null, "CISCO_CSTP_OPTIONS": null, "CISCO_PROXY_PAC": null, "INTERNAL_IP4_NBNS": null,
+        "INTERNAL_IP4_NETMASK": "255.255.255.255", "INTERNAL_IP4_NETMASKLEN": "32", "INTERNAL_IP4_NETADDR": "10.11.0.2",
+        "CISCO_DEF_DOMAIN": "corp.example.com example.com",
+        "CISCO_SPLIT_INC": "1",
+        "CISCO_SPLIT_INC_0_ADDR": "0.0.0.0", "CISCO_SPLIT_INC_0_MASK": "0.0.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "0"
+      },
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 192.0.2.10/32 gateway 198.51.100.1 en0",
+        "route ::/1 reject",
+        "route 8000::/1 reject",
+        "route 0.0.0.0/1 interface utun5",
+        "route 128.0.0.0/1 interface utun5",
+        "dns passtunnel-501-acme utun5 primary servers=10.11.0.53,10.11.0.54 search=corp.example.com,example.com match=-"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, full tunnel, IPv6 blocked, DNS 10.11.0.53 10.11.0.54, search corp.example.com example.com"
+    },
+    {
+      "name": "GlobalProtect with IPv6 (9.20 and later): an IPv6 address, access-routes-v6 as IPv6 includes, an IPv6 DNS server in the assigned network (its own route, as for IPv4)",
+      "env": {
+        "CISCO_BANNER": null, "CISCO_CSTP_OPTIONS": null, "CISCO_PROXY_PAC": null, "INTERNAL_IP4_NBNS": null,
+        "INTERNAL_IP4_NETMASK": "255.255.255.255", "INTERNAL_IP4_NETMASKLEN": "32", "INTERNAL_IP4_NETADDR": "10.11.0.2",
+        "INTERNAL_IP6_ADDRESS": "2001:db8:1::2",
+        "INTERNAL_IP6_NETMASK": "2001:db8:1::2/64",
+        "INTERNAL_IP4_DNS": "10.11.0.53 2001:db8:1::53",
+        "CISCO_DEF_DOMAIN": "corp.example.com",
+        "CISCO_SPLIT_INC": "1",
+        "CISCO_SPLIT_INC_0_ADDR": "10.0.0.0", "CISCO_SPLIT_INC_0_MASK": "255.0.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "8",
+        "CISCO_IPV6_SPLIT_INC": "1",
+        "CISCO_IPV6_SPLIT_INC_0_ADDR": "2001:db8:2::", "CISCO_IPV6_SPLIT_INC_0_MASKLEN": "48"
+      },
+      "underlay": {"ipv4": "198.51.100.1 en0", "ipv6": "fe80::1 en0"},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "address utun5 2001:db8:1::2",
+        "route 10.0.0.0/8 interface utun5",
+        "route 2001:db8:2::/48 interface utun5",
+        "route 2001:db8:1::/64 interface utun5",
+        "route 2001:db8:1::53/128 interface utun5",
+        "dns passtunnel-501-acme utun5 split servers=10.11.0.53,2001:db8:1::53 search=corp.example.com match=corp.example.com"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2001:db8:1::2, 4 routes, DNS 10.11.0.53 2001:db8:1::53, search corp.example.com, split DNS corp.example.com"
+    },
     {"name": "the tunnel's IPv4 address is the VPN server's", "env": {"INTERNAL_IP4_ADDRESS": "192.0.2.10", "INTERNAL_IP4_NETMASK": null, "INTERNAL_IP4_NETMASKLEN": null, "INTERNAL_IP4_NETADDR": null}, "error": "INTERNAL_IP4_ADDRESS is the VPN server's address (VPNGATEWAY)"},
     {"name": "the tunnel's IPv6 address is the VPN server's", "env": {"VPNGATEWAY": "2001:db8:1::2", "INTERNAL_IP6_ADDRESS": "2001:db8:1::2"}, "error": "INTERNAL_IP6_ADDRESS is the VPN server's address (VPNGATEWAY)"},
     {
