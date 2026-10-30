@@ -844,6 +844,9 @@ final class CLIRunner {
         case .auto?, nil: how = String(localized: "Chosen automatically (setting: auto); it is kept once a secret is saved.")
         }
         CLITerminal.out(CLITerminal.dim(how))
+        for skipped in report.skipped ?? [] {
+            CLITerminal.out(CLITerminal.dim(String(localized: "Not used: \(skipped.name): \(skipped.error)")))
+        }
         if !report.available, let error = report.error {
             CLITerminal.fail(String(localized: "It cannot be used here: \(error)"))
         }
@@ -1242,6 +1245,9 @@ final class CLIRunner {
         if let network = report.network { CLITerminal.out(String(localized: "Network: \(network.summary)")) }
         if let secrets = report.secretStore {
             CLITerminal.out(String(localized: "Secret store: \(secrets.name)"))
+            for skipped in secrets.skipped ?? [] {
+                CLITerminal.out("  " + CLITerminal.dim(String(localized: "Not used: \(skipped.name): \(skipped.error)")))
+            }
             if !secrets.available, let error = secrets.error { CLITerminal.out("  " + String(localized: "It cannot be used here: \(error)")) }
         }
         for check in report.profiles {

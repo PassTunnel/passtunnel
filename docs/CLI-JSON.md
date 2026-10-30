@@ -329,12 +329,29 @@ Linux only: from `secret-store` and, as `secret_store`, inside the MCP tool `dia
 }
 ```
 
+Detected in a container without systemd as init, over SSH:
+
+```json
+{
+  "available" : true,
+  "chosen_by" : "auto",
+  "name" : "file",
+  "setting" : "auto",
+  "skipped" : [
+    { "error" : "The Secret Service cannot be reached: there is no session bus here …", "name" : "secret-service" },
+    { "error" : "systemd-creds encrypts credentials for a user through systemd, which is not running here …", "name" : "systemd-creds" }
+  ]
+}
+```
+
 `name`: the store in use, `secret-service`, `systemd-creds` or `file` (or the unknown value of
 `PASSTUNNEL_SECRET_STORE`). `available`: it can be used from this process now (a Secret Service that
-answers, systemd 256 or later for a user, a passphrase that can be had for the file). `setting`: `auto`
-or a store's name. `chosen_by`: `environment` (`PASSTUNNEL_SECRET_STORE`), `setting`, `recorded` (where
-the first secret was saved) or `auto` (detected, nothing recorded yet). `error` says why it is not
-available.
+answers; for systemd-creds, systemd 256 or later and running for a user, and a test value that
+encrypts and decrypts; a passphrase that can be had for the file). `setting`: `auto` or a store's
+name. `chosen_by`: `environment` (`PASSTUNNEL_SECRET_STORE`), `setting`, `recorded` (where the first
+secret was saved) or `auto` (detected, nothing recorded yet). `error` says why it is not available.
+`skipped` (only with `chosen_by` `auto`, and only when there are any): the stores detection tried
+before this one, each with `name` and the `error` that kept it from being used.
 
 ### DiagnoseReport
 

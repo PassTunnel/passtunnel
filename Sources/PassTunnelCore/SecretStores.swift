@@ -61,6 +61,17 @@ public struct SecretStoreReport: Codable, Equatable {
     public var chosenBy: String
     /// Why it is not available.
     public var error: String?
+    /// Chosen automatically: the stores tried before it, and why each could not be used. Nil when none
+    /// was passed over.
+    public var skipped: [SkippedSecretStore]?
+}
+
+/// A store `auto` passed over (`SecretStoreReport.skipped`).
+public struct SkippedSecretStore: Codable, Equatable, Sendable {
+    /// `secret-service` or `systemd-creds`.
+    public var name: String
+    /// Why it cannot be used from this process.
+    public var error: String
 }
 
 /// The store chosen from `PASSTUNNEL_SECRET_STORE`, then the setting, then the recorded store, then
@@ -69,10 +80,18 @@ public struct SecretStoreReport: Codable, Equatable {
 struct SecretStoreSelection: Equatable {
     var store: SecretStoreChoice
     var source: SecretStoreSource
+    /// Detected (`source` `auto`): the stores passed over before `store`, and why.
+    var skipped: [SkippedSecretStore] = []
+
+    /// What detection found: the store, and the candidates before it that cannot be used.
+    struct Detection: Equatable {
+        var store: SecretStoreChoice
+        var skipped: [SkippedSecretStore] = []
+    }
 
     static func resolve(
         environment: String?, setting: SecretStoreChoice, recorded: SecretStoreChoice?,
-        detect: () -> SecretStoreChoice
+        detect: () -> Detection
     ) throws -> SecretStoreSelection {
         if let environment {
             guard let choice = SecretStoreChoice(rawValue: environment) else {
@@ -82,12 +101,19 @@ struct SecretStoreSelection: Equatable {
         }
         if setting != .auto { return SecretStoreSelection(store: setting, source: .setting) }
         if let recorded, recorded != .auto { return SecretStoreSelection(store: recorded, source: .recorded) }
-        return SecretStoreSelection(store: detect(), source: .auto)
+        let detection = detect()
+        return SecretStoreSelection(store: detection.store, source: .auto, skipped: detection.skipped)
     }
 
-    static func detect(isRoot: Bool, isAvailable: (SecretStoreChoice) -> Bool) -> SecretStoreChoice {
+    /// The first candidate that `unavailability` finds nothing against, else the file.
+    static func detect(isRoot: Bool, unavailability: (SecretStoreChoice) -> SecretStoreUnavailable?) -> Detection {
         let candidates: [SecretStoreChoice] = isRoot ? [.systemdCreds] : [.secretService, .systemdCreds]
-        return candidates.first(where: isAvailable) ?? .file
+        var skipped: [SkippedSecretStore] = []
+        for candidate in candidates {
+            guard let problem = unavailability(candidate) else { return Detection(store: candidate, skipped: skipped) }
+            skipped.append(SkippedSecretStore(name: candidate.rawValue, error: problem.message))
+        }
+        return Detection(store: .file, skipped: skipped)
     }
 }
 
@@ -101,11 +127,13 @@ struct SecretStoreSystem {
     var interaction: SecretStoreInteraction
     var isExecutable: (String) -> Bool
     var isSocket: (String) -> Bool
+    var isDirectory: (String) -> Bool
     /// The file store's key derivation; nil where swift-crypto's scrypt is not built (the Mac).
     var deriveKey: FileSecretStore.DeriveKey?
     /// scrypt's cost for a new secrets file.
     var scryptParameters = ScryptParameters.standard
-    /// Probes (the store detected, the systemd version) are asked once per process.
+    /// Probes (the store detected, the systemd version, a systemd-creds round trip that worked) are
+    /// asked once per process.
     var cachesProbes = false
 
     /// The variables the stores read (and pass on, in part, to their tools).
@@ -130,6 +158,10 @@ struct SecretStoreSystem {
             isSocket: { path in
                 var st = stat()
                 return stat(path, &st) == 0 && (st.st_mode & S_IFMT) == S_IFSOCK
+            },
+            isDirectory: { path in
+                var st = stat()
+                return lstat(path, &st) == 0 && (st.st_mode & S_IFMT) == S_IFDIR
             },
             deriveKey: deriveKey, cachesProbes: true)
     }
@@ -181,7 +213,7 @@ public enum SecretStores {
 
     private static let lock = NSLock()
     /// The store detected for `auto`, by support directory and service (`cachesProbes`).
-    private static var detected: [String: SecretStoreChoice] = [:]
+    private static var detected: [String: SecretStoreSelection.Detection] = [:]
 
     /// The store for `system`, chosen as `SecretStoreSelection` says.
     static func chosen(system: SecretStoreSystem) -> ChosenSecretStore {
@@ -200,7 +232,7 @@ public enum SecretStores {
             .flatMap { $0.isEmpty ? nil : $0 }
     }
 
-    private static func detect(_ system: SecretStoreSystem) -> SecretStoreChoice {
+    private static func detect(_ system: SecretStoreSystem) -> SecretStoreSelection.Detection {
         let key = system.paths.root.path + "\n" + system.service
         if system.cachesProbes {
             lock.lock()
@@ -208,13 +240,13 @@ public enum SecretStores {
             lock.unlock()
             if let known { return known }
         }
-        let choice = SecretStoreSelection.detect(isRoot: system.isRoot) { system.unavailability($0) == nil }
+        let detection = SecretStoreSelection.detect(isRoot: system.isRoot) { system.unavailability($0) }
         if system.cachesProbes {
             lock.lock()
-            detected[key] = choice
+            detected[key] = detection
             lock.unlock()
         }
-        return choice
+        return detection
     }
 
     /// Records `store` as where this user's secrets are, unless one is recorded already. Best effort:
@@ -257,7 +289,8 @@ public enum SecretStores {
             let problem = system.unavailability(selection.store)
             return SecretStoreReport(
                 name: selection.store.rawValue, available: problem == nil, setting: setting,
-                chosenBy: selection.source.rawValue, error: problem?.message)
+                chosenBy: selection.source.rawValue, error: problem?.message,
+                skipped: selection.skipped.isEmpty ? nil : selection.skipped)
         case let .failure(error):
             return SecretStoreReport(
                 name: environmentChoice(system) ?? "", available: false, setting: setting,
@@ -324,6 +357,18 @@ extension SecretStoreUnavailable {
 
     static func systemdCredsFailed(_ message: String) -> Self {
         Self(String(localized: "systemd-creds failed: \(message)"))
+    }
+
+    static var systemdNotRunning: Self {
+        Self(
+            String(
+                localized:
+                    "systemd-creds encrypts credentials for a user through systemd, which is not running here (as in a container without systemd as init)."
+            ))
+    }
+
+    static func systemdCredsProbeFailed(_ message: String) -> Self {
+        Self(String(localized: "systemd-creds cannot encrypt and decrypt here: \(message)"))
     }
 
     static func unsafeDirectory(_ path: String) -> Self {

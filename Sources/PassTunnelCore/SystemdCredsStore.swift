@@ -9,7 +9,10 @@ import Glibc
 /// made and read by `systemd-creds encrypt/decrypt` over standard input and output. The credential's
 /// name (`--name`, the escaped account) is sealed into it, so a file renamed to another account does
 /// not decrypt. Root uses the system's key (host key and TPM2); other users `--user`, which needs
-/// systemd 256 or later. Linux only (docs/LINUX.md); built everywhere for its tests.
+/// systemd 256 or later, running as the service manager (its credential service encrypts for them).
+/// Available only once a throwaway value went through `encrypt` and `decrypt` (`probe`): an installed
+/// `systemd-creds` can still fail, as in a container without systemd as init. Linux only
+/// (docs/LINUX.md); built everywhere for its tests.
 struct SystemdCredsStore: SecretStore {
     /// Where `systemd-creds` is looked for, in this order (never in PATH).
     static let toolPaths = ["/usr/bin/systemd-creds", "/bin/systemd-creds"]
@@ -17,6 +20,11 @@ struct SystemdCredsStore: SecretStore {
     static let minimumUserVersion = 256
     static let timeout: TimeInterval = 30
     static let maxCredentialSize = 1 << 20
+    /// Exists while systemd is the service manager (what `sd_booted` checks); `--user` needs that.
+    static let runningPath = "/run/systemd/system"
+    /// The availability probe's credential name, and its timeout for each of its two runs.
+    static let probeName = "passtunnel-probe"
+    static let probeTimeout: TimeInterval = 10
 
     let system: SecretStoreSystem
 
@@ -49,17 +57,59 @@ struct SystemdCredsStore: SecretStore {
 
     private var tool: String? { Self.toolPaths.first(where: system.isExecutable) }
 
-    /// Why the store cannot be used now; nil when it can.
+    /// Why the store cannot be used now; nil when it can: the checks of `requirements`, then a round
+    /// trip of a throwaway value (`probe`).
     func unavailability() -> SecretStoreUnavailable? {
-        guard let tool else { return .systemdCredsToolMissing }
-        guard !system.isRoot else { return nil }
         do {
-            let version = try Self.version(of: tool, system: system)
-            return version >= Self.minimumUserVersion ? nil : .systemdCredsTooOld(version)
+            try probe(try requirements())
+            return nil
         } catch let error as SecretStoreUnavailable {
             return error
         } catch {
             return .systemdCredsFailed(error.localizedDescription)
+        }
+    }
+
+    /// The tool, after the checks that cost little: it exists; for a user, systemd 256 or later,
+    /// running as the service manager. Asked before every use; the probe only for availability.
+    private func requirements() throws -> String {
+        guard let tool else { throw SecretStoreUnavailable.systemdCredsToolMissing }
+        guard !system.isRoot else { return tool }
+        let version = try Self.version(of: tool, system: system)
+        guard version >= Self.minimumUserVersion else { throw SecretStoreUnavailable.systemdCredsTooOld(version) }
+        guard system.isDirectory(Self.runningPath) else { throw SecretStoreUnavailable.systemdNotRunning }
+        return tool
+    }
+
+    private static let probeLock = NSLock()
+    /// The tools (with their scope) a probe went through, once per process (`cachesProbes`).
+    private static var probed: Set<String> = []
+
+    /// Encrypts a random value that protects nothing under `probeName` and decrypts it again, both over
+    /// standard input and output: no file is written. Throws why that failed. A success is kept for
+    /// the process; a failure is asked again next time.
+    func probe(_ tool: String) throws {
+        let key = tool + (system.isRoot ? " system" : " user")
+        if system.cachesProbes {
+            Self.probeLock.lock()
+            let known = Self.probed.contains(key)
+            Self.probeLock.unlock()
+            if known { return }
+        }
+        let value = Data(("probe " + UUID().uuidString).utf8)
+        let sealed = try invoke(tool, "encrypt", Self.probeName, [], input: value, timeout: Self.probeTimeout)
+        guard sealed.status == 0, !sealed.output.isEmpty else {
+            throw SecretStoreUnavailable.systemdCredsProbeFailed(sealed.failure)
+        }
+        let opened = try invoke(tool, "decrypt", Self.probeName, ["--newline=no"], input: sealed.output, timeout: Self.probeTimeout)
+        guard opened.status == 0 else { throw SecretStoreUnavailable.systemdCredsProbeFailed(opened.failure) }
+        guard opened.output == value else {
+            throw SecretStoreUnavailable.systemdCredsProbeFailed(String(localized: "the test value did not decrypt to itself"))
+        }
+        if system.cachesProbes {
+            Self.probeLock.lock()
+            Self.probed.insert(key)
+            Self.probeLock.unlock()
         }
     }
 
@@ -77,6 +127,8 @@ struct SystemdCredsStore: SecretStore {
             result = try system.runner.run(tool, ["--version"], environment: ["LANG": "C"], input: Data(), timeout: 5)
         } catch let timeout as ToolTimeout {
             throw SecretStoreUnavailable.systemdCredsTimeout(timeout.seconds)
+        } catch {
+            throw SecretStoreUnavailable.systemdCredsFailed(error.localizedDescription)
         }
         guard result.status == 0, let version = parseVersion(result.output) else {
             throw SecretStoreUnavailable.systemdCredsFailed(result.failure)
@@ -91,7 +143,9 @@ struct SystemdCredsStore: SecretStore {
 
     // MARK: SecretStore
 
+    /// A store that cannot be used says so, rather than reporting the secret missing.
     func read(_ account: String) throws -> Data? {
+        _ = try requirements()
         let url = url(account)
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         let sealed: Data
@@ -134,17 +188,23 @@ struct SystemdCredsStore: SecretStore {
 
     // MARK: systemd-creds
 
-    /// `systemd-creds VERB --name=NAME [--user] … - -`: input on standard input, result on standard output.
+    /// `systemd-creds VERB` for `account`, after the checks of `requirements`.
     private func run(_ verb: String, _ account: String, _ options: [String], input: Data) throws -> ToolOutput {
-        if let problem = unavailability() { throw problem }
-        guard let tool else { throw SecretStoreUnavailable.systemdCredsToolMissing }
-        var arguments = [verb, "--name=" + Self.credentialName(account)] + options
+        let tool = try requirements()
+        return try invoke(tool, verb, Self.credentialName(account), options, input: input, timeout: Self.timeout)
+    }
+
+    /// `systemd-creds VERB --name=NAME [--user] … - -`: input on standard input, result on standard output.
+    private func invoke(
+        _ tool: String, _ verb: String, _ name: String, _ options: [String], input: Data, timeout: TimeInterval
+    ) throws -> ToolOutput {
+        var arguments = [verb, "--name=" + name] + options
         if !system.isRoot { arguments.append("--user") }
         arguments += ["-", "-"]
         var environment = ["LANG": "C"]
         for name in ["HOME", "XDG_RUNTIME_DIR"] { environment[name] = system.environment[name] }
         do {
-            return try system.runner.run(tool, arguments, environment: environment, input: input, timeout: Self.timeout)
+            return try system.runner.run(tool, arguments, environment: environment, input: input, timeout: timeout)
         } catch let timeout as ToolTimeout {
             throw SecretStoreUnavailable.systemdCredsTimeout(timeout.seconds)
         } catch {
