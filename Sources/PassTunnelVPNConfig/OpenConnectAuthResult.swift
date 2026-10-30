@@ -102,11 +102,12 @@ public struct OpenConnectAuthResult: Equatable, CustomStringConvertible, CustomD
         public let resolveAddress: String?
 
         public var description: String {
-            "Destination(host: <redacted>, port: \(port), resolveAddress: \(resolveAddress == nil ? "nil" : "<redacted>"))"
+            "Destination(host: <redacted>, port: <redacted>, resolveAddress: \(resolveAddress == nil ? "nil" : "<redacted>"))"
         }
         public var debugDescription: String { description }
         public var customMirror: Mirror {
-            Mirror(self, children: ["host": "<redacted>", "port": port, "resolveAddress": resolveAddress == nil ? "nil" : "<redacted>"])
+            Mirror(
+                self, children: ["host": "<redacted>", "port": "<redacted>", "resolveAddress": resolveAddress == nil ? "nil" : "<redacted>"])
         }
     }
 

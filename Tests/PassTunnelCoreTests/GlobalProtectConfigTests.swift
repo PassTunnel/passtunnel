@@ -331,8 +331,16 @@ final class GlobalProtectConfigTests: XCTestCase {
         dump(c, to: &dumped)
         for text in [c.description, c.debugDescription, String(describing: c), String(reflecting: c), dumped] {
             XCTAssertFalse(text.contains(exampleGPAuthcookie), text)
-            XCTAssertTrue(text.contains("protocol: gp"), text)
+            XCTAssertFalse(text.contains("gw1.example.com"), "the gateway is the portal's choice: \(text)")
         }
+        XCTAssertTrue(c.description.hasPrefix("OpenConnectConfig(protocol: gp, host: <redacted>, port: <redacted>, cookie: <redacted>"))
+        XCTAssertFalse(Mirror(reflecting: c).children.contains { "\($0.value)".contains("gw1.example.com") })
+        // Cisco AnyConnect's host is the profile's own, shown as before.
+        let ac = OpenConnectConfig(
+            host: "vpn.example.com", port: 8443, cookie: "webvpn=EXAMPLE-COOKIE", serverCert: examplePin, resolveAddress: "192.0.2.10",
+            scriptPath: exampleHook)
+        XCTAssertTrue(ac.description.hasPrefix("OpenConnectConfig(protocol: anyconnect, host: vpn.example.com, port: 8443, cookie: <redacted>"))
+        XCTAssertEqual(Mirror(reflecting: ac).children.first { $0.label == "port" }?.value as? Int, 8443)
         XCTAssertFalse(Mirror(reflecting: c).children.contains { "\($0.value)".contains(exampleGPAuthcookie) })
     }
 }
@@ -784,6 +792,31 @@ final class GlobalProtectAuthResultTests: XCTestCase {
         var dumpedResult = ""
         dump(r, to: &dumpedResult)
         shown += [r.description, String(reflecting: r), dumpedResult]
+        // The root configuration the client builds, and the one the helper builds from the start request's fields:
+        // the gateway's host (and port) are the portal's choice, so neither shows them.
+        for port in [443, 4443] {
+            let url = "https://\(secret.lowercased()).example.com\(port == 443 ? "" : ":\(port)")/"
+            let r = try parse(
+                output(
+                    cookie: "authcookie=\(secret)&user=alice&computer=x", url: url,
+                    resolve: "'\(secret.lowercased()).example.com:192.0.2.20'\n"))
+            let client = try r.tunnelConfig(
+                host: "vpn.example.com", port: 443, skipPortal: false, profileServerCert: "", profileGatewayServerCert: "",
+                scriptPath: exampleHook, tlsOnly: false, disableIPv6: false)
+            let helper = try OpenConnectAuthResult.tunnelConfig(
+                protocol: .gp, host: client.host, port: client.port, connectURL: r.connectURL, resolve: r.resolve, cookie: r.tunnelCookie,
+                serverCert: r.fingerprint, profileServerCert: "", profileGatewayServerCert: "", scriptPath: exampleHook, tlsOnly: false,
+                disableIPv6: false)
+            XCTAssertEqual(client.host, "\(secret.lowercased()).example.com", "the tunnel goes to the gateway")
+            for config in [client, helper] {
+                var dumpedConfig = ""
+                dump(config, to: &dumpedConfig)
+                shown += [config.description, config.debugDescription, String(describing: config), String(reflecting: config), dumpedConfig]
+                shown += Mirror(reflecting: config).children.map { "\($0.value)" }
+                XCTAssertFalse(config.description.contains(String(port)), config.description)
+                XCTAssertTrue(config.description.contains("host: <redacted>, port: <redacted>"), config.description)
+            }
+        }
         for t in shown {
             XCTAssertFalse(t.lowercased().contains(secret.lowercased()), t)
             XCTAssertFalse(t.contains("192.0.2.20"), t)

@@ -94,9 +94,11 @@ public struct OpenConnectConfig: Equatable, CustomStringConvertible, CustomDebug
     }
 
     /// The profile's own fields only: the cookie is redacted, and the values the sign-in output supplied
-    /// (the accepted key, the resolved address) are shown only as set or not.
+    /// (the accepted key, the resolved address) are shown only as set or not. For GlobalProtect the host and
+    /// port are the gateway's, which the portal chose (and could make repeat the cookie), so they are
+    /// redacted too.
     public var description: String {
-        "OpenConnectConfig(protocol: \(self.protocol.rawValue), host: \(host), port: \(port), cookie: <redacted>, "
+        "OpenConnectConfig(protocol: \(self.protocol.rawValue), host: \(shownHost), port: \(shownPort), cookie: <redacted>, "
             + "serverCert: \(serverCert.isEmpty ? "<none>" : "<set>"), resolveAddress: \(resolveAddress == nil ? "nil" : "<set>"), "
             + "scriptPath: \(scriptPath), tlsOnly: \(tlsOnly), disableIPv6: \(disableIPv6))"
     }
@@ -105,11 +107,17 @@ public struct OpenConnectConfig: Equatable, CustomStringConvertible, CustomDebug
         Mirror(
             self,
             children: [
-                "protocol": self.protocol.rawValue, "host": host, "port": port, "cookie": "<redacted>",
+                "protocol": self.protocol.rawValue, "host": shownHost, "port": self.protocol == .gp ? "<redacted>" as Any : port,
+                "cookie": "<redacted>",
                 "serverCert": serverCert.isEmpty ? "<none>" : "<set>", "resolveAddress": resolveAddress == nil ? "nil" : "<set>",
                 "scriptPath": scriptPath, "tlsOnly": tlsOnly, "disableIPv6": disableIPv6
             ])
     }
+
+    /// The host and port as descriptions show them: the profile's for Cisco AnyConnect, redacted for
+    /// GlobalProtect (the gateway's, the server's choice).
+    var shownHost: String { self.protocol == .gp ? "<redacted>" : host }
+    var shownPort: String { self.protocol == .gp ? "<redacted>" : String(port) }
 
     public func validate() throws {
         guard OpenConnectSyntax.isValidHost(host) else { throw ValidationError.invalidHost }
