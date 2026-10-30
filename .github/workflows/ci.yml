@@ -499,7 +499,9 @@ jobs:
       # that prints Ubuntu 22.04's 8.20); then a start with the real tool against a local socket that never
       # answers, so openconnect never gets a tunnel, never runs its hook and changes nothing: its config
       # (the cookie only there), arguments, environment, state and hook link, the cookie kept out of the
-      # log, its status, and the stop.
+      # log, its status, and the stop. Palo Alto GlobalProtect (#234) the same way: a stand-in printing
+      # Debian 12's 9.01 refused for it (9.11), then the real tool with `protocol gp` and, below 9.20,
+      # `disable-ipv6`.
       - name: Cisco AnyConnect in passtunneld (no tunnel)
         env:
           DEBIAN_FRONTEND: noninteractive
@@ -525,6 +527,7 @@ jobs:
           daemon=$!
           trap 'kill "$daemon" 2>/dev/null || true; echo "--- daemon log"; cat oc-daemon.log
             echo "--- session log"; cat /home/alice/.local/share/passtunnel/profiles/cisco/vpn.log 2>/dev/null || true
+            echo "--- GlobalProtect session log"; cat /home/alice/.local/share/passtunnel/profiles/palo/vpn.log 2>/dev/null || true
             if [ -e /usr/sbin/openconnect.real ]; then mv /usr/sbin/openconnect.real /usr/sbin/openconnect; fi' EXIT
           for _ in $(seq 100); do
             printf '%s\n' '{"op":"hello"}' | socat -t 5 - "UNIX-CONNECT:$sock" 2>/dev/null | grep -q '"protocol"' && break
@@ -548,10 +551,22 @@ jobs:
           # A connect URL other than the profile's server: refused before anything is prepared.
           start https://vpn.example.com/ | call_as alice | jq -e '.ok == false and (.error | test("another server"))'
           test ! -e "$run"
-          # Palo Alto GlobalProtect (protocol 5): refused before anything is prepared, until passtunneld runs it (#234).
-          start | jq -c '.request.protocol = "gp"' | call_as alice \
-            | jq -e '.ok == false and .error == "Palo Alto GlobalProtect is not supported by passtunneld yet."'
-          test ! -e "$run"
+          # Palo Alto GlobalProtect (#234): a session of the gateway the sign-in ended on, with GlobalProtect's cookie.
+          gpdir=/home/alice/.local/share/passtunnel/profiles/palo
+          runuser -u alice -- mkdir -p "$gpdir"
+          gprun="/run/passtunnel/$uid/palo"
+          gpsecret='EXAMPLE0123456789abcdef'
+          gpcookie="authcookie=$gpsecret&portal=Acme&user=alice&computer=alice-pc"
+          gpstart() {
+            jq -cn --arg dir "$gpdir" --arg cookie "$gpcookie" --arg pin "$pin" \
+              '{op: "perform", request: {type: "start_openconnect", protocol_version: 5, protocol: "gp", profile_id: "palo",
+                profile_dir: $dir, log_path: ($dir + "/vpn.log"), host: "127.0.0.1", port: 10443, usergroup: "",
+                connect_url: "https://127.0.0.1:10443/", cookie: $cookie, server_cert: $pin, profile_server_cert: "",
+                profile_gateway_server_cert: "", tls_only: false, set_dns: true, set_routes: true}}'
+          }
+          # Cisco AnyConnect's cookie in a GlobalProtect start: refused before anything is prepared.
+          gpstart | jq -c --arg c "$cookie" '.request.cookie = $c' | call_as alice | jq -e '.ok == false and (.error | test("cookie"))'
+          test ! -e "$gprun"
           # Ubuntu 22.04's openconnect: refused, naming the minimum.
           mv /usr/sbin/openconnect /usr/sbin/openconnect.real
           printf '%s\n' '#!/bin/sh' 'echo "OpenConnect version v8.20-1"' 'exit 0' >old-openconnect
@@ -559,6 +574,13 @@ jobs:
           start | call_as alice | tee old.json
           jq -e '.error == "openconnect 8.20 is too old: PassTunnel needs 9.01 or later. Update the openconnect package."' old.json
           test ! -e "$run"
+          # Debian 12's and EPEL 9's 9.01: too old for Palo Alto GlobalProtect (9.11), naming the version found and needed.
+          printf '%s\n' '#!/bin/sh' 'echo "OpenConnect version v9.01-3"' 'exit 0' >old-openconnect
+          install -m 0755 old-openconnect /usr/sbin/openconnect
+          gpstart | call_as alice | tee old-gp.json
+          jq -e '.error == "openconnect 9.01 is too old for Palo Alto GlobalProtect: PassTunnel needs 9.11 or later. Update the openconnect package."' old-gp.json
+          test ! -e "$gprun"
+          test ! -e "$gpdir/vpn.log"
           mv /usr/sbin/openconnect.real /usr/sbin/openconnect
 
           # The real one, against a socket that accepts and never answers the TLS handshake.
@@ -577,6 +599,7 @@ jobs:
           grep -qx "cookie $cookie" "$run/openconnect.conf"
           grep -qx "script $run/vpn-hook" "$run/openconnect.conf"
           grep -qx 'no-dtls' "$run/openconnect.conf"
+          if grep -q 'disable-ipv6' "$run/openconnect.conf"; then echo "disable-ipv6 in a Cisco AnyConnect file"; exit 1; fi
           test "$(readlink "$run/vpn-hook")" = /usr/local/sbin/passtunneld
           printf 'uid=%s\nprofile=cisco\nset_routes=1\nset_dns=1\n' "$uid" | cmp - "$run/policy"
           test "$(sed -n 1p "$run/state")" = "$pid"
@@ -593,6 +616,38 @@ jobs:
           test ! -e "$run"
           if kill -0 "$pid" 2>/dev/null; then echo "openconnect $pid still runs"; exit 1; fi
           grep -q "started openconnect 9\.[0-9]* for cisco, uid $uid" oc-daemon.log
+
+          # Palo Alto GlobalProtect with the real one against the same socket: `protocol gp`, and `disable-ipv6` exactly
+          # when the openconnect the daemon checked is older than 9.20 (Ubuntu 24.04's 9.12: yes).
+          gpstart | call_as alice | tee gp.json | jq -e '.ok and .pid > 1 and .mgmt_socket == null'
+          gppid="$(jq -r .pid gp.json)"
+          test "$(tr '\0' ' ' <"/proc/$gppid/cmdline")" = "/usr/sbin/openconnect --config=$gprun/openconnect.conf "
+          test "$(stat -c '%a %U' "$gprun/openconnect.conf")" = "600 root"
+          grep -v '^cookie ' "$gprun/openconnect.conf"
+          grep -qx 'protocol gp' "$gprun/openconnect.conf"
+          grep -qx 'server https://127.0.0.1:10443/' "$gprun/openconnect.conf"
+          grep -qx "cookie $gpcookie" "$gprun/openconnect.conf"
+          grep -qx "script $gprun/vpn-hook" "$gprun/openconnect.conf"
+          version="$(openconnect --version | sed -n 's/^OpenConnect version v\([0-9]*\.[0-9]*\).*/\1/p' | head -n 1)"
+          if [ -z "$version" ]; then echo "could not read the version of openconnect"; openconnect --version; exit 1; fi
+          if [ "$version" != 9.20 ] && [ "$(printf '%s\n9.20\n' "$version" | sort -V | head -n 1)" = "$version" ]; then
+            grep -qx 'disable-ipv6' "$gprun/openconnect.conf"
+          elif grep -q 'disable-ipv6' "$gprun/openconnect.conf"; then
+            echo "disable-ipv6 with openconnect $version"; exit 1
+          fi
+          test "$(readlink "$gprun/vpn-hook")" = /usr/local/sbin/passtunneld
+          if grep -qa "$gpsecret" "/proc/$gppid/cmdline" "/proc/$gppid/environ"; then echo "the cookie left the config"; exit 1; fi
+          printf '%s\n' "$status" | call_as alice \
+            | jq -e --argjson pid "$gppid" '.running == {"palo": $pid} and .tunnels == {"palo": {"state": "setting_up"}}'
+          sleep 2
+          test "$(stat -c '%U %a' "$gpdir/vpn.log")" = "alice 600"
+          if grep -q "$gpsecret" "$gpdir/vpn.log"; then echo "the cookie is in the log"; exit 1; fi
+          printf '%s\n' '{"op":"perform","request":{"type":"stop","protocol_version":5,"profile_id":"palo"}}' | call_as alice \
+            | jq -e --argjson pid "$gppid" '.ok and .pid == $pid'
+          test ! -e "$gprun"
+          if kill -0 "$gppid" 2>/dev/null; then echo "openconnect $gppid still runs"; exit 1; fi
+          grep -q "started openconnect 9\.[0-9]* for palo, uid $uid" oc-daemon.log
+          if grep -q "$gpsecret" oc-daemon.log; then echo "the cookie is in the daemon's log"; exit 1; fi
           kill "$gateway"
           kill -TERM "$daemon"
           wait "$daemon"

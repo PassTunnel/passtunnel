@@ -1,6 +1,9 @@
 import Foundation
+import PassTunnelKit
+import PassTunnelVPNConfig
 import XCTest
 
+@testable import PassTunnelCore
 @testable import PassTunnelShared
 
 /// The Linux side of openconnect's hook as far as it is shared (#187): `ip`'s argument lists to the byte, the
@@ -462,6 +465,105 @@ final class OpenConnectLinuxTests: XCTestCase {
         output = "OpenConnect version v9.12\n"
         XCTAssertThrowsError(try resolve()) {
             XCTAssertEqual($0 as? ToolFailure, .untrusted(name: "openconnect", path: tool, reason: "\(tool) is writable by its group or by others."))
+        }
+    }
+
+    // MARK: - Per type: Palo Alto GlobalProtect (#234)
+
+    /// The same tool with the type's minimum: Cisco AnyConnect 9.01, Palo Alto GlobalProtect 9.11 (owner decision 5,
+    /// #226); `disable-ipv6` for GlobalProtect below 9.20 only.
+    func testTheMinimumAndIPv6ArePerType() {
+        let anyConnect = ToolSpec.openconnect(for: .anyconnect)
+        let gp = ToolSpec.openconnect(for: .gp)
+        XCTAssertEqual(anyConnect.minimum, ToolSpec.openconnect.minimum)
+        XCTAssertNil(anyConnect.purpose)
+        XCTAssertEqual(gp.minimum, ToolVersion(9, 11))
+        XCTAssertEqual(gp.minimum.description, "9.11")
+        XCTAssertEqual(gp.purpose, "Palo Alto GlobalProtect")
+        // The same tool, found and read the same way.
+        XCTAssertEqual(gp.name, anyConnect.name)
+        XCTAssertEqual(gp.candidates, anyConnect.candidates)
+        XCTAssertEqual(gp.package, anyConnect.package)
+        XCTAssertEqual(gp.versionArguments, anyConnect.versionArguments)
+        XCTAssertEqual(gp.parseVersion("OpenConnect version v9.12\n"), ToolVersion(9, 12))
+
+        // version → (AnyConnect allowed, GlobalProtect allowed, GlobalProtect's disable-ipv6)
+        let cases: [(String, Bool, Bool, Bool)] = [
+            ("v8.20-1", false, false, true),  // Ubuntu 22.04
+            ("v9.01-3", true, false, true),  // Debian 12, EPEL 9: Cisco AnyConnect only
+            ("v9.10", true, false, true),  // ESP did not work
+            ("v9.11", true, true, true),
+            ("v9.12", true, true, true),  // Ubuntu 24.04 and 26.04, Debian 13, Fedora, EPEL 10
+            ("v9.12-2-gabcdef0", true, true, true),
+            ("v9.20", true, true, false),  // IPv6 routes read as includes
+            ("v9.21", true, true, false),  // the Mac's
+            ("v10.00", true, true, false)
+        ]
+        for (text, anyConnectOK, gpOK, disableIPv6) in cases {
+            let version = ToolSpec.openConnectVersion("OpenConnect version \(text)\n")!
+            XCTAssertEqual(version >= anyConnect.minimum, anyConnectOK, text)
+            XCTAssertEqual(version >= gp.minimum, gpOK, text)
+            XCTAssertEqual(ToolSpec.openConnectDisablesIPv6(.gp, version: version), disableIPv6, text)
+            XCTAssertFalse(ToolSpec.openConnectDisablesIPv6(.anyconnect, version: version), "never for Cisco AnyConnect: \(text)")
+        }
+    }
+
+    /// The refusal names the version found, the type and the version it needs; AnyConnect's text is unchanged.
+    func testTheRefusalNamesTheType() {
+        XCTAssertEqual(
+            ToolFailure.tooOld(
+                name: "openconnect", version: ToolVersion(9, 1, twoDigitMinor: true), minimum: ToolSpec.globalProtectOpenConnect.minimum,
+                package: "openconnect", purpose: ToolSpec.globalProtectOpenConnect.purpose
+            ).description,
+            "openconnect 9.01 is too old for Palo Alto GlobalProtect: PassTunnel needs 9.11 or later. Update the openconnect package.")
+        XCTAssertEqual(
+            ToolFailure.notInstalled(
+                name: "openconnect", candidates: ToolSpec.globalProtectOpenConnect.candidates, package: "openconnect",
+                minimum: ToolSpec.globalProtectOpenConnect.minimum
+            ).description,
+            "openconnect is not installed (none of /usr/sbin/openconnect, /usr/bin/openconnect exists). "
+                + "Install the distribution's openconnect package, version 9.11 or later.")
+        let reason = "openconnect 9.01 is too old for Palo Alto GlobalProtect: PassTunnel needs 9.11 or later. Update the openconnect package."
+        XCTAssertEqual(AnyConnectSignIn.unavailable(.gp, reason), .globalProtectToolUnavailable(reason))
+        XCTAssertEqual(AnyConnectSignIn.unavailable(.anyconnect, reason), .anyConnectToolUnavailable(reason))
+        XCTAssertEqual(PTError.globalProtectToolUnavailable(reason).localizedDescription, "Palo Alto GlobalProtect cannot be used here: " + reason)
+        XCTAssertEqual(AutomationErrorCode.of(.globalProtectToolUnavailable(reason)), .configInvalid)
+        XCTAssertEqual(ConnectionFailure.of(PTError.globalProtectToolUnavailable(reason), log: nil, handed: nil, at: Date()).kind, .configuration)
+        XCTAssertNil(PTError.globalProtectToolUnavailable(reason).unavailableNote, "not a refusal of the type up front")
+    }
+
+    /// `DistributionTools.resolve` with each type's spec on one tool: 9.01, 9.10 refused for GlobalProtect only (the
+    /// message naming the type), 9.11 and later accepted for both.
+    func testResolvingTheToolPerType() throws {
+        let base = try XCTUnwrap(HelperCore.realPath(root))
+        let bin = base + "/sbin"
+        try FileManager.default.createDirectory(atPath: bin, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o755])
+        chmod(base, 0o755)
+        let tool = bin + "/openconnect"
+        try "#!/bin/sh\nexit 0\n".write(toFile: tool, atomically: true, encoding: .utf8)
+        chmod(tool, 0o755)
+        func spec(_ proto: OpenConnectProtocol) -> ToolSpec {
+            let s = ToolSpec.openconnect(for: proto)
+            return ToolSpec(
+                name: s.name, candidates: [tool], minimum: s.minimum, package: s.package, versionArguments: s.versionArguments,
+                parseVersion: s.parseVersion, purpose: s.purpose)
+        }
+        for (text, shown) in [("v9.01-3", "9.01"), ("v9.10", "9.10")] {
+            let resolve = { (proto: OpenConnectProtocol) in
+                try DistributionTools.resolve(spec(proto), owner: geteuid(), base: base) { _, _ in "OpenConnect version \(text)\n" }
+            }
+            XCTAssertEqual(try resolve(.anyconnect).path, tool, text)
+            XCTAssertThrowsError(try resolve(.gp)) {
+                XCTAssertEqual(
+                    String(describing: $0),
+                    "openconnect \(shown) is too old for Palo Alto GlobalProtect: PassTunnel needs 9.11 or later. Update the openconnect package.")
+            }
+        }
+        for text in ["v9.11", "v9.12", "v9.20", "v9.21"] {
+            for proto in [OpenConnectProtocol.anyconnect, .gp] {
+                let found = try DistributionTools.resolve(spec(proto), owner: geteuid(), base: base) { _, _ in "OpenConnect version \(text)\n" }
+                XCTAssertEqual(found.path, tool, text)
+            }
         }
     }
 }

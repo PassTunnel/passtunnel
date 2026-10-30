@@ -833,6 +833,16 @@
         }
       }
     },
+    "Palo Alto GlobalProtect cannot be used here: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Palo Alto GlobalProtect burada kullanılamıyor: %@"
+          }
+        }
+      }
+    },
     "This server signs in with single sign-on (SAML), which PassTunnel does not support." : {
       "localizations" : {
         "tr" : {

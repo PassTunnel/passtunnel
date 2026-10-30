@@ -98,7 +98,7 @@ public enum AutomationErrorCode: String, Codable, CaseIterable, Sendable {
             return .invalidArgument
         case .fileError, .fileTooLarge: return .fileError
         case .invalidFile, .unsupportedShareFile, .unsupportedProfileType, .ovpnReferencedFile, .ovpnNotAllowed, .missingConfig, .missingHost,
-            .anyConnectRequiresMacOS, .anyConnectToolUnavailable, .globalProtectRequiresMacOS:
+            .anyConnectRequiresMacOS, .anyConnectToolUnavailable, .globalProtectRequiresMacOS, .globalProtectToolUnavailable:
             return .configInvalid
         case .keychain, .protectedSecretUnreadable: return .keychainError
         case .missingPassword, .missingTOTPSecret, .missingCredential: return .credentialsMissing

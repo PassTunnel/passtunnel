@@ -226,7 +226,7 @@ public enum HelperRequest: Codable, Equatable {
     case startOpenVPN(OpenVPNStart)
     case startForti(FortiStart)
     /// Protocol 4: Cisco AnyConnect (passtunneld too since #187). Protocol 5 adds `protocol`, and with it Palo
-    /// Alto GlobalProtect (`gp`), which passtunneld refuses until it runs it (#234).
+    /// Alto GlobalProtect (`gp`; passtunneld too since #234, with openconnect 9.11 or later).
     case startOpenConnect(OpenConnectStart)
     case stop(profileID: String)
     case status

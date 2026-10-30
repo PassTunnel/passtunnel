@@ -2157,7 +2157,8 @@ openconnect's own reconnect, and kills openconnect to check the daemon's revert 
 (G1, #228); the profiles in PassTunnelKit (G2, #229), kept, checked, set and shared
 ([Profile (G2)](#profile-g2)); the helper's side, protocol 5 (G3, #230: the Mac's helper starts a GlobalProtect
 session it is sent, `passtunneld` refuses one); connecting in Core (G4, #231: the sign-in, the start request, the
-failures, the HIP notice; on macOS 15.4 and later, Linux refused until G7, [As built (G4)](#as-built-g4-231)). Phase 2
+failures, the HIP notice; on macOS 15.4 and later, [As built (G4)](#as-built-g4-231)); `passtunneld` running it with
+the distribution's openconnect 9.11 or later (G7, #234, [As built (G7)](#as-built-g7-234)). Phase 2
 of #2: Palo Alto GlobalProtect
 through the same
 openconnect (`protocol gp`), with a password and a TOTP code, no SAML or other single sign-on, on macOS 15.4 and
@@ -2599,6 +2600,29 @@ CSD's `hostScanRequired` lines do not exist in this protocol (`auth.c` is AnyCon
 - The Mac helper's refusal while the last session's network is still being restored names the request's type
   (`HelperCore.stillRestoringMessage`).
 
+### As built (G7, #234)
+
+Linux, as [LINUX.md](LINUX.md#palo-alto-globalprotect) describes it:
+
+- **One tool, a minimum per type** (PassTunnelShared, `DistributionTools.swift`): `ToolSpec.openconnect(for:)` is
+  `ToolSpec.openconnect` (9.01) for `anyconnect` and `ToolSpec.globalProtectOpenConnect` for `gp`: the same paths,
+  package and version reading, minimum 9.11 and `purpose` "Palo Alto GlobalProtect", which `ToolFailure.tooOld` names:
+  "openconnect 9.01 is too old for Palo Alto GlobalProtect: PassTunnel needs 9.11 or later. Update the openconnect
+  package." (AnyConnect's text is unchanged). `ToolSpec.openConnectDisablesIPv6(_:version:)` is the one decision of
+  `disable-ipv6`: `gp` and a version below 9.20 (`openConnectIPv6RoutesVersion`).
+- **`passtunneld`** starts `gp` as `anyconnect` (`Supervisor`, `startOpenConnect`), resolving the tool with the
+  request's protocol's spec before anything is prepared and setting `HelperCore.openConnectDisableIPv6` from the
+  version it just checked; the interim refusal is gone. Everything else is `prepareOpenConnect`, unchanged.
+- **The sign-in** (Core): `AnyConnectSignIn.distributionTool(for:runner:)` checks the tool with the same spec and sets
+  `Tool.disableIPv6` by the same rule, which `GlobalProtectSignIn` renders; `ConnectionManager.locateOpenConnect`
+  takes the protocol. A missing, untrusted or too old tool is `PTError.globalProtectToolUnavailable` ("Palo Alto
+  GlobalProtect cannot be used here: …", `config_invalid`, failure kind `configuration`), before the code is used.
+  `connectRefusal(.globalprotect)` on Linux is nil, as for Cisco AnyConnect.
+- **`diagnose`** on Linux checks the distribution's openconnect once for GlobalProtect's minimum when a GlobalProtect
+  profile exists (`ConnectionManager.openConnectToolProblem`, the sign-in's check: `--version` and `--help` as the user,
+  nothing contacted) and lists `globalProtectToolUnavailable` among each such profile's problems. Cisco AnyConnect's
+  checks are unchanged.
+
 ### Helper protocol 5 (G3)
 
 `PT.helperProtocolVersion` becomes 5, and `passtunneld`'s `hello` too. The start request gains `protocol`
@@ -2629,10 +2653,10 @@ As built (#230): `protocol` is required in the JSON and in `OpenConnectStart.ini
 is `invalidField("protocol")`); for `anyconnect`, `profile_gateway_server_cert` must be empty and the cookie
 `OpenConnectCookie`'s shape, so a GlobalProtect start labelled `anyconnect` fails too. Step (5) also checks that the
 rendered file's `protocol` line is the request's, since `checkRendered` applies the rules of the file's own line.
-`disable-ipv6` comes from `HelperCore.openConnectDisableIPv6` (false until #234 sets it from the checked tool's
-version; never rendered for AnyConnect). `OutputMask` masks `authcookie=` values wherever they stand (also inside
-`…userauthcookie=`). `passtunneld` refuses `gp` ("Palo Alto GlobalProtect is not supported by passtunneld yet.")
-after the access check and before anything is checked, resolved or written.
+`disable-ipv6` comes from `HelperCore.openConnectDisableIPv6` (off on the Mac; `passtunneld` sets it from the checked
+tool's version since #234; never rendered for AnyConnect). `OutputMask` masks `authcookie=` values wherever they stand
+(also inside `…userauthcookie=`). Until #234 `passtunneld` refused `gp` after the access check and before anything was
+checked, resolved or written; since then it runs it ([As built (G7)](#as-built-g7-234)).
 
 ### Profile (G2)
 
@@ -2687,9 +2711,10 @@ app's type lists (the editor's type picker, Add VPN's type question) do not offe
 refusal and the profile's field problems. G4 adds the type to `VPNType.connectable`; G5 and G6 then offer it.
 
 As built (G4, #231): `VPNType.connectable` is every type, and `connectRefusal(.globalprotect)` is the macOS 15.4 check
-on the Mac and, on Linux (`macOS` nil), still `unsupportedProfileType("globalprotect")` until G7 (#234) makes
-`passtunneld` run it and the sign-in check the distribution's openconnect for 9.11: refusing up front spends no code on
-a sign-in whose cookie the daemon would refuse. The app's type lists and editor keep leaving the type out until G6
+on the Mac and, on Linux (`macOS` nil), was `unsupportedProfileType("globalprotect")` until G7 (#234) made
+`passtunneld` run it and the sign-in check the distribution's openconnect for 9.11: refusing up front spent no code on
+a sign-in whose cookie the daemon would refuse. Since G7 Linux refuses nothing up front, as for Cisco AnyConnect
+([As built (G7)](#as-built-g7-234)). The app's type lists and editor keep leaving the type out until G6
 (`AppModel.editableTypes`), and `passtunnel add` until G5; `connect`, the MCP `connect` and the app's Connect connect it.
 
 ### Tests (G8)

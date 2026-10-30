@@ -65,11 +65,13 @@ struct AnyConnectSignIn: @unchecked Sendable {
     }
 
     /// The openconnect a sign-in runs, with what the file it reads depends on: the CA bundle the server is
-    /// checked against without a pin, and whether the tool knows `no-external-auth`.
+    /// checked against without a pin, whether the tool knows `no-external-auth`, and whether a Palo Alto
+    /// GlobalProtect file gets `disable-ipv6` (a Linux openconnect older than 9.20; never on the Mac).
     struct Tool: Equatable {
         var path: String
         var caFile: String = OpenConnectConfig.systemCAFile
         var noExternalAuth = true
+        var disableIPv6 = false
     }
 
     /// `distributionTool` (or a test's stand-in) with its runner, run once on a background queue.
@@ -86,11 +88,14 @@ struct AnyConnectSignIn: @unchecked Sendable {
 
     /// Linux: the distribution's openconnect (docs/LINUX.md, "Cisco AnyConnect"): the first of
     /// `ToolSpec.openconnect`'s fixed paths, resolved and checked (`TrustedPath`) and run for its version, which
-    /// must be 9.01 or later; `--help` tells whether it has `no-external-auth` (9.10 and later), which the file
-    /// then names; and the distribution's CA bundle, checked as the daemon checks it. Run as the user, before any
-    /// code is used: a tool that is missing, untrusted or too old is `PTError.anyConnectToolUnavailable` with the
-    /// reason. Elsewhere there is no distribution tool (`PTError.fileError`).
-    static func distributionTool(runner: ToolRunning) throws -> Tool {
+    /// must be the type's minimum or later (`ToolSpec.openconnect(for:)`: 9.01, Palo Alto GlobalProtect 9.11, as
+    /// the daemon checks it); `--help` tells whether it has `no-external-auth` (9.10 and later), which the file
+    /// then names; a GlobalProtect file gets `disable-ipv6` below 9.20 (`ToolSpec.openConnectDisablesIPv6`, as the
+    /// daemon decides it); and the distribution's CA bundle, checked as the daemon checks it. Run as the user,
+    /// before any code is used: a tool that is missing, untrusted or too old is `PTError.anyConnectToolUnavailable`
+    /// (GlobalProtect: `globalProtectToolUnavailable`) with the reason. Elsewhere there is no distribution tool
+    /// (`PTError.fileError`).
+    static func distributionTool(for protocol: OpenConnectProtocol = .anyconnect, runner: ToolRunning) throws -> Tool {
         #if os(Linux)
         func output(_ path: String, _ arguments: [String]) -> String? {
             guard let run = try? runner.run(path, arguments, environment: environment, input: Data(), timeout: probeTimeout) else {
@@ -99,17 +104,27 @@ struct AnyConnectSignIn: @unchecked Sendable {
             return String(decoding: run.output + run.errorOutput, as: UTF8.self)
         }
         do {
-            let tool = try DistributionTools.resolve(.openconnect, versionOutput: output)
+            let tool = try DistributionTools.resolve(.openconnect(for: `protocol`), versionOutput: output)
             let help = output(tool.path, ToolSpec.helpArguments) ?? ""
             return Tool(
                 path: tool.path, caFile: try DistributionTools.caBundle(),
-                noExternalAuth: ToolSpec.openConnectHasNoExternalAuth(help: help))
+                noExternalAuth: ToolSpec.openConnectHasNoExternalAuth(help: help),
+                disableIPv6: ToolSpec.openConnectDisablesIPv6(`protocol`, version: tool.version))
         } catch let failure as ToolFailure {
-            throw PTError.anyConnectToolUnavailable(failure.description)
+            throw unavailable(`protocol`, failure.description)
         }
         #else
         throw PTError.fileError("openconnect")
         #endif
+    }
+
+    /// Why the distribution's openconnect cannot be used for `protocol`'s VPN type: `reason` (a `ToolFailure`'s
+    /// text) under the type's name.
+    static func unavailable(_ protocol: OpenConnectProtocol, _ reason: String) -> PTError {
+        switch `protocol` {
+        case .anyconnect: return .anyConnectToolUnavailable(reason)
+        case .gp: return .globalProtectToolUnavailable(reason)
+        }
     }
 
     /// The app bundle's openconnect (`Contents/Resources/bin/openconnect`); nil outside an app bundle and on

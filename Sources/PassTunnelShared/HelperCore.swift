@@ -202,7 +202,8 @@ public struct HelperCore {
     public var fortiHandlesDNS = true
     /// Whether a Palo Alto GlobalProtect root configuration gets `disable-ipv6`: on Linux for an openconnect older
     /// than 9.20 (docs/LINUX.md, "Palo Alto GlobalProtect"), which the daemon decides from the version of the tool
-    /// it checked, never from the request. Off on the Mac (9.21) and for Cisco AnyConnect, which never gets it.
+    /// it checked, never from the request (`ToolSpec.openConnectDisablesIPv6`, set by passtunneld before every
+    /// start). Off on the Mac (9.21) and for Cisco AnyConnect, which never gets it.
     public var openConnectDisableIPv6 = false
     /// Whether the kernel has a network device of that name; nil: not checked (the Mac). The Linux daemon
     /// sets it: there a `dev` with a name of its own could attach OpenVPN to a persistent device created
