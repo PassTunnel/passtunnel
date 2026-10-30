@@ -2145,7 +2145,8 @@ openconnect's own reconnect, and kills openconnect to check the daemon's revert 
 
 **Design only (#226); nothing of it is built yet.** Phase 2 of #2: Palo Alto GlobalProtect through the same
 openconnect (`protocol gp`), with a password and a TOTP code, no SAML or other single sign-on, on macOS 15.4 and
-later and on Linux. It reuses the [Cisco AnyConnect backend](#cisco-anyconnect-backend) wherever that holds, and this
+later and on Linux, shipped labelled experimental ([Experimental](#experimental-g2-g5-g6-g9)). It reuses the
+[Cisco AnyConnect backend](#cisco-anyconnect-backend) wherever that holds, and this
 section says only where GlobalProtect differs. References like `auth-globalprotect.c 652–658` are to openconnect
 9.21, the bundled version (the Homebrew tarball, SHA-256 `5b323694…0944a58`); 9.01 and 9.12 are cited where the
 Linux distributions' versions differ. The implementation issues are at the end (G1–G9, to be numbered when they are
@@ -2253,10 +2254,10 @@ the choice from standard input** (2752): the next answer line (the code) would b
   profile's own host as the tunnel's server, no gateway list. For users who know their gateway's address and for
   portals whose second sign-in is unwanted.
 
-(#226 decided "the gateway is chosen by the server unless the profile names one". With the command-line tool that
-holds for a one-gateway portal only; answering openconnect's prompt with the first label it prints would need a
+(#226 first said "the gateway is chosen by the server unless the profile names one". With the command-line tool
+that holds for a one-gateway portal only; answering openconnect's prompt with the first label it prints would need a
 reader of the run's partial output lines that writes the answer when the prompt appears, and the labels are the
-server's text. Recorded under [To confirm](#to-confirm-226).)
+server's text. So a portal with more than one gateway needs a named one: [Decided](#decided-226), 1.)
 
 ### The answers, and the second code (G4)
 
@@ -2575,33 +2576,85 @@ same closure), with "Requires macOS 15.4 or later". Linux: [LINUX.md](LINUX.md#p
 
 ### Tests (G8)
 
-No open-source server speaks GlobalProtect's tunnel, so a real tunnel is checked by hand against a real gateway. The
-sign-in is tested on every CI run against a test portal and gateway in a container: openconnect's own
-`tests/fake-gp-server.py` from the pinned 9.21 tarball (LGPL-2.1, test-only, run unchanged and never shipped; it
-offers one or more gateways, a challenge at the portal, the gateway or both in each of the three encodings, the
-override cookies, SAML at either, and HIP), or a server of our own if the owner prefers (To confirm). Cases: password
-only; code at the portal with and without an override cookie; code at the gateway after the replay; both, with the
-second code from the next window (and a variant of the server that refuses a code it has seen); a portal with two
-gateways, with and without `gateway`; `skip_portal`; SAML at the portal (code given back) and at the gateway (spent); a
-wrong password; pins for one key and for two; the masking of the override cookies; the cookie's checks and the
-helper's refusal of every wrong field. The hook needs no new code; `Tests/Fixtures/openconnect-env.json` gains
-environments as `gpst.c` builds them (many DNS suffixes, IPv6 includes, `0.0.0.0/0` includes).
+No open-source server speaks GlobalProtect's tunnel, so no test runs a real GlobalProtect tunnel; that is why the
+type ships [experimental](#experimental-g2-g5-g6-g9). The sign-in is tested on every CI run against openconnect's own
+test portal and gateway, `tests/fake-gp-server.py` (owner decision, #226):
 
-### To confirm (#226)
+- **Where it comes from:** the openconnect release tarball
+  `https://www.infradead.org/openconnect/download/openconnect-<version>.tar.gz`, at the version `release.env` pins as
+  `OPENCONNECT_VERSION` (9.21) and checked against a SHA-256 kept next to the test
+  (`Tests/globalprotect/fake-gp-server.sha256`; 9.21: `5b32369467db6e5f317aa1ed12cfcbb81ed00bdbc765450b6bfcbdc300944a58`,
+  the value Homebrew's formula pins too). The CI job downloads it, checks the hash, extracts that one file and runs
+  it unchanged; a version bump updates the hash in the same pull request.
+- **Its license:** LGPL-2.1 or later (the file's header), like openconnect. It is test code that is only run: never
+  copied into this repository, never modified, never part of the app, the Linux tarball, the Docker image or any
+  release, so it adds nothing to `THIRD_PARTY_NOTICES.md`. It needs Python 3 and Flask, from the test container's
+  distribution packages (the image pinned by digest, as the ocserv image is).
+- **What it offers** (its `/CONFIGURE` endpoint): one or more gateways (all on its own host and port), a challenge at
+  the portal, the gateway or both in each of the three encodings (and it clears `inputStr`, so a blind replay of a
+  challenge fails as a real gateway's would), the two override cookies, SAML at either, the HIP check. It accepts any
+  password and code, so a code's reuse and a gateway on another host are covered by unit tests with a fake runner
+  instead.
 
-Where this design departs from or adds to #226's decisions, for the owner:
+Cases, through `ConnectionManager` with the distribution's (Linux) or Homebrew's (Mac, by hand) openconnect and a fake
+helper: password only; code at the portal with and without an override cookie; code at the gateway after the replay;
+both, with the second part written after the first code's window; a portal with two gateways, with and without
+`gateway`, and with an unknown one; `skip_portal`; SAML at the portal (code given back) and at the gateway (spent);
+pins; the masking of the override cookies; the cookie's checks and the helper's refusal of every wrong field. The hook
+needs no new code; `Tests/Fixtures/openconnect-env.json` gains environments as `gpst.c` builds them (many DNS
+suffixes, IPv6 includes, `0.0.0.0/0` includes).
 
-1. **Gateway choice** (above): the server chooses only on a one-gateway portal; with two or more, the profile must
-   name one (the failure lists them). The alternative is to answer openconnect's prompt with the first label it prints.
-2. **Gateway on another host:** allowed as the portal's hop, bound by the two-server rule and the keys' trust. A
-   stricter option is a list of allowed gateway hosts in the profile ("Allow this gateway" after the first sign-in,
-   which spends a code), or refusing other hosts (only one-host deployments and `skip_portal` would work).
-3. **A second pin** (`gateway_server_cert`), since openconnect cannot pin one server and trust the CA for the other.
-4. **The second code** waits for the next TOTP window, so such a sign-in takes up to one period longer (time limit 60 s
-   plus the period).
-5. **Linux minimum 9.11** for this type (Debian 12 and EPEL 9 keep AnyConnect only), `disable-ipv6` before 9.20.
+### Experimental (G2, G5, G6, G9)
+
+GlobalProtect ships marked **experimental** until reports from real gateways come in (owner decision, #226): only
+openconnect's test server and unit tests stand behind the tunnel path. It is a label and nothing else: no feature
+flag, no opt-in, no setting; the type connects exactly as designed above.
+
+- **One source of truth:** `VPNType.isExperimental` in `PassTunnelKit` (`Model.swift`), `self == .globalprotect`.
+  Every place below reads it; dropping the label later is that one line (and the docs' sentences). Nothing stores it:
+  no profile key, no share-file field, no `config.json` value.
+- **Mac app** (G6): an "Experimental" badge (a small capsule beside the type's name, localized) in Add VPN's type
+  question and the File menu item's title, the editor's type header, the profile list row's type line and the detail
+  view's header. The detail view and the failure card add a link "Report how it works…" to the issue template below.
+  The menu bar shows no badge (it lists profiles by name only).
+- **CLI, human output** (G5): `(experimental)` after the type's name in `list`, `show`, `status` and `diagnose`, and one
+  line after `add --type globalprotect` and `import` of such a profile: "Palo Alto GlobalProtect support is
+  experimental. Please report how it works: <the template's URL>" (to standard error, so scripts reading standard
+  output are unaffected).
+- **`--json` and MCP** (G5): `"experimental": true` on every profile object of an experimental type
+  (`ProfileSummary`/`ProfileStatus`: `list`, `status`, `show`, MCP `list_profiles` and `get_status`), left out for the
+  other types, so their output stays byte for byte as it is; CLI-JSON.md documents the key (additive, as its stability
+  rules allow) and that it may disappear when the type stops being experimental.
+- **Docs and website** (G9): README's and APP.md's type lists and the website's feature list say "Palo Alto
+  GlobalProtect (experimental)" with one sentence asking for reports through the template. The release that first
+  makes the type usable says so in its notes: the notes are the commit subjects (RELEASING.md), so that pull request's
+  title ends in "(experimental)" (G4: `feat: connect Palo Alto GlobalProtect profiles (experimental)`), and so do
+  the other `feat` titles of this phase that can land in a release before it.
+- **Issue template** (G9): `.github/ISSUE_TEMPLATE/globalprotect_report.md` ("GlobalProtect report", label
+  `globalprotect`): worked or not; macOS or Linux and the openconnect version; portal and gateways (one host or
+  several, how many gateways); where the code is asked (portal, gateway, both) and whether an override cookie is used;
+  ESP or TLS only; HIP asked or not; and the profile's log with a reminder to replace host names, user names and
+  addresses (example hosts as in this repository) and that PassTunnel already masks cookies and codes. It links
+  SECURITY.md for anything security-related.
+- **Phones:** a port that shows the type names it with the same label, from the Kit's constant (iPhone) or its Kotlin
+  counterpart ([MOBILE.md](MOBILE.md#globalprotect-profiles)).
+
+### Decided (#226)
+
+Owner decisions on what this design adds to, or changes in, #226's first list:
+
+1. **Gateway choice:** a portal with more than one gateway needs the profile's `gateway`; without it the sign-in fails
+   and lists the portal's gateways. The server chooses only on a one-gateway portal.
+2. **Gateway on another host:** allowed within the two-server rule (the portal, then the gateway it names), the
+   gateway's key under the same trust as the portal's. No list of allowed gateway hosts.
+3. **A second pin,** `gateway_server_cert`, since openconnect cannot pin one server and trust the CA for the other.
+4. **The second code** waits for the next TOTP window; the sign-in's time limit is 60 s plus the TOTP period.
+5. **Linux minimum 9.11** for this type (Debian 12 and EPEL 9 keep Cisco AnyConnect only), `disable-ipv6` before 9.20.
 6. **Helper protocol 5.**
-7. **The test server:** openconnect's LGPL fake server, test-only, or our own.
+7. **The sign-in tests** run openconnect's `tests/fake-gp-server.py` unchanged, in CI only, never shipped, fetched from
+   the pinned openconnect release and checked by its SHA-256 ([Tests](#tests-g8)).
+8. **Experimental:** the type ships labelled experimental until real gateways have been reported working; a label
+   only, from one constant ([Experimental](#experimental-g2-g5-g6-g9)).
 
 ### Implementation issues
 
@@ -2614,23 +2667,28 @@ In dependency order, mirroring Phase 1's #179–#189; nothing replaces #179 (the
   table's changes and reasons; golden and fuzz tests.
 - **G2** `feat: GlobalProtect profiles in PassTunnelKit`: `VPNType.globalprotect`, the keys and their rules,
   `ProfileFields`, `ProfileStore` checks, `ProfileDestination`, share files (version 2), `GlobalProtectServer.parse`,
-  the fixtures, the macOS 15.4 availability. Needs G1 (the rules live in VPNConfig).
+  the fixtures, the macOS 15.4 availability, `VPNType.isExperimental` (the one source of the experimental label).
+  Needs G1 (the rules live in VPNConfig).
 - **G3** `feat: start GlobalProtect sessions in the helper (protocol 5)`: `OpenConnectStart.protocol` and
   `profileGatewayServerCert`, `prepareOpenConnect` per protocol, the 15.4 message, the cookie masks in
   `MaskingCopier`/`OutputMask`; `passtunneld` reports 5 and refuses `gp` until G7. Needs G1.
-- **G4** `feat: connect GlobalProtect profiles`: the sign-in (`GlobalProtectSignIn`), `ToolInput` with the second
-  part and `.last-otp`, the credentials-sent rule, the POST-host rule, the failures (`sso_required`, the gateway list,
-  a gateway's key, not a GlobalProtect server), the override-cookie masks, the start request, the HIP notice, the
-  time limits. Needs G1–G3.
+- **G4** `feat: connect Palo Alto GlobalProtect profiles (experimental)` (the title the release notes show): the
+  sign-in (`GlobalProtectSignIn`), `ToolInput` with the second part and `.last-otp`, the credentials-sent rule, the
+  POST-host rule, the failures (`sso_required`, the gateway list, a gateway's key, not a GlobalProtect server), the
+  override-cookie masks, the start request, the HIP notice, the time limits. Needs G1–G3.
 - **G5** `feat: GlobalProtect in the CLI and MCP`: `add --type globalprotect [--server]`, `set`/`show`, the failure
-  kinds and the notice in `--json` and MCP, CLI-JSON.md. Needs G4.
+  kinds and the notice in `--json` and MCP, the experimental label (`(experimental)` and the report line in human
+  output, `"experimental": true` in `--json` and MCP), CLI-JSON.md. Needs G4.
 - **G6** `feat: GlobalProtect in the Mac app`: the type in Add VPN and the File menu, the editor (Gateway with the
-  portal's list after a failure, Skip portal, the two pins, "Trust This Gateway…"), the HIP notice. Needs G4.
+  portal's list after a failure, Skip portal, the two pins, "Trust This Gateway…"), the HIP notice, the
+  "Experimental" badge and the "Report how it works…" link. Needs G4.
 - **G7** `feat(linux): GlobalProtect in passtunneld`: the daemon accepts `gp`, the per-type minimum 9.11 (daemon and
   sign-in), `disable-ipv6` before 9.20, its tests. Needs G3, G4.
-- **G8** `test: GlobalProtect sign-in against a test portal and gateway`: the container, the CI job, the cases above;
-  the manual tunnel check. Needs G4, G7.
-- **G9** `docs: Palo Alto GlobalProtect support`: README, APP.md, the website's feature list. Last.
+- **G8** `test: GlobalProtect sign-in against openconnect's test server`: the container (Python and Flask from the
+  distribution, image pinned by digest), fetching `fake-gp-server.py` from the pinned tarball with its SHA-256, the CI
+  job, the cases above; the manual check against a real gateway. Needs G4, G7.
+- **G9** `docs: Palo Alto GlobalProtect support (experimental)`: README, APP.md, the website's feature list, each
+  marked experimental with the request for reports, and the issue template `globalprotect_report.md`. Last.
 
 ## Rules for all code
 

@@ -779,7 +779,8 @@ when asked.
 **Design only (#226).** The design is in [ARCHITECTURE.md](ARCHITECTURE.md#palo-alto-globalprotect-backend); on Linux
 everything of [Cisco AnyConnect](#cisco-anyconnect) above applies (the tool's paths and checks, the sign-in as the user,
 `prepareOpenConnect`, `MaskingCopier`, the `vpn-hook` mode, `LinuxOpenConnectSystem`, DNS, supervision, the revert after
-a kill), with these differences (G7):
+a kill), with these differences (G7). The type is labelled experimental here too (`passtunnel`'s output, ARCHITECTURE.md,
+"Experimental").
 
 - **Minimum 9.11 for this type**, checked like AnyConnect's 9.01 (`ToolSpec` per type, the daemon before the start and
   `AnyConnectSignIn.distributionTool`'s counterpart before the code is used): "openconnect 9.01 is too old for Palo Alto

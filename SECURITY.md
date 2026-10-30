@@ -684,7 +684,9 @@ Since #187 (not in any release: the Linux packages are not published yet).
 ## Palo Alto GlobalProtect
 
 Planned (issue #2, Phase 2; designed in #226, not built yet): Palo Alto GlobalProtect through the same
-`openconnect`, with a password and a one-time code, no single sign-on, on macOS 15.4 and later and on Linux. Everything
+`openconnect`, with a password and a one-time code, no single sign-on, on macOS 15.4 and later and on Linux. It ships
+marked *experimental*: its sign-in is tested against openconnect's own test server, but no test runs a real
+GlobalProtect tunnel, so reports from real gateways are asked for. Everything
 under [Cisco AnyConnect](#cisco-anyconnect) applies unchanged (the bundled tool and its pins, signing in as you, the
 helper receiving only the cookie and the server's identity, the hook and every check of the server's network values,
 the masked log, the compiled-in paths); this is what differs. The details are in
