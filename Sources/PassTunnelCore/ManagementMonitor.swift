@@ -11,6 +11,8 @@ public final class PersistentManagementQuerier: ManagementQuerying, @unchecked S
     private var opening: [String: Task<Session, Error>] = [:]  // one open at a time per socket
     /// Wait for the banner when opening (OpenVPN sends it at once unless another client is served).
     var bannerTimeout: TimeInterval = 1
+    /// Runs after a query found no live session and before it joins or starts an open (tests).
+    var afterMissHook: (() async -> Void)?
 
     public init() {}
 
@@ -21,26 +23,37 @@ public final class PersistentManagementQuerier: ManagementQuerying, @unchecked S
         guard FileManager.default.fileExists(atPath: socketPath) else {
             throw ManagementError.connectFailed(socketPath, ENOENT)
         }
+        await afterMissHook?()
         let session = try await openSession(socketPath, timeout: timeout).value
         guard let state = session.latest else { throw ManagementError.closed }
         return state
     }
 
     /// The open in progress for `path`, or a new one (a second one would only wait in OpenVPN's backlog).
+    /// A session that became live since the caller's miss is reused: a second client would be refused
+    /// (`busy`) while this one holds the interface.
     private func openSession(_ path: String, timeout: TimeInterval) -> Task<Session, Error> {
         lock.withLock {
+            if let s = sessions[path], s.isAlive { return Task { s } }
             if let pending = opening[path] { return pending }
             let bannerTimeout = self.bannerTimeout
             let task = Task<Session, Error> { [weak self] in
-                defer { self?.lock.withLock { self?.opening[path] = nil } }
-                let session = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Session, Error>) in
-                    DispatchQueue.global(qos: .userInitiated).async {
-                        cont.resume(with: Result { try Session.open(path, bannerTimeout: bannerTimeout, timeout: timeout) })
+                let session: Session
+                do {
+                    session = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Session, Error>) in
+                        DispatchQueue.global(qos: .userInitiated).async {
+                            cont.resume(with: Result { try Session.open(path, bannerTimeout: bannerTimeout, timeout: timeout) })
+                        }
                     }
+                } catch {
+                    self?.lock.withLock { self?.opening[path] = nil }
+                    throw error
                 }
+                // Publish the session and end the open in one step, so no query sees neither.
                 let replaced = self?.lock.withLock { () -> Session? in
                     let old = self?.sessions[path]
                     self?.sessions[path] = session
+                    self?.opening[path] = nil
                     return old
                 }
                 replaced?.close()
