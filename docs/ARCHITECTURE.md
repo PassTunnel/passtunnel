@@ -2143,7 +2143,8 @@ openconnect's own reconnect, and kills openconnect to check the daemon's revert 
 
 ## Palo Alto GlobalProtect backend
 
-**Design only (#226); nothing of it is built yet.** Phase 2 of #2: Palo Alto GlobalProtect through the same
+**Designed in #226. In place:** the configurations, the cookie and the checks of the sign-in's output in VPNConfig
+(G1, #228); nothing uses them yet. Phase 2 of #2: Palo Alto GlobalProtect through the same
 openconnect (`protocol gp`), with a password and a TOTP code, no SAML or other single sign-on, on macOS 15.4 and
 later and on Linux, shipped labelled experimental ([Experimental](#experimental-g2-g5-g6-g9)). It reuses the
 [Cisco AnyConnect backend](#cisco-anyconnect-backend) wherever that holds, and this
@@ -2344,7 +2345,9 @@ is GlobalProtect's:
 **Where the sign-in may go.** The portal's hop to its gateway is a change of host that openconnect makes itself
 (above), and in most GlobalProtect deployments with more than one gateway the gateways are other hosts than the
 portal. Phase 1 refuses a sign-in that ended on another host (ASA load balancing); for GlobalProtect the rule is
-(`OpenConnectAuthResult.checkDestination(protocol: .gp, …)`):
+(`OpenConnectAuthResult.checkDestination(host:port:skipPortal:profileServerCert:profileGatewayServerCert:)` of a
+result parsed with `protocol: .gp`, which returns the gateway's host, port and `resolve` address; the run's
+`POST https://…` lines are read by the sign-in, G4):
 
 - `CONNECT_URL`'s host and port are the profile's (a gateway on the portal's host; `skip_portal`; a gateway reached
   by the no-portal fallback), or, without `skip_portal`, another host only as the portal's hop: the run's
