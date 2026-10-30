@@ -1225,7 +1225,7 @@ public final class ConnectionManager: ObservableObject {
         }
         defer { answers.wipe() }
 
-        var second: GlobalProtectSignIn.SecondPart?
+        let second: GlobalProtectSignIn.SecondPart?
         if let secret = totpSecret, let codeTime, GlobalProtectAnswers.hasSecondPart(skipPortal: p.skipPortal, totp: true) {
             let params = p.totp
             let delivery = p.otpDelivery
@@ -1238,6 +1238,8 @@ public final class ConnectionManager: ObservableObject {
                     let lines = GlobalProtectAnswers.lines(password: password, code: code, delivery: delivery, template: template)
                     return (lines, [code])
                 })
+        } else {
+            second = nil
         }
 
         let sent = sending(p, username: username, password: password, otp: otp, codeTime: codeTime)
