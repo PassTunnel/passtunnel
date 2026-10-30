@@ -64,15 +64,28 @@ public enum DisplayStatus: Equatable, Sendable {
         case serverNotTrusted
         /// Cisco AnyConnect: the server requires a host scan, which PassTunnel never runs.
         case hostScanRequired
+        /// Palo Alto GlobalProtect: the portal or the gateway signs in with single sign-on (SAML), which PassTunnel
+        /// does not support (`ConnectionFailure.Kind.ssoRequired`).
+        case ssoRequired
+        /// Palo Alto GlobalProtect: the portal lists more than one gateway and the profile names none of them
+        /// (`ConnectionFailure.gateways`, `ConnectionManager.gatewayChoice`).
+        case gatewayRequired
+        /// Palo Alto GlobalProtect: the server is neither a portal nor a gateway (`VPNLog.notGlobalProtectServer`).
+        case notGlobalProtectServer
 
         /// The reason `failure` gives for the last error; the error's own words when the kind has no case.
-        init(_ failure: ConnectionFailure?, error: String) {
+        /// `gatewayRequired`: the manager kept the portal's gateways (`ConnectionManager.gatewayChoice`), also when
+        /// their labels could not be read.
+        init(_ failure: ConnectionFailure?, error: String, gatewayRequired: Bool = false) {
             switch failure?.kind {
             case .authRejected?: self = .signInRejected
             case .hostNotFound?: self = .hostNotFound
             case .unreachable?: self = .unreachable(retry: nil)
             case .hostScanRequired?: self = .hostScanRequired
+            case .ssoRequired?: self = .ssoRequired
             case .configuration? where failure?.serverCert != nil: self = .serverNotTrusted
+            case .configuration? where gatewayRequired || failure?.gateways != nil: self = .gatewayRequired
+            case .configuration? where failure?.reason == VPNLog.notGlobalProtectServer: self = .notGlobalProtectServer
             default: self = .message(error)
             }
         }
@@ -105,13 +118,15 @@ public enum DisplayStatus: Equatable, Sendable {
         public var retry: UnreachableRetry?
         /// `ConnectionManager.connectRefusal`: why this system cannot connect the profile's type.
         public var refusal: PTError?
+        /// `ConnectionManager.gatewayChoice`: the last connect failed for want of one of the portal's gateways.
+        public var gatewayRequired: Bool
 
         public init(
             state: ConnectionState = .disconnected, reconnect: ReconnectInfo? = nil, codeWaitUntil: Date? = nil,
             lastError: String? = nil, warning: String? = nil, notResponding: Bool = false,
             statusUnavailable: Bool = false, droppedUnseen: Bool = false, asksToConnect: Bool = false,
             usesCode: Bool = false, failure: ConnectionFailure? = nil, retry: UnreachableRetry? = nil,
-            refusal: PTError? = nil
+            refusal: PTError? = nil, gatewayRequired: Bool = false
         ) {
             self.state = state
             self.reconnect = reconnect
@@ -126,6 +141,7 @@ public enum DisplayStatus: Equatable, Sendable {
             self.failure = failure
             self.retry = retry
             self.refusal = refusal
+            self.gatewayRequired = gatewayRequired
         }
 
         /// The facts about `p`; what follows from its settings is filled in.
@@ -133,13 +149,13 @@ public enum DisplayStatus: Equatable, Sendable {
             _ p: Profile, state: ConnectionState, reconnect: ReconnectInfo? = nil, codeWaitUntil: Date? = nil,
             lastError: String? = nil, warning: String? = nil, notResponding: Bool = false,
             statusUnavailable: Bool = false, droppedUnseen: Bool = false, failure: ConnectionFailure? = nil,
-            retry: UnreachableRetry? = nil, refusal: PTError? = nil
+            retry: UnreachableRetry? = nil, refusal: PTError? = nil, gatewayRequired: Bool = false
         ) {
             self.init(
                 state: state, reconnect: reconnect, codeWaitUntil: codeWaitUntil, lastError: lastError,
                 warning: warning, notResponding: notResponding, statusUnavailable: statusUnavailable,
                 droppedUnseen: droppedUnseen, asksToConnect: Facts.asksToConnect(p), usesCode: p.otpMode == .totp,
-                failure: failure, retry: retry, refusal: refusal)
+                failure: failure, retry: retry, refusal: refusal, gatewayRequired: gatewayRequired)
         }
 
         /// What `m` reports about `p` now. `droppedUnseen` is the app's to tell.
@@ -150,7 +166,8 @@ public enum DisplayStatus: Equatable, Sendable {
                 p, state: m.state(id), reconnect: m.reconnecting[id], codeWaitUntil: m.codeWaitUntil[id],
                 lastError: m.lastError[id], warning: m.warnings[id], notResponding: m.health[id] == .unreachable,
                 statusUnavailable: m.statusUnavailable.contains(id), droppedUnseen: droppedUnseen,
-                failure: m.failures[id], retry: m.unreachableRetries[id], refusal: m.connectRefusal(p.type))
+                failure: m.failures[id], retry: m.unreachableRetries[id], refusal: m.connectRefusal(p.type),
+                gatewayRequired: m.gatewayChoices[id] != nil)
         }
 
         /// The profile's "Confirm with Touch ID" setting asks before connecting: either level, since the redesign
@@ -187,7 +204,7 @@ public enum DisplayStatus: Equatable, Sendable {
         } else if let refusal = f.refusal {
             self = .unavailable(note: refusal.unavailableNote ?? refusal.localizedDescription, reason: refusal.localizedDescription)
         } else if let error = f.lastError {
-            self = .failed(Failure(f.failure, error: error))
+            self = .failed(Failure(f.failure, error: error, gatewayRequired: f.gatewayRequired))
         } else if f.droppedUnseen {
             self = .dropped
         } else {
@@ -259,6 +276,9 @@ public enum DisplayStatus: Equatable, Sendable {
             return retry == nil ? String(localized: "Unreachable") : String(localized: "Unreachable, retrying")
         case .failed(.serverNotTrusted): return String(localized: "Server not trusted")
         case .failed(.hostScanRequired): return String(localized: "Host scan required")
+        case .failed(.ssoRequired): return String(localized: "Single sign-on required")
+        case .failed(.gatewayRequired): return String(localized: "Choose a gateway")
+        case .failed(.notGlobalProtectServer): return String(localized: "Not a GlobalProtect server")
         case .unavailable(let note, _): return note
         }
     }
@@ -292,6 +312,9 @@ public enum DisplayStatus: Equatable, Sendable {
         case .failed(.hostNotFound): return String(localized: "Can’t find the server")
         case .failed(.serverNotTrusted): return String(localized: "The server’s certificate is not trusted")
         case .failed(.hostScanRequired): return String(localized: "The server requires a host scan")
+        case .failed(.ssoRequired): return String(localized: "The server signs in with single sign-on (SAML)")
+        case .failed(.gatewayRequired): return String(localized: "The portal lists more than one gateway")
+        case .failed(.notGlobalProtectServer): return VPNLog.notGlobalProtectServer
         case .unavailable(_, let reason): return reason
         case .failed(.unreachable(let retry)):
             let words = String(localized: "Can’t reach the server")

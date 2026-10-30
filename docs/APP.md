@@ -331,6 +331,36 @@ The main window (`MainSplitView`, decision D-23) is a `NavigationSplitView`, abo
   code in the window, the menu bar or the copy items, Copy Code and Copy Password + Code disabled and refused); an imported one is selected instead of opened in the editor, and scanned
   codes never go to it. The type question of the add view shows Cisco AnyConnect disabled, with the sentence under
   the question, and File → New Cisco AnyConnect Profile… is disabled with the note as its tooltip.
+- **Palo Alto GlobalProtect** (#233, experimental; the design is in
+  [ARCHITECTURE.md](ARCHITECTURE.md#palo-alto-globalprotect-backend)): offered and refused below macOS 15.4 exactly
+  as Cisco AnyConnect (the type question, File → New Palo Alto GlobalProtect Profile (Experimental)…, the detail's
+  "Palo Alto GlobalProtect requires macOS 15.4 or later." card). The **"Experimental" badge** (`ExperimentalBadge`, a
+  small capsule in the foreground around it, from `VPNType.isExperimental` and nothing else) follows the type's name
+  in the type question (drawn into the button's title), the editor's title and its Advanced type row, the sidebar row
+  (after the name, or under it when the name needs the width) and the detail's header line, where **Report how it
+  works…** follows it (`AppInfo.globalProtectReportURL`: the repository's `issues/new?template=globalprotect_report.md`,
+  opened in the browser). Menus have no room for a capsule and say "(Experimental)" in words (File menu, the editor's
+  type picker); the menu bar shows none. Every failure card of the type ends with "Palo Alto GlobalProtect support is
+  experimental" and the same link (`ExperimentalReportRow`). A connected profile whose gateway asked for a host
+  information report shows the notice under the status line (`StatusNoticeRow`, `ConnectionManager.notices`, read
+  again only when the log changes): "The gateway asked for a host information report, which PassTunnel does not
+  send. Access may be limited." Failures:
+  - **Choose a gateway** (`GatewayChoiceCard`, `DisplayStatus.Failure.gatewayRequired`): the portal lists more than
+    one gateway and the profile names none (or one it does not list). The portal's labels as Core read them
+    (`GatewayChoice`: printable ASCII, 1–64 bytes, at most 32, only those `gateway` takes) under **Choose Gateway**,
+    which writes only `gateway` (`ConnectionManager.chooseGateway`), then "This profile uses the gateway “US East”
+    now / Connect again to use it." Bound to the portal they came from: none once the profile names another host or
+    port or skips the portal. Without readable labels, Show Log and the editor.
+  - **Single sign-on required** (`SingleSignOnCard`): the server signs in with SAML in a web page; whether the password
+    and code were sent, and "Ask your IT team".
+  - **Not a GlobalProtect server**: the reason and "Is the server’s address right?" (`MessageCard`).
+  - **Server not trusted** for the portal (or the only server) is Cisco AnyConnect's card. For the gateway the portal
+    sent the sign-in to (`ConnectionManager.failedGateway`) it names the gateway and offers **Trust This Gateway…**,
+    whose sheet (`GatewayTrustSheet`, rules in `GatewayTrust`) shows the gateway and its full pin and, when the profile
+    pins no portal key, reads the portal's key at once (`TLSFingerprint.fetchServerKeyPin` for the offer's host and
+    port; Try again after a failure) and shows it too: **Trust Both Keys** stays disabled until it is shown, and a key
+    read for another offer is dropped. Both keys are saved together (`trustServer(_:portalPin:)`), and the sheet says
+    so and disables Trust when the profile's server or pins changed since the failure (`ServerTrustOffer.matches`).
 - **A profile of a newer VPN type** (`UnsupportedProfile`: its `type` is not one this version knows) is listed under the
   others with "Needs a newer PassTunnel" in amber (`UnsupportedSidebarRow`). Its detail says so and offers only
   Delete… (so does its context menu); it is not in the menu bar, cannot be edited, shared, made the default or
@@ -390,7 +420,15 @@ the sheet closes and `AppModel.delete` runs), Cancel, Save (Add Profile for a ne
    fetched without the click. A fetched fingerprint (FortiGate's too) is bound to the server it was read from
    (`FingerprintFetch`: type, host, port, user group): editing any of them while the fetch runs ends it, a result for
    another server than the one the profile names is dropped, and the confirmation names the server the key came
-   from. Save checks everything again (`checkAnyConnectFields` in `ProfileStore.save`). Password: one secure field when it is kept in the Keychain (no
+   from. Save checks everything again (`checkAnyConnectFields` in `ProfileStore.save`). Palo Alto GlobalProtect →
+   Server (`[https://]host[:port]`, `GlobalProtectEditing`: a path such as `/global-protect/…` is refused with its own
+   line; the portal's address, or the gateway's with Skip portal), Gateway (`gateway`, "Portal’s choice" when empty;
+   after a failure for want of one, **Portal’s Gateways** beside it lists the portal's labels while the profile names
+   that portal; disabled with Skip portal), Portal ("Skip the portal and sign in to the gateway directly",
+   `skip_portal`), Portal key (`server_cert`, "Server key" with Skip portal) with Fetch Fingerprint, Gateway key
+   (`gateway_server_cert`, no fetch: the editor does not know the gateway's host; "Trust This Gateway…" sets it, and
+   with only it set an amber line says the portal must then present that key too), ESP ("Use TLS only (no ESP)",
+   `tls_only`), DNS and Routes; `checkGlobalProtectFields` on save. Password: one secure field when it is kept in the Keychain (no
    confirm field; placeholder "Saved in Keychain" when one is saved, and empty keeps it), else the words for "Ask
    each time" or "None — certificate only".
 2. **One-time code** (the hero card): with a secret, "Secret added · 6 digits · 30 s" (the issuer · account of a
@@ -437,7 +475,8 @@ the sheet closes and `AppModel.delete` runs), Cancel, Save (Add Profile for a ne
    drops" (`autoReconnect`), disabled with the reason when the profile is not `unattended`.
 
 **Advanced** (closed when the sheet opens; Save opens it when the first problem is there), in three cards:
-Sign-in — type (read-only after creation; a menu of the three, Cisco AnyConnect disabled with its note below macOS
+Sign-in — type (read-only after creation, with the Experimental badge for Palo Alto GlobalProtect; a menu of the
+four, Palo Alto GlobalProtect named "(Experimental)", Cisco AnyConnect and Palo Alto GlobalProtect disabled with their note below macOS
 15.4), Password: Save in Keychain / Ask each time / None — certificate only
 (OpenVPN only), One-time code: None / Generate / Ask each time, and for Generate the Secret field (a secret or an
 `otpauth://` link, typed or pasted; its errors show under it), digits, period, algorithm. Connection — the
@@ -851,6 +890,11 @@ are in `Editor/EditorComponents.swift`) use them; the credential sheet and the o
   `error-host-scan`, and below macOS 15.4 (`ConnectionManager.systemVersion` 14.7) `anyconnect-unavailable`,
   `menubar-panel-anyconnect-unavailable` and the add view's type question `add-vpn-type-unavailable` (beside
   `add-vpn-type`); the editor renders add `editor-new-anyconnect`, `editor-anyconnect` and `editor-anyconnect-errors`.
+  Palo Alto GlobalProtect, on a profile made for them (#233): `globalprotect-detail` (connected, with the HIP notice),
+  `globalprotect-sidebar` (its row unselected), `error-gateway-required`, `error-gateway-unreadable`,
+  `error-sso-required`, `error-not-globalprotect`, `error-gateway-not-trusted`, `trust-gateway-sheet` (and
+  `-reading`) and `globalprotect-unavailable`; the editor renders `editor-new-globalprotect`, `editor-globalprotect`,
+  `-errors`, `-skip-portal` and `-gateway-key-only`.
   Offscreen, the glass sidebar of macOS 26 draws without its rows, so there the render lays the window's sidebar
   and detail out side by side, the sidebar on its flat list background. `first-run` (with the helper card, light and
   dark), `first-run-approval`, `add-vpn` and `main-split-login` show the first run, the add view and the question

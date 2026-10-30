@@ -82,6 +82,8 @@ final class AppModel: ObservableObject {
     var previewNow: Date?
     /// Render overrides for the failure cards and the clock banner (FailureCards.swift).
     var previewFailures = FailurePreview()
+    /// Render override: the notices of connected profiles (`notices`).
+    var previewNotices: [String: [StatusNotice]] = [:]
     /// A connect that waits for the answer to "Lab overlaps with Work" (`OverlapSheet`).
     @Published var overlapRequest: OverlapRequest?
 
@@ -241,15 +243,14 @@ final class AppModel: ObservableObject {
     func canCopyPassword(_ p: Profile) -> Bool { p.passwordMode == .keychain && connectRefusal(p.type) == nil }
 
     /// Why the editor does not open on `p`: `connectRefusal` of its type, and for a type the editor has no fields
-    /// for yet (`editableTypes`) that it needs a newer PassTunnel.
+    /// for (`editableTypes`) that it needs a newer PassTunnel.
     func editRefusal(_ p: Profile) -> PTError? {
         connectRefusal(p.type) ?? (Self.editableTypes.contains(p.type) ? nil : .unsupportedProfileType(p.type.rawValue))
     }
 
-    /// The types the editor has the fields for, and the type lists offer (Add VPN, the editor's type picker), in
-    /// `VPNType.connectable`'s order. Palo Alto GlobalProtect connects (#231) but is edited and offered here once the
-    /// editor has its fields (#233).
-    static let editableTypes = VPNType.connectable.filter { $0 != .globalprotect }
+    /// The types the editor has the fields for, and the type lists offer (Add VPN, the editor's type picker, the File
+    /// menu), in `VPNType.connectable`'s order: every type, Palo Alto GlobalProtect (#233) included.
+    static let editableTypes = VPNType.connectable
 
     /// Nothing to show in the sidebar: the first-run view takes the window.
     var hasNoProfiles: Bool { profiles.isEmpty && unsupported.isEmpty }

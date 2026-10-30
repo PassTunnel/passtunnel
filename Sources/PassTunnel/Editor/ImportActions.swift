@@ -266,7 +266,7 @@ enum ImportActions {
         AppModel.shared?.newProfile(type)
     }
 
-    /// OpenVPN, FortiGate or Cisco AnyConnect; nil when cancelled.
+    /// OpenVPN, FortiGate, Cisco AnyConnect or Palo Alto GlobalProtect; nil when cancelled.
     @MainActor private static func chooseType(for uri: OTPAuthURI?) -> VPNType? {
         let alert = typeAlert(for: uri, refusal: { AppModel.shared?.connectRefusal($0) })
         let index = alert.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
@@ -275,7 +275,8 @@ enum ImportActions {
 
     /// "What kind of VPN is it?" with a button per type this version connects and edits (`AppModel.editableTypes`, in
     /// that order) and Cancel. A type this
-    /// Mac cannot connect (`refusal`: Cisco AnyConnect below macOS 15.4) is shown, disabled, and the text says why.
+    /// Mac cannot connect (`refusal`: Cisco AnyConnect and Palo Alto GlobalProtect below macOS 15.4) is shown, disabled,
+    /// and the text says why.
     @MainActor static func typeAlert(for uri: OTPAuthURI?, refusal: (VPNType) -> PTError?) -> NSAlert {
         let alert = NSAlert()
         var info: String
@@ -288,6 +289,11 @@ enum ImportActions {
         }
         for type in AppModel.editableTypes {
             let button = alert.addButton(withTitle: type.displayName)
+            // An experimental type (`VPNType.isExperimental`) has the "Experimental" badge after its name.
+            if type.isExperimental {
+                button.attributedTitle = ExperimentalLabel.attributedTitle(type.displayName, enabled: refusal(type) == nil)
+                button.setAccessibilityLabel(type.displayName + ", " + ExperimentalLabel.title)
+            }
             if let refusal = refusal(type) {
                 button.isEnabled = false
                 button.toolTip = refusal.unavailableNote
