@@ -421,7 +421,7 @@ final class MCPServerTests: XCTestCase {
         XCTAssertEqual(
             instructions,
             "PassTunnel manages this computer's VPN connections " + base
-                + " Cisco AnyConnect needs the distribution's openconnect 9.01 or later; connect says why when it is missing or too old."
+                + " Cisco AnyConnect needs the distribution's openconnect 9.01 or later, Palo Alto GlobalProtect 9.11 or later; connect says why when it is missing or too old."
                 + " " + experimental
                 + " connect and disconnect are enabled. A protected profile cannot be connected on Linux yet: connect refuses it with auth_unavailable."
         )

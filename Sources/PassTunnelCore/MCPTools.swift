@@ -21,9 +21,9 @@ enum MCPWording {
     static let timeServer = "the NTP server this computer is set up with"
     static let diagnoseTools = ""
     static let anyConnectPlatform =
-        "Cisco AnyConnect needs the distribution's openconnect 9.01 or later: when it is missing or older, connect is refused with config_invalid before the one-time code is used."
+        "Cisco AnyConnect needs the distribution's openconnect 9.01 or later, Palo Alto GlobalProtect 9.11 or later: when it is missing or older, connect is refused with config_invalid before the one-time code is used."
     static let instructionsAnyConnect =
-        "Cisco AnyConnect needs the distribution's openconnect 9.01 or later; connect says why when it is missing or too old."
+        "Cisco AnyConnect needs the distribution's openconnect 9.01 or later, Palo Alto GlobalProtect 9.11 or later; connect says why when it is missing or too old."
     #else
     static let thisMachines = "this Mac's"
     static let theMachines = "the Mac's"

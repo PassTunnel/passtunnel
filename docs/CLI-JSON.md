@@ -141,7 +141,7 @@ that `connect` would fail with:
 `message` is `Cisco AnyConnect requires macOS 15.4 or later.` on a Mac with an older macOS (`list` shows it as
 `Requires macOS 15.4 or later` beside the type). Linux has no `connect_refusal` (since #187): there `connect` checks
 the distribution's openconnect first and fails with `config_invalid` ("Cisco AnyConnect cannot be used here: …") when
-it is missing, untrusted or older than 9.01, before the one-time code is used. The profile can still be shown, edited with `set`, exported and deleted; `connect`, `toggle`
+it is missing, untrusted or older than 9.01 (Palo Alto GlobalProtect: 9.11), before the one-time code is used. The profile can still be shown, edited with `set`, exported and deleted; `connect`, `toggle`
 and the MCP tool `connect` fail with that error before anything is asked or read, and `add --type anyconnect` is refused
 with it as well. `connect_refusal` is left out when the profile can connect, and for the other types. `status` and
 `show` carry it too ([ProfileStatus](#profilestatus), [Commands](#commands)); `diagnose` reports it among the
