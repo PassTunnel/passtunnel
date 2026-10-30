@@ -270,11 +270,11 @@ enum ImportActions {
     @MainActor private static func chooseType(for uri: OTPAuthURI?) -> VPNType? {
         let alert = typeAlert(for: uri, refusal: { AppModel.shared?.connectRefusal($0) })
         let index = alert.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
-        return VPNType.connectable.indices.contains(index) ? VPNType.connectable[index] : nil
+        return AppModel.editableTypes.indices.contains(index) ? AppModel.editableTypes[index] : nil
     }
 
-    /// "What kind of VPN is it?" with a button per type this version connects (`VPNType.connectable`, in that order)
-    /// and Cancel. A type this
+    /// "What kind of VPN is it?" with a button per type this version connects and edits (`AppModel.editableTypes`, in
+    /// that order) and Cancel. A type this
     /// Mac cannot connect (`refusal`: Cisco AnyConnect below macOS 15.4) is shown, disabled, and the text says why.
     @MainActor static func typeAlert(for uri: OTPAuthURI?, refusal: (VPNType) -> PTError?) -> NSAlert {
         let alert = NSAlert()
@@ -286,7 +286,7 @@ enum ImportActions {
             alert.messageText = String(localized: "What kind of VPN is it?")
             info = String(localized: "You enter the server, user name, password and code secret next.")
         }
-        for type in VPNType.connectable {
+        for type in AppModel.editableTypes {
             let button = alert.addButton(withTitle: type.displayName)
             if let refusal = refusal(type) {
                 button.isEnabled = false

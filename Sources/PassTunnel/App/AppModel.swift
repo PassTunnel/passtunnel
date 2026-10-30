@@ -240,8 +240,16 @@ final class AppModel: ObservableObject {
     /// "Copy Password + Code" can be offered: a password in the Keychain, of a profile this Mac can connect.
     func canCopyPassword(_ p: Profile) -> Bool { p.passwordMode == .keychain && connectRefusal(p.type) == nil }
 
-    /// Why the editor does not open on `p`: `connectRefusal` of its type.
-    func editRefusal(_ p: Profile) -> PTError? { connectRefusal(p.type) }
+    /// Why the editor does not open on `p`: `connectRefusal` of its type, and for a type the editor has no fields
+    /// for yet (`editableTypes`) that it needs a newer PassTunnel.
+    func editRefusal(_ p: Profile) -> PTError? {
+        connectRefusal(p.type) ?? (Self.editableTypes.contains(p.type) ? nil : .unsupportedProfileType(p.type.rawValue))
+    }
+
+    /// The types the editor has the fields for, and the type lists offer (Add VPN, the editor's type picker), in
+    /// `VPNType.connectable`'s order. Palo Alto GlobalProtect connects (#231) but is edited and offered here once the
+    /// editor has its fields (#233).
+    static let editableTypes = VPNType.connectable.filter { $0 != .globalprotect }
 
     /// Nothing to show in the sidebar: the first-run view takes the window.
     var hasNoProfiles: Bool { profiles.isEmpty && unsupported.isEmpty }

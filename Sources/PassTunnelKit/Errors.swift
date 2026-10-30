@@ -45,6 +45,14 @@ public enum PTError: Error, Equatable, LocalizedError {
     case anyConnectToolUnavailable(String)  // Linux: the distribution's openconnect is missing, untrusted or older than 9.01; why
     // Palo Alto GlobalProtect
     case globalProtectRequiresMacOS(String)  // the macOS openconnect needs ("15.4"): refused before anything runs
+    /// The portal or the gateway asked for single sign-on (SAML), which PassTunnel does not support; log tail. Whether
+    /// anything was sent is the failure's `credentialsSent` (at the portal nothing was; at a gateway behind it, the
+    /// portal's sign-in was).
+    case ssoRequired(log: String)
+    /// openconnect did not trust the key of the gateway the portal sent the sign-in to: the gateway (`host:port`, IPv6 in
+    /// brackets, as the redacted log names it), openconnect's reason, and the pin of the key it saw when it printed one;
+    /// log tail. The portal's sign-in was sent by then.
+    case gatewayCertificateRejected(gateway: String, reason: String, pin: String?, log: String)
     case hostScanRequired(log: String)  // the server asked for a CSD host scan, which PassTunnel never runs; log tail
     /// openconnect did not trust the server's certificate (or key): its reason, and the pin of the key it saw
     /// (`pin-sha256:…`, openconnect's own hint) when it printed one; log tail. Nothing was sent.
@@ -153,6 +161,10 @@ public enum PTError: Error, Equatable, LocalizedError {
             return String(localized: "Cisco AnyConnect cannot be used here: \(reason)")
         case .globalProtectRequiresMacOS(let version):
             return String(localized: "Palo Alto GlobalProtect requires macOS \(version) or later.")
+        case .ssoRequired:
+            return String(localized: "This server signs in with single sign-on (SAML), which PassTunnel does not support.")
+        case .gatewayCertificateRejected(_, let reason, _, _):
+            return String(localized: "The gateway’s certificate was not trusted (\(reason)).")
         case .hostScanRequired:
             return String(
                 localized:
@@ -202,7 +214,8 @@ extension PTError {
         switch self {
         case .authFailed(let tail), .connectFailed(let tail), .setupFailed(_, let tail), .serverUnreachable(_, _, let tail),
             .hostNotFound(_, let tail), .toolUnsupported(_, let tail), .hostScanRequired(let tail),
-            .serverCertificateRejected(_, _, let tail), .signInNeedsMoreAnswers(let tail):
+            .serverCertificateRejected(_, _, let tail), .signInNeedsMoreAnswers(let tail), .ssoRequired(let tail),
+            .gatewayCertificateRejected(_, _, _, let tail):
             return tail
         default: return ""
         }

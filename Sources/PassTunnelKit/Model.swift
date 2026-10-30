@@ -3,7 +3,7 @@ import PassTunnelVPNConfig
 
 /// `anyconnect`: Cisco AnyConnect through openconnect (docs/ARCHITECTURE.md, "Cisco AnyConnect backend").
 /// `globalprotect`: Palo Alto GlobalProtect through the same openconnect ("Palo Alto GlobalProtect backend").
-public enum VPNType: String, Codable, CaseIterable {
+public enum VPNType: String, Codable, CaseIterable, Sendable {
     case openvpn, forti, anyconnect, globalprotect
 
     /// How a new profile of this type sends the code: on its own for FortiGate (the `otp` field), Cisco

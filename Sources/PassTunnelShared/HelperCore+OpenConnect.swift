@@ -18,6 +18,14 @@ extension OpenConnectProtocol {
 extension HelperCore {
     public static let openConnectConfigName = "openconnect.conf"
 
+    /// Why a start is refused while the network of the profile's last openconnect session could not be restored
+    /// yet: `typeName` is the profile's type as the start request names it ("Palo Alto GlobalProtect"), nil for one
+    /// that does not say.
+    public static func stillRestoringMessage(typeName: String?) -> String {
+        let session = typeName.map { "last \($0) session" } ?? "last session"
+        return "The network settings of this profile's \(session) are still being restored. Try again shortly."
+    }
+
     /// Only the config file: everything else is in it (`OpenConnectConfig`), and argv is visible to every
     /// local user.
     public static func openConnectArguments(configPath: String) -> [String] { ["--config=" + configPath] }

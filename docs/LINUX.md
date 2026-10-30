@@ -810,7 +810,9 @@ a kill), with these differences (G7). The type is labelled experimental here too
 - **Protocol 5.** `passtunneld`'s `hello` reports 5 with the helper; a daemon of protocol 4 refuses a client of 5 (and
   the other way round) with the version message, so the CLI and the daemon come from the same package. Until G7 the
   daemon refuses `protocol gp` ("Palo Alto GlobalProtect is not supported by passtunneld yet.") before preparing
-  anything, as #182 did for AnyConnect.
+  anything, as #182 did for AnyConnect, and `passtunnel` refuses to connect the type before anything is asked or
+  signed in (`ConnectionManager.connectRefusal`: "needs a newer PassTunnel", #231), so no code is spent on a cookie the
+  daemon would refuse.
 - **Tests.** The CI jobs' sign-in tests against the GlobalProtect test server (ARCHITECTURE.md, "Tests (G8)") run with
   Ubuntu's 9.12, `disable-ipv6` rendered; the daemon's tests cover the version gate (a stand-in printing 9.01), the
   rendered files with and without `disable-ipv6`, and a start against a local socket that never answers, as for

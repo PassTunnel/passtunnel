@@ -333,7 +333,7 @@ final class EditorModel: ObservableObject {
             if let message = AnyConnectEditing.groupProblem(p.authgroup) { e[.authgroup] = message }
             if let message = AnyConnectEditing.pinProblem(p.serverCert) { e[.serverCert] = message }
         case .globalprotect:
-            break  // not edited by this version (`VPNType.isConnectable`: the editor is refused)
+            break  // not edited by this version yet (`AppModel.editableTypes`, #233: the editor is refused)
         }
 
         if p.sessionLimitMin < 0 { e[.sessionLimit] = String(localized: "The session limit cannot be negative.") }

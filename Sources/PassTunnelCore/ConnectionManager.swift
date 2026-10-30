@@ -176,10 +176,12 @@ public struct ProfileDestination: Equatable, Sendable {
 }
 
 extension VPNType {
-    /// The types this version connects, and so offers to create (the app's type lists, `passtunnel add`). Palo
-    /// Alto GlobalProtect is known (its profiles are kept, checked, shown, set, shared and deleted) but is not
-    /// connected yet (#231): `ConnectionManager.connectRefusal` refuses it on every system.
-    public static let connectable = allCases.filter { $0 != .globalprotect }
+    /// The types this version connects (every type since #231; Palo Alto GlobalProtect labelled experimental,
+    /// `isExperimental`). Whether this system can connect one is `ConnectionManager.connectRefusal`: Cisco AnyConnect
+    /// and Palo Alto GlobalProtect need macOS 15.4, and Palo Alto GlobalProtect is refused on Linux until
+    /// `passtunneld` runs it (#234). The front ends offer a type to create once they edit it: the app's type lists
+    /// leave Palo Alto GlobalProtect out until its editor has the type's fields (#233).
+    public static let connectable = allCases
 
     public var isConnectable: Bool { Self.connectable.contains(self) }
 }
@@ -695,7 +697,7 @@ public final class ConnectionManager: ObservableObject {
             let log = VPNLog.read(store.logURL(p.id))
             guard fortiIsConnected(p, log: log) else { return (.connecting(Phase.connecting), false) }
             return (.connected(ip: VPNLog.fortiAddress(log) ?? "", since: connectedAt[p.id] ?? logCreated(p.id)), false)
-        case .anyconnect:
+        case .anyconnect, .globalprotect:
             // Connected once the helper reports the network up from the hook's root-owned record, never from
             // the log, part of which the server writes. The address shown is the log's, for that interface.
             guard isRunning else { return (.disconnected, false) }
@@ -704,9 +706,6 @@ public final class ConnectionManager: ObservableObject {
             guard let tunnel, tunnel.isUp else { return (.connecting(Phase.configuring), false) }
             let ip = VPNLog.openConnectAddress(VPNLog.read(store.logURL(p.id)), interface: tunnel.interface)
             return (.connected(ip: ip, since: connectedAt[p.id] ?? logCreated(p.id)), false)
-        case .globalprotect:
-            // Not started by this version (`connectRefusal`).
-            return (isRunning ? .connecting(Phase.connecting) : .disconnected, false)
         }
     }
 
@@ -920,8 +919,7 @@ public final class ConnectionManager: ObservableObject {
         switch p.type {
         case .openvpn: return VPNLog.openVPNIsUp(log)
         case .forti: return VPNLog.fortiIsUp(log)
-        case .anyconnect: return VPNLog.openConnectIsUp(log)
-        case .globalprotect: return false  // never started by this version (`connectRefusal`)
+        case .anyconnect, .globalprotect: return VPNLog.openConnectIsUp(log)
         }
     }
 
@@ -1038,7 +1036,10 @@ public final class ConnectionManager: ObservableObject {
                     p, username: creds.username ?? "", password: creds.password ?? "", composed: composed, otp: otp,
                     codeTime: codeTime, token: token, progress: &progress)
             case .globalprotect:
-                throw PTError.unsupportedProfileType(p.type.rawValue)  // refused above (`checkConnectable`)
+                // The portal's and the gateway's sign-in first; only the gateway's cookie goes to the helper.
+                request = try await globalProtectSignIn(
+                    p, username: creds.username ?? "", password: creds.password ?? "", otp: otp, totpSecret: creds.totpSecret,
+                    codeTime: codeTime, token: token, progress: &progress)
             }
             let response = try await helper.perform(request, timeout: timing.helperTimeout)
             guard response.ok else {
@@ -1119,17 +1120,7 @@ public final class ConnectionManager: ObservableObject {
     ) async throws -> HelperRequest {
         let id = p.id
         progress.anyConnect = true
-        let tool: AnyConnectSignIn.Tool
-        if let path = openConnectPath {
-            tool = AnyConnectSignIn.Tool(path: path)
-        } else {
-            // Linux: the distribution's, checked before the code is used (it runs the tool twice, as the user).
-            let lookup = AnyConnectSignIn.Lookup(locate: locateOpenConnect, runner: toolRunner)
-            let found = await withCheckedContinuation { (done: CheckedContinuation<Result<AnyConnectSignIn.Tool, Error>, Never>) in
-                DispatchQueue.global(qos: .userInitiated).async { done.resume(returning: lookup.run()) }
-            }
-            tool = try found.get()
-        }
+        let tool = try await openConnectTool()
         let pin = p.serverCert.isEmpty ? "" : OpenConnectPin.normalize(p.serverCert) ?? p.serverCert
         let config = OpenConnectAuthConfig(
             host: p.host, port: p.port, usergroup: p.usergroup, username: username, authgroup: p.authgroup, serverCert: pin)
@@ -1194,6 +1185,126 @@ public final class ConnectionManager: ObservableObject {
         }
     }
 
+    /// The openconnect a sign-in runs: the app bundle's, or on Linux the distribution's, checked before the code is
+    /// used (it runs the tool twice, as the user).
+    private func openConnectTool() async throws -> AnyConnectSignIn.Tool {
+        if let path = openConnectPath { return AnyConnectSignIn.Tool(path: path) }
+        let lookup = AnyConnectSignIn.Lookup(locate: locateOpenConnect, runner: toolRunner)
+        let found = await withCheckedContinuation { (done: CheckedContinuation<Result<AnyConnectSignIn.Tool, Error>, Never>) in
+            DispatchQueue.global(qos: .userInitiated).async { done.resume(returning: lookup.run()) }
+        }
+        return try found.get()
+    }
+
+    /// Palo Alto GlobalProtect's sign-in (docs/ARCHITECTURE.md, "Signing in: portal, then gateway"): runs
+    /// `openconnect --authenticate` with `protocol gp` as the user (`GlobalProtectSignIn`) and returns the start
+    /// request for the gateway it ended on, with its cookie, address and key and both of the profile's pins. Standard
+    /// input holds `GlobalProtectAnswers`: the first part now, and, with a TOTP secret and without `skip_portal`, a
+    /// second part with the code of a later window once the run shows the second sign-in and the first code's window
+    /// has ended; that code is recorded in `.last-otp` when it was written. The time limit is the sign-in's plus the
+    /// TOTP period when a second part may wait for the next window. The rest as `signIn`.
+    private func globalProtectSignIn(
+        _ p: Profile, username: String, password: String, otp: String?, totpSecret: Data?, codeTime: Date?, token: Int,
+        progress: inout AttemptProgress
+    ) async throws -> HelperRequest {
+        let id = p.id
+        progress.anyConnect = true
+        let tool = try await openConnectTool()
+        func normalized(_ pin: String) -> String { pin.isEmpty ? "" : OpenConnectPin.normalize(pin) ?? pin }
+        let pin = normalized(p.serverCert)
+        let gatewayPin = normalized(p.gatewayServerCert)
+        let config = OpenConnectAuthConfig(
+            protocol: .gp, host: p.host, port: p.port, username: username, serverCert: pin, skipPortal: p.skipPortal,
+            gateway: p.gateway, gatewayServerCert: gatewayPin)
+        let texts = GlobalProtectAnswers.lines(password: password, code: otp, delivery: p.otpDelivery, template: p.otpTemplate)
+        let answers: SecretBytes
+        do {
+            answers = SecretBytes(try OpenConnectAnswers.stdin(texts))
+        } catch {
+            throw PTError.invalidField("password")
+        }
+        defer { answers.wipe() }
+
+        var second: GlobalProtectSignIn.SecondPart?
+        if let secret = totpSecret, let codeTime, GlobalProtectAnswers.hasSecondPart(skipPortal: p.skipPortal, totp: true) {
+            let params = p.totp
+            let delivery = p.otpDelivery
+            let template = p.otpTemplate
+            let clock = self.clock
+            second = GlobalProtectSignIn.SecondPart(
+                notBefore: GlobalProtectAnswers.secondPartNotBefore(codeTime: codeTime, params: params), now: { clock.now() },
+                answers: { date in
+                    let code = TOTP.code(secret: secret, params: params, at: date)
+                    let lines = GlobalProtectAnswers.lines(password: password, code: code, delivery: delivery, template: template)
+                    return (lines, [code])
+                })
+        }
+
+        let sent = sending(p, username: username, password: password, otp: otp, codeTime: codeTime)
+        progress.handed = ConnectionFailure.Handed(code: sent.code, codeSecondsLeft: sent.secondsLeft)
+        if let codeTime { progress.usedCode = (usedCode(id), rememberUsedCode(p, at: codeTime)) }
+        progress.credentialsSent = false
+        record(id, .sending(sent))
+        setState(id, .connecting(Phase.signingIn))
+
+        let run = GlobalProtectSignIn(
+            toolPath: tool.path, runner: toolRunner,
+            timeout: GlobalProtectSignIn.timeout(base: timing.signInTimeout, secondPartPeriod: second == nil ? nil : p.totp.period),
+            caFile: tool.caFile, noExternalAuth: tool.noExternalAuth)
+        let cancellation = ToolCancellation()
+        signIns[id] = cancellation
+        defer { if signIns[id] === cancellation { signIns[id] = nil } }
+        if actionToken[id] != token { cancellation.cancel() }
+        let secrets = Array(Set(texts + [password] + (otp.map { [$0] } ?? [])))
+        let server = serverAddress(p)
+        let outcome = await withTaskCancellationHandler {
+            await withCheckedContinuation {
+                (done: CheckedContinuation<Result<GlobalProtectSignIn.Success, GlobalProtectSignIn.Failure>, Never>) in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    done.resume(
+                        returning: run.run(
+                            config, answers: answers.bytes, second: second, secrets: secrets, server: server, cancellation: cancellation))
+                }
+            }
+        } onCancel: {
+            cancellation.cancel()
+        }
+
+        // The second code went to openconnect: spent too, so the next connect waits for a window after it.
+        let secondAt: Date?
+        switch outcome {
+        case .success(let s): secondAt = s.secondPartAt
+        case .failure(let f): secondAt = f.secondPartAt
+        }
+        if let secondAt { progress.usedCode = (progress.usedCode?.previous, rememberUsedCode(p, at: secondAt)) }
+
+        switch outcome {
+        case .failure(let failure):
+            progress.credentialsSent = failure.credentialsSent
+            progress.gateways = failure.gateways
+            progress.failureReason = failure.reason
+            if !failure.log.isEmpty { writeSignInLog(id, failure.log) }
+            progress.toolRan = !failure.log.isEmpty
+            if actionToken[id] != token { throw PTError.connectCancelled }
+            throw failure.error
+        case .success(let success):
+            progress.credentialsSent = true
+            writeSignInLog(id, success.log)
+            progress.toolRan = true
+            try checkToken(id, token)
+            record(id, .authAccepted)
+            setState(id, .connecting(Phase.configuring))
+            let r = success.result
+            let gateway = success.destination
+            return .startOpenConnect(
+                OpenConnectStart(
+                    protocol: .gp, profileID: id, profileDir: store.dir(id).path, logPath: store.logURL(id).path, host: gateway.host,
+                    port: gateway.port, connectURL: r.connectURL, resolve: gateway.resolveAddress == nil ? nil : r.resolve,
+                    cookie: r.tunnelCookie, serverCert: r.fingerprint, profileServerCert: pin, profileGatewayServerCert: gatewayPin,
+                    tlsOnly: p.tlsOnly, setDNS: p.setDNS, setRoutes: p.setRoutes))
+        }
+    }
+
     /// The sign-in's standard error (already redacted) as the profile's log, 0600; best effort.
     private func writeSignInLog(_ id: String, _ log: String) {
         guard FileManager.default.fileExists(atPath: store.dir(id).path) else { return }
@@ -1244,8 +1355,10 @@ public final class ConnectionManager: ObservableObject {
     /// later (`HelperCore.Tool.minimumMacOS`: dyld stops the bundled openconnect on anything older; owner
     /// decision, #2): `PTError.anyConnectRequiresMacOS`. On Linux (`macOS` nil) nothing is refused here: the
     /// distribution's openconnect is checked when the sign-in starts (`AnyConnectSignIn.distributionTool`).
-    /// Palo Alto GlobalProtect is refused below macOS 15.4 the same way (`PTError.globalProtectRequiresMacOS`), and
-    /// everywhere else until this version connects it (`VPNType.isConnectable`): `PTError.unsupportedProfileType`.
+    /// Palo Alto GlobalProtect is refused below macOS 15.4 the same way (`PTError.globalProtectRequiresMacOS`), and on
+    /// Linux (`macOS` nil) until `passtunneld` runs it and its sign-in checks the distribution's openconnect for the
+    /// type's 9.11 (#234): `PTError.unsupportedProfileType` ("needs a newer PassTunnel"), before any code is used,
+    /// rather than a sign-in whose cookie the daemon would refuse.
     public nonisolated static func connectRefusal(_ type: VPNType, macOS: OperatingSystemVersion? = currentMacOS) -> PTError? {
         switch type {
         case .openvpn, .forti:
@@ -1253,6 +1366,7 @@ public final class ConnectionManager: ObservableObject {
         case .anyconnect:
             return openConnectMinimum(macOS).map(PTError.anyConnectRequiresMacOS)
         case .globalprotect:
+            guard macOS != nil else { return .unsupportedProfileType(type.rawValue) }
             if let version = openConnectMinimum(macOS) { return .globalProtectRequiresMacOS(version) }
             return type.isConnectable ? nil : .unsupportedProfileType(type.rawValue)
         }
@@ -1434,7 +1548,9 @@ public final class ConnectionManager: ObservableObject {
             guard Profile.isValidHost(p.host, type: .anyconnect) else { throw PTError.invalidField("host") }
             try p.checkAnyConnectFields()
         case .globalprotect:
-            throw PTError.unsupportedProfileType(p.type.rawValue)  // not connected yet (`connectRefusal`)
+            guard !p.host.trimmingCharacters(in: .whitespaces).isEmpty else { throw PTError.missingHost(id) }
+            guard Profile.isValidHost(p.host, type: .globalprotect) else { throw PTError.invalidField("host") }
+            try p.checkGlobalProtectFields()
         }
         // A store that cannot be read says so (`SecretStoreUnavailable`), rather than "missing".
         if p.passwordMode == .keychain, try !Secrets.exists(id, .password) { throw PTError.missingPassword(id) }
@@ -1566,6 +1682,10 @@ public final class ConnectionManager: ObservableObject {
         var anyConnect = false
         /// Whether the sign-in's credentials can have reached the server, when this process knows it.
         var credentialsSent: Bool?
+        /// Palo Alto GlobalProtect: the portal's gateway labels the sign-in's failure lists (`ConnectionFailure.gateways`).
+        var gateways: [String]?
+        /// Palo Alto GlobalProtect: the reason the sign-in's failure gives beside its error.
+        var failureReason: String?
         /// The profile as the attempt read it.
         var profile: Profile?
     }
@@ -1577,14 +1697,18 @@ public final class ConnectionManager: ObservableObject {
     private func noteFailure(_ id: String, _ error: Error, _ progress: AttemptProgress) {
         // A Cisco AnyConnect log is openconnect's: its errors (`VPNLog.openConnectSignInError`, `waitUntilConnected`)
         // already carry what it says, which the markers of the other tools would misread.
-        let anyConnect = progress.anyConnect || (try? store.get(id))?.type == .anyconnect
+        let anyConnect = progress.anyConnect || (try? store.get(id))?.type.usesOpenConnect == true
         let log = progress.toolRan && !anyConnect ? VPNLog.read(store.logURL(id)) : nil
         var failure = ConnectionFailure.of(
             error, log: log, handed: progress.handed, at: clock.now(), credentialsSent: progress.credentialsSent)
         // A try of the retries counts on from the ones before it.
         if failure.kind == .unreachable, let retry = unreachableRetries[id] { failure.tries = retry.tries + (failure.tries ?? 1) }
+        if case PTError.invalidField("gateway") = error { failure.gateways = progress.gateways }
+        if let reason = progress.failureReason { failure.reason = reason }
         failures[id] = failure
-        trustOffers[id] = progress.profile.flatMap { ServerTrustOffer($0, pin: failure.serverCert) }
+        var gateway: String?
+        if case PTError.gatewayCertificateRejected(let host, _, _, _) = error { gateway = host }
+        trustOffers[id] = progress.profile.flatMap { ServerTrustOffer($0, pin: failure.serverCert, gateway: gateway) }
         if failure.kind == .authRejected && progress.owned { checkGatewayClock(id, after: failure) }
         if let used = progress.usedCode, !failure.credentialsSent, failure.kind != .cancelled, usedCode(id) == used.written {
             restoreUsedCode(id, used.previous)
@@ -1594,7 +1718,7 @@ public final class ConnectionManager: ObservableObject {
         case .authRejected: record(id, .rejected(reply: failure.reply))
         case .unreachable: record(id, .unreachable(tries: failure.tries ?? 1, reason: failure.reason))
         case .cancelled: break  // `disconnect` records the stop
-        case .hostNotFound, .configuration, .setup, .timeout, .toolUnsupported, .hostScanRequired, .failed:
+        case .hostNotFound, .configuration, .setup, .timeout, .toolUnsupported, .hostScanRequired, .ssoRequired, .failed:
             record(id, .failed(kind: failure.kind, reason: failure.reason, credentialsSent: failure.credentialsSent))
         }
     }
@@ -1658,7 +1782,7 @@ public final class ConnectionManager: ObservableObject {
         while true {
             try checkToken(id, token)
             let log = VPNLog.read(logURL)
-            if p.type == .anyconnect {
+            if p.type.usesOpenConnect {
                 // The sign-in is over (`signIn` recorded it accepted). Up or failed is what the helper reads in
                 // the hook's record; the log only gives the address shown and the failure's tail.
                 if let r = try? await helper.perform(.status, timeout: timing.helperTimeout), r.ok {
@@ -1712,10 +1836,8 @@ public final class ConnectionManager: ObservableObject {
                     noteAccepted()
                     return (VPNLog.fortiAddress(log) ?? "", clock.now())
                 }
-            case .anyconnect:
+            case .anyconnect, .globalprotect:
                 break  // above
-            case .globalprotect:
-                break  // never started by this version (`connectRefusal`)
             }
 
             let now = clock.now()
@@ -1728,22 +1850,22 @@ public final class ConnectionManager: ObservableObject {
                     // Stopped by a disconnect in another process (app ↔ CLI): a cancel, not a failure.
                     if hasUserStoppedMarker(id) { throw PTError.connectCancelled }
                     let final = VPNLog.read(logURL)
-                    if p.type == .anyconnect { throw anyConnectEnded(final) }
+                    if p.type.usesOpenConnect { throw anyConnectEnded(final) }
                     if VPNLog.isAuthFailure(final) { throw PTError.authFailed(VPNLog.tail(final)) }
                     throw ended(p, log: final, exited: true)
                 }
             }
             if clock.now().timeIntervalSince(started) >= timeout {
                 if owned { await stopQuietly(id) }
-                // Cisco AnyConnect: the sign-in reached the server already.
-                if p.type == .anyconnect { throw PTError.connectTimeout(Int(timeout)) }
+                // Cisco AnyConnect, Palo Alto GlobalProtect: the sign-in reached the server already.
+                if p.type.usesOpenConnect { throw PTError.connectTimeout(Int(timeout)) }
                 throw unreached(p, log: VPNLog.read(logURL), timeout: timeout) ?? PTError.connectTimeout(Int(timeout))
             }
             do { try await clock.sleep(timing.connectCheckInterval) } catch { throw PTError.connectCancelled }
         }
     }
 
-    /// Why the tunnel run of a Cisco AnyConnect session ended before it was up: dyld stopped it
+    /// Why the tunnel run of a Cisco AnyConnect or Palo Alto GlobalProtect session ended before it was up: dyld stopped it
     /// (`toolUnsupported`; its line comes first, before the tool could write anything), else `connectFailed`
     /// with the log's tail (the server ended the session, the cookie was refused, the helper stopped a set-up
     /// that failed or took too long).
@@ -1910,7 +2032,7 @@ public final class ConnectionManager: ObservableObject {
             .missingHost, .usernameTooLong, .invalidSecret, .profileNotFound, .otherVPNActive, .setupFailed,
             .userConfirmationCancelled, .userConfirmationFailed, .confirmationRequired, .protectedSecretUnreadable,
             .protectionUnavailable, .anyConnectRequiresMacOS, .anyConnectToolUnavailable, .globalProtectRequiresMacOS,
-            .hostScanRequired,
+            .hostScanRequired, .ssoRequired, .gatewayCertificateRejected,
             .serverCertificateRejected, .signInNeedsMoreAnswers, .signInUnusable:
             return false
         default:
