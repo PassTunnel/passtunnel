@@ -315,6 +315,323 @@
         "type": "openvpn",
         "username": ""
       }
+    },
+    {
+      "name": "a key a newer version added to a Palo Alto GlobalProtect profile survives a save",
+      "stored": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "globalprotect",
+        "host": "vpn.example.com",
+        "gateway": "US East",
+        "future_option": "on"
+      },
+      "saved": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "connect_at_login": false,
+        "future_option": "on",
+        "gateway": "US East",
+        "gateway_server_cert": "",
+        "health_host": "",
+        "host": "vpn.example.com",
+        "icon": "",
+        "id": "acme",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "Acme",
+        "order": 0,
+        "otp_delivery": "separate",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "server_cert": "",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "skip_portal": false,
+        "tls_only": false,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "globalprotect",
+        "username": ""
+      }
+    },
+    {
+      "name": "setting Palo Alto GlobalProtect fields keeps them",
+      "stored": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "globalprotect",
+        "host": "vpn.example.com",
+        "future_option": "on"
+      },
+      "set": [
+        {
+          "key": "gateway",
+          "value": "US East"
+        },
+        {
+          "key": "skip-portal",
+          "value": "yes"
+        },
+        {
+          "key": "server_cert",
+          "value": " PIN-SHA256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk="
+        },
+        {
+          "key": "gateway_server_cert",
+          "value": "pin-sha256:VIvehxhDt2KjN5O2MU6TnoXZFEsHIwCppUURj1ynWsE="
+        },
+        {
+          "key": "tls_only",
+          "value": "on"
+        }
+      ],
+      "saved": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "connect_at_login": false,
+        "future_option": "on",
+        "gateway": "US East",
+        "gateway_server_cert": "pin-sha256:VIvehxhDt2KjN5O2MU6TnoXZFEsHIwCppUURj1ynWsE=",
+        "health_host": "",
+        "host": "vpn.example.com",
+        "icon": "",
+        "id": "acme",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "Acme",
+        "order": 0,
+        "otp_delivery": "separate",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "server_cert": "pin-sha256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk=",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "skip_portal": true,
+        "tls_only": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "globalprotect",
+        "username": ""
+      }
+    },
+    {
+      "name": "changing the type from Palo Alto GlobalProtect drops its keys",
+      "note": "server_cert and tls_only are Cisco AnyConnect's too; the keys a newer version added go with the type",
+      "stored": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "globalprotect",
+        "host": "vpn.example.com",
+        "gateway": "US East",
+        "skip_portal": true,
+        "server_cert": "pin-sha256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk=",
+        "gateway_server_cert": "pin-sha256:VIvehxhDt2KjN5O2MU6TnoXZFEsHIwCppUURj1ynWsE=",
+        "tls_only": true,
+        "future_option": "on"
+      },
+      "type": "anyconnect",
+      "saved": {
+        "authgroup": "",
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "connect_at_login": false,
+        "health_host": "",
+        "host": "vpn.example.com",
+        "icon": "",
+        "id": "acme",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "Acme",
+        "order": 0,
+        "otp_delivery": "separate",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "server_cert": "pin-sha256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk=",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "tls_only": true,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "anyconnect",
+        "usergroup": "",
+        "username": ""
+      }
+    },
+    {
+      "name": "changing the type to Palo Alto GlobalProtect drops Cisco AnyConnect's keys",
+      "stored": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "anyconnect",
+        "host": "vpn.example.com",
+        "usergroup": "engineering",
+        "authgroup": "Employees",
+        "server_cert": "pin-sha256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk=",
+        "future_option": "on"
+      },
+      "type": "globalprotect",
+      "saved": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "connect_at_login": false,
+        "gateway": "",
+        "gateway_server_cert": "",
+        "health_host": "",
+        "host": "vpn.example.com",
+        "icon": "",
+        "id": "acme",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "Acme",
+        "order": 0,
+        "otp_delivery": "separate",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "server_cert": "pin-sha256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk=",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "skip_portal": false,
+        "tls_only": false,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "globalprotect",
+        "username": ""
+      }
+    },
+    {
+      "name": "Palo Alto GlobalProtect keys of another type are known ones, not kept",
+      "stored": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "anyconnect",
+        "gateway": "US East",
+        "skip_portal": true,
+        "gateway_server_cert": "pin-sha256:VIvehxhDt2KjN5O2MU6TnoXZFEsHIwCppUURj1ynWsE="
+      },
+      "saved": {
+        "authgroup": "",
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "connect_at_login": false,
+        "health_host": "",
+        "host": "",
+        "icon": "",
+        "id": "acme",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "Acme",
+        "order": 0,
+        "otp_delivery": "separate",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "server_cert": "",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "tls_only": false,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "anyconnect",
+        "usergroup": "",
+        "username": ""
+      }
+    },
+    {
+      "name": "Cisco AnyConnect keys of a Palo Alto GlobalProtect profile are known ones, not kept",
+      "stored": {
+        "id": "acme",
+        "name": "Acme",
+        "type": "globalprotect",
+        "usergroup": "engineering",
+        "authgroup": "Employees"
+      },
+      "saved": {
+        "auto_reconnect": false,
+        "badge": "",
+        "badge_style": "letter",
+        "connect_at_login": false,
+        "gateway": "",
+        "gateway_server_cert": "",
+        "health_host": "",
+        "host": "",
+        "icon": "",
+        "id": "acme",
+        "last_username": "",
+        "mgmt_port": 0,
+        "name": "Acme",
+        "order": 0,
+        "otp_delivery": "separate",
+        "otp_mode": "none",
+        "otp_template": "{password}{otp}",
+        "password_mode": "keychain",
+        "pinned": false,
+        "port": 443,
+        "require_auth": "off",
+        "server_cert": "",
+        "session_limit_min": 0,
+        "set_dns": false,
+        "set_routes": true,
+        "skip_portal": false,
+        "tls_only": false,
+        "totp": {
+          "algorithm": "sha1",
+          "digits": 6,
+          "period": 30
+        },
+        "trusted_cert": "",
+        "type": "globalprotect",
+        "username": ""
+      }
     }
   ]
 }

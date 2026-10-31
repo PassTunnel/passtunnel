@@ -3,7 +3,9 @@ import FuzzSupport
 import PassTunnelVPNConfig
 
 // Fuzzes the two openconnect config files PassTunnel renders: the root tunnel run's (`OpenConnectConfig`)
-// and the user's sign-in run's (`OpenConnectAuthConfig`). openconnect reads them as `option value` lines
+// and the user's sign-in run's (`OpenConnectAuthConfig`), for Cisco AnyConnect and for Palo Alto GlobalProtect
+// (its own cookie shape, path, gateway label, two pins and `disable-ipv6`, never in an AnyConnect file).
+// openconnect reads them as `option value` lines
 // with no quoting, so the danger is a field that smuggles in a line break, a second option, or a value
 // openconnect would read differently (blanks or `=` it skips, a NUL it stops at). Property: whatever
 // either renderer agrees to write, read back the way openconnect 9.21 reads it (`readLikeOpenConnect`),
@@ -13,7 +15,7 @@ import PassTunnelVPNConfig
 @_cdecl("LLVMFuzzerTestOneInput")
 func LLVMFuzzerTestOneInput(_ data: UnsafePointer<UInt8>?, _ size: Int) -> CInt {
     // Fields split on 0x1F (Unit Separator), each decoded as (lossy) UTF-8, as in FuzzFortiConfig.
-    let parts = fuzzData(data, size).split(separator: 0x1F, maxSplits: 10, omittingEmptySubsequences: false)
+    let parts = fuzzData(data, size).split(separator: 0x1F, maxSplits: 12, omittingEmptySubsequences: false)
     func field(_ i: Int) -> String { i < parts.count ? String(decoding: parts[i], as: UTF8.self) : "" }
 
     let host = field(0)
@@ -27,6 +29,10 @@ func LLVMFuzzerTestOneInput(_ data: UnsafePointer<UInt8>?, _ size: Int) -> CInt 
     let scriptPath = field(8)
     let flags = field(9)
     let caFile = field(10).isEmpty ? OpenConnectConfig.systemCAFile : field(10)
+    // GlobalProtect's own fields; flags `s` (skip the portal) and `6` (disable-ipv6).
+    let gateway = field(11)
+    let gatewayServerCert = field(12)
+    let disableIPv6 = flags.contains("6")
 
     let table = OpenConnectOptions.all.map { (name: $0.name, takesValue: $0.takesValue) }
     func expectedURL(path: String) -> [UInt8] {
@@ -90,6 +96,73 @@ func LLVMFuzzerTestOneInput(_ data: UnsafePointer<UInt8>?, _ size: Int) -> CInt 
         }
         // The group path holds nothing a URL would read as a query, fragment, user info or port.
         precondition(!usergroup.utf8.contains { "?#@:% \\".utf8.contains($0) } && !usergroup.hasPrefix("/") && !usergroup.contains(".."))
+    }
+
+    // Cisco AnyConnect files never take GlobalProtect's options.
+    var acIPv6 = root
+    acIPv6.disableIPv6 = true
+    precondition((try? acIPv6.render()) == nil, "a Cisco AnyConnect root file rendered disable-ipv6")
+    precondition((try? auth.render(noExternalAuth: noExternalAuth, disableIPv6: true)) == nil, "a Cisco AnyConnect sign-in rendered disable-ipv6")
+    if !gateway.isEmpty || !gatewayServerCert.isEmpty || flags.contains("s") {
+        let acWithGP = OpenConnectAuthConfig(
+            host: host, port: port, usergroup: usergroup, username: username, authgroup: authgroup, serverCert: serverCert,
+            skipPortal: flags.contains("s"), gateway: gateway, gatewayServerCert: gatewayServerCert)
+        precondition((try? acWithGP.render(noExternalAuth: noExternalAuth)) == nil, "a Cisco AnyConnect sign-in took GlobalProtect's fields")
+    }
+
+    // The GlobalProtect root file: the same fields, its own cookie shape, and disable-ipv6.
+    let gpRoot = OpenConnectConfig(
+        protocol: .gp, host: host, port: port, cookie: cookie, serverCert: serverCert, resolveAddress: resolveAddress,
+        scriptPath: scriptPath, tlsOnly: flags.contains("t"), disableIPv6: disableIPv6)
+    if (try? gpRoot.validate()) != nil { precondition((try? gpRoot.render()) != nil, "a valid GlobalProtect root config failed its final check") }
+    if let text = try? gpRoot.render() {
+        guard let read = readLikeOpenConnect(Array(text.utf8), table: table) else {
+            preconditionFailure("openconnect would refuse the GlobalProtect root file")
+        }
+        var expected = ["protocol", "server", "cookie", "servercert"]
+        if resolveAddress != nil { expected.append("resolve") }
+        expected += ["script", "non-inter", "reconnect-timeout"]
+        if gpRoot.tlsOnly { expected.append("no-dtls") }
+        if disableIPv6 { expected.append("disable-ipv6") }
+        precondition(read.map(\.option) == expected, "GlobalProtect root file has options \(read.map(\.option)), expected \(expected)")
+        let values = Dictionary(read.map { ($0.option, $0.value) }, uniquingKeysWith: { a, _ in a })
+        precondition(values["protocol"] == Array("gp".utf8))
+        precondition(values["server"] == expectedURL(path: ""), "server not recovered")
+        precondition(values["cookie"] == Array(cookie.utf8), "cookie not recovered")
+        precondition(values["servercert"] == Array(serverCert.utf8), "servercert not recovered")
+        precondition(values["script"] == Array(scriptPath.utf8), "script not recovered")
+        // The tunnel run takes the cookie unchanged: nothing in it could split it, or end the line.
+        precondition(GlobalProtectCookie.isValidTunnelOption(cookie) && !cookie.utf8.contains { " \t;'\"\\\n\r".utf8.contains($0) })
+        precondition(GlobalProtectCookie.secrets(cookie).count == 2, "the bearer secret is not masked on its own")
+    }
+
+    // The GlobalProtect sign-in file: the path from skip-portal, the gateway as authgroup, a line per pin.
+    let gpAuth = OpenConnectAuthConfig(
+        protocol: .gp, host: host, port: port, usergroup: usergroup, username: username, authgroup: authgroup, serverCert: serverCert,
+        skipPortal: flags.contains("s"), gateway: gateway, gatewayServerCert: gatewayServerCert)
+    if (try? gpAuth.validate()) != nil, (try? gpAuth.render(noExternalAuth: noExternalAuth, disableIPv6: disableIPv6)) == nil {
+        preconditionFailure("a valid GlobalProtect sign-in config failed its final check")
+    }
+    if let text = try? gpAuth.render(caFile: caFile, noExternalAuth: noExternalAuth, disableIPv6: disableIPv6) {
+        precondition(usergroup.isEmpty && authgroup.isEmpty, "a GlobalProtect sign-in took a user group or group")
+        guard let read = readLikeOpenConnect(Array(text.utf8), table: table) else {
+            preconditionFailure("openconnect would refuse the GlobalProtect sign-in file")
+        }
+        let pins = [serverCert, gatewayServerCert].filter { !$0.isEmpty }
+        var expected = ["protocol", "server", "user"]
+        if !gateway.isEmpty { expected.append("authgroup") }
+        expected += pins.isEmpty ? ["no-system-trust", "cafile"] : pins.map { _ in "servercert" }
+        expected += ["non-inter", "passwd-on-stdin"]
+        if noExternalAuth { expected.append("no-external-auth") }
+        if disableIPv6 { expected.append("disable-ipv6") }
+        precondition(read.map(\.option) == expected, "GlobalProtect sign-in file has options \(read.map(\.option)), expected \(expected)")
+        let values = Dictionary(read.map { ($0.option, $0.value) }, uniquingKeysWith: { a, _ in a })
+        precondition(values["protocol"] == Array("gp".utf8))
+        precondition(values["server"] == expectedURL(path: flags.contains("s") ? "gateway" : ""), "server not recovered")
+        precondition(values["user"] == Array(username.utf8), "user name not recovered")
+        if !gateway.isEmpty { precondition(values["authgroup"] == Array(gateway.utf8), "gateway not recovered") }
+        precondition(read.filter { $0.option == "servercert" }.map(\.value) == pins.map { Array($0.utf8) }, "pins not recovered")
+        if pins.isEmpty { precondition(values["cafile"] == Array(caFile.utf8), "cafile not recovered") }
     }
 
     // The stored pin form is a fixed point of normalization.

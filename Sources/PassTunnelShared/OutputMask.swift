@@ -6,9 +6,11 @@ import Glibc
 
 /// Removes a bearer secret from a line of a tool's output before it is written to the user's log: every
 /// literal occurrence of the given secrets, and every cookie-shaped field (`COOKIE=…`, a `webvpn…=` or
-/// `openconnect_strapkey=` value, a `Cookie:` or `Set-Cookie:` header to the end of the line, a `cookie …`
-/// configuration line). openconnect at its default level prints no cookie, but a server chooses some of what
-/// it prints (the CONNECT reply's status line, say) and could reflect the cookie there.
+/// `openconnect_strapkey=` value, a GlobalProtect `authcookie=` value (also inside `…userauthcookie=`), a `Cookie:`
+/// or `Set-Cookie:` header to the end of the line, a `cookie …` configuration line), and the GlobalProtect sign-in's
+/// override-cookie and unknown-argument lines to the end of the line. openconnect at its default
+/// level prints no cookie, but a server chooses some of what it prints (the CONNECT reply's status line, say) and
+/// could reflect the cookie there.
 public enum OutputMask {
     public static let mask = "<redacted>"
 
@@ -16,16 +18,24 @@ public enum OutputMask {
         (#"(?i)\b(COOKIE=)\S+"#, "$1" + mask),
         (#"(?i)\b((?:set-)?cookie\s*:\s*).+"#, "$1" + mask),
         (#"(?i)\b(webvpn[a-z_]*=|openconnect_strapkey=)[^;\s]+"#, "$1" + mask),
+        // A GlobalProtect portal's authentication-override cookies, which openconnect prints while signing in
+        // (auth-globalprotect.c 382–385), and any argument of the gateway's it does not know (365–369): to the end
+        // of the line, whatever the value holds.
+        (#"(GlobalProtect login returned (?:portal-userauthcookie|portal-prelogonuserauthcookie)=).*"#, "$1" + mask),
+        (#"(GlobalProtect login returned unexpected argument value arg\[[0-9]+\]=).*"#, "$1" + mask),
+        // GlobalProtect's bearer secret, as an argument of the cookie or of a request (`…&authcookie=…&…`).
+        (#"(?i)(authcookie=)[^&;\s]+"#, "$1" + mask),
         // openconnect's configuration option, lowercase: not its "Cookie was rejected by server" message.
         (#"^(\s*cookie)([ \t=]+)\S+"#, "$1$2" + mask)
     ].map { (try! NSRegularExpression(pattern: $0.0), $0.1) }
 
-    /// `line` (one line, without its line break) with `secrets` (literally; values shorter than 3 characters are
-    /// ignored) and the cookie-shaped fields masked.
+    /// `line` (one line, without its line break) with `secrets` (literally, regardless of ASCII case: a server can
+    /// make its own text repeat a secret lowercased, as in a GlobalProtect gateway's host name; values shorter than 3
+    /// characters are ignored) and the cookie-shaped fields masked.
     public static func apply(_ line: String, secrets: [String] = []) -> String {
         var out = line
         for secret in secrets.filter({ $0.count >= 3 }).sorted(by: { $0.count > $1.count }) {
-            out = out.replacingOccurrences(of: secret, with: mask)
+            out = out.replacingOccurrences(of: secret, with: mask, options: [.literal, .caseInsensitive])
         }
         for (regex, template) in patterns {
             out = regex.stringByReplacingMatches(in: out, range: NSRange(out.startIndex..., in: out), withTemplate: template)

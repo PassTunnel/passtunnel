@@ -32,7 +32,8 @@ struct ProfileEditorView: View {
             wrappedValue: EditorModel(
                 profileID: profileID, newType: newType,
                 vault: AppModel.shared?.vault ?? SecretVault(),
-                typeRefusal: { AppModel.shared?.connectRefusal($0) ?? ConnectionManager.connectRefusal($0) }))
+                typeRefusal: { AppModel.shared?.connectRefusal($0) ?? ConnectionManager.connectRefusal($0) },
+                gatewayChoice: profileID.flatMap { AppModel.shared?.connections.gatewayChoice($0) }))
         self.onClose = onClose
     }
 
@@ -47,16 +48,22 @@ struct ProfileEditorView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Text(verbatim: model.title)
-                .typography(.sheetTitle)
-                .foregroundStyle(Palette.fg)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 26)
-                .padding(.top, 22)
-                .padding(.bottom, Spacing.s)
-                .accessibilityAddTraits(.isHeader)
+            HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
+                Text(verbatim: model.title)
+                    .typography(.sheetTitle)
+                    .foregroundStyle(Palette.fg)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .accessibilityAddTraits(.isHeader)
+                // The type's header: an experimental type (`VPNType.isExperimental`) says so.
+                if p.type.isExperimental {
+                    ExperimentalBadge().foregroundStyle(Palette.fg2)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 26)
+            .padding(.top, 22)
+            .padding(.bottom, Spacing.s)
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: Spacing.s) {
@@ -89,12 +96,12 @@ struct ProfileEditorView: View {
         .frame(minWidth: 620, idealWidth: 660, minHeight: 560, idealHeight: 700)
         .onAppear { if model.isNew { focus = .name } }
         .alert(fingerprintAlertTitle, isPresented: fingerprintAlertShown) {
-            Button(p.type == .anyconnect ? LocalizedStringKey("Trust Key") : LocalizedStringKey("Trust Certificate")) {
+            Button(p.type.usesOpenConnect ? LocalizedStringKey("Trust Key") : LocalizedStringKey("Trust Certificate")) {
                 model.acceptFetchedFingerprint()
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            if p.type == .anyconnect {
+            if p.type.usesOpenConnect {
                 Text(
                     "The server \(model.fetchedServer) presented a certificate whose key has this fingerprint:\n\n\(model.fetchedFingerprint ?? "")\n\nTrust it only if it matches the fingerprint your administrator gave you."
                 )
@@ -202,6 +209,7 @@ struct ProfileEditorView: View {
             case .openvpn: configurationRow
             case .forti: fortiRows
             case .anyconnect: anyConnectRows
+            case .globalprotect: globalProtectRows
             }
 
             if model.usesCredentials {
@@ -347,6 +355,126 @@ struct ProfileEditorView: View {
 
         EditorRow(Text("DTLS")) {
             Toggle("Use TLS only (no DTLS)", isOn: $model.draft.tlsOnly)
+                .toggleStyle(.checkbox)
+                .accessibilityIdentifier("editor.tlsOnly")
+            EditorHint("For networks that block UDP. The tunnel is then slower.")
+        }
+        EditorRow(Text("DNS")) {
+            Toggle("Use the VPN’s DNS servers", isOn: $model.draft.setDNS).toggleStyle(.checkbox)
+        }
+        EditorRow(Text("Routes")) {
+            Toggle("Add the routes the gateway sends", isOn: $model.draft.setRoutes).toggleStyle(.checkbox)
+        }
+    }
+
+    /// Palo Alto GlobalProtect: the portal's address (`[https://]host[:port]`, `EditorModel.setServerText`; the gateway's
+    /// with Skip portal), the gateway's label with the portal's list after a failure for want of one, Skip portal, the
+    /// portal's key with "Fetch Fingerprint" and the gateway's key (set by "Trust This Gateway…"), TLS only (no ESP), DNS
+    /// and routes.
+    @ViewBuilder private var globalProtectRows: some View {
+        EditorRow(Text("Server")) {
+            TextField(
+                "Server", text: Binding(get: { model.serverText }, set: { model.setServerText($0) }),
+                prompt: Text(verbatim: "https://vpn.example.com")
+            )
+            .focused($focus, equals: .host)
+            .editorField(focused: focus == .host)
+            .accessibilityIdentifier("editor.server")
+            EditorInlineError(message: model.error(.host) ?? model.error(.port))
+            if p.skipPortal {
+                EditorHint("The gateway’s address, with its :port if it has one.")
+            } else {
+                EditorHint("The portal’s address your IT team gave you, with its :port if it has one.")
+            }
+        }
+        .id(Self.anchor(.host))
+
+        EditorRow(Text("Gateway")) {
+            HStack(spacing: Spacing.xs) {
+                TextField("Gateway", text: $model.draft.gateway, prompt: Text("Portal’s choice"))
+                    .focused($focus, equals: .gateway)
+                    .editorField(focused: focus == .gateway)
+                    .accessibilityIdentifier("editor.gateway")
+                if !model.gatewayOptions.isEmpty {
+                    Menu {
+                        ForEach(model.gatewayOptions, id: \.self) { label in
+                            Button {
+                                model.chooseGateway(label)
+                            } label: {
+                                if label == p.gateway {
+                                    Label(label, systemImage: "checkmark")
+                                } else {
+                                    Text(verbatim: label)
+                                }
+                            }
+                        }
+                    } label: {
+                        Text("Portal’s Gateways")
+                    }
+                    .menuIndicator(.visible)
+                    .fixedSize()
+                    .accessibilityIdentifier("editor.gatewayList")
+                }
+            }
+            .disabled(p.skipPortal)
+            EditorInlineError(message: model.error(.gateway))
+            if p.skipPortal {
+                EditorHint("Not used when you sign in to the gateway directly.")
+            } else if !model.gatewayOptions.isEmpty {
+                EditorHint("The portal listed these gateways when you last connected. Choose the one your IT team told you to use.")
+            } else {
+                EditorHint("The gateway’s name as the portal lists it. Needed when the portal lists more than one; leave empty otherwise.")
+            }
+        }
+        .id(Self.anchor(.gateway))
+
+        EditorRow(Text("Portal")) {
+            Toggle("Skip the portal and sign in to the gateway directly", isOn: $model.draft.skipPortal)
+                .toggleStyle(.checkbox)
+                .accessibilityIdentifier("editor.skipPortal")
+            EditorHint("Enter the gateway’s address as the server. For when you know your gateway, or the portal’s second sign-in is not wanted.")
+        }
+
+        EditorRow(p.skipPortal ? Text("Server key") : Text("Portal key")) {
+            TextField("Portal key", text: $model.draft.serverCert, prompt: Text("pin-sha256:… (optional)"))
+                // Small enough for the 55 characters of a pin to fit.
+                .font(.system(size: 11.5, design: .monospaced))
+                .focused($focus, equals: .serverCert)
+                .editorField(focused: focus == .serverCert)
+                .accessibilityIdentifier("editor.serverCert")
+            fetchFingerprintButton(
+                enabled: model.serverIsValid,
+                progress: p.skipPortal ? Text("Connecting to the server…") : Text("Connecting to the portal…"))
+            EditorInlineError(message: model.error(.serverCert) ?? model.fingerprintError)
+            EditorHint("Needed when the certificate is not signed by an authority your Mac trusts. Only the keys pinned here are then accepted.")
+        }
+        .id(Self.anchor(.serverCert))
+
+        EditorRow(Text("Gateway key")) {
+            TextField("Gateway key", text: $model.draft.gatewayServerCert, prompt: Text("pin-sha256:… (optional)"))
+                .font(.system(size: 11.5, design: .monospaced))
+                .focused($focus, equals: .gatewayServerCert)
+                .editorField(focused: focus == .gatewayServerCert)
+                .accessibilityIdentifier("editor.gatewayServerCert")
+            EditorInlineError(message: model.error(.gatewayServerCert))
+            if GlobalProtectEditing.pinsGatewayOnly(model.normalized) {
+                Label(
+                    "With only a gateway key, the portal must present that key too. Add the portal’s key above.",
+                    systemImage: "exclamationmark.triangle"
+                )
+                .typography(.hint)
+                .foregroundStyle(Palette.amber)
+                .fixedSize(horizontal: false, vertical: true)
+            } else {
+                EditorHint(
+                    "Needed when the gateway the portal sends you to has another key than the portal. “Trust This Gateway…” after a failed connect sets it."
+                )
+            }
+        }
+        .id(Self.anchor(.gatewayServerCert))
+
+        EditorRow(Text("ESP")) {
+            Toggle("Use TLS only (no ESP)", isOn: $model.draft.tlsOnly)
                 .toggleStyle(.checkbox)
                 .accessibilityIdentifier("editor.tlsOnly")
             EditorHint("For networks that block UDP. The tunnel is then slower.")
@@ -612,7 +740,7 @@ struct ProfileEditorView: View {
             return String(localized: "The code is sent as the answer to the server’s challenge prompt (static-challenge), not inside the password.")
         case .forti:
             return String(localized: "The code is sent in the gateway’s own one-time code field, after the password.")
-        case .anyconnect:
+        case .anyconnect, .globalprotect:
             return String(localized: "The code is sent as the answer to the server’s next prompt, after the password.")
         }
     }
@@ -727,12 +855,12 @@ struct ProfileEditorView: View {
         EditorRow(Text("Type")) {
             if model.allowsTypeChange {
                 Picker("Type", selection: Binding(get: { p.type }, set: { model.changeType($0) })) {
-                    ForEach(VPNType.allCases, id: \.self) { type in
+                    ForEach(AppModel.editableTypes, id: \.self) { type in
                         // A type this Mac cannot connect is listed, disabled, with the reason (macOS 15.4).
                         if let note = model.typeRefusal(type)?.unavailableNote {
-                            Text(verbatim: "\(Self.typeName(type)) – \(note)").tag(type).disabled(true)
+                            Text(verbatim: "\(Self.typeMenuName(type)) – \(note)").tag(type).disabled(true)
                         } else {
-                            Text(verbatim: Self.typeName(type)).tag(type)
+                            Text(verbatim: Self.typeMenuName(type)).tag(type)
                         }
                     }
                 }
@@ -741,11 +869,15 @@ struct ProfileEditorView: View {
                 .fixedSize()
                 .accessibilityIdentifier("editor.type")
             } else {
-                Text(verbatim: Self.typeName(p.type))
-                    .typography(.body)
-                    .foregroundStyle(Palette.fg)
-                    .accessibilityLabel(Text("Type"))
-                    .accessibilityValue(Text(verbatim: Self.typeName(p.type)))
+                HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
+                    Text(verbatim: Self.typeName(p.type))
+                        .typography(.body)
+                        .foregroundStyle(Palette.fg)
+                    if p.type.isExperimental { ExperimentalBadge().foregroundStyle(Palette.fg2) }
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text("Type"))
+                .accessibilityValue(Text(verbatim: Self.typeMenuName(p.type)))
             }
         }
 
@@ -931,7 +1063,7 @@ struct ProfileEditorView: View {
     // MARK: alerts
 
     private var fingerprintAlertTitle: Text {
-        p.type == .anyconnect ? Text("Trust this server’s key?") : Text("Trust this certificate?")
+        p.type.usesOpenConnect ? Text("Trust this server’s key?") : Text("Trust this certificate?")
     }
 
     private var fingerprintAlertShown: Binding<Bool> {
@@ -956,8 +1088,13 @@ struct ProfileEditorView: View {
         switch type {
         case .openvpn: return "OpenVPN"  // product names stay untranslated
         case .forti: return "FortiGate SSL VPN"
-        case .anyconnect: return "Cisco AnyConnect"
+        case .anyconnect, .globalprotect: return type.displayName
         }
+    }
+
+    /// The type's name in a menu, where no badge fits: "Palo Alto GlobalProtect (Experimental)" for an experimental type.
+    static func typeMenuName(_ type: VPNType) -> String {
+        type.isExperimental ? "\(typeName(type)) (\(ExperimentalLabel.title))" : typeName(type)
     }
 
     static func passwordModeName(_ mode: PasswordMode) -> LocalizedStringKey {

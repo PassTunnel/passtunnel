@@ -25,11 +25,19 @@ import Foundation
 /// request comes from the user's own process, which can already define a profile for any host, so the
 /// address it reports cannot be verified independently in pure code (and no address range is refused:
 /// tests run against a server on loopback).
+///
+/// Palo Alto GlobalProtect (`protocol: .gp`) prints the same five lines for the server the run ended on: after
+/// the portal's hop, the gateway, often another host than the profile's. The cookie is then
+/// `GlobalProtectCookie`'s shape, taken unchanged by the tunnel run, and the destination check binds the tunnel
+/// to `CONNECT_URL`'s server (`checkDestination(host:port:skipPortal:profileServerCert:profileGatewayServerCert:)`).
 public struct OpenConnectAuthResult: Equatable, CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
-    /// `COOKIE` as openconnect printed it: the bare `webvpn` value, or the STRAP form (`OpenConnectCookie`).
+    /// The protocol the sign-in ran, which decides the cookie's shape and the destination rules.
+    public let `protocol`: OpenConnectProtocol
+    /// `COOKIE` as openconnect printed it: for Cisco AnyConnect the bare `webvpn` value, or the STRAP form
+    /// (`OpenConnectCookie`); for GlobalProtect `authcookie=…&…&computer=…` (`GlobalProtectCookie`).
     public let cookie: String
-    /// The tunnel run's `cookie` option for it, which the helper is sent: the value under its name
-    /// (`OpenConnectCookie.tunnelOption`).
+    /// The tunnel run's `cookie` option for it, which the helper is sent: for Cisco AnyConnect the value under
+    /// its name (`OpenConnectCookie.tunnelOption`), for GlobalProtect the cookie unchanged.
     public let tunnelCookie: String
     /// `HOST`: the numeric address the run connected to (an IPv6 address in brackets).
     public let host: String
@@ -64,9 +72,10 @@ public struct OpenConnectAuthResult: Equatable, CustomStringConvertible, CustomD
 
     /// Why a sign-in that succeeded cannot be used for the profile's tunnel.
     public enum DestinationError: Error, Equatable, LocalizedError, CustomStringConvertible {
-        /// The sign-in ended on another server (another host or port, or a path): refused in Phase 1.
+        /// The sign-in ended on another server (another host or port, or a path): refused for Cisco AnyConnect
+        /// and for a GlobalProtect sign-in that skips the portal.
         case otherServer
-        /// The key the sign-in accepted is not the profile's pinned key.
+        /// The key the sign-in accepted is not the profile's pinned key (for GlobalProtect: not one of its two).
         case fingerprintMismatch
         case noResolvedAddress
         case addressMismatch
@@ -83,13 +92,47 @@ public struct OpenConnectAuthResult: Equatable, CustomStringConvertible, CustomD
         public var errorDescription: String? { description }
     }
 
+    /// Where a checked sign-in's tunnel goes: `CONNECT_URL`'s server (for Cisco AnyConnect always the
+    /// profile's) and the address for the tunnel run's `resolve` (nil for an IP-address host). The host may be
+    /// the server's choice (a GlobalProtect gateway), so the description shows no value.
+    public struct Destination: Equatable, Sendable, CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+        /// A host name (lowercase) or an IP literal without brackets.
+        public let host: String
+        public let port: Int
+        public let resolveAddress: String?
+
+        public var description: String {
+            "Destination(host: <redacted>, port: <redacted>, resolveAddress: \(resolveAddress == nil ? "nil" : "<redacted>"))"
+        }
+        public var debugDescription: String { description }
+        public var customMirror: Mirror {
+            Mirror(
+                self, children: ["host": "<redacted>", "port": "<redacted>", "resolveAddress": resolveAddress == nil ? "nil" : "<redacted>"])
+        }
+    }
+
     /// The fields, each checked as `parse` checks it (so the helper can rebuild and check a result it was sent).
-    public init(cookie: String, host: String, connectURL: String, fingerprint: String, resolve: String) throws {
-        guard let tunnelCookie = OpenConnectCookie.tunnelOption(printed: cookie) else {
-            throw ParseError.invalidValue(
-                key: "COOKIE",
-                reason: "neither a cookie value (cookie octets without ') nor openconnect's STRAP form, "
-                    + "or longer than \(OpenConnectConfig.maxCookieBytes) bytes under its name")
+    public init(
+        protocol: OpenConnectProtocol = .anyconnect, cookie: String, host: String, connectURL: String, fingerprint: String, resolve: String
+    ) throws {
+        let tunnelCookie: String
+        switch `protocol` {
+        case .anyconnect:
+            guard let option = OpenConnectCookie.tunnelOption(printed: cookie) else {
+                throw ParseError.invalidValue(
+                    key: "COOKIE",
+                    reason: "neither a cookie value (cookie octets without ') nor openconnect's STRAP form, "
+                        + "or longer than \(OpenConnectConfig.maxCookieBytes) bytes under its name")
+            }
+            tunnelCookie = option
+        case .gp:
+            guard GlobalProtectCookie.isValidTunnelOption(cookie) else {
+                throw ParseError.invalidValue(
+                    key: "COOKIE",
+                    reason: "not openconnect's GlobalProtect cookie (authcookie, user and computer, URL-encoded, in its order), "
+                        + "or longer than \(OpenConnectConfig.maxCookieBytes) bytes")
+            }
+            tunnelCookie = cookie
         }
         try Self.checkPrintable(host, key: "HOST", maxBytes: Self.maxHostBytes, allowEmpty: false)
         try Self.checkPrintable(connectURL, key: "CONNECT_URL", maxBytes: Self.maxConnectURLBytes, allowEmpty: false)
@@ -97,6 +140,7 @@ public struct OpenConnectAuthResult: Equatable, CustomStringConvertible, CustomD
             throw ParseError.invalidValue(key: "FINGERPRINT", reason: "not a full pin-sha256: pin")
         }
         try Self.checkPrintable(resolve, key: "RESOLVE", maxBytes: Self.maxResolveBytes, allowEmpty: true)
+        self.protocol = `protocol`
         self.cookie = cookie
         self.tunnelCookie = tunnelCookie
         self.host = host
@@ -120,9 +164,11 @@ public struct OpenConnectAuthResult: Equatable, CustomStringConvertible, CustomD
             ])
     }
 
-    public static func parse(_ output: String) throws -> OpenConnectAuthResult { try parse(Array(output.utf8)) }
+    public static func parse(_ output: String, protocol: OpenConnectProtocol = .anyconnect) throws -> OpenConnectAuthResult {
+        try parse(Array(output.utf8), protocol: `protocol`)
+    }
 
-    public static func parse(_ output: [UInt8]) throws -> OpenConnectAuthResult {
+    public static func parse(_ output: [UInt8], protocol: OpenConnectProtocol = .anyconnect) throws -> OpenConnectAuthResult {
         guard output.count <= maxOutputBytes else { throw ParseError.tooLong }
         var pos = 0
         var values: [String] = []
@@ -156,7 +202,7 @@ public struct OpenConnectAuthResult: Equatable, CustomStringConvertible, CustomD
         }
         guard pos == output.count else { throw ParseError.malformed("there is more after RESOLVE") }
         return try OpenConnectAuthResult(
-            cookie: values[0], host: values[1], connectURL: values[2], fingerprint: values[3], resolve: values[4])
+            protocol: `protocol`, cookie: values[0], host: values[1], connectURL: values[2], fingerprint: values[3], resolve: values[4])
     }
 
     /// The text openconnect 9.21 prints for this result (`parse` reads it back).
@@ -165,8 +211,8 @@ public struct OpenConnectAuthResult: Equatable, CustomStringConvertible, CustomD
             + (resolve.isEmpty ? "RESOLVE=" : "RESOLVE='\(resolve)'\n")
     }
 
-    /// Checks that the sign-in ended at the profile's server, and returns the address for the tunnel run's
-    /// `resolve` (nil when the profile's host is an IP address).
+    /// Checks that a Cisco AnyConnect sign-in ended at the profile's server, and returns the address for the
+    /// tunnel run's `resolve` (nil when the profile's host is an IP address).
     ///
     /// - `CONNECT_URL` must be `https://<host>[:<port>]/` as openconnect prints it: the profile's host
     ///   (a name compared without regard to case; an IP literal compared as an address, an IPv6 literal in
@@ -178,27 +224,72 @@ public struct OpenConnectAuthResult: Equatable, CustomStringConvertible, CustomD
     ///   brackets for IPv6). For an IP-address host, `RESOLVE`'s address and `HOST` must be that address
     ///   (any spelling of it). An empty `RESOLVE` fails.
     public func checkDestination(host profileHost: String, port: Int, profileServerCert: String) throws -> String? {
+        try checkDestination(
+            host: profileHost, port: port, skipPortal: false, profileServerCert: profileServerCert, profileGatewayServerCert: ""
+        ).resolveAddress
+    }
+
+    /// Checks where the sign-in ended, by its protocol's rules, and returns the server the tunnel goes to with
+    /// the address for its `resolve`.
+    ///
+    /// - Cisco AnyConnect: as `checkDestination(host:port:profileServerCert:)`; `skipPortal` must be false and
+    ///   `profileGatewayServerCert` empty. The destination is the profile's host and port.
+    /// - GlobalProtect: `CONNECT_URL` (`https://<host>[:<port>]/`, no path) names the profile's server (a gateway
+    ///   on the portal's host, `skipPortal`, the no-portal fallback) or, without `skipPortal`, another server: the
+    ///   gateway the portal sent the run to. That this server came only as the portal's hop (the run's requests
+    ///   named at most the profile's server and then this one) is read from the run's standard error by the
+    ///   caller, not here. `RESOLVE` and `HOST` are checked against `CONNECT_URL`'s host as for Cisco AnyConnect
+    ///   against the profile's, and `FINGERPRINT` must be one of the profile's pins (`profileServerCert`,
+    ///   `profileGatewayServerCert`) when it has any. The destination is `CONNECT_URL`'s host (lowercase, an IPv6
+    ///   literal without brackets) and port.
+    public func checkDestination(
+        host profileHost: String, port: Int, skipPortal: Bool, profileServerCert: String, profileGatewayServerCert: String
+    ) throws -> Destination {
+        typealias E = OpenConnectConfig.ValidationError
+        let destinationHost: String
+        let destinationPort: Int
+        switch self.protocol {
+        case .anyconnect:
+            guard !skipPortal else { throw E.invalidValue(field: "skip portal", reason: OpenConnectConfig.globalProtectOnly) }
+            guard profileGatewayServerCert.isEmpty else {
+                throw E.invalidValue(field: "gateway server certificate", reason: OpenConnectConfig.globalProtectOnly)
+            }
+            (destinationHost, destinationPort) = (profileHost, port)
+        case .gp:
+            guard OpenConnectSyntax.isValidHost(profileHost) else { throw E.invalidHost }
+            guard (1...65535).contains(port) else { throw E.invalidPort(port) }
+            guard let url = OpenConnectSyntax.parseServerURL(connectURL.lowercased()), url.path.isEmpty else {
+                throw DestinationError.otherServer
+            }
+            let sameHost =
+                OpenConnectSyntax.isIPLiteral(profileHost)
+                ? OpenConnectSyntax.ipBytes(url.host) == OpenConnectSyntax.ipBytes(profileHost) : url.host == profileHost.lowercased()
+            // Another server only as the portal's hop, which a sign-in to the gateway alone never makes.
+            guard (sameHost && url.port == port) || !skipPortal else { throw DestinationError.otherServer }
+            (destinationHost, destinationPort) = (url.host, url.port)
+        }
         let (resolveAddress, address) = try Self.checkDestination(
-            host: profileHost, port: port, connectURL: connectURL, resolve: resolve.isEmpty ? nil : resolve,
-            fingerprint: fingerprint, profileServerCert: profileServerCert, client: true)
+            host: destinationHost, port: destinationPort, connectURL: connectURL, resolve: resolve.isEmpty ? nil : resolve,
+            fingerprint: fingerprint, pins: [profileServerCert, profileGatewayServerCert], client: true)
         // HOST is the address openconnect connected to, as RESOLVE has it (an IPv6 address in brackets).
         guard let address, host == (OpenConnectSyntax.isIPv6Literal(address) ? "[\(address)]" : address) else {
             throw DestinationError.addressMismatch
         }
-        return resolveAddress
+        return Destination(host: destinationHost, port: destinationPort, resolveAddress: resolveAddress)
     }
 
     /// The check shared by the client (`checkDestination`) and the helper (the static `tunnelConfig`, whose
-    /// request carries no `HOST`, and no `resolve` for an IP-address host). Returns the address for the
-    /// root file's `resolve` (nil for an IP-address host) and the address `resolve` named (nil when none).
+    /// request carries no `HOST`, and no `resolve` for an IP-address host), for the server the tunnel goes to
+    /// (`host`, `port`). `pins`: the profile's pins, each empty or full; when any is set, `fingerprint` must be
+    /// one of them. Returns the address for the root file's `resolve` (nil for an IP-address host) and the
+    /// address `resolve` named (nil when none).
     static func checkDestination(
-        host profileHost: String, port: Int, connectURL: String, resolve: String?, fingerprint: String, profileServerCert: String,
-        client: Bool
+        host profileHost: String, port: Int, connectURL: String, resolve: String?, fingerprint: String, pins: [String], client: Bool
     ) throws -> (resolveAddress: String?, address: String?) {
         typealias E = OpenConnectConfig.ValidationError
         guard OpenConnectSyntax.isValidHost(profileHost) else { throw E.invalidHost }
         guard (1...65535).contains(port) else { throw E.invalidPort(port) }
-        guard profileServerCert.isEmpty || OpenConnectPin.isValid(profileServerCert) else { throw E.invalidServerCert }
+        guard pins.allSatisfy({ $0.isEmpty || OpenConnectPin.isValid($0) }) else { throw E.invalidServerCert }
         guard OpenConnectPin.isValid(fingerprint) else { throw E.invalidServerCert }
 
         let literalHost = OpenConnectSyntax.isIPLiteral(profileHost)
@@ -212,7 +303,8 @@ public struct OpenConnectAuthResult: Equatable, CustomStringConvertible, CustomD
         } else {
             guard url.host == profileHost.lowercased() else { throw DestinationError.otherServer }
         }
-        guard profileServerCert.isEmpty || fingerprint == profileServerCert else { throw DestinationError.fingerprintMismatch }
+        let pinned = pins.filter { !$0.isEmpty }
+        guard pinned.isEmpty || pinned.contains(fingerprint) else { throw DestinationError.fingerprintMismatch }
 
         guard let resolve else {
             // The client always has openconnect's RESOLVE; the helper gets none for an IP-address host.
@@ -233,37 +325,71 @@ public struct OpenConnectAuthResult: Equatable, CustomStringConvertible, CustomD
         return (address, address)
     }
 
-    /// The root run's configuration for this sign-in (`checkDestination` first): the profile's host and port,
-    /// this cookie under its name (`tunnelCookie`), this `FINGERPRINT` as the only trusted key, and the address
-    /// the sign-in used.
+    /// The root run's configuration for a Cisco AnyConnect sign-in (`checkDestination` first): the profile's
+    /// host and port, this cookie under its name (`tunnelCookie`), this `FINGERPRINT` as the only trusted key,
+    /// and the address the sign-in used.
     public func tunnelConfig(host: String, port: Int, profileServerCert: String, scriptPath: String, tlsOnly: Bool) throws
         -> OpenConnectConfig
     {
-        let address = try checkDestination(host: host, port: port, profileServerCert: profileServerCert)
+        try tunnelConfig(
+            host: host, port: port, skipPortal: false, profileServerCert: profileServerCert, profileGatewayServerCert: "",
+            scriptPath: scriptPath, tlsOnly: tlsOnly, disableIPv6: false)
+    }
+
+    /// The root run's configuration for this sign-in, by its protocol (`checkDestination` first): the
+    /// destination's host and port (for GlobalProtect the gateway's), `tunnelCookie`, this `FINGERPRINT` as the
+    /// only trusted key, and the address the sign-in used. `disableIPv6` is for GlobalProtect only.
+    public func tunnelConfig(
+        host: String, port: Int, skipPortal: Bool, profileServerCert: String, profileGatewayServerCert: String, scriptPath: String,
+        tlsOnly: Bool, disableIPv6: Bool
+    ) throws -> OpenConnectConfig {
+        let destination = try checkDestination(
+            host: host, port: port, skipPortal: skipPortal, profileServerCert: profileServerCert,
+            profileGatewayServerCert: profileGatewayServerCert)
         let config = OpenConnectConfig(
-            host: host, port: port, cookie: tunnelCookie, serverCert: fingerprint, resolveAddress: address,
-            scriptPath: scriptPath, tlsOnly: tlsOnly)
+            protocol: self.protocol, host: destination.host, port: destination.port, cookie: tunnelCookie, serverCert: fingerprint,
+            resolveAddress: destination.resolveAddress, scriptPath: scriptPath, tlsOnly: tlsOnly, disableIPv6: disableIPv6)
         try config.validate()
         return config
     }
 
-    /// The helper's side of `tunnelConfig`: the root configuration from a start request's fields, checked as
-    /// `checkDestination` does. `resolve` is the sign-in's `RESOLVE` for a host name and nil for an
-    /// IP-address host; `serverCert` the `FINGERPRINT` the sign-in accepted; `profileServerCert` the
+    /// The helper's side of `tunnelConfig` for Cisco AnyConnect: the root configuration from a start request's
+    /// fields, checked as `checkDestination` does. `resolve` is the sign-in's `RESOLVE` for a host name and nil
+    /// for an IP-address host; `serverCert` the `FINGERPRINT` the sign-in accepted; `profileServerCert` the
     /// profile's own pin (normalized) or empty, which `serverCert` must then equal. See the type's note for
     /// what this binding does and does not protect against.
     public static func tunnelConfig(
         host: String, port: Int, connectURL: String, resolve: String?, cookie: String, serverCert: String, profileServerCert: String,
         scriptPath: String, tlsOnly: Bool
     ) throws -> OpenConnectConfig {
+        try tunnelConfig(
+            protocol: .anyconnect, host: host, port: port, connectURL: connectURL, resolve: resolve, cookie: cookie,
+            serverCert: serverCert, profileServerCert: profileServerCert, profileGatewayServerCert: "", scriptPath: scriptPath,
+            tlsOnly: tlsOnly, disableIPv6: false)
+    }
+
+    /// The helper's side of `tunnelConfig`, by protocol. `host` and `port` are the server the tunnel connects to
+    /// (for GlobalProtect the gateway the sign-in ended on), which `connectURL` must name exactly; `cookie` the
+    /// tunnel run's option (`OpenConnectCookie`'s or `GlobalProtectCookie`'s shape); `serverCert` must equal
+    /// `profileServerCert` or `profileGatewayServerCert` when either is set (the latter empty for Cisco
+    /// AnyConnect); `disableIPv6` for GlobalProtect only. The rest as for Cisco AnyConnect.
+    public static func tunnelConfig(
+        protocol: OpenConnectProtocol, host: String, port: Int, connectURL: String, resolve: String?, cookie: String,
+        serverCert: String, profileServerCert: String, profileGatewayServerCert: String, scriptPath: String, tlsOnly: Bool,
+        disableIPv6: Bool
+    ) throws -> OpenConnectConfig {
+        guard `protocol` == .gp || profileGatewayServerCert.isEmpty else {
+            throw OpenConnectConfig.ValidationError.invalidValue(
+                field: "gateway server certificate", reason: OpenConnectConfig.globalProtectOnly)
+        }
         try checkPrintable(connectURL, key: "CONNECT_URL", maxBytes: maxConnectURLBytes, allowEmpty: false)
         if let resolve { try checkPrintable(resolve, key: "RESOLVE", maxBytes: maxResolveBytes, allowEmpty: false) }
         let (address, _) = try checkDestination(
             host: host, port: port, connectURL: connectURL, resolve: resolve, fingerprint: serverCert,
-            profileServerCert: profileServerCert, client: false)
+            pins: [profileServerCert, profileGatewayServerCert], client: false)
         let config = OpenConnectConfig(
-            host: host, port: port, cookie: cookie, serverCert: serverCert, resolveAddress: address, scriptPath: scriptPath,
-            tlsOnly: tlsOnly)
+            protocol: `protocol`, host: host, port: port, cookie: cookie, serverCert: serverCert, resolveAddress: address,
+            scriptPath: scriptPath, tlsOnly: tlsOnly, disableIPv6: disableIPv6)
         try config.validate()
         return config
     }

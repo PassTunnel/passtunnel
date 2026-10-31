@@ -53,16 +53,13 @@ private struct DetailPage: View {
                             .foregroundStyle(Palette.fg)
                             .fixedSize(horizontal: false, vertical: true)
                             .accessibilityAddTraits(.isHeader)
-                        Text(verbatim: server.subtitle)
-                            .typography(.body)
-                            .foregroundStyle(Palette.fg2)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .textSelection(.enabled)
+                        DetailSubtitle(profile: profile, subtitle: server.subtitle)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     DetailActionButton(profile: profile, action: status.action)
                 }
                 ProfileStatusLine(status: status, server: server.address, now: model.previewNow)
+                ForEach(model.notices(profile), id: \.self) { StatusNoticeRow(notice: $0) }
                 if case .unavailable = status {
                     UnavailableCard(profile: profile)
                 } else if model.showsFailureCard(profile, status) {
@@ -81,6 +78,43 @@ private struct DetailPage: View {
             if record.profileID == profile.id { activity.refresh(force: true) }
         }
         .task { await activity.follow() }
+    }
+}
+
+/// Where the profile connects and its type ("vpn.example.com:443 · Palo Alto GlobalProtect"); for an experimental type
+/// (`VPNType.isExperimental`) the "Experimental" badge and "Report how it works…" after it, under it when the line is
+/// too narrow.
+private struct DetailSubtitle: View {
+    let profile: Profile
+    let subtitle: String
+
+    var body: some View {
+        if profile.type.isExperimental {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
+                    text.fixedSize()
+                    ExperimentalBadge().foregroundStyle(Palette.fg2)
+                    ExperimentalReportLink()
+                }
+                VStack(alignment: .leading, spacing: Spacing.xxs) {
+                    text
+                    HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
+                        ExperimentalBadge().foregroundStyle(Palette.fg2)
+                        ExperimentalReportLink()
+                    }
+                }
+            }
+        } else {
+            text
+        }
+    }
+
+    private var text: some View {
+        Text(verbatim: subtitle)
+            .typography(.body)
+            .foregroundStyle(Palette.fg2)
+            .fixedSize(horizontal: false, vertical: true)
+            .textSelection(.enabled)
     }
 }
 
@@ -130,13 +164,22 @@ private struct UnavailableCard: View {
     }
 
     private var text: String {
-        guard case .anyConnectRequiresMacOS(let version)? = model.connectRefusal(profile.type) else {
-            return model.connectRefusal(profile.type)?.localizedDescription ?? ""
+        switch model.connectRefusal(profile.type) {
+        case .anyConnectRequiresMacOS(let version)?:
+            return String(
+                localized:
+                    "PassTunnel connects Cisco AnyConnect with openconnect, which runs on macOS \(version) or later. Update macOS to connect or edit this profile. You can still share or delete it."
+            )
+        case .globalProtectRequiresMacOS(let version)?:
+            return String(
+                localized:
+                    "PassTunnel connects Palo Alto GlobalProtect with openconnect, which runs on macOS \(version) or later. Update macOS to connect or edit this profile. You can still share or delete it."
+            )
+        case let refusal?:
+            return refusal.localizedDescription
+        case nil:
+            return ""
         }
-        return String(
-            localized:
-                "PassTunnel connects Cisco AnyConnect with openconnect, which runs on macOS \(version) or later. Update macOS to connect or edit this profile. You can still share or delete it."
-        )
     }
 }
 
@@ -203,7 +246,7 @@ extension AppModel {
             guard let e = ConfigEndpoints.endpoint(store.ovpnURL(p.id)) else { return ("", p.type.displayName) }
             // Protocol names stay untranslated.
             return (e.address, [e.server, p.type.displayName, e.tcp ? "TCP" : "UDP"].joined(separator: " · "))
-        case .forti, .anyconnect:
+        case .forti, .anyconnect, .globalprotect:
             let host = p.host.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !host.isEmpty else { return ("", p.type.displayName) }
             let address = OVPNAnalyzer.Endpoint.address(host: host, port: String(p.port))

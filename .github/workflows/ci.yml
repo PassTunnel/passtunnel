@@ -29,10 +29,15 @@
 #   against ocserv    Docker network, and OcservSignInTests in the Swift container with Ubuntu's
 #                     openconnect: real sign-ins through ConnectionManager, no tunnel (Tests/ocserv/
 #                     README.md). The tunnel itself is ocserv-tunnel.yml, which is not a required check
+#   Palo Alto         openconnect's own GlobalProtect test server (tests/fake-gp-server.py from the
+#   GlobalProtect     pinned openconnect tarball, checked by its SHA-256, run unchanged; Tests/globalprotect)
+#   against           on a Docker network, and FakeGPServerSignInTests in the Swift container with
+#   openconnect's     Ubuntu's openconnect: real sign-ins to a portal and its gateways through
+#   test server       ConnectionManager, no tunnel (Tests/globalprotect/README.md). Not a required check
 #   Release scripts   shellcheck of next-version.sh, its test, build-linux.sh, coverage-report.sh, compare-app.sh,
 #                     verify-build.sh, check-tool-symbols.sh, its test, make-system-symbols.sh and
 #                     test-bundled-config-paths.sh, swift-retry.sh and its test, the scripts of
-#                     Tests/ocserv, and the self-tests of
+#                     Tests/ocserv and Tests/globalprotect, and the self-tests of
 #                     scripts/next-version.sh (in a temporary repository) and swift-retry.sh
 #   Site              shellcheck of the site scripts and scripts/check-site.sh, the static checks
 #                     of the website in site/ (docs/WEBSITE.md)
@@ -243,7 +248,7 @@ jobs:
           export PASSTUNNEL_HOME
           "$bin" --version | tee version.txt
           grep -qx "PassTunnel 0.0.0-dev" version.txt
-          "$bin" version --json | jq -e '.version == "0.0.0-dev" and .helper_protocol_version == 4'
+          "$bin" version --json | jq -e '.version == "0.0.0-dev" and .helper_protocol_version == 5'
           "$bin" list --json | jq -e '. == []'
           printf '%s\n' \
             '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
@@ -311,8 +316,8 @@ jobs:
           sock=/run/passtunnel/daemon.sock
           call() { socat -t 30 - "UNIX-CONNECT:$sock"; }
           call_as() { runuser -u "$1" -- socat -t 30 - "UNIX-CONNECT:$sock"; }
-          status='{"op":"perform","request":{"type":"status","protocol_version":4}}'
-          stop='{"op":"perform","request":{"type":"stop","protocol_version":4,"profile_id":"acme"}}'
+          status='{"op":"perform","request":{"type":"status","protocol_version":5}}'
+          stop='{"op":"perform","request":{"type":"stop","protocol_version":5,"profile_id":"acme"}}'
           PASSTUNNEL_HOME="$(mktemp -d)"
           export PASSTUNNEL_HOME
 
@@ -343,10 +348,10 @@ jobs:
           test "$(stat -c '%a %U' "$sock")" = "666 root"
 
           build="$(sha256sum /usr/local/sbin/passtunneld | cut -d' ' -f1)"
-          printf '%s\n' '{"op":"hello"}' | call | jq -e --arg build "$build" '.protocol == 4 and .build == $build'
+          printf '%s\n' '{"op":"hello"}' | call | jq -e --arg build "$build" '.protocol == 5 and .build == $build'
           printf '%s\n' "$status" | call | jq -e '.ok and .running == {} and .mgmt_sockets == {}'
           "$bin/passtunnel" helper status --json \
-            | jq -e '.state == "enabled" and .responding and .protocol_version == 4 and .outdated == false'
+            | jq -e '.state == "enabled" and .responding and .protocol_version == 5 and .outdated == false'
           printf '%s\n' \
             '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
             '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
@@ -354,12 +359,12 @@ jobs:
             | "$bin/passtunnel" mcp | jq -se 'INDEX(.id) as $r | $r["2"].result.structuredContent.helper
               | .state == "enabled" and .responding and .outdated == false'
 
-          start='{"op":"perform","request":{"type":"start_openvpn","protocol_version":4,"profile_id":"acme","profile_dir":"/nonexistent","log_path":"/nonexistent/vpn.log"}}'
+          start='{"op":"perform","request":{"type":"start_openvpn","protocol_version":5,"profile_id":"acme","profile_dir":"/nonexistent","log_path":"/nonexistent/vpn.log"}}'
           printf '%s\n' "$start" | call_as nobody | jq -e '.ok == false and (.error | test("group .passtunnel. does not exist"))'
           groupadd --system passtunnel
           printf '%s\n' "$start" | call_as nobody | jq -e '.ok == false and (.error | test("members of the group .passtunnel."))'
           printf '%s\n' "$status" | call_as nobody | jq -e '.ok and .running == {}'
-          printf '%s\n' '{"op":"hello"}' | call_as nobody | jq -e '.protocol == 4'
+          printf '%s\n' '{"op":"hello"}' | call_as nobody | jq -e '.protocol == 5'
 
           useradd --create-home --groups passtunnel alice
           uid="$(id -u alice)"
@@ -369,7 +374,7 @@ jobs:
             "peer-fingerprint $(printf '00:%.0s' $(seq 31))00" | runuser -u alice -- tee "$profile/config.ovpn" >/dev/null
           sha="$(sha256sum "$profile/config.ovpn" | cut -d' ' -f1)"
           request="$(jq -cn --arg dir "$profile" --arg sha "$sha" '{op: "perform", request: {type: "start_openvpn",
-            protocol_version: 4, profile_id: "acme", profile_dir: $dir, log_path: ($dir + "/vpn.log"),
+            protocol_version: 5, profile_id: "acme", profile_dir: $dir, log_path: ($dir + "/vpn.log"),
             username: "alice", secret: "example-password", config_sha256: $sha}}')"
           run="/run/passtunnel/$uid/acme"
           printf '%s\n' "$request" | call_as alice | tee start.json \
@@ -404,7 +409,7 @@ jobs:
           gateway=$!
           forti=/home/alice/.local/share/passtunnel/profiles/fortinet
           runuser -u alice -- mkdir -p "$forti"
-          fstart="$(jq -cn --arg dir "$forti" '{op: "perform", request: {type: "start_forti", protocol_version: 4,
+          fstart="$(jq -cn --arg dir "$forti" '{op: "perform", request: {type: "start_forti", protocol_version: 5,
             profile_id: "fortinet", profile_dir: $dir, log_path: ($dir + "/vpn.log"), host: "127.0.0.1", port: 10443,
             username: "alice", password: "example-password", otp: "123456", trusted_cert: "", set_dns: true,
             set_routes: true}}')"
@@ -423,7 +428,7 @@ jobs:
           grep -qx 'pppd-use-peerdns = 0' "$frun/openfortivpn.conf"
           if grep -qa example-password fcmdline.txt "/proc/$fpid/environ"; then echo "the password left the config"; exit 1; fi
           test "$(stat -c '%U %a' "$forti/vpn.log")" = "alice 600"
-          fstop='{"op":"perform","request":{"type":"stop","protocol_version":4,"profile_id":"fortinet"}}'
+          fstop='{"op":"perform","request":{"type":"stop","protocol_version":5,"profile_id":"fortinet"}}'
           printf '%s\n' "$status" | call_as alice | jq -e --argjson pid "$fpid" '.running == {"fortinet": $pid} and .mgmt_sockets == {}'
           printf '%s\n' "$fstop" | call_as nobody | jq -e '.ok and .pid == null'
           printf '%s\n' "$fstop" | call_as alice | jq -e --argjson pid "$fpid" '.ok and .pid == $pid'
@@ -499,7 +504,9 @@ jobs:
       # that prints Ubuntu 22.04's 8.20); then a start with the real tool against a local socket that never
       # answers, so openconnect never gets a tunnel, never runs its hook and changes nothing: its config
       # (the cookie only there), arguments, environment, state and hook link, the cookie kept out of the
-      # log, its status, and the stop.
+      # log, its status, and the stop. Palo Alto GlobalProtect (#234) the same way: a stand-in printing
+      # Debian 12's 9.01 refused for it (9.11), then the real tool with `protocol gp` and, below 9.20,
+      # `disable-ipv6`.
       - name: Cisco AnyConnect in passtunneld (no tunnel)
         env:
           DEBIAN_FRONTEND: noninteractive
@@ -519,12 +526,13 @@ jobs:
           id alice >/dev/null 2>&1 || useradd --create-home --groups passtunnel alice
           sock=/run/passtunnel/daemon.sock
           call_as() { runuser -u "$1" -- socat -t 30 - "UNIX-CONNECT:$sock"; }
-          status='{"op":"perform","request":{"type":"status","protocol_version":4}}'
-          stop='{"op":"perform","request":{"type":"stop","protocol_version":4,"profile_id":"cisco"}}'
+          status='{"op":"perform","request":{"type":"status","protocol_version":5}}'
+          stop='{"op":"perform","request":{"type":"stop","protocol_version":5,"profile_id":"cisco"}}'
           /usr/local/sbin/passtunneld >>oc-daemon.log 2>&1 &
           daemon=$!
           trap 'kill "$daemon" 2>/dev/null || true; echo "--- daemon log"; cat oc-daemon.log
             echo "--- session log"; cat /home/alice/.local/share/passtunnel/profiles/cisco/vpn.log 2>/dev/null || true
+            echo "--- GlobalProtect session log"; cat /home/alice/.local/share/passtunnel/profiles/palo/vpn.log 2>/dev/null || true
             if [ -e /usr/sbin/openconnect.real ]; then mv /usr/sbin/openconnect.real /usr/sbin/openconnect; fi' EXIT
           for _ in $(seq 100); do
             printf '%s\n' '{"op":"hello"}' | socat -t 5 - "UNIX-CONNECT:$sock" 2>/dev/null | grep -q '"protocol"' && break
@@ -539,14 +547,31 @@ jobs:
           pin='pin-sha256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk='
           start() {
             jq -cn --arg dir "$dir" --arg cookie "$cookie" --arg pin "$pin" --arg url "${1:-https://127.0.0.1:10443/}" \
-              '{op: "perform", request: {type: "start_openconnect", protocol_version: 4, profile_id: "cisco", profile_dir: $dir,
-                log_path: ($dir + "/vpn.log"), host: "127.0.0.1", port: 10443, usergroup: "", connect_url: $url,
-                cookie: $cookie, server_cert: $pin, profile_server_cert: "", tls_only: true, set_dns: true, set_routes: true}}'
+              '{op: "perform", request: {type: "start_openconnect", protocol_version: 5, protocol: "anyconnect", profile_id: "cisco",
+                profile_dir: $dir, log_path: ($dir + "/vpn.log"), host: "127.0.0.1", port: 10443, usergroup: "", connect_url: $url,
+                cookie: $cookie, server_cert: $pin, profile_server_cert: "", profile_gateway_server_cert: "", tls_only: true,
+                set_dns: true, set_routes: true}}'
           }
 
           # A connect URL other than the profile's server: refused before anything is prepared.
           start https://vpn.example.com/ | call_as alice | jq -e '.ok == false and (.error | test("another server"))'
           test ! -e "$run"
+          # Palo Alto GlobalProtect (#234): a session of the gateway the sign-in ended on, with GlobalProtect's cookie.
+          gpdir=/home/alice/.local/share/passtunnel/profiles/palo
+          runuser -u alice -- mkdir -p "$gpdir"
+          gprun="/run/passtunnel/$uid/palo"
+          gpsecret='EXAMPLE0123456789abcdef'
+          gpcookie="authcookie=$gpsecret&portal=Acme&user=alice&computer=alice-pc"
+          gpstart() {
+            jq -cn --arg dir "$gpdir" --arg cookie "$gpcookie" --arg pin "$pin" \
+              '{op: "perform", request: {type: "start_openconnect", protocol_version: 5, protocol: "gp", profile_id: "palo",
+                profile_dir: $dir, log_path: ($dir + "/vpn.log"), host: "127.0.0.1", port: 10443, usergroup: "",
+                connect_url: "https://127.0.0.1:10443/", cookie: $cookie, server_cert: $pin, profile_server_cert: "",
+                profile_gateway_server_cert: "", tls_only: false, set_dns: true, set_routes: true}}'
+          }
+          # Cisco AnyConnect's cookie in a GlobalProtect start: refused before anything is prepared.
+          gpstart | jq -c --arg c "$cookie" '.request.cookie = $c' | call_as alice | jq -e '.ok == false and (.error | test("cookie"))'
+          test ! -e "$gprun"
           # Ubuntu 22.04's openconnect: refused, naming the minimum.
           mv /usr/sbin/openconnect /usr/sbin/openconnect.real
           printf '%s\n' '#!/bin/sh' 'echo "OpenConnect version v8.20-1"' 'exit 0' >old-openconnect
@@ -554,6 +579,13 @@ jobs:
           start | call_as alice | tee old.json
           jq -e '.error == "openconnect 8.20 is too old: PassTunnel needs 9.01 or later. Update the openconnect package."' old.json
           test ! -e "$run"
+          # Debian 12's and EPEL 9's 9.01: too old for Palo Alto GlobalProtect (9.11), naming the version found and needed.
+          printf '%s\n' '#!/bin/sh' 'echo "OpenConnect version v9.01-3"' 'exit 0' >old-openconnect
+          install -m 0755 old-openconnect /usr/sbin/openconnect
+          gpstart | call_as alice | tee old-gp.json
+          jq -e '.error == "openconnect 9.01 is too old for Palo Alto GlobalProtect: PassTunnel needs 9.11 or later. Update the openconnect package."' old-gp.json
+          test ! -e "$gprun"
+          test ! -e "$gpdir/vpn.log"
           mv /usr/sbin/openconnect.real /usr/sbin/openconnect
 
           # The real one, against a socket that accepts and never answers the TLS handshake.
@@ -572,6 +604,7 @@ jobs:
           grep -qx "cookie $cookie" "$run/openconnect.conf"
           grep -qx "script $run/vpn-hook" "$run/openconnect.conf"
           grep -qx 'no-dtls' "$run/openconnect.conf"
+          if grep -q 'disable-ipv6' "$run/openconnect.conf"; then echo "disable-ipv6 in a Cisco AnyConnect file"; exit 1; fi
           test "$(readlink "$run/vpn-hook")" = /usr/local/sbin/passtunneld
           printf 'uid=%s\nprofile=cisco\nset_routes=1\nset_dns=1\n' "$uid" | cmp - "$run/policy"
           test "$(sed -n 1p "$run/state")" = "$pid"
@@ -588,6 +621,38 @@ jobs:
           test ! -e "$run"
           if kill -0 "$pid" 2>/dev/null; then echo "openconnect $pid still runs"; exit 1; fi
           grep -q "started openconnect 9\.[0-9]* for cisco, uid $uid" oc-daemon.log
+
+          # Palo Alto GlobalProtect with the real one against the same socket: `protocol gp`, and `disable-ipv6` exactly
+          # when the openconnect the daemon checked is older than 9.20 (Ubuntu 24.04's 9.12: yes).
+          gpstart | call_as alice | tee gp.json | jq -e '.ok and .pid > 1 and .mgmt_socket == null'
+          gppid="$(jq -r .pid gp.json)"
+          test "$(tr '\0' ' ' <"/proc/$gppid/cmdline")" = "/usr/sbin/openconnect --config=$gprun/openconnect.conf "
+          test "$(stat -c '%a %U' "$gprun/openconnect.conf")" = "600 root"
+          grep -v '^cookie ' "$gprun/openconnect.conf"
+          grep -qx 'protocol gp' "$gprun/openconnect.conf"
+          grep -qx 'server https://127.0.0.1:10443/' "$gprun/openconnect.conf"
+          grep -qx "cookie $gpcookie" "$gprun/openconnect.conf"
+          grep -qx "script $gprun/vpn-hook" "$gprun/openconnect.conf"
+          version="$(openconnect --version | sed -n 's/^OpenConnect version v\([0-9]*\.[0-9]*\).*/\1/p' | head -n 1)"
+          if [ -z "$version" ]; then echo "could not read the version of openconnect"; openconnect --version; exit 1; fi
+          if [ "$version" != 9.20 ] && [ "$(printf '%s\n9.20\n' "$version" | sort -V | head -n 1)" = "$version" ]; then
+            grep -qx 'disable-ipv6' "$gprun/openconnect.conf"
+          elif grep -q 'disable-ipv6' "$gprun/openconnect.conf"; then
+            echo "disable-ipv6 with openconnect $version"; exit 1
+          fi
+          test "$(readlink "$gprun/vpn-hook")" = /usr/local/sbin/passtunneld
+          if grep -qa "$gpsecret" "/proc/$gppid/cmdline" "/proc/$gppid/environ"; then echo "the cookie left the config"; exit 1; fi
+          printf '%s\n' "$status" | call_as alice \
+            | jq -e --argjson pid "$gppid" '.running == {"palo": $pid} and .tunnels == {"palo": {"state": "setting_up"}}'
+          sleep 2
+          test "$(stat -c '%U %a' "$gpdir/vpn.log")" = "alice 600"
+          if grep -q "$gpsecret" "$gpdir/vpn.log"; then echo "the cookie is in the log"; exit 1; fi
+          printf '%s\n' '{"op":"perform","request":{"type":"stop","protocol_version":5,"profile_id":"palo"}}' | call_as alice \
+            | jq -e --argjson pid "$gppid" '.ok and .pid == $pid'
+          test ! -e "$gprun"
+          if kill -0 "$gppid" 2>/dev/null; then echo "openconnect $gppid still runs"; exit 1; fi
+          grep -q "started openconnect 9\.[0-9]* for palo, uid $uid" oc-daemon.log
+          if grep -q "$gpsecret" oc-daemon.log; then echo "the cookie is in the daemon's log"; exit 1; fi
           kill "$gateway"
           kill -TERM "$daemon"
           wait "$daemon"
@@ -822,8 +887,8 @@ jobs:
           done
           digest="$(sha256sum /usr/local/sbin/passtunneld | cut -d' ' -f1)"
           printf '%s\n' '{"op":"hello"}' | socat -t 5 - "UNIX-CONNECT:$sock" \
-            | jq -e --arg digest "$digest" --argjson n "$BUILD" '.protocol == 4 and .build == $digest and .build_number == $n'
-          printf '%s\n' '{"op":"perform","request":{"type":"status","protocol_version":4}}' | socat -t 5 - "UNIX-CONNECT:$sock" \
+            | jq -e --arg digest "$digest" --argjson n "$BUILD" '.protocol == 5 and .build == $digest and .build_number == $n'
+          printf '%s\n' '{"op":"perform","request":{"type":"status","protocol_version":5}}' | socat -t 5 - "UNIX-CONNECT:$sock" \
             | jq -e --argjson n "$BUILD" '.ok and .running == {} and .helper_build == $n'
           passtunnel helper status --json | jq -e '.state == "enabled" and .responding and .outdated == false'
           # Another file in its place, as after an update before the restart: the running daemon is outdated.
@@ -834,7 +899,7 @@ jobs:
           jq -e '.state == "enabled" and .responding and .outdated == true' helper.json
           kill -TERM "$daemon"
           wait "$daemon"
-          grep -q "listening on $sock, protocol 4, build $digest ($BUILD)" daemon.log
+          grep -q "listening on $sock, protocol 5, build $digest ($BUILD)" daemon.log
           EOF
 
   # The Dockerfile (`passtunnel mcp` for MCP directories) built on each architecture, then an MCP
@@ -936,6 +1001,70 @@ jobs:
         if: always()
         run: docker logs ocserv 2>&1 | tail -n 200
 
+  # Palo Alto GlobalProtect's sign-in against openconnect's own test portal and gateway,
+  # tests/fake-gp-server.py, run unchanged with Debian's Python and Flask in the image of
+  # Tests/globalprotect: start-server.sh takes it from the openconnect tarball of the version
+  # scripts/release.env pins (cached here by its hash), checked against Tests/globalprotect/
+  # fake-gp-server.sha256 before anything is read from it, and starts one server per configuration at
+  # 172.31.212.10 on a network of its own, which the client container also knows as vpn.example.com.
+  # FakeGPServerSignInTests (only with PASSTUNNEL_TEST_GP_SERVER) runs Ubuntu's openconnect (9.12:
+  # disable-ipv6 rendered) through ConnectionManager with a fake helper: the portal and its gateway with
+  # the password alone, a code at the portal (with its override cookie, masked), at the gateway, at both
+  # (the second code of a later window), skip_portal, two gateways with and without the profile's, SAML
+  # at the portal and at the gateway, the pins, the CA, a gateway whose certificate fails after the
+  # portal and the offer to trust it, no server at a port, and the root file the helper renders, run
+  # with the real cookie up to the gateway's configuration. Not a required check
+  # (Tests/globalprotect/README.md, "In CI").
+  globalprotect:
+    name: Palo Alto GlobalProtect against openconnect's test server
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      # swift:6.4.1-noble, the image of the Linux jobs, pinned by the digest of its multi-arch index.
+      SWIFT_IMAGE: swift:6.4.1-noble@sha256:19cbe56bdaec1918f7cf5fdeba42b9bd55bdd8a6149c9990d0e0e3a89a127d63
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build/repositories
+          key: swiftpm-repositories-${{ hashFiles('Package.resolved') }}
+
+      # The tarball is checked against the hash on every run, cached or not.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/openconnect-tarball
+          key: openconnect-tarball-${{ hashFiles('Tests/globalprotect/fake-gp-server.sha256') }}
+
+      - name: Start the test server
+        run: Tests/globalprotect/start-server.sh "$RUNNER_TEMP/openconnect-tarball" "$RUNNER_TEMP/fake-gp"
+
+      - name: Sign in (no tunnel)
+        run: |
+          set -euo pipefail
+          docker run --rm --network passtunnel-fake-gp --add-host vpn.example.com:172.31.212.10 -v "$PWD:/src" -w /src \
+            -v "$RUNNER_TEMP/fake-gp:/fake-gp:ro" -e PASSTUNNEL_STRICT_WARNINGS=1 "$SWIFT_IMAGE" bash -c '
+            set -euo pipefail
+            git config --global --add safe.directory "*"
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update -qq
+            apt-get install -y -qq --no-install-recommends openconnect ca-certificates >/dev/null
+            openconnect --version | head -n 1
+            scripts/swift-retry.sh swift build --build-tests
+            PASSTUNNEL_TEST_GP_SERVER=172.31.212.10 PASSTUNNEL_TEST_GP_NAME=vpn.example.com PASSTUNNEL_TEST_GP_CA=/fake-gp/ca.pem \
+              PASSTUNNEL_TEST_GP_PIN="$(cat /fake-gp/pin.txt)" \
+              swift test --skip-build --filter FakeGPServerSignInTests 2>&1 | tee signin.txt
+            if grep -qE "^Test Case .* skipped" signin.txt; then echo "a test was skipped"; exit 1; fi
+            test "$(grep -c "^Test Case .FakeGPServerSignInTests\..* passed" signin.txt)" = 18'
+
+      - name: The server's log
+        if: always()
+        run: |
+          docker logs passtunnel-fake-gp 2>&1 | tail -n 20 || true
+          docker exec passtunnel-fake-gp sh -c 'for f in /var/log/fake-gp/*.log; do echo "--- $f"; tail -n 40 "$f"; done' || true
+
   scripts:
     name: Release scripts
     runs-on: ubuntu-latest
@@ -952,7 +1081,8 @@ jobs:
             scripts/compare-app.sh scripts/verify-build.sh scripts/check-tool-symbols.sh scripts/test-check-tool-symbols.sh \
             scripts/make-system-symbols.sh scripts/test-bundled-config-paths.sh \
             scripts/swift-retry.sh scripts/test-swift-retry.sh \
-            Tests/ocserv/entrypoint.sh Tests/ocserv/cut.sh Tests/ocserv/tunnel-test.sh Tests/ocserv/run-tunnel-tests.sh
+            Tests/ocserv/entrypoint.sh Tests/ocserv/cut.sh Tests/ocserv/tunnel-test.sh Tests/ocserv/run-tunnel-tests.sh \
+            Tests/globalprotect/entrypoint.sh Tests/globalprotect/start-server.sh
 
       - name: Self-test of next-version.sh
         run: scripts/test-next-version.sh

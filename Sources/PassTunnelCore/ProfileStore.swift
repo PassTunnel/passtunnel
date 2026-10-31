@@ -61,15 +61,18 @@ public struct ProfileStore {
     // MARK: create / save / delete
 
     /// New profile with a unique slug id ("acme", "acme-2", …) of at most `Slug.maxIDLength`
-    /// characters. FortiGate and Cisco AnyConnect profiles default to `.separate` OTP delivery. Keychain items still stored
+    /// characters. FortiGate, Cisco AnyConnect and Palo Alto GlobalProtect profiles default to `.separate` OTP delivery. Keychain items still stored
     /// under the new id (left by a profile removed outside the app, or from before a reinstall) are
     /// deleted first, so the new profile never uses secrets it was not given. `server`: the Cisco AnyConnect
-    /// server's address (`AnyConnectServer.parse`) saved as the profile's `host`, `port` and `usergroup`;
+    /// server's address (`AnyConnectServer.parse`) saved as the profile's `host`, `port` and `usergroup`; for Palo Alto
+    /// GlobalProtect the portal's, from `GlobalProtectServer.parse` as an `AnyConnectServer` with an empty `usergroup`
+    /// (a GlobalProtect profile has none: `PTError.invalidField("usergroup")` otherwise);
     /// `PTError.invalidField("server")` for any other type.
     public func create(name: String, type: VPNType, server: AnyConnectServer? = nil) throws -> Profile {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw PTError.emptyName }
-        if server != nil, type != .anyconnect { throw PTError.invalidField("server") }
+        if server != nil, type != .anyconnect, type != .globalprotect { throw PTError.invalidField("server") }
+        if let server, type == .globalprotect, !server.usergroup.isEmpty { throw PTError.invalidField("usergroup") }
         try paths.ensureDirectories()
         return try withLock {
             let existing = list()
@@ -101,6 +104,7 @@ public struct ProfileStore {
         try Profile.checkUsername(p.username, type: p.type)
         try p.checkHosts()
         try p.checkAnyConnectFields()
+        try p.checkGlobalProtectFields()
         if p.otpDelivery == .combined && p.otpMode != .none {
             try OTPComposer.validate(template: p.otpTemplate)
         }
@@ -303,6 +307,9 @@ public struct ProfileStore {
             // As `passtunnel set` stores it; anything that is no pin fails the save below.
             p.serverCert = OpenConnectPin.normalize(src.serverCert) ?? src.serverCert
             p.tlsOnly = src.tlsOnly
+            p.gateway = src.gateway
+            p.skipPortal = src.skipPortal
+            p.gatewayServerCert = OpenConnectPin.normalize(src.gatewayServerCert) ?? src.gatewayServerCert
             if let ovpn = sharedOVPN {
                 try FileIO.writeAtomically(ovpn, to: ovpnURL(p.id), mode: 0o600)
                 p.configSourceName = src.configSourceName ?? Self.ovpnFile

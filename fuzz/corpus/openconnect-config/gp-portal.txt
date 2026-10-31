@@ -1,0 +1,1 @@
+vpn.example.com443aliceauthcookie=0123456789abcdef&portal=Acme&user=alice&computer=alice-mac192.0.2.20/private/var/run/passtunnel/tools/0123abcd/Resources/bin/vpn-hooknUS East

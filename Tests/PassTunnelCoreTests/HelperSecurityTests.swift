@@ -38,14 +38,14 @@ final class HelperRequestDecodingTests: XCTestCase {
         for r in requests {
             XCTAssertEqual(try HelperCore.decodeRequest(try r.jsonData()), r)
         }
-        XCTAssertEqual(try HelperCore.decodeRequest(Data(#"{"type":"status","protocol_version":4}"#.utf8)), .status)
+        XCTAssertEqual(try HelperCore.decodeRequest(Data(#"{"type":"status","protocol_version":5}"#.utf8)), .status)
     }
 
     func testOversizeRequestIsRejected() throws {
         let limit = HelperCore.maxRequestBytes
         XCTAssertEqual(limit, 65536)
         // Exactly at the limit is fine (padding with JSON whitespace).
-        var json = #"{"type":"status","protocol_version":4}"#
+        var json = #"{"type":"status","protocol_version":5}"#
         json += String(repeating: " ", count: limit - json.utf8.count)
         XCTAssertEqual(try HelperCore.decodeRequest(Data(json.utf8)), .status)
         XCTAssertEqual(decodeError(json + " "), .tooLarge(limit + 1))
@@ -62,52 +62,55 @@ final class HelperRequestDecodingTests: XCTestCase {
     }
 
     func testMissingOrUnknownTypeIsRejected() {
-        XCTAssertEqual(decodeError(#"{"protocol_version":4}"#), .missingType)
-        XCTAssertEqual(decodeError(#"{"profile_id":"acme","protocol_version":4}"#), .missingType)
-        XCTAssertEqual(decodeError(#"{"type":5,"protocol_version":4}"#), .invalidField("type"))
+        XCTAssertEqual(decodeError(#"{"protocol_version":5}"#), .missingType)
+        XCTAssertEqual(decodeError(#"{"profile_id":"acme","protocol_version":5}"#), .missingType)
+        XCTAssertEqual(decodeError(#"{"type":5,"protocol_version":5}"#), .invalidField("type"))
         for t in ["reboot", "Stop", "STATUS", "start_shell", ""] {
-            XCTAssertEqual(decodeError(#"{"type":"\#(t)","protocol_version":4}"#), .unknownType(t), t)
+            XCTAssertEqual(decodeError(#"{"type":"\#(t)","protocol_version":5}"#), .unknownType(t), t)
         }
         // Client-supplied text is made printable and shortened before it is echoed.
         let long = String(repeating: "x", count: 100)
-        XCTAssertEqual(decodeError(#"{"type":"\#(long)","protocol_version":4}"#), .unknownType(String(repeating: "x", count: 32)))
-        XCTAssertEqual(decodeError(#"{"type":"a\nb\u001b","protocol_version":4}"#), .unknownType("a?b?"))
+        XCTAssertEqual(decodeError(#"{"type":"\#(long)","protocol_version":5}"#), .unknownType(String(repeating: "x", count: 32)))
+        XCTAssertEqual(decodeError(#"{"type":"a\nb\u001b","protocol_version":5}"#), .unknownType("a?b?"))
         XCTAssertEqual(HelperCore.RequestError.unknownType("reboot").description, "Unknown request type “reboot”.")
     }
 
     func testProtocolVersionMismatchIsRejected() {
-        XCTAssertEqual(PT.helperProtocolVersion, 4)
-        for v in [0, 1, 2, 3, 5, 99, -1] {
+        XCTAssertEqual(PT.helperProtocolVersion, 5)
+        for v in [0, 1, 2, 3, 4, 6, 99, -1] {
             XCTAssertEqual(
                 decodeError(#"{"type":"status","protocol_version":\#(v)}"#),
-                .versionMismatch(client: v, helper: 4), "\(v)")
+                .versionMismatch(client: v, helper: 5), "\(v)")
         }
         // Clients from before the field speak protocol 2 at most.
-        XCTAssertEqual(decodeError(#"{"type":"status"}"#), .versionMismatch(client: 2, helper: 4))
+        XCTAssertEqual(decodeError(#"{"type":"status"}"#), .versionMismatch(client: 2, helper: 5))
         XCTAssertEqual(
             decodeError(#"{"type":"start_openvpn","profile_id":"a","profile_dir":"/d","log_path":"/l"}"#),
-            .versionMismatch(client: 2, helper: 4))
+            .versionMismatch(client: 2, helper: 5))
         // Version is checked before the type, so a newer client gets the clear message, and a protocol-3
-        // client cannot reach the protocol-4 request.
+        // client cannot reach the protocol-4 request, nor a protocol-4 client (1.6.0) the protocol-5 one.
         XCTAssertEqual(
-            decodeError(#"{"type":"start_wireguard","protocol_version":5}"#),
-            .versionMismatch(client: 5, helper: 4))
+            decodeError(#"{"type":"start_wireguard","protocol_version":6}"#),
+            .versionMismatch(client: 6, helper: 5))
         XCTAssertEqual(
             decodeError(#"{"type":"start_openconnect","protocol_version":3}"#),
-            .versionMismatch(client: 3, helper: 4))
+            .versionMismatch(client: 3, helper: 5))
+        XCTAssertEqual(
+            decodeError(#"{"type":"start_openconnect","protocol_version":4,"protocol":"gp"}"#),
+            .versionMismatch(client: 4, helper: 5))
         XCTAssertEqual(decodeError(#"{"type":"status","protocol_version":"2"}"#), .invalidField("protocol_version"))
         XCTAssertEqual(decodeError(#"{"type":"status","protocol_version":true}"#), .invalidField("protocol_version"))
-        let msg = HelperCore.RequestError.versionMismatch(client: 5, helper: 4).description
+        let msg = HelperCore.RequestError.versionMismatch(client: 4, helper: 5).description
         XCTAssertTrue(msg.contains("version") && msg.contains("5") && msg.contains("4"), msg)
     }
 
     func testMissingOrMistypedFieldsAreNamed() {
-        XCTAssertEqual(decodeError(#"{"type":"stop","protocol_version":4}"#), .invalidField("profile_id"))
+        XCTAssertEqual(decodeError(#"{"type":"stop","protocol_version":5}"#), .invalidField("profile_id"))
         XCTAssertEqual(
-            decodeError(#"{"type":"start_openvpn","protocol_version":4,"profile_id":"a","log_path":"/l"}"#),
+            decodeError(#"{"type":"start_openvpn","protocol_version":5,"profile_id":"a","log_path":"/l"}"#),
             .invalidField("profile_dir"))
         let forti =
-            #"{"type":"start_forti","protocol_version":4,"profile_id":"f","profile_dir":"/d","host":"vpn.example.com","username":"u","password":"p","trusted_cert":"","set_dns":false,"set_routes":true,"log_path":"/d/vpn.log","port":"#
+            #"{"type":"start_forti","protocol_version":5,"profile_id":"f","profile_dir":"/d","host":"vpn.example.com","username":"u","password":"p","trusted_cert":"","set_dns":false,"set_routes":true,"log_path":"/d/vpn.log","port":"#
         XCTAssertEqual(decodeError(forti + #""443"}"#), .invalidField("port"))
         // Not representable: rejected by the JSON layer before a field is known; the value is not echoed.
         XCTAssertEqual(decodeError(forti + "1e30}"), .invalidField("request"))
@@ -116,9 +119,9 @@ final class HelperRequestDecodingTests: XCTestCase {
 
     func testErrorsNeverEchoFieldValues() {
         let payloads = [
-            #"{"type":"start_forti","protocol_version":4,"profile_id":"f","password":["TOPSECRET"]}"#,
-            #"{"type":"start_openvpn","protocol_version":4,"profile_id":"a","profile_dir":"/d","log_path":"/l","secret":{"x":"TOPSECRET"}}"#,
-            #"{"type":"start_openvpn","protocol_version":4,"profile_id":"a","profile_dir":"/d","log_path":"/l","username":7,"secret":"TOPSECRET"}"#
+            #"{"type":"start_forti","protocol_version":5,"profile_id":"f","password":["TOPSECRET"]}"#,
+            #"{"type":"start_openvpn","protocol_version":5,"profile_id":"a","profile_dir":"/d","log_path":"/l","secret":{"x":"TOPSECRET"}}"#,
+            #"{"type":"start_openvpn","protocol_version":5,"profile_id":"a","profile_dir":"/d","log_path":"/l","username":7,"secret":"TOPSECRET"}"#
         ]
         for p in payloads {
             guard let e = decodeError(p) else { continue }
@@ -367,7 +370,7 @@ extension HelperCoreTests {
         // Extra keys in the request (a config or arguments of the client's choosing) are ignored.
         let start = openVPNStart()
         let json =
-            #"{"type":"start_openvpn","protocol_version":4,"profile_id":"acme","profile_dir":"\#(start.profileDir)","#
+            #"{"type":"start_openvpn","protocol_version":5,"profile_id":"acme","profile_dir":"\#(start.profileDir)","#
             + #""username":"alice","secret":"pw","log_path":"\#(start.logPath)","#
             + #""config":"up /tmp/evil.sh","arguments":["--up","/tmp/evil.sh"],"executable":"/bin/sh"}"#
         guard case .startOpenVPN(let decoded) = try HelperCore.decodeRequest(Data(json.utf8)) else {

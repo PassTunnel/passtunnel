@@ -4,7 +4,7 @@
 
 **Connect your VPN without ever typing a one-time code again.**
 
-PassTunnel is an open-source macOS app for OpenVPN, FortiGate SSL VPN and Cisco AnyConnect. It keeps
+PassTunnel is an open-source macOS app for OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect (experimental). It keeps
 your TOTP secret in the Keychain and fills in the current code (and your password) every time you connect.
 
 [![macOS 13+](https://img.shields.io/badge/macOS-13%2B-blue)](#install)
@@ -26,6 +26,7 @@ your TOTP secret in the Keychain and fills in the current code (and your passwor
 [Quick start](#quick-start) ·
 [Code format](#configuring-the-code-format) ·
 [Cisco AnyConnect](#cisco-anyconnect) ·
+[Palo Alto GlobalProtect](#palo-alto-globalprotect-experimental) ·
 [CLI](#command-line) ·
 [AI assistants](#use-with-ai-assistants-mcp) ·
 [FAQ](#faq) ·
@@ -67,9 +68,10 @@ your TOTP secret in the Keychain and fills in the current code (and your passwor
 
 **VPN client**
 
-- **OpenVPN, FortiGate SSL VPN and Cisco AnyConnect**, using bundled, signed copies of `openvpn`,
-  `openfortivpn` and `openconnect`. Nothing else to install. Cisco AnyConnect (password and one-time
-  code) needs macOS 15.4 or later; see [Cisco AnyConnect](#cisco-anyconnect).
+- **OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect (experimental)**, using
+  bundled, signed copies of `openvpn`, `openfortivpn` and `openconnect`. Nothing else to install. Cisco
+  AnyConnect and Palo Alto GlobalProtect (password and one-time code) need macOS 15.4 or later; see
+  [Cisco AnyConnect](#cisco-anyconnect) and [Palo Alto GlobalProtect](#palo-alto-globalprotect-experimental).
 - **Menu bar panel.** Every pinned or active profile with its state, live code and a switch to
   connect or disconnect, plus copy and type for the current code. A colored badge (five palettes)
   marks a profile that needs attention, with a red dot when a connection dropped unexpectedly.
@@ -114,7 +116,7 @@ code layout is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Install
 
-Requires **macOS 13 Ventura or later** on a Mac with **Apple silicon**. Cisco AnyConnect profiles
+Requires **macOS 13 Ventura or later** on a Mac with **Apple silicon**. Cisco AnyConnect and Palo Alto GlobalProtect profiles
 need **macOS 15.4 or later**; on an older macOS the rest of the app works as usual.
 
 ### Download
@@ -153,7 +155,7 @@ scripts/build-app.sh                  # → build/PassTunnel.app (ad-hoc signed)
 ```
 
 `build-app.sh` builds a release binary, assembles the bundle, copies `openvpn`, `openfortivpn`,
-`openconnect` (Cisco AnyConnect) and their libraries in (`scripts/bundle-tools.sh`, with their license files), compiles the helper with
+`openconnect` (Cisco AnyConnect, Palo Alto GlobalProtect) and their libraries in (`scripts/bundle-tools.sh`, with their license files), compiles the helper with
 the code-signature hashes of exactly these tools and libraries, and signs everything inside-out with
 the hardened runtime. An ad-hoc build signs the app without library validation: an ad-hoc signature
 has no Team ID, so macOS would otherwise refuse to load `Sparkle.framework` into it.
@@ -195,6 +197,7 @@ the window. The File menu has the same items:
 | A FortiGate gateway | **Enter details by hand**, choose FortiGate (File → **New FortiGate Profile…**), then enter host and port and **Fetch fingerprint** to pin the gateway certificate (SHA-256). |
 | A `.passtunnel` file from a colleague | Double-click it (or open it from AirDrop), or drop it on the window. Then add your own user name, password and TOTP secret. |
 | A Cisco AnyConnect server | **Enter details by hand**, choose Cisco AnyConnect (File → **New Cisco AnyConnect Profile…**), then paste the address your IT team gave you, for example `https://vpn.example.com/staff`. See [Cisco AnyConnect](#cisco-anyconnect). |
+| A Palo Alto GlobalProtect portal (experimental) | **Enter details by hand**, choose Palo Alto GlobalProtect (File → **New Palo Alto GlobalProtect Profile (Experimental)…**), then enter the portal's address, for example `vpn.example.com`. See [Palo Alto GlobalProtect](#palo-alto-globalprotect-experimental). |
 | A QR code for your authenticator | **Scan a QR code on screen** (macOS 14 and later) or **Use a QR image**, or drop the screenshot onto the window or the editor. |
 
 Then open the profile editor (**Edit** in the toolbar):
@@ -314,6 +317,56 @@ deleted. On Linux, `passtunneld` uses the distribution's `openconnect` 9.01 or l
 
 The command line has the same: [`passtunnel add --type anyconnect`](#command-line) below.
 
+## Palo Alto GlobalProtect (experimental)
+
+> **Experimental.** GlobalProtect has only been tested against openconnect's own test server, not against
+> real gateways. It connects exactly as designed, but please
+> [tell us how it works for you](https://github.com/PassTunnel/passtunnel/issues/new?template=globalprotect_report.md),
+> whether it worked or not: that is how the label goes away.
+
+PassTunnel connects to Palo Alto GlobalProtect through the bundled `openconnect`, with a user name, a
+password and, if the portal or gateway asks for one, a one-time code. It needs **macOS 15.4 or later**; the
+rest of the app still runs on macOS 13.
+
+**Add a profile.** Click **+**, choose **Enter details by hand**, then **Palo Alto GlobalProtect** (or File →
+**New Palo Alto GlobalProtect Profile (Experimental)…**). In **Server**, enter the portal's address as your IT
+team gave it, `[https://]host[:port]` without a path (for example `vpn.example.com`). A portal usually
+names a gateway; if it lists several, the first connect stops at **Choose a gateway** and lists them, or set
+**Gateway** in the profile. **Skip the portal** signs in to one gateway directly. Add the user name and
+password, and the TOTP secret as for any other profile. Under **Advanced**, **Use TLS only** turns off
+ESP (the UDP tunnel) so the tunnel runs over HTTPS only.
+
+**The one-time code** is answered to the portal or gateway that asks for it. When both ask and the portal
+gives no cookie to spare the second sign-in, PassTunnel waits for the next time window and answers the
+gateway with that code, so the same code is never sent twice. If your server wants the code inside the
+password, choose Append, Prepend or a custom template in **Code format**
+([see above](#configuring-the-code-format)).
+
+**Trust the server.** As for Cisco AnyConnect, a certificate signed by an authority your Mac trusts needs
+nothing. Otherwise **Fetch Fingerprint** pins the portal's key, and the gateway, which is often another host,
+is pinned with **Trust This Gateway…** on the failure card (it shows the gateway's key, and the portal's if
+none is pinned yet, and asks first). Compare the fingerprints with the ones your IT team published.
+
+**Not supported:**
+
+- Sign-in through a web browser (SAML / single sign-on). The connect stops at **Single sign-on required**
+  before anything is sent.
+- Host information profile (HIP). PassTunnel never runs a HIP script. The connection goes on without a
+  report, and the gateway may limit what you can reach or end the session; PassTunnel shows a notice that
+  access may be limited. Ask your IT team if that happens.
+- Client certificates.
+- Pulse/Ivanti and other types (see the [roadmap](ROADMAP.md)).
+
+**On the network.** The gateway's routes and DNS are applied when the tunnel comes up and removed when it
+ends, with the same rules as Cisco AnyConnect: routes inside a network your Mac is attached to stay local,
+and IPv6 is blocked in a full tunnel when the gateway assigns no IPv6 address.
+
+On a Mac with macOS 13 to 15.3, the type is shown as *Requires macOS 15.4 or later*; existing profiles can
+be shared and deleted but not connected. On Linux, `passtunneld` uses the distribution's `openconnect`
+**9.11 or later** for GlobalProtect (9.01 or later for Cisco AnyConnect); see
+[docs/LINUX.md](docs/LINUX.md#palo-alto-globalprotect). The command line has the same:
+[`passtunnel add --type globalprotect`](#command-line) below.
+
 ## Command line
 
 Install the `passtunnel` command from **Settings → General → Command-line tool**. It is a symlink to
@@ -341,6 +394,9 @@ passtunnel set lab host=203.0.113.10 port=443 username=sam
 passtunnel add Corp --type anyconnect --server https://vpn.example.com/staff   # Cisco AnyConnect, macOS 15.4 or later
 passtunnel set corp username=sam authgroup=Employees
 passtunnel set corp server_cert=pin-sha256:…    # trust the server's key (compare it first)
+
+passtunnel add Gp --type globalprotect --server vpn.example.com   # Palo Alto GlobalProtect (experimental), macOS 15.4 or later
+passtunnel set gp username=sam gateway=Gateway1
 
 passtunnel log work -f
 passtunnel log work --activity                # what PassTunnel did: connecting, codes, sign-in, drops
@@ -473,16 +529,18 @@ except to your VPN server.
 
 OpenVPN (OpenVPN 2.x client configurations: user/password, certificate-only and static-challenge
 setups), FortiGate SSL VPN (through openfortivpn) and Cisco AnyConnect (through openconnect, with a
-password and a one-time code; macOS 15.4 or later). GlobalProtect and Pulse/Ivanti are on the
-[roadmap](ROADMAP.md). Other types can be added as new backends; see [Contributing](#contributing).
+password and a one-time code; macOS 15.4 or later) and Palo Alto GlobalProtect (experimental, also
+through openconnect, with a password and a one-time code; macOS 15.4 or later; please
+[report how it works](https://github.com/PassTunnel/passtunnel/issues/new?template=globalprotect_report.md)).
+Pulse/Ivanti is on the [roadmap](ROADMAP.md). Other types can be added as new backends; see [Contributing](#contributing).
 </details>
 
 <details>
-<summary><b>Why is Cisco AnyConnect greyed out?</b></summary>
+<summary><b>Why is Cisco AnyConnect or Palo Alto GlobalProtect greyed out?</b></summary>
 
 The bundled `openconnect` needs macOS 15.4 or later, so on an older macOS the type is shown as
-*Requires macOS 15.4 or later* and a Cisco AnyConnect profile can be listed, shared and deleted but not
-connected or edited. PassTunnel itself still runs on macOS 13, with OpenVPN and FortiGate as usual.
+*Requires macOS 15.4 or later* and a Cisco AnyConnect or GlobalProtect profile can be listed, shared and
+deleted but not connected or edited. PassTunnel itself still runs on macOS 13, with OpenVPN and FortiGate as usual.
 </details>
 
 <details>
@@ -493,6 +551,17 @@ PassTunnel signs in with a user name, password and one-time code only. Sign-in t
 HIP, TNCC): PassTunnel never downloads or runs it, stops the connection and shows **Host scan required**. Ask
 your IT team whether your account can sign in with a password and code, or whether another group on the
 server skips the host scan (the profile's **Group**).
+</details>
+
+<details>
+<summary><b>My GlobalProtect portal asks for a browser sign-in, or the connection says access may be limited.</b></summary>
+
+PassTunnel signs in with a user name, password and one-time code only. A portal or gateway that signs in
+through a web page (SAML / single sign-on) is refused before anything is sent (**Single sign-on required**).
+When the gateway asks for a host information report (HIP), PassTunnel never sends one: the connection goes
+on, the gateway may limit what you can reach, and the window says so. Ask your IT team whether your account
+can sign in with a password and code and without the report. GlobalProtect is experimental, so
+[a report](https://github.com/PassTunnel/passtunnel/issues/new?template=globalprotect_report.md) of what you saw helps.
 </details>
 
 <details>
@@ -642,16 +711,16 @@ GMP and others, mostly LGPL). They are separate programs distributed alongside P
 licenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Their full license texts are inside
 the app in `Contents/Resources/licenses` and under **Settings → Helper → Show Licenses…**.
 
-PassTunnel is not affiliated with OpenVPN Inc., Fortinet or Cisco. OpenVPN, FortiGate and Cisco
-AnyConnect are trademarks of their respective owners.
+PassTunnel is not affiliated with OpenVPN Inc., Fortinet, Cisco or Palo Alto Networks. OpenVPN, FortiGate,
+Cisco AnyConnect and Palo Alto GlobalProtect are trademarks of their respective owners.
 
 ---
 
 ## Türkçe
 
 **PassTunnel**, Apple silicon Mac'lerde macOS 13 ve üzeri için açık kaynaklı bir VPN uygulamasıdır. OpenVPN, FortiGate SSL
-VPN ve Cisco AnyConnect bağlantılarını tek tıkla açar (Cisco AnyConnect için macOS 15.4 ve üzeri gerekir; parola ve tek kullanımlık kod
-ile oturum açılır, tarayıcıyla (SAML) oturum açma desteklenmez). TOTP anahtarınız Anahtar Zinciri'nde (Keychain) durur; PassTunnel
+VPN, Cisco AnyConnect ve Palo Alto GlobalProtect (deneysel) bağlantılarını tek tıkla açar (Cisco AnyConnect ve GlobalProtect için macOS 15.4 ve üzeri gerekir; parola ve tek kullanımlık kod
+ile oturum açılır, tarayıcıyla (SAML) oturum açma desteklenmez; GlobalProtect sizin için nasıl çalıştığını [bildirirseniz](https://github.com/PassTunnel/passtunnel/issues/new?template=globalprotect_report.md) sevinirim). TOTP anahtarınız Anahtar Zinciri'nde (Keychain) durur; PassTunnel
 bağlanırken o anki tek kullanımlık kodu ve parolanızı sizin yerinize gönderir. Telefondan kod bakıp
 yazmanız gerekmez.
 

@@ -1,5 +1,7 @@
 import PassTunnelCore
 import PassTunnelKit
+import PassTunnelShared
+import PassTunnelVPNConfig
 import SwiftUI
 
 /// Visual state of a profile, derived from the connection state plus errors and health.
@@ -35,7 +37,8 @@ extension VPNType {
         switch self {
         case .openvpn: return "OpenVPN"  // product names stay untranslated
         case .forti: return "FortiGate"
-        case .anyconnect: return "Cisco AnyConnect"
+        case .anyconnect: return OpenConnectProtocol.anyconnect.displayName  // as the helper names it
+        case .globalprotect: return OpenConnectProtocol.gp.displayName
         }
     }
 }

@@ -6,6 +6,9 @@ import PassTunnelKit
 /// so it refuses protected profiles with `auth_unavailable`. The Mac's texts stay exactly as they are
 /// listed in MCP directories.
 enum MCPWording {
+    /// Palo Alto GlobalProtect ships labelled experimental (`VPNType.isExperimental`), the same on both systems.
+    static let instructionsExperimental =
+        "Palo Alto GlobalProtect is experimental: its profiles have experimental=true. A connected one can have notices (hip_report_not_sent: the gateway asked for a host information report, which PassTunnel does not send, so access may be limited); tell the user. A sign-in that needs single sign-on fails with sso_required."
     #if os(Linux)
     static let thisMachines = "this computer's"
     static let theMachines = "this computer's"
@@ -18,9 +21,9 @@ enum MCPWording {
     static let timeServer = "the NTP server this computer is set up with"
     static let diagnoseTools = ""
     static let anyConnectPlatform =
-        "Cisco AnyConnect needs the distribution's openconnect 9.01 or later: when it is missing or older, connect is refused with config_invalid before the one-time code is used."
+        "Cisco AnyConnect needs the distribution's openconnect 9.01 or later, Palo Alto GlobalProtect 9.11 or later: when it is missing or older, connect is refused with config_invalid before the one-time code is used."
     static let instructionsAnyConnect =
-        "Cisco AnyConnect needs the distribution's openconnect 9.01 or later; connect says why when it is missing or too old."
+        "Cisco AnyConnect needs the distribution's openconnect 9.01 or later, Palo Alto GlobalProtect 9.11 or later; connect says why when it is missing or too old."
     #else
     static let thisMachines = "this Mac's"
     static let theMachines = "the Mac's"
@@ -34,9 +37,9 @@ enum MCPWording {
     static let diagnoseTools =
         "; also whether each VPN tool bundled with the app starts on this macOS version (run with --version; nothing is contacted)"
     static let anyConnectPlatform =
-        "Cisco AnyConnect needs macOS 15.4 or later: on an older macOS it is refused with config_invalid before anything is asked or sent, and list_profiles shows that as connect_refusal."
+        "Cisco AnyConnect and Palo Alto GlobalProtect need macOS 15.4 or later: on an older macOS they are refused with config_invalid before anything is asked or sent, and list_profiles shows that as connect_refusal."
     static let instructionsAnyConnect =
-        "Cisco AnyConnect needs macOS 15.4 or later; a profile that cannot be connected here says why in connect_refusal."
+        "Cisco AnyConnect and Palo Alto GlobalProtect need macOS 15.4 or later; a profile that cannot be connected here says why in connect_refusal."
     #endif
 }
 
@@ -110,13 +113,13 @@ final class MCPTools {
         Tool(
             name: "list_profiles", title: "List VPN profiles",
             description:
-                "Lists the VPN profiles configured in PassTunnel with their current state. Use the returned id as profile_id in the other tools. A profile with connect_refusal (code and message) is of a type this system cannot connect, such as Cisco AnyConnect on an older macOS; connect refuses it. \(MCPWording.listProtected)",
+                "Lists the VPN profiles configured in PassTunnel with their current state. Use the returned id as profile_id in the other tools. A profile with connect_refusal (code and message) is of a type this system cannot connect, such as Cisco AnyConnect or Palo Alto GlobalProtect on an older macOS; connect refuses it. experimental=true marks a profile of an experimental type (Palo Alto GlobalProtect). \(MCPWording.listProtected)",
             input: Schema.object([:]), output: Schema.object(["profiles": Schema.array(Schema.profileSummary)], required: ["profiles"]),
             readOnly: true),
         Tool(
             name: "get_status", title: "Get connection status",
             description:
-                "Returns the connection state of every profile (or only profile_id): disconnected, connecting or connected, the tunnel IP, since when, the last error and why it happened (failure: auth_rejected, host_not_found, unreachable, configuration, setup, timeout, cancelled, tool_unsupported (the VPN tool does not run on this macOS version), host_scan_required (a Cisco AnyConnect server requires a host scan, which PassTunnel never runs) or failed; the server's reply; whether the sign-in and a one-time code were sent; for a rejected sign-in, clock: how far \(MCPWording.thisMachines) clock was off, when known), when the app tries a server that did not answer again (next_try_at, tries), and whether the privileged helper that starts VPNs is installed and current. connect_refusal says why a profile cannot be connected on this system at all.",
+                "Returns the connection state of every profile (or only profile_id): disconnected, connecting or connected, the tunnel IP, since when, the last error and why it happened (failure: auth_rejected, host_not_found, unreachable, configuration, setup, timeout, cancelled, tool_unsupported (the VPN tool does not run on this macOS version), host_scan_required (a Cisco AnyConnect server requires a host scan, which PassTunnel never runs), sso_required (a Palo Alto GlobalProtect portal or gateway signs in with single sign-on, which PassTunnel does not support) or failed; for a configuration failure, server_cert (the key of the server whose certificate was not trusted) and, for GlobalProtect, gateways (the portal's gateways when the profile's gateway names none of them); the server's reply; whether the sign-in and a one-time code were sent; for a rejected sign-in, clock: how far \(MCPWording.thisMachines) clock was off, when known), when the app tries a server that did not answer again (next_try_at, tries), and whether the privileged helper that starts VPNs is installed and current. connect_refusal says why a profile cannot be connected on this system at all. experimental is true on a profile of an experimental type (Palo Alto GlobalProtect); notices lists what the user should know about a connected profile (hip_report_not_sent).",
             input: Schema.object(["profile_id": Schema.profileID(optional: true)]), output: Schema.statusReport, readOnly: true),
         Tool(
             name: "get_logs", title: "Read VPN log",
@@ -151,7 +154,7 @@ final class MCPTools {
         Tool(
             name: "connect", title: "Connect a VPN profile",
             description:
-                "Connects a VPN profile and, by default, waits until it is connected or has failed. \(MCPWording.connectProtected) \(MCPWording.anyConnectPlatform) Profiles that ask for a user name, password or code on every connect cannot be connected this way. A failure carries a failure object (why, the server's reply, whether the sign-in was sent); a rejected sign-in is never retried, so do not retry it either. The result's warnings list connected profiles whose tunnels claim some of the same networks or DNS names (kind overlap): that traffic goes through only one of the two tunnels. The connection goes ahead; tell the user. Connecting changes \(MCPWording.theMachines) network routes; only connect when the user asked for it.",
+                "Connects a VPN profile and, by default, waits until it is connected or has failed. \(MCPWording.connectProtected) \(MCPWording.anyConnectPlatform) Profiles that ask for a user name, password or code on every connect cannot be connected this way. A failure carries a failure object (why, the server's reply, whether the sign-in was sent); a rejected sign-in is never retried, so do not retry it either. The result's warnings list connected profiles whose tunnels claim some of the same networks or DNS names (kind overlap): that traffic goes through only one of the two tunnels. The connection goes ahead; tell the user. The result's notices (Palo Alto GlobalProtect: hip_report_not_sent) are also for the user. Connecting changes \(MCPWording.theMachines) network routes; only connect when the user asked for it.",
             input: Schema.object(
                 [
                     "profile_id": Schema.profileID(optional: false),
@@ -404,7 +407,8 @@ enum Schema {
             "id": string, "name": string, "type": vpnType, "is_default": bool, "pinned": bool, "username": string,
             "password_mode": oneOf(PasswordMode.allCases.map(\.rawValue)), "otp_mode": oneOf(OTPMode.allCases.map(\.rawValue)),
             "require_auth": oneOf(AuthRequirement.allCases.map(\.rawValue)), "protected": bool, "auto_reconnect": bool,
-            "connect_at_login": bool, "state": state, "needs_newer_version": bool, "connect_refusal": errorReport
+            "connect_at_login": bool, "state": state, "needs_newer_version": bool, "connect_refusal": errorReport,
+            "experimental": bool
         ],
         required: [
             "id", "name", "type", "is_default", "pinned", "username", "password_mode", "otp_mode", "require_auth",
@@ -423,7 +427,7 @@ enum Schema {
         [
             "kind": oneOf(ConnectionFailure.Kind.allCases.map(\.rawValue)), "at": ["type": "string", "format": "date-time"],
             "reply": string, "reason": string, "credentials_sent": bool, "code_sent": bool, "code_seconds_left": int,
-            "tries": int, "clock": clock
+            "tries": int, "clock": clock, "server_cert": string, "gateways": array(string)
         ], required: ["kind", "at", "credentials_sent", "code_sent"])
 
     /// `ConnectWarning`: another connected tunnel takes over some of the same networks or DNS names.
@@ -433,13 +437,17 @@ enum Schema {
             "all_traffic": array(string)
         ], required: ["kind", "with", "name", "routes", "domains"])
 
+    /// `NoticeReport`: something to tell the user about a connection that is up.
+    static let notice = result(
+        ["kind": oneOf(StatusNotice.allCases.map(\.rawValue)), "message": string], required: ["kind", "message"])
+
     static let profileStatus = result(
         [
             "id": string, "name": string, "type": vpnType, "state": state, "phase": string, "ip": string,
             "since": ["type": "string", "format": "date-time"], "duration_seconds": int, "is_default": bool, "protected": bool,
             "auto_reconnect": bool, "health": oneOf(["reachable", "unreachable"]), "error": string, "failure": failure,
             "warning": string, "status_unavailable": bool, "warnings": array(warning), "next_try_at": dateTime, "tries": int,
-            "connect_refusal": errorReport
+            "connect_refusal": errorReport, "experimental": bool, "notices": array(notice)
         ], required: ["id", "name", "type", "state", "is_default", "protected", "auto_reconnect"])
 
     static let helper = result(
@@ -477,7 +485,7 @@ enum Schema {
         [
             "id": string, "name": string, "type": vpnType, "ok": bool, "server": string, "protected": bool,
             "password_saved": bool, "totp_saved": bool, "asks_for": array(oneOf(["username", "password", "otp"])),
-            "problems": array(errorReport), "clock": clock
+            "problems": array(errorReport), "clock": clock, "experimental": bool
         ], required: ["id", "name", "type", "ok", "server", "protected", "asks_for", "problems"])
 
     static let secretStore = result(

@@ -12,7 +12,7 @@ error codes and the MCP tools. Background and the decisions behind this spec: is
 |---|---|
 | First release | `passtunnel` (the CLI and the stdio MCP server) and `passtunneld` (the root daemon). No GUI |
 | Later | A desktop app with tray, notifications and live codes, built from the macOS app's design for macOS, Windows and Linux; a password prompt for protected profiles |
-| VPN types | OpenVPN, FortiGate SSL VPN and Cisco AnyConnect, with the distribution's `openvpn` (2.6 or later), `openfortivpn` (1.21 or later) and `openconnect` (9.01 or later; not Ubuntu 22.04's 8.20) |
+| VPN types | OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect (experimental), with the distribution's `openvpn` (2.6 or later), `openfortivpn` (1.21 or later) and `openconnect` (9.01 or later, not Ubuntu 22.04's 8.20; GlobalProtect 9.11 or later, not Debian 12's or EPEL 9's 9.01) |
 | Targets | systemd distributions on x86_64 and aarch64. Tested: Ubuntu 24.04 and 26.04, Debian 13, the current two Fedora releases. Best effort: Ubuntu 22.04, Debian 12, RHEL 9 and 10 |
 | Language | Swift (6.4 toolchain, language mode 5), the same packages as the Mac; English only at first |
 
@@ -57,15 +57,16 @@ parameter), resolved and checked as the tools are (below).
 
 One request per connection, one JSON object per line, at most 64 KiB:
 
-- `{"op":"hello"}` → `{"protocol":4,"build":"<hex SHA-256 of passtunneld>","build_number":N}`. The
+- `{"op":"hello"}` → `{"protocol":5,"build":"<hex SHA-256 of passtunneld>","build_number":N}`. The
   client's `ensureCompatible()` uses it as the `version` and `build` XPC calls are used on the Mac.
   The daemon hashes `/proc/self/exe` once at start. `build_number` (and `helper_build` in every
   reply) is the build number a release build compiles in (`DaemonBuild`, see Distribution);
   development builds have none and leave both out.
 - `{"op":"perform","request":<HelperRequest>}` → `<HelperResponse>`. Request decoding is
   `HelperCore.decodeRequest`, unchanged, and so are the request types and `PT.helperProtocolVersion`
-  (`startOpenConnect` since #187, below; the `status` reply's `tunnels` for the caller's own Cisco
-  AnyConnect sessions).
+  (`startOpenConnect` since #187, below, with protocol 5's `protocol`, whose `gp` the daemon runs since #234:
+  [Palo Alto GlobalProtect](#palo-alto-globalprotect); the `status` reply's `tunnels` for the caller's own Cisco
+  AnyConnect and GlobalProtect sessions).
   The daemon hands it the bytes of the `request` member exactly as sent (`DaemonCall.parse`).
 
 A client has 5 s to send its line and 5 s to take the reply; each connection is served on a thread
@@ -106,7 +107,8 @@ The macOS rules apply where they make sense; these replace the ones built on cod
   `realpath` once, then every component of the real path must be root-owned and not group- or
   world-writable, and the file a regular file. Nothing is pinned by hash: distribution binaries
   change with every security update, so trust rests on the package manager. Versions below
-  openvpn 2.6.0, openfortivpn 1.21, pppd 2.4.7 or openconnect 9.01 are refused with a clear message.
+  openvpn 2.6.0, openfortivpn 1.21, pppd 2.4.7 or openconnect 9.01 (9.11 for Palo Alto GlobalProtect) are refused
+  with a clear message.
   The checks run before every start; the version is read by running the checked file (`openvpn
   --version`, `openfortivpn --version`, `pppd --version`, `openconnect --version`, killed after 5 s).
   The logic is shared with `passtunnel` (`DistributionTools`, `ToolSpec`, `TrustedPath` in
@@ -600,8 +602,8 @@ and fakes for the system tools; the Mac's tests a Keychain service of their own)
 
 FortiGate IPsec/IKEv2 is out of scope: its one-time-code prompts use extensions only FortiClient
 implements. Cisco AnyConnect through OpenConnect (#2, Phase 1) runs on Linux since #187: see
-[Cisco AnyConnect](#cisco-anyconnect) below. Palo Alto GlobalProtect (Phase 2) is designed (#226):
-[Palo Alto GlobalProtect](#palo-alto-globalprotect).
+[Cisco AnyConnect](#cisco-anyconnect) below. Palo Alto GlobalProtect (Phase 2, designed in #226) runs since #234,
+labelled experimental: [Palo Alto GlobalProtect](#palo-alto-globalprotect).
 
 ## Cisco AnyConnect
 
@@ -776,15 +778,19 @@ when asked.
 
 ## Palo Alto GlobalProtect
 
-**Design only (#226).** The design is in [ARCHITECTURE.md](ARCHITECTURE.md#palo-alto-globalprotect-backend); on Linux
+**Designed (#226); in place since #234** (protocol 5 since #230). The design is in [ARCHITECTURE.md](ARCHITECTURE.md#palo-alto-globalprotect-backend), as built in its "As built (G7)"; on Linux
 everything of [Cisco AnyConnect](#cisco-anyconnect) above applies (the tool's paths and checks, the sign-in as the user,
 `prepareOpenConnect`, `MaskingCopier`, the `vpn-hook` mode, `LinuxOpenConnectSystem`, DNS, supervision, the revert after
 a kill), with these differences (G7). The type is labelled experimental here too (`passtunnel`'s output, ARCHITECTURE.md,
 "Experimental").
 
-- **Minimum 9.11 for this type**, checked like AnyConnect's 9.01 (`ToolSpec` per type, the daemon before the start and
-  `AnyConnectSignIn.distributionTool`'s counterpart before the code is used): "openconnect 9.01 is too old for Palo Alto
-  GlobalProtect: PassTunnel needs 9.11 or later. Update the openconnect package." The reasons, from openconnect's sources:
+- **Minimum 9.11 for this type**, checked like AnyConnect's 9.01 (`ToolSpec.openconnect(for:)`: the same tool with the
+  type's minimum, `ToolSpec.globalProtectOpenConnect`; the daemon before every start, and the sign-in,
+  `AnyConnectSignIn.distributionTool(for: .gp)`, before the code is used): "openconnect 9.01 is too old for Palo Alto
+  GlobalProtect: PassTunnel needs 9.11 or later. Update the openconnect package." The sign-in reports it as
+  `PTError.globalProtectToolUnavailable` ("Palo Alto GlobalProtect cannot be used here: …", `config_invalid`), and
+  `diagnose` lists it among each GlobalProtect profile's problems (the tool is run with `--version` and `--help` once,
+  as the user; nothing is contacted). Cisco AnyConnect keeps 9.01 on the same machine. The reasons, from openconnect's sources:
   9.01 cannot read a challenge wrapped in HTML (`gpst.c` 309–316 came with 9.10, openconnect issue 495), so a gateway that
   asks for the code that way fails the sign-in; 9.10 left ESP not working (fixed in 9.11). Packaged on 2026-10-27:
   Ubuntu 24.04 and 26.04, Debian 13, Fedora and EPEL 10 have 9.12 (supported); Debian 12 and EPEL 9 have 9.01 (Cisco
@@ -793,8 +799,9 @@ a kill), with these differences (G7). The type is labelled experimental here too
   `access-routes-v6` included, as excludes (`gpst.c` 532 in 9.12; fixed in 9.20 by openconnect commit 64f0c03d).
   With an IPv6 address the hook would then send all IPv6 into the tunnel except the networks the gateway meant for it.
   So with
-  those versions both GlobalProtect files get `disable-ipv6` (the daemon decides it from the version it checked; the
-  sign-in from its own check of the same tool): no IPv6 address is taken and `ipv6-support=no` is sent, so the hook
+  those versions both GlobalProtect files get `disable-ipv6` (`ToolSpec.openConnectDisablesIPv6`: the daemon decides it
+  from the version it checked, never from the request; the sign-in from its own check of the same tool): no IPv6
+  address is taken and `ipv6-support=no` is sent, so the hook
   blocks IPv6 in a full tunnel and leaves it alone in a split one. 9.20 and later (the Mac's 9.21) carry IPv6 as for
   Cisco AnyConnect. 9.12 also uses an IPv6 ESP address only with an IPv6 client address (`gpst.c` 604–609 in 9.12), so
   with IPv6 off a gateway that sends both falls back to the TLS tunnel; it works, more slowly.
@@ -807,13 +814,34 @@ a kill), with these differences (G7). The type is labelled experimental here too
   systemd-resolved they are search and routing domains of the tunnel's link in a split tunnel, as AnyConnect's
   `CISCO_DEF_DOMAIN`; the other backends send every name through the tunnel, as before.
 - **Protocol 5.** `passtunneld`'s `hello` reports 5 with the helper; a daemon of protocol 4 refuses a client of 5 (and
-  the other way round) with the version message, so the CLI and the daemon come from the same package. Until G7 the
-  daemon refuses `protocol gp` ("Palo Alto GlobalProtect is not supported by passtunneld yet.") before preparing
-  anything, as #182 did for AnyConnect.
-- **Tests.** The CI jobs' sign-in tests against the GlobalProtect test server (ARCHITECTURE.md, "Tests (G8)") run with
-  Ubuntu's 9.12, `disable-ipv6` rendered; the daemon's tests cover the version gate (a stand-in printing 9.01), the
-  rendered files with and without `disable-ipv6`, and a start against a local socket that never answers, as for
-  AnyConnect. No GlobalProtect tunnel runs in CI (no open-source gateway exists).
+  the other way round) with the version message, so the CLI and the daemon come from the same package. From #230 until
+  #234 the daemon refused `protocol gp` before preparing anything and `passtunnel` refused to connect the type up front
+  ("needs a newer PassTunnel"); since #234 both run it, and `ConnectionManager.connectRefusal` refuses nothing on Linux,
+  as for Cisco AnyConnect: the sign-in's check of the tool comes first, before any code is used.
+- **The start** is Cisco AnyConnect's (`startOpenConnect`, `prepareOpenConnect`): the request checked by its protocol's
+  rules (`usergroup` empty, `GlobalProtectCookie`'s shape, `connect_url` exactly the gateway's `https://host[:port]/`,
+  the key one of the two pins when either is set) before anything is resolved or written; errors name fields, never
+  values; the gateway's host and the cookie never reach the daemon's log, and the cookie and its `authcookie` value are
+  masked in the session log.
+- **Tests.** Core (every platform): the per-type minimum and the `disable-ipv6` decision for 8.20, 9.01, 9.10, 9.11,
+  9.12, 9.20 and 9.21, the refusal texts, the sign-in with the distribution's tool (with and without `disable-ipv6`)
+  and its refusal before the code is used, `diagnose`. The daemon's tests (Linux): a start with a stand-in openconnect
+  (the file, link, policy, environment and masked log, status and stop), the version gate (8.20, 9.01 and 9.10 refused
+  for GlobalProtect while AnyConnect keeps 9.01; 9.11 and 9.12 with `disable-ipv6`, 9.20 and 9.21 without; never for
+  AnyConnect), and refused requests. The CI job "Cisco AnyConnect in passtunneld (no tunnel)" also starts GlobalProtect
+  through the daemon: a stand-in printing 9.01 refused with the message above, then Ubuntu's 9.12 against a local socket
+  that never answers, with `protocol gp` and `disable-ipv6`. **Against a server** (#235,
+  [Tests/globalprotect](../Tests/globalprotect/README.md)): on every run, the CI job "Palo Alto GlobalProtect against
+  openconnect's test server" starts openconnect's own `tests/fake-gp-server.py` (from the pinned openconnect tarball,
+  checked by its SHA-256, run unchanged with Debian's Python and Flask) once per configuration, and signs in with
+  Ubuntu's 9.12 (`disable-ipv6` rendered, so no `preferred-ipv6` in the cookie) through `ConnectionManager` and a fake
+  helper (`FakeGPServerSignInTests`): the portal and its gateway, a code at the portal, at the gateway and at both
+  (the second code of a later window), `skip_portal`, two gateways with and without the profile's, SAML at the portal
+  and the gateway, the pins and the CA, a gateway's certificate failing after the portal, and the start request
+  through the daemon's checks and the root file it renders, run until the gateway refuses its configuration. Not a
+  required check. What the server cannot do (a refused password, code reuse, HIP, another gateway key) stays with the
+  fake-runner tests. No GlobalProtect tunnel runs in CI (no open-source gateway exists); a real gateway is checked by
+  hand (the README's checklist).
 
 ## Rules
 

@@ -287,11 +287,11 @@ public final class MCPServer {
 
     private var instructions: String {
         var text = """
-            PassTunnel manages \(MCPWording.thisMachines) VPN connections (OpenVPN, FortiGate SSL VPN and Cisco AnyConnect). \
+            PassTunnel manages \(MCPWording.thisMachines) VPN connections (OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect (experimental)). \
             Profiles are identified by their id (from list_profiles). The tools never return passwords, TOTP secrets, \
             one-time codes, keys or configuration files, and they cannot create, change or delete profiles.
             """
-        text += " \(MCPWording.instructionsAnyConnect)"
+        text += " \(MCPWording.instructionsAnyConnect) \(MCPWording.instructionsExperimental)"
         if tools.allowConnect {
             text += " connect and disconnect are enabled. \(MCPWording.instructionsProtected)"
         } else {

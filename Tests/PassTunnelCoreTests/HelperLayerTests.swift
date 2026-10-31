@@ -443,10 +443,10 @@ final class HelperMessageTests: XCTestCase {
 
     func testWireFormat() throws {
         let json = String(decoding: try HelperRequest.stop(profileID: "acme").jsonData(), as: UTF8.self)
-        XCTAssertEqual(json, #"{"profile_id":"acme","protocol_version":4,"type":"stop"}"#)
+        XCTAssertEqual(json, #"{"profile_id":"acme","protocol_version":5,"type":"stop"}"#)
         XCTAssertEqual(
             String(decoding: try HelperRequest.status.jsonData(), as: UTF8.self),
-            #"{"protocol_version":4,"type":"status"}"#)
+            #"{"protocol_version":5,"type":"status"}"#)
         let start = String(
             decoding: try HelperRequest.startOpenVPN(
                 OpenVPNStart(
@@ -484,7 +484,7 @@ final class HelperMessageTests: XCTestCase {
         XCTAssertTrue(String(decoding: try start.jsonData(), as: UTF8.self).contains(#""config_sha256":"\#(hash)""#))
         XCTAssertEqual(try HelperCore.decodeRequest(try start.jsonData()), start)
         let old = try HelperCore.decodeRequest(
-            Data(#"{"type":"start_openvpn","protocol_version":4,"profile_id":"a","profile_dir":"/d","log_path":"/l"}"#.utf8))
+            Data(#"{"type":"start_openvpn","protocol_version":5,"profile_id":"a","profile_dir":"/d","log_path":"/l"}"#.utf8))
         guard case .startOpenVPN(let o) = old else { return XCTFail() }
         XCTAssertNil(o.configSHA256)
         XCTAssertFalse(String(decoding: try HelperRequest.startOpenVPN(o).jsonData(), as: UTF8.self).contains("config_sha256"))

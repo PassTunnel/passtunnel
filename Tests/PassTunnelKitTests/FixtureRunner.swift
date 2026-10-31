@@ -119,6 +119,9 @@ enum FixtureRunner {
         ],
         "anyconnect-servers.json": [
             "parse": Group(inputs: ["url"], run: anyConnectServer)
+        ],
+        "globalprotect-servers.json": [
+            "parse": Group(inputs: ["url"], run: globalProtectServer)
         ]
     ]
 
@@ -476,6 +479,11 @@ enum FixtureRunner {
                 "host": .string(server.host), "port": .number(Double(server.port)), "usergroup": .string(server.usergroup)
             ])
         ]
+    }
+
+    static func globalProtectServer(_ c: [String: JSON]) throws -> [String: JSON] {
+        guard let server = GlobalProtectServer.parse(try str(c, "url")) else { return ["server": .null] }
+        return ["server": .object(["host": .string(server.host), "port": .number(Double(server.port))])]
     }
 
     static func fieldsSet(_ c: [String: JSON]) throws -> [String: JSON] {

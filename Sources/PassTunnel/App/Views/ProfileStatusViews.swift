@@ -32,7 +32,9 @@ extension DisplayStatus {
         case .setupIncomplete, .notResponding, .dropped: return .warning
         case .failed(.signInRejected): return .rejected
         case .failed(.unreachable): return .unreachable
-        case .failed(.hostNotFound), .failed(.message), .failed(.hostScanRequired): return .warning
+        case .failed(.hostNotFound), .failed(.message), .failed(.hostScanRequired), .failed(.ssoRequired),
+            .failed(.gatewayRequired), .failed(.notGlobalProtectServer):
+            return .warning
         case .failed(.serverNotTrusted): return .rejected
         case .reconnecting: return .dropped
         case .unavailable: return .warning
@@ -249,6 +251,9 @@ struct ProfileStatusGallery: View {
             ("unreachable, gave up", .failed(.unreachable(retry: nil))),
             ("server not trusted", .failed(.serverNotTrusted)),
             ("host scan required", .failed(.hostScanRequired)),
+            ("single sign-on required", .failed(.ssoRequired)),
+            ("gateway required", .failed(.gatewayRequired)),
+            ("not GlobalProtect", .failed(.notGlobalProtectServer)),
             (
                 "requires a later macOS",
                 .unavailable(

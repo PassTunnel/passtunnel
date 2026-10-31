@@ -110,7 +110,7 @@ public enum ProfileNetwork {
                 if !routes.isEmpty { options = (options ?? []) + routes.compactMap(option) }
             }
             return options
-        case .anyconnect:
+        case .anyconnect, .globalprotect:
             // The hook's success line: the interface, whether all traffic goes through it, and the DNS it
             // set; the routes through that interface from the routing table, as for FortiGate.
             let current = VPNLog.read(store.logURL(p.id))
@@ -174,7 +174,7 @@ public enum ProfileNetwork {
             // A tunnel that is up and has no file (it came up before this was kept) is read now.
             let options = savedOptions(p, store: store) ?? (live ? observedOptions(p, store: store, tunnelRoutes: tunnelRoutes) : nil)
             return OVPNAnalyzer.networkClaims("", pushed: options ?? [])
-        case .anyconnect:
+        case .anyconnect, .globalprotect:
             // As FortiGate: a tunnel that is up and has no file is read now.
             let options = savedOptions(p, store: store) ?? (live ? observedOptions(p, store: store, tunnelRoutes: tunnelRoutes) : nil)
             return OVPNAnalyzer.networkClaims("", pushed: options ?? [])

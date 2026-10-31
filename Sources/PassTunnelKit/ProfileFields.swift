@@ -9,14 +9,17 @@ public enum ProfileFields {
         "name", "badge", "icon", "badge_style", "pinned", "order",
         "username", "password_mode", "otp_mode", "digits", "period", "algorithm", "otp_delivery", "otp_template",
         "require_auth", "session_limit_min", "auto_reconnect", "connect_at_login", "health_host",
-        "host", "port", "usergroup", "authgroup", "trusted_cert", "server_cert", "tls_only", "set_dns", "set_routes"
+        "host", "port", "usergroup", "authgroup", "gateway", "skip_portal", "trusted_cert", "server_cert",
+        "gateway_server_cert", "tls_only", "set_dns", "set_routes"
     ]
 
     /// Keys of one VPN type or a few; every other key applies to all types.
     static let typeKeys: [String: Set<VPNType>] = [
-        "host": [.forti, .anyconnect], "port": [.forti, .anyconnect], "set_dns": [.forti, .anyconnect],
-        "set_routes": [.forti, .anyconnect], "trusted_cert": [.forti],
-        "usergroup": [.anyconnect], "authgroup": [.anyconnect], "server_cert": [.anyconnect], "tls_only": [.anyconnect]
+        "host": [.forti, .anyconnect, .globalprotect], "port": [.forti, .anyconnect, .globalprotect],
+        "set_dns": [.forti, .anyconnect, .globalprotect], "set_routes": [.forti, .anyconnect, .globalprotect],
+        "trusted_cert": [.forti], "usergroup": [.anyconnect], "authgroup": [.anyconnect],
+        "server_cert": [.anyconnect, .globalprotect], "tls_only": [.anyconnect, .globalprotect],
+        "gateway": [.globalprotect], "skip_portal": [.globalprotect], "gateway_server_cert": [.globalprotect]
     ]
 
     static let aliases = [
@@ -43,7 +46,7 @@ public enum ProfileFields {
 
     /// Sets one field from text. Throws `PTError.invalidField(key)` for unknown keys or bad values and
     /// `.wrongProfileType` for a key of another VPN type (`host` on an OpenVPN profile, `server_cert` on a
-    /// FortiGate one). Range checks that need the whole profile happen in `ProfileStore.save`.
+    /// FortiGate one, `gateway` on a Cisco AnyConnect one, `authgroup` on a Palo Alto GlobalProtect one). Range checks that need the whole profile happen in `ProfileStore.save`.
     public static func set(_ p: inout Profile, key rawKey: String, value raw: String) throws {
         guard let key = canonicalKey(rawKey) else { throw PTError.invalidField(rawKey) }
         if !applies(key, to: p.type) { throw PTError.wrongProfileType(p.id) }
@@ -66,7 +69,7 @@ public enum ProfileFields {
         case "pinned": p.pinned = try bool()
         case "order": p.order = try int()
         case "username":
-            if p.type == .anyconnect { try Profile.checkUsername(value, type: .anyconnect) }  // FortiGate's limit: in save
+            if p.type.usesOpenConnect { try Profile.checkUsername(value, type: p.type) }  // FortiGate's limit: in save
             p.username = value
         case "password_mode":
             let mode = try choice(PasswordMode.self)
@@ -89,7 +92,7 @@ public enum ProfileFields {
             let preset = OTPTemplatePreset.allCases.first { "\($0)" == value.lowercased() }
             let template = preset?.rawValue ?? raw
             try OTPComposer.validate(template: template)
-            if p.type == .anyconnect && !Profile.isValidAnyConnectTemplate(template) { throw bad() }
+            if p.type.usesOpenConnect && !Profile.isValidAnyConnectTemplate(template) { throw bad() }
             p.otpTemplate = template
         case "require_auth": p.requireAuth = try choice(AuthRequirement.self)
         case "session_limit_min":
@@ -114,14 +117,18 @@ public enum ProfileFields {
         case "authgroup":
             guard value.isEmpty || OpenConnectAuthConfig.isValidAuthgroup(value) else { throw bad() }
             p.authgroup = value
+        case "gateway":
+            guard value.isEmpty || OpenConnectAuthConfig.isValidGateway(value) else { throw bad() }
+            p.gateway = value
+        case "skip_portal": p.skipPortal = try bool()
         case "trusted_cert": p.trustedCert = value
-        case "server_cert":
-            if value.isEmpty {
-                p.serverCert = ""
-            } else {
-                guard let pin = OpenConnectPin.normalize(value) else { throw bad() }
-                p.serverCert = pin
+        case "server_cert", "gateway_server_cert":
+            var pin = ""
+            if !value.isEmpty {
+                guard let normalized = OpenConnectPin.normalize(value) else { throw bad() }
+                pin = normalized
             }
+            if key == "server_cert" { p.serverCert = pin } else { p.gatewayServerCert = pin }
         case "tls_only": p.tlsOnly = try bool()
         case "set_dns": p.setDNS = try bool()
         case "set_routes": p.setRoutes = try bool()
@@ -155,8 +162,11 @@ public enum ProfileFields {
         case "port": return String(p.port)
         case "usergroup": return p.usergroup
         case "authgroup": return p.authgroup
+        case "gateway": return p.gateway
+        case "skip_portal": return String(p.skipPortal)
         case "trusted_cert": return p.trustedCert
         case "server_cert": return p.serverCert
+        case "gateway_server_cert": return p.gatewayServerCert
         case "tls_only": return String(p.tlsOnly)
         case "set_dns": return String(p.setDNS)
         case "set_routes": return String(p.setRoutes)

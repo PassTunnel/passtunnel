@@ -7,7 +7,7 @@ import Foundation
 public struct UnsupportedProfile: Identifiable, Equatable {
     public var id: String
     public var name: String
-    /// The `type` value as stored, e.g. "globalprotect".
+    /// The `type` value as stored, e.g. "wireguard".
     public var type: String
     public var order: Int
 

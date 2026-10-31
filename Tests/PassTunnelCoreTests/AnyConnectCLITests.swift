@@ -181,16 +181,18 @@ final class AnyConnectCLITests: CoreTestCase {
         }
         XCTAssertThrowsError(try parse(["add", "Acme", "--type", "anyconnect", "--server"]))
         XCTAssertThrowsError(try parse(["add", "--type", "anyconnect", "--server", "vpn.example.com"]))  // no name
-        XCTAssertThrowsError(try parse(["add", "Acme", "--type", "globalprotect"]))
+        XCTAssertNoThrow(try parse(["add", "Acme", "--type", "globalprotect"]))  // GlobalProtectCLITests
         XCTAssertThrowsError(try parse(["add", "Acme", "--type", "cisco"]))
         XCTAssertThrowsError(try parse(["add", "Acme"]))
     }
 
     func testUsageAndCompletionNameTheType() {
         let usage = CLIHelp.usage(for: "add")
-        XCTAssertTrue(usage.contains("--type openvpn|forti|anyconnect [--server URL]"), usage)
+        XCTAssertTrue(usage.contains("--type openvpn|forti|anyconnect|globalprotect [--server URL]"), usage)
         XCTAssertTrue(usage.contains("Cisco AnyConnect"), usage)
-        XCTAssertTrue(CLIHelp.usage(for: "set").contains("usergroup, authgroup, trusted_cert, server_cert, tls_only"))
+        XCTAssertTrue(
+            CLIHelp.usage(for: "set").contains(
+                "usergroup, authgroup, gateway, skip_portal, trusted_cert, server_cert, gateway_server_cert, tls_only"))
         for shell in CLICommand.Shell.allCases {
             let script = CLICompletions.script(for: shell)
             XCTAssertTrue(script.contains("anyconnect"), "\(shell)")
@@ -456,7 +458,7 @@ final class AnyConnectCLITests: CoreTestCase {
         try Data(UnsupportedProfileTests.futureJSON.utf8).write(to: store.profileURL("future"))
         let text = try await run(.list(json: false, quiet: false), macOS: macOS154)
         let line = try XCTUnwrap(text.out.split(separator: "\n").first { $0.contains("future") }.map(String.init))
-        XCTAssertTrue(line.contains("globalprotect · Needs a newer PassTunnel"), line)
+        XCTAssertTrue(line.contains("wireguard · Needs a newer PassTunnel"), line)
         let json = try await run(.list(json: true, quiet: false), macOS: macOS154)
         let profiles = try XCTUnwrap(json.jsonArray)
         XCTAssertEqual(profiles.first { $0["id"] as? String == "future" }?["needs_newer_version"] as? Bool, true)

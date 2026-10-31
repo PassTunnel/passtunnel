@@ -71,6 +71,8 @@ public final class AutomationService {
             s.state = "connected"; s.ip = ip; s.since = since; s.warning = m.warnings[p.id]
             if let since { s.durationSeconds = Self.wholeSeconds(from: since, to: now) }
             if m.statusUnavailable.contains(p.id) { s.statusUnavailable = true }
+            let notices = m.notices(p.id)
+            if !notices.isEmpty { s.notices = notices.map(NoticeReport.init) }
             switch m.health[p.id] {
             case .reachable?: s.health = "reachable"
             case .unreachable?: s.health = "unreachable"
@@ -270,10 +272,14 @@ public final class AutomationService {
     /// `--version` (`BundledTools`), which contacts nothing.
     public func diagnose(checkClock: Bool = false) async -> DiagnoseReport {
         let helper = await helperInspector.report()
+        let profiles = store.list()
+        // Linux: the distribution's openconnect checked for Palo Alto GlobalProtect's minimum (9.11) once, as its
+        // sign-in checks it (`ConnectionManager.openConnectToolProblem`; nil on the Mac).
+        let globalProtectTool = profiles.contains { $0.type == .globalprotect } ? await manager.openConnectToolProblem(.gp) : nil
         var report = DiagnoseReport(
             version: appInfo.version, build: appInfo.build, appPath: appInfo.appPath,
             inApplications: appInfo.inApplications, helper: helper,
-            profiles: store.list().map(check), secretStore: await Self.secretStoreReport(),
+            profiles: profiles.map { check($0, globalProtectTool: globalProtectTool) }, secretStore: await Self.secretStoreReport(),
             network: await network(), tools: await tools(appInfo))
         if checkClock {
             do { report.clock = try await manager.checkClock() } catch { report.clockError = error.localizedDescription }
@@ -292,8 +298,9 @@ public final class AutomationService {
     }
 
     /// What would stop `p` from connecting, from its files and Keychain items (whether they exist only;
-    /// nothing is decrypted, nothing is returned).
-    func check(_ p: Profile) -> ProfileCheck {
+    /// nothing is decrypted, nothing is returned). `globalProtectTool`: why the distribution's openconnect cannot
+    /// run a Palo Alto GlobalProtect profile (Linux), reported as such a profile's problem.
+    func check(_ p: Profile, globalProtectTool: Error? = nil) -> ProfileCheck {
         var problems: [Error] = []
         switch p.type {
         case .openvpn:
@@ -316,8 +323,10 @@ public final class AutomationService {
                 problems.append(PTError.invalidField("host"))
             }
             do { try Profile.checkUsername(p.username, type: p.type) } catch { problems.append(error) }
-        case .anyconnect:
-            if let refusal = manager.connectRefusal(p.type) { problems.append(refusal) }  // macOS 15.4, Linux
+        case .anyconnect, .globalprotect:
+            // macOS 15.4; on Linux, an openconnect too old for Palo Alto GlobalProtect (9.11, #234).
+            if let refusal = manager.connectRefusal(p.type) { problems.append(refusal) }
+            if p.type == .globalprotect, let globalProtectTool { problems.append(globalProtectTool) }
             if p.host.trimmingCharacters(in: .whitespaces).isEmpty {
                 problems.append(PTError.missingHost(p.id))
             } else if !Profile.isValidHost(p.host, type: p.type) {
@@ -325,6 +334,7 @@ public final class AutomationService {
             }
             do { try Profile.checkUsername(p.username, type: p.type) } catch { problems.append(error) }
             do { try p.checkAnyConnectFields() } catch { problems.append(error) }
+            do { try p.checkGlobalProtectFields() } catch { problems.append(error) }
         }
         /// Whether `kind` is saved; nil, and the store's error once, when the store cannot be read.
         func saved(_ kind: SecretKind, missing: PTError) -> Bool? {
@@ -343,7 +353,8 @@ public final class AutomationService {
             id: p.id, name: p.name, type: p.type.rawValue, ok: problems.isEmpty,
             server: ProfileDestination.of(p, store: store).host, protected: ProfileSummary.isProtected(p),
             passwordSaved: passwordSaved, totpSaved: totpSaved, asksFor: p.needs.map(\.rawValue),
-            problems: problems.map(ErrorReport.init), clock: manager.lastClock(p.id))
+            problems: problems.map(ErrorReport.init), clock: manager.lastClock(p.id),
+            experimental: p.type.isExperimental ? true : nil)
     }
 }
 

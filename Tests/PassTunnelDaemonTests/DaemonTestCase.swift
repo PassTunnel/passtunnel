@@ -123,6 +123,7 @@ class DaemonTestCase: XCTestCase {
             config="${1#--config=}"
             echo "Got CONNECT response: HTTP/1.1 200 OK $(sed -n 's/^cookie //p' "$config")"
             echo "Reflected: $(sed -n 's/^cookie webvpn=//p' "$config")"
+            echo "Reflected authcookie: $(sed -n 's/^cookie authcookie=\\([^&]*\\).*/\\1/p' "$config")"
             exec sleep 30
 
             """)
@@ -150,7 +151,7 @@ class DaemonTestCase: XCTestCase {
                 ToolSpec(
                     name: spec.name, candidates: paths[spec.name].map { [$0] } ?? [],
                     minimum: spec.minimum, package: spec.package,
-                    versionArguments: spec.versionArguments, parseVersion: spec.parseVersion))
+                    versionArguments: spec.versionArguments, parseVersion: spec.parseVersion, purpose: spec.purpose))
         }
 
         func caBundle() throws -> String { try system.caBundle() }

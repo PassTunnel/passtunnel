@@ -146,6 +146,7 @@ enum RenderSnapshots {
             renderSplitWindow(model, sample: sample, store: store, now: now, to: out)
             try renderImportReview(model, home: home, store: store, now: now, to: out)
             try renderAnyConnect(model, store: store, now: now, to: out)
+            try renderGlobalProtect(model, store: store, now: now, to: out)
 
             // The menu bar panel. Pinned Work and Travel with the connected, connecting
             // and dropped ones (four of six listed, badges for them); Home Lab dropped without being pinned; nothing
@@ -299,7 +300,7 @@ enum RenderSnapshots {
         // A profile of a VPN type a newer PassTunnel added (`UnsupportedProfile`): its row under the others, selected.
         let future = "branch-office"
         try? FileIO.makeDirectory(store.dir(future))
-        try? Data(#"{"id": "branch-office", "name": "Branch office", "order": 9, "type": "globalprotect"}"#.utf8)
+        try? Data(#"{"id": "branch-office", "name": "Branch office", "order": 9, "type": "wireguard"}"#.utf8)
             .write(to: store.dir(future).appendingPathComponent("profile.json"))
         model.reload()
         model.selection = future
@@ -622,6 +623,152 @@ enum RenderSnapshots {
                 snapshotAlert(ImportActions.typeAlert(for: nil, refusal: refusal), dark: dark, to: out, name: name)
             }
         }
+    }
+
+    /// Palo Alto GlobalProtect in the main window, light and dark, on a profile made for them and deleted after (#233):
+    /// `globalprotect-detail` (connected, the gateway asked for a HIP report: the notice under the status, the
+    /// "Experimental" badge and "Report how it works…" in the header and the badge in the row), `error-gateway-required`
+    /// (the portal lists three gateways: Choose Gateway), `error-gateway-unreadable` (the list could not be read),
+    /// `error-sso-required` (the portal signs in with SAML), `error-not-globalprotect` (neither portal nor gateway),
+    /// `error-gateway-not-trusted` (the gateway's certificate: Trust This Gateway…), `trust-gateway-sheet` (its
+    /// confirmation with the portal's key read) and `-reading` (while it is read), and `globalprotect-unavailable`
+    /// (macOS older than 15.4).
+    private static func renderGlobalProtect(_ model: AppModel, store: ProfileStore, now: Date, to out: URL) throws {
+        var p = try store.create(name: "Corp GlobalProtect", type: .globalprotect)
+        p.host = "vpn.example.com"
+        p.port = 443
+        p.username = "sam"
+        p.otpMode = .totp
+        p.otpDelivery = .separate
+        p.setDNS = true
+        try store.save(p)
+        try Secrets.set(p.id, .totp, "MZXW6YTBOI3DEMBZGQ2TMNZYHE4DCMRR")
+        try Secrets.set(p.id, .password, "sample-password")
+        let id = p.id
+        let olderMac = OperatingSystemVersion(majorVersion: 14, minorVersion: 7, patchVersion: 0)
+        let (states, errors, activity, selection, version) = (
+            model.previewStates, model.previewErrors, model.previewActivity, model.selection, model.connections.systemVersion
+        )
+        defer {
+            model.previewStates = states
+            model.previewErrors = errors
+            model.previewActivity = activity
+            model.previewFailures = FailurePreview()
+            model.previewNotices = [:]
+            model.selection = selection
+            model.connections.systemVersion = version
+            for kind in SecretKind.allCases { Secrets.delete(id, kind) }
+            try? store.delete(id)
+            model.reload()
+        }
+        model.connections.systemVersion = OperatingSystemVersion(majorVersion: 15, minorVersion: 4, patchVersion: 0)
+        model.reload()
+        model.selection = id
+        func event(_ ago: TimeInterval, _ kind: ActivityEvent.Kind) -> ActivityEvent { ActivityEvent(at: now.addingTimeInterval(-ago), kind) }
+        func render(_ name: String) {
+            for dark in [false, true] {
+                snapshot(
+                    SplitWindowRender().environmentObject(model), size: CGSize(width: 1080, height: 700), dark: dark, to: out,
+                    name: name, window: true)
+            }
+        }
+        let connecting = event(64, .connecting(host: "vpn.example.com", port: 443, transport: "tcp"))
+
+        // Connected; the gateway asked for a host information report.
+        model.previewStates = (states ?? [:]).merging([id: .connected(ip: "10.12.0.7", since: now.addingTimeInterval(-61))]) { $1 }
+        model.previewErrors = errors ?? [:]
+        model.previewNotices = [id: [.hipReportNotSent]]
+        model.previewActivity = [
+            id: [
+                connecting,
+                event(
+                    62,
+                    .sending(
+                        .init(username: "sam", password: true, code: true, codePrefix: "604", secondsLeft: 22, format: "separate"))),
+                event(61, .connected(address: "10.12.0.7"))
+            ]
+        ]
+        render("globalprotect-detail")
+        // The row unselected (the offscreen list draws a selected row's text in the row's color).
+        model.selection = nil
+        for dark in [false, true] {
+            snapshot(
+                ProfileSidebar(previewWithoutSearch: true).environmentObject(model), size: CGSize(width: 272, height: 560),
+                dark: dark, to: out, name: "globalprotect-sidebar")
+        }
+        model.selection = id
+        model.previewNotices = [:]
+
+        func failed(_ name: String, _ failure: ConnectionFailure, error: String, preview: FailurePreview) {
+            model.previewStates = states?.filter { $0.key != id }
+            model.previewErrors = (errors ?? [:]).merging([id: error]) { $1 }
+            model.previewFailures = preview
+            model.previewActivity = [
+                id: [
+                    connecting,
+                    event(2, .failed(kind: failure.kind, reason: failure.reason, credentialsSent: failure.credentialsSent))
+                ]
+            ]
+            render(name)
+        }
+        let stored = try store.get(id)
+
+        // The portal lists three gateways and the profile names none; then the same without a readable list.
+        var gatewayFailure = ConnectionFailure(kind: .configuration, at: now.addingTimeInterval(-2), credentialsSent: true, codeSent: true)
+        gatewayFailure.gateways = ["US East", "US West", "Europe"]
+        gatewayFailure.detail = .gatewayRequired
+        let gatewayError = PTError.invalidField("gateway").localizedDescription
+        failed(
+            "error-gateway-required", gatewayFailure, error: gatewayError,
+            preview: FailurePreview(
+                failures: [id: gatewayFailure], gatewayChoices: [id: GatewayChoice(stored, labels: gatewayFailure.gateways)!]))
+        var unreadable = gatewayFailure
+        unreadable.gateways = nil
+        failed(
+            "error-gateway-unreadable", unreadable, error: gatewayError,
+            preview: FailurePreview(failures: [id: unreadable], gatewayChoices: [id: GatewayChoice(stored, labels: nil)!]))
+
+        // Single sign-on at the portal; a server that is neither portal nor gateway.
+        let sso = ConnectionFailure(kind: .ssoRequired, at: now.addingTimeInterval(-2))
+        failed("error-sso-required", sso, error: PTError.ssoRequired(log: "").localizedDescription, preview: FailurePreview(failures: [id: sso]))
+        var notGP = ConnectionFailure(kind: .configuration, at: now.addingTimeInterval(-2), reason: VPNLog.notGlobalProtectServer)
+        notGP.detail = .notGlobalProtectServer
+        failed(
+            "error-not-globalprotect", notGP, error: PTError.invalidField("host").localizedDescription,
+            preview: FailurePreview(failures: [id: notGP]))
+
+        // The gateway's certificate, after the portal took the sign-in: Trust This Gateway…, and its confirmation.
+        let presented = "pin-sha256:B9S1MyM7eI6e0MBVCfgWo0zkSVpzyFfkmueG8/HAbiY="
+        let portalKey = "pin-sha256:E86EpKhiszwwyqu937GB+mox53WHxoGiVhwY7ZXxrwQ="
+        let gateway = "gw1.example.com:443"
+        var keyFailure = ConnectionFailure(
+            kind: .configuration, at: now.addingTimeInterval(-2), reason: "signer not found", credentialsSent: true, codeSent: true)
+        keyFailure.serverCert = presented
+        failed(
+            "error-gateway-not-trusted", keyFailure,
+            error: PTError.gatewayCertificateRejected(gateway: gateway, reason: "signer not found", pin: presented, log: "").localizedDescription,
+            preview: FailurePreview(failures: [id: keyFailure], failedGateways: [id: gateway]))
+        if let offer = ServerTrustOffer(stored, pin: presented, gateway: gateway), var trust = GatewayTrust(offer) {
+            for dark in [false, true] {
+                snapshot(
+                    GatewayTrustSheet(profile: stored, trust: trust, reads: false).background(Palette.background).environmentObject(model),
+                    size: nil, dark: dark, to: out, name: "trust-gateway-sheet-reading")
+            }
+            trust.portalKeyRead(portalKey, for: offer)
+            for dark in [false, true] {
+                snapshot(
+                    GatewayTrustSheet(profile: stored, trust: trust, reads: false).background(Palette.background).environmentObject(model),
+                    size: nil, dark: dark, to: out, name: "trust-gateway-sheet")
+            }
+        }
+
+        // macOS older than 15.4: listed with the note, Connect and Edit disabled.
+        model.connections.systemVersion = olderMac
+        model.previewFailures = FailurePreview()
+        model.previewErrors = errors ?? [:]
+        model.previewStates = states?.filter { $0.key != id }
+        model.previewActivity = [:]
+        render("globalprotect-unavailable")
     }
 
     /// An alert's window as `runModal` would show it, without showing it.

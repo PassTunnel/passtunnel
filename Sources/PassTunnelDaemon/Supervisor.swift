@@ -1,5 +1,6 @@
 import Foundation
 import PassTunnelShared
+import PassTunnelVPNConfig
 
 /// Starts, tracks and stops the VPN tools, as the Mac's helper does; all state is confined to `queue`.
 /// Sessions are keyed by (owner uid, profile ID) (`SessionPolicy`). Each child has a thread of its own
@@ -171,11 +172,15 @@ final class Supervisor {
                         return try core.prepareForti(s, uid: uid)
                     })
             case .startOpenConnect(let s):
+                // Cisco AnyConnect or Palo Alto GlobalProtect (docs/LINUX.md): the tool checked for the type's minimum
+                // (9.01; GlobalProtect 9.11), the request as the Mac's helper checks it, the root configuration
+                // rendered with `script` the session's `vpn-hook` link (made with the policy), its output masked.
                 reply(
-                    self.start(profileID: s.profileID, uid: uid, tool: .openconnect) { _, core in
-                        // The request checked as the Mac's helper checks it, the root configuration rendered with
-                        // `script` the session's `vpn-hook` link (made with the policy), its output masked.
-                        try core.prepareOpenConnect(s, uid: uid) { try core.vpnHookPath(profileID: s.profileID, uid: uid) }
+                    self.start(profileID: s.profileID, uid: uid, tool: .openconnect(for: s.protocol)) { tool, core in
+                        // GlobalProtect before 9.20 reads the gateway's IPv6 routes as excludes: `disable-ipv6`, decided
+                        // from the version just checked, never from the request.
+                        core.openConnectDisableIPv6 = ToolSpec.openConnectDisablesIPv6(s.protocol, version: tool.version)
+                        return try core.prepareOpenConnect(s, uid: uid) { try core.vpnHookPath(profileID: s.profileID, uid: uid) }
                     })
             case .stop(let id):
                 self.stop(profileID: id, uid: uid, reply: reply)

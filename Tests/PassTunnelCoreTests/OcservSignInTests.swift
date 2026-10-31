@@ -88,12 +88,12 @@ final class OcservSignInTests: XCTestCase {
         m.serverClock = FakeServerClock()
         m.openConnectPath = nil
         let tool = server.tool
-        m.locateOpenConnect = { runner in
+        m.locateOpenConnect = { proto, runner in
             var found: AnyConnectSignIn.Tool
             if let tool {
                 found = AnyConnectSignIn.Tool(path: tool)
             } else {
-                found = try AnyConnectSignIn.distributionTool(runner: runner)
+                found = try AnyConnectSignIn.distributionTool(for: proto, runner: runner)
             }
             if let caFile { found.caFile = caFile }
             return found
