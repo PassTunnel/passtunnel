@@ -11,7 +11,7 @@
 # scripts/build-linux.sh.
 
 # swift:6.4.1-noble, the image of the Linux CI jobs, pinned by the digest of its multi-arch index.
-FROM swift:6.4.1-noble@sha256:19cbe56bdaec1918f7cf5fdeba42b9bd55bdd8a6149c9990d0e0e3a89a127d63 AS build
+FROM swift:6.4.1-noble@sha256:6304481cf2717966b7ba175162e397ea2f2cc3161909f2b2a5cf40036079a0f7 AS build
 WORKDIR /src
 COPY . .
 RUN scripts/swift-retry.sh swift build -c release --static-swift-stdlib --product passtunnel \
