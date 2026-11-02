@@ -5,7 +5,7 @@ cask "passtunnel" do
 
   url "https://github.com/@GITHUB_REPO@/releases/download/v#{version}/PassTunnel-#{version}.dmg"
   name "PassTunnel"
-  desc "OpenVPN, FortiGate and Cisco AnyConnect client that fills in one-time codes"
+  desc "OpenVPN, FortiGate, AnyConnect and GlobalProtect client for one-time codes"
   homepage "https://passtunnel.github.io/"
 
   livecheck do

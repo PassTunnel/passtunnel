@@ -2,7 +2,8 @@
 
 The project website is a static site in [`site/`](../site), published with GitHub Pages at
 <https://passtunnel.github.io/>. Its main page explains what PassTunnel does, how to install it, the
-CLI and MCP setup and the security model; a second page holds the privacy policy
+CLI and MCP setup and the security model; a second page is the step-by-step user guide
+(<https://passtunnel.github.io/guide/>), a third holds the privacy policy
 (<https://passtunnel.github.io/privacy/>), and the site serves `llms.txt` for tools that read it.
 
 This document is the spec for the site: what is on it, the rules it follows and how it is
@@ -50,13 +51,14 @@ maintained. The code in `site/` is the source of truth for the exact look.
 | Path | What |
 |---|---|
 | `site/index.html` | The main page |
+| `site/guide/index.html` | The user guide (see [User guide](#user-guide)) |
 | `site/privacy/index.html` | The privacy policy (see [Privacy policy](#privacy-policy)) |
 | `site/assets/style.css` | All styles; design tokens as custom properties on `:root` |
 | `site/assets/theme.js` | Loaded in `<head>` before the stylesheet paints: applies the saved theme (no flash) |
 | `site/assets/main.js` | Theme button, mobile menu, copy buttons, format picker, live code demo |
 | `site/assets/img/` | Generated images (do not edit by hand) |
 | `site/llms.txt` | Plain-text summary for language-model tools: what it is, install, CLI, MCP setup, links |
-| `site/404.html`, `site/robots.txt`, `site/sitemap.xml` | The usual (the sitemap lists both pages) |
+| `site/404.html`, `site/robots.txt`, `site/sitemap.xml` | The usual (the sitemap lists all three pages) |
 | `scripts/site-assets.sh` | Regenerates everything in `site/assets/img/` |
 | `scripts/site/og.html` | Source of the social preview image (not published) |
 | `scripts/check-site.sh` | Static checks run by CI (see [Checks](#checks)) |
@@ -73,7 +75,7 @@ one-time codes.
 
 ## Sections
 
-Header (sticky, translucent): app icon + name, section links, GitHub, theme button, Download.
+Header (sticky, translucent): app icon + name, section links (the last one, "Guide", opens the user guide), GitHub, theme button, Download.
 Every Download button (header, hero, Install, call to action) links straight to the latest disk
 image, <https://github.com/PassTunnel/passtunnel/releases/latest/download/PassTunnel.dmg> (every
 release also uploads its DMG under that name without the version, see
@@ -120,13 +122,13 @@ closes on Escape, on outside click and when a link is chosen).
    Touch ID/Secure Enclave is covered in section 2 and the FAQ, not repeated here.
 6. **Install.** ("macOS 13 or later on Apple silicon (Cisco AnyConnect and Palo Alto GlobalProtect need macOS 15.4)".) Download ("Download the disk image, open it and drag PassTunnel to
    Applications", a "Release notes" link to the latest release, "Download for Mac"), Homebrew (the
-   two commands, copyable), build from source (README).
+   two commands, copyable), build from source (README). The lead points to the user guide.
 7. **FAQ** (`<details>`): why a privileged helper, where secrets are stored, which VPN types,
-   does it work without TOTP ("None" or "Ask each time"). The VPN types answer names the four types and
+   does it work without TOTP ("None" or "Ask each time"); the helper and TOTP answers link to the matching guide sections. The VPN types answer names the four types and
    what Cisco AnyConnect does not do (browser/SAML sign-in, host scan, client certificates, RSA SecurID) and
    needs (macOS 15.4), and says that Palo Alto GlobalProtect is experimental (macOS 15.4, no SAML, client
    certificates or HIP) with a link to the GlobalProtect report issue template asking for reports.
-8. **Call to action**, then **footer**: GitHub, Releases, Security, Privacy, License (MIT), and
+8. **Call to action**, then **footer**: GitHub, Releases, Security, Guide, Privacy, License (MIT), and
    "PassTunnel is not affiliated with OpenVPN Inc., Fortinet, Cisco or Palo Alto Networks. OpenVPN, FortiGate, Cisco AnyConnect and Palo Alto GlobalProtect
    are trademarks of their respective owners." The privacy page and the 404 page carry the same footer.
 
@@ -145,6 +147,22 @@ platform), this website, children, changes (the public repository history) and c
 issues and the security policy; no email address). Every statement must match `SECURITY.md`,
 `docs/APP.md`, `docs/ARCHITECTURE.md` and `docs/MOBILE.md`: a change to what the apps store, send or
 ask for updates this page and its date in the same pull request.
+
+## User guide
+
+`site/guide/index.html`, linked from the header ("Guide") and the footer of every page. The same header
+(section links point to `/#…`) and footer as the privacy page, then one readable column (`.doc`):
+eyebrow "Guide", `h1`, a one-sentence summary and a table of contents (`nav.doc-toc`) that links to every
+section. Each section is a `section` with an `id`, so it can be linked directly (`/guide/#helper`).
+Short paragraphs, numbered steps (`ol.steps`) and the exact labels the app uses. In order: Install, Approve the
+helper, Add a profile (per VPN type), Add the one-time code, Choose how the code is sent, Connect and
+disconnect (main window, menu bar panel, copying, hiding and typing codes), Protect a profile with Touch ID,
+Stay connected, Share profiles, Command line, Use with AI assistants (MCP), Updates, Troubleshooting and
+Uninstall. It reuses the existing screenshots (first run, profile editor, menu bar panel, General settings)
+with the same `srcset`/`sizes`/`loading="lazy"` rules as the main page; it has no renders of
+its own. Every statement must match `README.md`, `docs/APP.md`, `docs/ARCHITECTURE.md` and `SECURITY.md`; a
+step that is not documented there stays out. **An app change that shows in the guide (a label, a menu path,
+a setting, a default, a limit) updates the guide in the same pull request.**
 
 ## Live code demo
 
