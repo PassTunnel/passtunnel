@@ -410,7 +410,7 @@ labels right-aligned in a 150 pt column (they wrap, never truncate), then an **A
 scroll above the footer, with a hairline between them when they do not fit. Footer: **Delete Profile…** (red, on
 the left, saved profiles only, `editor.delete`: the row menu's confirmation, `profileDeleteConfirmation`, then
 the sheet closes and `AppModel.delete` runs), Cancel, Save (Add Profile for a new profile).
-1. **Sign-in**: name. OpenVPN → Configuration: the file name, under it the first server with its port and
+1. **First card** (it has no heading; the only "Sign-in" label is under Advanced): name. OpenVPN → Configuration: the file name, under it the first server with its port and
    transport (`OVPNAnalyzer.endpointDescription`: "vpn.example.com:1194 · UDP", "vpn.example.com:1194 +1 more ·
    UDP"; from the `remote` line, else `port` / `rport` / `proto`, else 1194 and UDP), and Choose… / Replace… (an
    inline `<auth-user-pass>` block is removed from the file, `OVPNInliner.strippingCredentials`, and its user name

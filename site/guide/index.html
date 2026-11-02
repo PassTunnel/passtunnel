@@ -121,7 +121,7 @@
 <pre tabindex="0" aria-label="Homebrew commands"><span class="prompt" aria-hidden="true">$ </span>brew trust passtunnel/tap
 <span class="prompt" aria-hidden="true">$ </span>brew install --cask passtunnel/tap/passtunnel</pre>
       </div>
-      <p>Homebrew 6 loads casks from third-party taps only once you trust the tap, hence the first line. The cask also links the <code>passtunnel</code> command (see <a class="text-link" href="#cli">Command line</a>). To build the app yourself, follow <a class="text-link" href="https://github.com/PassTunnel/passtunnel#build-from-source">Build from source</a> in the README.</p>
+      <p>Homebrew loads casks from third-party taps only after you trust the tap, hence the first line. The cask also links the <code>passtunnel</code> command (see <a class="text-link" href="#cli">Command line</a>). To build the app yourself, follow <a class="text-link" href="https://github.com/PassTunnel/passtunnel#build-from-source">Build from source</a> in the README.</p>
       <h3>First launch</h3>
       <p>Without any profile, the window opens on <strong>Add your first VPN</strong>. The first thing to do there is to approve the helper.</p>
       <figure class="figure-card">
@@ -139,7 +139,7 @@
         <li>Turn PassTunnel on in <strong>System Settings → General → Login Items</strong>. macOS asks once. While the approval is pending, the card offers <strong>Open Login Items…</strong>.</li>
         <li>The card changes to “The helper is installed and running.” when it is done.</li>
       </ol>
-      <p>You can also do this later from <strong>Settings → Helper</strong>, which shows the helper’s status and has buttons to install, update or remove it. After an app update, the helper is updated automatically as soon as no VPN connection is active, when PassTunnel runs from the Applications folder.</p>
+      <p>You can also do this later from <strong>Settings → Helper</strong>, which shows the helper’s status (<strong>Installed and running</strong>, <strong>Waiting for your approval</strong>, <strong>Not installed</strong> or <strong>Needs an update</strong>) with buttons such as <strong>Install Helper</strong>, <strong>Update Helper</strong>, <strong>Open Login Items…</strong> and <strong>Remove Helper…</strong>. After an app update, the helper is updated automatically as soon as no VPN connection is active, when PassTunnel runs from the Applications folder.</p>
     </section>
 
     <section id="profile" aria-labelledby="profile-title">
@@ -147,12 +147,13 @@
       <p>Click <strong>+</strong> at the bottom of the sidebar (the view is titled <strong>Add a VPN</strong>), or drop a file onto the window. The File menu has the same items. What you do depends on what you were given:</p>
       <ul>
         <li><strong>An OpenVPN file (<code>.ovpn</code> or <code>.conf</code>).</strong> Drop it on the dashed area or use <strong>Choose File…</strong> (File → <strong>Import .ovpn…</strong>). You see a review of what is in the file before anything is saved. Files it references, such as <code>ca ca.crt</code>, are embedded automatically.</li>
-        <li><strong>A FortiGate gateway.</strong> Choose <strong>Enter details by hand</strong>, then FortiGate (File → <strong>New FortiGate Profile…</strong>). Enter the host and port, and use <strong>Fetch fingerprint</strong> to pin the gateway’s certificate (SHA-256).</li>
+        <li><strong>A FortiGate gateway.</strong> Choose <strong>Enter details by hand</strong>, then FortiGate (File → <strong>New FortiGate Profile…</strong>). Enter the <strong>Gateway</strong> host and the port, and use <strong>Fetch Fingerprint</strong> to pin the gateway’s certificate (SHA-256).</li>
         <li><strong>A Cisco AnyConnect server</strong> (macOS 15.4 or later). Choose <strong>Enter details by hand</strong>, then Cisco AnyConnect (File → <strong>New Cisco AnyConnect Profile…</strong>). Paste the address your IT team gave you in <strong>Server</strong>, for example <code>https://vpn.example.com/staff</code>; PassTunnel fills in the host, port and user group from it. <strong>Group</strong> is the group the server offers at sign-in; leave it empty for the server’s default.</li>
-        <li><strong>A Palo Alto GlobalProtect portal</strong> (experimental, macOS 15.4 or later). Choose <strong>Enter details by hand</strong>, then Palo Alto GlobalProtect (File → <strong>New Palo Alto GlobalProtect Profile (Experimental)…</strong>). Enter the portal’s address without a path, for example <code>vpn.example.com</code>. If the portal lists several gateways, the first connect stops at <strong>Choose a gateway</strong>, or you set <strong>Gateway</strong> in the profile. <strong>Skip the portal</strong> signs in to one gateway directly.</li>
+        <li><strong>A Palo Alto GlobalProtect portal</strong> (experimental, macOS 15.4 or later). Choose <strong>Enter details by hand</strong>, then Palo Alto GlobalProtect (File → <strong>New Palo Alto GlobalProtect Profile (Experimental)…</strong>). Enter the portal’s address without a path, for example <code>vpn.example.com</code>. If the portal lists several gateways, the first connect stops at <strong>Choose a gateway</strong>, or you set <strong>Gateway</strong> in the profile. <strong>Skip the portal and sign in to the gateway directly</strong> signs in to one gateway; <strong>Server</strong> must then hold the gateway’s address.</li>
+        <li><strong>An authenticator QR code.</strong> Choose <strong>Scan a QR code on screen</strong> (macOS 14 and later) or <strong>Use a QR image</strong>. PassTunnel asks what kind of VPN the code is for, then opens a new profile with the code filled in.</li>
         <li><strong>A <code>.passtunnel</code> file from a colleague.</strong> See <a class="text-link" href="#share">Share profiles</a>.</li>
       </ul>
-      <p>Then open the profile editor (<strong>Edit</strong> in the toolbar). Under <strong>Sign-in</strong>, enter the user name (leave it empty to be asked each time) and the password. Under <strong>Advanced</strong>, the password can also be asked each time, or not used (certificate-only OpenVPN). Secrets are written to the Keychain only when you press <strong>Save</strong>.</p>
+      <p>Then open the profile editor (<strong>Edit</strong> in the toolbar). In the first card, enter the <strong>User name</strong> (leave it empty to be asked each time) and the <strong>Password</strong>. Under <strong>Advanced → Sign-in</strong>, the password can also be asked each time, or not used (certificate-only OpenVPN). Secrets are written to the Keychain only when you press <strong>Save</strong> (<strong>Add Profile</strong> for a new profile).</p>
       <h3>Limits of Cisco AnyConnect and GlobalProtect</h3>
       <p>Both sign in with a user name, a password and, if the server asks for one, a one-time code. Neither supports sign-in through a web browser (SAML or single sign-on) or client certificates. Cisco AnyConnect also does not support host scan (Cisco Secure Desktop, HIP, TNCC) or RSA SecurID, and does not follow a server that sends you to another host after sign-in. For GlobalProtect, the host information report (HIP) is never sent: the connection goes on, and PassTunnel says access may be limited.</p>
       <p>If the server’s certificate is signed by an authority your Mac trusts, there is nothing more to do. Otherwise, <strong>Fetch Fingerprint</strong> in the editor reads the server’s key and asks whether to trust it. Compare the fingerprint with the one your IT team published first. GlobalProtect has only been tested against openconnect’s own test server, so please <a class="text-link" href="https://github.com/PassTunnel/passtunnel/issues/new?template=globalprotect_report.md">tell us how it works for you</a>.</p>
@@ -185,7 +186,7 @@
         <li><strong>password:code</strong>: <code>secret:123456</code></li>
         <li><strong>password,code</strong>: <code>secret,123456</code></li>
         <li><strong>Custom template</strong>: any text around the placeholders <code>{password}</code> and <code>{otp}</code>; for example <code>{password}#{otp}</code> gives <code>secret#123456</code>. The template must contain <code>{otp}</code>; <code>{password}</code> is optional.</li>
-        <li><strong>Sent separately</strong>: the password and the code travel as two values. For OpenVPN this is the static challenge (chosen automatically when the imported <code>.ovpn</code> contains <code>static-challenge</code>); for FortiGate it is the separate OTP field; for Cisco AnyConnect it is the answer to the server’s second password field. It is the default for new FortiGate and Cisco AnyConnect profiles.</li>
+        <li><strong>Sent separately</strong>: the password and the code travel as two values. For OpenVPN this is the static challenge (chosen automatically when the imported <code>.ovpn</code> contains <code>static-challenge</code>); for FortiGate it is the separate OTP field; for Cisco AnyConnect and GlobalProtect it is the answer to the server’s next prompt, after the password. It is the default for new profiles of every type except OpenVPN.</li>
       </ul>
       <h3>Wait for a fresh code</h3>
       <p>With <strong>Wait for a fresh code</strong> on (Settings → General → Connection, on by default), PassTunnel waits for the next code when 5 seconds or less are left in the current one, instead of racing the clock. A code that was already sent is never sent again, whatever the setting.</p>
@@ -201,7 +202,7 @@
       </ol>
       <p>The window shows the current code with a countdown ring and the next code, and, under <strong>What the server receives</strong>, what the sign-in sends. An activity list below it records what PassTunnel did.</p>
       <h3>Menu bar panel</h3>
-      <p>The menu bar panel does the same from anywhere: a switch for each pinned or active profile, with its live code, and items to copy the current code. Pin a profile with <strong>Pin to Menu Bar</strong> in its context menu.</p>
+      <p>The menu bar panel does the same from anywhere: a switch for each pinned or active profile (all profiles while none is pinned), with its live code, and items to copy the current code. Pin a profile with <strong>Pin to Menu Bar</strong> in its context menu.</p>
       <figure class="figure-card">
         <img class="shot shot-window only-light" src="/assets/img/menubar-panel-light.webp" srcset="/assets/img/menubar-panel-light.webp 360w, /assets/img/menubar-panel-light@1.5x.webp 540w, /assets/img/menubar-panel-light@2x.webp 720w" sizes="(max-width: 600px) 86vw, 360px" width="360" height="364" loading="lazy" decoding="async" alt="The PassTunnel menu bar panel, opened from the menu bar: Work connected with its live code and a switch, Staging asking for Touch ID, Travel with a dropped connection, then Copy Work code, Copy Work password + code, Type Work code, Open PassTunnel, Settings and Quit.">
         <img class="shot shot-window only-dark" src="/assets/img/menubar-panel-dark.webp" srcset="/assets/img/menubar-panel-dark.webp 360w, /assets/img/menubar-panel-dark@1.5x.webp 540w, /assets/img/menubar-panel-dark@2x.webp 720w" sizes="(max-width: 600px) 86vw, 360px" width="360" height="364" loading="lazy" decoding="async" alt="The PassTunnel menu bar panel, opened from the menu bar: Work connected with its live code and a switch, Staging asking for Touch ID, Travel with a dropped connection, then Copy Work code, Copy Work password + code, Type Work code, Open PassTunnel, Settings and Quit.">
@@ -209,7 +210,7 @@
       </figure>
       <h3>Copy, hide and type codes</h3>
       <ul>
-        <li>Click the code to copy it, or use <strong>Copy code</strong> and <strong>Copy password + code</strong>. The copy stays on this Mac and is cleared after 1 minute, or 30 seconds or 2 minutes as you choose in <strong>Settings → General → Clear copied code</strong>, unless you copied something else meanwhile.</li>
+        <li>Click the code to copy it, or use the <strong>Copy code</strong> and <strong>Copy password + code</strong> buttons (<strong>Copy Code</strong> and <strong>Copy Password + Code</strong> in the ⋯ menu). The copy stays on this Mac and is cleared after 1 minute, or 30 seconds or 2 minutes as you choose in <strong>Settings → General → Clear copied code</strong>, unless you copied something else meanwhile.</li>
         <li>Turn on <strong>Hide codes until clicked</strong> in Settings → General to show codes as bullets. A click shows them for 20 seconds. Copying never shows them, and the menu bar panel keeps hidden codes hidden.</li>
         <li>Global shortcuts are off by default. Turn on <strong>Enable global shortcuts</strong> in <strong>Settings → Shortcuts</strong> to get <code>⌃⌥V</code>, which connects or disconnects the default profile, and <code>⌃⌥C</code>, which copies the current code. Turn on <strong>Type the code for me</strong> there and <code>⌃⌥C</code> types the code into the focused field instead, which is for web portals that still ask for it. Typing needs Accessibility permission, which PassTunnel requests only when you turn the feature on.</li>
       </ul>
@@ -227,20 +228,19 @@
         <li>The saved password and TOTP secret are then encrypted with a key in the Mac’s Secure Enclave, so a one-click connect needs you, not just your unlocked Mac.</li>
         <li>Touch ID (or your Mac password) is asked before connecting and before showing, copying or typing codes. Disconnecting never asks.</li>
         <li><strong>Settings → General → Security → Ask again after</strong> (1, 5 or 15 minutes) sets how long one confirmation unlocks a profile.</li>
-        <li>Turning the switch off asks for confirmation first.</li>
-        <li>From the command line, <code>passtunnel set ID require_auth=connect</code> asks before connecting only.</li>
+        <li>Turning the switch off needs a successful Touch ID (or Mac password) confirmation when you press <strong>Save</strong>.</li>
+        <li>From the command line, <code>passtunnel set ID require_auth=connect</code> encrypts only the saved password, so connecting asks but live codes show without a prompt. If the profile has no saved password, the TOTP secret is encrypted instead and showing the code asks too.</li>
       </ul>
     </section>
 
     <section id="reconnect" aria-labelledby="reconnect-title">
       <h2 id="reconnect-title">Stay connected</h2>
-      <p>These options are in the profile editor unless noted.</p>
+      <p>Some of these are switches in the profile editor; the rest are settings or things PassTunnel does by itself.</p>
       <ul>
-        <li><strong>Reconnect automatically if the link drops.</strong> After a drop, PassTunnel reconnects with a fresh code, waiting 5, 15 and then 45 seconds between attempts. The switch is unavailable when the profile cannot connect without asking; the editor says why. A rejected sign-in is never retried, so your account is not locked.</li>
-        <li><strong>Health check</strong> (Advanced → Connection). Enter a host inside the VPN, such as <code>10.0.0.5</code> or <code>host:port</code>, and use <strong>Test</strong> to try it. While the profile is connected, PassTunnel checks it every 30 seconds. After two failures the profile shows as connected but unreachable and you get a notification; with automatic reconnect on, PassTunnel reconnects once per outage.</li>
-        <li><strong>Reconnect after wake.</strong> After the Mac wakes, PassTunnel reconnects the profiles that were connected before sleep. A profile that needs Touch ID is not reconnected by itself: a notification says so, and clicking it reconnects.</li>
+        <li><strong>Reconnect automatically if the link drops</strong> (editor switch). After a drop, PassTunnel reconnects with a fresh code, waiting 5, 15 and then 45 seconds between attempts. With it on, PassTunnel also reconnects right after the Mac wakes if the link dropped during sleep, unless the profile asks for Touch ID: then a notification says it disconnected while the Mac was asleep, and clicking it reconnects. The switch is unavailable when PassTunnel cannot connect without asking you (it needs a saved user name, the password in the Keychain and a generated code, or none); the editor says so. A rejected sign-in is never retried, so your account is not locked.</li>
+        <li><strong>Health check</strong> (Advanced → Connection). Enter a host inside the VPN, such as <code>10.0.0.5</code> or <code>host:port</code>, and use <strong>Test</strong> to try it. While the profile is connected, PassTunnel checks it every 30 seconds. After two failures the profile shows as <strong>Connected · not responding</strong> and you get a notification; with automatic reconnect on, PassTunnel reconnects once per outage.</li>
         <li><strong>Session limit</strong> (Advanced → Connection), in minutes; 0 means no limit. PassTunnel reminds you before the server ends the session. How early is set in Settings → General → Notifications → Session limit.</li>
-        <li><strong>Connect at login.</strong> Profiles with this switch connect when PassTunnel opens at login. A profile that would ask for anything gets a notification to click instead.</li>
+        <li><strong>Connect at login</strong> (editor switch). Profiles with this switch connect when PassTunnel opens at login. A profile that would ask for anything gets a notification to click instead.</li>
         <li><strong>Several VPNs at once.</strong> Each profile has its own status, log and settings. When you connect a profile whose routes or DNS names overlap with one that is connected, PassTunnel asks first: <strong>Cancel</strong>, <strong>Connect both</strong> or <strong>Switch to</strong> the new one. The shared traffic can go through only one of the two tunnels.</li>
       </ul>
     </section>
@@ -254,7 +254,7 @@
 
     <section id="cli" aria-labelledby="cli-title">
       <h2 id="cli-title">Command line</h2>
-      <p>Install the <code>passtunnel</code> command from <strong>Settings → General → Command-line tool</strong>, or get it with the Homebrew cask. It does everything the app does. Profile IDs come from the profile name (<code>Work</code> becomes <code>work</code>).</p>
+      <p>Install the <code>passtunnel</code> command from <strong>Settings → General → Other → Command-line tool</strong> (<strong>Install…</strong>), or get it with the Homebrew cask. It does everything the app does. Profile IDs come from the profile name (<code>Work</code> becomes <code>work</code>).</p>
       <div class="code">
 <pre tabindex="0" aria-label="CLI examples"><span class="prompt" aria-hidden="true">$ </span>passtunnel                          # status of all profiles
 <span class="prompt" aria-hidden="true">$ </span>passtunnel connect work             # connect a profile
@@ -303,14 +303,15 @@
     <section id="troubleshooting" aria-labelledby="troubleshooting-title">
       <h2 id="troubleshooting-title">Troubleshooting</h2>
       <h3>The helper is not approved</h3>
-      <p>Connecting needs the helper. Open <strong>Settings → Helper</strong> to see its status (enabled, needs approval, not installed, needs an update) and use <strong>Install</strong>, <strong>Update</strong> or <strong>Open Login Items</strong>. From a terminal, <code>passtunnel helper status</code> shows the same. The helper can only be installed when PassTunnel runs from the Applications folder.</p>
+      <p>Connecting needs the helper. Open <strong>Settings → Helper</strong> to see its status. <strong>Waiting for your approval</strong> means PassTunnel still needs to be turned on in Login Items (<strong>Open Login Items…</strong>); <strong>Not installed</strong> needs <strong>Install Helper</strong>; <strong>Needs an update</strong> needs <strong>Update Helper</strong>. From a terminal, <code>passtunnel helper status</code> shows the same. The helper can only be installed when PassTunnel runs from the Applications folder.</p>
       <h3>Sign-in rejected</h3>
-      <p>PassTunnel stops instead of retrying, so your account does not get locked. The card lists the likely causes:</p>
+      <p>PassTunnel stops instead of retrying, so your account does not get locked. The failure card shows what it knows:</p>
       <ul>
+        <li><strong>The code.</strong> Whether it was fresh or about to expire, and how many seconds were left when it was sent.</li>
         <li><strong>The clock.</strong> Codes are worked out from your Mac’s clock, and a clock that is off by 15 seconds or more makes every code wrong. <strong>Check the clock</strong> asks Apple’s time server how far off it is; the request carries nothing about you. A banner offers <strong>Open Date &amp; Time</strong>. On the command line, use <code>passtunnel diagnose --check-clock</code>.</li>
-        <li><strong>A changed password.</strong> The card offers <strong>Update it in PassTunnel</strong> when the password is in the Keychain.</li>
-        <li><strong>The code format.</strong> Compare <strong>Server receives</strong> in the editor with what your server expects (see <a class="text-link" href="#format">Choose how the code is sent</a>).</li>
+        <li><strong>A changed password.</strong> “Changed your password at work?” with <strong>Update it in PassTunnel</strong>, when the password is in the Keychain.</li>
       </ul>
+      <p>If none of these fits, compare <strong>Server receives</strong> in the editor with what your server expects (see <a class="text-link" href="#format">Choose how the code is sent</a>).</p>
       <h3>Server unreachable or not found</h3>
       <p>If the server does not answer, your password and code were not sent. PassTunnel tries again every 30 seconds, up to 10 tries, and shows <strong>Try now</strong>, <strong>Stop</strong> and <strong>Copy details</strong>. <strong>Server not found</strong> points to the profile’s address.</p>
       <h3>Cisco AnyConnect and GlobalProtect messages</h3>
