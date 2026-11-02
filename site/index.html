@@ -75,6 +75,7 @@
       <li><a class="nav-link" href="#security">Security</a></li>
       <li><a class="nav-link" href="#install">Install</a></li>
       <li><a class="nav-link" href="#faq">FAQ</a></li>
+      <li><a class="nav-link" href="guide/">Guide</a></li>
       <li class="menu-only"><a class="nav-link" href="https://github.com/PassTunnel/passtunnel">GitHub</a></li>
     </ul>
     <div class="nav-actions">
@@ -443,7 +444,7 @@
         <p class="eyebrow">Install</p>
         <h2 class="h2" id="install-title">Three ways in.</h2>
       </div>
-      <p class="lead">macOS 13 or later on Apple silicon (Cisco AnyConnect and Palo Alto GlobalProtect need macOS 15.4). Free and open source under the MIT license.</p>
+      <p class="lead">macOS 13 or later on Apple silicon (Cisco AnyConnect and Palo Alto GlobalProtect need macOS 15.4). Free and open source under the MIT license. New here? The <a class="text-link" href="guide/#install">user guide</a> walks through the first launch.</p>
     </div>
 
     <div class="grid-cards install-grid">
@@ -497,7 +498,7 @@
     <div class="faq-list">
       <details class="faq-item">
         <summary><span>Why does PassTunnel need a privileged helper?</span><span class="faq-toggle" aria-hidden="true"><svg class="icon icon-bold" width="16" height="16"><use href="#i-plus"/></svg></span></summary>
-        <p class="faq-body">Creating a tunnel interface and changing routes and DNS requires root. Instead of a sudoers rule or an admin password at every connect, PassTunnel uses a small helper that you approve once in System Settings. It only accepts the signed app and only runs the signed <code>openvpn</code>, <code>openfortivpn</code> and <code>openconnect</code> bundled inside it, with sanitized OpenVPN configurations.</p>
+        <p class="faq-body">Creating a tunnel interface and changing routes and DNS requires root. Instead of a sudoers rule or an admin password at every connect, PassTunnel uses a small helper that you approve once in System Settings (<a href="guide/#helper">step by step</a>). It only accepts the signed app and only runs the signed <code>openvpn</code>, <code>openfortivpn</code> and <code>openconnect</code> bundled inside it, with sanitized OpenVPN configurations.</p>
       </details>
       <details class="faq-item">
         <summary><span>Where are my secrets stored?</span><span class="faq-toggle" aria-hidden="true"><svg class="icon icon-bold" width="16" height="16"><use href="#i-plus"/></svg></span></summary>
@@ -509,7 +510,7 @@
       </details>
       <details class="faq-item">
         <summary><span>Does it work without TOTP?</span><span class="faq-toggle" aria-hidden="true"><svg class="icon icon-bold" width="16" height="16"><use href="#i-plus"/></svg></span></summary>
-        <p class="faq-body">Yes. Set the one-time code to “None” for a plain user name and password or a certificate-only VPN, or to “Ask each time” if you use a hardware token or SMS.</p>
+        <p class="faq-body">Yes. Set the one-time code to “None” for a plain user name and password or a certificate-only VPN, or to “Ask each time” if you use a hardware token or SMS. The <a href="guide/#code">user guide</a> shows where.</p>
       </details>
     </div>
   </div>
@@ -553,6 +554,7 @@
           <li><a class="nav-link" href="https://github.com/PassTunnel/passtunnel">GitHub</a></li>
           <li><a class="nav-link" href="https://github.com/PassTunnel/passtunnel/releases/latest">Releases</a></li>
           <li><a class="nav-link" href="https://github.com/PassTunnel/passtunnel/blob/main/SECURITY.md">Security</a></li>
+          <li><a class="nav-link" href="guide/">Guide</a></li>
           <li><a class="nav-link" href="privacy/">Privacy</a></li>
           <li><a class="nav-link" href="https://github.com/PassTunnel/passtunnel/blob/main/LICENSE">License (MIT)</a></li>
         </ul>
