@@ -2122,6 +2122,82 @@ kbd {
   overflow-wrap: anywhere;
 }
 
+/* Guide: table of contents, numbered steps, code and figures inside a document. */
+
+.doc-toc {
+  margin-top: 40px;
+}
+
+.doc-toc ol {
+  columns: 2 240px;
+  column-gap: 32px;
+  padding-left: 26px;
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--fg-3);
+}
+
+.doc-toc li {
+  break-inside: avoid;
+}
+
+.doc-toc .text-link {
+  display: inline-block;
+  padding: 9px 0;
+}
+
+.doc section ol.steps {
+  margin-top: 12px;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--fg-2);
+  text-wrap: pretty;
+}
+
+.doc section ol.steps > li {
+  position: relative;
+  padding-left: 40px;
+  counter-increment: step;
+}
+
+.doc section ol.steps > li + li {
+  margin-top: 14px;
+}
+
+.doc section ol.steps > li::before {
+  content: counter(step);
+  top: 0.2em;
+  left: 0;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--bg-soft);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 24px;
+  text-align: center;
+  color: var(--fg);
+}
+
+.doc .code,
+.doc .figure-card {
+  margin-top: 16px;
+}
+
+.doc .code pre {
+  font-size: 13.5px;
+  line-height: 1.7;
+}
+
+.doc .shot {
+  max-width: 100%;
+  height: auto;
+}
+
 .footer-nav .nav-link[aria-current="page"] {
   color: var(--fg);
 }

@@ -202,7 +202,7 @@ the window. The File menu has the same items:
 
 Then open the profile editor (**Edit** in the toolbar):
 
-- **Sign-in:** user name (leave empty to be asked each time) and password, saved in the Keychain.
+- **First card (no heading):** name, user name (leave empty to be asked each time) and password, saved in the Keychain.
   Under **Advanced** the password can be asked each time instead, or not used (certificate-only OpenVPN).
 - **One-time code:** **Scan QR on screen** (macOS 14 and later), choose the QR code image or paste the
   secret (or drop the screenshot on the card),
