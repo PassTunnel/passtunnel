@@ -453,7 +453,8 @@ enum Schema {
     static let helper = result(
         [
             "state": oneOf(["enabled", "requires_approval", "not_installed", "missing_from_bundle"]), "responding": bool,
-            "protocol_version": int, "expected_protocol_version": int, "outdated": bool, "error": string
+            "protocol_version": int, "expected_protocol_version": int, "outdated": bool, "error": string,
+            "raw_status": int
         ], required: ["state", "responding", "expected_protocol_version"])
 
     static let statusReport = result(["helper": helper, "profiles": array(profileStatus)], required: ["helper", "profiles"])
@@ -507,7 +508,8 @@ enum Schema {
     static let diagnose: [String: Any] = {
         var properties: [String: Any] = [
             "version": string, "build": string, "app_path": string, "in_applications": bool, "helper": helper,
-            "profiles": array(profileCheck), "clock": clock, "clock_error": string, "network": network
+            "profiles": array(profileCheck), "clock": clock, "clock_error": string, "network": network,
+            "macos_version": string
         ]
         #if os(Linux)
         properties["secret_store"] = secretStore

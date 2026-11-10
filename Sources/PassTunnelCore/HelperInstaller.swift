@@ -16,8 +16,14 @@ public enum HelperStatus: String, Sendable {
 /// Registers and unregisters the helper daemon. `SMAppServiceRegistrar` in the app; tests use a fake.
 public protocol HelperRegistrar: Sendable {
     var status: HelperStatus { get }
+    /// The raw `SMAppService.Status` behind `status`, nil when there is none (a fake).
+    var rawStatus: Int? { get }
     func register() throws
     func unregister() async throws
+}
+
+extension HelperRegistrar {
+    public var rawStatus: Int? { nil }
 }
 
 public struct SMAppServiceRegistrar: HelperRegistrar {
@@ -25,8 +31,14 @@ public struct SMAppServiceRegistrar: HelperRegistrar {
 
     public var service: SMAppService { SMAppService.daemon(plistName: PT.helperPlistName) }
 
-    public var status: HelperStatus {
-        switch service.status {
+    public var status: HelperStatus { Self.helperStatus(service.status) }
+
+    /// The status macOS reported, as the number itself: a value this build does not know maps to
+    /// `.notFound` in `status` and can only be told apart by this.
+    public var rawStatus: Int? { service.status.rawValue }
+
+    static func helperStatus(_ status: SMAppService.Status) -> HelperStatus {
+        switch status {
         case .notRegistered: return .notRegistered
         case .enabled: return .enabled
         case .requiresApproval: return .requiresApproval
@@ -60,6 +72,31 @@ public enum HelperInstallError: Error, Equatable, LocalizedError {
 public enum HelperInstaller {
     public static var service: SMAppService { SMAppServiceRegistrar().service }
     public static var status: HelperStatus { SMAppServiceRegistrar().status }
+
+    /// The status and its raw `SMAppService.Status` value, read together.
+    public static var statusWithRawValue: (status: HelperStatus, rawValue: Int) {
+        let raw = SMAppServiceRegistrar().service.status
+        return (SMAppServiceRegistrar.helperStatus(raw), raw.rawValue)
+    }
+
+    /// Whether Install Helper may call `register()` in this state. `.notRegistered` always. `.notFound`
+    /// only for a real app bundle in /Applications: macOS 27.0.1 reported a valid helper that was never
+    /// registered this way, and a status this build does not know maps to it too, so `register()`
+    /// decides. Anywhere else it still means the helper cannot be found from this copy.
+    public static func canAttemptInstall(status: HelperStatus, inApplications: Bool, bundled: Bool) -> Bool {
+        switch status {
+        case .notRegistered: return true
+        case .notFound: return inApplications && bundled
+        case .enabled, .requiresApproval: return false
+        }
+    }
+
+    /// `canAttemptInstall` for the running copy.
+    public static func canAttemptInstall(status: HelperStatus) -> Bool {
+        canAttemptInstall(
+            status: status, inApplications: HelperSessions.isInApplicationsFolder(Bundle.main.bundlePath),
+            bundled: Bundle.main.bundleIdentifier != nil)
+    }
 
     /// Pauses between register attempts that macOS refused with "Operation not permitted" (≈ 6.5 s).
     public static let retryDelays: [TimeInterval] = [0.5, 1, 2, 3]
@@ -153,14 +190,14 @@ public enum HelperInstaller {
 
     enum Failure: Equatable { case notPermitted, deniedByUser, alreadyRegistered, jobNotFound, other }
 
-    /// SMAppService reports its own codes (`kSMError…`, `SMAppServiceErrorDomain`) and POSIX ones
-    /// (EPERM, in either domain); the underlying error is checked too.
+    /// SMAppService reports its own codes (`kSMError…`, in the ServiceManagement domains only) and POSIX
+    /// ones (EPERM, in either domain); the underlying error is checked too.
     static func classify(_ error: Error) -> Failure {
         let ns = error as NSError
         let posix = ns.domain == NSPOSIXErrorDomain
         let serviceManagement = ns.domain == "SMAppServiceErrorDomain" || ns.domain.contains("ServiceManagement")
         if (posix || serviceManagement) && ns.code == Int(EPERM) { return .notPermitted }
-        if !posix {
+        if serviceManagement {
             switch ns.code {
             case kSMErrorLaunchDeniedByUser: return .deniedByUser
             case kSMErrorAlreadyRegistered: return .alreadyRegistered

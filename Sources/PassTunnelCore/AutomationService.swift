@@ -280,7 +280,7 @@ public final class AutomationService {
             version: appInfo.version, build: appInfo.build, appPath: appInfo.appPath,
             inApplications: appInfo.inApplications, helper: helper,
             profiles: profiles.map { check($0, globalProtectTool: globalProtectTool) }, secretStore: await Self.secretStoreReport(),
-            network: await network(), tools: await tools(appInfo))
+            network: await network(), tools: await tools(appInfo), macosVersion: AppInfo.macOSVersion)
         if checkClock {
             do { report.clock = try await manager.checkClock() } catch { report.clockError = error.localizedDescription }
         }

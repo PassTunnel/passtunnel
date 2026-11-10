@@ -61,10 +61,18 @@ jobs:
   fuzz:
     name: Fuzz the parsers
     runs-on: macos-26
-    timeout-minutes: 45
+    # The fuzzers run one after the other, each for SECONDS_PER_FUZZER plus about a second to finish, after
+    # the toolchain (about 1.5 minutes) and the build (about 2.5 minutes). Scheduled: 9 fuzzers
+    # (fuzz/run.sh) x (240 s + 1 s) = 36 minutes + 4 minutes of setup, about 40 of the 60. At 300 s the nine
+    # fuzzers alone needed 45 minutes: the runs of 2026-11-02 and 2026-11-09 were cancelled by the old limit
+    # of 45 minutes during the ninth (six fuzzers had taken 32 minutes in total on 2026-10-26). When a
+    # fuzzer is added, check that 241 s x the number of fuzzers + 5 minutes stays under the limit, or lower
+    # the seconds.
+    timeout-minutes: 60
     env:
-      # 60 s per fuzzer on a pull request, 300 s on the weekly schedule, or the dispatch input.
-      SECONDS_PER_FUZZER: ${{ github.event_name == 'pull_request' && '60' || github.event_name == 'schedule' && '300' || inputs.seconds }}
+      # 60 s per fuzzer on a pull request (9 fuzzers: about 14 minutes with the setup), 240 s on the
+      # weekly schedule, or the dispatch input.
+      SECONDS_PER_FUZZER: ${{ github.event_name == 'pull_request' && '60' || github.event_name == 'schedule' && '240' || inputs.seconds }}
       SWIFT_VERSION: swift-6.4.1-RELEASE
       SWIFT_PKG_SHA256: c34e7e5fb0be4bcd61decfd40db1766434d8952d68e37aed90bcff4e8547951c
     steps:
@@ -98,3 +106,40 @@ jobs:
           path: fuzz/findings
           if-no-files-found: ignore
           retention-days: 7
+
+  # A job that hits its timeout is cancelled and runs no step after it, so this is a job of its own. One
+  # issue with a fixed title, or a comment on it while it is open (.github/actions/report-failure).
+  report:
+    name: Report
+    needs: fuzz
+    if: always() && github.event_name == 'schedule' && (needs.fuzz.result == 'failure' || needs.fuzz.result == 'cancelled')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github
+          persist-credentials: false
+
+      - name: Write the issue text
+        env:
+          RESULT: ${{ needs.fuzz.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo "The scheduled run of the workflow Fuzz ended with the result \`$RESULT\` (\`cancelled\` is also"
+            echo "what a run that reached its time limit shows). A crashing input, if there is one, is in the"
+            echo "artifact fuzz-findings of the run."
+            echo
+            echo "Run: $RUN_URL"
+            echo
+            echo "This issue is not closed when a later run passes; close it with the fix."
+          } > "$RUNNER_TEMP/issue.md"
+
+      - uses: ./.github/actions/report-failure
+        with:
+          title: "Scheduled run failed: Fuzz"
+          body-file: ${{ runner.temp }}/issue.md

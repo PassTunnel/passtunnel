@@ -2,6 +2,7 @@
 #if os(macOS)
 import ServiceManagement
 import XCTest
+import PassTunnelKit
 @testable import PassTunnelCore
 
 final class HelperInstallerTests: XCTestCase {
@@ -77,6 +78,34 @@ final class HelperInstallerTests: XCTestCase {
             domain: "SMAppServiceErrorDomain", code: kSMErrorInternalFailure,
             userInfo: [NSUnderlyingErrorKey: Self.posixEPERM])
         XCTAssertEqual(HelperInstaller.classify(wrapped), .notPermitted)
+        let wrappedKnown = NSError(
+            domain: "SMAppServiceErrorDomain", code: kSMErrorInternalFailure,
+            userInfo: [NSUnderlyingErrorKey: Self.already])
+        XCTAssertEqual(HelperInstaller.classify(wrappedKnown), .alreadyRegistered)
+    }
+
+    func testServiceManagementCodesAreReadOnlyInTheServiceManagementDomain() {
+        // Code 12 (kSMErrorAlreadyRegistered) and the others mean something else in other domains.
+        for domain in ["NSCocoaErrorDomain", "com.example.other", "NSURLErrorDomain"] {
+            for code in [kSMErrorLaunchDeniedByUser, kSMErrorAlreadyRegistered, kSMErrorJobNotFound] {
+                XCTAssertEqual(HelperInstaller.classify(NSError(domain: domain, code: code)), .other, "\(domain) \(code)")
+            }
+        }
+        XCTAssertEqual(
+            HelperInstaller.classify(NSError(domain: "com.apple.ServiceManagement.error", code: kSMErrorAlreadyRegistered)),
+            .alreadyRegistered)
+        // An unrelated outer error still gets its underlying ServiceManagement error read.
+        let wrapped = NSError(
+            domain: "com.example.other", code: 1, userInfo: [NSUnderlyingErrorKey: Self.denied])
+        XCTAssertEqual(HelperInstaller.classify(wrapped), .deniedByUser)
+    }
+
+    func testNotFoundOnConnectPointsToInstallingWhenThatCanBeAttempted() {
+        XCTAssertEqual(HelperClientError.forNotFound(canAttemptInstall: true), .notInstalled)
+        XCTAssertEqual(HelperClientError.forNotFound(canAttemptInstall: false), .notFound)
+        XCTAssertEqual(
+            HelperClientError.notFound.errorDescription,
+            "The PassTunnel helper is missing from the app bundle. Reinstall PassTunnel.")
     }
 
     func testRegisterRetriesWhileNotPermitted() async throws {
@@ -187,6 +216,50 @@ final class HelperInstallerTests: XCTestCase {
         } catch {
             guard case .notPermitted = error as? HelperInstallError else { return XCTFail("\(error)") }
         }
+    }
+
+    func testInstallIsAttemptedForNotFoundOnlyFromABundleInApplications() {
+        func can(_ status: HelperStatus, _ inApplications: Bool, _ bundled: Bool) -> Bool {
+            HelperInstaller.canAttemptInstall(status: status, inApplications: inApplications, bundled: bundled)
+        }
+        // macOS 27.0.1 reported a valid, never registered helper as not found: register() is tried from
+        // /Applications.
+        XCTAssertTrue(can(.notFound, true, true))
+        XCTAssertFalse(can(.notFound, false, true), "a copy outside /Applications cannot register")
+        XCTAssertFalse(can(.notFound, true, false), "not a bundle")
+        XCTAssertFalse(can(.notFound, false, false))
+        XCTAssertTrue(can(.notRegistered, true, true))
+        XCTAssertTrue(can(.notRegistered, false, true), "unchanged: the button works from anywhere")
+        for status in [HelperStatus.enabled, .requiresApproval] {
+            XCTAssertFalse(can(status, true, true))
+        }
+    }
+
+    func testRegistrarWithoutARawStatusReportsNone() {
+        XCTAssertNil(FakeRegistrar().rawStatus)
+    }
+
+    func testStatusMappingKeepsUnknownValuesApartByRawValue() {
+        XCTAssertEqual(SMAppServiceRegistrar.helperStatus(.notFound), .notFound)
+        XCTAssertEqual(SMAppServiceRegistrar.helperStatus(.notRegistered), .notRegistered)
+        XCTAssertEqual(SMAppServiceRegistrar.helperStatus(.enabled), .enabled)
+        XCTAssertEqual(SMAppServiceRegistrar.helperStatus(.requiresApproval), .requiresApproval)
+        XCTAssertEqual(SMAppService.Status.notFound.rawValue, 3)
+        // A value this build does not know maps to .notFound too (it is told apart by the raw value).
+        XCTAssertEqual(SMAppServiceRegistrar.helperStatus(SMAppService.Status(rawValue: 99)!), .notFound)
+    }
+
+    func testHelperReportCarriesTheRawStatusInJSON() throws {
+        let report = HelperReport(
+            state: HelperReport.stateName(.notFound), responding: false, expectedProtocolVersion: 5, rawStatus: 3)
+        let data = try AutomationJSON.encoder(pretty: false).encode(report)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(json["state"] as? String, "missing_from_bundle")
+        XCTAssertEqual(json["raw_status"] as? Int, 3)
+        XCTAssertEqual(try JSONCoding.decoder().decode(HelperReport.self, from: data), report)
+        // Left out when unknown (Linux, fakes).
+        let plain = try AutomationJSON.encoder(pretty: false).encode(HelperReport(state: "enabled", responding: true))
+        XCTAssertNil((try JSONSerialization.jsonObject(with: plain) as? [String: Any])?["raw_status"])
     }
 }
 #endif

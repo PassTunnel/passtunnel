@@ -380,7 +380,7 @@ final class PlatformValueTests: XCTestCase {
             _ = try await auth.unlock(keyData: Data(), reason: "test")
             XCTFail("expected an error")
         } catch {
-            XCTAssertEqual(error as? PTError, .protectionUnavailable, "never ProtectionKeyUnusable (that removes items)")
+            XCTAssertEqual(error as? PTError, .protectionUnavailable, "never ProtectionKeyUnusable: the key is not the problem")
             XCTAssertEqual(AutomationErrorCode.of(error), .authUnavailable)
         }
         #if os(Linux)

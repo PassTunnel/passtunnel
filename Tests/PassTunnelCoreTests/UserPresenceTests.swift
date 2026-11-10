@@ -14,6 +14,9 @@ import Crypto
 #if canImport(LocalAuthentication)
 import LocalAuthentication
 #endif
+#if canImport(Security)
+import Security
+#endif
 
 /// Stands in for the Secure Enclave: a software P-256 key behind the same protocol. Each `unlock` is
 /// one "prompt"; results are consumed in order (none left = confirmed).
@@ -28,10 +31,33 @@ final class FakeAuthenticator: UserAuthenticator, @unchecked Sendable {
     var delay: TimeInterval = 0
     /// False: the public key of stored key data cannot be read without unlocking it.
     var canReadPublicKey = true
+    /// Thrown by `publicKey(keyData:)` instead of reading it (another error than `ProtectionKeyUnusable`).
+    var publicKeyError: Error?
+    /// False: making a key fails, as `SecureEnclaveAuthenticator.createKey` does.
+    var canCreateKeys = true
 
     var results: [Error?] {
         get { lock.lock(); defer { lock.unlock() }; return _results }
         set { lock.lock(); _results = newValue; lock.unlock() }
+    }
+
+    /// Errors of the unlocked key's key agreements, consumed in order (none left = it works).
+    private var _keyErrors: [Error?] = []
+    var keyErrors: [Error?] {
+        get { lock.lock(); defer { lock.unlock() }; return _keyErrors }
+        set { lock.lock(); _keyErrors = newValue; lock.unlock() }
+    }
+
+    /// Key data that loads (its public key reads) but fails once confirmed, as a key that cannot be used.
+    private var _deadKeys: Set<Data> = []
+    var deadKeys: Set<Data> {
+        get { lock.lock(); defer { lock.unlock() }; return _deadKeys }
+        set { lock.lock(); _deadKeys = newValue; lock.unlock() }
+    }
+
+    fileprivate func nextKeyError() -> Error? {
+        lock.lock(); defer { lock.unlock() }
+        return _keyErrors.isEmpty ? nil : _keyErrors.removeFirst()
     }
 
     var reasons: [String] { lock.lock(); defer { lock.unlock() }; return _reasons }
@@ -39,13 +65,14 @@ final class FakeAuthenticator: UserAuthenticator, @unchecked Sendable {
     var keysCreated: Int { lock.lock(); defer { lock.unlock() }; return _created }
 
     func createKey() throws -> ProtectionKey {
-        guard isAvailable else { throw PTError.protectionUnavailable }
+        guard isAvailable, canCreateKeys else { throw PTError.protectionUnavailable }
         let key = P256.KeyAgreement.PrivateKey()
         lock.lock(); _created += 1; lock.unlock()
         return ProtectionKey(data: key.rawRepresentation, publicKey: key.publicKey)
     }
 
     func publicKey(keyData: Data) throws -> P256.KeyAgreement.PublicKey {
+        if let publicKeyError { throw publicKeyError }
         guard canReadPublicKey, let key = try? P256.KeyAgreement.PrivateKey(rawRepresentation: keyData) else { throw ProtectionKeyUnusable() }
         return key.publicKey
     }
@@ -58,16 +85,22 @@ final class FakeAuthenticator: UserAuthenticator, @unchecked Sendable {
         }()
         if delay > 0 { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
         if let result { throw result }
+        if deadKeys.contains(keyData) { throw ProtectionKeyUnusable(NSError(domain: "ExampleDomain", code: -1)) }
         guard let key = try? P256.KeyAgreement.PrivateKey(rawRepresentation: keyData) else { throw ProtectionKeyUnusable() }
-        return Unlocked(key: key)
+        return Unlocked(key: key, owner: self)
     }
 
     private final class Unlocked: UnlockedProtectionKey {
         let key: P256.KeyAgreement.PrivateKey
-        init(key: P256.KeyAgreement.PrivateKey) { self.key = key }
+        let owner: FakeAuthenticator
+        init(key: P256.KeyAgreement.PrivateKey, owner: FakeAuthenticator) {
+            self.key = key
+            self.owner = owner
+        }
         var publicKey: P256.KeyAgreement.PublicKey { key.publicKey }
         func sharedSecret(with peer: P256.KeyAgreement.PublicKey) async throws -> SharedSecret {
-            try key.sharedSecretFromKeyAgreement(with: peer)
+            if let error = owner.nextKeyError() { throw error }
+            return try key.sharedSecretFromKeyAgreement(with: peer)
         }
     }
 }
@@ -302,27 +335,34 @@ extension ConnectionManagerTests {
         XCTAssertEqual(startedSecret(p.id), "pw" + (try code(at: t0)))
     }
 
-    func testLostKeyAsksToEnterTheSecretAgain() async throws {
+    func testUnusableKeyKeepsTheSecretAndEnteringItAgainMakesANewKey() async throws {
         let m = makeManager()
         let p = try await makeProtected(in: m)
         // As after moving to another Mac: the wrapped key blob is useless here.
         var record = try XCTUnwrap(Secrets.protectionKey(p.id).flatMap(ProtectionKeyRecord.decode))
         record.key = Data("not a key".utf8)
-        try Secrets.setProtectionKey(p.id, try record.encoded())
+        let recordText = try record.encoded()
+        try Secrets.setProtectionKey(p.id, recordText)
+        let stored = Secrets.raw(p.id, .password)
 
         do {
             try await m.connect(p.id)
             XCTFail("expected an error")
         } catch {
-            XCTAssertEqual(error as? PTError, .protectedSecretUnreadable(.password))
+            let unusable = try XCTUnwrap(error as? ProtectionKeyUnusable, "\(error)")
+            XCTAssertEqual(unusable.profileName, "Acme VPN")
+            XCTAssertEqual(unusable.kinds, [.password])
+            XCTAssertTrue(error.localizedDescription.contains("enter its password again in the profile editor"), error.localizedDescription)
         }
         XCTAssertEqual(helper.starts.count, 0)
-        XCTAssertFalse(Secrets.has(p.id, .password), "the undecryptable item is removed")
-        XCTAssertNil(Secrets.protectionKey(p.id))
+        XCTAssertEqual(Secrets.raw(p.id, .password), stored, "nothing is removed: the failure may pass")
+        XCTAssertEqual(Secrets.protectionKey(p.id), recordText)
+        XCTAssertTrue(m.lastError[p.id]?.contains("were kept") == true)
 
-        // Entering it again works with a new key.
+        // Entering it again replaces the item and, as nothing else needs the old key, the key.
         try m.vault.store(p, .password, "pw2")
         XCTAssertTrue(Secrets.isProtected(p.id, .password))
+        XCTAssertNotEqual(Secrets.protectionKey(p.id), recordText)
         try await m.connect(p.id)
         XCTAssertEqual(startedSecret(p.id), "pw2")
     }
@@ -437,6 +477,341 @@ final class SecretVaultTests: CoreTestCase {
             XCTAssertEqual(error as? PTError, .protectedSecretUnreadable(.password))
         }
         XCTAssertEqual(Secrets.raw(p.id, .password), raw, "kept: the key still works, so it is not a lost key")
+    }
+
+    // MARK: key failures
+
+    /// The encrypted items and the key record of `p`, to check that nothing changed.
+    func storedItems(_ p: Profile) -> [String?] {
+        [Secrets.raw(p.id, .password), Secrets.raw(p.id, .totp), Secrets.protectionKey(p.id)]
+    }
+
+    @MainActor func testKeyThatFailsToUnlockKeepsEverythingAndATryAgainWorks() async throws {
+        let vault = makeVault()
+        let p = try await change(try makeProfile(), to: .always, in: vault)
+        let before = storedItems(p)
+        let underlying = NSError(domain: "ExampleDomain", code: 42, userInfo: [NSLocalizedDescriptionKey: "The key was refused."])
+        auth.results = [ProtectionKeyUnusable(underlying)]
+        do {
+            _ = try await vault.secret(p, .password, for: .connect)
+            XCTFail("expected an error")
+        } catch {
+            let unusable = try XCTUnwrap(error as? ProtectionKeyUnusable, "\(error)")
+            XCTAssertEqual(unusable.profileName, "Acme")
+            XCTAssertEqual(Set(unusable.kinds), [.password, .totp])
+            XCTAssertEqual(unusable.reason, "The key was refused. (ExampleDomain 42)")
+            let text = error.localizedDescription
+            XCTAssertTrue(text.contains("The saved secrets were kept"), text)
+            XCTAssertTrue(text.contains("enter its password and add its TOTP secret again"), text)
+            XCTAssertTrue(text.hasSuffix("Details: The key was refused. (ExampleDomain 42)"), text)
+        }
+        XCTAssertEqual(storedItems(p), before, "nothing removed")
+        XCTAssertFalse(vault.isUnlocked(p.id, .password))
+
+        // Any other error is passed on as it is, and changes nothing either.
+        auth.results = [NSError(domain: "ExampleDomain", code: 7)]
+        do {
+            _ = try await vault.secret(p, .password, for: .connect)
+            XCTFail("expected an error")
+        } catch {
+            XCTAssertEqual((error as NSError).code, 7)
+        }
+        XCTAssertEqual(storedItems(p), before)
+
+        let password = try await vault.secret(p, .password, for: .connect)
+        XCTAssertEqual(password, "pw")
+        XCTAssertEqual(vault.available(p.id, .totp), totp)
+        XCTAssertEqual(auth.calls, 3)
+    }
+
+    @MainActor func testKeyAgreementFailureKeepsEverythingAndATryAgainWorks() async throws {
+        let vault = makeVault()
+        let p = try await change(try makeProfile(), to: .connect, in: vault)
+        let before = storedItems(p)
+        auth.keyErrors = [ProtectionKeyUnusable(CocoaError(.featureUnsupported))]
+        do {
+            _ = try await vault.secret(p, .password, for: .connect)
+            XCTFail("expected an error")
+        } catch {
+            let unusable = try XCTUnwrap(error as? ProtectionKeyUnusable, "\(error)")
+            XCTAssertEqual(unusable.kinds, [.password])
+            XCTAssertTrue(unusable.reason?.hasSuffix("(NSCocoaErrorDomain \(CocoaError.featureUnsupported.rawValue))") == true, "\(unusable)")
+            XCTAssertTrue(error.localizedDescription.contains("enter its password again"), error.localizedDescription)
+        }
+        XCTAssertEqual(storedItems(p), before, "nothing removed")
+        XCTAssertNil(vault.available(p.id, .password))
+
+        let password = try await vault.secret(p, .password, for: .connect)
+        XCTAssertEqual(password, "pw")
+        XCTAssertEqual(auth.calls, 2)
+        XCTAssertFalse(ConnectionManager.isRetryable(ProtectionKeyUnusable()), "a reconnect cannot ask, so it does not retry")
+        XCTAssertEqual(ConnectionFailure.of(ProtectionKeyUnusable(), log: nil, handed: nil, at: now).kind, .configuration)
+    }
+
+    /// Makes the stored key data of `id` unloadable here, as another Mac's; returns the record's text.
+    @discardableResult
+    func makeKeyUnloadable(_ id: String) throws -> String {
+        var record = try XCTUnwrap(Secrets.protectionKey(id).flatMap(ProtectionKeyRecord.decode))
+        record.key = Data("not a key".utf8)
+        let text = try record.encoded()
+        try Secrets.setProtectionKey(id, text)
+        return text
+    }
+
+    @MainActor func testPartialReentryWithAnUnloadableKeyChangesNothing() async throws {
+        let vault = makeVault()
+        let p = try await change(try makeProfile(), to: .always, in: vault)
+        try makeKeyUnloadable(p.id)
+        let before = storedItems(p)
+
+        // The TOTP secret still needs the stored key, which may never open again: nothing is written.
+        XCTAssertThrowsError(try vault.store(p, .password, "pw2")) { error in
+            XCTAssertEqual((error as? ProtectionKeyUnusable)?.kinds, [.password, .totp], "\(error)")
+            XCTAssertTrue(error.localizedDescription.contains("enter its password and add its TOTP secret again"))
+        }
+        XCTAssertEqual(storedItems(p), before)
+        XCTAssertEqual(auth.keysCreated, 1)
+
+        // Both together: nothing needs the old key any more, so they get a new one.
+        try vault.store(p, [.password: "pw3", .totp: totp])
+        XCTAssertNotEqual(Secrets.protectionKey(p.id), before[2])
+        XCTAssertTrue(Secrets.isProtected(p.id, .password))
+        XCTAssertTrue(Secrets.isProtected(p.id, .totp))
+        XCTAssertEqual(auth.keysCreated, 2)
+        let password = try await vault.secret(p, .password, for: .connect)
+        XCTAssertEqual(password, "pw3")
+        XCTAssertEqual(vault.available(p.id, .totp), totp)
+        XCTAssertEqual(auth.calls, 1)
+
+        // A partial store with a key that loads uses it; a full one always makes a new key.
+        let current = Secrets.protectionKey(p.id)
+        try vault.store(p, .password, "pw4")
+        XCTAssertEqual(Secrets.protectionKey(p.id), current)
+        try vault.store(p, [.password: "pw5", .totp: totp])
+        XCTAssertNotEqual(Secrets.protectionKey(p.id), current)
+        XCTAssertEqual(auth.keysCreated, 3)
+        vault.reset()
+        let latest = try await vault.secret(p, .password, for: .connect)
+        XCTAssertEqual(latest, "pw5")
+    }
+
+    @MainActor func testKeyThatLoadsButCannotBeUsedIsReplacedByAFullReentry() async throws {
+        let vault = makeVault()
+        let p = try await change(try makeProfile(), to: .always, in: vault)
+        let record = try XCTUnwrap(Secrets.protectionKey(p.id).flatMap(ProtectionKeyRecord.decode))
+        auth.deadKeys = [record.key]  // its public key reads; only using it fails
+        let before = storedItems(p)
+        do {
+            _ = try await vault.secret(p, .password, for: .connect)
+            XCTFail("expected an error")
+        } catch {
+            XCTAssertTrue(error is ProtectionKeyUnusable, "\(error)")
+        }
+        XCTAssertEqual(storedItems(p), before)
+
+        try vault.store(p, [.password: "pw2", .totp: totp])
+        XCTAssertNotEqual(Secrets.protectionKey(p.id), before[2])
+        let password = try await vault.secret(p, .password, for: .connect)
+        XCTAssertEqual(password, "pw2")
+        XCTAssertEqual(vault.available(p.id, .totp), totp)
+    }
+
+    @MainActor func testSingleSecretProfileIsRepairedByEnteringItAgain() async throws {
+        let vault = makeVault()
+        let p = try await change(try makeProfile(otp: false), to: .connect, in: vault)
+        let record = try XCTUnwrap(Secrets.protectionKey(p.id).flatMap(ProtectionKeyRecord.decode))
+        auth.deadKeys = [record.key]
+        do {
+            _ = try await vault.secret(p, .password, for: .connect)
+            XCTFail("expected an error")
+        } catch {
+            XCTAssertEqual((error as? ProtectionKeyUnusable)?.kinds, [.password], "\(error)")
+        }
+        try vault.store(p, .password, "pw2")  // the single-kind store, as `passtunnel secret` uses it
+        let password = try await vault.secret(p, .password, for: .connect)
+        XCTAssertEqual(password, "pw2")
+    }
+
+    /// Lowering needs a real confirmation, so a key that cannot be used refuses it; a profile that
+    /// stores no secret is not asked to enter one.
+    @MainActor func testLoweringWithAnUnusableKeyIsRefusedWithoutAskingForUnusedSecrets() async throws {
+        let vault = makeVault()
+        let p = try await change(try makeProfile(password: nil, otp: false), to: .connect, in: vault)
+        let record = try XCTUnwrap(Secrets.protectionKey(p.id).flatMap(ProtectionKeyRecord.decode))
+        auth.deadKeys = [record.key]
+        var off = p
+        off.requireAuth = .off
+        do {
+            try await vault.applyProtection(from: p, to: off)
+            XCTFail("expected an error")
+        } catch {
+            XCTAssertEqual((error as? ProtectionKeyUnusable)?.kinds, [], "\(error)")
+            XCTAssertFalse(error.localizedDescription.contains("another Mac"), error.localizedDescription)
+        }
+        XCTAssertNotNil(Secrets.protectionKey(p.id))
+    }
+
+    /// A save that changes something else than the setting gets the ordinary hint.
+    @MainActor func testUnusableKeyWithoutASettingChangeGetsTheOrdinaryHint() async throws {
+        let vault = makeVault()
+        let p = try await change(try makeProfile(password: nil), to: .connect, in: vault)
+        XCTAssertTrue(Secrets.isProtected(p.id, .totp))
+        try makeKeyUnloadable(p.id)
+        var saved = p
+        saved.passwordMode = .keychain  // the TOTP secret leaves the protection: it is decrypted
+        do {
+            try await vault.applyProtection(from: p, to: saved)
+            XCTFail("expected an error")
+        } catch {
+            XCTAssertEqual((error as? ProtectionKeyUnusable)?.changingSetting, false, "\(error)")
+            XCTAssertTrue(error.localizedDescription.contains("first add its TOTP secret again"), error.localizedDescription)
+        }
+    }
+
+    @MainActor func testUnloadableKeyNeverTakesAPlainSecret() async throws {
+        let vault = makeVault()
+        var p = try await change(try makeProfile(), to: .connect, in: vault)
+        XCTAssertEqual([Secrets.isProtected(p.id, .password), Secrets.isProtected(p.id, .totp)], [true, false])
+        try makeKeyUnloadable(p.id)
+        let before = storedItems(p)
+
+        // Raising the setting would encrypt the TOTP secret to the stored key: refused, it stays plain.
+        var always = p
+        always.requireAuth = .always
+        do {
+            try await vault.applyProtection(from: p, to: always)
+            XCTFail("expected an error")
+        } catch {
+            XCTAssertEqual((error as? ProtectionKeyUnusable)?.changingSetting, true, "\(error)")
+            // The setting is named by the editor's switch on the Mac and as require_auth on Linux.
+            #if os(macOS)
+            let setting = "Require"
+            #else
+            let setting = "require_auth"
+            #endif
+            XCTAssertTrue(error.localizedDescription.contains("save without changing “\(setting)"), error.localizedDescription)
+        }
+        XCTAssertEqual(storedItems(p), before)
+        XCTAssertEqual(Secrets.get(p.id, .totp), totp)
+
+        // The same setting edited by hand: reconcile leaves it plain too.
+        p.requireAuth = .always
+        try store.save(p)
+        XCTAssertFalse(vault.reconcile(p))
+        XCTAssertEqual(storedItems(p), before)
+        XCTAssertEqual(Secrets.get(p.id, .totp), totp)
+    }
+
+    #if canImport(Security)
+    @MainActor func testFullReentryThatFailsHalfwayCanBeRepeated() async throws {
+        let vault = makeVault()
+        let p = try await change(try makeProfile(), to: .always, in: vault)
+        try makeKeyUnloadable(p.id)
+        let before = storedItems(p)
+        defer { Secrets.addOverride = nil }
+        var failed = false
+        Secrets.addOverride = { query in
+            let account = (query as NSDictionary)[kSecAttrAccount as String] as? String
+            if !failed && account == "\(p.id)/totp" {
+                failed = true
+                return errSecIO
+            }
+            return SecItemAdd(query, nil)
+        }
+        XCTAssertThrowsError(try vault.store(p, [.password: "pw2", .totp: totp]))
+        XCTAssertTrue(failed)
+        XCTAssertEqual(storedItems(p), before, "the record is written last; the password was put back")
+
+        Secrets.addOverride = nil
+        try vault.store(p, [.password: "pw3", .totp: totp])
+        let password = try await vault.secret(p, .password, for: .connect)
+        XCTAssertEqual(password, "pw3")
+        XCTAssertEqual(vault.available(p.id, .totp), totp)
+    }
+
+    /// A healthy profile whose new key record cannot be written keeps its items, readable with the old key.
+    @MainActor func testFailedKeyRecordWritePutsTheItemsBack() async throws {
+        let vault = makeVault()
+        let p = try await change(try makeProfile(), to: .always, in: vault)
+        let before = storedItems(p)
+        defer { Secrets.addOverride = nil }
+        var failed = false
+        Secrets.addOverride = { query in
+            let account = (query as NSDictionary)[kSecAttrAccount as String] as? String
+            if !failed && account == "\(p.id)/sekey" {
+                failed = true
+                return errSecIO
+            }
+            return SecItemAdd(query, nil)
+        }
+        XCTAssertThrowsError(try vault.store(p, [.password: "pw2", .totp: totp]))
+        XCTAssertTrue(failed)
+        XCTAssertEqual(storedItems(p), before)
+        let password = try await vault.secret(p, .password, for: .connect)
+        XCTAssertEqual(password, "pw")
+    }
+
+    /// An item or a record that exists but cannot be read is never left behind with a new key.
+    @MainActor func testUnreadableItemOrRecordStopsTheStore() async throws {
+        let vault = makeVault()
+        let p = try await change(try makeProfile(), to: .always, in: vault)
+        let before = storedItems(p)
+        defer { Secrets.readOverride = nil }
+
+        Secrets.readOverride = { $0 == "\(p.id)/totp" ? errSecInteractionNotAllowed : nil }
+        XCTAssertThrowsError(try vault.store(p, .password, "pw2")) { error in
+            XCTAssertEqual(error as? PTError, .keychain(errSecInteractionNotAllowed))
+        }
+        Secrets.readOverride = { $0 == "\(p.id)/sekey" ? errSecInteractionNotAllowed : nil }
+        XCTAssertThrowsError(try vault.store(p, [.password: "pw2", .totp: totp])) { error in
+            XCTAssertEqual(error as? PTError, .keychain(errSecInteractionNotAllowed))
+        }
+        Secrets.readOverride = nil
+        XCTAssertEqual(storedItems(p), before, "nothing written")
+        XCTAssertEqual(auth.keysCreated, 1)
+
+        try vault.store(p, .password, "pw3")
+        try vault.store(p, [.password: "pw4", .totp: totp])
+        let password = try await vault.secret(p, .password, for: .connect)
+        XCTAssertEqual(password, "pw4")
+        XCTAssertEqual(vault.available(p.id, .totp), totp)
+    }
+    #endif
+
+    /// Another error of the key data than `ProtectionKeyUnusable` is reported as it is, and nothing is
+    /// encrypted to the record's unchecked public key.
+    @MainActor func testOtherKeyDataErrorsStopTheStore() async throws {
+        let vault = makeVault()
+        let p = try await change(try makeProfile(), to: .always, in: vault)
+        let before = storedItems(p)
+        auth.publicKeyError = PTError.protectionUnavailable
+        XCTAssertThrowsError(try vault.store(p, .password, "pw2")) { XCTAssertEqual($0 as? PTError, .protectionUnavailable) }
+        XCTAssertEqual(storedItems(p), before)
+
+        // With nothing encrypted either.
+        Secrets.delete(p.id, .password)
+        Secrets.delete(p.id, .totp)
+        XCTAssertThrowsError(try vault.store(p, .password, "pw2")) { XCTAssertEqual($0 as? PTError, .protectionUnavailable) }
+        XCTAssertFalse(Secrets.has(p.id, .password))
+        XCTAssertEqual(Secrets.protectionKey(p.id), before[2])
+    }
+
+    /// A full replacement that cannot make a new key uses the stored one when it loads and matches.
+    @MainActor func testFullReplacementWithoutANewKeyUsesAHealthyStoredKey() async throws {
+        let vault = makeVault()
+        let p = try await change(try makeProfile(otp: false), to: .connect, in: vault)
+        let record = Secrets.protectionKey(p.id)
+        auth.canCreateKeys = false
+        try vault.store(p, .password, "pw2")
+        XCTAssertEqual(Secrets.protectionKey(p.id), record)
+        let password = try await vault.secret(p, .password, for: .connect)
+        XCTAssertEqual(password, "pw2")
+
+        // Not when the stored key data cannot be loaded: then there is no key to use.
+        try makeKeyUnloadable(p.id)
+        let before = storedItems(p)
+        XCTAssertThrowsError(try vault.store(p, .password, "pw3")) { XCTAssertEqual($0 as? PTError, .protectionUnavailable) }
+        XCTAssertEqual(storedItems(p), before)
     }
 
     // MARK: migration
@@ -638,6 +1013,23 @@ final class SecretVaultTests: CoreTestCase {
             XCTAssertFalse(reason.isEmpty)
         }
         XCTAssertTrue(SecureEnclaveAuthenticator.map(ProtectionKeyUnusable()) is ProtectionKeyUnusable)
+    }
+
+    /// Errors of the key itself: LocalAuthentication's are worded as the prompt's, anything else is
+    /// reported with its text, domain and code, whatever it is.
+    func testKeyErrorsKeepTheUnderlyingError() {
+        XCTAssertEqual(
+            SecureEnclaveAuthenticator.keyError(NSError(domain: LAError.errorDomain, code: LAError.Code.userCancel.rawValue)) as? PTError,
+            .userConfirmationCancelled)
+        let ns = NSError(domain: "ExampleDomain", code: -3, userInfo: [NSLocalizedDescriptionKey: "Refused."])
+        XCTAssertEqual(SecureEnclaveAuthenticator.keyError(ns) as? ProtectionKeyUnusable, ProtectionKeyUnusable(ns))
+        XCTAssertEqual(ProtectionKeyUnusable(ns).reason, "Refused. (ExampleDomain -3)")
+        let swiftError = CryptoKitError.underlyingCoreCryptoError(error: -5)
+        let reason = ProtectionKeyUnusable(swiftError).reason ?? ""
+        XCTAssertTrue(reason.hasPrefix("underlyingCoreCryptoError(error: -5) ("), reason)
+        XCTAssertTrue(reason.contains("CryptoKitError"), reason)
+        XCTAssertNil(ProtectionKeyUnusable().reason)
+        XCTAssertFalse(ProtectionKeyUnusable().localizedDescription.contains("Details"))
     }
     #endif
 

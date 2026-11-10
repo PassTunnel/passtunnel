@@ -11,7 +11,7 @@
 # scripts/build-linux.sh.
 
 # swift:6.4.1-noble, the image of the Linux CI jobs, pinned by the digest of its multi-arch index.
-FROM swift:6.4.1-noble@sha256:6304481cf2717966b7ba175162e397ea2f2cc3161909f2b2a5cf40036079a0f7 AS build
+FROM swift:6.4.2-noble@sha256:bca121f6eb59fd80340d1296887b2698ed8f3eb9eca7d80c181f8af769dc7ee0 AS build
 WORKDIR /src
 COPY . .
 RUN scripts/swift-retry.sh swift build -c release --static-swift-stdlib --product passtunnel \
@@ -22,7 +22,7 @@ RUN scripts/swift-retry.sh swift build -c release --static-swift-stdlib --produc
 # digest of its multi-arch index. It follows the build image's release and is changed by hand together
 # with it: Dependabot only updates the digest (.github/dependabot.yml). The Swift runtime is linked
 # into the binary.
-FROM ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac
+FROM ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852
 RUN groupadd --gid 10001 mcp \
     && useradd --uid 10001 --gid 10001 --create-home --shell /usr/sbin/nologin mcp
 COPY --from=build /out/passtunnel /usr/local/bin/passtunnel

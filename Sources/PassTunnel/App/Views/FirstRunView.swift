@@ -270,7 +270,12 @@ private struct HelperCard: View {
 
     @ViewBuilder private var status: some View {
         switch model.helperStatus {
-        case .notRegistered:
+        case .notFound where !HelperInstaller.canAttemptInstall(status: .notFound):
+            Text(String(localized: "Move PassTunnel to the Applications folder and open it from there to install the helper."))
+                .typography(.hint)
+                .foregroundStyle(Palette.fg)
+                .fixedSize(horizontal: false, vertical: true)
+        case .notRegistered, .notFound:
             HStack(spacing: Spacing.xs) {
                 Button(String(localized: "Install Helper")) { install() }
                     .buttonStyle(.primaryCapsule(.compact))
@@ -292,11 +297,6 @@ private struct HelperCard: View {
                 .buttonStyle(.primaryCapsule(.compact))
                 .padding(.top, Spacing.xxs)
                 .accessibilityIdentifier("firstRun.loginItems")
-        case .notFound:
-            Text(String(localized: "Move PassTunnel to the Applications folder and open it from there to install the helper."))
-                .typography(.hint)
-                .foregroundStyle(Palette.fg)
-                .fixedSize(horizontal: false, vertical: true)
         case .enabled:
             Text(String(localized: "The helper is installed and running."))
                 .typography(.hint)

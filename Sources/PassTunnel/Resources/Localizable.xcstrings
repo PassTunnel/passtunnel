@@ -473,6 +473,16 @@
         }
       }
     },
+    "(macOS status %lld)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(macOS durumu %lld)"
+          }
+        }
+      }
+    },
     "(out of date; “passtunnel helper install” updates it)" : {
       "localizations" : {
         "tr" : {
@@ -5103,6 +5113,16 @@
         }
       }
     },
+    "Details: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ayrıntılar: %@"
+          }
+        }
+      }
+    },
     "Dropping %@ as if the server ended the session…" : {
       "localizations" : {
         "tr" : {
@@ -5129,6 +5149,46 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "“%@” ayarlı profillerde Touch ID ya da Mac parolanızla verilen bir onay, aynı profil için bu süre boyunca geçerlidir. Uyku ve ekran kilidi onayı sona erdirir."
+          }
+        }
+      }
+    },
+    "If the profile comes from another Mac, first add its TOTP secret again in the profile editor and save." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profil başka bir Mac’ten geldiyse önce TOTP gizli anahtarını profil düzenleyicisinde yeniden ekleyip kaydedin."
+          }
+        }
+      }
+    },
+    "If the profile comes from another Mac, first enter its password again in the profile editor and save." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profil başka bir Mac’ten geldiyse önce parolasını profil düzenleyicisinde yeniden girip kaydedin."
+          }
+        }
+      }
+    },
+    "If the profile comes from another Mac, first enter its password and add its TOTP secret again in the profile editor, then save both together." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profil başka bir Mac’ten geldiyse önce profil düzenleyicisinde parolasını yeniden girip TOTP gizli anahtarını yeniden ekleyin, sonra ikisini birlikte kaydedin."
+          }
+        }
+      }
+    },
+    "If the profile comes from another Mac, first enter its secrets again and save without changing “%@”, then change that setting." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profil başka bir Mac’ten geldiyse önce “%@” ayarını değiştirmeden gizli bilgilerini yeniden girip kaydedin, sonra o ayarı değiştirin."
           }
         }
       }
@@ -5489,6 +5549,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Parola artık gizli bilgi deposundan alınıyor."
+          }
+        }
+      }
+    },
+    "The protection key of “%@” could not be used. The saved secrets were kept, so trying again can work." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” profilinin koruma anahtarı kullanılamadı. Kayıtlı gizli bilgiler silinmedi, bu yüzden yeniden denemek işe yarayabilir."
           }
         }
       }
@@ -7634,6 +7704,16 @@
         }
       }
     },
+    "Helper: not reported by macOS yet (run “passtunnel helper install”)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı: macOS henüz bildirmiyor (“passtunnel helper install” çalıştırın)"
+          }
+        }
+      }
+    },
     "Icon" : {
       "localizations" : {
         "tr" : {
@@ -7970,6 +8050,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "macOS, PassTunnel’ın yardımcıyı kurmasına izin vermedi (%@). Yeniden denemek için Yardımcıyı Yükle’ye tıklayın."
+          }
+        }
+      }
+    },
+    "macOS does not list the helper yet. Try installing it; macOS asks you to approve it once." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS yardımcıyı henüz listelemiyor. Yüklemeyi deneyin; macOS onayınızı bir kez ister."
           }
         }
       }
@@ -8320,6 +8410,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Yüklü değil"
+          }
+        }
+      }
+    },
+    "Not reported by macOS yet" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS henüz bildirmiyor"
           }
         }
       }

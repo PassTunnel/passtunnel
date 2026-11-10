@@ -32,6 +32,8 @@ sha256() {
     if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d ' ' -f 1
 }
 
+# The same comparison is made without Docker by the step "The GlobalProtect test server's hash is for the
+# pinned openconnect" of the required job "Release scripts" (.github/workflows/ci.yml): keep them in step.
 version="$(sed -n 's/^OPENCONNECT_VERSION=//p' "$ROOT/scripts/release.env")"
 [[ "$version" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || fail "no OPENCONNECT_VERSION in scripts/release.env"
 read -r sum file <"$HERE/fake-gp-server.sha256"

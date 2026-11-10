@@ -197,6 +197,20 @@ used as it is (the tag ruleset forbids changing or deleting `v*` tags); `release
 signature before the build and stops if it does not verify. Since the workflow checks a tag before
 pushing it, that only happens with a tag pushed before tags were signed.
 
+**A failure after the release was published.** The step *Attach the provenance and publish* comes
+before *Update the Homebrew tap*. When the tap step (a missing or wrong `TAP_DEPLOY_KEY`, GitHub or
+the tap being unavailable) fails, the tag and the published release exist and `appcast.xml` is live
+(installed copies are offered the update), but the cask in the tap still has the previous version,
+and the job *MCP Registry* is skipped, because it needs *Build and publish* to succeed. Running the
+workflow again does not repair that: `HEAD` carries the tag of a published release, so the run only
+reports "Already released" and the build job does not start (and a published release takes no new
+files). Fix the cause, then do the two steps by hand: the tap as in step 4 of
+[Releasing from a Mac](#releasing-from-a-mac), and the registry with Actions → Publish to MCP
+Registry → Run workflow → tag `vX.Y.Z`. The cask is not kept anywhere (`dist/passtunnel.rb` was on
+the runner): make it from `scripts/homebrew/passtunnel.rb.template` by replacing `@VERSION@` with the
+version, `@SHA256@` with the SHA-256 of `PassTunnel-X.Y.Z.dmg` (the line in the release's
+`SHA256SUMS`) and `@GITHUB_REPO@` with `GITHUB_REPO` from `release.env`, as `release.sh` does.
+
 ### Setup
 
 The environment `release` (Settings → Environments) allows only the branch `main`, needs the
@@ -217,9 +231,14 @@ GitHub account behind a passkey or security key, and keep the offline backup of 
 
 The branch rulesets (Settings → Rules): `dev` and `main` refuse direct pushes, force pushes,
 deletion and unsigned commits; `dev` takes squash merges, `main` merge commits; the required checks
-are `Build and test`, `Release scripts`, `Site` and `PR title`, plus `Source branch` on `main`
-(`Bundled tools` and `Bundled tools on macOS 15` run as well and are worth adding). Actions must be
-pinned to full commit SHAs.
+are `Build and test`, `PR title`, `Release scripts`, `Site`, `Linux (x86_64)`, `Linux (aarch64)`,
+`Bundled tools` and `Bundled tools on macOS 15`, plus `Source branch` on `main`. `Repeatable build
+(macOS)` is not required. Actions must be pinned to full commit SHAs.
+
+The pins in `release.env` are not enforced by a required check: `Bundled tools` sets
+`PASSTUNNEL_ALLOW_UNPINNED_TOOLS` (see [Bundled tools](#bundled-tools)). They are held by `Repeatable
+build (macOS)`, which is not required, and by the scheduled `Bundled tool pins` check, which opens an
+issue; the release workflow stops on them too, but only after the release is approved.
 
 ## Releasing from a Mac
 
@@ -412,9 +431,24 @@ build again and send the pins as a pull request (`fix(deps): bundle openvpn 2.7.
 The release workflow and the Repeatable build run `brew update`, install `openvpn`, `openfortivpn`
 and `openconnect` and upgrade exactly the bundled formulas (the runner image ships older versions of some, which
 `brew install` leaves alone), so both stop as soon as Homebrew has moved past a pin; the same pull
-request fixes that. A new `OPENCONNECT_VERSION` also needs that tarball's SHA-256 (Homebrew's formula
+request fixes that.
+
+Neither is a gate on pull requests, though: the required `Bundled tools` job runs
+`bundle-tools.sh` with `PASSTUNNEL_ALLOW_UNPINNED_TOOLS=1`, so that every pull request does not turn
+red the day Homebrew moves, and `Repeatable build (macOS)` is not required. The workflow `Bundled
+tool pins` (`.github/workflows/tool-pins.yml`) therefore does the installation of the release
+workflow and runs `bundle-tools.sh` without that variable every day (06:23 UTC, and by hand), on
+`macos-26`. It builds nothing, and takes a few minutes of a runner (the installation of the
+bottles). When a version differs from its pin, or the check fails for another reason, it opens one
+issue, "Scheduled run failed: Bundled tool pins", with the table `bundle-tools.sh` printed (formula,
+Homebrew's version now, status against the pin) and a link to the run, or adds a comment to that
+issue while it is open. It does not close it when the check passes again: the pull request that
+moves the pins does (`Closes #N`). The other scheduled workflows (`Fuzz` and `Cisco AnyConnect
+tunnel`) report a failed or timed-out run the same way, in the issues "Scheduled run failed: Fuzz"
+and "Scheduled run failed: Cisco AnyConnect tunnel" (`.github/actions/report-failure`). A new `OPENCONNECT_VERSION` also needs that tarball's SHA-256 (Homebrew's formula
 pins it) in `Tests/globalprotect/fake-gp-server.sha256`, in the same pull request: the GlobalProtect sign-in
-tests take their server from it and stop on a hash file for another version. For a local build against other
+tests take their server from it and stop on a hash file for another version, and the required
+`Release scripts` job checks that the file names the pinned version. For a local build against other
 versions, `PASSTUNNEL_ALLOW_UNPINNED_TOOLS=1 scripts/build-app.sh` only warns; `release.sh`
 refuses to run with it set.
 

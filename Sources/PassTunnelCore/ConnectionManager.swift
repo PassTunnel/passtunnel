@@ -2077,8 +2077,8 @@ public final class ConnectionManager: ObservableObject {
 
     /// Wrong credentials or missing secrets will not fix themselves; retrying could lock the account.
     static func isRetryable(_ error: Error) -> Bool {
-        if error is DestinationChangedError || error is ProtectionKeyMismatch || error is KeychainItemNotReplaced
-            || error is SecretStoreUnavailable
+        if error is DestinationChangedError || error is ProtectionKeyMismatch || error is ProtectionKeyUnusable
+            || error is KeychainItemNotReplaced || error is SecretStoreUnavailable
         {
             return false
         }
