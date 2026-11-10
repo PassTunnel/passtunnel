@@ -53,6 +53,14 @@ struct MainSplitView: View {
                     },
                     secondaryButton: .cancel())
             }
+            if alert.waitsForHelper {
+                return Alert(
+                    title: Text(alert.title), message: Text(alert.message),
+                    primaryButton: .default(Text(String(localized: "Open Login Items…"))) {
+                        HelperInstaller.openSystemSettingsLoginItems()
+                    },
+                    secondaryButton: .cancel(Text(String(localized: "Cancel Connecting"))) { model.cancelPendingConnect() })
+            }
             return Alert(title: Text(alert.title), message: Text(alert.message))
         }
         .profileDeleteConfirmation($model.pendingDelete) { model.delete($0) }

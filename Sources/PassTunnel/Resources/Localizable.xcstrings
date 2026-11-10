@@ -191,6 +191,16 @@
         }
       }
     },
+    "%@ was not connected" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ bağlanmadı"
+          }
+        }
+      }
+    },
     "%@ was written by a newer version of PassTunnel." : {
       "localizations" : {
         "tr" : {
@@ -813,6 +823,16 @@
         }
       }
     },
+    "Cancel Connecting" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlanmayı İptal Et"
+          }
+        }
+      }
+    },
     "Change Gateway" : {
       "localizations" : {
         "tr" : {
@@ -829,6 +849,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Önce parmak izini kontrol edin"
+          }
+        }
+      }
+    },
+    "Checking that the helper answers…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcının yanıt verip vermediği denetleniyor…"
           }
         }
       }
@@ -963,12 +993,72 @@
         }
       }
     },
+    "Install and repair the helper automatically" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcıyı otomatik olarak yükle ve onar"
+          }
+        }
+      }
+    },
+    "Installing…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yükleniyor…"
+          }
+        }
+      }
+    },
+    "Installed" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yüklü"
+          }
+        }
+      }
+    },
+    "Installing the helper again from this copy of PassTunnel. Active connections stop." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı, PassTunnel’ın bu kopyasından yeniden yükleniyor. Etkin bağlantılar kesilir."
+          }
+        }
+      }
+    },
     "Leave out the path after the address, such as /global-protect/…." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Adresten sonraki yolu, örneğin /global-protect/… kısmını yazmayın."
+          }
+        }
+      }
+    },
+    "macOS still asks you to approve it in Login Items." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS yine de Giriş Öğeleri’nde onayınızı ister."
+          }
+        }
+      }
+    },
+    "macOS lists the helper as turned on, but it does not answer. Repair it to connect; active connections stop." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS yardımcıyı açık gösteriyor, ancak yardımcı yanıt vermiyor. Bağlanmak için onarın; etkin bağlantılar kesilir."
           }
         }
       }
@@ -1023,6 +1113,16 @@
         }
       }
     },
+    "Not responding" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yanıt vermiyor"
+          }
+        }
+      }
+    },
     "Not used when you sign in to the gateway directly." : {
       "localizations" : {
         "tr" : {
@@ -1069,6 +1169,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "PassTunnel, Palo Alto GlobalProtect’e macOS %@ veya üstünde çalışan openconnect ile bağlanır. Bu profile bağlanmak veya profili düzenlemek için macOS’i güncelleyin. Profili yine de paylaşabilir veya silebilirsiniz."
+          }
+        }
+      }
+    },
+    "PassTunnel installs the helper on the first run and when you connect, and installs it again when it stops answering while no VPN is connected. macOS still asks you to approve it in Login Items. Only a copy in the Applications folder does this." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel yardımcıyı ilk açılışta ve bağlandığınızda kendisi yükler; yanıt vermeyi bırakırsa, bağlı VPN yokken yeniden yükler. macOS yine de Giriş Öğeleri’nde onayınızı ister. Bunu yalnızca Uygulamalar klasöründeki kopya yapar."
           }
         }
       }
@@ -1149,6 +1259,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Portalın anahtarı okunuyor…"
+          }
+        }
+      }
+    },
+    "Repair Helper" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcıyı Onar"
+          }
+        }
+      }
+    },
+    "Repairing…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Onarılıyor…"
+          }
+        }
+      }
+    },
+    "Registering the helper with macOS. macOS asks you to approve it once." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı macOS ile kaydediliyor. macOS bir kez onay ister."
           }
         }
       }
@@ -1249,6 +1389,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ağ geçidinin portalın listelediği adı. Portal birden fazla listelediğinde gerekir; aksi halde boş bırakın."
+          }
+        }
+      }
+    },
+    "The helper is turned on but does not answer. Repair it in Settings → Helper." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı açık, ancak yanıt vermiyor. Ayarlar → Yardımcı bölümünde onarın."
+          }
+        }
+      }
+    },
+    "The helper could not be installed" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı yüklenemedi"
+          }
+        }
+      }
+    },
+    "The helper was not turned on within %lld minutes. Turn on PassTunnel in System Settings → General → Login Items, then connect again." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı %lld dakika içinde açılmadı. Sistem Ayarları → Genel → Giriş Öğeleri bölümünde PassTunnel’ı açın, sonra yeniden bağlanın."
           }
         }
       }
@@ -1739,6 +1909,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "BT ekibinizin verdiği adresi, varsa :port ve /yol kısmıyla birlikte yapıştırın."
+          }
+        }
+      }
+    },
+    "Turn on PassTunnel in System Settings → General → Login Items. %@ connects as soon as you do." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sistem Ayarları → Genel → Giriş Öğeleri bölümünde PassTunnel’ı açın. Açar açmaz %@ bağlanır."
+          }
+        }
+      }
+    },
+    "Turn on the helper to connect" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlanmak için yardımcıyı açın"
           }
         }
       }

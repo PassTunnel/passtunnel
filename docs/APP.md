@@ -266,9 +266,16 @@ The main window (`MainSplitView`, decision D-23) is a `NavigationSplitView`, abo
     "Enter details by hand" (the same question, then the editor). No footnote about Screen Recording: the picker
     needs no permission, and the fallback that does explains itself first;
   - while the helper is not installed, a card that says what it is for, with Install Helper
-    (`HelperInstaller.registerRetrying`, as Settings → Helper; Login Items open when macOS asks for the approval),
-    "Open Login Items…" while the approval is pending, and "The helper is installed and running." once it is, until
-    the view goes. The card follows the status every 2 s.
+    (`AppModel.installHelper` → `HelperInstaller.registerRetrying`, as Settings → Helper; Login Items open when macOS
+    asks for the approval) and, for a bundled copy in `/Applications`, the checkbox "Install and repair the helper
+    automatically" / "macOS still asks you to approve it in Login Items." (`autoInstallHelper`, off by default, see
+    Settings → Helper; checking it installs at once). With it on, the first-run screen installs a missing helper by
+    itself while it is the frontmost window (`HelperAutoInstall`, trigger `firstRun`). Then "Open Login Items…" while the
+    approval is pending (with "Turn on PassTunnel in System Settings → General → Login Items. Acme VPN connects as soon as
+    you do." and Cancel Connecting while a connect waits for it), "Checking that the helper answers…" until it has, "The
+    helper is turned on but does not answer. Repair it in Settings → Helper." (Open Helper Settings) when it does not,
+    and "The helper is installed and running." once it answers, until the view goes. The card follows the status
+    every 2 s.
 - **Open at login**: once there is a profile, the detail ends with "Open PassTunnel at login?" / "Starts quietly in
   the menu bar, without opening the window." and Not Now / Open at Login (the buttons go under the words when the
   window is narrow), until it is answered (`AppModel.answerOpenAtLogin`: Open at Login registers the login item, Not Now
@@ -582,6 +589,14 @@ Acme VPN" / the error for a failed connect the user started (`AppModel.handleCon
 Not about one connection: "The helper needs an update" (once, while sessions keep an outdated helper from
 updating, `HelperAutoUpdate`) and "Allow PassTunnel to type codes" (auto-type without Accessibility permission).
 
+A Connect that waits for the helper (only with "Install and repair the helper automatically" on, see Settings →
+Helper) says so in an alert when the main window is visible, else in a notification: "Turn on the helper to
+connect" / "Turn on PassTunnel in System Settings → General → Login Items. Acme VPN connects as soon as you do."
+(the alert with Open Login Items… and Cancel Connecting); "The helper could not be installed" / the error macOS
+gave (the alert with Open Helper Settings), and after 5 minutes without the approval "Acme VPN was not connected" /
+"The helper was not turned on within 5 minutes. Turn on PassTunnel in System Settings → General → Login Items, then
+connect again."
+
 ## Settings (`Settings` scene, tabs)
 
 Four tabs (decision D-12): General, Shortcuts, Helper and Updates.
@@ -611,9 +626,27 @@ Four tabs (decision D-12): General, Shortcuts, Helper and Updates.
   The window shows 600 pt of the page and scrolls; the `settings-general` render shows all of it.
 - **Shortcuts**: enable global hotkeys (default off): ⌃⌥V connect/disconnect default profile,
   ⌃⌥C type/copy code.
-- **Helper**: status (enabled / needs approval / not installed / needs an update / updating) with Install /
-  Update / Open Login Items / Remove;
-  bundled tool versions; "Show licenses" (Resources/licenses). "Needs an update" covers any helper
+- **Helper**: status (enabled / needs approval / not installed / needs an update / updating / installing /
+  not responding / repairing) with Install / Update / Repair / Open Login Items / Remove;
+  bundled tool versions; "Show licenses" (Resources/licenses). "Installed and running" only once the helper
+  answered (`AppModel.helperAnswered`); until then "Installed" / "Checking that the helper answers…". A helper
+  macOS lists as enabled that does not answer (`HelperAnswerWatch`: 3 questions in a row without an answer, a
+  `HelperClient` timeout or a refused connection, the first and the last at least 30 s apart; any answer starts
+  over) shows "Not responding" / "macOS lists the helper as turned on, but it does not answer. Repair it to
+  connect; active connections stop." with **Repair Helper** (`helper.repair`): `AppModel.updateHelper(repair:)`,
+  the same unregister and register as Update Helper ("Repairing…" / "Installing the helper again from this copy of
+  PassTunnel. Active connections stop."; a failure shows macOS's error under the status). This holds whatever the
+  switch below says. While Install Helper or the automatic install runs: "Installing…" / "Registering the helper
+  with macOS. macOS asks you to approve it once."; while a connect waits for the approval, the status line names
+  the profile ("… Acme VPN connects as soon as you do.") and Cancel Connecting (`helper.cancelConnect`) drops it.
+  Under the buttons, the switch "Install and repair the helper automatically" (`autoInstallHelper` in
+  `config.json`, key `auto_install_helper`, default **off**, `helper.autoInstall`) with "PassTunnel installs the
+  helper on the first run and when you connect, and installs it again when it stops answering while no VPN is
+  connected. macOS still asks you to approve it in Login Items. Only a copy in the Applications folder does this."
+  (see "Automatic install and repair" below). Turning it on acts at once on the state as it is (a missing helper is
+  installed; Login Items open when macOS asks for the approval) and clears `helperRemoved`; turning it off drops a
+  connect waiting for the approval. The automatic update after an app update (`HelperAutoUpdate`) does not depend
+  on it. "Needs an update" covers any helper
   that is not this copy's (`AppModel.helperRelation`, from `HelperClient.relation()`); for a newer
   helper the status line says it belongs to a newer version of PassTunnel. The Update Helper click is
   the confirmation, except that replacing a newer helper (relation asked fresh) first shows "Replace
@@ -639,8 +672,39 @@ Four tabs (decision D-12): General, Shortcuts, Helper and Updates.
 `Preferences` (Core) gets: `badgePalette` (string enum above), `appearance` (system/light/dark),
 `hideCodes`, `clearClipboardAfter` (seconds: 30, 60 or 120; others → 60),
 `waitForFreshCode`, `showInDock`, `notifyOnDrop`, `notifyHealth`, `sessionNotifyMin`, `hotkeys`,
-`autoType`, `defaultProfile`, `authReuseMinutes`. `showLock` (a lock symbol in the menu bar of earlier versions) is
+`autoType`, `defaultProfile`, `authReuseMinutes`, `autoInstallHelper` (default off) and `helperRemoved` (written
+only while set). `showLock` (a lock symbol in the menu bar of earlier versions) is
 no longer read; a stored value is ignored and dropped on the next save.
+
+### Automatic install and repair of the helper
+
+Off unless the user turns on "Install and repair the helper automatically" (Settings → Helper, or the first-run
+card). While it is off, the helper is installed and repaired only with the buttons, and a Connect without a ready
+helper shows "The helper is not ready" with Open Helper Settings, as always. With it on, `HelperAutoInstall` (Core,
+unit-tested; `AppModel` gathers the situation and runs the action) decides, only for a bundled copy in
+`/Applications`, and never for a helper the user removed (`helperRemoved`, set when Settings → Helper → Remove,
+or `passtunnel helper uninstall` carried out there, succeeds; cleared when the user installs it by hand or turns
+the switch on):
+- a missing helper (`.notRegistered`, or `.notFound`, which macOS 27.0.1 reported for a helper that was never
+  registered) is registered on the first-run screen while it is the frontmost window, when the switch is turned
+  on, and on a Connect the user pressed in the app (main window, menu bar, the ⌃⌥V shortcut, a notification's
+  Connect action: every caller of `AppModel.connect`), never on a status refresh;
+- a helper waiting for the approval (never approved, or switched off in Login Items) is never registered again;
+  a Connect then only waits and offers Login Items;
+- a helper that is enabled but does not answer (`HelperAnswerWatch`, see Settings → Helper) is registered again
+  (`HelperInstaller.update`) while no PassTunnel session is active (`HelperSessions`, as for `HelperAutoUpdate`);
+- at most one automatic registration and one automatic repair per launch; a failure is shown with macOS's error
+  and left to the buttons.
+
+After an automatic registration macOS usually waits for the approval. Login Items open on their own at most once
+per launch, and only right after the user acted in PassTunnel (the Connect, the switch, the first-run screen in
+front); otherwise the alert, the card and Settings → Helper offer Open Login Items…. The Connect that installed the
+helper, or one pressed while the approval is pending, waits (`HelperPendingConnect`, Core, unit-tested) and starts
+by itself once the helper is enabled and answers with this copy's build: dropped after 5 minutes (with "Acme VPN was
+not connected"), with Cancel Connecting, when the user disconnects or deletes that profile, connects another one
+(which then waits instead), removes the helper, or turns the switch off. The credential sheet and Touch ID come when
+it starts, so nothing typed is held while it waits. Unattended connects (connect at login, the CLI, MCP clients) never
+install, wait or open System Settings: they fail as before.
 
 ## Launch at login
 
@@ -793,7 +857,8 @@ connect in that state says the helper is not installed yet instead of "missing f
 and `helper status` and `diagnose` print the status number);
 replacing an enabled helper always asks ("Replace the
 PassTunnel helper?", naming this copy's path), and replacing a newer one asks with the downgrade
-warning instead; removal asks too. When the helper is enabled but outdated (another protocol or
+warning instead; removal asks too, and once it is done the helper is not installed again automatically
+(`helperRemoved`, see Settings) until it is installed by hand (`helper install` counts). When the helper is enabled but outdated (another protocol or
 build), `helper install` hands off `--update-helper` (`HelperHandoff.update`) instead: after the user
 confirms, the app runs the same update as Settings → Helper → Update Helper (active connections
 stop), and the CLI waits for the helper to report the current protocol and build. An
@@ -925,9 +990,9 @@ exposes it as `AXDescription` (read by VoiceOver and `AXUIElementCopyAttributeVa
 For UI automation, key controls carry stable, unlocalized `.accessibilityIdentifier`s (`AXIdentifier`):
 `profile.<id>`, `profile.<id>.primary`, `profile.<id>.more`, `profile.<id>.code`, `main.add`, `profile.<id>.edit`,
 `profile.<id>.copyCode`, `profile.<id>.copyPasswordCode`, `profile.<id>.serverReceives`, `main.settings`,
-`firstRun.chooseFile|scanScreen|qrImage|byHand|installHelper|loginItems|notNow|openAtLogin` (the sidebar rows read
+`firstRun.chooseFile|scanScreen|qrImage|byHand|installHelper|autoInstallHelper|loginItems|cancelConnect|helperSettings|notNow|openAtLogin` (the sidebar rows read
 as name, status and code, the add view's tiles as buttons with the line under the title as their hint),
-`helper.install|update|loginItems|remove|licenses`,
+`helper.install|update|repair|loginItems|cancelConnect|remove|autoInstall|licenses`,
 `editor.cancel|save|delete|advanced|requireAuth|connectAtLogin|revealCode|scanScreen`, `settings.authReuse`, and in the
 menu bar panel `menu.<id>.toggle`, `menu.add|copyCode|copyPasswordCode|typeCode|open|settings|quit`. The editor's switches are
 drawn by the app (monochrome) and read by VoiceOver as standard switches (`accessibilityRepresentation`). While the screen is locked, accessibility clients see no windows at all (the
