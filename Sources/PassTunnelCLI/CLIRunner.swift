@@ -1280,7 +1280,8 @@ final class CLIRunner {
 
     /// The not-found state in words, with the number macOS reported when the report has it.
     nonisolated static func notFoundLine(canAttemptInstall: Bool, rawStatus: Int?) -> String {
-        let base = canAttemptInstall
+        let base =
+            canAttemptInstall
             ? String(localized: "Helper: not reported by macOS yet (run “passtunnel helper install”)")
             : String(localized: "Helper: missing from the app bundle")
         guard let rawStatus else { return base }
