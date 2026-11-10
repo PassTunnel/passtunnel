@@ -792,12 +792,13 @@ Installing and repairing the helper on its own is opt-in: `Preferences.autoInsta
 ("Install and repair the helper automatically", Settings → Helper and the first-run card, default
 off; `HelperAutoUpdate` above does not depend on it). With it off, nothing below happens. With it on,
 `HelperAutoInstall` (Core, unit-tested, beside `HelperAutoUpdate`) decides from a `Situation`
-(switch, `Preferences.helperRemoved`, status, not answering, active sessions, busy, `/Applications`,
-bundled) and a `Trigger` (`firstRun`, `switchedOn`, `connect`, `refresh`):
+(switch, `Preferences.helperRemoved`, status, not answering, the relation it last answered with,
+active sessions, busy, `/Applications`, bundled) and a `Trigger` (`firstRun`, `switchedOn`, `connect`,
+`refresh`):
 - nothing at all unless the copy is a bundled app in `/Applications` (registering points the root
-  helper at the registering copy) and the user has not removed the helper (`helperRemoved`, set when
-  Settings → Helper's removal succeeds, which also carries out `passtunnel helper uninstall`; cleared
-  by an install by hand or by turning the switch on);
+  helper at the registering copy) and the user has not removed the helper (`helperRemoved`, set by
+  Settings → Helper's removal, which also carries out `passtunnel helper uninstall`, before it
+  unregisters, and restored if that fails; cleared by an install by hand or by turning the switch on);
 - `.register` for `.notRegistered` / `.notFound` (macOS 27.0.1 reported a valid, never registered
   helper as not found), only on a trigger where the user is there to approve (never `refresh`): the
   first-run screen in front, the switch turned on, or a Connect pressed in the app (`AppModel.connect`;
@@ -806,25 +807,37 @@ bundled) and a `Trigger` (`firstRun`, `switchedOn`, `connect`, `refresh`):
 - never anything for `.requiresApproval` (never approved, or switched off in Login Items): the
   approval stays macOS's and the user's;
 - `.repair` (`HelperInstaller.update`) for an `.enabled` helper that does not answer, only while no
-  session is active (counted as for `HelperAutoUpdate`; the update stops the helper). "Does not answer"
-  is `HelperAnswerWatch` (Core): `AppModel.checkHelperVersion` asks `HelperClient.relation()` again on
-  every status refresh while the helper has not answered, and only 3 failures in a row that are a
-  timeout (15 s each) or a refused or interrupted connection (`HelperClientError.timeout` /
-  `.unavailable`), the first and the last at least 30 s apart, count; any reply, even an invalid one or
-  a mismatch, starts over, so a slow helper is never replaced;
+  session is active (counted as for `HelperAutoUpdate`, and only while a repair can still be decided:
+  `mayStillRepair`; the update stops the helper), and only when the helper never answered or last
+  answered as `.current` or `.older` (`HelperAutoInstall.mayRepair`): a helper last seen as `.newer`
+  (a downgrade) or `.different` is left to Repair Helper, whose click asks with the downgrade warning
+  for a newer one, as Update Helper does. "Does not answer" is `HelperAnswerWatch` (Core):
+  `AppModel.checkHelperVersion` asks `HelperClient.relationAndAnswer()` on every status refresh while
+  the helper has not answered, and again after a connect failed with `.timeout` / `.unavailable`
+  (the last known state stays shown meanwhile); only 3 questions in a row without any reply, each a
+  timeout (15 s) or a refused or interrupted connection (`HelperClientError.timeout` /
+  `.unavailable`), the first and the last at least 30 s apart, count. Any reply starts over: an
+  invalid one, a mismatch, or a protocol version followed by a failed build or status question, so a
+  slow helper is never replaced. Once decided, refreshes ask only every 60 s
+  (`HelperAnswerWatch.shouldAsk`); Settings → Helper, a Connect, an install or a repair ask at once;
 - one automatic registration and one automatic repair per launch; a failure shows macOS's error and
   the buttons stay the fallback.
 System Settings is opened by these paths at most once per launch (`HelperAutoInstall.opensLoginItems`),
-and only right after the user acted in PassTunnel. The Connect that triggered the registration (or one
+only right after the user acted in PassTunnel, and only if the switch is still on once macOS has
+registered the helper. The Connect that triggered the registration (or one
 pressed while the approval is pending) waits in `HelperPendingConnect` (Core, unit-tested): it starts
 once the helper is enabled and answers with this copy's build, and is dropped after 5 minutes, on
 Cancel Connecting, a disconnect or delete of that profile, a Connect of another profile (which waits
 instead), the helper's removal, or when the switch is turned off. Settings → Helper shows a helper
 that does not answer as "Not responding" with Repair Helper whatever the switch says. The hand-off
-rules below are unchanged. A local process that writes `config.json` can turn the switch on, which
-gives it nothing it lacks: it can already ask a copy in `/Applications` to install through a hand-off,
+rules below are unchanged. A local process that writes `config.json` can turn the switch on. For an
+install that adds nothing: it can already ask a copy in `/Applications` to install through a hand-off,
 the automatic install waits for the user's Connect or the first-run screen, and the approval in Login
-Items stays the user's.
+Items stays the user's. For a repair it does add something: an enabled helper that does not answer is
+then re-registered without the confirmation the `--update-helper` hand-off would show. That is
+limited to the copy in `/Applications`, to a moment with no PassTunnel session, to a helper that never
+answered or last answered as this build or an older one (never one known to be newer or different),
+and to once per launch; the helper registered is the one inside that copy, as with Update Helper.
 
 Hand-offs from outside the app (`HelperHandoff`: `passtunnel helper install|uninstall`, the
 `--install-helper` / `--update-helper` / `--uninstall-helper` launch arguments or the distributed

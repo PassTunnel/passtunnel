@@ -268,7 +268,7 @@ private struct HelperCard: View {
                     .foregroundStyle(Palette.fg2)
                     .fixedSize(horizontal: false, vertical: true)
                     status
-                    if let errorText = model.helperInstallError ?? model.helperUpdateError {
+                    if let errorText = model.helperInstallError {
                         Text(errorText)
                             .typography(.hint)
                             .foregroundStyle(Palette.red)
@@ -308,7 +308,7 @@ private struct HelperCard: View {
                 model.pendingConnect.profileID.map { id in
                     String(
                         localized:
-                            "Turn on PassTunnel in System Settings → General → Login Items. \(model.profile(id)?.name ?? id) connects as soon as you do."
+                            "Turn on PassTunnel in System Settings → General → Login Items. \(model.profile(id)?.name ?? id) connects if you do within \(Int(HelperPendingConnect.timeout / 60)) minutes."
                     )
                 } ?? String(localized: "Almost done: turn on PassTunnel in System Settings → General → Login Items.")
             )

@@ -1,4 +1,5 @@
 import Foundation
+import PassTunnelShared
 import XCTest
 
 @testable import PassTunnelCore
@@ -10,25 +11,29 @@ final class HelperAutoInstallTests: XCTestCase {
 
     private func situation(
         enabled: Bool = true, removed: Bool = false, status: HelperStatus = .notRegistered, notAnswering: Bool = false,
-        sessions: Int = 0, busy: Bool = false, inApplications: Bool = true, bundled: Bool = true
+        relation: HelperBuild.Relation? = nil, sessions: Int = 0, busy: Bool = false, inApplications: Bool = true,
+        bundled: Bool = true
     ) -> HelperAutoInstall.Situation {
         .init(
-            enabled: enabled, removedByUser: removed, status: status, notAnswering: notAnswering, activeSessions: sessions,
-            busy: busy, inApplicationsFolder: inApplications, bundled: bundled)
+            enabled: enabled, removedByUser: removed, status: status, notAnswering: notAnswering, relation: relation,
+            activeSessions: sessions, busy: busy, inApplicationsFolder: inApplications, bundled: bundled)
     }
 
     /// Every situation the switch can meet: off by default, and while off nothing happens on its own.
     func testOffByDefaultAndNothingAutomaticWhileOff() {
         XCTAssertFalse(Preferences().autoInstallHelper)
         var policy = HelperAutoInstall()
+        let relations: [HelperBuild.Relation?] = [nil, .current, .older, .newer, .different]
         for status in statuses {
             for notAnswering in [false, true] {
-                for sessions in [0, 1] {
-                    for trigger in triggers {
-                        let s = situation(
-                            enabled: Preferences().autoInstallHelper, status: status, notAnswering: notAnswering,
-                            sessions: sessions)
-                        XCTAssertEqual(policy.next(s, trigger: trigger), .none, "\(status) \(notAnswering) \(sessions) \(trigger)")
+                for relation in relations {
+                    for sessions in [0, 1] {
+                        for trigger in triggers {
+                            let s = situation(
+                                enabled: Preferences().autoInstallHelper, status: status, notAnswering: notAnswering,
+                                relation: relation, sessions: sessions)
+                            XCTAssertEqual(policy.next(s, trigger: trigger), .none, "\(status) \(notAnswering) \(sessions) \(trigger)")
+                        }
                     }
                 }
             }
@@ -109,6 +114,25 @@ final class HelperAutoInstallTests: XCTestCase {
         }
     }
 
+    /// A helper last seen as newer (a downgrade) or not comparable is never replaced without asking, even when it
+    /// stopped answering; one never seen, this copy's build or an older one is.
+    func testRepairOnlyWhenTheLastAnswerAllowsIt() {
+        let cases: [(HelperBuild.Relation?, HelperAutoInstall.Action)] = [
+            (nil, .repair), (.current, .repair), (.older, .repair), (.newer, .none), (.different, .none)
+        ]
+        for (relation, expected) in cases {
+            var policy = HelperAutoInstall()
+            XCTAssertEqual(policy.mayStillRepair(relation: relation), expected == .repair, "\(String(describing: relation))")
+            for trigger in triggers {
+                let s = situation(status: .enabled, notAnswering: true, relation: relation)
+                let action = policy.next(s, trigger: trigger)
+                XCTAssertEqual(action, trigger == triggers.first ? expected : .none, "\(String(describing: relation)) \(trigger)")
+            }
+            XCTAssertEqual(policy.repairAttempted, expected == .repair)
+            XCTAssertFalse(policy.mayStillRepair(relation: relation), "attempted, or not allowed")
+        }
+    }
+
     func testAnsweringHelperIsLeftAlone() {
         var policy = HelperAutoInstall()
         for trigger in triggers {
@@ -184,6 +208,24 @@ final class HelperAutoInstallTests: XCTestCase {
         }
     }
 
+    func testAsksLessOftenOnceDecided() {
+        let t0 = Date(timeIntervalSince1970: 1_000)
+        var watch = HelperAnswerWatch()
+        XCTAssertTrue(watch.shouldAsk(at: t0))
+        watch.failed(HelperClientError.timeout(15), at: t0)
+        watch.failed(HelperClientError.timeout(15), at: t0.addingTimeInterval(15))
+        XCTAssertTrue(watch.shouldAsk(at: t0.addingTimeInterval(16)), "not decided yet: every refresh")
+        watch.failed(HelperClientError.timeout(15), at: t0.addingTimeInterval(30))
+        XCTAssertTrue(watch.notAnswering)
+        XCTAssertFalse(watch.shouldAsk(at: t0.addingTimeInterval(35)))
+        XCTAssertFalse(watch.shouldAsk(at: t0.addingTimeInterval(30 + HelperAnswerWatch.retryInterval - 1)))
+        XCTAssertTrue(watch.shouldAsk(at: t0.addingTimeInterval(30 + HelperAnswerWatch.retryInterval)))
+        watch.failed(HelperClientError.unavailable("refused"), at: t0.addingTimeInterval(100))
+        XCTAssertFalse(watch.shouldAsk(at: t0.addingTimeInterval(101)), "the interval starts again")
+        watch.answered()
+        XCTAssertTrue(watch.shouldAsk(at: t0.addingTimeInterval(101)))
+    }
+
     func testStatusErrorsAndOtherErrorsDoNotCount() {
         let t0 = Date(timeIntervalSince1970: 1_000)
         var watch = HelperAnswerWatch()
@@ -220,6 +262,16 @@ final class HelperAutoInstallTests: XCTestCase {
         XCTAssertFalse(pending.isWaiting)
         XCTAssertEqual(pending.next(ready: true, now: t0.addingTimeInterval(HelperPendingConnect.timeout + 1)), .none)
         XCTAssertEqual(HelperPendingConnect.timeout, 300)
+    }
+
+    /// An expired connect says what it still waited for.
+    func testWhatAPendingConnectWaitsFor() {
+        typealias P = HelperPendingConnect
+        XCTAssertEqual(P.waitingFor(status: .notRegistered, outdated: false), .install)
+        XCTAssertEqual(P.waitingFor(status: .notFound, outdated: false), .install)
+        XCTAssertEqual(P.waitingFor(status: .requiresApproval, outdated: false), .approval)
+        XCTAssertEqual(P.waitingFor(status: .enabled, outdated: true), .update)
+        XCTAssertEqual(P.waitingFor(status: .enabled, outdated: false), .answer)
     }
 
     func testPendingConnectCancelAndReplace() {

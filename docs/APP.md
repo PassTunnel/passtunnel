@@ -271,8 +271,8 @@ The main window (`MainSplitView`, decision D-23) is a `NavigationSplitView`, abo
     automatically" / "macOS still asks you to approve it in Login Items." (`autoInstallHelper`, off by default, see
     Settings → Helper; checking it installs at once). With it on, the first-run screen installs a missing helper by
     itself while it is the frontmost window (`HelperAutoInstall`, trigger `firstRun`). Then "Open Login Items…" while the
-    approval is pending (with "Turn on PassTunnel in System Settings → General → Login Items. Acme VPN connects as soon as
-    you do." and Cancel Connecting while a connect waits for it), "Checking that the helper answers…" until it has, "The
+    approval is pending (with "Turn on PassTunnel in System Settings → General → Login Items. Acme VPN connects if you do
+    within 5 minutes." and Cancel Connecting while a connect waits for it), "Checking that the helper answers…" until it has, "The
     helper is turned on but does not answer. Repair it in Settings → Helper." (Open Helper Settings) when it does not,
     and "The helper is installed and running." once it answers, until the view goes. The card follows the status
     every 2 s.
@@ -591,11 +591,15 @@ updating, `HelperAutoUpdate`) and "Allow PassTunnel to type codes" (auto-type wi
 
 A Connect that waits for the helper (only with "Install and repair the helper automatically" on, see Settings →
 Helper) says so in an alert when the main window is visible, else in a notification: "Turn on the helper to
-connect" / "Turn on PassTunnel in System Settings → General → Login Items. Acme VPN connects as soon as you do."
-(the alert with Open Login Items… and Cancel Connecting); "The helper could not be installed" / the error macOS
-gave (the alert with Open Helper Settings), and after 5 minutes without the approval "Acme VPN was not connected" /
-"The helper was not turned on within 5 minutes. Turn on PassTunnel in System Settings → General → Login Items, then
-connect again."
+connect" / "Turn on PassTunnel in System Settings → General → Login Items. Acme VPN connects if you do within 5
+minutes." (the alert with Open Login Items… and Cancel Connecting); "The helper could not be installed" / the error
+macOS gave (the alert with Open Helper Settings). The connect starts once the helper is enabled and answers with this
+copy's build, while the app runs; when the profile asks for something, the main window comes up for the credential
+sheet first. After 5 minutes without that: "Acme VPN was not connected" / what it still waited for
+(`HelperPendingConnect.waitingFor`): "The helper was not turned on within 5 minutes. Turn on PassTunnel in System
+Settings → General → Login Items, then connect again.", or, with Open Helper Settings, "The helper is not installed.
+Install it in Settings → Helper, then connect again.", "The helper needs an update. Update it in Settings → Helper,
+then connect again." or "The helper does not answer. Repair it in Settings → Helper, then connect again."
 
 ## Settings (`Settings` scene, tabs)
 
@@ -630,15 +634,22 @@ Four tabs (decision D-12): General, Shortcuts, Helper and Updates.
   not responding / repairing) with Install / Update / Repair / Open Login Items / Remove;
   bundled tool versions; "Show licenses" (Resources/licenses). "Installed and running" only once the helper
   answered (`AppModel.helperAnswered`); until then "Installed" / "Checking that the helper answers…". A helper
-  macOS lists as enabled that does not answer (`HelperAnswerWatch`: 3 questions in a row without an answer, a
-  `HelperClient` timeout or a refused connection, the first and the last at least 30 s apart; any answer starts
-  over) shows "Not responding" / "macOS lists the helper as turned on, but it does not answer. Repair it to
-  connect; active connections stop." with **Repair Helper** (`helper.repair`): `AppModel.updateHelper(repair:)`,
-  the same unregister and register as Update Helper ("Repairing…" / "Installing the helper again from this copy of
-  PassTunnel. Active connections stop."; a failure shows macOS's error under the status). This holds whatever the
-  switch below says. While Install Helper or the automatic install runs: "Installing…" / "Registering the helper
-  with macOS. macOS asks you to approve it once."; while a connect waits for the approval, the status line names
-  the profile ("… Acme VPN connects as soon as you do.") and Cancel Connecting (`helper.cancelConnect`) drops it.
+  macOS lists as enabled that does not answer (`HelperAnswerWatch`: 3 questions in a row without any answer, a
+  `HelperClient` timeout or a refused connection, the first and the last at least 30 s apart; any reply, even one
+  followed by a failed question, starts over) shows "Not responding" / "macOS lists the helper as turned on, but it
+  does not answer. Repair it to connect; active connections stop." (before "Needs an update": a helper that stopped
+  answering is shown as such) with **Repair Helper** (`helper.repair`): `AppModel.updateHelper(repair:)`, the same
+  unregister and register as Update Helper ("Repairing…" / "Installing the helper again from this copy of
+  PassTunnel. Active connections stop."; a failure shows macOS's error under the status). The click is the
+  confirmation, except for a helper last seen as newer, which gets the downgrade warning below (Update Helper falls
+  back to the last answer too when the helper does not answer now). The helper is asked on every refresh until it
+  answered, and again after a connect failed with a timeout or a refused connection (until then the last state
+  stays shown); once it is "Not responding", refreshes ask only every 60 s (`retryInterval`), while opening this
+  tab, a Connect, an install or a repair ask at once. This holds whatever the switch below says. While Install
+  Helper or the automatic install runs: "Installing…" / "Registering the helper with macOS. macOS asks you to
+  approve it once."; a failed install's error stays until the status changes. While a connect waits for the
+  approval, the status line names the profile ("… Acme VPN connects if you do within 5 minutes.") and Cancel
+  Connecting (`helper.cancelConnect`) drops it.
   Under the buttons, the switch "Install and repair the helper automatically" (`autoInstallHelper` in
   `config.json`, key `auto_install_helper`, default **off**, `helper.autoInstall`) with "PassTunnel installs the
   helper on the first run and when you connect, and installs it again when it stops answering while no VPN is
@@ -682,9 +693,9 @@ Off unless the user turns on "Install and repair the helper automatically" (Sett
 card). While it is off, the helper is installed and repaired only with the buttons, and a Connect without a ready
 helper shows "The helper is not ready" with Open Helper Settings, as always. With it on, `HelperAutoInstall` (Core,
 unit-tested; `AppModel` gathers the situation and runs the action) decides, only for a bundled copy in
-`/Applications`, and never for a helper the user removed (`helperRemoved`, set when Settings → Helper → Remove,
-or `passtunnel helper uninstall` carried out there, succeeds; cleared when the user installs it by hand or turns
-the switch on):
+`/Applications`, and never for a helper the user removed (`helperRemoved`, set by Settings → Helper → Remove, or
+`passtunnel helper uninstall` carried out there, before it unregisters, so no repair can come in between, and
+restored when the unregister fails; cleared when the user installs it by hand or turns the switch on):
 - a missing helper (`.notRegistered`, or `.notFound`, which macOS 27.0.1 reported for a helper that was never
   registered) is registered on the first-run screen while it is the frontmost window, when the switch is turned
   on, and on a Connect the user pressed in the app (main window, menu bar, the ⌃⌥V shortcut, a notification's
@@ -692,18 +703,23 @@ the switch on):
 - a helper waiting for the approval (never approved, or switched off in Login Items) is never registered again;
   a Connect then only waits and offers Login Items;
 - a helper that is enabled but does not answer (`HelperAnswerWatch`, see Settings → Helper) is registered again
-  (`HelperInstaller.update`) while no PassTunnel session is active (`HelperSessions`, as for `HelperAutoUpdate`);
+  (`HelperInstaller.update`) while no PassTunnel session is active (`HelperSessions`, as for `HelperAutoUpdate`;
+  the process list is read only while a repair can still be decided), and only when it never answered or last
+  answered as this copy's build or an older one (`HelperAutoInstall.mayRepair`): one last seen as newer or not
+  comparable is left to Repair Helper, which asks as Update Helper does;
 - at most one automatic registration and one automatic repair per launch; a failure is shown with macOS's error
   and left to the buttons.
 
 After an automatic registration macOS usually waits for the approval. Login Items open on their own at most once
-per launch, and only right after the user acted in PassTunnel (the Connect, the switch, the first-run screen in
-front); otherwise the alert, the card and Settings → Helper offer Open Login Items…. The Connect that installed the
-helper, or one pressed while the approval is pending, waits (`HelperPendingConnect`, Core, unit-tested) and starts
-by itself once the helper is enabled and answers with this copy's build: dropped after 5 minutes (with "Acme VPN was
-not connected"), with Cancel Connecting, when the user disconnects or deletes that profile, connects another one
-(which then waits instead), removes the helper, or turns the switch off. The credential sheet and Touch ID come when
-it starts, so nothing typed is held while it waits. Unattended connects (connect at login, the CLI, MCP clients) never
+per launch, only right after the user acted in PassTunnel (the Connect, the switch, the first-run screen in front),
+and only while the switch is still on when macOS has registered it; otherwise the alert, the card and Settings →
+Helper offer Open Login Items…. The Connect that installed the helper, or one pressed while the approval is
+pending, waits (`HelperPendingConnect`, Core, unit-tested) while the app runs and starts by itself once the helper is
+enabled and answers with this copy's build: dropped after 5 minutes (with "Acme VPN was not connected" and what it
+still waited for, see Notifications), with Cancel Connecting, when the user disconnects or deletes that profile,
+connects another one (which then waits instead), removes the helper, or turns the switch off. The credential sheet
+and Touch ID come when it starts (the main window comes up first for a sheet), so nothing typed is held while it
+waits. Unattended connects (connect at login, the CLI, MCP clients) never
 install, wait or open System Settings: they fail as before.
 
 ## Launch at login

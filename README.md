@@ -180,8 +180,9 @@ Without any profile, the window opens on **Add your first VPN**:
 1. **Install the helper.** The card at the bottom explains what it is for. Click *Install Helper*,
    then turn PassTunnel on in **System Settings → General → Login Items** (macOS asks once). You
    can also do this later from **Settings → Helper**. If you check *Install and repair the helper
-   automatically* (off by default), PassTunnel installs it now and on its own whenever you connect
-   without it, then connects once you approve it; macOS still asks in Login Items.
+   automatically* (off by default), PassTunnel installs it now, or on its own the first time you
+   connect without it after opening PassTunnel, and connects if you approve it within 5 minutes;
+   macOS still asks in Login Items.
 2. **Add a VPN.** Drop a file on the dashed area, or pick one of the other ways in.
 
 <p align="center">

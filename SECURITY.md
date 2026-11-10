@@ -111,9 +111,11 @@ approve it once and can turn it off at any time. You can remove it with Settings
 Helper… or `passtunnel helper uninstall`.
 
 PassTunnel registers the helper when you click Install Helper, or, only if you turn on
-**Install and repair the helper automatically** (off by default), on its own on the first run and
-when you press Connect, and again when macOS lists it as turned on but it stops answering while no
-VPN is connected. Only a copy in the Applications folder does it on its own. The approval in Login
+**Install and repair the helper automatically** (off by default), on its own on the first run or
+the first time you press Connect without it, and again (once per launch, without asking) when macOS lists it as turned
+on but it stops answering while no VPN is connected, unless it last answered as a newer or a
+different build: replacing that one always asks. Only a copy in the Applications folder does it on
+its own. The approval in Login
 Items stays yours: PassTunnel never approves, skips or hides it. A helper you switched off in Login
 Items is never registered again automatically, nor is one you removed, until you install it again
 or turn the setting back on.

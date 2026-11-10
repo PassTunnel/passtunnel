@@ -1,4 +1,5 @@
 import Foundation
+import PassTunnelShared
 
 /// Decides when the app installs (registers) or repairs the helper on its own. Off unless the user turned
 /// on "Install and repair the helper automatically" (`Preferences.autoInstallHelper`); `HelperAutoUpdate`,
@@ -10,7 +11,8 @@ import Foundation
 /// again: macOS's approval stays with the user. Installing happens only when someone is there to approve:
 /// on the first-run screen, when the switch is turned on, or on a Connect the user pressed in the app. A
 /// helper that macOS lists as enabled but that does not answer (`HelperAnswerWatch`) is registered again
-/// (`HelperInstaller.update`, which stops it) only while no PassTunnel session is active. One automatic
+/// (`HelperInstaller.update`, which stops it) only while no PassTunnel session is active, and never when it
+/// last answered as a newer or a not comparable build (`mayRepair`: that replacement asks). One automatic
 /// attempt of each per app launch, so a failure is left to the buttons instead of looping.
 public struct HelperAutoInstall: Equatable, Sendable {
     public enum Trigger: Equatable, Sendable {
@@ -40,6 +42,8 @@ public struct HelperAutoInstall: Equatable, Sendable {
         public var status: HelperStatus
         /// Enabled, but does not answer (`HelperAnswerWatch.notAnswering`).
         public var notAnswering: Bool
+        /// How the helper related to this copy when it last answered; nil when it has not answered.
+        public var relation: HelperBuild.Relation?
         /// Active PassTunnel sessions on this Mac, from any user or process (see `HelperSessions`).
         public var activeSessions: Int
         /// An install, update or repair is running.
@@ -50,13 +54,14 @@ public struct HelperAutoInstall: Equatable, Sendable {
         public var bundled: Bool
 
         public init(
-            enabled: Bool, removedByUser: Bool, status: HelperStatus, notAnswering: Bool, activeSessions: Int, busy: Bool,
-            inApplicationsFolder: Bool, bundled: Bool
+            enabled: Bool, removedByUser: Bool, status: HelperStatus, notAnswering: Bool,
+            relation: HelperBuild.Relation?, activeSessions: Int, busy: Bool, inApplicationsFolder: Bool, bundled: Bool
         ) {
             self.enabled = enabled
             self.removedByUser = removedByUser
             self.status = status
             self.notAnswering = notAnswering
+            self.relation = relation
             self.activeSessions = activeSessions
             self.busy = busy
             self.inApplicationsFolder = inApplicationsFolder
@@ -81,11 +86,27 @@ public struct HelperAutoInstall: Equatable, Sendable {
             registerAttempted = true
             return .register
         case .enabled:
-            guard s.notAnswering, s.activeSessions == 0, !repairAttempted else { return .none }
+            guard s.notAnswering, Self.mayRepair(s.relation), s.activeSessions == 0, !repairAttempted else { return .none }
             repairAttempted = true
             return .repair
         case .requiresApproval:
             return .none
+        }
+    }
+
+    /// A repair could still be decided for an enabled helper that does not answer: the caller then counts
+    /// the sessions (a process listing) for `Situation.activeSessions`, and not otherwise.
+    public func mayStillRepair(relation: HelperBuild.Relation?) -> Bool {
+        !repairAttempted && Self.mayRepair(relation)
+    }
+
+    /// Whether replacing a helper that last answered as `relation` needs no confirmation: never answered, this
+    /// copy's build, or an older one. A newer helper (a downgrade) or a not comparable one is replaced only
+    /// after the user confirms, as Update Helper and the `update` hand-off ask.
+    public static func mayRepair(_ relation: HelperBuild.Relation?) -> Bool {
+        switch relation {
+        case nil, .current?, .older?: return true
+        case .newer?, .different?: return false
         }
     }
 
@@ -104,10 +125,12 @@ public struct HelperAutoInstall: Equatable, Sendable {
 /// nothing (launchd may still be starting it, or the Mac is busy). So "not answering" needs
 /// `failuresNeeded` questions in a row without any answer (`HelperClient` timeouts or refused
 /// connections), the first and the last at least `minimumSpan` apart. Any answer, or another status,
-/// starts over.
+/// starts over. Once it is decided, status refreshes ask again only every `retryInterval` (`shouldAsk`);
+/// the app still asks at once after an install or repair, in Settings → Helper and on a Connect.
 public struct HelperAnswerWatch: Equatable, Sendable {
     public static let failuresNeeded = 3
     public static let minimumSpan: TimeInterval = 30
+    public static let retryInterval: TimeInterval = 60
 
     public private(set) var failures = 0
     private var firstFailure: Date?
@@ -118,6 +141,13 @@ public struct HelperAnswerWatch: Equatable, Sendable {
     public var notAnswering: Bool {
         guard failures >= Self.failuresNeeded, let firstFailure, let lastFailure else { return false }
         return lastFailure.timeIntervalSince(firstFailure) >= Self.minimumSpan
+    }
+
+    /// Whether a status refresh should ask the helper again now: always until "not answering" is decided,
+    /// then once per `retryInterval`.
+    public func shouldAsk(at now: Date = Date()) -> Bool {
+        guard notAnswering, let lastFailure else { return true }
+        return now.timeIntervalSince(lastFailure) >= Self.retryInterval
     }
 
     /// The helper answered (whatever it said).
@@ -164,6 +194,26 @@ public struct HelperPendingConnect: Equatable, Sendable {
     public init() {}
 
     public var isWaiting: Bool { profileID != nil }
+
+    /// What a waiting connect still waits for, so an expired one says why.
+    public enum Wait: Equatable, Sendable {
+        /// The helper is not installed.
+        case install
+        /// The approval in Login Items.
+        case approval
+        /// It is turned on but belongs to another build (`HelperBuild.Relation` not `.current`).
+        case update
+        /// It is turned on but has not answered.
+        case answer
+    }
+
+    public static func waitingFor(status: HelperStatus, outdated: Bool) -> Wait {
+        switch status {
+        case .notRegistered, .notFound: return .install
+        case .requiresApproval: return .approval
+        case .enabled: return outdated ? .update : .answer
+        }
+    }
 
     public mutating func start(_ id: String, now: Date = Date()) {
         profileID = id

@@ -91,6 +91,8 @@ final class AppModel: ObservableObject {
     /// The helper is enabled but does not answer (`HelperAnswerWatch`).
     @Published private(set) var helperNotAnswering = false
     private var helperAnswers = HelperAnswerWatch()
+    /// A helper call failed without an answer after the helper had answered: it is asked again (`helperCallFailed`).
+    private var helperRecheck = false
     private var helperAutoInstall = HelperAutoInstall()
     /// A Connect waiting for the helper's approval (only with `Preferences.autoInstallHelper`).
     @Published private(set) var pendingConnect = HelperPendingConnect()
@@ -314,17 +316,40 @@ final class AppModel: ObservableObject {
         let s = HelperInstaller.status
         let changed = s != helperStatus
         if changed { helperStatus = s }
-        if s == .enabled, helperInstallError != nil { helperInstallError = nil }
+        // A failed install's error describes the status it left; any other status replaces it.
+        if changed, helperInstallError != nil { helperInstallError = nil }
         if s != .enabled {
             helperOutdated = false
             helperRelation = nil
+            helperRecheck = false
             helperAnswers.reset()
             if helperNotAnswering { helperNotAnswering = false }
-        } else if changed || helperOutdated || helperRelation == nil {
-            // Asked again while it has not answered yet: `HelperAnswerWatch` tells slow from not answering.
+        } else if changed || ((helperOutdated || helperRelation == nil || helperRecheck) && helperAnswers.shouldAsk()) {
+            // Asked again while it has not answered (since a failed call): `HelperAnswerWatch` tells slow from
+            // not answering, and asks less often once it has decided.
             checkHelperVersion()
         }
         helperStateChanged()
+    }
+
+    /// A helper call failed without an answer (a connect): ask again on the next refreshes, showing the last
+    /// known state until `HelperAnswerWatch` decides.
+    private func helperCallFailed(_ error: Error) {
+        guard let e = error as? HelperClientError else { return }
+        switch e {
+        case .timeout, .unavailable:
+            helperRecheck = true
+            checkHelperVersion()
+        default:
+            break
+        }
+    }
+
+    /// Settings → Helper opened, or a Connect: ask a helper that has not answered right away, without waiting
+    /// for `HelperAnswerWatch.retryInterval`.
+    func askHelperNow() {
+        guard helperStatus == .enabled, helperNotAnswering || helperRelation == nil || helperRecheck else { return }
+        checkHelperVersion()
     }
 
     /// The automatic update, else the automatic repair; then a connect waiting for the helper.
@@ -339,13 +364,18 @@ final class AppModel: ObservableObject {
         guard previewHelperStatus == nil, !checkingHelperVersion else { return }
         checkingHelperVersion = true
         Task {
-            do {
-                let relation = try await HelperClient.shared.relation()
+            let (result, answered) = await HelperClient.shared.relationAndAnswer()
+            switch result {
+            case .success(let relation):
                 helperRelation = relation
                 helperOutdated = relation != .current
+            case .failure(let error):
+                // A helper that gave its protocol version answered, even if a later question failed.
+                if !answered { helperAnswers.failed(error) }
+            }
+            if answered {
                 helperAnswers.answered()
-            } catch {
-                helperAnswers.failed(error)
+                helperRecheck = false
             }
             if helperAnswers.notAnswering != helperNotAnswering { helperNotAnswering = helperAnswers.notAnswering }
             checkingHelperVersion = false
@@ -372,32 +402,44 @@ final class AppModel: ObservableObject {
         guard !helperInstalling, !helperUpdating else { return false }
         helperInstalling = true
         helperInstallError = nil
-        var installed = true
+        var failure: String?
         do {
             try await HelperInstaller.registerRetrying()
         } catch {
-            helperInstallError = error.localizedDescription
-            installed = false
+            failure = error.localizedDescription
         }
         helperInstalling = false
-        if installed, case .button = origin, prefs.helperRemoved { prefs.helperRemoved = false }
+        if failure == nil, case .button = origin, prefs.helperRemoved { prefs.helperRemoved = false }
         refreshHelperStatus()
+        // After the refresh, which clears an error of an earlier status.
+        helperInstallError = failure
         if helperStatus == .requiresApproval {
             switch origin {
             case .button:
                 HelperInstaller.openSystemSettingsLoginItems()
             case .automatic(let userActed):
-                if helperAutoInstall.opensLoginItems(userActed: userActed) { HelperInstaller.openSystemSettingsLoginItems() }
+                // Not when the switch was turned off while macOS registered it.
+                if prefs.autoInstallHelper, helperAutoInstall.opensLoginItems(userActed: userActed) {
+                    HelperInstaller.openSystemSettingsLoginItems()
+                }
             }
         }
-        return installed
+        return failure == nil
     }
 
-    /// The helper was removed with Settings → Helper → Remove (or `passtunnel helper uninstall`, carried out
-    /// there): it is not installed again automatically until the user installs it.
-    func helperRemovedByUser() {
-        if !prefs.helperRemoved { prefs.helperRemoved = true }
+    /// Settings → Helper → Remove (also for `passtunnel helper uninstall`, carried out there). The helper is
+    /// marked removed first, so a refresh during the unregister never repairs it, and stays so until the user
+    /// installs it (`Preferences.helperRemoved`); a failed removal restores the mark.
+    func removeHelper() async throws {
+        let wasRemoved = prefs.helperRemoved
+        if !wasRemoved { prefs.helperRemoved = true }
         cancelPendingConnect()
+        do {
+            try await HelperInstaller.unregister()
+        } catch {
+            if !wasRemoved { prefs.helperRemoved = false }
+            throw error
+        }
         refreshHelperStatus()
     }
 
@@ -417,10 +459,13 @@ final class AppModel: ObservableObject {
     @discardableResult
     func autoInstallHelper(_ trigger: HelperAutoInstall.Trigger, userActed: Bool) -> HelperAutoInstall.Action {
         guard previewHelperStatus == nil else { return .none }
-        let repairable = prefs.autoInstallHelper && helperStatus == .enabled && helperNotAnswering
+        // The process listing only while a repair could still be decided.
+        let repairable =
+            prefs.autoInstallHelper && !prefs.helperRemoved && helperStatus == .enabled && helperNotAnswering
+            && helperAutoInstall.mayStillRepair(relation: helperRelation) && bundledInApplications
         let situation = HelperAutoInstall.Situation(
             enabled: prefs.autoInstallHelper, removedByUser: prefs.helperRemoved, status: helperStatus,
-            notAnswering: helperNotAnswering,
+            notAnswering: helperNotAnswering, relation: helperRelation,
             activeSessions: repairable
                 ? connections.states.values.filter(\.isActive).count + HelperSessions.runningToolCount() : 0,
             busy: helperInstalling || helperUpdating,
@@ -483,7 +528,9 @@ final class AppModel: ObservableObject {
     private func showWaitingForApproval(_ p: Profile) {
         let title = String(localized: "Turn on the helper to connect")
         let message = String(
-            localized: "Turn on PassTunnel in System Settings → General → Login Items. \(p.name) connects as soon as you do.")
+            localized:
+                "Turn on PassTunnel in System Settings → General → Login Items. \(p.name) connects if you do within \(Int(HelperPendingConnect.timeout / 60)) minutes."
+        )
         if mainWindowVisible {
             alert = AppAlert(title: title, message: message, waitsForHelper: true)
         } else {
@@ -509,15 +556,29 @@ final class AppModel: ObservableObject {
         case .none:
             break
         case .connect(let id):
-            if let p = profile(id) { connect(p) }
+            guard let p = profile(id) else { break }
+            // The credential sheet lives in the main window, which a Connect from the menu bar may not have open.
+            if !p.needs.isEmpty && !mainWindowVisible { AppDelegate.shared?.showMainWindow() }
+            connect(p)
         case .expired(let id):
             let title = String(localized: "\(profile(id)?.name ?? id) was not connected")
-            let message = String(
-                localized:
-                    "The helper was not turned on within \(Int(HelperPendingConnect.timeout / 60)) minutes. Turn on PassTunnel in System Settings → General → Login Items, then connect again."
-            )
+            let wait = HelperPendingConnect.waitingFor(status: helperStatus, outdated: helperOutdated)
+            let message: String
+            switch wait {
+            case .approval:
+                message = String(
+                    localized:
+                        "The helper was not turned on within \(Int(HelperPendingConnect.timeout / 60)) minutes. Turn on PassTunnel in System Settings → General → Login Items, then connect again."
+                )
+            case .install:
+                message = String(localized: "The helper is not installed. Install it in Settings → Helper, then connect again.")
+            case .update:
+                message = String(localized: "The helper needs an update. Update it in Settings → Helper, then connect again.")
+            case .answer:
+                message = String(localized: "The helper does not answer. Repair it in Settings → Helper, then connect again.")
+            }
             if mainWindowVisible {
-                alert = AppAlert(title: title, message: message)
+                alert = AppAlert(title: title, message: message, opensHelperSettings: wait != .approval)
             } else {
                 Notifier.shared.post(title: title, body: message, profileID: id)
             }
@@ -810,6 +871,7 @@ final class AppModel: ObservableObject {
     /// A profile whose tunnel overlaps with one that is connected asks first (`OverlapSheet`); `startConnect` goes on
     /// from the answer.
     func connect(_ p: Profile) {
+        askHelperNow()
         if waitsForHelper(p) { return }
         connectUnlessOverlapping(p)
     }
@@ -889,6 +951,7 @@ final class AppModel: ObservableObject {
     }
 
     private func handleConnectError(_ error: Error, profile p: Profile) {
+        helperCallFailed(error)
         if let h = error as? HelperClientError {
             switch h {
             case .notInstalled, .requiresApproval, .notFound, .versionMismatch, .buildMismatch:

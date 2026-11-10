@@ -65,6 +65,8 @@ struct HelperSettings: View {
     @State private var confirmReplace = false
     /// Replacing a newer helper with this copy's older one always asks.
     @State private var confirmDowngrade = false
+    /// The open downgrade warning came from Repair Helper.
+    @State private var downgradeRepairs = false
     /// The CLI request the open confirmation answers; it is told when the user cancels.
     @State private var replyTo: HelperHandoff?
     @State private var showLicenses = false
@@ -199,6 +201,7 @@ struct HelperSettings: View {
         .onReceive(timer) { _ in model.refreshHelperStatus() }
         .onAppear {
             model.refreshHelperStatus()
+            model.askHelperNow()
             runPendingAction()
         }
         .onDisappear { declined() }
@@ -224,7 +227,7 @@ struct HelperSettings: View {
         }
         .confirmationDialog(String(localized: "Replace the helper with an older version?"), isPresented: $confirmDowngrade) {
             Button(String(localized: "Install Older Helper"), role: .destructive) {
-                replyTo = nil; performUpdate()
+                replyTo = nil; performUpdate(repair: downgradeRepairs)
             }
             Button(String(localized: "Cancel"), role: .cancel) { declined() }
         } message: {
@@ -237,11 +240,12 @@ struct HelperSettings: View {
         .sheet(isPresented: $showLicenses) { LicensesView() }
     }
 
-    private var outdated: Bool { model.helperStatus == .enabled && model.helperOutdated }
+    /// Answering (or last seen) as another build; a helper that does not answer shows as such instead.
+    private var outdated: Bool { model.helperStatus == .enabled && model.helperOutdated && !model.helperNotAnswering }
     private var updating: Bool { model.helperUpdating }
     private var isBusy: Bool { busy || updating || model.helperInstalling }
     /// Enabled, but the helper does not answer (`HelperAnswerWatch`): Repair Helper.
-    private var notAnswering: Bool { model.helperStatus == .enabled && model.helperNotAnswering && !outdated }
+    private var notAnswering: Bool { model.helperStatus == .enabled && model.helperNotAnswering }
     /// Enabled, and the helper has not answered yet.
     private var checking: Bool { model.helperStatus == .enabled && !model.helperAnswered && !notAnswering }
     /// The profile whose connect waits for the approval.
@@ -300,7 +304,9 @@ struct HelperSettings: View {
         if checking { return String(localized: "Checking that the helper answers…") }
         if let waitingProfile {
             return String(
-                localized: "Turn on PassTunnel in System Settings → General → Login Items. \(waitingProfile) connects as soon as you do.")
+                localized:
+                    "Turn on PassTunnel in System Settings → General → Login Items. \(waitingProfile) connects if you do within \(Int(HelperPendingConnect.timeout / 60)) minutes."
+            )
         }
         switch model.helperStatus {
         case .enabled: return String(localized: "PassTunnel can start and stop VPN connections.")
@@ -400,19 +406,25 @@ struct HelperSettings: View {
     }
 
     /// Repair Helper: replaces a helper that does not answer with this copy's, like Update Helper (the click
-    /// is the confirmation; active connections stop).
+    /// is the confirmation; active connections stop), except that one last seen as newer gets the downgrade
+    /// warning (it cannot be asked: it does not answer).
     private func repair() {
         guard !isBusy else { return }
-        errorText = nil
-        Task { await model.updateHelper(repair: true) }
+        if model.helperRelation == .newer {
+            downgradeRepairs = true
+            confirmDowngrade = true
+        } else {
+            performUpdate(repair: true)
+        }
     }
 
     /// Update Helper button: the click is the confirmation, except for replacing a newer helper (asked
-    /// fresh: the cached relation may not be known yet).
+    /// fresh: the cached relation may not be known yet; when the helper does not answer, the cached one).
     private func update() {
         guard !isBusy else { return }
         Task {
-            if (try? await HelperClient.shared.relation()) == .newer {
+            if ((try? await HelperClient.shared.relation()) ?? model.helperRelation) == .newer {
+                downgradeRepairs = false
                 confirmDowngrade = true
             } else {
                 performUpdate()
@@ -420,12 +432,13 @@ struct HelperSettings: View {
         }
     }
 
-    /// Replaces a helper left running from another app version (see `AppModel.updateHelper`).
-    private func performUpdate() {
+    /// Replaces a helper left running from another app version, or one that does not answer (`repair`; see
+    /// `AppModel.updateHelper`).
+    private func performUpdate(repair: Bool = false) {
         guard !isBusy else { return }
         errorText = nil
         Task {
-            await model.updateHelper()
+            await model.updateHelper(repair: repair)
             if model.helperStatus == .requiresApproval { HelperInstaller.openSystemSettingsLoginItems() }
         }
     }
@@ -435,9 +448,7 @@ struct HelperSettings: View {
         errorText = nil
         Task {
             do {
-                try await HelperInstaller.unregister()
-                // Not installed again automatically (`Preferences.helperRemoved`) until the user installs it.
-                model.helperRemovedByUser()
+                try await model.removeHelper()
             } catch {
                 errorText = error.localizedDescription
             }
