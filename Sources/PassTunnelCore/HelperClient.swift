@@ -16,6 +16,14 @@ public enum HelperClientError: Error, Equatable, LocalizedError {
     case buildMismatch
     case badResponse
 
+    /// What a `.notFound` helper status means for a connect. macOS 27.0.1 reported a valid helper that was
+    /// never registered as not found, so where installing can be attempted (see
+    /// `HelperInstaller.canAttemptInstall`) the helper is simply not installed yet; otherwise it is
+    /// missing from the app bundle.
+    static func forNotFound(canAttemptInstall: Bool) -> HelperClientError {
+        canAttemptInstall ? .notInstalled : .notFound
+    }
+
     /// The running helper is from another protocol version or build and must be updated.
     public var meansOutdatedHelper: Bool {
         switch self {
@@ -368,7 +376,7 @@ public final class HelperClient: @unchecked Sendable {
         switch HelperInstaller.status {
         case .notRegistered: return HelperClientError.notInstalled
         case .requiresApproval: return HelperClientError.requiresApproval
-        case .notFound: return HelperClientError.notFound
+        case .notFound: return HelperClientError.forNotFound(canAttemptInstall: HelperInstaller.canAttemptInstall(status: .notFound))
         case .enabled:
             return HelperClientError.unavailable(
                 ns.code == NSXPCConnectionInterrupted

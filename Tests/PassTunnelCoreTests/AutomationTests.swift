@@ -1140,6 +1140,13 @@ final class MCPServerTests: XCTestCase {
         XCTAssertEqual(report["version"] as? String, "9.9.9")
         XCTAssertEqual(report["in_applications"] as? Bool, true)
         XCTAssertEqual((report["helper"] as? [String: Any])?["outdated"] as? Bool, true)
+        #if os(macOS)
+        let macOS = try XCTUnwrap(report["macos_version"] as? String)
+        XCTAssertEqual(macOS, AppInfo.versionString(ProcessInfo.processInfo.operatingSystemVersion))
+        XCTAssertNotNil(macOS.range(of: #"^\d+\.\d+\.\d+$"#, options: .regularExpression))
+        #else
+        XCTAssertNil(report["macos_version"])
+        #endif
         let network = report["network"] as? [String: Any]
         XCTAssertEqual(network?["online"] as? Bool, true)
         let tools = try XCTUnwrap(report["tools"] as? [[String: Any]])
@@ -1213,6 +1220,8 @@ final class MCPServerTests: XCTestCase {
         XCTAssertEqual((input["check_clock"] as? [String: Any])?["type"] as? String, "boolean")
         let output = try XCTUnwrap((diagnose["outputSchema"] as? [String: Any])?["properties"] as? [String: Any])
         XCTAssertEqual(((output["clock"] as? [String: Any])?["required"] as? [String]), ["offset_seconds", "source", "checked_at"])
+        XCTAssertEqual((output["macos_version"] as? [String: Any])?["type"] as? String, "string")
+        XCTAssertFalse(((diagnose["outputSchema"] as? [String: Any])?["required"] as? [String] ?? []).contains("macos_version"))
         #if os(macOS)
         let toolItems = (output["tools"] as? [String: Any])?["items"] as? [String: Any]
         XCTAssertEqual(toolItems?["required"] as? [String], ["name", "ok"])

@@ -190,14 +190,14 @@ public enum HelperInstaller {
 
     enum Failure: Equatable { case notPermitted, deniedByUser, alreadyRegistered, jobNotFound, other }
 
-    /// SMAppService reports its own codes (`kSMError…`, `SMAppServiceErrorDomain`) and POSIX ones
-    /// (EPERM, in either domain); the underlying error is checked too.
+    /// SMAppService reports its own codes (`kSMError…`, in the ServiceManagement domains only) and POSIX
+    /// ones (EPERM, in either domain); the underlying error is checked too.
     static func classify(_ error: Error) -> Failure {
         let ns = error as NSError
         let posix = ns.domain == NSPOSIXErrorDomain
         let serviceManagement = ns.domain == "SMAppServiceErrorDomain" || ns.domain.contains("ServiceManagement")
         if (posix || serviceManagement) && ns.code == Int(EPERM) { return .notPermitted }
-        if !posix {
+        if serviceManagement {
             switch ns.code {
             case kSMErrorLaunchDeniedByUser: return .deniedByUser
             case kSMErrorAlreadyRegistered: return .alreadyRegistered

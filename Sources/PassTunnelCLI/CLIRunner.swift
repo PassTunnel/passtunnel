@@ -1270,14 +1270,21 @@ final class CLIRunner {
             #endif
         default:
             #if os(macOS)
-            if HelperInstaller.canAttemptInstall(status: .notFound) {
-                lines.append(String(localized: "Helper: not reported by macOS yet (run “passtunnel helper install”)"))
-                break
-            }
+            lines.append(Self.notFoundLine(canAttemptInstall: HelperInstaller.canAttemptInstall(status: .notFound), rawStatus: r.rawStatus))
+            #else
+            lines.append(Self.notFoundLine(canAttemptInstall: false, rawStatus: r.rawStatus))
             #endif
-            lines.append(String(localized: "Helper: missing from the app bundle"))
         }
         return lines
+    }
+
+    /// The not-found state in words, with the number macOS reported when the report has it.
+    nonisolated static func notFoundLine(canAttemptInstall: Bool, rawStatus: Int?) -> String {
+        let base = canAttemptInstall
+            ? String(localized: "Helper: not reported by macOS yet (run “passtunnel helper install”)")
+            : String(localized: "Helper: missing from the app bundle")
+        guard let rawStatus else { return base }
+        return base + " " + String(localized: "(macOS status \(rawStatus))")
     }
 
     // MARK: diagnose
@@ -1294,6 +1301,7 @@ final class CLIRunner {
             "PassTunnel \(report.version)" + (report.build.map { " (\($0))" } ?? "") + "  "
                 + CLITerminal.dim(report.appPath))
         #if os(macOS)
+        if let macOS = report.macosVersion { CLITerminal.out("macOS \(macOS)") }
         if !report.inApplications {
             CLITerminal.out(String(localized: "Not in /Applications: the helper can be installed and updated only from there."))
         }

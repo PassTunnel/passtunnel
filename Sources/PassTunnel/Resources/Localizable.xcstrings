@@ -473,6 +473,16 @@
         }
       }
     },
+    "(macOS status %lld)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(macOS durumu %lld)"
+          }
+        }
+      }
+    },
     "(out of date; “passtunnel helper install” updates it)" : {
       "localizations" : {
         "tr" : {

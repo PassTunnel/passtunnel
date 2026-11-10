@@ -13,6 +13,19 @@ final class CLICommandTests: XCTestCase {
         }
     }
 
+    func testNotFoundHelperLineShowsTheMacOSStatus() {
+        XCTAssertEqual(
+            CLIRunner.notFoundLine(canAttemptInstall: true, rawStatus: 3),
+            "Helper: not reported by macOS yet (run “passtunnel helper install”) (macOS status 3)")
+        XCTAssertEqual(
+            CLIRunner.notFoundLine(canAttemptInstall: false, rawStatus: 99),
+            "Helper: missing from the app bundle (macOS status 99)")
+        XCTAssertEqual(CLIRunner.notFoundLine(canAttemptInstall: false, rawStatus: nil), "Helper: missing from the app bundle")
+        XCTAssertEqual(
+            CLIRunner.notFoundLine(canAttemptInstall: true, rawStatus: nil),
+            "Helper: not reported by macOS yet (run “passtunnel helper install”)")
+    }
+
     func testSuggestsTheClosestCommand() {
         XCTAssertEqual(CLICommand.suggestion(for: "conect"), "connect")
         XCTAssertEqual(CLICommand.suggestion(for: "statsu"), "status")
