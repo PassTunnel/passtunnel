@@ -683,7 +683,13 @@ final class SecretVaultTests: CoreTestCase {
             XCTFail("expected an error")
         } catch {
             XCTAssertEqual((error as? ProtectionKeyUnusable)?.changingSetting, true, "\(error)")
-            XCTAssertTrue(error.localizedDescription.contains("save without changing “Require"), error.localizedDescription)
+            // The setting is named by the editor's switch on the Mac and as require_auth on Linux.
+            #if os(macOS)
+            let setting = "Require"
+            #else
+            let setting = "require_auth"
+            #endif
+            XCTAssertTrue(error.localizedDescription.contains("save without changing “\(setting)"), error.localizedDescription)
         }
         XCTAssertEqual(storedItems(p), before)
         XCTAssertEqual(Secrets.get(p.id, .totp), totp)
