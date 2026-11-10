@@ -860,8 +860,11 @@ moment is not used either: the connect fails and asks you to connect again.
 - It needs a Secure Enclave (Apple silicon or a T2 Mac). Without one (e.g. a virtual machine), the
   option cannot be turned on; it never silently degrades to plain storage.
 - Secure Enclave keys do not move to another Mac or survive erasing this one. After migrating, the
-  encrypted items cannot be decrypted; PassTunnel says so, removes them and asks you to enter the
-  password or TOTP secret again.
+  encrypted items cannot be decrypted. macOS reports this with no error that tells it apart from a
+  failure that may pass, so PassTunnel never removes them on its own: it shows the error (with the
+  system's own message, domain and code) and asks you to try again or, for a profile from another Mac,
+  to enter the password and TOTP secret again in the profile editor. Saving every encrypted secret
+  again gives the profile a new key; nothing else is lost.
 - `userPresence` is used (not `biometryCurrentSet`), so adding a fingerprint does not lock you out and
   the password fallback always works.
 - A setting changed outside PassTunnel (e.g. `require_auth` edited in `profile.json`) is reconciled

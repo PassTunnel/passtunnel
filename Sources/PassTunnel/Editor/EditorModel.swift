@@ -752,17 +752,21 @@ final class EditorModel: ObservableObject {
         return p.id
     }
 
+    /// New secrets are stored together, so entering every encrypted one of a profile from another Mac
+    /// again gives it a new key (`SecretVault.store`).
     private func writeSecrets(_ p: Profile) throws {
+        var values: [SecretKind: String] = [:]
         if p.passwordMode == .keychain {
-            if !newPassword.isEmpty { try vault.store(p, .password, newPassword) }
+            if !newPassword.isEmpty { values[.password] = newPassword }
         } else if passwordStored {
             Secrets.delete(p.id, .password)
         }
         if p.otpMode == .totp {
-            if let secret = newTOTPSecret { try vault.store(p, .totp, TOTP.base32Encode(secret)) }
+            if let secret = newTOTPSecret { values[.totp] = TOTP.base32Encode(secret) }
         } else if storedTOTPSecret != nil || storedTOTPProtected {
             Secrets.delete(p.id, .totp)
         }
+        if !values.isEmpty { try vault.store(p, values) }
     }
 
     static func field(for error: Error) -> Field {

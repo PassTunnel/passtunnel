@@ -541,6 +541,7 @@ public protocol UserAuthenticator: AnyObject {          // SecureEnclaveAuthenti
     func secret(_ p: Profile, _ kind: SecretKind, for: UserPresenceAction, prompt: Bool = true) async throws -> String?
     func available(_ id: String, _ kind: SecretKind) -> String?    // plain, or decrypted within the reuse window; never asks
     func store(_ p: Profile, _ kind: SecretKind, _ value: String) throws          // encrypts when protected (public key only)
+    func store(_ p: Profile, _ values: [SecretKind: String]) throws               // several at once (the editor): may replace an unloadable key
     func applyProtection(from old: Profile?, to new: Profile) async throws        // after a setting/mode change
     func reconcile(_ p: Profile) -> Bool                                          // hand-edited setting: encrypt plain protected items
     func forgetUnlessBound(_ p: Profile) / forgetUnlessBound(_ id, to: fingerprint) -> Bool   // drop values confirmed for another destination
@@ -562,7 +563,8 @@ public enum ConfirmationWording { static let hasTouchID: Bool; static var settin
   recent Touch ID unlock of the Mac never stands in for the prompt) and loads the key with it, so all key agreements of one unlock share
   one prompt. LAError → `PTError`: user/app cancel → `.userConfirmationCancelled`; `notInteractive`,
   `systemCancel` (no GUI session, e.g. SSH), lockout, no password → `.userConfirmationFailed(reason)`.
-  A key blob this Secure Enclave cannot use → `ProtectionKeyUnusable`.
+  Loading the key blob or a key agreement failing with anything but a LocalAuthentication error →
+  `ProtectionKeyUnusable` carrying that error's text, domain and code (`keyError`).
 - `SecretEnvelope`: `ptse1:` + Base64(0x01 ‖ ephemeral X9.63 public key (65) ‖ nonce (12) ‖ ciphertext ‖
   tag (16)); ECDH(ephemeral, profile key), HKDF-SHA256 (salt = ephemeral ‖ recipient public key, info
   `PassTunnel secret v1`, 32 bytes), AES-GCM with the account (`<id>/<kind>`) as AAD. Other versions
@@ -583,9 +585,17 @@ public enum ConfirmationWording { static let hasTouchID: Bool; static var settin
   the start of `needsPrompt` / `secret` / `unlock` (so before every CLI use). Encrypted items of a profile
   set to `off` are left encrypted (reading them asks) until `applyProtection` lowers the setting properly.
   Without a Secure Enclave nothing changes.
-- Lost key (another Mac, an erased Secure Enclave): `ProtectionKeyUnusable` → the undecryptable items and
-  the key record are deleted and `.protectedSecretUnreadable(kind)` asks the user to enter the secret
-  again (a new key is made then). A tampered item is kept (the key still works) and reported the same way.
+- Unusable key (another Mac, an erased Secure Enclave, or a failure that may pass): no documented
+  CryptoKit or Security error tells a key from another Mac from a passing failure, so nothing is ever
+  removed. `ProtectionKeyUnusable` (not retried by reconnects) reaches the user with the profile, the
+  encrypted secrets to enter again if the profile comes from another Mac, and the underlying error; the
+  items and the key record are kept, and trying again can work. Entering every encrypted secret again
+  replaces the key: `store` makes a new key when the record's blob cannot be loaded
+  (`publicKey(keyData:)` throws `ProtectionKeyUnusable`) and the values replace every encrypted item of
+  the profile, so nothing left needs the old key (the record is written after the items). Otherwise it
+  encrypts to the record's public key as before. The editor stores the password and the TOTP secret
+  in one call for this. A tampered item is kept (the key still works) and reported as
+  `.protectedSecretUnreadable(kind)`.
 - Key record check (`ProtectionKeyMismatch`, not retried by reconnects): the record's X9.63 public key must
   be the public key of its Secure Enclave blob. Checked before encrypting (`ensureKey`, via
   `publicKey(keyData:)`) and before the prompt when the blob loads, and always on the unlocked key

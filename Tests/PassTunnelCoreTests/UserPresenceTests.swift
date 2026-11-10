@@ -34,6 +34,18 @@ final class FakeAuthenticator: UserAuthenticator, @unchecked Sendable {
         set { lock.lock(); _results = newValue; lock.unlock() }
     }
 
+    /// Errors of the unlocked key's key agreements, consumed in order (none left = it works).
+    private var _keyErrors: [Error?] = []
+    var keyErrors: [Error?] {
+        get { lock.lock(); defer { lock.unlock() }; return _keyErrors }
+        set { lock.lock(); _keyErrors = newValue; lock.unlock() }
+    }
+
+    fileprivate func nextKeyError() -> Error? {
+        lock.lock(); defer { lock.unlock() }
+        return _keyErrors.isEmpty ? nil : _keyErrors.removeFirst()
+    }
+
     var reasons: [String] { lock.lock(); defer { lock.unlock() }; return _reasons }
     var calls: Int { reasons.count }
     var keysCreated: Int { lock.lock(); defer { lock.unlock() }; return _created }
@@ -59,15 +71,20 @@ final class FakeAuthenticator: UserAuthenticator, @unchecked Sendable {
         if delay > 0 { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
         if let result { throw result }
         guard let key = try? P256.KeyAgreement.PrivateKey(rawRepresentation: keyData) else { throw ProtectionKeyUnusable() }
-        return Unlocked(key: key)
+        return Unlocked(key: key, owner: self)
     }
 
     private final class Unlocked: UnlockedProtectionKey {
         let key: P256.KeyAgreement.PrivateKey
-        init(key: P256.KeyAgreement.PrivateKey) { self.key = key }
+        let owner: FakeAuthenticator
+        init(key: P256.KeyAgreement.PrivateKey, owner: FakeAuthenticator) {
+            self.key = key
+            self.owner = owner
+        }
         var publicKey: P256.KeyAgreement.PublicKey { key.publicKey }
         func sharedSecret(with peer: P256.KeyAgreement.PublicKey) async throws -> SharedSecret {
-            try key.sharedSecretFromKeyAgreement(with: peer)
+            if let error = owner.nextKeyError() { throw error }
+            return try key.sharedSecretFromKeyAgreement(with: peer)
         }
     }
 }
@@ -302,27 +319,34 @@ extension ConnectionManagerTests {
         XCTAssertEqual(startedSecret(p.id), "pw" + (try code(at: t0)))
     }
 
-    func testLostKeyAsksToEnterTheSecretAgain() async throws {
+    func testUnusableKeyKeepsTheSecretAndEnteringItAgainMakesANewKey() async throws {
         let m = makeManager()
         let p = try await makeProtected(in: m)
         // As after moving to another Mac: the wrapped key blob is useless here.
         var record = try XCTUnwrap(Secrets.protectionKey(p.id).flatMap(ProtectionKeyRecord.decode))
         record.key = Data("not a key".utf8)
-        try Secrets.setProtectionKey(p.id, try record.encoded())
+        let recordText = try record.encoded()
+        try Secrets.setProtectionKey(p.id, recordText)
+        let stored = Secrets.raw(p.id, .password)
 
         do {
             try await m.connect(p.id)
             XCTFail("expected an error")
         } catch {
-            XCTAssertEqual(error as? PTError, .protectedSecretUnreadable(.password))
+            let unusable = try XCTUnwrap(error as? ProtectionKeyUnusable, "\(error)")
+            XCTAssertEqual(unusable.profileName, "Acme VPN")
+            XCTAssertEqual(unusable.kinds, [.password])
+            XCTAssertTrue(error.localizedDescription.contains("enter its password again in the profile editor"), error.localizedDescription)
         }
         XCTAssertEqual(helper.starts.count, 0)
-        XCTAssertFalse(Secrets.has(p.id, .password), "the undecryptable item is removed")
-        XCTAssertNil(Secrets.protectionKey(p.id))
+        XCTAssertEqual(Secrets.raw(p.id, .password), stored, "nothing is removed: the failure may pass")
+        XCTAssertEqual(Secrets.protectionKey(p.id), recordText)
+        XCTAssertTrue(m.lastError[p.id]?.contains("were kept") == true)
 
-        // Entering it again works with a new key.
+        // Entering it again replaces the item and, as nothing else needs the old key, the key.
         try m.vault.store(p, .password, "pw2")
         XCTAssertTrue(Secrets.isProtected(p.id, .password))
+        XCTAssertNotEqual(Secrets.protectionKey(p.id), recordText)
         try await m.connect(p.id)
         XCTAssertEqual(startedSecret(p.id), "pw2")
     }
@@ -437,6 +461,107 @@ final class SecretVaultTests: CoreTestCase {
             XCTAssertEqual(error as? PTError, .protectedSecretUnreadable(.password))
         }
         XCTAssertEqual(Secrets.raw(p.id, .password), raw, "kept: the key still works, so it is not a lost key")
+    }
+
+    // MARK: key failures
+
+    /// The encrypted items and the key record of `p`, to check that nothing changed.
+    func storedItems(_ p: Profile) -> [String?] {
+        [Secrets.raw(p.id, .password), Secrets.raw(p.id, .totp), Secrets.protectionKey(p.id)]
+    }
+
+    @MainActor func testKeyThatFailsToUnlockKeepsEverythingAndATryAgainWorks() async throws {
+        let vault = makeVault()
+        let p = try await change(try makeProfile(), to: .always, in: vault)
+        let before = storedItems(p)
+        let underlying = NSError(domain: "ExampleDomain", code: 42, userInfo: [NSLocalizedDescriptionKey: "The key was refused."])
+        auth.results = [ProtectionKeyUnusable(underlying)]
+        do {
+            _ = try await vault.secret(p, .password, for: .connect)
+            XCTFail("expected an error")
+        } catch {
+            let unusable = try XCTUnwrap(error as? ProtectionKeyUnusable, "\(error)")
+            XCTAssertEqual(unusable.profileName, "Acme")
+            XCTAssertEqual(Set(unusable.kinds), [.password, .totp])
+            XCTAssertEqual(unusable.reason, "The key was refused. (ExampleDomain 42)")
+            let text = error.localizedDescription
+            XCTAssertTrue(text.contains("The saved secrets were kept"), text)
+            XCTAssertTrue(text.contains("enter its password and add its TOTP secret again"), text)
+            XCTAssertTrue(text.hasSuffix("Details: The key was refused. (ExampleDomain 42)"), text)
+        }
+        XCTAssertEqual(storedItems(p), before, "nothing removed")
+        XCTAssertFalse(vault.isUnlocked(p.id, .password))
+
+        // Any other error is passed on as it is, and changes nothing either.
+        auth.results = [NSError(domain: "ExampleDomain", code: 7)]
+        do {
+            _ = try await vault.secret(p, .password, for: .connect)
+            XCTFail("expected an error")
+        } catch {
+            XCTAssertEqual((error as NSError).code, 7)
+        }
+        XCTAssertEqual(storedItems(p), before)
+
+        let password = try await vault.secret(p, .password, for: .connect)
+        XCTAssertEqual(password, "pw")
+        XCTAssertEqual(vault.available(p.id, .totp), totp)
+        XCTAssertEqual(auth.calls, 3)
+    }
+
+    @MainActor func testKeyAgreementFailureKeepsEverythingAndATryAgainWorks() async throws {
+        let vault = makeVault()
+        let p = try await change(try makeProfile(), to: .connect, in: vault)
+        let before = storedItems(p)
+        auth.keyErrors = [ProtectionKeyUnusable(CocoaError(.featureUnsupported))]
+        do {
+            _ = try await vault.secret(p, .password, for: .connect)
+            XCTFail("expected an error")
+        } catch {
+            let unusable = try XCTUnwrap(error as? ProtectionKeyUnusable, "\(error)")
+            XCTAssertEqual(unusable.kinds, [.password])
+            XCTAssertTrue(unusable.reason?.hasSuffix("(NSCocoaErrorDomain \(CocoaError.featureUnsupported.rawValue))") == true, "\(unusable)")
+            XCTAssertTrue(error.localizedDescription.contains("enter its password again"), error.localizedDescription)
+        }
+        XCTAssertEqual(storedItems(p), before, "nothing removed")
+        XCTAssertNil(vault.available(p.id, .password))
+
+        let password = try await vault.secret(p, .password, for: .connect)
+        XCTAssertEqual(password, "pw")
+        XCTAssertEqual(auth.calls, 2)
+        XCTAssertFalse(ConnectionManager.isRetryable(ProtectionKeyUnusable()), "a reconnect cannot ask, so it does not retry")
+    }
+
+    @MainActor func testNewKeyOnlyWhenEveryEncryptedSecretIsEnteredAgain() async throws {
+        let vault = makeVault()
+        let p = try await change(try makeProfile(), to: .always, in: vault)
+        var record = try XCTUnwrap(Secrets.protectionKey(p.id).flatMap(ProtectionKeyRecord.decode))
+        record.key = Data("not a key".utf8)  // cannot be loaded here
+        let recordText = try record.encoded()
+        try Secrets.setProtectionKey(p.id, recordText)
+        let encryptedTOTP = Secrets.raw(p.id, .totp)
+
+        // The TOTP secret still needs the stored key: it is kept, and the password is encrypted to it.
+        try vault.store(p, .password, "pw2")
+        XCTAssertEqual(Secrets.protectionKey(p.id), recordText)
+        XCTAssertEqual(Secrets.raw(p.id, .totp), encryptedTOTP)
+        XCTAssertEqual(auth.keysCreated, 1)
+
+        // Both together: nothing needs the old key any more, so they get a new one.
+        try vault.store(p, [.password: "pw3", .totp: totp])
+        XCTAssertNotEqual(Secrets.protectionKey(p.id), recordText)
+        XCTAssertTrue(Secrets.isProtected(p.id, .password))
+        XCTAssertTrue(Secrets.isProtected(p.id, .totp))
+        XCTAssertEqual(auth.keysCreated, 2)
+        let password = try await vault.secret(p, .password, for: .connect)
+        XCTAssertEqual(password, "pw3")
+        XCTAssertEqual(vault.available(p.id, .totp), totp)
+        XCTAssertEqual(auth.calls, 1)
+
+        // A key that loads is never replaced, whatever is entered.
+        let current = Secrets.protectionKey(p.id)
+        try vault.store(p, [.password: "pw4", .totp: totp])
+        XCTAssertEqual(Secrets.protectionKey(p.id), current)
+        XCTAssertEqual(auth.keysCreated, 2)
     }
 
     // MARK: migration
@@ -638,6 +763,23 @@ final class SecretVaultTests: CoreTestCase {
             XCTAssertFalse(reason.isEmpty)
         }
         XCTAssertTrue(SecureEnclaveAuthenticator.map(ProtectionKeyUnusable()) is ProtectionKeyUnusable)
+    }
+
+    /// Errors of the key itself: LocalAuthentication's are worded as the prompt's, anything else is
+    /// reported with its text, domain and code, whatever it is.
+    func testKeyErrorsKeepTheUnderlyingError() {
+        XCTAssertEqual(
+            SecureEnclaveAuthenticator.keyError(NSError(domain: LAError.errorDomain, code: LAError.Code.userCancel.rawValue)) as? PTError,
+            .userConfirmationCancelled)
+        let ns = NSError(domain: "ExampleDomain", code: -3, userInfo: [NSLocalizedDescriptionKey: "Refused."])
+        XCTAssertEqual(SecureEnclaveAuthenticator.keyError(ns) as? ProtectionKeyUnusable, ProtectionKeyUnusable(ns))
+        XCTAssertEqual(ProtectionKeyUnusable(ns).reason, "Refused. (ExampleDomain -3)")
+        let swiftError = CryptoKitError.underlyingCoreCryptoError(error: -5)
+        let reason = ProtectionKeyUnusable(swiftError).reason ?? ""
+        XCTAssertTrue(reason.hasPrefix("underlyingCoreCryptoError(error: -5) ("), reason)
+        XCTAssertTrue(reason.contains("CryptoKitError"), reason)
+        XCTAssertNil(ProtectionKeyUnusable().reason)
+        XCTAssertFalse(ProtectionKeyUnusable().localizedDescription.contains("Details"))
     }
     #endif
 

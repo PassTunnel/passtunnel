@@ -32,9 +32,49 @@ public protocol UnlockedProtectionKey: AnyObject {
     func sharedSecret(with peer: P256.KeyAgreement.PublicKey) async throws -> SharedSecret
 }
 
-/// The key data could not be used (e.g. a Secure Enclave key from another Mac).
-public struct ProtectionKeyUnusable: Error {
-    public init() {}
+/// The key data could not be used, for a reason other than the confirmation: a Secure Enclave key from
+/// another Mac (never usable here), or a failure that may pass. No documented error tells these apart,
+/// so it is reported and never acted on: the encrypted items and the key record are kept.
+/// `SecretVault` adds the profile and its encrypted secrets before it reaches the user.
+public struct ProtectionKeyUnusable: Error, Equatable, LocalizedError {
+    /// The underlying error, with its domain and code (`describe`); nil when there was none.
+    public var reason: String?
+    public var profileName = ""
+    /// The secrets stored encrypted to the key: the ones to enter again if the key is from another Mac.
+    public var kinds: [SecretKind] = []
+
+    public init(_ underlying: Error? = nil) {
+        reason = underlying.map(Self.describe)
+    }
+
+    /// The error's text followed by its domain and code, e.g. "… (NSOSStatusErrorDomain -25300)".
+    static func describe(_ error: Error) -> String {
+        let ns = error as NSError
+        let text =
+            type(of: error) is NSError.Type
+            ? ns.localizedDescription : (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+        return "\(text) (\(ns.domain) \(ns.code))"
+    }
+
+    public var errorDescription: String? {
+        var text = String(
+            localized: "The protection key of “\(profileName)” could not be used. The saved secrets were kept, so trying again can work.")
+        let kinds = Set(kinds)
+        if kinds == [.password] {
+            text += " " + String(localized: "If the profile comes from another Mac, first enter its password again in the profile editor and save.")
+        } else if kinds == [.totp] {
+            text += " " + String(localized: "If the profile comes from another Mac, first add its TOTP secret again in the profile editor and save.")
+        } else if !kinds.isEmpty {
+            text +=
+                " "
+                + String(
+                    localized:
+                        "If the profile comes from another Mac, first enter its password and add its TOTP secret again in the profile editor, then save both together."
+                )
+        }
+        if let reason { text += " " + String(localized: "Details: \(reason)") }
+        return text
+    }
 }
 
 /// Owns the private half of the protection keys and asks the person at the Mac before using it:
@@ -48,11 +88,11 @@ public protocol UserAuthenticator: AnyObject {
     /// Creating it asks nothing. Throws `PTError.protectionUnavailable` when that is not possible.
     func createKey() throws -> ProtectionKey
     /// The public key of stored key data, without asking (using the key is what asks). Throws
-    /// `ProtectionKeyUnusable` when the data is not a key this Mac can use.
+    /// `ProtectionKeyUnusable` when the data cannot be loaded as a key here.
     func publicKey(keyData: Data) throws -> P256.KeyAgreement.PublicKey
     /// Asks the user ("PassTunnel is trying to `reason`") and returns the key ready for use.
     /// Throws `PTError.userConfirmationCancelled` / `.userConfirmationFailed`, or
-    /// `ProtectionKeyUnusable` when the key data cannot be used.
+    /// `ProtectionKeyUnusable` (with the underlying error) when the key data cannot be used.
     func unlock(keyData: Data, reason: String) async throws -> UnlockedProtectionKey
 }
 
@@ -66,7 +106,7 @@ public typealias PlatformAuthenticator = UnavailableAuthenticator
 
 /// No way to confirm: keys cannot be made (`isAvailable` is false) and nothing can be unlocked, so the
 /// protection cannot be turned on and a protected secret is never used (`PTError.protectionUnavailable`).
-/// Never reports a key as unusable, which would remove the encrypted items.
+/// Never reports a key as unusable: the key is not the problem, the missing confirmation is.
 public final class UnavailableAuthenticator: UserAuthenticator {
     public init() {}
 
@@ -113,17 +153,19 @@ public final class SecureEnclaveAuthenticator: UserAuthenticator {
 
     /// Loading the wrapped blob needs no confirmation; only key agreements do.
     public func publicKey(keyData: Data) throws -> P256.KeyAgreement.PublicKey {
-        guard isAvailable, let key = try? SecureEnclave.P256.KeyAgreement.PrivateKey(dataRepresentation: keyData) else {
-            throw ProtectionKeyUnusable()
+        guard isAvailable else { throw ProtectionKeyUnusable(PTError.protectionUnavailable) }
+        do { return try SecureEnclave.P256.KeyAgreement.PrivateKey(dataRepresentation: keyData).publicKey } catch {
+            throw ProtectionKeyUnusable(error)
         }
-        return key.publicKey
     }
 
     /// One `LAContext` is confirmed first (`evaluateAccessControl` for a key exchange with the key's own
     /// access control), then handed to the key, so all key agreements of this unlock share one prompt.
     /// `touchIDAuthenticationAllowableReuseDuration` stays 0: it would accept a recent Touch ID unlock of
     /// the Mac instead of a prompt, which is what this protects against. Repeats within the reuse window
-    /// are served from `SecretVault`'s memory instead.
+    /// are served from `SecretVault`'s memory instead. Loading the key with the confirmed context fails
+    /// with a LocalAuthentication error (mapped like the prompt's) or anything else
+    /// (`ProtectionKeyUnusable` carrying it: a key from another Mac and a passing failure look alike).
     public func unlock(keyData: Data, reason: String) async throws -> UnlockedProtectionKey {
         guard let access = Self.accessControl() else { throw PTError.protectionUnavailable }
         let context = LAContext()
@@ -136,14 +178,12 @@ public final class SecureEnclaveAuthenticator: UserAuthenticator {
         } catch {
             throw Self.map(error)
         }
-        guard
-            let key = try? SecureEnclave.P256.KeyAgreement.PrivateKey(
-                dataRepresentation: keyData,
-                authenticationContext: context)
-        else {
-            throw ProtectionKeyUnusable()
+        do {
+            let key = try SecureEnclave.P256.KeyAgreement.PrivateKey(dataRepresentation: keyData, authenticationContext: context)
+            return Unlocked(key: key)
+        } catch {
+            throw Self.keyError(error)
         }
-        return Unlocked(key: key)
     }
 
     private final class Unlocked: UnlockedProtectionKey {
@@ -157,11 +197,17 @@ public final class SecureEnclaveAuthenticator: UserAuthenticator {
             // Off the main thread: the Secure Enclave call blocks (and would show UI if it had to ask).
             return try await Task.detached(priority: .userInitiated) {
                 do { return try key.sharedSecretFromKeyAgreement(with: peer) } catch {
-                    if (error as NSError).domain == LAError.errorDomain { throw SecureEnclaveAuthenticator.map(error) }
-                    throw ProtectionKeyUnusable()
+                    throw SecureEnclaveAuthenticator.keyError(error)
                 }
             }.value
         }
+    }
+
+    /// An error of the Secure Enclave key itself (loading it, a key agreement): LocalAuthentication
+    /// errors as `map` words them, anything else `ProtectionKeyUnusable` with the error kept for the report.
+    static func keyError(_ error: Error) -> Error {
+        if (error as NSError).domain == LAError.errorDomain { return map(error) }
+        return ProtectionKeyUnusable(error)
     }
 
     /// LocalAuthentication errors → `PTError`. Only the user's own cancel is a silent cancel; a
