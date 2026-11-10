@@ -826,7 +826,9 @@ profile only needs the public key (no prompt). Before PassTunnel encrypts to the
 `<profile-id>/sekey`, and again before and after it unlocks the key, it checks that the record's public
 key belongs to the Secure Enclave key in the same record: a record replaced by another app (to have new
 secrets encrypted to its own key) is never used, and PassTunnel stops with an error asking you to set
-the profile up again. Turning the option off, or lowering `always` to
+the profile up again. Saving every encrypted secret of the profile again at once does not use the
+record at all: the secrets are encrypted to a new Secure Enclave key, whose record replaces it. Turning
+the option off, or lowering `always` to
 `connect`, needs a successful decrypt; the encrypted items are then rewritten in plain text and the key
 item is deleted. Deleting the profile deletes its key item.
 
@@ -863,8 +865,13 @@ moment is not used either: the connect fails and asks you to connect again.
   encrypted items cannot be decrypted. macOS reports this with no error that tells it apart from a
   failure that may pass, so PassTunnel never removes them on its own: it shows the error (with the
   system's own message, domain and code) and asks you to try again or, for a profile from another Mac,
-  to enter the password and TOTP secret again in the profile editor. Saving every encrypted secret
-  again gives the profile a new key; nothing else is lost.
+  to enter its encrypted secrets again in the profile editor. Saving all of them at once (with
+  `passtunnel secret` when the profile has only one) encrypts them to a new key and replaces the old
+  key's record. Saving only some of them, or encrypting a plain secret (raising the setting), is
+  refused while the old key's data cannot even be loaded, so no secret is sealed to a key that may
+  never open. Turning the option off needs a confirmation with the key, so it works only after the
+  secrets were entered again; a protected profile that stores no secret at all cannot turn it off
+  with such a key (delete the profile and set it up again).
 - `userPresence` is used (not `biometryCurrentSet`), so adding a fingerprint does not lock you out and
   the password fallback always works.
 - A setting changed outside PassTunnel (e.g. `require_auth` edited in `profile.json`) is reconciled

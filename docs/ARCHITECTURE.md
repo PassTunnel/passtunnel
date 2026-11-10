@@ -541,7 +541,7 @@ public protocol UserAuthenticator: AnyObject {          // SecureEnclaveAuthenti
     func secret(_ p: Profile, _ kind: SecretKind, for: UserPresenceAction, prompt: Bool = true) async throws -> String?
     func available(_ id: String, _ kind: SecretKind) -> String?    // plain, or decrypted within the reuse window; never asks
     func store(_ p: Profile, _ kind: SecretKind, _ value: String) throws          // encrypts when protected (public key only)
-    func store(_ p: Profile, _ values: [SecretKind: String]) throws               // several at once (the editor): may replace an unloadable key
+    func store(_ p: Profile, _ values: [SecretKind: String]) throws               // several at once (the editor); replacing every encrypted item makes a new key
     func applyProtection(from old: Profile?, to new: Profile) async throws        // after a setting/mode change
     func reconcile(_ p: Profile) -> Bool                                          // hand-edited setting: encrypt plain protected items
     func forgetUnlessBound(_ p: Profile) / forgetUnlessBound(_ id, to: fingerprint) -> Bool   // drop values confirmed for another destination
@@ -587,20 +587,33 @@ public enum ConfirmationWording { static let hasTouchID: Bool; static var settin
   Without a Secure Enclave nothing changes.
 - Unusable key (another Mac, an erased Secure Enclave, or a failure that may pass): no documented
   CryptoKit or Security error tells a key from another Mac from a passing failure, so nothing is ever
-  removed. `ProtectionKeyUnusable` (not retried by reconnects) reaches the user with the profile, the
-  encrypted secrets to enter again if the profile comes from another Mac, and the underlying error; the
-  items and the key record are kept, and trying again can work. Entering every encrypted secret again
-  replaces the key: `store` makes a new key when the record's blob cannot be loaded
-  (`publicKey(keyData:)` throws `ProtectionKeyUnusable`) and the values replace every encrypted item of
-  the profile, so nothing left needs the old key (the record is written after the items). Otherwise it
-  encrypts to the record's public key as before. The editor stores the password and the TOTP secret
-  in one call for this. A tampered item is kept (the key still works) and reported as
+  removed. `ProtectionKeyUnusable` (not retried by reconnects; a `configuration` failure) reaches the
+  user with the profile, the secrets to enter again if the profile comes from another Mac (the encrypted
+  ones; with none, those the setting protects and the profile uses, or no hint), and the underlying
+  error; the items and the key record are kept, and trying again can work. Entering every encrypted
+  secret again replaces the key: when the values given to `store` replace every encrypted item of the
+  profile (at least one), they are encrypted to a new key from the authenticator, whatever the record
+  holds, as nothing left needs the old one (the record is written after the items, so a failure leaves
+  the old record with the items not yet replaced). With nothing encrypted, the stored key is used when
+  its blob loads and replaced when it does not. When other encrypted items are left, the stored key is
+  used only if its blob loads (with the record check below); otherwise `store` throws
+  `ProtectionKeyUnusable` and writes nothing, so a plain item is never sealed to a key that may never
+  open (raising the setting fails; `reconcile` leaves it plain). An item that cannot be read (a store that
+  reports read errors; the Keychain store reads one as missing) stops the store instead of being left
+  behind. The editor stores the password and the TOTP secret in one call for this; `passtunnel secret`
+  stores one, which repairs a profile with one encrypted secret and otherwise fails with the message.
+  Limits: lowering the setting needs a real confirmation (`decryptAll(requireKey: true)`), so with an
+  unusable key it is refused until the secrets were entered again; a profile with a key record that
+  stores no secret (password asked each time, no TOTP) cannot lower its setting then, nor can one
+  whose key blob loads but cannot be used, until a secret is saved that replaces the key. There is no
+  bypass. A tampered item is kept (the key still works) and reported as
   `.protectedSecretUnreadable(kind)`.
 - Key record check (`ProtectionKeyMismatch`, not retried by reconnects): the record's X9.63 public key must
-  be the public key of its Secure Enclave blob. Checked before encrypting (`ensureKey`, via
-  `publicKey(keyData:)`) and before the prompt when the blob loads, and always on the unlocked key
-  (`UnlockedProtectionKey.publicKey`), so secrets are never encrypted to, or decrypted with, a key a
-  replaced record names.
+  be the public key of its Secure Enclave blob. Checked before encrypting to the record's key (`ensureKey`,
+  via `publicKey(keyData:)`; a blob that does not load is refused instead) and before the prompt when the
+  blob loads, and always on the unlocked key (`UnlockedProtectionKey.publicKey`), so secrets are never
+  encrypted to, or decrypted with, a key a replaced record names. A `store` that replaces every
+  encrypted item does not use the record's key at all: it writes a new key and record over it.
 - Destination binding: `ProfileDestination.of` is SHA-256 over a version tag, the type and, for OpenVPN,
   the exact bytes of `config.ovpn` (`host` = first `remote` plus "+N more" for the others,
   `OVPNAnalyzer.serverDescription`; `configSHA256` = the plain

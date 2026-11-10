@@ -57,6 +57,12 @@ public enum Secrets {
         raw(profileID, kind).map(SecretEnvelope.isEnvelope) ?? false
     }
 
+    /// `isProtected`, but a store that cannot be read throws instead of answering no. (The Keychain
+    /// store reads an item it cannot read as none, so on the Mac this only differs for other stores.)
+    static func isProtectedChecked(_ profileID: String, _ kind: SecretKind) throws -> Bool {
+        try read(account(profileID, kind)).map(SecretEnvelope.isEnvelope) ?? false
+    }
+
     /// Stores `value` in plain text (escaped if it could be mistaken for an envelope).
     public static func set(_ profileID: String, _ kind: SecretKind, _ value: String) throws {
         try setRaw(profileID, kind, SecretEnvelope.encodePlain(value))

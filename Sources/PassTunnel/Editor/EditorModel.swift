@@ -770,6 +770,9 @@ final class EditorModel: ObservableObject {
     }
 
     static func field(for error: Error) -> Field {
+        if let e = error as? ProtectionKeyUnusable, let kind = e.kinds.first {
+            return kind == .password ? .password : .totpSecret
+        }
         guard let e = error as? PTError else { return .general }
         switch e {
         case .emptyName, .invalidProfileID: return .name
