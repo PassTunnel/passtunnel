@@ -651,6 +651,23 @@ final class SecretVaultTests: CoreTestCase {
         XCTAssertNotNil(Secrets.protectionKey(p.id))
     }
 
+    /// A save that changes something else than the setting gets the ordinary hint.
+    @MainActor func testUnusableKeyWithoutASettingChangeGetsTheOrdinaryHint() async throws {
+        let vault = makeVault()
+        let p = try await change(try makeProfile(password: nil), to: .connect, in: vault)
+        XCTAssertTrue(Secrets.isProtected(p.id, .totp))
+        try makeKeyUnloadable(p.id)
+        var saved = p
+        saved.passwordMode = .keychain  // the TOTP secret leaves the protection: it is decrypted
+        do {
+            try await vault.applyProtection(from: p, to: saved)
+            XCTFail("expected an error")
+        } catch {
+            XCTAssertEqual((error as? ProtectionKeyUnusable)?.changingSetting, false, "\(error)")
+            XCTAssertTrue(error.localizedDescription.contains("first add its TOTP secret again"), error.localizedDescription)
+        }
+    }
+
     @MainActor func testUnloadableKeyNeverTakesAPlainSecret() async throws {
         let vault = makeVault()
         var p = try await change(try makeProfile(), to: .connect, in: vault)

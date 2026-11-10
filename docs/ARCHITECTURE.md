@@ -618,10 +618,11 @@ public enum ConfirmationWording { static let hasTouchID: Bool; static var settin
   as `.protectedSecretUnreadable(kind)`.
 - Key record check (`ProtectionKeyMismatch`, not retried by reconnects): the record's X9.63 public key must
   be the public key of its Secure Enclave blob. Checked before encrypting to the record's key (`ensureKey`,
-  via `publicKey(keyData:)`; a blob that does not load is refused instead) and before the prompt when the
-  blob loads, and always on the unlocked key (`UnlockedProtectionKey.publicKey`), so secrets are never
-  encrypted to, or decrypted with, a key a replaced record names. A `store` that replaces every
-  encrypted item does not use the record's key at all: it writes a new key and record over it.
+  via `publicKey(keyData:)`; `ensureKey` lets a blob that does not load through, and `store` refuses it
+  first, in `replacementKey`) and before the prompt when the blob loads, and always on the unlocked key
+  (`UnlockedProtectionKey.publicKey`), so secrets are never encrypted to, or decrypted with, a key a
+  replaced record names. A `store` that replaces every encrypted item writes a new key and record over
+  it; it uses the record's key only when no new key can be made and the blob loads and matches.
 - Destination binding: `ProfileDestination.of` is SHA-256 over a version tag, the type and, for OpenVPN,
   the exact bytes of `config.ovpn` (`host` = first `remote` plus "+N more" for the others,
   `OVPNAnalyzer.serverDescription`; `configSHA256` = the plain

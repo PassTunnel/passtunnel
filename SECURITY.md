@@ -826,8 +826,9 @@ profile only needs the public key (no prompt). Before PassTunnel encrypts to the
 `<profile-id>/sekey`, and again before and after it unlocks the key, it checks that the record's public
 key belongs to the Secure Enclave key in the same record: a record replaced by another app (to have new
 secrets encrypted to its own key) is never used, and PassTunnel stops with an error asking you to set
-the profile up again. Saving every encrypted secret of the profile again at once does not use the
-record at all: the secrets are encrypted to a new Secure Enclave key, whose record replaces it. Turning
+the profile up again. Saving every encrypted secret of the profile again at once encrypts them to a
+new Secure Enclave key, whose record replaces the old one; only if no new key can be made is the stored
+key used, and then only when its record passes that check. Turning
 the option off, or lowering `always` to
 `connect`, needs a successful decrypt; the encrypted items are then rewritten in plain text and the key
 item is deleted. Deleting the profile deletes its key item.
@@ -870,10 +871,12 @@ moment is not used either: the connect fails and asks you to connect again.
   key's record; if a write fails, the items already rewritten are put back as they were. While other
   encrypted secrets remain and the old key's data cannot even be loaded, saving only some of them, or
   encrypting a plain secret (raising the setting), is refused, so no secret is sealed to a key that
-  may never open; change the setting after the secrets were saved again. An item or key record that
-  exists but cannot be read stops the save before anything is written. Turning the option off needs a confirmation with the key, so it works only after the
-  secrets were entered again; a protected profile that stores no secret at all cannot turn it off
-  with such a key (delete the profile and set it up again).
+  may never open; change the setting after the secrets were saved again. When the profile has a key
+  record and the save includes a protected secret, an item or the key record that exists but cannot
+  be read stops the save before anything is written. Turning the option off needs a confirmation with
+  the key, so it works only after the secrets were entered again; a protected profile that stores no
+  secret at all can turn it off after a password or TOTP secret was saved for it, which gives it a new
+  key when the old key's data cannot be loaded.
 - `userPresence` is used (not `biometryCurrentSet`), so adding a fingerprint does not lock you out and
   the password fallback always works.
 - A setting changed outside PassTunnel (e.g. `require_auth` edited in `profile.json`) is reconciled

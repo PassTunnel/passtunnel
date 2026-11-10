@@ -343,10 +343,11 @@ public final class SecretVault: ObservableObject {
     /// saved password) needs a successful decrypt first, which is the confirmation; lowering the setting
     /// asks even when nothing is encrypted yet. Throws `PTError.protectionUnavailable` when the setting
     /// is turned on without a Secure Enclave, and leaves everything unchanged on a cancel. A key that
-    /// cannot be used is reported as found while changing the setting (`changingSetting`).
+    /// cannot be used is reported as found while changing the setting (`changingSetting`) when the
+    /// setting differs (a new profile counts as `off` before).
     public func applyProtection(from old: Profile?, to new: Profile) async throws {
         do { try await applyProtectionNow(from: old, to: new) } catch var error as ProtectionKeyUnusable {
-            error.changingSetting = true
+            error.changingSetting = (old?.requireAuth ?? .off) != new.requireAuth
             throw error
         }
     }
