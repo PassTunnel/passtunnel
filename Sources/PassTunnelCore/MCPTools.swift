@@ -508,7 +508,8 @@ enum Schema {
     static let diagnose: [String: Any] = {
         var properties: [String: Any] = [
             "version": string, "build": string, "app_path": string, "in_applications": bool, "helper": helper,
-            "profiles": array(profileCheck), "clock": clock, "clock_error": string, "network": network
+            "profiles": array(profileCheck), "clock": clock, "clock_error": string, "network": network,
+            "macos_version": string
         ]
         #if os(Linux)
         properties["secret_store"] = secretStore

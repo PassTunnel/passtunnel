@@ -78,6 +78,34 @@ final class HelperInstallerTests: XCTestCase {
             domain: "SMAppServiceErrorDomain", code: kSMErrorInternalFailure,
             userInfo: [NSUnderlyingErrorKey: Self.posixEPERM])
         XCTAssertEqual(HelperInstaller.classify(wrapped), .notPermitted)
+        let wrappedKnown = NSError(
+            domain: "SMAppServiceErrorDomain", code: kSMErrorInternalFailure,
+            userInfo: [NSUnderlyingErrorKey: Self.already])
+        XCTAssertEqual(HelperInstaller.classify(wrappedKnown), .alreadyRegistered)
+    }
+
+    func testServiceManagementCodesAreReadOnlyInTheServiceManagementDomain() {
+        // Code 12 (kSMErrorAlreadyRegistered) and the others mean something else in other domains.
+        for domain in ["NSCocoaErrorDomain", "com.example.other", "NSURLErrorDomain"] {
+            for code in [kSMErrorLaunchDeniedByUser, kSMErrorAlreadyRegistered, kSMErrorJobNotFound] {
+                XCTAssertEqual(HelperInstaller.classify(NSError(domain: domain, code: code)), .other, "\(domain) \(code)")
+            }
+        }
+        XCTAssertEqual(
+            HelperInstaller.classify(NSError(domain: "com.apple.ServiceManagement.error", code: kSMErrorAlreadyRegistered)),
+            .alreadyRegistered)
+        // An unrelated outer error still gets its underlying ServiceManagement error read.
+        let wrapped = NSError(
+            domain: "com.example.other", code: 1, userInfo: [NSUnderlyingErrorKey: Self.denied])
+        XCTAssertEqual(HelperInstaller.classify(wrapped), .deniedByUser)
+    }
+
+    func testNotFoundOnConnectPointsToInstallingWhenThatCanBeAttempted() {
+        XCTAssertEqual(HelperClientError.forNotFound(canAttemptInstall: true), .notInstalled)
+        XCTAssertEqual(HelperClientError.forNotFound(canAttemptInstall: false), .notFound)
+        XCTAssertEqual(
+            HelperClientError.notFound.errorDescription,
+            "The PassTunnel helper is missing from the app bundle. Reinstall PassTunnel.")
     }
 
     func testRegisterRetriesWhileNotPermitted() async throws {

@@ -477,6 +477,8 @@ public struct DiagnoseReport: Codable, Equatable {
     /// The Mac: whether each VPN tool of the app starts on this macOS (run with `--version`, nothing is
     /// contacted); nil outside an app bundle and on Linux.
     public var tools: [ToolCheck]?
+    /// The macOS version as "major.minor.patch", such as "27.0.1"; nil on Linux.
+    public var macosVersion: String?
 }
 
 public struct ProfileCheck: Codable, Equatable {
@@ -528,6 +530,20 @@ public struct AppInfo: Equatable {
     }
 
     public var inApplications: Bool { appPath.hasPrefix("/Applications/") }
+
+    /// "major.minor.patch" of an operating system version, such as "27.0.1".
+    static func versionString(_ v: OperatingSystemVersion) -> String {
+        "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"
+    }
+
+    /// The running macOS ("27.0.1"); nil on Linux.
+    public static var macOSVersion: String? {
+        #if os(macOS)
+        return versionString(ProcessInfo.processInfo.operatingSystemVersion)
+        #else
+        return nil
+        #endif
+    }
 }
 
 /// JSON for automation output: the file style (snake_case, sorted keys) with ISO 8601 dates.
