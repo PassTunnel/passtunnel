@@ -1,0 +1,135 @@
+# Daily check that Homebrew has not moved past the pins in scripts/release.env (docs/RELEASING.md,
+# Bundled tools). The release workflow and "Repeatable build (macOS)" stop at bundle-tools.sh when a
+# bundled formula has another version than its pin; the required "Bundled tools" job does not (it sets
+# PASSTUNNEL_ALLOW_UNPINNED_TOOLS so that a pull request does not turn red the day Homebrew moves), and
+# a pin that is out of date would only show at the next release, after its approval. This runs the same
+# installation as release.yml and the version comparison of bundle-tools.sh, without
+# PASSTUNNEL_ALLOW_UNPINNED_TOOLS, on the runner label the release uses.
+#
+# On a scheduled failure it opens one issue ("Scheduled run failed: Bundled tool pins"), or adds a
+# comment to the one that is open, with the table bundle-tools.sh printed. Nothing is closed when the
+# check passes again: the pull request that moves the pins closes the issue. Not a required check.
+name: Bundled tool pins
+
+on:
+  schedule:
+    - cron: "23 6 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: tool-pins
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  check:
+    name: Homebrew against the pins
+    runs-on: macos-26
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # As in release.yml.
+      - name: Install the bundled tools
+        env:
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+          HOMEBREW_VERIFY_ATTESTATIONS: 1
+          HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The runner image ships Homebrew formulae of its own (openssl@4 among them) that
+          # `brew install` leaves alone, so bring the index up to date and upgrade exactly the
+          # bundled formulas; bundle-tools.sh then checks the result against release.env.
+          brew update
+          # Every bundled formula (the pins in scripts/release.env).
+          formulas=(openvpn openfortivpn openconnect openssl@4 lz4 lzo pkcs11-helper gnutls nettle gmp p11-kit
+            libtasn1 libidn2 libunistring gettext stoken libtomcrypt libtommath)
+          brew install openvpn openfortivpn openconnect
+          brew upgrade "${formulas[@]}"
+          brew list --versions "${formulas[@]}"
+
+      # bundle-tools.sh into a bundle of its own, nothing is built or signed. It prints the table of
+      # formula, version and status, and exits with 1 before it changes anything when a version differs
+      # from its pin. The output is kept for the issue.
+      - name: Compare with the pins
+        run: |
+          unset PASSTUNNEL_ALLOW_UNPINNED_TOOLS
+          mkdir -p tools/PassTunnel.app/Contents "$RUNNER_TEMP/pin-check"
+          status=0
+          scripts/bundle-tools.sh tools/PassTunnel.app > "$RUNNER_TEMP/pin-check/bundle-tools.log" 2>&1 || status=$?
+          cat "$RUNNER_TEMP/pin-check/bundle-tools.log"
+          exit "$status"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: pin-check
+          path: ${{ runner.temp }}/pin-check/bundle-tools.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  report:
+    name: Report
+    needs: check
+    if: always() && github.event_name == 'schedule' && needs.check.result == 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
+        with:
+          name: pin-check
+          path: ${{ runner.temp }}/pin-check
+
+      - name: Write the issue text
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          DOCS_URL: ${{ github.server_url }}/${{ github.repository }}/blob/dev/docs/RELEASING.md#bundled-tools
+        run: |
+          log="$RUNNER_TEMP/pin-check/bundle-tools.log"
+          {
+            if grep -q '^error: bundled versions differ' "$log" 2>/dev/null; then
+              echo "Homebrew has moved past at least one pin in \`scripts/release.env\`. The release workflow"
+              echo "and \"Repeatable build (macOS)\" stop at the same point until the pins are updated."
+              echo
+              echo "Formula, Homebrew's version now, and the status against the pin:"
+              echo
+              echo '```'
+              sed -n '/^Bundled Homebrew formulae/,/^error: bundled versions differ/p' "$log" | tr -d '`'
+              echo '```'
+            else
+              echo "The check failed before or after the comparison with the pins (Homebrew could not be"
+              echo "updated, or \`bundle-tools.sh\` stopped for another reason). The end of its output:"
+              echo
+              echo '```'
+              if [[ -f "$log" ]]; then tail -n 30 "$log" | tr -d '`'; else echo "(no output; see the run)"; fi
+              echo '```'
+            fi
+            echo
+            echo "Run: $RUN_URL"
+            echo
+            echo "What to do: [Bundled tools in docs/RELEASING.md]($DOCS_URL) (\"To move to new versions\")."
+            echo "The pull request that moves the pins closes this issue; it is not closed when the check passes again."
+          } > "$RUNNER_TEMP/issue.md"
+
+      - uses: ./.github/actions/report-failure
+        with:
+          title: "Scheduled run failed: Bundled tool pins"
+          body-file: ${{ runner.temp }}/issue.md

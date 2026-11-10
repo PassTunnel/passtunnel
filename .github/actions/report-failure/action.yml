@@ -1,0 +1,40 @@
+# Tells someone that a scheduled run failed: opens one issue with the given title, or, when an open
+# issue with exactly that title exists, adds the text as a comment to it, so a check that stays red
+# does not open a new issue every day. Nothing is closed here: a person closes the issue with the fix.
+#
+# The caller's job needs `issues: write` and a checkout of this directory. The title and the text are
+# only ever passed through the environment and a file, never put into a script.
+name: Report a failed scheduled run
+description: Open an issue, or comment on the open one with the same title.
+
+inputs:
+  title:
+    description: Fixed title of the issue; the open issue is found by exactly this title.
+    required: true
+  body-file:
+    description: File with the issue text (Markdown), written by the caller.
+    required: true
+  token:
+    description: Token with issues write access.
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Open the issue or comment on it
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        REPO: ${{ github.repository }}
+        TITLE: ${{ inputs.title }}
+        BODY_FILE: ${{ inputs.body-file }}
+      run: |
+        set -euo pipefail
+        number="$(gh issue list --repo "$REPO" --state open --limit 500 --json number,title \
+          | jq -r --arg title "$TITLE" 'map(select(.title == $title)) | first | .number // empty')"
+        if [[ -n "$number" ]]; then
+          gh issue comment "$number" --repo "$REPO" --body-file "$BODY_FILE"
+        else
+          gh issue create --repo "$REPO" --title "$TITLE" --body-file "$BODY_FILE"
+        fi
