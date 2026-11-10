@@ -653,7 +653,8 @@ for an envelope), so literal masking does not cover it; the keyword and pattern 
   Schemas (`Schema`), checks arguments (`Arguments`: every key must be consumed, a `null` counts as
   absent; `profile_id` via `Slug.isValid`; booleans must be JSON booleans and integers JSON numbers
   without a fraction) and encodes results with `AutomationJSON.object` for `structuredContent` and as text.
-- `SystemHelperInspector` reads `HelperInstaller.status`, then asks a 5 s `HelperClient` for the
+- `SystemHelperInspector` reads `HelperInstaller.statusWithRawValue` (the status and the raw
+  `SMAppService.Status`, reported as `raw_status`), then asks a 5 s `HelperClient` for the
   protocol and build. `HelperClient.defaultMachServiceName` is `PT.helperLabel`; debug builds take
   `PASSTUNNEL_HELPER_SERVICE` instead, so a debug binary run against a temporary
   `PASSTUNNEL_HOME` never talks to the installed helper.

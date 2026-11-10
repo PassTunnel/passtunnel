@@ -102,7 +102,7 @@ struct HelperSettings: View {
                     case .notRegistered, .notFound:
                         Button(String(localized: "Install Helper")) { install() }
                             .buttonStyle(.borderedProminent)
-                            .disabled(busy || model.helperStatus == .notFound)
+                            .disabled(busy || !mayInstall)
                             .accessibilityLabel(String(localized: "Install Helper"))
                             .accessibilityIdentifier("helper.install")
                     case .requiresApproval:
@@ -213,6 +213,9 @@ struct HelperSettings: View {
     private var outdated: Bool { model.helperStatus == .enabled && model.helperOutdated }
     private var updating: Bool { model.helperUpdating }
     private var isBusy: Bool { busy || updating }
+    /// Install Helper is possible: not registered, or not found by a bundled copy in /Applications
+    /// (macOS 27.0.1 reported a helper that was never registered that way; register() decides).
+    private var mayInstall: Bool { HelperInstaller.canAttemptInstall(status: model.helperStatus) }
 
     private var statusTitle: String {
         if updating { return String(localized: "Updating…") }
@@ -221,7 +224,9 @@ struct HelperSettings: View {
         case .enabled: return String(localized: "Installed and running")
         case .requiresApproval: return String(localized: "Waiting for your approval")
         case .notRegistered: return String(localized: "Not installed")
-        case .notFound: return String(localized: "Missing from this copy of PassTunnel")
+        case .notFound:
+            return mayInstall
+                ? String(localized: "Not reported by macOS yet") : String(localized: "Missing from this copy of PassTunnel")
         }
     }
 
@@ -246,7 +251,10 @@ struct HelperSettings: View {
         case .enabled: return String(localized: "PassTunnel can start and stop VPN connections.")
         case .requiresApproval: return String(localized: "Turn on PassTunnel in System Settings → General → Login Items.")
         case .notRegistered: return String(localized: "Install the helper to connect VPNs. macOS asks you to approve it once.")
-        case .notFound: return String(localized: "Move PassTunnel to the Applications folder and open it from there.")
+        case .notFound:
+            return mayInstall
+                ? String(localized: "macOS does not list the helper yet. Try installing it; macOS asks you to approve it once.")
+                : String(localized: "Move PassTunnel to the Applications folder and open it from there.")
         }
     }
 
@@ -256,7 +264,7 @@ struct HelperSettings: View {
         case .enabled: return "checkmark.shield.fill"
         case .requiresApproval: return "exclamationmark.shield.fill"
         case .notRegistered: return "shield.slash"
-        case .notFound: return "xmark.shield.fill"
+        case .notFound: return mayInstall ? "shield.slash" : "xmark.shield.fill"
         }
     }
 
@@ -266,7 +274,7 @@ struct HelperSettings: View {
         case .enabled: return .green
         case .requiresApproval: return .orange
         case .notRegistered: return .secondary
-        case .notFound: return .red
+        case .notFound: return mayInstall ? .secondary : .red
         }
     }
 
@@ -288,6 +296,7 @@ struct HelperSettings: View {
         }
         switch (action, model.helperStatus) {
         case (.install, .notRegistered), (.update, .notRegistered): install()
+        case (.install, .notFound) where mayInstall, (.update, .notFound) where mayInstall: install()
         case (.install, .requiresApproval), (.update, .requiresApproval): HelperInstaller.openSystemSettingsLoginItems()
         case (.install, .enabled): confirmUpdateIfOutdated(force: false, for: action)
         case (.update, .enabled): confirmUpdateIfOutdated(force: true, for: action)

@@ -328,14 +328,18 @@ From `helper status` and inside the MCP tools `get_status` and `diagnose`.
   "expected_protocol_version" : 5,
   "outdated" : false,
   "protocol_version" : 5,
+  "raw_status" : 1,
   "responding" : true,
   "state" : "enabled"
 }
 ```
 
-`state`: `enabled`, `requires_approval`, `not_installed` or `missing_from_bundle`. `error` says why
-it did not answer. On Linux the report is about the daemon `passtunneld`: `enabled` when its socket
-exists, `not_installed` otherwise, and `outdated` when it speaks another protocol or is not the build
+`state`: `enabled`, `requires_approval`, `not_installed` or `missing_from_bundle`. `raw_status` (macOS
+only) is the number `SMAppService` reported: 0 not registered, 1 enabled, 2 requires approval, 3 not
+found, anything else a status this version does not know (it is shown as `missing_from_bundle`).
+macOS 27.0.1 reported 3 for a helper that was never registered, so from `/Applications`
+`helper install` tries to register it anyway. `error` says why it did not answer. On Linux the
+report is about the daemon `passtunneld`: `enabled` when its socket exists, `not_installed` otherwise, and `outdated` when it speaks another protocol or is not the build
 installed with this `passtunnel` (restart it).
 
 ### SecretStoreReport
@@ -384,7 +388,7 @@ connecting, without connecting and without any secret's value.
 {
   "app_path" : "/Applications/PassTunnel.app",
   "build" : "45",
-  "helper" : { "expected_protocol_version" : 5, "protocol_version" : 5, "responding" : true, "state" : "enabled" },
+  "helper" : { "expected_protocol_version" : 5, "protocol_version" : 5, "raw_status" : 1, "responding" : true, "state" : "enabled" },
   "in_applications" : true,
   "network" : { "interface" : "wifi", "online" : true },
   "profiles" : [

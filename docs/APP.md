@@ -786,7 +786,10 @@ waits for the new status and prints it. `helper status` stays local. Any local p
 request, and registering points the root helper at the registering copy, so
 (`HelperSettings.runPendingAction`): install and update are refused by a copy outside `/Applications`
 ("Open PassTunnel from the Applications folder…"; a helper waiting for approval only opens Login
-Items); a missing helper is registered; replacing an enabled helper always asks ("Replace the
+Items); a missing helper is registered (also when macOS reports it as not found, which macOS 27.0.1
+did for a helper that was never registered: Settings → Helper then offers Install Helper from
+`/Applications`, and `helper status --json` has `raw_status` to tell it from an unknown value);
+replacing an enabled helper always asks ("Replace the
 PassTunnel helper?", naming this copy's path), and replacing a newer one asks with the downgrade
 warning instead; removal asks too. When the helper is enabled but outdated (another protocol or
 build), `helper install` hands off `--update-helper` (`HelperHandoff.update`) instead: after the user
