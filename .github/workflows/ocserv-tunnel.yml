@@ -83,3 +83,40 @@ jobs:
           path: ${{ runner.temp }}/ocserv-logs
           if-no-files-found: ignore
           retention-days: 14
+
+  # A job that hits its timeout is cancelled and runs no step after it, so this is a job of its own. One
+  # issue with a fixed title, or a comment on it while it is open (.github/actions/report-failure).
+  report:
+    name: Report
+    needs: tunnel
+    if: always() && github.event_name == 'schedule' && (needs.tunnel.result == 'failure' || needs.tunnel.result == 'cancelled')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github
+          persist-credentials: false
+
+      - name: Write the issue text
+        env:
+          RESULT: ${{ needs.tunnel.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo "The scheduled run of the workflow Cisco AnyConnect tunnel ended with the result \`$RESULT\`"
+            echo "(\`cancelled\` is also what a run that reached its time limit shows). The logs of the tunnel"
+            echo "tests are in the artifact ocserv-tunnel-logs of the run."
+            echo
+            echo "Run: $RUN_URL"
+            echo
+            echo "This issue is not closed when a later run passes; close it with the fix."
+          } > "$RUNNER_TEMP/issue.md"
+
+      - uses: ./.github/actions/report-failure
+        with:
+          title: "Scheduled run failed: Cisco AnyConnect tunnel"
+          body-file: ${{ runner.temp }}/issue.md

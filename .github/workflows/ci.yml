@@ -1084,6 +1084,22 @@ jobs:
             Tests/ocserv/entrypoint.sh Tests/ocserv/cut.sh Tests/ocserv/tunnel-test.sh Tests/ocserv/run-tunnel-tests.sh \
             Tests/globalprotect/entrypoint.sh Tests/globalprotect/start-server.sh
 
+      # The GlobalProtect job that uses this file is not a required check, so a new OPENCONNECT_VERSION
+      # without the new hash would only show there. The same comparison as in
+      # Tests/globalprotect/start-server.sh (keep them in step), without Docker or a download.
+      - name: The GlobalProtect test server's hash is for the pinned openconnect
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^OPENCONNECT_VERSION=//p' scripts/release.env)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || { echo "::error::no OPENCONNECT_VERSION in scripts/release.env"; exit 1; }
+          read -r sum file <Tests/globalprotect/fake-gp-server.sha256
+          [[ "$sum" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::Tests/globalprotect/fake-gp-server.sha256 holds no SHA-256"; exit 1; }
+          [[ "$file" == "openconnect-$version.tar.gz" ]] || {
+            echo "::error::Tests/globalprotect/fake-gp-server.sha256 is for $file, scripts/release.env pins openconnect $version: update it with the pin"
+            exit 1
+          }
+          echo "$file: the hash file matches the pin"
+
       - name: Self-test of next-version.sh
         run: scripts/test-next-version.sh
 
