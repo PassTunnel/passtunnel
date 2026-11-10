@@ -638,11 +638,13 @@ Four tabs (decision D-12): General, Shortcuts, Helper and Updates.
   `HelperClient` timeout or a refused connection, the first and the last at least 30 s apart; any reply, even one
   followed by a failed question, starts over) shows "Not responding" / "macOS lists the helper as turned on, but it
   does not answer. Repair it to connect; active connections stop." (before "Needs an update": a helper that stopped
-  answering is shown as such) with **Repair Helper** (`helper.repair`): `AppModel.updateHelper(repair:)`, the same
-  unregister and register as Update Helper ("Repairing…" / "Installing the helper again from this copy of
-  PassTunnel. Active connections stop."; a failure shows macOS's error under the status). The click is the
-  confirmation, except for a helper last seen as newer, which gets the downgrade warning below (Update Helper falls
-  back to the last answer too when the helper does not answer now). The helper is asked on every refresh until it
+  answering is shown as such, with the Repair button, also when it was last seen outdated) with **Repair Helper**
+  (`helper.repair`): `AppModel.updateHelper(repair:)`, the same unregister and register as Update Helper
+  ("Repairing…" / "Installing the helper again from this copy of PassTunnel. Active connections stop."; a failure
+  shows macOS's error under the status until the status changes or an install starts). The click is the
+  confirmation for a helper never seen or last seen as this build or an older one; one last seen as newer gets the
+  downgrade warning below, one last seen as not comparable "Replace the PassTunnel helper?" (Update Helper and the
+  `update` hand-off fall back to the last answer too when the helper does not answer now). The helper is asked on every refresh until it
   answered, and again after a connect failed with a timeout or a refused connection (until then the last state
   stays shown); once it is "Not responding", refreshes ask only every 60 s (`retryInterval`), while opening this
   tab, a Connect, an install or a repair ask at once. This holds whatever the switch below says. While Install
@@ -651,9 +653,11 @@ Four tabs (decision D-12): General, Shortcuts, Helper and Updates.
   approval, the status line names the profile ("… Acme VPN connects if you do within 5 minutes.") and Cancel
   Connecting (`helper.cancelConnect`) drops it.
   Under the buttons, the switch "Install and repair the helper automatically" (`autoInstallHelper` in
-  `config.json`, key `auto_install_helper`, default **off**, `helper.autoInstall`) with "PassTunnel installs the
-  helper on the first run and when you connect, and installs it again when it stops answering while no VPN is
-  connected. macOS still asks you to approve it in Login Items. Only a copy in the Applications folder does this."
+  `config.json`, key `auto_install_helper`, default **off**, `helper.autoInstall`) with "PassTunnel installs a
+  missing helper on the first run or when you connect. If the helper does not answer when PassTunnel opens or when
+  you connect, it installs it again once, while no VPN is connected and unless the helper is from a newer or
+  different build. macOS still asks you to approve it in Login Items. Only a copy in the Applications folder does
+  this."
   (see "Automatic install and repair" below). Turning it on acts at once on the state as it is (a missing helper is
   installed; Login Items open when macOS asks for the approval) and clears `helperRemoved`; turning it off drops a
   connect waiting for the approval. The automatic update after an app update (`HelperAutoUpdate`) does not depend
@@ -694,8 +698,10 @@ card). While it is off, the helper is installed and repaired only with the butto
 helper shows "The helper is not ready" with Open Helper Settings, as always. With it on, `HelperAutoInstall` (Core,
 unit-tested; `AppModel` gathers the situation and runs the action) decides, only for a bundled copy in
 `/Applications`, and never for a helper the user removed (`helperRemoved`, set by Settings → Helper → Remove, or
-`passtunnel helper uninstall` carried out there, before it unregisters, so no repair can come in between, and
-restored when the unregister fails; cleared when the user installs it by hand or turns the switch on):
+`passtunnel helper uninstall` carried out there, before it unregisters, and restored when the unregister fails;
+cleared when the user installs it by hand or turns the switch on). `AppModel.removeHelper` refuses while an install,
+update or repair runs ("The helper is being installed or replaced. Remove it when that has finished."), and none of
+them starts while it unregisters, so nothing registers the removed helper again in between:
 - a missing helper (`.notRegistered`, or `.notFound`, which macOS 27.0.1 reported for a helper that was never
   registered) is registered on the first-run screen while it is the frontmost window, when the switch is turned
   on, and on a Connect the user pressed in the app (main window, menu bar, the ⌃⌥V shortcut, a notification's
@@ -706,7 +712,8 @@ restored when the unregister fails; cleared when the user installs it by hand or
   (`HelperInstaller.update`) while no PassTunnel session is active (`HelperSessions`, as for `HelperAutoUpdate`;
   the process list is read only while a repair can still be decided), and only when it never answered or last
   answered as this copy's build or an older one (`HelperAutoInstall.mayRepair`): one last seen as newer or not
-  comparable is left to Repair Helper, which asks as Update Helper does;
+  comparable is left to Repair Helper, which asks first (the downgrade warning for a newer one, "Replace the
+  PassTunnel helper?" for a not comparable one);
 - at most one automatic registration and one automatic repair per launch; a failure is shown with macOS's error
   and left to the buttons.
 

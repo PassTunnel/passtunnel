@@ -65,8 +65,8 @@ struct HelperSettings: View {
     @State private var confirmReplace = false
     /// Replacing a newer helper with this copy's older one always asks.
     @State private var confirmDowngrade = false
-    /// The open downgrade warning came from Repair Helper.
-    @State private var downgradeRepairs = false
+    /// The open replace or downgrade confirmation came from Repair Helper.
+    @State private var confirmationRepairs = false
     /// The CLI request the open confirmation answers; it is told when the user cancels.
     @State private var replyTo: HelperHandoff?
     @State private var showLicenses = false
@@ -121,18 +121,19 @@ struct HelperSettings: View {
                             .accessibilityLabel(String(localized: "Remove Helper…"))
                             .accessibilityIdentifier("helper.remove")
                     case .enabled:
-                        if model.helperOutdated {
-                            Button(String(localized: "Update Helper")) { update() }
-                                .buttonStyle(.borderedProminent)
-                                .disabled(isBusy)
-                                .accessibilityLabel(String(localized: "Update Helper"))
-                                .accessibilityIdentifier("helper.update")
-                        } else if notAnswering {
+                        // As the title: a helper that does not answer is repaired, even when it was last seen outdated.
+                        if notAnswering {
                             Button(String(localized: "Repair Helper")) { repair() }
                                 .buttonStyle(.borderedProminent)
                                 .disabled(isBusy)
                                 .accessibilityLabel(String(localized: "Repair Helper"))
                                 .accessibilityIdentifier("helper.repair")
+                        } else if model.helperOutdated {
+                            Button(String(localized: "Update Helper")) { update() }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(isBusy)
+                                .accessibilityLabel(String(localized: "Update Helper"))
+                                .accessibilityIdentifier("helper.update")
                         }
                         Button(String(localized: "Open Login Items…")) { HelperInstaller.openSystemSettingsLoginItems() }
                             .accessibilityLabel(String(localized: "Open Login Items…"))
@@ -153,7 +154,7 @@ struct HelperSettings: View {
                     Text(
                         String(
                             localized:
-                                "PassTunnel installs the helper on the first run and when you connect, and installs it again when it stops answering while no VPN is connected. macOS still asks you to approve it in Login Items. Only a copy in the Applications folder does this."
+                                "PassTunnel installs a missing helper on the first run or when you connect. If the helper does not answer when PassTunnel opens or when you connect, it installs it again once, while no VPN is connected and unless the helper is from a newer or different build. macOS still asks you to approve it in Login Items. Only a copy in the Applications folder does this."
                         )
                     )
                     .font(.caption)
@@ -216,7 +217,7 @@ struct HelperSettings: View {
         }
         .confirmationDialog(String(localized: "Replace the PassTunnel helper?"), isPresented: $confirmReplace) {
             Button(String(localized: "Replace Helper")) {
-                replyTo = nil; performUpdate()
+                replyTo = nil; performUpdate(repair: confirmationRepairs)
             }
             Button(String(localized: "Cancel"), role: .cancel) { declined() }
         } message: {
@@ -227,7 +228,7 @@ struct HelperSettings: View {
         }
         .confirmationDialog(String(localized: "Replace the helper with an older version?"), isPresented: $confirmDowngrade) {
             Button(String(localized: "Install Older Helper"), role: .destructive) {
-                replyTo = nil; performUpdate(repair: downgradeRepairs)
+                replyTo = nil; performUpdate(repair: confirmationRepairs)
             }
             Button(String(localized: "Cancel"), role: .cancel) { declined() }
         } message: {
@@ -376,11 +377,19 @@ struct HelperSettings: View {
     private func confirmUpdateIfOutdated(force: Bool, for action: HelperHandoff) {
         guard !isBusy else { return }
         Task {
+            confirmationRepairs = false
             switch try? await HelperClient.shared.relation() {
             case .current?: break
             case .newer?: ask(for: action) { confirmDowngrade = true }
             case .older?, .different?: ask(for: action) { confirmReplace = true }
-            case nil: if force { ask(for: action) { confirmReplace = true } }
+            case nil:
+                // Not answering now: the last answer decides between the downgrade warning and the plain one.
+                guard force else { break }
+                if model.helperRelation == .newer {
+                    ask(for: action) { confirmDowngrade = true }
+                } else {
+                    ask(for: action) { confirmReplace = true }
+                }
             }
         }
     }
@@ -405,15 +414,20 @@ struct HelperSettings: View {
         Task { await model.installHelper(.button) }
     }
 
-    /// Repair Helper: replaces a helper that does not answer with this copy's, like Update Helper (the click
-    /// is the confirmation; active connections stop), except that one last seen as newer gets the downgrade
-    /// warning (it cannot be asked: it does not answer).
+    /// Repair Helper: replaces a helper that does not answer with this copy's (active connections stop). The
+    /// click is the confirmation for one never seen or last seen as this build or an older one; one last seen
+    /// as newer gets the downgrade warning, one last seen as not comparable "Replace the PassTunnel helper?"
+    /// (it cannot be asked now: it does not answer).
     private func repair() {
         guard !isBusy else { return }
-        if model.helperRelation == .newer {
-            downgradeRepairs = true
+        switch model.helperRelation {
+        case .newer?:
+            confirmationRepairs = true
             confirmDowngrade = true
-        } else {
+        case .different?:
+            confirmationRepairs = true
+            confirmReplace = true
+        case nil, .current?, .older?:
             performUpdate(repair: true)
         }
     }
@@ -424,7 +438,7 @@ struct HelperSettings: View {
         guard !isBusy else { return }
         Task {
             if ((try? await HelperClient.shared.relation()) ?? model.helperRelation) == .newer {
-                downgradeRepairs = false
+                confirmationRepairs = false
                 confirmDowngrade = true
             } else {
                 performUpdate()

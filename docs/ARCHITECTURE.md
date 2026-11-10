@@ -810,8 +810,12 @@ active sessions, busy, `/Applications`, bundled) and a `Trigger` (`firstRun`, `s
   session is active (counted as for `HelperAutoUpdate`, and only while a repair can still be decided:
   `mayStillRepair`; the update stops the helper), and only when the helper never answered or last
   answered as `.current` or `.older` (`HelperAutoInstall.mayRepair`): a helper last seen as `.newer`
-  (a downgrade) or `.different` is left to Repair Helper, whose click asks with the downgrade warning
-  for a newer one, as Update Helper does. "Does not answer" is `HelperAnswerWatch` (Core):
+  (a downgrade) or `.different` is left to Repair Helper (shown for any helper that does not answer,
+  before Update Helper), whose click asks first: the downgrade warning for a newer one, "Replace the
+  PassTunnel helper?" for a not comparable one. Update Helper and the `update` hand-off also fall back
+  to the last answer when the helper does not answer now. Removal (`AppModel.removeHelper`) is refused
+  while an install, update or repair runs, and none starts while it unregisters. "Does not answer" is
+  `HelperAnswerWatch` (Core):
   `AppModel.checkHelperVersion` asks `HelperClient.relationAndAnswer()` on every status refresh while
   the helper has not answered, and again after a connect failed with `.timeout` / `.unavailable`
   (the last known state stays shown meanwhile); only 3 questions in a row without any reply, each a
@@ -843,7 +847,8 @@ Hand-offs from outside the app (`HelperHandoff`: `passtunnel helper install|unin
 `--install-helper` / `--update-helper` / `--uninstall-helper` launch arguments or the distributed
 notification) can come from any local process, so `HelperSettings.runPendingAction` installs or updates
 only from `/Applications` and asks before replacing an enabled helper (`.older`/`.different`, or no
-answer for `update`: "Replace the PassTunnel helper?"; `.newer`: the downgrade warning) or removing it
+answer for `update`: "Replace the PassTunnel helper?"; `.newer`, or no answer from a helper last seen as
+`.newer`: the downgrade warning) or removing it
 (docs/APP.md, CLI). The app answers the waiting CLI on `HelperHandoff.replyNotification` (object
 `"<action>:<outcome>"`, `HelperHandoff.Outcome`): `asking` when it shows a confirmation, `declined` when
 the user cancels it (or a newer request replaces it), `refused` when this copy is not in

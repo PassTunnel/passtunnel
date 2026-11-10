@@ -8822,12 +8822,12 @@
         }
       }
     },
-    "PassTunnel installs the helper on the first run and when you connect, and installs it again when it stops answering while no VPN is connected. macOS still asks you to approve it in Login Items. Only a copy in the Applications folder does this." : {
+    "PassTunnel installs a missing helper on the first run or when you connect. If the helper does not answer when PassTunnel opens or when you connect, it installs it again once, while no VPN is connected and unless the helper is from a newer or different build. macOS still asks you to approve it in Login Items. Only a copy in the Applications folder does this." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "PassTunnel yardımcıyı ilk açılışta ve bağlandığınızda kendisi yükler; yanıt vermeyi bırakırsa, bağlı VPN yokken yeniden yükler. macOS yine de Giriş Öğeleri’nde onayınızı ister. Bunu yalnızca Uygulamalar klasöründeki kopya yapar."
+            "value" : "PassTunnel eksik yardımcıyı ilk açılışta ya da bağlandığınızda yükler. Yardımcı, PassTunnel açılırken ya da bağlandığınızda yanıt vermezse, bağlı VPN yokken ve yardımcı daha yeni ya da farklı bir derlemeden değilse onu bir kez yeniden yükler. macOS yine de Giriş Öğeleri’nde onayınızı ister. Bunu yalnızca Uygulamalar klasöründeki kopya yapar."
           }
         }
       }
@@ -9818,6 +9818,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Yardımcı yanıt vermiyor. Ayarlar → Yardımcı bölümünde onarın, sonra yeniden bağlanın."
+          }
+        }
+      }
+    },
+    "The helper is being installed or replaced. Remove it when that has finished." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı yükleniyor ya da değiştiriliyor. Bu bittiğinde kaldırın."
           }
         }
       }

@@ -33,6 +33,13 @@ struct AppAlert: Identifiable {
     var waitsForHelper = false
 }
 
+/// `AppModel.removeHelper` while the helper is being installed, updated or repaired.
+struct HelperBusyError: LocalizedError {
+    var errorDescription: String? {
+        String(localized: "The helper is being installed or replaced. Remove it when that has finished.")
+    }
+}
+
 /// Who asked `AppModel.installHelper` to register the helper.
 enum HelperInstallOrigin {
     /// Install Helper (Settings → Helper, the first-run card) or a `passtunnel helper install` hand-off.
@@ -93,6 +100,8 @@ final class AppModel: ObservableObject {
     private var helperAnswers = HelperAnswerWatch()
     /// A helper call failed without an answer after the helper had answered: it is asked again (`helperCallFailed`).
     private var helperRecheck = false
+    /// Settings → Helper's removal is unregistering the helper (`removeHelper`).
+    private var helperRemoving = false
     private var helperAutoInstall = HelperAutoInstall()
     /// A Connect waiting for the helper's approval (only with `Preferences.autoInstallHelper`).
     @Published private(set) var pendingConnect = HelperPendingConnect()
@@ -318,6 +327,7 @@ final class AppModel: ObservableObject {
         if changed { helperStatus = s }
         // A failed install's error describes the status it left; any other status replaces it.
         if changed, helperInstallError != nil { helperInstallError = nil }
+        if changed, helperUpdateError != nil { helperUpdateError = nil }
         if s != .enabled {
             helperOutdated = false
             helperRelation = nil
@@ -399,9 +409,10 @@ final class AppModel: ObservableObject {
     /// `HelperAutoInstall.opensLoginItems` allows it. An install by the user clears `Preferences.helperRemoved`.
     @discardableResult
     func installHelper(_ origin: HelperInstallOrigin) async -> Bool {
-        guard !helperInstalling, !helperUpdating else { return false }
+        guard !helperInstalling, !helperUpdating, !helperRemoving else { return false }
         helperInstalling = true
         helperInstallError = nil
+        helperUpdateError = nil
         var failure: String?
         do {
             try await HelperInstaller.registerRetrying()
@@ -430,7 +441,12 @@ final class AppModel: ObservableObject {
     /// Settings → Helper → Remove (also for `passtunnel helper uninstall`, carried out there). The helper is
     /// marked removed first, so a refresh during the unregister never repairs it, and stays so until the user
     /// installs it (`Preferences.helperRemoved`); a failed removal restores the mark.
+    /// Refused while an install, update or repair runs (it would register the helper again afterwards); no
+    /// install, update or repair starts while it runs.
     func removeHelper() async throws {
+        guard !helperInstalling, !helperUpdating, !helperRemoving else { throw HelperBusyError() }
+        helperRemoving = true
+        defer { helperRemoving = false }
         let wasRemoved = prefs.helperRemoved
         if !wasRemoved { prefs.helperRemoved = true }
         cancelPendingConnect()
@@ -589,21 +605,24 @@ final class AppModel: ObservableObject {
     /// connections stop. Used by Settings → Helper → Update Helper and Repair Helper, the automatic
     /// update and the automatic repair (`repair`: of a helper that does not answer).
     func updateHelper(repair: Bool = false) async {
-        guard !helperUpdating, !helperInstalling else { return }
+        guard !helperUpdating, !helperInstalling, !helperRemoving else { return }
         helperUpdating = true
         helperRepairing = repair
         helperUpdateError = nil
         // The new registration is asked afresh.
         helperAnswers.reset()
         helperNotAnswering = false
+        var failure: String?
         do {
             try await HelperInstaller.update()
         } catch {
-            helperUpdateError = error.localizedDescription
+            failure = error.localizedDescription
         }
         helperUpdating = false
         helperRepairing = false
         refreshHelperStatus()
+        // After the refresh, which clears an error of an earlier status.
+        helperUpdateError = failure
         checkHelperVersion()
     }
 
