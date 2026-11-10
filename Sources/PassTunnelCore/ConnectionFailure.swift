@@ -179,7 +179,7 @@ public struct ConnectionFailure: Codable, Equatable, Sendable {
         case PTError.missingConfig, PTError.missingHost, PTError.missingPassword, PTError.missingTOTPSecret,
             PTError.missingCredential, PTError.invalidField, PTError.usernameTooLong, PTError.invalidSecret,
             PTError.invalidFile, PTError.ovpnNotAllowed, PTError.ovpnReferencedFile, PTError.protectedSecretUnreadable,
-            PTError.anyConnectToolUnavailable, PTError.globalProtectToolUnavailable:
+            PTError.anyConnectToolUnavailable, PTError.globalProtectToolUnavailable, is ProtectionKeyUnusable:
             f.kind = .configuration
         default:
             f.kind = .failed

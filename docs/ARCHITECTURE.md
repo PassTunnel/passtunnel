@@ -541,6 +541,7 @@ public protocol UserAuthenticator: AnyObject {          // SecureEnclaveAuthenti
     func secret(_ p: Profile, _ kind: SecretKind, for: UserPresenceAction, prompt: Bool = true) async throws -> String?
     func available(_ id: String, _ kind: SecretKind) -> String?    // plain, or decrypted within the reuse window; never asks
     func store(_ p: Profile, _ kind: SecretKind, _ value: String) throws          // encrypts when protected (public key only)
+    func store(_ p: Profile, _ values: [SecretKind: String]) throws               // several at once (the editor); replacing every encrypted item makes a new key
     func applyProtection(from old: Profile?, to new: Profile) async throws        // after a setting/mode change
     func reconcile(_ p: Profile) -> Bool                                          // hand-edited setting: encrypt plain protected items
     func forgetUnlessBound(_ p: Profile) / forgetUnlessBound(_ id, to: fingerprint) -> Bool   // drop values confirmed for another destination
@@ -562,7 +563,8 @@ public enum ConfirmationWording { static let hasTouchID: Bool; static var settin
   recent Touch ID unlock of the Mac never stands in for the prompt) and loads the key with it, so all key agreements of one unlock share
   one prompt. LAError → `PTError`: user/app cancel → `.userConfirmationCancelled`; `notInteractive`,
   `systemCancel` (no GUI session, e.g. SSH), lockout, no password → `.userConfirmationFailed(reason)`.
-  A key blob this Secure Enclave cannot use → `ProtectionKeyUnusable`.
+  Loading the key blob or a key agreement failing with anything but a LocalAuthentication error →
+  `ProtectionKeyUnusable` carrying that error's text, domain and code (`keyError`).
 - `SecretEnvelope`: `ptse1:` + Base64(0x01 ‖ ephemeral X9.63 public key (65) ‖ nonce (12) ‖ ciphertext ‖
   tag (16)); ECDH(ephemeral, profile key), HKDF-SHA256 (salt = ephemeral ‖ recipient public key, info
   `PassTunnel secret v1`, 32 bytes), AES-GCM with the account (`<id>/<kind>`) as AAD. Other versions
@@ -583,14 +585,44 @@ public enum ConfirmationWording { static let hasTouchID: Bool; static var settin
   the start of `needsPrompt` / `secret` / `unlock` (so before every CLI use). Encrypted items of a profile
   set to `off` are left encrypted (reading them asks) until `applyProtection` lowers the setting properly.
   Without a Secure Enclave nothing changes.
-- Lost key (another Mac, an erased Secure Enclave): `ProtectionKeyUnusable` → the undecryptable items and
-  the key record are deleted and `.protectedSecretUnreadable(kind)` asks the user to enter the secret
-  again (a new key is made then). A tampered item is kept (the key still works) and reported the same way.
+- Unusable key (another Mac, an erased Secure Enclave, or a failure that may pass): no documented
+  CryptoKit or Security error tells a key from another Mac from a passing failure, so nothing is ever
+  removed. `ProtectionKeyUnusable` (not retried by reconnects; a `configuration` failure) reaches the
+  user with the profile, the secrets to enter again if the profile comes from another Mac (the encrypted
+  ones; with none, those the setting protects and the profile uses, or no hint), and the underlying
+  error; the items and the key record are kept, and trying again can work. Raised from
+  `applyProtection` (`changingSetting`), the hint says to save the secrets first without changing the
+  setting, since the editor applies the setting before it stores the secrets typed with it.
+  Entering every encrypted secret again replaces the key: when the values given to `store` replace
+  every encrypted item of the profile (at least one), they are encrypted to a new key from the
+  authenticator, whatever the record holds, as nothing left needs the old one; if no key can be made,
+  the stored key is used when its blob loads and matches the record, else the error stands. With
+  nothing encrypted, the stored key is used when its blob loads and replaced when it does not
+  (`ProtectionKeyUnusable`; any other error stands). When other encrypted items are left, the stored
+  key is used only if its blob loads (with the record check below); otherwise `store` throws and writes
+  nothing, so a plain item is never sealed to a key that may never open (raising the setting fails;
+  `reconcile` leaves it plain). Items are written first and the new record last; when any write
+  fails, the items already written are put back to their previous raw values (best effort) before the
+  error is rethrown. A record or an item that exists but cannot be read (`SecretStore.readChecked`: the
+  Keychain store throws for any status but success and `errSecItemNotFound`) stops the store before
+  anything is written, and `ensureKey` never makes a new key because the record could not be read.
+  The editor stores the password and the TOTP secret in one call for this; `passtunnel secret` stores
+  one, which repairs a profile with one encrypted secret and otherwise fails with the message.
+  Limits: lowering the setting needs a real confirmation (`decryptAll(requireKey: true)`), so with an
+  unusable key it is refused until the secrets were entered again; a profile with a key record that
+  stores no secret (password asked each time, no TOTP) cannot lower its setting then, nor can one
+  whose key blob loads but cannot be used, until a secret is saved that replaces the key. There is no
+  bypass. Not handled: another process storing at the same moment (a partial store can land between a
+  full replacement's items and its record), and the editor writing `profile.json` before a refused
+  secret. A tampered item is kept (the key still works) and reported
+  as `.protectedSecretUnreadable(kind)`.
 - Key record check (`ProtectionKeyMismatch`, not retried by reconnects): the record's X9.63 public key must
-  be the public key of its Secure Enclave blob. Checked before encrypting (`ensureKey`, via
-  `publicKey(keyData:)`) and before the prompt when the blob loads, and always on the unlocked key
+  be the public key of its Secure Enclave blob. Checked before encrypting to the record's key (`ensureKey`,
+  via `publicKey(keyData:)`; `ensureKey` lets a blob that does not load through, and `store` refuses it
+  first, in `replacementKey`) and before the prompt when the blob loads, and always on the unlocked key
   (`UnlockedProtectionKey.publicKey`), so secrets are never encrypted to, or decrypted with, a key a
-  replaced record names.
+  replaced record names. A `store` that replaces every encrypted item writes a new key and record over
+  it; it uses the record's key only when no new key can be made and the blob loads and matches.
 - Destination binding: `ProfileDestination.of` is SHA-256 over a version tag, the type and, for OpenVPN,
   the exact bytes of `config.ovpn` (`host` = first `remote` plus "+N more" for the others,
   `OVPNAnalyzer.serverDescription`; `configSHA256` = the plain
