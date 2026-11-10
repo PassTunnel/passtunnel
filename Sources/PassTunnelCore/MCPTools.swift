@@ -453,7 +453,8 @@ enum Schema {
     static let helper = result(
         [
             "state": oneOf(["enabled", "requires_approval", "not_installed", "missing_from_bundle"]), "responding": bool,
-            "protocol_version": int, "expected_protocol_version": int, "outdated": bool, "error": string
+            "protocol_version": int, "expected_protocol_version": int, "outdated": bool, "error": string,
+            "raw_status": int
         ], required: ["state", "responding", "expected_protocol_version"])
 
     static let statusReport = result(["helper": helper, "profiles": array(profileStatus)], required: ["helper", "profiles"])

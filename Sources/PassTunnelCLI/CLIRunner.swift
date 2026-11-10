@@ -1038,13 +1038,15 @@ final class CLIRunner {
             case .enabled:
                 guard await helperIsOutdated() == true else { return await printHelperStatus() }
                 return try await updateHelper()
-            case .notFound:
-                return await printHelperStatus()
             case .requiresApproval:
                 HelperInstaller.openSystemSettingsLoginItems()
                 return await printHelperStatus()
             case .notRegistered:
                 break
+            case .notFound:
+                // macOS 27.0.1 reported a helper that was never registered as not found: from a copy
+                // in /Applications the app tries to register it. Anywhere else it stays what it says.
+                guard HelperInstaller.canAttemptInstall(status: .notFound) else { return await printHelperStatus() }
             }
             // SMAppService refuses registrations from a process started in Terminal ("Operation not
             // permitted"), so the app does it: always, rather than trying here first.
@@ -1052,7 +1054,9 @@ final class CLIRunner {
             try handOffToApp(.install)
             CLITerminal.out(String(localized: "Opening PassTunnel to install the helper…"))
             CLITerminal.out(String(localized: "Approve it in PassTunnel, then turn on PassTunnel in System Settings → General → Login Items."))
-            switch await wait(for: replies, until: { HelperInstaller.status != .notRegistered }) {
+            // Registered: approval pending or enabled. Still not registered or not found: not (yet).
+            let registered = { HelperInstaller.status != .notRegistered && HelperInstaller.status != .notFound }
+            switch await wait(for: replies, until: registered) {
             case .done:
                 return await printHelperStatus()
             case .refused:
@@ -1265,6 +1269,12 @@ final class CLIRunner {
             lines.append(String(localized: "Daemon (passtunneld): not installed"))
             #endif
         default:
+            #if os(macOS)
+            if HelperInstaller.canAttemptInstall(status: .notFound) {
+                lines.append(String(localized: "Helper: not reported by macOS yet (run “passtunnel helper install”)"))
+                break
+            }
+            #endif
             lines.append(String(localized: "Helper: missing from the app bundle"))
         }
         return lines

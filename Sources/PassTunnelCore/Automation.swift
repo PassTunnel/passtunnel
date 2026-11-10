@@ -384,10 +384,14 @@ public struct HelperReport: Codable, Equatable {
     /// Another protocol or build than this app ships: `passtunnel helper install` updates it.
     public var outdated: Bool?
     public var error: String?
+    /// macOS: the raw `SMAppService.Status` (0 not registered, 1 enabled, 2 requires approval, 3 not
+    /// found), so a status this build does not know can be told from `missing_from_bundle`.
+    public var rawStatus: Int?
 
     public init(
         state: String, responding: Bool, protocolVersion: Int? = nil,
-        expectedProtocolVersion: Int = PT.helperProtocolVersion, outdated: Bool? = nil, error: String? = nil
+        expectedProtocolVersion: Int = PT.helperProtocolVersion, outdated: Bool? = nil, error: String? = nil,
+        rawStatus: Int? = nil
     ) {
         self.state = state
         self.responding = responding
@@ -395,6 +399,7 @@ public struct HelperReport: Codable, Equatable {
         self.expectedProtocolVersion = expectedProtocolVersion
         self.outdated = outdated
         self.error = error
+        self.rawStatus = rawStatus
     }
 
     /// Enabled, answering and current.
@@ -555,8 +560,8 @@ public struct SystemHelperInspector: HelperInspecting {
     public init() {}
 
     public func report() async -> HelperReport {
-        let status = HelperInstaller.status
-        var r = HelperReport(state: HelperReport.stateName(status), responding: false)
+        let (status, rawStatus) = HelperInstaller.statusWithRawValue
+        var r = HelperReport(state: HelperReport.stateName(status), responding: false, rawStatus: rawStatus)
         guard status == .enabled else { return r }
         let client = HelperClient(machServiceName: HelperClient.defaultMachServiceName, timeout: 5)
         defer { client.invalidate() }

@@ -7634,6 +7634,16 @@
         }
       }
     },
+    "Helper: not reported by macOS yet (run “passtunnel helper install”)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı: macOS henüz bildirmiyor (“passtunnel helper install” çalıştırın)"
+          }
+        }
+      }
+    },
     "Icon" : {
       "localizations" : {
         "tr" : {
@@ -7970,6 +7980,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "macOS, PassTunnel’ın yardımcıyı kurmasına izin vermedi (%@). Yeniden denemek için Yardımcıyı Yükle’ye tıklayın."
+          }
+        }
+      }
+    },
+    "macOS does not list the helper yet. Try installing it; macOS asks you to approve it once." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS yardımcıyı henüz listelemiyor. Yüklemeyi deneyin; macOS onayınızı bir kez ister."
           }
         }
       }
@@ -8320,6 +8340,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Yüklü değil"
+          }
+        }
+      }
+    },
+    "Not reported by macOS yet" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS henüz bildirmiyor"
           }
         }
       }
