@@ -590,24 +590,32 @@ public enum ConfirmationWording { static let hasTouchID: Bool; static var settin
   removed. `ProtectionKeyUnusable` (not retried by reconnects; a `configuration` failure) reaches the
   user with the profile, the secrets to enter again if the profile comes from another Mac (the encrypted
   ones; with none, those the setting protects and the profile uses, or no hint), and the underlying
-  error; the items and the key record are kept, and trying again can work. Entering every encrypted
-  secret again replaces the key: when the values given to `store` replace every encrypted item of the
-  profile (at least one), they are encrypted to a new key from the authenticator, whatever the record
-  holds, as nothing left needs the old one (the record is written after the items, so a failure leaves
-  the old record with the items not yet replaced). With nothing encrypted, the stored key is used when
-  its blob loads and replaced when it does not. When other encrypted items are left, the stored key is
-  used only if its blob loads (with the record check below); otherwise `store` throws
-  `ProtectionKeyUnusable` and writes nothing, so a plain item is never sealed to a key that may never
-  open (raising the setting fails; `reconcile` leaves it plain). An item that cannot be read (a store that
-  reports read errors; the Keychain store reads one as missing) stops the store instead of being left
-  behind. The editor stores the password and the TOTP secret in one call for this; `passtunnel secret`
-  stores one, which repairs a profile with one encrypted secret and otherwise fails with the message.
+  error; the items and the key record are kept, and trying again can work. Raised from
+  `applyProtection` (`changingSetting`), the hint says to save the secrets first without changing the
+  setting, since the editor applies the setting before it stores the secrets typed with it.
+  Entering every encrypted secret again replaces the key: when the values given to `store` replace
+  every encrypted item of the profile (at least one), they are encrypted to a new key from the
+  authenticator, whatever the record holds, as nothing left needs the old one; if no key can be made,
+  the stored key is used when its blob loads and matches the record, else the error stands. With
+  nothing encrypted, the stored key is used when its blob loads and replaced when it does not
+  (`ProtectionKeyUnusable`; any other error stands). When other encrypted items are left, the stored
+  key is used only if its blob loads (with the record check below); otherwise `store` throws and writes
+  nothing, so a plain item is never sealed to a key that may never open (raising the setting fails;
+  `reconcile` leaves it plain). Items are written first and the new record last; when any write
+  fails, the items already written are put back to their previous raw values (best effort) before the
+  error is rethrown. A record or an item that exists but cannot be read (`SecretStore.readChecked`: the
+  Keychain store throws for any status but success and `errSecItemNotFound`) stops the store before
+  anything is written, and `ensureKey` never makes a new key because the record could not be read.
+  The editor stores the password and the TOTP secret in one call for this; `passtunnel secret` stores
+  one, which repairs a profile with one encrypted secret and otherwise fails with the message.
   Limits: lowering the setting needs a real confirmation (`decryptAll(requireKey: true)`), so with an
   unusable key it is refused until the secrets were entered again; a profile with a key record that
   stores no secret (password asked each time, no TOTP) cannot lower its setting then, nor can one
   whose key blob loads but cannot be used, until a secret is saved that replaces the key. There is no
-  bypass. A tampered item is kept (the key still works) and reported as
-  `.protectedSecretUnreadable(kind)`.
+  bypass. Not handled: another process storing at the same moment (a partial store can land between a
+  full replacement's items and its record), and the editor writing `profile.json` before a refused
+  secret. A tampered item is kept (the key still works) and reported
+  as `.protectedSecretUnreadable(kind)`.
 - Key record check (`ProtectionKeyMismatch`, not retried by reconnects): the record's X9.63 public key must
   be the public key of its Secure Enclave blob. Checked before encrypting to the record's key (`ensureKey`,
   via `publicKey(keyData:)`; a blob that does not load is refused instead) and before the prompt when the

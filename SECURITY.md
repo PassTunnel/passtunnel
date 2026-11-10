@@ -867,9 +867,11 @@ moment is not used either: the connect fails and asks you to connect again.
   system's own message, domain and code) and asks you to try again or, for a profile from another Mac,
   to enter its encrypted secrets again in the profile editor. Saving all of them at once (with
   `passtunnel secret` when the profile has only one) encrypts them to a new key and replaces the old
-  key's record. Saving only some of them, or encrypting a plain secret (raising the setting), is
-  refused while the old key's data cannot even be loaded, so no secret is sealed to a key that may
-  never open. Turning the option off needs a confirmation with the key, so it works only after the
+  key's record; if a write fails, the items already rewritten are put back as they were. While other
+  encrypted secrets remain and the old key's data cannot even be loaded, saving only some of them, or
+  encrypting a plain secret (raising the setting), is refused, so no secret is sealed to a key that
+  may never open; change the setting after the secrets were saved again. An item or key record that
+  exists but cannot be read stops the save before anything is written. Turning the option off needs a confirmation with the key, so it works only after the
   secrets were entered again; a protected profile that stores no secret at all cannot turn it off
   with such a key (delete the profile and set it up again).
 - `userPresence` is used (not `biometryCurrentSet`), so adding a fingerprint does not lock you out and

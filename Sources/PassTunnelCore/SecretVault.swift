@@ -271,9 +271,10 @@ public final class SecretVault: ObservableObject {
     /// Stores new secrets as `store(_:_:_:)` does, together. When they replace every encrypted item of
     /// the profile, they are encrypted to a new key, as nothing left needs the old one: that is how the
     /// user enters the secrets of a profile whose key cannot be used (from another Mac) again. The new
-    /// key record is written last, so a failure leaves the old one with the items not yet replaced.
-    /// When other encrypted items are left, the stored key is used, and its key data must load here:
-    /// otherwise `ProtectionKeyUnusable` is thrown and nothing is written (`replacementKey`).
+    /// key record is written last; when a write fails, the items already written are put back as they
+    /// were (best effort), so none is left sealed to a key that was not kept. When other encrypted items
+    /// are left, the stored key is used, and its key data must load here: otherwise
+    /// `ProtectionKeyUnusable` is thrown and nothing is written (`replacementKey`).
     public func store(_ p: Profile, _ values: [SecretKind: String]) throws {
         for kind in values.keys { forget(p.id, kind) }
         let protected = Self.protectedKinds(p)
@@ -283,40 +284,56 @@ public final class SecretVault: ObservableObject {
             newKey = try replacementKey(p, replacing: Set(values.keys))
             recipient = try newKey?.publicKey ?? ensureKey(p.id)
         }
-        for (kind, value) in values.sorted(by: { $0.key.rawValue < $1.key.rawValue }) {
-            if let recipient, protected.contains(kind) {
-                try Secrets.setRaw(p.id, kind, try SecretEnvelope.seal(value, to: recipient, account: Secrets.account(p.id, kind)))
-            } else {
-                try Secrets.set(p.id, kind, value)
+        let previous = values.keys.map { ($0, Secrets.raw(p.id, $0)) }
+        var written: Set<SecretKind> = []
+        do {
+            for (kind, value) in values.sorted(by: { $0.key.rawValue < $1.key.rawValue }) {
+                if let recipient, protected.contains(kind) {
+                    try Secrets.setRaw(p.id, kind, try SecretEnvelope.seal(value, to: recipient, account: Secrets.account(p.id, kind)))
+                } else {
+                    try Secrets.set(p.id, kind, value)
+                }
+                written.insert(kind)
             }
-        }
-        if let newKey {
-            try Secrets.setProtectionKey(p.id, try ProtectionKeyRecord(key: newKey.data, pub: newKey.publicKey.x963Representation).encoded())
+            if let newKey {
+                try Secrets.setProtectionKey(p.id, try ProtectionKeyRecord(key: newKey.data, pub: newKey.publicKey.x963Representation).encoded())
+            }
+        } catch {
+            for (kind, raw) in previous where written.contains(kind) {
+                if let raw { try? Secrets.setRaw(p.id, kind, raw) } else { Secrets.delete(p.id, kind) }
+            }
+            throw error
         }
     }
 
     /// The key `store` encrypts to when it is not the stored one (nil: the stored key, or a first key,
     /// through `ensureKey`). A new key when `kinds` replace every encrypted item of the profile (at least
     /// one), or when nothing is encrypted and the stored key data cannot be loaded: nothing needs the old
-    /// key then. Throws `ProtectionKeyUnusable` when the key data cannot be loaded and other encrypted
-    /// items still need it, rather than encrypting to a key that may never open, and the store's error
-    /// when an item cannot be read, rather than leaving it behind with a key it does not have.
+    /// key then; if none can be made, the stored key when its data loads and matches the record, as
+    /// before. Throws `ProtectionKeyUnusable` when the key data cannot be loaded and other encrypted
+    /// items still need it, rather than encrypting to a key that may never open; any other error of the
+    /// key data as it is; and the store's error when the record or an item cannot be read, rather than
+    /// leaving it behind with a key it does not have.
     private func replacementKey(_ p: Profile, replacing kinds: Set<SecretKind>) throws -> ProtectionKey? {
-        guard let record = Secrets.protectionKey(p.id).flatMap(ProtectionKeyRecord.decode) else { return nil }
+        guard let record = try Secrets.protectionKeyChecked(p.id).flatMap(ProtectionKeyRecord.decode) else { return nil }
         let encrypted = try SecretKind.allCases.filter { try Secrets.isProtectedChecked(p.id, $0) }
         func newKey() throws -> ProtectionKey {
             guard authenticator.isAvailable else { throw PTError.protectionUnavailable }
             return try authenticator.createKey()
         }
-        if !encrypted.isEmpty && encrypted.allSatisfy(kinds.contains) { return try newKey() }
+        if !encrypted.isEmpty && encrypted.allSatisfy(kinds.contains) {
+            do { return try newKey() } catch {
+                guard let actual = try? authenticator.publicKey(keyData: record.key), actual.x963Representation == record.pub
+                else { throw error }
+                return nil
+            }
+        }
         do {
             _ = try authenticator.publicKey(keyData: record.key)
             return nil
         } catch let error as ProtectionKeyUnusable {
             guard encrypted.isEmpty else { throw reported(error, p, encrypted) }
             return try newKey()
-        } catch {
-            return nil
         }
     }
 
@@ -325,8 +342,16 @@ public final class SecretVault: ObservableObject {
     /// (lowering the setting, or `connect` moving the protection from the TOTP secret to a newly
     /// saved password) needs a successful decrypt first, which is the confirmation; lowering the setting
     /// asks even when nothing is encrypted yet. Throws `PTError.protectionUnavailable` when the setting
-    /// is turned on without a Secure Enclave, and leaves everything unchanged on a cancel.
+    /// is turned on without a Secure Enclave, and leaves everything unchanged on a cancel. A key that
+    /// cannot be used is reported as found while changing the setting (`changingSetting`).
     public func applyProtection(from old: Profile?, to new: Profile) async throws {
+        do { try await applyProtectionNow(from: old, to: new) } catch var error as ProtectionKeyUnusable {
+            error.changingSetting = true
+            throw error
+        }
+    }
+
+    private func applyProtectionNow(from old: Profile?, to new: Profile) async throws {
         let id = new.id
         let wanted = Self.protectedKinds(new)
         let used = Self.usedKinds(new)
@@ -367,11 +392,12 @@ public final class SecretVault: ObservableObject {
 
     /// The profile's protection public key, made (and its record stored) when there is none. Throws
     /// `ProtectionKeyMismatch` instead of encrypting to a public key the stored key does not have.
+    /// A record that cannot be read throws (no new key is made in its place).
     /// Key data that cannot be loaded here (another Mac's, or a passing failure) is left as it is:
     /// `applyProtection` only needs a key to exist, and `store` checks the key data itself first
     /// (`replacementKey`), so nothing is encrypted to it.
     private func ensureKey(_ id: String) throws -> P256.KeyAgreement.PublicKey {
-        if let record = Secrets.protectionKey(id).flatMap(ProtectionKeyRecord.decode), let pub = record.publicKey {
+        if let record = try Secrets.protectionKeyChecked(id).flatMap(ProtectionKeyRecord.decode), let pub = record.publicKey {
             if let actual = try? authenticator.publicKey(keyData: record.key),
                 actual.x963Representation != record.pub
             {

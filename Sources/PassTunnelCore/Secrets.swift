@@ -57,10 +57,10 @@ public enum Secrets {
         raw(profileID, kind).map(SecretEnvelope.isEnvelope) ?? false
     }
 
-    /// `isProtected`, but a store that cannot be read throws instead of answering no. (The Keychain
-    /// store reads an item it cannot read as none, so on the Mac this only differs for other stores.)
+    /// `isProtected`, but an item that cannot be read throws instead of answering no
+    /// (`SecretStore.readChecked`).
     static func isProtectedChecked(_ profileID: String, _ kind: SecretKind) throws -> Bool {
-        try read(account(profileID, kind)).map(SecretEnvelope.isEnvelope) ?? false
+        try readChecked(account(profileID, kind)).map(SecretEnvelope.isEnvelope) ?? false
     }
 
     /// Stores `value` in plain text (escaped if it could be mistaken for an envelope).
@@ -94,6 +94,10 @@ public enum Secrets {
 
     static func protectionKey(_ profileID: String) -> String? { try? read(keyAccount(profileID)) }
 
+    /// `protectionKey`, but a record that cannot be read throws instead of reading as none, so no new
+    /// key is made in its place.
+    static func protectionKeyChecked(_ profileID: String) throws -> String? { try readChecked(keyAccount(profileID)) }
+
     static func setProtectionKey(_ profileID: String, _ text: String) throws {
         try store.write(keyAccount(profileID), Data(text.utf8))
     }
@@ -108,9 +112,15 @@ public enum Secrets {
         try store.read(account).flatMap { String(data: $0, encoding: .utf8) }
     }
 
+    private static func readChecked(_ account: String) throws -> String? {
+        try store.readChecked(account).flatMap { String(data: $0, encoding: .utf8) }
+    }
+
     #if DEBUG && canImport(Security)
     /// Tests: replaces SecItemAdd in the Keychain store (to make an add fail).
     static var addOverride: ((CFDictionary) -> OSStatus)?
+    /// Tests: the status a Keychain read of an account fails with instead of reading (nil: it reads).
+    static var readOverride: ((String) -> OSStatus?)?
     #endif
 
     /// Test cleanup: removes every item of the current (overridden) service.
@@ -128,12 +138,19 @@ public enum Secrets {
 protocol SecretStore {
     /// The item's bytes; nil when there is none. Throws when the store cannot be read at all.
     func read(_ account: String) throws -> Data?
+    /// `read`, but an item that exists and cannot be read throws instead of reading as none.
+    func readChecked(_ account: String) throws -> Data?
     /// Stores `data` as the item, replacing any existing one. Throws when it was not stored.
     func write(_ account: String, _ data: Data) throws
     /// Removes the item; nothing to do when there is none. Throws when it exists and stays.
     func remove(_ account: String) throws
     /// Removes every item of the service (test cleanup).
     func removeAll()
+}
+
+extension SecretStore {
+    /// Stores whose `read` already throws when an item cannot be read.
+    func readChecked(_ account: String) throws -> Data? { try read(account) }
 }
 
 #if DEBUG
@@ -214,12 +231,25 @@ struct KeychainSecretStore: SecretStore {
 
     /// Nil also when the item cannot be read.
     func read(_ account: String) -> Data? {
+        (try? readChecked(account)) ?? nil
+    }
+
+    /// Nil only when there is no item; any other failure throws `PTError.keychain`.
+    func readChecked(_ account: String) throws -> Data? {
         var q = baseQuery(account)
         q[kSecReturnData as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
         var out: CFTypeRef?
-        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess else { return nil }
-        return out as? Data
+        #if DEBUG
+        let status = Secrets.readOverride?(account) ?? SecItemCopyMatching(q as CFDictionary, &out)
+        #else
+        let status = SecItemCopyMatching(q as CFDictionary, &out)
+        #endif
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess, let data = out as? Data else {
+            throw PTError.keychain(status == errSecSuccess ? errSecDecode : status)
+        }
+        return data
     }
 
     /// Always delete, then add: an item that already exists may have been created by another app

@@ -42,6 +42,9 @@ public struct ProtectionKeyUnusable: Error, Equatable, LocalizedError {
     public var profileName = ""
     /// The secrets stored encrypted to the key: the ones to enter again if the key is from another Mac.
     public var kinds: [SecretKind] = []
+    /// Found while changing the confirmation setting (`SecretVault.applyProtection`), which runs before
+    /// the editor stores new secrets: the secrets must be saved first, on their own.
+    public var changingSetting = false
 
     public init(_ underlying: Error? = nil) {
         reason = underlying.map(Self.describe)
@@ -60,7 +63,21 @@ public struct ProtectionKeyUnusable: Error, Equatable, LocalizedError {
         var text = String(
             localized: "The protection key of “\(profileName)” could not be used. The saved secrets were kept, so trying again can work.")
         let kinds = Set(kinds)
-        if kinds == [.password] {
+        if changingSetting && !kinds.isEmpty {
+            #if os(macOS)
+            let setting =
+                ConfirmationWording.hasTouchID
+                ? String(localized: "Require Touch ID before connecting") : String(localized: "Require your Mac password before connecting")
+            #else
+            let setting = "require_auth"
+            #endif
+            text +=
+                " "
+                + String(
+                    localized:
+                        "If the profile comes from another Mac, first enter its secrets again and save without changing “\(setting)”, then change that setting."
+                )
+        } else if kinds == [.password] {
             text += " " + String(localized: "If the profile comes from another Mac, first enter its password again in the profile editor and save.")
         } else if kinds == [.totp] {
             text += " " + String(localized: "If the profile comes from another Mac, first add its TOTP secret again in the profile editor and save.")

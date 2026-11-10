@@ -5173,6 +5173,16 @@
         }
       }
     },
+    "If the profile comes from another Mac, first enter its secrets again and save without changing “%@”, then change that setting." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profil başka bir Mac’ten geldiyse önce “%@” ayarını değiştirmeden gizli bilgilerini yeniden girip kaydedin, sonra o ayarı değiştirin."
+          }
+        }
+      }
+    },
     "Install Older Helper" : {
       "localizations" : {
         "tr" : {
