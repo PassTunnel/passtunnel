@@ -79,6 +79,17 @@ public struct LoginItemsGuide: Equatable, Sendable {
         }
         return s.frontmost == Self.systemSettingsBundleID
     }
+
+    /// The side of the screen the panel goes to.
+    public enum Edge: Equatable, Sendable { case left, right }
+
+    /// The edge away from the switches: System Settings lists them on the right, and on the left when the system's
+    /// language is written right to left (it mirrors its layout). From the system's language
+    /// (`LoginItemsPane.systemLanguages`), not the app's own: PassTunnel may run in another language.
+    public static func edge(systemLanguages: [String]) -> Edge {
+        guard let first = systemLanguages.first else { return .left }
+        return Locale.characterDirection(forLanguage: first) == .rightToLeft ? .right : .left
+    }
 }
 
 /// The heading System Settings shows above the list of background items in Login Items, read from System
@@ -97,13 +108,38 @@ public enum LoginItemsPane {
     /// The heading in the best of `languages` the pane has, or nil when that table has none of
     /// `backgroundHeadingKeys` (or there are no tables). `tables`: language → key → value.
     public static func backgroundHeading(tables: [String: [String: String]], languages: [String]) -> String? {
-        guard !tables.isEmpty else { return nil }
-        let best = Bundle.preferredLocalizations(from: Array(tables.keys), forPreferences: languages)
-        guard let language = best.first, let table = tables[language] else { return nil }
+        guard let language = tableLanguage(available: Array(tables.keys), languages: languages),
+            let table = tables[language]
+        else { return nil }
         for key in backgroundHeadingKeys {
             if let value = table[key]?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty { return value }
         }
         return nil
+    }
+
+    /// The table System Settings shows for `languages`: the best match, else English, as when the system's language
+    /// is one the pane has no strings for. Nil without tables.
+    public static func tableLanguage(available: [String], languages: [String]) -> String? {
+        guard !available.isEmpty else { return nil }
+        // Sorted, so what a lookup without a match returns does not depend on the order of a dictionary's keys.
+        let sorted = available.sorted()
+        let fallback = sorted.contains("en") ? "en" : sorted[0]
+        guard let best = Bundle.preferredLocalizations(from: sorted, forPreferences: languages).first else {
+            return fallback
+        }
+        let wanted = Set(languages.map(languageCode))
+        return wanted.contains(languageCode(best)) ? best : fallback
+    }
+
+    /// "pt_BR", "zh-Hans-CN" → "pt", "zh".
+    static func languageCode(_ identifier: String) -> String {
+        String(identifier.split(whereSeparator: { $0 == "-" || $0 == "_" }).first ?? Substring(identifier)).lowercased()
+    }
+
+    /// The heading set apart from the sentence around it (first-strong isolate … pop directional isolate), so a
+    /// right-to-left heading (Arabic, Hebrew) does not turn a left-to-right sentence around, nor the other way.
+    public static func isolated(_ heading: String) -> String {
+        "\u{2068}\(heading)\u{2069}"
     }
 
     /// The heading on this Mac, in the language System Settings shows (`systemLanguages`).
@@ -111,10 +147,12 @@ public enum LoginItemsPane {
         backgroundHeading(tables: localizedTables(in: extensionURL), languages: languages)
     }
 
-    /// The languages of the system, not the app's own (the user may run PassTunnel in another language).
+    /// The languages of the system, not the app's own (the user may run PassTunnel in another language): the global
+    /// domain in every layer (this user, this Mac), and `Locale.preferredLanguages` only when none has them.
     public static var systemLanguages: [String] {
-        let global = UserDefaults.standard.persistentDomain(forName: UserDefaults.globalDomain)
-        return global?["AppleLanguages"] as? [String] ?? Locale.preferredLanguages
+        let global = CFPreferencesCopyAppValue("AppleLanguages" as CFString, kCFPreferencesAnyApplication)
+        if let languages = global as? [String], !languages.isEmpty { return languages }
+        return Locale.preferredLanguages
     }
 
     /// The `Localizable` strings of a bundle as language → key → value: from `Localizable.loctable` (one file for

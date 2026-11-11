@@ -29,6 +29,7 @@ final class LoginItemsGuideController {
     /// While the guide runs, the helper's status is read this often while System Settings is in front, so the panel
     /// goes as soon as the switch is turned on (the app's own refresh is every 5 s).
     static let refreshInterval: TimeInterval = 1
+    static let refreshTolerance: TimeInterval = 0.2
     /// Distance from the screen's edge.
     static let margin: CGFloat = 20
 
@@ -93,9 +94,11 @@ final class LoginItemsGuideController {
             .sink { [weak self] _ in self?.end() }
             .store(in: &bag)
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: Self.refreshInterval, repeats: true) { [weak self] _ in
+        let timer = Timer.scheduledTimer(withTimeInterval: Self.refreshInterval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
+        timer.tolerance = Self.refreshTolerance
+        self.timer = timer
     }
 
     private func tick() {
@@ -105,7 +108,8 @@ final class LoginItemsGuideController {
     }
 
     private func update() {
-        guard let model, guide.isActive else { return }
+        guard guide.isActive else { return }
+        guard let model else { return end() }
         let running = !NSRunningApplication.runningApplications(withBundleIdentifier: LoginItemsGuide.systemSettingsBundleID)
             .isEmpty
         let situation = LoginItemsGuide.Situation(
@@ -113,7 +117,13 @@ final class LoginItemsGuideController {
             systemSettingsRunning: running)
         let shows = guide.shows(situation)
         guard guide.isActive else { return end() }
-        if shows { show() } else { panel?.orderOut(nil) }
+        if shows { show() } else { hide() }
+    }
+
+    private func hide() {
+        // A drag the hiding cut short does not carry over to the next one.
+        dragStart = nil
+        panel?.orderOut(nil)
     }
 
     private func show() {
@@ -151,18 +161,23 @@ final class LoginItemsGuideController {
         return GuidePanel(content: view)
     }
 
-    /// At the leading edge of the screen with the pointer (the one the user just clicked on), centered vertically:
-    /// away from the notifications at the top right, and, at System Settings' usual place in the middle of the
-    /// screen, beside its window or over its sidebar at most, never over the switches on the right of its list.
-    /// Where System Settings' window is is not looked up: that would need the window list. The user can drag the
-    /// panel anywhere.
+    /// On the screen with the pointer (the one the user just clicked on), centered vertically, at the edge away from
+    /// System Settings' switches (`LoginItemsGuide.edge`: the left one, the right one when the system's language is
+    /// written right to left). Where System Settings' window is is not looked up (that would need the window list),
+    /// so on a small screen, or with System Settings moved to that edge, the panel can overlap its window; the user
+    /// can drag it away.
     private func place(_ panel: NSPanel) {
         let mouse = NSEvent.mouseLocation
         guard let screen = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) }) ?? NSScreen.main
         else { return }
         let area = screen.visibleFrame
         let size = panel.frame.size
-        panel.setFrameOrigin(NSPoint(x: area.minX + Self.margin, y: (area.midY - size.height / 2).rounded()))
+        let x: CGFloat
+        switch LoginItemsGuide.edge(systemLanguages: LoginItemsPane.systemLanguages) {
+        case .left: x = area.minX + Self.margin
+        case .right: x = area.maxX - Self.margin - size.width
+        }
+        panel.setFrameOrigin(NSPoint(x: x, y: (area.midY - size.height / 2).rounded()))
     }
 
     /// Moves the panel with the pointer (dragging its background).
@@ -217,8 +232,10 @@ struct LoginItemsGuideView: View {
     /// The heading above the background items in System Settings (`LoginItemsPane`), when known.
     let heading: String?
     var onClose: (() -> Void)?
-    /// Dragging the background: false while it moves, true when it ends.
+    /// Dragging the background: false while it moves, true when it ends or is cancelled.
     var onDrag: ((Bool) -> Void)?
+    /// Resets when the drag ends and when it is cancelled (`onEnded` is not called then).
+    @GestureState private var dragging = false
     /// The render: the material that stands in for the panel's glass, with its shadow (`RenderSnapshots`).
     var render = false
 
@@ -229,13 +246,15 @@ struct LoginItemsGuideView: View {
         guard let heading else {
             return String(localized: "In the list of apps that can run in the background, find this row and turn its switch on:")
         }
-        return String(localized: "Under “\(heading)”, find this row and turn its switch on:")
+        let isolated = LoginItemsPane.isolated(heading)
+        return String(localized: "Under “\(isolated)”, find this row and turn its switch on:")
     }
 
     /// What VoiceOver says when the panel appears (it never takes the focus from System Settings).
     static func announcement(heading: String?) -> String {
         guard let heading else { return String(localized: "In System Settings, turn on the switch next to PassTunnel.") }
-        return String(localized: "In System Settings, under “\(heading)”, turn on the switch next to PassTunnel.")
+        let isolated = LoginItemsPane.isolated(heading)
+        return String(localized: "In System Settings, under “\(isolated)”, turn on the switch next to PassTunnel.")
     }
 
     var body: some View {
@@ -279,9 +298,12 @@ struct LoginItemsGuideView: View {
         .contentShape(shape)
         .gesture(
             DragGesture(minimumDistance: 2)
+                .updating($dragging) { _, state, _ in state = true }
                 .onChanged { _ in onDrag?(false) }
-                .onEnded { _ in onDrag?(true) }
         )
+        .onChange(of: dragging) { dragging in
+            if !dragging { onDrag?(true) }
+        }
         .padding(render ? Spacing.l : 0)
     }
 
@@ -313,7 +335,7 @@ private struct LoginItemsRowSample: View {
             Spacer(minLength: Spacing.xs)
             SwitchOnSample()
                 .padding(4)
-                .overlay(Capsule().strokeBorder(Palette.fg2, lineWidth: 1.5))
+                .overlay(Capsule().strokeBorder(Palette.fg3, lineWidth: 1))
         }
         .padding(.horizontal, 10)
         .padding(.vertical, Spacing.xs)
@@ -325,7 +347,8 @@ private struct LoginItemsRowSample: View {
     }
 }
 
-/// A switch drawn on, as macOS draws one: the accent color, the knob on the right.
+/// A switch drawn on, as macOS draws one: the accent color, the knob on the right. No edge of its own, also with
+/// Increase Contrast: the ring around it marks it.
 private struct SwitchOnSample: View {
     var body: some View {
         Capsule()
@@ -337,7 +360,6 @@ private struct SwitchOnSample: View {
                     .shadow(color: .black.opacity(0.25), radius: 1, y: 0.5)
                     .padding(2)
             }
-            .edge(Capsule(), Palette.controlEdge)
     }
 }
 

@@ -868,8 +868,12 @@ enum RenderSnapshots {
     /// The Login Items guide (`LoginItemsGuideView`) as it floats beside System Settings, light and dark:
     /// `login-items-guide` with the heading this Mac's System Settings shows in the render's language
     /// (`LoginItemsPane`; the wording without it when there is none), `-fallback` always without it, and
-    /// `-contrast` with the Increase Contrast values.
+    /// `-contrast` with the Increase Contrast values. `-rtl` (light only) quotes the Arabic heading of this Mac's System
+    /// Settings, when it has one, in the render's language: the heading stays in place within the sentence.
     private static func renderLoginItemsGuide(to out: URL) {
+        if let arabic = LoginItemsPane.backgroundHeading(languages: ["ar"]) {
+            snapshot(LoginItemsGuidePreview(heading: arabic), size: nil, dark: false, to: out, name: "login-items-guide-rtl")
+        }
         let heading = LoginItemsPane.backgroundHeading(languages: Bundle.main.preferredLocalizations)
         for (name, heading, contrast) in [
             ("login-items-guide", heading, false), ("login-items-guide-fallback", nil, false),

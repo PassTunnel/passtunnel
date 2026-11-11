@@ -147,6 +147,37 @@ final class LoginItemsGuideTests: XCTestCase {
         XCTAssertNil(LoginItemsPane.backgroundHeading(tables: ["en": ["Allow in the Background": "  "]], languages: ["en"]))
     }
 
+    func testUnmatchedLanguageGetsTheEnglishHeading() {
+        // A system language the pane has no strings for: English, as System Settings falls back to, whatever the
+        // order of the tables.
+        for _ in 0..<5 {
+            XCTAssertEqual(LoginItemsPane.backgroundHeading(tables: tables, languages: ["fr-FR"]), "Background App Activity")
+        }
+        XCTAssertEqual(LoginItemsPane.tableLanguage(available: ["tr", "en", "de"], languages: ["ja-JP"]), "en")
+        XCTAssertEqual(LoginItemsPane.tableLanguage(available: ["tr", "en", "de"], languages: []), "en")
+        XCTAssertEqual(LoginItemsPane.tableLanguage(available: ["tr", "en", "en_GB"], languages: ["en-GB"]), "en_GB")
+        XCTAssertEqual(LoginItemsPane.tableLanguage(available: ["tr", "en"], languages: ["tr-TR", "en-US"]), "tr")
+        XCTAssertEqual(LoginItemsPane.tableLanguage(available: ["zh_CN", "en"], languages: ["zh-Hans-CN"]), "zh_CN")
+        XCTAssertNil(LoginItemsPane.tableLanguage(available: [], languages: ["en"]))
+    }
+
+    func testHeadingIsIsolatedFromTheSentence() {
+        let arabic = "نشاط التطبيقات في الخلفية"
+        let isolated = LoginItemsPane.isolated(arabic)
+        XCTAssertEqual(isolated.unicodeScalars.first, "\u{2068}")
+        XCTAssertEqual(isolated.unicodeScalars.last, "\u{2069}")
+        XCTAssertEqual(String(isolated.unicodeScalars.dropFirst().dropLast()), arabic)
+    }
+
+    func testEdgeAwayFromTheSwitches() {
+        XCTAssertEqual(LoginItemsGuide.edge(systemLanguages: ["en-US", "ar"]), .left)
+        XCTAssertEqual(LoginItemsGuide.edge(systemLanguages: ["tr-TR"]), .left)
+        XCTAssertEqual(LoginItemsGuide.edge(systemLanguages: ["ar-SA", "en"]), .right)
+        XCTAssertEqual(LoginItemsGuide.edge(systemLanguages: ["he"]), .right)
+        XCTAssertEqual(LoginItemsGuide.edge(systemLanguages: ["fa-IR"]), .right)
+        XCTAssertEqual(LoginItemsGuide.edge(systemLanguages: []), .left)
+    }
+
     func testEarlierHeadingAndTheNewestFirst() {
         let earlier = ["en": ["Allow in the Background": "Allow in the Background"]]
         XCTAssertEqual(LoginItemsPane.backgroundHeading(tables: earlier, languages: ["en"]), "Allow in the Background")
