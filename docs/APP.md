@@ -729,6 +729,51 @@ and Touch ID come when it starts (the main window comes up first for a sheet), s
 waits. Unattended connects (connect at login, the CLI, MCP clients) never
 install, wait or open System Settings: they fail as before.
 
+### Login Items guide
+
+macOS cannot be told to scroll to or highlight a row in Login Items, so whenever PassTunnel opens Login Items for
+the helper (`AppModel.openLoginItemsForHelper`, the one entry point: Open Login Items… on the first-run card, in
+Settings → Helper and in the "Turn on the helper to connect" alert, a `passtunnel helper install` hand-off, after
+Install Helper, Update Helper and Repair Helper, and the automatic install) it also shows a guide of its own
+(`Views/LoginItemsGuidePanel.swift`): a 300 pt floating panel, "Turn on the switch next to PassTunnel", what to look
+for, the row as Login Items lists it (the app icon, "PassTunnel", a switch drawn on in the accent color with a ring
+around it; VoiceOver: "Example: PassTunnel, with its switch turned on") and "This closes by itself once the helper
+is on.", with a close button (`loginItemsGuide.close`). The one-line texts and buttons stay as they are.
+
+- **Where the row is.** The heading above the background items changed between macOS versions ("Background App
+  Activity" on macOS 27, read from the pane on 27.2, where the pane is "Login Items & Extensions"; "Allow in the
+  Background" on earlier versions). `LoginItemsPane` (Core) reads it from System Settings' own strings
+  (`/System/Library/ExtensionKit/Extensions/LoginItems.appex`, `Localizable.loctable`, else
+  `<language>.lproj/Localizable.strings`), in the system's language (the global `AppleLanguages`, not the app's):
+  "Under “Background App Activity”, find this row and turn its switch on:". When the running system has none of
+  the known headings in that language, the panel says what is true on every version: "In the list of apps that can
+  run in the background, find this row and turn its switch on:". It never names the pane or the section otherwise.
+- **When it shows** (`LoginItemsGuide`, Core, unit-tested). Only when the helper waits for the approval
+  (`.requiresApproval`; Open Login Items… for an enabled helper shows nothing), and only while System Settings
+  (`com.apple.systempreferences`) is the frontmost app: it hides while another app (PassTunnel included) is in
+  front and comes back with System Settings. It ends once the helper is no longer waiting (turned on, or removed),
+  when the user removed it (`helperRemoved`), when System Settings quits after it was seen running, after 5 minutes,
+  on its close button and when PassTunnel quits. Each Open Login Items… starts it again with a fresh 5 minutes.
+  While it runs and System Settings is in front, the helper's status is read every second, so it goes as soon as
+  the switch is on.
+- **The panel.** A borderless non-activating `NSPanel` at the floating level: it never becomes key (System
+  Settings keeps the keyboard), never activates PassTunnel, stays above System Settings, joins every Space and
+  full-screen windows, takes the first click (close, drag), and never counts for the Dock icon (menu-bar-only mode
+  is unchanged). It is placed at the leading edge of the screen with the pointer, centered vertically: away from
+  the notifications at the top right and, where System Settings usually opens, beside its window or over its
+  sidebar at most, never over the switches. The user can drag it by its background. Glass as the menu bar panel
+  (the system's material before macOS 26), the window's shadow, tokens with their dark and Increase Contrast
+  values. It fades in (0.2 s) unless Reduce Motion is on, and VoiceOver announces "In System Settings, under
+  “Background App Activity”, turn on the switch next to PassTunnel." (or the same without the heading) once per
+  start, without moving the focus.
+- **No permission.** Nothing in System Settings is read, scripted or clicked: no Accessibility, Automation or
+  Screen Recording. The frontmost and running apps come from `NSWorkspace`/`NSRunningApplication`, the heading
+  from a system file. System Settings' window is not looked up (that would need the window list), which is why
+  the panel is placed by screen.
+- The launch-at-login approval (`LoginItem`, Settings → General) does not use the guide: that is the app itself
+  (`SMAppService.mainApp`), not the helper daemon, and where its row appears was not checked, so the guide could
+  point at the wrong list.
+
 ## Launch at login
 
 `LoginItem` (Core) wraps `SMAppService.mainApp` (status: enabled / needs approval / disabled / unavailable).
@@ -1001,7 +1046,10 @@ are in `Editor/EditorComponents.swift`) use them; the credential sheet and the o
   Offscreen, the glass sidebar of macOS 26 draws without its rows, so there the render lays the window's sidebar
   and detail out side by side, the sidebar on its flat list background. `first-run` (with the helper card, light and
   dark), `first-run-approval`, `add-vpn` and `main-split-login` show the first run, the add view and the question
-  about opening at login.
+  about opening at login. `login-items-guide` shows the Login Items guide on the desktop, light and dark, with the
+  heading the rendering Mac's System Settings has in the render's language (the wording without it when it has
+  none); `-fallback` always without the heading, `-contrast` with the Increase Contrast values. Offscreen it is drawn
+  on the material of macOS 13–15 (macOS 26's glass needs the window server).
 
 ## Accessibility
 
@@ -1015,7 +1063,7 @@ For UI automation, key controls carry stable, unlocalized `.accessibilityIdentif
 `profile.<id>.copyCode`, `profile.<id>.copyPasswordCode`, `profile.<id>.serverReceives`, `main.settings`,
 `firstRun.chooseFile|scanScreen|qrImage|byHand|installHelper|autoInstallHelper|loginItems|cancelConnect|helperSettings|notNow|openAtLogin` (the sidebar rows read
 as name, status and code, the add view's tiles as buttons with the line under the title as their hint),
-`helper.install|update|repair|loginItems|cancelConnect|remove|autoInstall|licenses`,
+`helper.install|update|repair|loginItems|cancelConnect|remove|autoInstall|licenses`, `loginItemsGuide.close`,
 `editor.cancel|save|delete|advanced|requireAuth|connectAtLogin|revealCode|scanScreen`, `settings.authReuse`, and in the
 menu bar panel `menu.<id>.toggle`, `menu.add|copyCode|copyPasswordCode|typeCode|open|settings|quit`. The editor's switches are
 drawn by the app (monochrome) and read by VoiceOver as standard switches (`accessibilityRepresentation`). While the screen is locked, accessibility clients see no windows at all (the
