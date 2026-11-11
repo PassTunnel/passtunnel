@@ -31,8 +31,21 @@ struct FirstRunView: View {
             .padding(.bottom, Spacing.l)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .onAppear { showsHelper = model.helperStatus != .enabled }
+        .onAppear {
+            showsHelper = model.helperStatus != .enabled
+            autoInstall()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in autoInstall() }
         .onExitCommand(perform: isFirstRun ? nil : { model.addingProfile = false })
+    }
+
+    /// The first run with "Install and repair the helper automatically" on (`HelperAutoInstall`): installs a
+    /// missing helper while this screen is the frontmost window, so the approval can follow.
+    private func autoInstall() {
+        guard isFirstRun, model.helperStatus != .enabled, NSApp.isActive,
+            NSApp.keyWindow?.identifier?.rawValue.hasPrefix("main") == true
+        else { return }
+        model.autoInstallHelper(.firstRun, userActed: true)
     }
 
     private var header: some View {
@@ -222,17 +235,17 @@ private struct TileButtonStyle: ButtonStyle {
 
 // MARK: - Helper
 
-/// What the helper is for and its Install button (decision D-18). After Install,
-/// macOS may ask for an approval in Login Items: the card opens them and follows the status. Once the helper runs, the
-/// card says so until the view goes.
+/// What the helper is for and its Install button (decision D-18), with the switch "Install and repair the helper
+/// automatically" beside it (turning it on installs at once). After Install, macOS may ask for an approval in Login
+/// Items: the card opens them and follows the status. Once the helper runs, the card says so until the view goes.
 private struct HelperCard: View {
     @EnvironmentObject private var model: AppModel
-    @State private var busy = false
-    @State private var errorText: String?
     private let timer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
+    private var busy: Bool { model.helperInstalling || model.helperUpdating }
+
     var body: some View {
-        let installed = model.helperStatus == .enabled
+        let installed = model.helperStatus == .enabled && model.helperAnswered && !model.helperNotAnswering
         Card(style: .compact) {
             HStack(alignment: .top, spacing: Spacing.s) {
                 Image(systemName: installed ? "checkmark.shield" : "lock.shield")
@@ -255,7 +268,7 @@ private struct HelperCard: View {
                     .foregroundStyle(Palette.fg2)
                     .fixedSize(horizontal: false, vertical: true)
                     status
-                    if let errorText {
+                    if let errorText = model.helperInstallError {
                         Text(errorText)
                             .typography(.hint)
                             .foregroundStyle(Palette.red)
@@ -277,7 +290,7 @@ private struct HelperCard: View {
                 .fixedSize(horizontal: false, vertical: true)
         case .notRegistered, .notFound:
             HStack(spacing: Spacing.xs) {
-                Button(String(localized: "Install Helper")) { install() }
+                Button(String(localized: "Install Helper")) { Task { await model.installHelper(.button) } }
                     .buttonStyle(.primaryCapsule(.compact))
                     .disabled(busy)
                     .accessibilityIdentifier("firstRun.installHelper")
@@ -288,15 +301,54 @@ private struct HelperCard: View {
                 }
             }
             .padding(.top, Spacing.xxs)
+            // Only a bundled copy in /Applications installs on its own.
+            if HelperInstaller.canAttemptInstall(status: .notFound) { autoInstallSwitch }
         case .requiresApproval:
-            Text(String(localized: "Almost done: turn on PassTunnel in System Settings → General → Login Items."))
-                .typography(.hint)
-                .foregroundStyle(Palette.fg)
-                .fixedSize(horizontal: false, vertical: true)
-            Button(String(localized: "Open Login Items…")) { HelperInstaller.openSystemSettingsLoginItems() }
+            Text(
+                model.pendingConnect.profileID.map { id in
+                    String(
+                        localized:
+                            "Turn on PassTunnel in System Settings → General → Login Items. \(model.profile(id)?.name ?? id) connects if you do within \(Int(HelperPendingConnect.timeout / 60)) minutes."
+                    )
+                } ?? String(localized: "Almost done: turn on PassTunnel in System Settings → General → Login Items.")
+            )
+            .typography(.hint)
+            .foregroundStyle(Palette.fg)
+            .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: Spacing.xs) {
+                Button(String(localized: "Open Login Items…")) { HelperInstaller.openSystemSettingsLoginItems() }
+                    .buttonStyle(.primaryCapsule(.compact))
+                    .accessibilityIdentifier("firstRun.loginItems")
+                if model.pendingConnect.isWaiting {
+                    Button(String(localized: "Cancel Connecting")) { model.cancelPendingConnect() }
+                        .buttonStyle(.secondaryCapsule(.compact))
+                        .accessibilityIdentifier("firstRun.cancelConnect")
+                }
+            }
+            .padding(.top, Spacing.xxs)
+        case .enabled where model.helperNotAnswering || busy:
+            Text(
+                busy
+                    ? String(localized: "Replacing the helper with the one from this copy of PassTunnel. Active connections stop.")
+                    : String(localized: "The helper is turned on but does not answer. Repair it in Settings → Helper.")
+            )
+            .typography(.hint)
+            .foregroundStyle(Palette.fg)
+            .fixedSize(horizontal: false, vertical: true)
+            if !busy {
+                Button(String(localized: "Open Helper Settings")) {
+                    model.settingsTab = .helper
+                    AppDelegate.shared?.showSettings()
+                }
                 .buttonStyle(.primaryCapsule(.compact))
                 .padding(.top, Spacing.xxs)
-                .accessibilityIdentifier("firstRun.loginItems")
+                .accessibilityIdentifier("firstRun.helperSettings")
+            }
+        case .enabled where !model.helperAnswered:
+            Text(String(localized: "Checking that the helper answers…"))
+                .typography(.hint)
+                .foregroundStyle(Palette.fg2)
+                .fixedSize(horizontal: false, vertical: true)
         case .enabled:
             Text(String(localized: "The helper is installed and running."))
                 .typography(.hint)
@@ -305,21 +357,24 @@ private struct HelperCard: View {
         }
     }
 
-    /// As Settings → Helper installs it.
-    private func install() {
-        guard !busy else { return }
-        busy = true
-        errorText = nil
-        Task {
-            do {
-                try await HelperInstaller.registerRetrying()
-            } catch {
-                errorText = error.localizedDescription
-            }
-            busy = false
-            model.refreshHelperStatus()
-            if model.helperStatus == .requiresApproval { HelperInstaller.openSystemSettingsLoginItems() }
+    /// "Install and repair the helper automatically" (`Preferences.autoInstallHelper`, as in Settings → Helper).
+    private var autoInstallSwitch: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Toggle(
+                String(localized: "Install and repair the helper automatically"),
+                isOn: Binding(get: { model.prefs.autoInstallHelper }, set: { model.setAutoInstallHelper($0) })
+            )
+            .toggleStyle(.checkbox)
+            .typography(.hint)
+            .foregroundStyle(Palette.fg)
+            .disabled(busy)
+            .accessibilityIdentifier("firstRun.autoInstallHelper")
+            Text(String(localized: "macOS still asks you to approve it in Login Items."))
+                .typography(.hint)
+                .foregroundStyle(Palette.fg2)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .padding(.top, Spacing.xxs)
     }
 }
 

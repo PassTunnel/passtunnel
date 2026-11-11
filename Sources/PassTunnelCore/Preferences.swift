@@ -34,6 +34,14 @@ public struct Preferences: Codable, Equatable {
     // Security
     /// How long one confirmation (Touch ID or password) is valid for the same profile and action.
     public var authReuseMinutes = 1
+    // Helper (macOS)
+    /// Install the helper on the first run and on Connect, and repair one that does not answer, on its own
+    /// (`HelperAutoInstall`). Off unless the user turns it on; updating an older helper after an app update
+    /// (`HelperAutoUpdate`) does not depend on it.
+    public var autoInstallHelper = false
+    /// The user removed the helper (Settings → Helper → Remove, `passtunnel helper uninstall`): it is not
+    /// installed again automatically until the user installs it. Written only when set.
+    public var helperRemoved = false
 
     /// Choices offered for `authReuseMinutes`; other stored values fall back to the default.
     public static let authReuseChoices = [1, 5, 15]
@@ -59,6 +67,7 @@ public struct Preferences: Codable, Equatable {
         case defaultProfile, appearance, badgePalette, hideCodes, clearClipboardAfter, showInDock
         case launchAtLogin, waitForFreshCode, notifyOnDrop, notifyHealth, sessionNotifyMin, sessionWarnMin
         case hotkeys, autoType, authReuseMinutes
+        case autoInstallHelper, helperRemoved
         case secretStore, secretStoreUsed
         case theme  // legacy, read only
     }
@@ -85,6 +94,8 @@ public struct Preferences: Codable, Equatable {
         autoType = c.lenient(Bool.self, .autoType) ?? d.autoType
         let reuse = c.lenient(Int.self, .authReuseMinutes) ?? d.authReuseMinutes
         authReuseMinutes = Self.authReuseChoices.contains(reuse) ? reuse : d.authReuseMinutes
+        autoInstallHelper = c.lenient(Bool.self, .autoInstallHelper) ?? d.autoInstallHelper
+        helperRemoved = c.lenient(Bool.self, .helperRemoved) ?? d.helperRemoved
         secretStore = c.lenientEnum(SecretStoreChoice.self, .secretStore) ?? d.secretStore
         secretStoreUsed = c.lenientEnum(SecretStoreChoice.self, .secretStoreUsed).flatMap { $0 == .auto ? nil : $0 }
     }
@@ -106,6 +117,8 @@ public struct Preferences: Codable, Equatable {
         try c.encode(hotkeys, forKey: .hotkeys)
         try c.encode(autoType, forKey: .autoType)
         try c.encode(authReuseMinutes, forKey: .authReuseMinutes)
+        try c.encode(autoInstallHelper, forKey: .autoInstallHelper)
+        if helperRemoved { try c.encode(helperRemoved, forKey: .helperRemoved) }
         if secretStore != .auto { try c.encode(secretStore, forKey: .secretStore) }
         try c.encodeIfPresent(secretStoreUsed, forKey: .secretStoreUsed)
     }

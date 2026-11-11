@@ -289,7 +289,18 @@ public final class HelperClient: @unchecked Sendable {
     /// replacing it would be an upgrade or a downgrade. A helper that does not report its build number
     /// (`HelperResponse.helperBuild`) predates it and counts as older.
     public func relation() async throws -> HelperBuild.Relation {
-        let v = try await version()
+        try await relation(version: try await version())
+    }
+
+    /// `relation()`, and whether the helper answered at all: true once its first reply (the protocol version)
+    /// came, even when a later question failed (`HelperAnswerWatch` counts only questions without any answer).
+    public func relationAndAnswer() async -> (relation: Result<HelperBuild.Relation, Error>, answered: Bool) {
+        let v: Int
+        do { v = try await version() } catch { return (.failure(error), false) }
+        do { return (.success(try await relation(version: v)), true) } catch { return (.failure(error), true) }
+    }
+
+    private func relation(version v: Int) async throws -> HelperBuild.Relation {
         guard v == PT.helperProtocolVersion, let expected = HelperBuild.bundled else {
             return HelperBuild.relation(
                 helperProtocol: v, helperDigest: nil, helperNumber: nil,
