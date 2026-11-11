@@ -109,6 +109,27 @@ expect_notes "### Breaking changes
 - Parse profiles once"
 git tag v2.0.0
 
+# --ignore-tag TAG with REV = TAG: the version and notes of the release TAG (update-notes.sh).
+expect "" v2.0.0
+rm -f "$REPO/.git/ignored.md"
+got="$("$SCRIPT" --ignore-tag v2.0.0 --notes "$REPO/.git/ignored.md" v2.0.0 2>/dev/null)" || got="exit $?"
+if [[ "$got" == "2.0.0" && "$(cat "$REPO/.git/ignored.md" 2>/dev/null)" == "### Breaking changes
+
+- Drop the old profile format (#5)
+
+### New features
+
+- Add --json to list (#4)
+
+### Fixes
+
+- Reconnect after sleep (#3)
+- Parse profiles once" ]]; then
+    echo "ok: --ignore-tag v2.0.0 gives the release v2.0.0"
+else
+    fail "--ignore-tag v2.0.0 v2.0.0 gave '$got'"
+fi
+
 # A BREAKING CHANGE: footer: major, whatever the type.
 commit "chore: rename the settings keys" "Longer explanation.
 
@@ -160,7 +181,7 @@ expect_notes "### New features
 - Exit with 3 for a missing profile (#10)"
 
 # Options.
-for arg in --bogus no-such-rev --notes; do
+for arg in --bogus no-such-rev --notes --ignore-tag; do
     if "$SCRIPT" "$arg" >/dev/null 2>&1; then
         fail "next-version.sh $arg was accepted"
     else

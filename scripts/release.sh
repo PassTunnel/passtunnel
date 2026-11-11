@@ -438,9 +438,21 @@ step "generating the appcast"
 FEED="$WORK/appcast"
 mkdir -p "$FEED"
 cp "$WORK/$ZIP_NAME" "$FEED/"
-markdown_to_html <<<"$NOTES" > "$FEED/PassTunnel-$VERSION.html"
+# The update window shows the notes of the offered update only, so they also cover the releases just
+# before this one (scripts/update-notes.sh), for whoever skipped them. That never stops a release:
+# without them, the window shows this release's notes alone.
+if ! UPDATE_NOTES="$("$ROOT/scripts/update-notes.sh" "$VERSION" "$WORK/release-notes-$VERSION.md")" \
+        || [[ -z "$UPDATE_NOTES" ]]; then
+    echo "warning: the update notes cover $VERSION only (scripts/update-notes.sh failed)" >&2
+    [[ "${GITHUB_ACTIONS:-}" != true ]] \
+        || echo "::warning title=Update notes::the update notes cover $VERSION only (scripts/update-notes.sh failed)"
+    UPDATE_NOTES="$NOTES"
+fi
+markdown_to_html <<<"$UPDATE_NOTES" > "$FEED/PassTunnel-$VERSION.html"
+# --full-release-notes-url: sparkle:fullReleaseNotesLink, the whole version history.
 APPCAST_ARGS=(--download-url-prefix "$DOWNLOAD_PREFIX" --embed-release-notes --maximum-deltas 0
-              --link "https://github.com/$GITHUB_REPO")
+              --link "https://github.com/$GITHUB_REPO"
+              --full-release-notes-url "https://github.com/$GITHUB_REPO/releases")
 # Pre-releases go to the "beta" channel, which the app does not subscribe to.
 ((PRERELEASE)) && APPCAST_ARGS+=(--channel beta)
 # ${a[@]+…}: an empty array under set -u in bash 3.2.
