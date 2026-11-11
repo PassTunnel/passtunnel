@@ -268,6 +268,35 @@ final class JSONAndPreferencesTests: CoreTestCase {
         XCTAssertEqual(Preferences.load(), p)
     }
 
+    /// "Install and repair the helper automatically" is off unless turned on; "removed by the user" is
+    /// written only while set.
+    func testHelperAutomationPreferences() throws {
+        func decode(_ json: String) throws -> Preferences {
+            try JSONCoding.decode(Preferences.self, from: Data(json.utf8))
+        }
+        XCTAssertFalse(Preferences().autoInstallHelper)
+        XCTAssertFalse(Preferences().helperRemoved)
+        let old = try decode(#"{"hide_codes":true}"#)
+        XCTAssertFalse(old.autoInstallHelper)
+        XCTAssertFalse(old.helperRemoved)
+        XCTAssertTrue(try decode(#"{"auto_install_helper":true}"#).autoInstallHelper)
+        XCTAssertFalse(try decode(#"{"auto_install_helper":"yes"}"#).autoInstallHelper, "unreadable: the default")
+        XCTAssertTrue(try decode(#"{"helper_removed":true}"#).helperRemoved)
+
+        var p = Preferences()
+        try p.save()
+        var text = try String(contentsOf: AppPaths.default.configURL, encoding: .utf8)
+        XCTAssertTrue(text.contains(#""auto_install_helper" : false"#), text)
+        XCTAssertFalse(text.contains("helper_removed"), text)
+        p.autoInstallHelper = true
+        p.helperRemoved = true
+        try p.save()
+        text = try String(contentsOf: AppPaths.default.configURL, encoding: .utf8)
+        XCTAssertTrue(text.contains(#""auto_install_helper" : true"#), text)
+        XCTAssertTrue(text.contains(#""helper_removed" : true"#), text)
+        XCTAssertEqual(Preferences.load(), p)
+    }
+
     func testBadgePalettes() {
         XCTAssertEqual(BadgePalette.allCases.map(\.rawValue), ["pastel", "vivid", "soft", "candy", "earth"])
         for palette in BadgePalette.allCases {

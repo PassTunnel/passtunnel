@@ -191,6 +191,16 @@
         }
       }
     },
+    "%@ was not connected" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ bağlanmadı"
+          }
+        }
+      }
+    },
     "%@ was written by a newer version of PassTunnel." : {
       "localizations" : {
         "tr" : {
@@ -2103,6 +2113,16 @@
         }
       }
     },
+    "Cancel Connecting" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlanmayı İptal Et"
+          }
+        }
+      }
+    },
     "Cancelled." : {
       "localizations" : {
         "tr" : {
@@ -2239,6 +2259,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kurulumu ve her profili bağlanmadan denetler, son saat ölçümünü de gösterir. --check-clock, saatin ne kadar saptığını bu bilgisayarın ayarlı olduğu NTP sunucusuna da sorar."
+          }
+        }
+      }
+    },
+    "Checking that the helper answers…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcının yanıt verip vermediği denetleniyor…"
           }
         }
       }
@@ -7804,6 +7834,16 @@
         }
       }
     },
+    "Install and repair the helper automatically" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcıyı otomatik olarak yükle ve onar"
+          }
+        }
+      }
+    },
     "Install Helper" : {
       "localizations" : {
         "tr" : {
@@ -7830,6 +7870,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "VPN’lere bağlanmak için yardımcıyı yükleyin. macOS bir kez onay ister."
+          }
+        }
+      }
+    },
+    "Installed" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yüklü"
           }
         }
       }
@@ -7870,6 +7920,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Yüklendi. Terminal’de “passtunnel status” komutunu deneyin."
+          }
+        }
+      }
+    },
+    "Installing the helper again from this copy of PassTunnel. Active connections stop." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı, PassTunnel’ın bu kopyasından yeniden yükleniyor. Etkin bağlantılar kesilir."
+          }
+        }
+      }
+    },
+    "Installing…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yükleniyor…"
           }
         }
       }
@@ -8010,6 +8080,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Profilleri listeler."
+          }
+        }
+      }
+    },
+    "macOS lists the helper as turned on, but it does not answer. Repair it to connect; active connections stop." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS yardımcıyı açık gösteriyor, ancak yardımcı yanıt vermiyor. Bağlanmak için onarın; etkin bağlantılar kesilir."
+          }
+        }
+      }
+    },
+    "macOS still asks you to approve it in Login Items." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS yine de Giriş Öğeleri’nde onayınızı ister."
           }
         }
       }
@@ -8444,6 +8534,16 @@
         }
       }
     },
+    "Not responding" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yanıt vermiyor"
+          }
+        }
+      }
+    },
     "not saved" : {
       "localizations" : {
         "tr" : {
@@ -8718,6 +8818,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "PassTunnel VPN bağlantılarını başlatıp durdurabilir."
+          }
+        }
+      }
+    },
+    "PassTunnel installs a missing helper on the first run or when you connect. If the helper does not answer when PassTunnel opens or when you connect, it installs it again once, while no VPN is connected and unless the helper is from a newer or different build. macOS still asks you to approve it in Login Items. Only a copy in the Applications folder does this." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel eksik yardımcıyı ilk açılışta ya da bağlandığınızda yükler. Yardımcı, PassTunnel açılırken ya da bağlandığınızda yanıt vermezse, bağlı VPN yokken ve yardımcı daha yeni ya da farklı bir derlemeden değilse onu bir kez yeniden yükler. macOS yine de Giriş Öğeleri’nde onayınızı ister. Bunu yalnızca Uygulamalar klasöründeki kopya yapar."
           }
         }
       }
@@ -9002,6 +9112,16 @@
         }
       }
     },
+    "Registering the helper with macOS. macOS asks you to approve it once." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı macOS ile kaydediliyor. macOS bir kez onay ister."
+          }
+        }
+      }
+    },
     "Reinstall" : {
       "localizations" : {
         "tr" : {
@@ -9038,6 +9158,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "PassTunnel yardımcısı kaldırılsın mı?"
+          }
+        }
+      }
+    },
+    "Repair Helper" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcıyı Onar"
+          }
+        }
+      }
+    },
+    "Repairing…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Onarılıyor…"
           }
         }
       }
@@ -9662,6 +9802,36 @@
         }
       }
     },
+    "The helper could not be installed" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı yüklenemedi"
+          }
+        }
+      }
+    },
+    "The helper does not answer. Repair it in Settings → Helper, then connect again." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı yanıt vermiyor. Ayarlar → Yardımcı bölümünde onarın, sonra yeniden bağlanın."
+          }
+        }
+      }
+    },
+    "The helper is being installed or replaced. Remove it when that has finished." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı yükleniyor ya da değiştiriliyor. Bu bittiğinde kaldırın."
+          }
+        }
+      }
+    },
     "The helper is installed and running." : {
       "localizations" : {
         "tr" : {
@@ -9692,6 +9862,16 @@
         }
       }
     },
+    "The helper is not installed. Install it in Settings → Helper, then connect again." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı yüklü değil. Ayarlar → Yardımcı bölümünde yükleyin, sonra yeniden bağlanın."
+          }
+        }
+      }
+    },
     "The helper is not ready" : {
       "localizations" : {
         "tr" : {
@@ -9708,6 +9888,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Yardımcı hâlâ kurulu. Kaldırmayı PassTunnel → Ayarlar → Yardımcı bölümünde onaylayın."
+          }
+        }
+      }
+    },
+    "The helper is turned on but does not answer. Repair it in Settings → Helper." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı açık, ancak yanıt vermiyor. Ayarlar → Yardımcı bölümünde onarın."
+          }
+        }
+      }
+    },
+    "The helper needs an update. Update it in Settings → Helper, then connect again." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcının güncellenmesi gerekiyor. Ayarlar → Yardımcı bölümünde güncelleyin, sonra yeniden bağlanın."
+          }
+        }
+      }
+    },
+    "The helper was not turned on within %lld minutes. Turn on PassTunnel in System Settings → General → Login Items, then connect again." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı %lld dakika içinde açılmadı. Sistem Ayarları → Genel → Giriş Öğeleri bölümünde PassTunnel’ı açın, sonra yeniden bağlanın."
           }
         }
       }
@@ -10266,6 +10476,16 @@
         }
       }
     },
+    "Turn on PassTunnel in System Settings → General → Login Items. %@ connects if you do within %lld minutes." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sistem Ayarları → Genel → Giriş Öğeleri bölümünde PassTunnel’ı açın. %2$lld dakika içinde açarsanız %1$@ bağlanır."
+          }
+        }
+      }
+    },
     "Turn on PassTunnel in System Settings → Privacy & Security → Accessibility." : {
       "localizations" : {
         "tr" : {
@@ -10282,6 +10502,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sistem Ayarları → Gizlilik ve Güvenlik → Erişilebilirlik bölümünde PassTunnel’ı açın. O zamana kadar kod yazılmak yerine kopyalanır."
+          }
+        }
+      }
+    },
+    "Turn on the helper to connect" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlanmak için yardımcıyı açın"
           }
         }
       }
