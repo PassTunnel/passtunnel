@@ -1,10 +1,12 @@
 #!/bin/bash
 # Prints the version the next release gets, from the commit subjects since the last release.
 #
-#   scripts/next-version.sh [--notes FILE] [REV]
+#   scripts/next-version.sh [--notes FILE] [--ignore-tag TAG] [REV]
 #
-#   REV           the commit to release (default: HEAD)
-#   --notes FILE  also write the release notes (Markdown) to FILE
+#   REV              the commit to release (default: HEAD)
+#   --notes FILE     also write the release notes (Markdown) to FILE
+#   --ignore-tag TAG act as if the tag TAG did not exist: with REV = TAG, the version and notes of
+#                    the release TAG (scripts/update-notes.sh reads earlier releases' notes this way)
 #
 # Works on the git repository of the current directory. The last release is the highest tag vX.Y.Z
 # reachable from REV (pre-release tags like v1.2.0-rc.1 do not count; without a tag it is 0.0.0).
@@ -30,13 +32,15 @@
 set -euo pipefail
 
 die() { echo "error: $*" >&2; exit 1; }
-usage() { sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; }
 
 NOTES_FILE=""
+IGNORE_TAG=""
 REV=""
 while (($#)); do
     case "$1" in
         --notes) (($# >= 2)) || die "--notes needs a file"; NOTES_FILE="$2"; shift ;;
+        --ignore-tag) (($# >= 2)) || die "--ignore-tag needs a tag"; IGNORE_TAG="$2"; shift ;;
         -h|--help) usage; exit 0 ;;
         -*) usage >&2; die "unknown option: $1" ;;
         *) [[ -z "$REV" ]] || die "more than one revision given"; REV="$1" ;;
@@ -55,7 +59,7 @@ STABLE='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
 LAST_TAG=""
 MAJOR=0 MINOR=0 PATCH=0
 while read -r tag; do
-    [[ "$tag" =~ $STABLE ]] || continue
+    [[ "$tag" =~ $STABLE && "$tag" != "$IGNORE_TAG" ]] || continue
     LAST_TAG="$tag"
     MAJOR="${BASH_REMATCH[1]}" MINOR="${BASH_REMATCH[2]}" PATCH="${BASH_REMATCH[3]}"
     break

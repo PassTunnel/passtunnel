@@ -106,7 +106,8 @@ they all match.
      a breaking change (`!` or a `BREAKING CHANGE:` footer) makes a major release, `feat` a minor
      one, `fix` or `perf` a patch; anything else releases nothing and the run ends there. The notes
      list those subjects under *Breaking changes*, *New features* and *Fixes*, without the type and
-     with GitHub's `(#123)`. They become the GitHub release notes and the text of the update window.
+     with GitHub's `(#123)`. They become the GitHub release notes and, together with the notes of
+     the releases just before ([Update notes](#update-notes)), the text of the update window.
      Commits with the scope `linux` (`feat(linux): …`, `fix(linux)!: …`) are work on the Linux
      version, which has no release yet: they count for nothing, breaking or not, and are not in the
      notes. Phase 3 of [docs/LINUX.md](LINUX.md#phases), which releases Linux, revisits this.
@@ -252,8 +253,8 @@ tag from the `main` that is on GitHub, and the tap and the MCP Registry are then
    `scripts/next-version.sh --notes /tmp/notes.md`, and pass `--notes-file /tmp/notes.md` to every
    `release.sh` call below. Without `--notes-file`, `release.sh` takes the section `## [1.2.0]` of
    [`CHANGELOG.md`](CHANGELOG.md) (a pre-release `1.2.0-rc.1` uses its own section if there is one,
-   else the one of `1.2.0`). The notes become the GitHub release notes and the text of the update
-   window.
+   else the one of `1.2.0`). The notes become the GitHub release notes and, together with the notes
+   of the releases just before ([Update notes](#update-notes)), the text of the update window.
 2. **Build and check** (nothing is published):
 
    ```sh
@@ -273,7 +274,7 @@ tag from the `main` that is on GitHub, and the tap and the MCP Registry are then
    | `dist/PassTunnel-1.2.0.dmg` | download for people |
    | `dist/PassTunnel.dmg` | the same disk image under a name without the version, for the `…/releases/latest/download/PassTunnel.dmg` link; written again by every build (a copy left by an earlier build is deleted first) |
    | `dist/PassTunnel-1.2.0.zip` | Sparkle update archive |
-   | `dist/appcast.xml` | Sparkle feed: the feed and the zip are EdDSA-signed, download URLs on the `v1.2.0` release |
+   | `dist/appcast.xml` | Sparkle feed: the feed and the zip are EdDSA-signed, download URLs on the `v1.2.0` release; its notes also cover the releases just before ([Update notes](#update-notes)) |
    | `dist/PassTunnel-mcp-1.2.0.mcpb` | MCP bundle for Claude Desktop and the MCP Registry |
    | `dist/SHA256SUMS` | checksums of the dmg (under both names), zip and MCP bundle |
    | `dist/passtunnel.rb` | Homebrew cask (from `scripts/homebrew/passtunnel.rb.template`) |
@@ -400,6 +401,34 @@ fails until the first signed release is out; they never install anything from an
 `SUVerifyUpdateBeforeExtraction` also means the EdDSA key cannot be rotated any more (Sparkle would
 otherwise accept a new key on an update signed with the same Developer ID): keep the key safe (see
 One-time setup).
+
+## Update notes
+
+Sparkle's update window shows only the notes of the update it offers, so someone going from 1.7.0
+straight to 1.8.1 would not see what 1.7.1 and 1.8.0 brought. The appcast item therefore carries
+the notes of this release and of up to five releases before it, newest first, each under its
+version heading (`## 1.8.1`, `## 1.8.0`, …). `release.sh` gets that Markdown from
+`scripts/update-notes.sh VERSION NOTES_FILE` and turns it into the embedded HTML. Only the update
+window gets it: the GitHub release, `dist/release-notes-VERSION.md`, the tap and the MCP Registry
+keep this release's notes alone.
+
+The earlier releases are the highest stable `vX.Y.Z` tags below the version in the history of the
+released commit (pre-release tags never count, and a re-run's own tag is not an earlier release).
+Their notes are worked out again from the commit subjects, offline, by
+`scripts/next-version.sh --ignore-tag vX.Y.Z vX.Y.Z`, the same way the workflow made them, rather
+than read from the published GitHub releases: no network or `gh` in the build, the same result on
+every run, and testable (`scripts/test-update-notes.sh`, in the *Release scripts* check). A tag
+whose commits do not give its own version (history before Conventional Commits, such as 1.1.1 and
+earlier, or a release made by hand from commits without a `feat`, `fix` or `perf`) has no notes this
+way; the list then stops before it, so it never leaves out a release in the middle. A release from a
+Mac with a hand-written `--notes-file` gets its notes from its commits here, not its own text.
+
+None of this can stop a release: without earlier notes (the first release, a clone without its
+tags, a gap right before this release) or if `update-notes.sh` fails or prints nothing, the window shows this
+release's notes alone, as before, and the log has a `warning:` line (an annotation on the run in
+GitHub Actions). The appcast also links the whole version history,
+`https://github.com/PassTunnel/passtunnel/releases`, as `sparkle:fullReleaseNotesLink`
+(`generate_appcast --full-release-notes-url`); it is part of the signed feed like everything else.
 
 ## Bundled tools
 
