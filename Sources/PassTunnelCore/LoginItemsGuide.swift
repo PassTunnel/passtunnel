@@ -88,7 +88,7 @@ public struct LoginItemsGuide: Equatable, Sendable {
     /// (`LoginItemsPane.systemLanguages`), not the app's own: PassTunnel may run in another language.
     public static func edge(systemLanguages: [String]) -> Edge {
         guard let first = systemLanguages.first else { return .left }
-        return Locale.characterDirection(forLanguage: first) == .rightToLeft ? .right : .left
+        return Locale.Language(identifier: first).characterDirection == .rightToLeft ? .right : .left
     }
 }
 
