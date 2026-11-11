@@ -402,7 +402,7 @@ def inline(t):
     t = html.escape(t, quote=False)
     t = re.sub(r"`([^`]+)`", r"<code>\1</code>", t)
     t = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", t)
-    t = re.sub(r"\[([^\]]+)\]\((https?://[^)\s]+)\)", r"<a href=\"\2\">\1</a>", t)
+    t = re.sub(r"\[([^\]]+)\]\((https?://[^)\s]+)\)", "<a href=\"\\2\">\\1</a>", t)
     return t
 out, para, in_list = [], [], False
 def flush():
@@ -443,9 +443,9 @@ cp "$WORK/$ZIP_NAME" "$FEED/"
 # without them, the window shows this release's notes alone.
 if ! UPDATE_NOTES="$("$ROOT/scripts/update-notes.sh" "$VERSION" "$WORK/release-notes-$VERSION.md")" \
         || [[ -z "$UPDATE_NOTES" ]]; then
-    echo "warning: the update notes cover $VERSION only (scripts/update-notes.sh failed)" >&2
+    echo "warning: the update notes cover $VERSION only (scripts/update-notes.sh could not make them)" >&2
     [[ "${GITHUB_ACTIONS:-}" != true ]] \
-        || echo "::warning title=Update notes::the update notes cover $VERSION only (scripts/update-notes.sh failed)"
+        || echo "::warning title=Update notes::the update notes cover $VERSION only (scripts/update-notes.sh could not make them)"
     UPDATE_NOTES="$NOTES"
 fi
 markdown_to_html <<<"$UPDATE_NOTES" > "$FEED/PassTunnel-$VERSION.html"

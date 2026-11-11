@@ -424,7 +424,7 @@ way; the list then stops before it, so it never leaves out a release in the midd
 Mac with a hand-written `--notes-file` gets its notes from its commits here, not its own text.
 
 None of this can stop a release: without earlier notes (the first release, a clone without its
-tags, a gap right before this release) or if `update-notes.sh` fails, the window shows this
+tags, a gap right before this release) or if `update-notes.sh` fails or prints nothing, the window shows this
 release's notes alone, as before, and the log has a `warning:` line (an annotation on the run in
 GitHub Actions). The appcast also links the whole version history,
 `https://github.com/PassTunnel/passtunnel/releases`, as `sparkle:fullReleaseNotesLink`

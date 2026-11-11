@@ -139,6 +139,31 @@ expect "release without matching commits" "$CURRENT" "v1.2.1" 1.2.2 "$NOTES"
 expect "no earlier release" "$CURRENT" "no release tag before 0.9.0" 0.9.0 "$NOTES"
 expect "unknown revision" "$CURRENT" "no-such-rev" --rev no-such-rev 1.2.2 "$NOTES"
 
+# Newest first by version, not by text: 1.10.0 before 1.9.0 (a text sort would put 1.9.0 first and
+# then reach 1.8.0, whose commits do not give its version).
+commit "feat: add profile groups (#6)"
+git tag v1.8.0
+commit "feat: sort profile groups (#7)"
+git tag v1.9.0
+commit "feat: rename profile groups (#8)"
+git tag v1.10.0
+commit "fix: keep the group order (#9)"
+expect "version order" "## 1.10.1
+
+$CURRENT
+
+## 1.10.0
+
+### New features
+
+- Rename profile groups (#8)
+
+## 1.9.0
+
+### New features
+
+- Sort profile groups (#7)" "" --earlier 2 1.10.1 "$NOTES"
+
 # Wrong arguments fail.
 : > "$REPO/.git/empty.md"
 for args in "1.2.0" "1.2.0 $REPO/.git/missing.md" "1.2.0 $REPO/.git/empty.md" "v1.2.0 $NOTES" \
