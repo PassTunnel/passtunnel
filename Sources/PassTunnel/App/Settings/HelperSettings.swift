@@ -108,7 +108,7 @@ struct HelperSettings: View {
                             .accessibilityLabel(String(localized: "Install Helper"))
                             .accessibilityIdentifier("helper.install")
                     case .requiresApproval:
-                        Button(String(localized: "Open Login Items…")) { HelperInstaller.openSystemSettingsLoginItems() }
+                        Button(String(localized: "Open Login Items…")) { model.openLoginItemsForHelper() }
                             .buttonStyle(.borderedProminent)
                             .accessibilityLabel(String(localized: "Open Login Items…"))
                             .accessibilityIdentifier("helper.loginItems")
@@ -135,7 +135,7 @@ struct HelperSettings: View {
                                 .accessibilityLabel(String(localized: "Update Helper"))
                                 .accessibilityIdentifier("helper.update")
                         }
-                        Button(String(localized: "Open Login Items…")) { HelperInstaller.openSystemSettingsLoginItems() }
+                        Button(String(localized: "Open Login Items…")) { model.openLoginItemsForHelper() }
                             .accessibilityLabel(String(localized: "Open Login Items…"))
                             .accessibilityIdentifier("helper.loginItems")
                         Button(String(localized: "Remove Helper…"), role: .destructive) { confirmRemove = true }
@@ -362,7 +362,7 @@ struct HelperSettings: View {
         switch (action, model.helperStatus) {
         case (.install, .notRegistered), (.update, .notRegistered): install()
         case (.install, .notFound) where mayInstall, (.update, .notFound) where mayInstall: install()
-        case (.install, .requiresApproval), (.update, .requiresApproval): HelperInstaller.openSystemSettingsLoginItems()
+        case (.install, .requiresApproval), (.update, .requiresApproval): model.openLoginItemsForHelper()
         case (.install, .enabled): confirmUpdateIfOutdated(force: false, for: action)
         case (.update, .enabled): confirmUpdateIfOutdated(force: true, for: action)
         case (.install, _), (.update, _): break
@@ -453,7 +453,7 @@ struct HelperSettings: View {
         errorText = nil
         Task {
             await model.updateHelper(repair: repair)
-            if model.helperStatus == .requiresApproval { HelperInstaller.openSystemSettingsLoginItems() }
+            if model.helperStatus == .requiresApproval { model.openLoginItemsForHelper() }
         }
     }
 

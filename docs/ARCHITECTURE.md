@@ -828,7 +828,11 @@ active sessions, busy, `/Applications`, bundled) and a `Trigger` (`firstRun`, `s
   the buttons stay the fallback.
 System Settings is opened by these paths at most once per launch (`HelperAutoInstall.opensLoginItems`),
 only right after the user acted in PassTunnel, and only if the switch is still on once macOS has
-registered the helper. The Connect that triggered the registration (or one
+registered the helper. Every opening of Login Items for the helper (these paths and the buttons) goes
+through `AppModel.openLoginItemsForHelper`, which also shows the Login Items guide while the helper waits
+for the approval (`LoginItemsGuide` and `LoginItemsPane`, Core, unit-tested; docs/APP.md, Login Items
+guide): a floating panel that only describes the row, placed by screen, and reads nothing from System
+Settings but the heading in its strings file, so it needs no permission. The Connect that triggered the registration (or one
 pressed while the approval is pending) waits in `HelperPendingConnect` (Core, unit-tested): it starts
 once the helper is enabled and answers with this copy's build, and is dropped after 5 minutes, on
 Cancel Connecting, a disconnect or delete of that profile, a Connect of another profile (which waits

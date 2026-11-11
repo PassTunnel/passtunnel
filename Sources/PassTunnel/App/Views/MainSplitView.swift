@@ -57,7 +57,7 @@ struct MainSplitView: View {
                 return Alert(
                     title: Text(alert.title), message: Text(alert.message),
                     primaryButton: .default(Text(String(localized: "Open Login Items…"))) {
-                        HelperInstaller.openSystemSettingsLoginItems()
+                        model.openLoginItemsForHelper()
                     },
                     secondaryButton: .cancel(Text(String(localized: "Cancel Connecting"))) { model.cancelPendingConnect() })
             }
