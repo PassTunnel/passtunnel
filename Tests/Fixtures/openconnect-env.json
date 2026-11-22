@@ -295,6 +295,138 @@
       "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 4 routes, DNS 10.11.0.53 10.11.0.54"
     },
     {
+      "name": "every name: an IPv6 DNS server of an IPv4-only split tunnel has no route into it, so it is left out",
+      "env": {
+        "INTERNAL_IP4_DNS": "10.11.0.53 2001:db8:1::53",
+        "CISCO_SPLIT_INC": "1",
+        "CISCO_SPLIT_INC_0_ADDR": "172.16.0.0", "CISCO_SPLIT_INC_0_MASK": "255.240.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "12",
+        "CISCO_DEF_DOMAIN": null
+      },
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 172.16.0.0/12 interface utun5",
+        "route 10.11.0.0/24 interface utun5",
+        "route 10.11.0.53/32 interface utun5",
+        "dns passtunnel-501-acme utun5 split servers=10.11.0.53 search=- match=-"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 3 routes, DNS 10.11.0.53"
+    },
+    {
+      "name": "every name: the only DNS server is IPv6 on an IPv4-only split tunnel: no DNS",
+      "env": {
+        "INTERNAL_IP4_DNS": "2001:db8:1::53",
+        "CISCO_SPLIT_INC": "1",
+        "CISCO_SPLIT_INC_0_ADDR": "172.16.0.0", "CISCO_SPLIT_INC_0_MASK": "255.240.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "12",
+        "CISCO_DEF_DOMAIN": null
+      },
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 172.16.0.0/12 interface utun5",
+        "route 10.11.0.0/24 interface utun5"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes"
+    },
+    {
+      "name": "every name: a DNS server on a local network stays local and is left out: no DNS",
+      "env": {
+        "INTERNAL_IP4_DNS": "192.168.1.53",
+        "CISCO_SPLIT_INC": "1",
+        "CISCO_SPLIT_INC_0_ADDR": "172.16.0.0", "CISCO_SPLIT_INC_0_MASK": "255.240.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "12",
+        "CISCO_DEF_DOMAIN": null
+      },
+      "underlay": {"ipv4": "198.51.100.1 en0", "attached": ["192.168.1.0/24 en0"]},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 172.16.0.0/12 interface utun5",
+        "route 10.11.0.0/24 interface utun5"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, 1 route kept local"
+    },
+    {
+      "name": "every name: a DNS server inside an include but on a local network the include spans is left out",
+      "env": {
+        "INTERNAL_IP4_DNS": "10.1.2.53 10.11.0.53",
+        "CISCO_SPLIT_INC": "1",
+        "CISCO_SPLIT_INC_0_ADDR": "10.0.0.0", "CISCO_SPLIT_INC_0_MASK": "255.0.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "8",
+        "CISCO_DEF_DOMAIN": null
+      },
+      "underlay": {"ipv4": "198.51.100.1 en0", "attached": ["10.1.2.0/24 en0"]},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 10.0.0.0/8 interface utun5",
+        "dns passtunnel-501-acme utun5 split servers=10.11.0.53 search=- match=-"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 1 route, DNS 10.11.0.53"
+    },
+    {
+      "name": "every name: an exclude of the DNS server's own address wins over its host route: no DNS",
+      "env": {
+        "INTERNAL_IP4_DNS": "10.11.0.53",
+        "CISCO_SPLIT_EXC": "1",
+        "CISCO_SPLIT_EXC_0_ADDR": "10.11.0.53", "CISCO_SPLIT_EXC_0_MASK": "255.255.255.255", "CISCO_SPLIT_EXC_0_MASKLEN": "32",
+        "CISCO_SPLIT_INC": "1",
+        "CISCO_SPLIT_INC_0_ADDR": "172.16.0.0", "CISCO_SPLIT_INC_0_MASK": "255.240.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "12",
+        "CISCO_DEF_DOMAIN": null
+      },
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 10.11.0.53/32 gateway 198.51.100.1 en0",
+        "route 172.16.0.0/12 interface utun5",
+        "route 10.11.0.0/24 interface utun5"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes"
+    },
+    {
+      "name": "every name: a DNS server inside an include but inside a longer exclude goes around the tunnel and is left out",
+      "env": {
+        "INTERNAL_IP4_DNS": "10.11.0.53 10.20.0.53",
+        "CISCO_SPLIT_INC": "1",
+        "CISCO_SPLIT_INC_0_ADDR": "10.0.0.0", "CISCO_SPLIT_INC_0_MASK": "255.0.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "8",
+        "CISCO_SPLIT_EXC": "1",
+        "CISCO_SPLIT_EXC_0_ADDR": "10.20.0.0", "CISCO_SPLIT_EXC_0_MASK": "255.255.0.0", "CISCO_SPLIT_EXC_0_MASKLEN": "16",
+        "CISCO_DEF_DOMAIN": null
+      },
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 10.20.0.0/16 gateway 198.51.100.1 en0",
+        "route 10.0.0.0/8 interface utun5",
+        "dns passtunnel-501-acme utun5 split servers=10.11.0.53 search=- match=-"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 1 route, DNS 10.11.0.53"
+    },
+    {
+      "name": "every name: a DNS server on the VPN server's address goes around the tunnel and is left out",
+      "env": {
+        "INTERNAL_IP4_DNS": "192.0.2.10 10.11.0.53",
+        "CISCO_SPLIT_INC": "1",
+        "CISCO_SPLIT_INC_0_ADDR": "192.0.2.0", "CISCO_SPLIT_INC_0_MASK": "255.255.255.0", "CISCO_SPLIT_INC_0_MASKLEN": "24",
+        "CISCO_DEF_DOMAIN": null
+      },
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 192.0.2.10/32 gateway 198.51.100.1 en0",
+        "route 192.0.2.0/24 interface utun5",
+        "route 10.11.0.0/24 interface utun5",
+        "route 10.11.0.53/32 interface utun5",
+        "dns passtunnel-501-acme utun5 split servers=10.11.0.53 search=- match=-"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 3 routes, DNS 10.11.0.53"
+    },
+    {
       "name": "split include and no domains with set_dns off: no DNS and no routes to the DNS servers",
       "policy": {"set_dns": false},
       "env": {

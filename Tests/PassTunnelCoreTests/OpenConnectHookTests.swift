@@ -461,6 +461,21 @@ final class OpenConnectHookTests: XCTestCase {
         XCTAssertEqual(try record().owned, [])
     }
 
+    /// Every name only goes to servers the routes send into the tunnel: an IPv6 server of an IPv4-only split
+    /// tunnel would be reached around it, so with no other server there is no DNS at all.
+    func testEveryNameDNSWithoutAServerInTheTunnelIsNotSet() throws {
+        let network = OpenConnectNetwork(
+            interface: "utun5", gateway: IPAddress("192.0.2.10")!,
+            ipv4: .init(address: IPAddress("10.11.0.2")!, network: IPNetwork("10.11.0.0/24")), ipv6: nil, mtu: 1400,
+            dnsServers: [IPAddress("2001:db8:1::53")!], ipv4Includes: [IPNetwork("10.0.0.0/8")!])
+        XCTAssertEqual(run(.connect(network)), OpenConnectHook.Outcome(lines: ["passtunnel vpn-hook: utun5 up: 10.11.0.2, 1 route\n"]))
+        XCTAssertFalse(system.log.contains { $0.hasPrefix("dns ") })
+        XCTAssertEqual(system.dns, [:])
+        XCTAssertFalse(try recordText().contains("dns "))
+        XCTAssertEqual(run(.disconnect), OpenConnectHook.Outcome())
+        XCTAssertEqual(system.table, originalTable)
+    }
+
     func testSplitTunnelWithoutDomainsAndDNSOff() throws {
         let policy = OpenConnectPolicy(uid: 501, profileID: "acme", setRoutes: true, setDNS: false)
         XCTAssertEqual(
@@ -1493,6 +1508,16 @@ final class OpenConnectHookTests: XCTestCase {
         // A truncated buffer ends the list, it does not trap.
         XCTAssertEqual(KernelRoute.parseDump(Array(buffer.prefix(buffer.count - 3))).count, 5)
         XCTAssertEqual(KernelRoute.parseDump([1, 2, 3]), [])
+    }
+
+    /// A dynamic store that cannot be read is no proof the keys are gone: `removeDNS` must not take it for done,
+    /// so the change stays the session's for the next try. Pure: no store is opened.
+    func testDNSKeysReadFromAStoreThatFailedAreUnknown() {
+        let keys = OpenConnectDNSSettings.keys(service: "passtunnel-501-acme")
+        XCTAssertNil(MacOpenConnectSystem.presentKeys(keys, in: nil))
+        XCTAssertEqual(MacOpenConnectSystem.presentKeys(keys, in: [:] as NSDictionary), [])
+        let one: NSDictionary = [keys[2]: ["ServerAddresses": ["10.11.0.53"]] as NSDictionary]
+        XCTAssertEqual(MacOpenConnectSystem.presentKeys(keys, in: one), [keys[2]])
     }
     #endif
 }

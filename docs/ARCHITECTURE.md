@@ -1825,7 +1825,8 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
    (`KernelRoute.is`): one replaced meanwhile (another next hop) is no longer the session's and stays,
    one gone counts as reverted, and a `route delete` that fails counts once a fresh table no longer holds
    it. An address is deleted only while it is on the interface, the link brought down only while the
-   interface is there; DNS keys are removed whether or not they are there.
+   interface is there; DNS keys are removed whether or not they are there, but a dynamic store that cannot be
+   read proves nothing: the change stays the session's for the next try (`MacOpenConnectSystem.presentKeys`).
    - `pre-init`: nothing.
    - `connect` (`OpenConnectPlan.connect(_:policy:underlay:)`, from the checked network, the policy
      and the default gateway of each family before the tunnel, read from the routing table:
@@ -1896,22 +1897,39 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
         - **split tunnel without domains** (#278: DNS servers, but neither `CISCO_SPLIT_DNS` nor
           `CISCO_DEF_DOMAIN`; a GlobalProtect gateway without `dns-suffix`): the servers are for every name,
           the outcome an OpenVPN server's DNS without `resolve-domains` gets from `dns-updown` (above) and
-          vpnc-script's gave. Only `State:/Network/Service/<service>/DNS` again, with `ServerAddresses` and
-          `SupplementalMatchDomains` = `("")`, so neither the primary service nor the default route changes.
-          configd's IPMonitor (`dns-configuration.c`) makes a resolver of each match domain and leaves out the
-          domain name of the empty one (`add_supplemental`); it collects these before the primary service's
-          resolver, and its sort puts a resolver without a domain ahead of every one with a domain
-          (`compareDomain`): this one becomes resolver #1, the default for every name (what the code calls a
-          supplemental "default" resolver), and the primary service's follows it, unchanged. Chosen over
-          `dns-updown`'s way (back up the primary service's `Setup:` DNS and replace it): nothing persistent is
-          written, so a crash leaves nothing behind (the keys go with a restart, the record's revert removes
-          them like any other session's), a network change while connected neither drops the session's DNS
-          nor loses a backup (the key belongs to no network service), and two sessions never write the same
-          key. Over making the service primary as for a full tunnel: that would also move the system's
-          `default` route into the tunnel. Only with `set_routes`: without it the hook adds no route to the
-          servers, and every name would depend on them, so then there is no DNS at all, as before. Two such
-          sessions at once: both resolvers have no domain, and which of them IPMonitor puts first is not
-          defined (a split DNS session's domains still go to it: a longer match wins).
+          vpnc-script's gave. Only with `set_routes`, and only the servers whose traffic the plan's routes
+          send into the tunnel (`OpenConnectPlan.routedIntoTunnel`: the longest planned route that holds the
+          address leads into the tunnel, and no local network holds it as long or longer). Left out: a server
+          of a family the tunnel has no address of (no route of that family is planned, so it would be reached
+          through the physical default route), one on a local network (its host route is kept local, so a
+          machine on the LAN with that address would get every query), one behind an exclude (of its own
+          address, or a longer one inside an include), one on `VPNGATEWAY`'s address. No server left, or no
+          `set_routes`: no DNS at all, as before #278. Only `State:/Network/Service/<service>/DNS` again, with
+          `ServerAddresses` and `SupplementalMatchDomains` = `("")`, so neither the primary service nor the
+          default route changes. What configd's source (`dns-configuration.c`) shows: `add_supplemental`
+          makes a resolver of each match domain, leaves out the domain name of the empty one and gives it a
+          search order of half the default one (`DEFAULT_SEARCH_ORDER` / 2, plus a step per service and per
+          domain), while the primary service's resolver gets `DEFAULT_SEARCH_ORDER` unless it has its own.
+          `compareDomain` sorts resolvers without a domain ahead of those with one, but between two without a
+          domain it decides nothing (it answers "less than" both ways and never compares the order), so which
+          of the two `scutil --dns` lists as #1 is not fixed by configd; `dns_configuration_set` does expect a
+          supplemental resolver without a domain as the default one. That the system's resolver asks this one
+          for every name rests on its lower order (about 100000 against 200000) and has to be confirmed on a
+          Mac. The primary service's resolver stays, unchanged. **A lookup scoped to an interface** (to the
+          Wi-Fi's, by a program that binds to it) uses that interface's scoped resolver, so the Wi-Fi's DNS,
+          never the tunnel's. Chosen over `dns-updown`'s way (back up the primary service's `Setup:` DNS and
+          replace it): nothing persistent is written, so a crash leaves nothing behind (the keys go with a
+          restart, the record's revert removes them like any other session's), a network change while
+          connected neither drops the session's DNS nor loses a backup (the key belongs to no network service),
+          and two sessions never write the same key. Over making the service primary as for a full tunnel:
+          that would also move the system's `default` route into the tunnel. **Not defined:** two such sessions
+          at once (both resolvers without a domain, configd fixes no order between them), or one next to a full
+          tunnel (whose DNS is the primary service's resolver, also without a domain): which resolver gets the
+          names is not defined. A split DNS session's domains still go to it (a longer match wins). The check
+          before a connect (`NetworkClaims.overlaps`) warns about the second case, a full tunnel next to any
+          DNS claim, but not about the first: it compares DNS names, and an every-name claim has none (the same
+          holds for two OpenVPN tunnels whose DNS has no `resolve-domains`). Telling the user would need an overlap of its
+          own (the message, `ConnectWarning`'s JSON, the sheet), not built.
         - **full tunnel** (every family with an address, and `set_routes`): the service is made the primary
           one, whose `DNS` (`ServerAddresses`, `SearchDomains`) becomes the default resolver
           (`State:/Network/Global/DNS`, resolver #1 of `scutil --dns`). IPMonitor elects the primary service

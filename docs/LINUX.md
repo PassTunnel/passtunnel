@@ -713,8 +713,9 @@ when asked.
   - *DNS* through `DNSApplier`, unchanged: the same backends, record (`dns`, in the session directory, next
     to `network`) and run root lock. A full tunnel's servers take every name (systemd-resolved: the link
     is the default route, `~.`), and so do a split tunnel's when the server named no split DNS or default
-    domains (#278, as an OpenVPN server's without `resolve-domains`); otherwise the split DNS and default
-    domains are routing domains (`~domain`) and the default domains are searched. On the resolvconf and file backends, which cannot
+    domains (#278, as an OpenVPN server's without `resolve-domains`; only the servers the routes send into
+    the tunnel, ARCHITECTURE.md); otherwise the split DNS and default domains are routing domains
+    (`~domain`) and the default domains are searched. On the resolvconf and file backends, which cannot
     route names, every name goes through the tunnel. Only the session's own service
     (`passtunnel-<uid>-<id>`) is set or removed. A reconnect's check (`hasDNS`, `DNSApplier.verify`) checks what
     PassTunnel itself set and how the system's resolver reaches it, never what another program may

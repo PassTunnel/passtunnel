@@ -288,12 +288,17 @@ public struct OpenConnectCommand: Equatable, Sendable {
 /// - **Split tunnel:** the `DNS` entity alone, with `SupplementalMatchDomains`: a resolver for those domains,
 ///   whatever the primary service is (what OpenVPN's own macOS `dns-updown` writes for its split DNS).
 /// - **Split tunnel without domains** (the server named DNS servers only): the `DNS` entity alone, with
-///   `SupplementalMatchDomains` = `("")`. IPMonitor makes a resolver of each match domain and, for the empty
-///   one, leaves out its domain name (`add_supplemental`, `dns-configuration.c`); it collects these before
-///   the primary service's resolver, and its sort puts a resolver without a domain ahead of those with one
-///   (`compareDomain`), so this one is resolver #1, the default for every name (its "supplemental default
-///   resolver"), with the primary service's next. The primary service, and with it the default route, stays
-///   as it was.
+///   `SupplementalMatchDomains` = `("")`, so the primary service, and with it the default route, stays as it
+///   was. What configd's source (`dns-configuration.c`) shows: `add_supplemental` makes a resolver of each
+///   match domain and leaves out the domain name of the empty one, and gives it a search order of half the
+///   default one (`DEFAULT_SEARCH_ORDER` / 2, plus a step per service and per domain), where the primary
+///   service's resolver gets `DEFAULT_SEARCH_ORDER` unless it has its own. `compareDomain` sorts resolvers
+///   without a domain ahead of those with one, but between two without a domain it decides nothing (it answers
+///   "less than" both ways and never reaches the order), so which of the two `scutil --dns` lists first is not
+///   fixed by configd; `dns_configuration_set` does expect a supplemental resolver without a domain as the
+///   default one. That the system's resolver then asks this one for every name rests on its lower order and is
+///   to be confirmed on a Mac. A lookup scoped to an interface (to the Wi-Fi's, say) uses that interface's
+///   scoped resolver, so its DNS, never this one.
 /// - **Full tunnel:** the service is made the primary one, whose `DNS` entity becomes the default resolver
 ///   (`State:/Network/Global/DNS`, resolver #1 of `scutil --dns`). IPMonitor elects the primary service among
 ///   those with a router: `OverridePrimary` = 1 ranks a service first, but a service without `Router` is not
