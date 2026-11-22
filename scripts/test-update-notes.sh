@@ -164,6 +164,38 @@ $CURRENT
 
 - Sort profile groups (#7)" "" --earlier 2 1.10.1 "$NOTES"
 
+# A release whose version a Release-As line in its merge commit set (its feat alone would have made
+# 1.11.0): next-version.sh reads the line of the tagged merge commit again, so the release keeps its
+# notes, the feat under New features.
+git switch -q -c dev
+commit "feat: color profile groups (#10)"
+git switch -q main
+git merge -q --no-ff -m "chore: merge dev into main (#11)" -m "Release-As: 1.10.1" dev
+git tag v1.10.1
+git switch -q dev
+commit "fix: keep the group colors (#12)"
+git switch -q main
+git merge -q --no-ff -m "chore: merge dev into main (#13)" dev
+expect "release with Release-As" "## 1.10.2
+
+$CURRENT
+
+## 1.10.1
+
+### New features
+
+- Color profile groups (#10)
+
+### Fixes
+
+- Keep the group order (#9)
+
+## 1.10.0
+
+### New features
+
+- Rename profile groups (#8)" "" --earlier 2 1.10.2 "$NOTES"
+
 # Wrong arguments fail.
 : > "$REPO/.git/empty.md"
 for args in "1.2.0" "1.2.0 $REPO/.git/missing.md" "1.2.0 $REPO/.git/empty.md" "v1.2.0 $NOTES" \

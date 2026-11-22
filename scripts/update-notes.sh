@@ -16,7 +16,8 @@
 #
 # The earlier releases are the highest stable tags vX.Y.Z reachable from REV that are lower than
 # VERSION (pre-release tags never count). Their notes are worked out again from the commit subjects
-# with scripts/next-version.sh --ignore-tag TAG TAG, the same way the release workflow made them;
+# with scripts/next-version.sh --ignore-tag TAG TAG, the same way the release workflow made them
+# (a Release-As line of the tagged merge commit included, which next-version.sh reads again);
 # a tag whose commits do not give its own version (a release made by hand, history before
 # Conventional Commits) has no notes this way. The list stops at the first earlier release without
 # notes, with a warning on stderr, so it never skips one in the middle. Without any earlier notes,
