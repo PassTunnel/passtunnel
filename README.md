@@ -322,8 +322,9 @@ The command line has the same: [`passtunnel add --type anyconnect`](#command-lin
 
 ## Palo Alto GlobalProtect (experimental)
 
-> **Experimental.** GlobalProtect has only been tested against openconnect's own test server, not against
-> real gateways. It connects exactly as designed, but please
+> **Experimental.** Besides openconnect's own test server, GlobalProtect has connected to one real gateway
+> (password and one-time code, split tunnel, over HTTPS). Single sign-on, gateways that require a host
+> information report and the ESP tunnel have not been tried on a real gateway. Please
 > [tell us how it works for you](https://github.com/PassTunnel/passtunnel/issues/new?template=globalprotect_report.md),
 > whether it worked or not: that is how the label goes away.
 

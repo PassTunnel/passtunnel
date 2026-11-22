@@ -2638,7 +2638,8 @@ replaces Phase 1's line that HIP would be refused like CSD: a HIP request is no 
   After a kill, a crash, a broken connection or "Logout failed." it stays valid until its lifetime.
 - **Log** (display only, as Phase 1's): besides the lines above, `POST https://<gateway>/ssl-vpn/getconfig.esp`,
   `Configured as <addresses>, with SSL connected and ESP in progress` (`main.c` 1659–1667; `… and ESP disabled` with
-  `tls_only`), `GlobalProtect IPv6 support is experimental. …` (ERR, whenever an IPv6 address is assigned,
+  `tls_only`; `… and ESP unsuccessful` after the fallback to HTTPS, seen with openconnect 9.21 against a real gateway,
+  #283), `GlobalProtect IPv6 support is experimental. …` (ERR, whenever an IPv6 address is assigned,
   `gpst.c` 596–599), `GPST Dead Peer Detection detected dead peer!`, `Reconnect failed`. The state comes from the hook's
   record, never from these.
 
@@ -2938,9 +2939,11 @@ suffixes, IPv6 includes, `0.0.0.0/0` includes).
 
 ### Experimental (G2, G5, G6, G9)
 
-GlobalProtect ships marked **experimental** until reports from real gateways come in (owner decision, #226): only
-openconnect's test server and unit tests stand behind the tunnel path. It is a label and nothing else: no feature
-flag, no opt-in, no setting; the type connects exactly as designed above.
+GlobalProtect ships marked **experimental** until reports from real gateways come in (owner decision, #226): openconnect's
+test server, unit tests and one connection to a real gateway by hand (#283) stand behind the tunnel path. That
+connection covered the sign-in with a password and a code, a split tunnel over HTTPS (ESP did not come up on that
+network) and the disconnect; single sign-on, a HIP request, ESP, a full tunnel and IPv6 were not tried.
+It is a label and nothing else: no feature flag, no opt-in, no setting; the type connects exactly as designed above.
 
 - **One source of truth:** `VPNType.isExperimental` in `PassTunnelKit` (`Model.swift`), `self == .globalprotect`.
   Every place below reads it; dropping the label later is that one line (and the docs' sentences). Nothing stores it:
