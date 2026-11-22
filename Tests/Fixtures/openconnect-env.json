@@ -265,7 +265,7 @@
       "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 0 routes, DNS 10.11.0.53 10.11.0.54, search example.com, split DNS example.com"
     },
     {
-      "name": "set_routes off, no domains: no DNS",
+      "name": "set_routes off, no domains: no DNS (the servers get no route into the tunnel, so not for every name)",
       "policy": {"set_routes": false},
       "env": {"CISCO_DEF_DOMAIN": null},
       "event": "connect",
@@ -274,6 +274,80 @@
         "address utun5 10.11.0.2"
       ],
       "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 0 routes"
+    },
+    {
+      "name": "split include, DNS servers and no domains: the DNS is for every name, and the service is not primary",
+      "env": {
+        "CISCO_SPLIT_INC": "1",
+        "CISCO_SPLIT_INC_0_ADDR": "172.16.0.0", "CISCO_SPLIT_INC_0_MASK": "255.240.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "12",
+        "CISCO_DEF_DOMAIN": null
+      },
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 172.16.0.0/12 interface utun5",
+        "route 10.11.0.0/24 interface utun5",
+        "route 10.11.0.53/32 interface utun5",
+        "route 10.11.0.54/32 interface utun5",
+        "dns passtunnel-501-acme utun5 split servers=10.11.0.53,10.11.0.54 search=- match=-"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 4 routes, DNS 10.11.0.53 10.11.0.54"
+    },
+    {
+      "name": "split include and no domains with set_dns off: no DNS and no routes to the DNS servers",
+      "policy": {"set_dns": false},
+      "env": {
+        "CISCO_SPLIT_INC": "1",
+        "CISCO_SPLIT_INC_0_ADDR": "172.16.0.0", "CISCO_SPLIT_INC_0_MASK": "255.240.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "12",
+        "CISCO_DEF_DOMAIN": null
+      },
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 172.16.0.0/12 interface utun5",
+        "route 10.11.0.0/24 interface utun5"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes"
+    },
+    {
+      "name": "full tunnel without domains: primary, as before",
+      "env": {"CISCO_DEF_DOMAIN": null},
+      "event": "connect",
+      "changes": [
+        "link utun5 mtu 1406",
+        "address utun5 10.11.0.2",
+        "route 192.0.2.10/32 gateway 198.51.100.1 en0",
+        "route ::/1 reject",
+        "route 8000::/1 reject",
+        "route 0.0.0.0/1 interface utun5",
+        "route 128.0.0.0/1 interface utun5",
+        "dns passtunnel-501-acme utun5 primary servers=10.11.0.53,10.11.0.54 search=- match=-"
+      ],
+      "report": "passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, full tunnel, IPv6 blocked, DNS 10.11.0.53 10.11.0.54"
+    },
+    {
+      "name": "Linux: split include, DNS servers and no domains: the DNS is for every name",
+      "platform": "linux",
+      "env": {
+        "TUNDEV": "tun0",
+        "CISCO_SPLIT_INC": "1",
+        "CISCO_SPLIT_INC_0_ADDR": "172.16.0.0", "CISCO_SPLIT_INC_0_MASK": "255.240.0.0", "CISCO_SPLIT_INC_0_MASKLEN": "12",
+        "CISCO_DEF_DOMAIN": null
+      },
+      "underlay": {"ipv4": "198.51.100.1 eth0"},
+      "event": "connect",
+      "changes": [
+        "link tun0 mtu 1406",
+        "address tun0 10.11.0.2",
+        "route 172.16.0.0/12 interface tun0",
+        "route 10.11.0.0/24 interface tun0",
+        "route 10.11.0.53/32 interface tun0",
+        "route 10.11.0.54/32 interface tun0",
+        "dns passtunnel-501-acme tun0 split servers=10.11.0.53,10.11.0.54 search=- match=-"
+      ],
+      "report": "passtunnel vpn-hook: tun0 up: 10.11.0.2, 4 routes, DNS 10.11.0.53 10.11.0.54"
     },
     {
       "name": "set_dns off",

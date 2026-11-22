@@ -287,6 +287,13 @@ public struct OpenConnectCommand: Equatable, Sendable {
 /// How the DNS wins (configd's IPMonitor builds the resolver configuration from the `State:` services):
 /// - **Split tunnel:** the `DNS` entity alone, with `SupplementalMatchDomains`: a resolver for those domains,
 ///   whatever the primary service is (what OpenVPN's own macOS `dns-updown` writes for its split DNS).
+/// - **Split tunnel without domains** (the server named DNS servers only): the `DNS` entity alone, with
+///   `SupplementalMatchDomains` = `("")`. IPMonitor makes a resolver of each match domain and, for the empty
+///   one, leaves out its domain name (`add_supplemental`, `dns-configuration.c`); it collects these before
+///   the primary service's resolver, and its sort puts a resolver without a domain ahead of those with one
+///   (`compareDomain`), so this one is resolver #1, the default for every name (its "supplemental default
+///   resolver"), with the primary service's next. The primary service, and with it the default route, stays
+///   as it was.
 /// - **Full tunnel:** the service is made the primary one, whose `DNS` entity becomes the default resolver
 ///   (`State:/Network/Global/DNS`, resolver #1 of `scutil --dns`). IPMonitor elects the primary service among
 ///   those with a router: `OverridePrimary` = 1 ranks a service first, but a service without `Router` is not
@@ -320,7 +327,7 @@ public struct OpenConnectDNSSettings: Equatable, Sendable {
 
     /// For `dns` on a tunnel with `addresses`:
     /// - `DNS`: `ServerAddresses`; `SearchDomains` when there are any; `SupplementalMatchDomains` when the DNS is
-    ///   not primary (the names resolved through the tunnel).
+    ///   not primary (the names resolved through the tunnel; `("")`, every name, when there are none).
     /// - only when the DNS is primary (a full tunnel): `IPv4` with `Addresses`, `SubnetMasks`
     ///   (`255.255.255.255`), `Router` (the tunnel's address), `InterfaceName` and `OverridePrimary` = 1, and
     ///   `IPv6` likewise with `PrefixLength` (128), for each family the tunnel has an address of.
@@ -346,7 +353,7 @@ public struct OpenConnectDNSSettings: Equatable, Sendable {
         }
         var entity: [String: Value] = ["ServerAddresses": .strings(dns.servers.map(\.description))]
         if !dns.searchDomains.isEmpty { entity["SearchDomains"] = .strings(dns.searchDomains) }
-        if !dns.primary, !dns.matchDomains.isEmpty { entity["SupplementalMatchDomains"] = .strings(dns.matchDomains) }
+        if !dns.primary { entity["SupplementalMatchDomains"] = .strings(dns.matchDomains.isEmpty ? [""] : dns.matchDomains) }
         values[Self.key(service: dns.service, entity: "DNS")] = entity
         self.values = values
     }

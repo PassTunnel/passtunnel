@@ -712,8 +712,9 @@ when asked.
     addresses of interfaces that are up, not loopback and not point-to-point) from `getifaddrs`.
   - *DNS* through `DNSApplier`, unchanged: the same backends, record (`dns`, in the session directory, next
     to `network`) and run root lock. A full tunnel's servers take every name (systemd-resolved: the link
-    is the default route, `~.`); otherwise the split DNS and default domains are routing domains
-    (`~domain`) and the default domains are searched. On the resolvconf and file backends, which cannot
+    is the default route, `~.`), and so do a split tunnel's when the server named no split DNS or default
+    domains (#278, as an OpenVPN server's without `resolve-domains`); otherwise the split DNS and default
+    domains are routing domains (`~domain`) and the default domains are searched. On the resolvconf and file backends, which cannot
     route names, every name goes through the tunnel. Only the session's own service
     (`passtunnel-<uid>-<id>`) is set or removed. A reconnect's check (`hasDNS`, `DNSApplier.verify`) checks what
     PassTunnel itself set and how the system's resolver reaches it, never what another program may
@@ -812,7 +813,8 @@ a kill), with these differences (G7). The type is labelled experimental here too
   matter here, since a portal with more than one gateway needs the profile's `gateway` anyway.
 - **DNS.** A gateway's `dns-suffix` entries are default domains (GlobalProtect has no split-DNS list): with
   systemd-resolved they are search and routing domains of the tunnel's link in a split tunnel, as AnyConnect's
-  `CISCO_DEF_DOMAIN`; the other backends send every name through the tunnel, as before.
+  `CISCO_DEF_DOMAIN` (a split tunnel without any takes every name, as AnyConnect's without domains); the other
+  backends send every name through the tunnel, as before.
 - **Protocol 5.** `passtunneld`'s `hello` reports 5 with the helper; a daemon of protocol 4 refuses a client of 5 (and
   the other way round) with the version message, so the CLI and the daemon come from the same package. From #230 until
   #234 the daemon refused `protocol gp` before preparing anything and `passtunnel` refused to connect the type up front

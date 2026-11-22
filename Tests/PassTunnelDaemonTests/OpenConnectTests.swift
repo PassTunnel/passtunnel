@@ -821,6 +821,12 @@ final class LinuxOpenConnectSystemTests: DNSTestCase {
         XCTAssertEqual(
             try LinuxOpenConnectSystem.settings(dns(primary: true).dns),
             try DNSSettings(servers: ["10.11.0.53"], searchDomains: ["example.com"], fullTunnel: true))
+        // A split tunnel whose server named no domains: its servers take every name, as a full tunnel's (and as an
+        // OpenVPN server's without resolve-domains).
+        let everyName = OpenConnectPlan.DNS(
+            service: "passtunnel-\(me)-acme", interface: "tun0", primary: false, servers: [IPAddress("10.11.0.53")!], searchDomains: [],
+            matchDomains: [])
+        XCTAssertEqual(try LinuxOpenConnectSystem.settings(everyName), try DNSSettings(servers: ["10.11.0.53"], searchDomains: [], fullTunnel: true))
     }
 
     func testOnlyTheCheckedIPRuns() throws {

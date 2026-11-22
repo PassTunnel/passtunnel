@@ -1888,11 +1888,30 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
         `/etc/resolv.conf`, no `scutil` text. configd's IPMonitor builds the resolver configuration from the
         `State:` services:
         - **split tunnel:** only `State:/Network/Service/<service>/DNS` with `ServerAddresses`,
-          `SupplementalMatchDomains` (`CISCO_SPLIT_DNS` then `CISCO_DEF_DOMAIN`; no DNS at all when there are
-          none) and `SearchDomains` (`CISCO_DEF_DOMAIN`, when there are any): a resolver for those domains,
-          whatever the primary service is, as OpenVPN's own macOS `dns-updown` writes it for split DNS
+          `SupplementalMatchDomains` (`CISCO_SPLIT_DNS` then `CISCO_DEF_DOMAIN`) and `SearchDomains`
+          (`CISCO_DEF_DOMAIN`, when there are any): a resolver for those domains, whatever the primary service
+          is, as OpenVPN's own macOS `dns-updown` writes it for split DNS
           (`State:/Network/Service/openvpn-<dev>/DNS`). No `IPv4`/`IPv6` entity, so the service is never a
           candidate for primary.
+        - **split tunnel without domains** (#278: DNS servers, but neither `CISCO_SPLIT_DNS` nor
+          `CISCO_DEF_DOMAIN`; a GlobalProtect gateway without `dns-suffix`): the servers are for every name,
+          the outcome an OpenVPN server's DNS without `resolve-domains` gets from `dns-updown` (above) and
+          vpnc-script's gave. Only `State:/Network/Service/<service>/DNS` again, with `ServerAddresses` and
+          `SupplementalMatchDomains` = `("")`, so neither the primary service nor the default route changes.
+          configd's IPMonitor (`dns-configuration.c`) makes a resolver of each match domain and leaves out the
+          domain name of the empty one (`add_supplemental`); it collects these before the primary service's
+          resolver, and its sort puts a resolver without a domain ahead of every one with a domain
+          (`compareDomain`): this one becomes resolver #1, the default for every name (what the code calls a
+          supplemental "default" resolver), and the primary service's follows it, unchanged. Chosen over
+          `dns-updown`'s way (back up the primary service's `Setup:` DNS and replace it): nothing persistent is
+          written, so a crash leaves nothing behind (the keys go with a restart, the record's revert removes
+          them like any other session's), a network change while connected neither drops the session's DNS
+          nor loses a backup (the key belongs to no network service), and two sessions never write the same
+          key. Over making the service primary as for a full tunnel: that would also move the system's
+          `default` route into the tunnel. Only with `set_routes`: without it the hook adds no route to the
+          servers, and every name would depend on them, so then there is no DNS at all, as before. Two such
+          sessions at once: both resolvers have no domain, and which of them IPMonitor puts first is not
+          defined (a split DNS session's domains still go to it: a longer match wins).
         - **full tunnel** (every family with an address, and `set_routes`): the service is made the primary
           one, whose `DNS` (`ServerAddresses`, `SearchDomains`) becomes the default resolver
           (`State:/Network/Global/DNS`, resolver #1 of `scutil --dns`). IPMonitor elects the primary service
@@ -1921,6 +1940,7 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
      route ::/1 reject
      route 0.0.0.0/1 interface utun5
      dns passtunnel-501-acme utun5 primary servers=10.11.0.53,2001:db8::53 search=example.com match=-
+     dns passtunnel-501-acme utun5 split servers=10.11.0.53 search=- match=-     (split without domains: every name)
      ```
    - `attempt-reconnect` (`OpenConnectPlan.refresh`): needs a record of this interface whose status is
      `up` or `reconnecting`. The record's status becomes `reconnecting`, then the routes around the
@@ -2021,6 +2041,7 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
    passtunnel vpn-hook: utun5 up: 10.11.0.2, 2001:db8:1::2, 4 routes, full tunnel, DNS 10.11.0.53, search example.com
    passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, full tunnel, IPv6 blocked, DNS 10.11.0.53 10.11.0.54, search example.com
    passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, DNS 10.11.0.53, search example.com, split DNS corp.example.com example.com
+   passtunnel vpn-hook: utun5 up: 10.11.0.2, 4 routes, DNS 10.11.0.53 10.11.0.54
    passtunnel vpn-hook: setting up the network failed: INTERNAL_IP4_DNS is not a list of IPv4 and IPv6 addresses
    ```
 
@@ -2285,7 +2306,8 @@ the cookie and the server's identity); the fixed environment and the neutralized
 everything it does (the script environment is built by protocol-independent code, `script.c`, from what
 `gpst_parse_config_xml` installs: `ip-address`, `netmask`, `dns`/`dns-v6`, `dns-suffix` as `CISCO_DEF_DOMAIN`,
 `access-routes`/`exclude-access-routes` and their `-v6` forms as split includes and excludes, `gpst.c` 431–539; a
-GlobalProtect gateway sends no split-DNS list, so its suffixes are the default domains); supervision, the deadlines
+GlobalProtect gateway sends no split-DNS list, so its suffixes are the default domains, and a split tunnel without
+suffixes uses its DNS servers for every name, #278); supervision, the deadlines
 (60 s set-up, 120 s reconnecting), the masked log copy, the status from the hook's record; `reconnect-timeout 60`;
 trust (an optional full `pin-sha256:` pin, otherwise `no-system-trust` with the system's CA bundle) and "Trust this
 server"; the user name in the file, never in argv; IPv6 blocked in a full tunnel without an IPv6 address.

@@ -103,14 +103,20 @@ public struct OpenConnectPlan: Equatable, Sendable {
         /// `passtunnel-<uid>-<profile id>`.
         public let service: String
         public let interface: String
-        /// Every name is resolved through the tunnel (`OverridePrimary`): only for a full tunnel.
+        /// The service is made the primary one (`OverridePrimary`), so its DNS is the system's: only for a
+        /// full tunnel.
         public let primary: Bool
         public let servers: [IPAddress]
         /// `SearchDomains`: `CISCO_DEF_DOMAIN`.
         public let searchDomains: [String]
         /// `SupplementalMatchDomains`: the names resolved through the tunnel when it is not primary,
-        /// `CISCO_SPLIT_DNS` and `CISCO_DEF_DOMAIN`.
+        /// `CISCO_SPLIT_DNS` and `CISCO_DEF_DOMAIN`. Empty for a split tunnel whose server named no such
+        /// domains: its servers are then for every name.
         public let matchDomains: [String]
+
+        /// Every name is resolved through the tunnel: a full tunnel's DNS, or a split tunnel's without match
+        /// domains.
+        public var everyName: Bool { primary || matchDomains.isEmpty }
 
         public init(service: String, interface: String, primary: Bool, servers: [IPAddress], searchDomains: [String], matchDomains: [String]) {
             self.service = service
@@ -146,6 +152,8 @@ public struct OpenConnectPlan: Equatable, Sendable {
         ///     route 192.0.2.10/32 gateway link en0
         ///     route ::/1 reject
         ///     dns passtunnel-501-acme utun5 primary servers=10.0.0.53,2001:db8::53 search=example.com match=-
+        ///     dns passtunnel-501-acme utun5 split servers=10.0.0.53 search=example.com match=corp.example.com,example.com
+        ///     dns passtunnel-501-acme utun5 split servers=10.0.0.53 search=- match=-        (every name, not primary)
         ///
         /// Every value in it was checked, so no field holds a blank or a line break.
         public var text: String {
@@ -303,7 +311,9 @@ public struct OpenConnectPlan: Equatable, Sendable {
     ///    once, in the order server host route, reject routes, excludes, routes into the tunnel: the first wins
     ///    (an exclude over an include of the same network);
     /// 3. with `set_dns` and DNS servers (but those of a blocked family): DNS, primary for a full tunnel,
-    ///    otherwise for the split DNS and default domains only (none at all when there are no such domains).
+    ///    otherwise for the split DNS and default domains only; when there are no such domains, for every
+    ///    name without making the service primary (the default route stays where it is), but only with
+    ///    `set_routes` (without, no DNS at all: the servers get no route into the tunnel).
     public static func connect(_ network: OpenConnectNetwork, policy: OpenConnectPolicy, underlay: Underlay) throws -> OpenConnectPlan {
         let built = build(network, policy: policy, underlay: underlay)
         if let family = built.missingGateway { throw Failure.noGateway(family) }
@@ -397,7 +407,9 @@ public struct OpenConnectPlan: Equatable, Sendable {
             if !fullTunnel {
                 for domain in n.splitDNSDomains + n.defaultDomains where !match.contains(domain) { match.append(domain) }
             }
-            if fullTunnel || !match.isEmpty {
+            // A split tunnel without split DNS or default domains: no match domains, every name. Not without
+            // `set_routes`: then the servers get no route into the tunnel, and every name would depend on them.
+            if fullTunnel || !match.isEmpty || policy.setRoutes {
                 changes.append(
                     .dns(
                         DNS(
