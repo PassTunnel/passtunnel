@@ -149,6 +149,9 @@ sign-on. Write down the portal's address and the gateway names the GlobalProtect
 6. Report the result with the GlobalProtect report issue template (`globalprotect_report.md`), with host names, user
    names and addresses replaced (examples as in this repository).
 
-Results so far: on 2026-11-22, PassTunnel 1.8.0 on macOS against one gateway: steps 1 to 4 as far as the sign-in,
-the routes, the HTTPS tunnel and the log, and the disconnect of step 5. Not done: the rekey interval and the kill
-test of step 5. Internal name resolution in step 3 failed because of #278.
+Results so far: on 2026-11-22, PassTunnel 1.8.0 on macOS against one gateway: steps 1 to 4 as far as the sign-in, the
+routes, the HTTPS tunnel and the log, and the disconnect of step 5. Not done: the rekey interval and the kill test of
+step 5. Name resolution in step 3 was not covered by that connection: the profile had `set_dns` off. A second
+connection the same day, with a build that has the fix for #278 and `set_dns` on, got the gateway's DNS servers (sent
+without domains) as the resolver for every name: lookups went through the tunnel, the default route stayed where it
+was, and disconnecting removed the entry. No internal host name was looked up.
