@@ -164,13 +164,14 @@ public final class LinuxOpenConnectSystem: OpenConnectSystem {
     // MARK: DNS
 
     /// `DNSApplier`'s settings for the plan's DNS: a full tunnel's servers take every name (the default route of
-    /// systemd-resolved's link, `~.`); otherwise the match domains are routing domains (`~domain`), resolved
-    /// through the tunnel and never searched. The search domains are searched in either case. On the
-    /// resolvconf and file backends, which cannot route names, every name goes through the tunnel.
+    /// systemd-resolved's link, `~.`), and so do a split tunnel's when the server named no domains (as an
+    /// OpenVPN server's without `resolve-domains`, `DNSHook`); otherwise the match domains are routing domains
+    /// (`~domain`), resolved through the tunnel and never searched. The search domains are searched in either
+    /// case. On the resolvconf and file backends, which cannot route names, every name goes through the tunnel.
     static func settings(_ dns: OpenConnectPlan.DNS) throws -> DNSSettings {
         try DNSSettings(
             servers: dns.servers.map(\.description), searchDomains: dns.searchDomains,
-            routingDomains: dns.primary ? [] : dns.matchDomains, fullTunnel: dns.primary)
+            routingDomains: dns.everyName ? [] : dns.matchDomains, fullTunnel: dns.everyName)
     }
 
     /// The service a session's DNS is written under: only this session's (`passtunnel-<uid>-<profile ID>`).

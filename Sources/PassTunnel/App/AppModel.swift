@@ -405,8 +405,9 @@ final class AppModel: ObservableObject {
 
     /// Registers the helper (`HelperInstaller.registerRetrying`) for Install Helper in Settings → Helper and on
     /// the first-run card, a `passtunnel helper install` hand-off, and the automatic install. Afterwards macOS
-    /// usually waits for the approval: Login Items open after a button, after the automatic install only when
-    /// `HelperAutoInstall.opensLoginItems` allows it. An install by the user clears `Preferences.helperRemoved`.
+    /// usually waits for the approval: Login Items open (with the guide, `openLoginItemsForHelper`) after a button,
+    /// after the automatic install only when `HelperAutoInstall.opensLoginItems` allows it. An install by the user
+    /// clears `Preferences.helperRemoved`.
     @discardableResult
     func installHelper(_ origin: HelperInstallOrigin) async -> Bool {
         guard !helperInstalling, !helperUpdating, !helperRemoving else { return false }
@@ -427,11 +428,11 @@ final class AppModel: ObservableObject {
         if helperStatus == .requiresApproval {
             switch origin {
             case .button:
-                HelperInstaller.openSystemSettingsLoginItems()
+                openLoginItemsForHelper()
             case .automatic(let userActed):
                 // Not when the switch was turned off while macOS registered it.
                 if prefs.autoInstallHelper, helperAutoInstall.opensLoginItems(userActed: userActed) {
-                    HelperInstaller.openSystemSettingsLoginItems()
+                    openLoginItemsForHelper()
                 }
             }
         }

@@ -7224,6 +7224,16 @@
         }
       }
     },
+    "Close the guide" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kılavuzu kapat"
+          }
+        }
+      }
+    },
     "Current code: %@ (compare it with your authenticator app)" : {
       "localizations" : {
         "tr" : {
@@ -7554,6 +7564,16 @@
         }
       }
     },
+    "Example: PassTunnel, with its switch turned on" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Örnek: PassTunnel, düğmesi açık"
+          }
+        }
+      }
+    },
     "Export a profile as a .passtunnel file (no passwords or secrets)." : {
       "localizations" : {
         "tr" : {
@@ -7830,6 +7850,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "“%1$@”, %2$@ olarak içe aktarıldı."
+          }
+        }
+      }
+    },
+    "In System Settings, turn on the switch next to PassTunnel." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sistem Ayarları’nda PassTunnel’ın yanındaki düğmeyi açın."
+          }
+        }
+      }
+    },
+    "In System Settings, under “%@”, turn on the switch next to PassTunnel." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sistem Ayarları’nda “%@” altında PassTunnel’ın yanındaki düğmeyi açın."
+          }
+        }
+      }
+    },
+    "In the list of apps that can run in the background, find this row and turn its switch on:" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arka planda çalışabilen uygulamaların listesinde bu satırı bulun ve düğmesini açın:"
           }
         }
       }
@@ -10336,6 +10386,16 @@
         }
       }
     },
+    "This closes by itself once the helper is on." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yardımcı açılınca bu pencere kendiliğinden kapanır."
+          }
+        }
+      }
+    },
     "This is an authenticator export code with several accounts. Export a single account, or use the QR code your VPN provider showed when you set up the code." : {
       "localizations" : {
         "tr" : {
@@ -10516,6 +10576,16 @@
         }
       }
     },
+    "Turn on the switch next to PassTunnel" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PassTunnel’ın yanındaki düğmeyi açın"
+          }
+        }
+      }
+    },
     "Type" : {
       "localizations" : {
         "tr" : {
@@ -10542,6 +10612,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Geçerli kodu yaz"
+          }
+        }
+      }
+    },
+    "Under “%@”, find this row and turn its switch on:" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” altında bu satırı bulun ve düğmesini açın:"
           }
         }
       }

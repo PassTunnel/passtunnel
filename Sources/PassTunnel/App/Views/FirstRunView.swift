@@ -316,7 +316,7 @@ private struct HelperCard: View {
             .foregroundStyle(Palette.fg)
             .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: Spacing.xs) {
-                Button(String(localized: "Open Login Items…")) { HelperInstaller.openSystemSettingsLoginItems() }
+                Button(String(localized: "Open Login Items…")) { model.openLoginItemsForHelper() }
                     .buttonStyle(.primaryCapsule(.compact))
                     .accessibilityIdentifier("firstRun.loginItems")
                 if model.pendingConnect.isWaiting {

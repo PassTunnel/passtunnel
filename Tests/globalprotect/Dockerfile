@@ -15,7 +15,7 @@
 
 # debian:trixie-slim (Debian 13: Python 3.13, Flask 3.1), pinned by the digest of its multi-arch index, the
 # image of Tests/ocserv; Dependabot updates the digest (.github/dependabot.yml).
-FROM debian:trixie-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4
+FROM debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2
 
 # Three tries: the mirrors fail now and then.
 RUN for try in 1 2 3; do \

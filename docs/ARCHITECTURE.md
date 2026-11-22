@@ -828,7 +828,11 @@ active sessions, busy, `/Applications`, bundled) and a `Trigger` (`firstRun`, `s
   the buttons stay the fallback.
 System Settings is opened by these paths at most once per launch (`HelperAutoInstall.opensLoginItems`),
 only right after the user acted in PassTunnel, and only if the switch is still on once macOS has
-registered the helper. The Connect that triggered the registration (or one
+registered the helper. Every opening of Login Items for the helper (these paths and the buttons) goes
+through `AppModel.openLoginItemsForHelper`, which also shows the Login Items guide while the helper waits
+for the approval (`LoginItemsGuide` and `LoginItemsPane`, Core, unit-tested; docs/APP.md, Login Items
+guide): a floating panel that only describes the row, placed by screen, and reads nothing from System
+Settings but the heading in its strings file, so it needs no permission. The Connect that triggered the registration (or one
 pressed while the approval is pending) waits in `HelperPendingConnect` (Core, unit-tested): it starts
 once the helper is enabled and answers with this copy's build, and is dropped after 5 minutes, on
 Cancel Connecting, a disconnect or delete of that profile, a Connect of another profile (which waits
@@ -1821,7 +1825,8 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
    (`KernelRoute.is`): one replaced meanwhile (another next hop) is no longer the session's and stays,
    one gone counts as reverted, and a `route delete` that fails counts once a fresh table no longer holds
    it. An address is deleted only while it is on the interface, the link brought down only while the
-   interface is there; DNS keys are removed whether or not they are there.
+   interface is there; DNS keys are removed whether or not they are there, but a dynamic store that cannot be
+   read proves nothing: the change stays the session's for the next try (`MacOpenConnectSystem.presentKeys`).
    - `pre-init`: nothing.
    - `connect` (`OpenConnectPlan.connect(_:policy:underlay:)`, from the checked network, the policy
      and the default gateway of each family before the tunnel, read from the routing table:
@@ -1884,11 +1889,47 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
         `/etc/resolv.conf`, no `scutil` text. configd's IPMonitor builds the resolver configuration from the
         `State:` services:
         - **split tunnel:** only `State:/Network/Service/<service>/DNS` with `ServerAddresses`,
-          `SupplementalMatchDomains` (`CISCO_SPLIT_DNS` then `CISCO_DEF_DOMAIN`; no DNS at all when there are
-          none) and `SearchDomains` (`CISCO_DEF_DOMAIN`, when there are any): a resolver for those domains,
-          whatever the primary service is, as OpenVPN's own macOS `dns-updown` writes it for split DNS
+          `SupplementalMatchDomains` (`CISCO_SPLIT_DNS` then `CISCO_DEF_DOMAIN`) and `SearchDomains`
+          (`CISCO_DEF_DOMAIN`, when there are any): a resolver for those domains, whatever the primary service
+          is, as OpenVPN's own macOS `dns-updown` writes it for split DNS
           (`State:/Network/Service/openvpn-<dev>/DNS`). No `IPv4`/`IPv6` entity, so the service is never a
           candidate for primary.
+        - **split tunnel without domains** (#278: DNS servers, but neither `CISCO_SPLIT_DNS` nor
+          `CISCO_DEF_DOMAIN`; a GlobalProtect gateway without `dns-suffix`): the servers are for every name,
+          the outcome an OpenVPN server's DNS without `resolve-domains` gets from `dns-updown` (above) and
+          vpnc-script's gave. Only with `set_routes`, and only the servers whose traffic the plan's routes
+          send into the tunnel (`OpenConnectPlan.routedIntoTunnel`: the longest planned route that holds the
+          address leads into the tunnel, and no local network holds it as long or longer). Left out: a server
+          of a family the tunnel has no address of (no route of that family is planned, so it would be reached
+          through the physical default route), one on a local network (its host route is kept local, so a
+          machine on the LAN with that address would get every query), one behind an exclude (of its own
+          address, or a longer one inside an include), one on `VPNGATEWAY`'s address. No server left, or no
+          `set_routes`: no DNS at all, as before #278. Only `State:/Network/Service/<service>/DNS` again, with
+          `ServerAddresses` and `SupplementalMatchDomains` = `("")`, so neither the primary service nor the
+          default route changes. What configd's source (`dns-configuration.c`) shows: `add_supplemental`
+          makes a resolver of each match domain, leaves out the domain name of the empty one and gives it a
+          search order of half the default one (`DEFAULT_SEARCH_ORDER` / 2, plus a step per service and per
+          domain), while the primary service's resolver gets `DEFAULT_SEARCH_ORDER` unless it has its own.
+          `compareDomain` sorts resolvers without a domain ahead of those with one, but between two without a
+          domain it decides nothing (it answers "less than" both ways and never compares the order), so which
+          of the two `scutil --dns` lists as #1 is not fixed by configd; `dns_configuration_set` does expect a
+          supplemental resolver without a domain as the default one. That the system's resolver asks this one
+          for every name rests on its lower order (about 100000 against 200000) and has to be confirmed on a
+          Mac. The primary service's resolver stays, unchanged. **A lookup scoped to an interface** (to the
+          Wi-Fi's, by a program that binds to it) uses that interface's scoped resolver, so the Wi-Fi's DNS,
+          never the tunnel's. Chosen over `dns-updown`'s way (back up the primary service's `Setup:` DNS and
+          replace it): nothing persistent is written, so a crash leaves nothing behind (the keys go with a
+          restart, the record's revert removes them like any other session's), a network change while
+          connected neither drops the session's DNS nor loses a backup (the key belongs to no network service),
+          and two sessions never write the same key. Over making the service primary as for a full tunnel:
+          that would also move the system's `default` route into the tunnel. **Not defined:** two such sessions
+          at once (both resolvers without a domain, configd fixes no order between them), or one next to a full
+          tunnel (whose DNS is the primary service's resolver, also without a domain): which resolver gets the
+          names is not defined. A split DNS session's domains still go to it (a longer match wins). The check
+          before a connect (`NetworkClaims.overlaps`) warns about the second case, a full tunnel next to any
+          DNS claim, but not about the first: it compares DNS names, and an every-name claim has none (the same
+          holds for two OpenVPN tunnels whose DNS has no `resolve-domains`). Telling the user would need an overlap of its
+          own (the message, `ConnectWarning`'s JSON, the sheet), not built.
         - **full tunnel** (every family with an address, and `set_routes`): the service is made the primary
           one, whose `DNS` (`ServerAddresses`, `SearchDomains`) becomes the default resolver
           (`State:/Network/Global/DNS`, resolver #1 of `scutil --dns`). IPMonitor elects the primary service
@@ -1917,6 +1958,7 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
      route ::/1 reject
      route 0.0.0.0/1 interface utun5
      dns passtunnel-501-acme utun5 primary servers=10.11.0.53,2001:db8::53 search=example.com match=-
+     dns passtunnel-501-acme utun5 split servers=10.11.0.53 search=- match=-     (split without domains: every name)
      ```
    - `attempt-reconnect` (`OpenConnectPlan.refresh`): needs a record of this interface whose status is
      `up` or `reconnecting`. The record's status becomes `reconnecting`, then the routes around the
@@ -2017,6 +2059,7 @@ openconnect runs the script with `fork`, `setpgid(0, 0)`, its environment on top
    passtunnel vpn-hook: utun5 up: 10.11.0.2, 2001:db8:1::2, 4 routes, full tunnel, DNS 10.11.0.53, search example.com
    passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, full tunnel, IPv6 blocked, DNS 10.11.0.53 10.11.0.54, search example.com
    passtunnel vpn-hook: utun5 up: 10.11.0.2, 2 routes, DNS 10.11.0.53, search example.com, split DNS corp.example.com example.com
+   passtunnel vpn-hook: utun5 up: 10.11.0.2, 4 routes, DNS 10.11.0.53 10.11.0.54
    passtunnel vpn-hook: setting up the network failed: INTERNAL_IP4_DNS is not a list of IPv4 and IPv6 addresses
    ```
 
@@ -2281,7 +2324,8 @@ the cookie and the server's identity); the fixed environment and the neutralized
 everything it does (the script environment is built by protocol-independent code, `script.c`, from what
 `gpst_parse_config_xml` installs: `ip-address`, `netmask`, `dns`/`dns-v6`, `dns-suffix` as `CISCO_DEF_DOMAIN`,
 `access-routes`/`exclude-access-routes` and their `-v6` forms as split includes and excludes, `gpst.c` 431–539; a
-GlobalProtect gateway sends no split-DNS list, so its suffixes are the default domains); supervision, the deadlines
+GlobalProtect gateway sends no split-DNS list, so its suffixes are the default domains, and a split tunnel without
+suffixes uses its DNS servers for every name, #278); supervision, the deadlines
 (60 s set-up, 120 s reconnecting), the masked log copy, the status from the hook's record; `reconnect-timeout 60`;
 trust (an optional full `pin-sha256:` pin, otherwise `no-system-trust` with the system's CA bundle) and "Trust this
 server"; the user name in the file, never in argv; IPv6 blocked in a full tunnel without an IPv6 address.
@@ -2594,7 +2638,8 @@ replaces Phase 1's line that HIP would be refused like CSD: a HIP request is no 
   After a kill, a crash, a broken connection or "Logout failed." it stays valid until its lifetime.
 - **Log** (display only, as Phase 1's): besides the lines above, `POST https://<gateway>/ssl-vpn/getconfig.esp`,
   `Configured as <addresses>, with SSL connected and ESP in progress` (`main.c` 1659–1667; `… and ESP disabled` with
-  `tls_only`), `GlobalProtect IPv6 support is experimental. …` (ERR, whenever an IPv6 address is assigned,
+  `tls_only`; `… and ESP unsuccessful` after the fallback to HTTPS, seen with openconnect 9.21 against a real gateway,
+  #283), `GlobalProtect IPv6 support is experimental. …` (ERR, whenever an IPv6 address is assigned,
   `gpst.c` 596–599), `GPST Dead Peer Detection detected dead peer!`, `Reconnect failed`. The state comes from the hook's
   record, never from these.
 
@@ -2894,9 +2939,11 @@ suffixes, IPv6 includes, `0.0.0.0/0` includes).
 
 ### Experimental (G2, G5, G6, G9)
 
-GlobalProtect ships marked **experimental** until reports from real gateways come in (owner decision, #226): only
-openconnect's test server and unit tests stand behind the tunnel path. It is a label and nothing else: no feature
-flag, no opt-in, no setting; the type connects exactly as designed above.
+GlobalProtect ships marked **experimental** until reports from real gateways come in (owner decision, #226): openconnect's
+test server, unit tests and one connection to a real gateway by hand (#283) stand behind the tunnel path. That
+connection covered the sign-in with a password and a code, a split tunnel over HTTPS (ESP did not come up on that
+network) and the disconnect; single sign-on, a HIP request, ESP, a full tunnel and IPv6 were not tried.
+It is a label and nothing else: no feature flag, no opt-in, no setting; the type connects exactly as designed above.
 
 - **One source of truth:** `VPNType.isExperimental` in `PassTunnelKit` (`Model.swift`), `self == .globalprotect`.
   Every place below reads it; dropping the label later is that one line (and the docs' sentences). Nothing stores it:

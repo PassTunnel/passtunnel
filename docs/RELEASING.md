@@ -104,9 +104,12 @@ they all match.
    - **Plan** runs `scripts/next-version.sh --notes FILE`. It looks at the commit subjects since the
      highest `vX.Y.Z` tag (merge commits and subjects that are not Conventional Commits are ignored):
      a breaking change (`!` or a `BREAKING CHANGE:` footer) makes a major release, `feat` a minor
-     one, `fix` or `perf` a patch; anything else releases nothing and the run ends there. The notes
+     one, `fix` or `perf` a patch; anything else releases nothing and the run ends there. A
+     `Release-As: X.Y.Z` line in the merge commit's message sets the version instead
+     ([Choosing the version](#choosing-the-version)). The notes
      list those subjects under *Breaking changes*, *New features* and *Fixes*, without the type and
-     with GitHub's `(#123)`. They become the GitHub release notes and the text of the update window.
+     with GitHub's `(#123)`. They become the GitHub release notes and, together with the notes of
+     the releases just before ([Update notes](#update-notes)), the text of the update window.
      Commits with the scope `linux` (`feat(linux): …`, `fix(linux)!: …`) are work on the Linux
      version, which has no release yet: they count for nothing, breaking or not, and are not in the
      notes. Phase 3 of [docs/LINUX.md](LINUX.md#phases), which releases Linux, revisits this.
@@ -128,6 +131,51 @@ they all match.
      `Casks/passtunnel.rb` (commit `Update PassTunnel to VERSION`). The keychain and the secret
      files are deleted at the end, whatever happened.
    - **MCP Registry** runs `publish-mcp.yml` for the new tag.
+
+### Choosing the version
+
+The version the commits give can be replaced for one release: write a line `Release-As: X.Y.Z`
+into the message of the merge commit of the release pull request. For example, the last release is
+1.8.0 and `dev` holds one `feat` and some fixes; the commits give 1.9.0, and the release should be
+1.8.1:
+
+```sh
+gh pr merge 280 --merge --body "$(printf 'Releases 1.8.1.\n\nRelease-As: 1.8.1')"
+```
+
+`--body` is the merge commit's message after its subject (the subject stays
+`chore: merge dev into main (#280)`). In the web interface: *Create a merge commit* → *Confirm
+merge*, and add the line on a line of its own to the extended description before confirming. The
+repository fills that description from the pull request's description, so a `Release-As:` line
+written there also counts when the description is kept as it is.
+
+- **Plan** prints `PassTunnel 1.8.1 (Release-As in the merge commit; the commits alone give 1.9.0)`
+  as its notice and in the run's summary. Check it before approving the release.
+- The notes are those of the commits, as without the line: every counted commit under its usual
+  heading, so the `feat` is still under *New features* in 1.8.1.
+- The line must start the line (`release-as`, `Release-As :` and spaces around the version are
+  accepted; text before it on the line is not), and the version must be a stable `X.Y.Z` (no `v`, no
+  pre-release) higher than the last release. Several lines must name the same version. A lower or
+  equal version, a malformed one or two different ones fail **Plan** with an error, and nothing is
+  released.
+- With nothing that counts for a release (only `docs`, `chore`, `ci`, … commits since the last
+  release), a `Release-As:` line also fails **Plan** rather than releasing commits that change
+  nothing for users with empty notes; the line is a mistake there, and it shows.
+- Only the merge commit being released is read, and only when it is a merge commit. A
+  `Release-As:` line anywhere else is ignored with a warning on the run: in a squash-merged commit on
+  `dev` (pull requests into `dev` get blank bodies, but a body written by hand would not count), and
+  in the merge of an earlier release pull request whose release never happened. So when a release
+  fails and a new release pull request is merged to fix it, write the line again; without it the
+  computed version is released.
+- A wrong line on a merge that is already on `main` cannot be changed (the merge commit stays). The
+  failed run releases nothing; the next release pull request (with a new commit on `dev`) is merged
+  with a correct line, and its merge commit is the only one read.
+
+The tagged commit keeps the line, so everything that works out a release's version again reads it
+too: the re-run of an unfinished release ([When a run fails](#when-a-run-fails)), which needs the
+version to equal the tag on `HEAD`, and `scripts/update-notes.sh`, which works out earlier releases'
+notes ([Update notes](#update-notes)). `scripts/test-next-version.sh` and
+`scripts/test-update-notes.sh` cover this.
 
 Nothing in the repository is changed by a release: the version is in the tag only (`build-app.sh`
 stamps it into the app), and `docs/CHANGELOG.md` is not updated (it covers 1.1.1 and earlier). The
@@ -249,11 +297,12 @@ tag from the `main` that is on GitHub, and the tap and the MCP Registry are then
 
 
 1. **Release notes.** Write them to a file outside the repository, for example with
-   `scripts/next-version.sh --notes /tmp/notes.md`, and pass `--notes-file /tmp/notes.md` to every
+   `scripts/next-version.sh --notes /tmp/notes.md` (it prints the version too, a `Release-As:` line
+   of the merge commit at `HEAD` included, [Choosing the version](#choosing-the-version)), and pass `--notes-file /tmp/notes.md` to every
    `release.sh` call below. Without `--notes-file`, `release.sh` takes the section `## [1.2.0]` of
    [`CHANGELOG.md`](CHANGELOG.md) (a pre-release `1.2.0-rc.1` uses its own section if there is one,
-   else the one of `1.2.0`). The notes become the GitHub release notes and the text of the update
-   window.
+   else the one of `1.2.0`). The notes become the GitHub release notes and, together with the notes
+   of the releases just before ([Update notes](#update-notes)), the text of the update window.
 2. **Build and check** (nothing is published):
 
    ```sh
@@ -273,7 +322,7 @@ tag from the `main` that is on GitHub, and the tap and the MCP Registry are then
    | `dist/PassTunnel-1.2.0.dmg` | download for people |
    | `dist/PassTunnel.dmg` | the same disk image under a name without the version, for the `…/releases/latest/download/PassTunnel.dmg` link; written again by every build (a copy left by an earlier build is deleted first) |
    | `dist/PassTunnel-1.2.0.zip` | Sparkle update archive |
-   | `dist/appcast.xml` | Sparkle feed: the feed and the zip are EdDSA-signed, download URLs on the `v1.2.0` release |
+   | `dist/appcast.xml` | Sparkle feed: the feed and the zip are EdDSA-signed, download URLs on the `v1.2.0` release; its notes also cover the releases just before ([Update notes](#update-notes)) |
    | `dist/PassTunnel-mcp-1.2.0.mcpb` | MCP bundle for Claude Desktop and the MCP Registry |
    | `dist/SHA256SUMS` | checksums of the dmg (under both names), zip and MCP bundle |
    | `dist/passtunnel.rb` | Homebrew cask (from `scripts/homebrew/passtunnel.rb.template`) |
@@ -400,6 +449,36 @@ fails until the first signed release is out; they never install anything from an
 `SUVerifyUpdateBeforeExtraction` also means the EdDSA key cannot be rotated any more (Sparkle would
 otherwise accept a new key on an update signed with the same Developer ID): keep the key safe (see
 One-time setup).
+
+## Update notes
+
+Sparkle's update window shows only the notes of the update it offers, so someone going from 1.7.0
+straight to 1.8.1 would not see what 1.7.1 and 1.8.0 brought. The appcast item therefore carries
+the notes of this release and of up to five releases before it, newest first, each under its
+version heading (`## 1.8.1`, `## 1.8.0`, …). `release.sh` gets that Markdown from
+`scripts/update-notes.sh VERSION NOTES_FILE` and turns it into the embedded HTML. Only the update
+window gets it: the GitHub release, `dist/release-notes-VERSION.md`, the tap and the MCP Registry
+keep this release's notes alone.
+
+The earlier releases are the highest stable `vX.Y.Z` tags below the version in the history of the
+released commit (pre-release tags never count, and a re-run's own tag is not an earlier release).
+Their notes are worked out again from the commit subjects, offline, by
+`scripts/next-version.sh --ignore-tag vX.Y.Z vX.Y.Z`, the same way the workflow made them (a
+`Release-As:` line of the tagged merge commit included, so a release whose version it set keeps its
+notes), rather
+than read from the published GitHub releases: no network or `gh` in the build, the same result on
+every run, and testable (`scripts/test-update-notes.sh`, in the *Release scripts* check). A tag
+whose commits do not give its own version (history before Conventional Commits, such as 1.1.1 and
+earlier, or a release made by hand from commits without a `feat`, `fix` or `perf`) has no notes this
+way; the list then stops before it, so it never leaves out a release in the middle. A release from a
+Mac with a hand-written `--notes-file` gets its notes from its commits here, not its own text.
+
+None of this can stop a release: without earlier notes (the first release, a clone without its
+tags, a gap right before this release) or if `update-notes.sh` fails or prints nothing, the window shows this
+release's notes alone, as before, and the log has a `warning:` line (an annotation on the run in
+GitHub Actions). The appcast also links the whole version history,
+`https://github.com/PassTunnel/passtunnel/releases`, as `sparkle:fullReleaseNotesLink`
+(`generate_appcast --full-release-notes-url`); it is part of the signed feed like everything else.
 
 ## Bundled tools
 

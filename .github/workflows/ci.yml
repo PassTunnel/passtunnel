@@ -34,11 +34,12 @@
 #   against           on a Docker network, and FakeGPServerSignInTests in the Swift container with
 #   openconnect's     Ubuntu's openconnect: real sign-ins to a portal and its gateways through
 #   test server       ConnectionManager, no tunnel (Tests/globalprotect/README.md). Not a required check
-#   Release scripts   shellcheck of next-version.sh, its test, build-linux.sh, coverage-report.sh, compare-app.sh,
-#                     verify-build.sh, check-tool-symbols.sh, its test, make-system-symbols.sh and
-#                     test-bundled-config-paths.sh, swift-retry.sh and its test, the scripts of
-#                     Tests/ocserv and Tests/globalprotect, and the self-tests of
-#                     scripts/next-version.sh (in a temporary repository) and swift-retry.sh
+#   Release scripts   shellcheck of next-version.sh, update-notes.sh, their tests, build-linux.sh,
+#                     coverage-report.sh, compare-app.sh, verify-build.sh, check-tool-symbols.sh, its test,
+#                     make-system-symbols.sh and test-bundled-config-paths.sh, swift-retry.sh and its test,
+#                     the scripts of Tests/ocserv and Tests/globalprotect, and the self-tests of
+#                     scripts/next-version.sh and scripts/update-notes.sh (in temporary repositories) and
+#                     swift-retry.sh
 #   Site              shellcheck of the site scripts and scripts/check-site.sh, the static checks
 #                     of the website in site/ (docs/WEBSITE.md)
 #
@@ -1077,7 +1078,8 @@ jobs:
       - name: Shellcheck
         run: |
           shellcheck --version
-          shellcheck scripts/next-version.sh scripts/test-next-version.sh scripts/build-linux.sh scripts/coverage-report.sh \
+          shellcheck scripts/next-version.sh scripts/test-next-version.sh scripts/update-notes.sh scripts/test-update-notes.sh \
+            scripts/build-linux.sh scripts/coverage-report.sh \
             scripts/compare-app.sh scripts/verify-build.sh scripts/check-tool-symbols.sh scripts/test-check-tool-symbols.sh \
             scripts/make-system-symbols.sh scripts/test-bundled-config-paths.sh \
             scripts/swift-retry.sh scripts/test-swift-retry.sh \
@@ -1102,6 +1104,9 @@ jobs:
 
       - name: Self-test of next-version.sh
         run: scripts/test-next-version.sh
+
+      - name: Self-test of update-notes.sh
+        run: scripts/test-update-notes.sh
 
       - name: Self-test of swift-retry.sh
         run: scripts/test-swift-retry.sh

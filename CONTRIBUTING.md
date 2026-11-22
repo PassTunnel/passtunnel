@@ -57,6 +57,10 @@ type(optional scope): description
 Add `!` after the type (`feat!: …`) for a change that breaks existing setups (profiles, CLI output,
 MCP tools); that makes a major release.
 
+The maintainer can name the version of a release instead, with a `Release-As:` line when merging
+the release pull request ([docs/RELEASING.md](docs/RELEASING.md#choosing-the-version)); the type
+still decides the heading a change is listed under in the release notes.
+
 The scope is optional and free (`cli`, `mcp`, …), except `linux`: it marks work on the Linux version
 ([docs/LINUX.md](docs/LINUX.md)), such as `feat(linux): …` or `fix(linux): …`. Linux has no release
 yet, so these pull requests make no release of the app and are left out of its release notes, also

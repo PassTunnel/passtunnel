@@ -60,6 +60,7 @@ enum RenderSnapshots {
                     name: "menubar-panel-empty")
             }
             renderFirstRun(emptyModel, to: out)
+            renderLoginItemsGuide(to: out)
 
             // The design system (App/Design): every token and base component, also with Increase Contrast.
             for contrast in [false, true] {
@@ -862,6 +863,28 @@ enum RenderSnapshots {
             }
         }
         model.previewHelperStatus = nil
+    }
+
+    /// The Login Items guide (`LoginItemsGuideView`) as it floats beside System Settings, light and dark:
+    /// `login-items-guide` with the heading this Mac's System Settings shows in the render's language
+    /// (`LoginItemsPane`; the wording without it when there is none), `-fallback` always without it, and
+    /// `-contrast` with the Increase Contrast values. `-rtl` (light only) quotes the Arabic heading of this Mac's System
+    /// Settings, when it has one, in the render's language: the heading stays in place within the sentence.
+    private static func renderLoginItemsGuide(to out: URL) {
+        if let arabic = LoginItemsPane.backgroundHeading(languages: ["ar"]) {
+            snapshot(LoginItemsGuidePreview(heading: arabic), size: nil, dark: false, to: out, name: "login-items-guide-rtl")
+        }
+        let heading = LoginItemsPane.backgroundHeading(languages: Bundle.main.preferredLocalizations)
+        for (name, heading, contrast) in [
+            ("login-items-guide", heading, false), ("login-items-guide-fallback", nil, false),
+            ("login-items-guide-contrast", heading, true)
+        ] {
+            Palette.previewIncreasedContrast = contrast
+            for dark in [false, true] {
+                snapshot(LoginItemsGuidePreview(heading: heading), size: nil, dark: dark, to: out, name: name)
+            }
+        }
+        Palette.previewIncreasedContrast = false
     }
 
     /// The import review of the main window (`ImportReviewView`), light and dark: `import-review` as designed
