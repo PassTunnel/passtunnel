@@ -543,13 +543,30 @@ and fakes for the system tools; the Mac's tests a Keychain service of their own)
     container with the checkout at `/src`, give the same bytes (it is built without debug
     information, see `build-linux.sh`). The workflow `Repeatable build` checks it on x86_64; see
     [RELEASING.md](RELEASING.md#verifying-a-release).
-  - The `Dockerfile` builds `passtunnel` in release mode on the CI's Swift image (`swift:6.4.1-noble`)
-    and runs `passtunnel mcp` on `ubuntu:24.04` as the user `mcp` (uid 10001), both images pinned by
-    digest: what MCP directories build and introspect. It starts without a profile store or a secret
-    store and answers `initialize` and `tools/list`. Inside a container it can only manage a VPN of
-    that container (none without a `passtunneld` there), never the host's. It is a development
-    build (`0.0.0-dev`). The jobs `Docker image` build it on both architectures and run an MCP
-    session with it, without a network.
+  - The `Dockerfile` builds `passtunnel` in release mode on the CI's Swift image
+    (`swift:6.4.1-noble`) and runs `passtunnel mcp` on `ubuntu:24.04` as the user `mcp` (uid 10001),
+    both images pinned by digest: for MCP directories that build and introspect a server from its
+    Dockerfile. It starts without a profile store or a secret store and answers `initialize` and
+    `tools/list`. Inside a container it can only manage a VPN of that container (none without a
+    `passtunneld` there), never the host's. It is a development build (`0.0.0-dev`). The jobs
+    `Docker image` build it on both architectures and run an MCP session with it, without a network.
+  - Glama, the directory behind the README's badge, does not build the `Dockerfile`: it generates
+    its own from a build definition kept in the server's admin page there (Admin → Dockerfile), so
+    the definition is recorded here. Base image `debian:trixie-slim`. Build steps:
+
+    ```sh
+    apt-get update && apt-get install -y --no-install-recommends binutils binutils-gold unzip libc6-dev libgcc-14-dev libstdc++-14-dev libcurl4-openssl-dev libedit2 libsqlite3-0 libxml2-dev libncurses-dev libz3-dev pkg-config tzdata zlib1g-dev && rm -rf /var/lib/apt/lists/*
+    curl -fsSL https://download.swift.org/swift-6.4.2-release/debian13/swift-6.4.2-RELEASE/swift-6.4.2-RELEASE-debian13.tar.gz | tar -xz --strip-components=1 -C /
+    scripts/swift-retry.sh swift build -c release --static-swift-stdlib --product passtunnel && install -m 0755 $(swift build -c release --static-swift-stdlib --show-bin-path)/passtunnel /usr/local/bin/passtunnel
+    ```
+
+    The command is `mcp-proxy -- passtunnel mcp`: read-only, without `--allow-connect`, so `connect`
+    and `disconnect` are not listed there. No environment variables, no placeholder parameters.
+    `unzip` and `binutils-gold` are needed on top of the usual Swift dependencies (a build without
+    `unzip` failed). The Swift version is written by hand in that definition and has to be changed
+    there when the repository moves to another Swift version. Glama builds the head of the default
+    branch (`dev`) unless a commit is pinned; a release there is cut by hand with PassTunnel's
+    version as its label ("Auto-Release" is off), after the GitHub release of that version.
 - **Phase 3:** `.deb` and `.rpm` built with nfpm, holding the binaries, `passtunnel.service` and
   `passtunnel.socket`, the polkit policy and the `passtunnel` group; a signed apt and dnf repository
   on GitHub Pages; updates through the package manager (the daemon is restarted only when no session
