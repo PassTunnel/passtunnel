@@ -949,7 +949,11 @@ final class MCPServerTests: XCTestCase {
             let text = try XCTUnwrap(descriptions[tool])
             for other in others { XCTAssertTrue(text.contains(other), "\(tool) names \(other): \(text)") }
         }
+        let listText = try XCTUnwrap(descriptions["list_profiles"])
+        XCTAssertTrue(listText.contains("needs_newer_version=true marks a profile saved by a newer PassTunnel"), listText)
         let status = try XCTUnwrap(descriptions["get_status"])
+        // A client without output schemas (before 2025-06-18) still learns which failures not to retry.
+        for kind in ["auth_rejected", "host_scan_required", "sso_required"] { XCTAssertTrue(status.contains(kind), kind) }
         XCTAssertFalse(status.contains("next_try_at"), "field meanings live in the output schema")
         XCTAssertFalse(status.contains("server_cert"), "field meanings live in the output schema")
 
