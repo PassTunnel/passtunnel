@@ -23,6 +23,20 @@
 # has no release yet: they count for nothing, breaking or not, and are not in the notes. Phase 3 of
 # docs/LINUX.md, which releases Linux, revisits this.
 #
+# Release-As: the maintainer can name the version instead. When REV is a merge commit (the merge of
+# the release pull request dev -> main) and a line of its message starts with "Release-As:" followed
+# by a version (Release-As: 1.8.1; the key in any case, spaces around the colon allowed), that version
+# is printed instead of the computed one. The notes stay the same: every counted commit under its
+# usual heading (a feat stays under "New features"). Only the message of REV counts, and only when
+# REV is a merge commit: squash-merged commits on dev and earlier release merges are not read, so a
+# Release-As in a pull request description that became a squash commit's body, or in the merge of a
+# release that never happened, does not carry over (such a line in the range gives a warning). The
+# value must be a stable X.Y.Z higher than the last release, all such lines of the message must name
+# the same version, and some commit must count for a release (no release of docs or chore commits
+# alone); otherwise the script fails (exit 1, an error annotation in GitHub Actions) and prints no
+# version. The release workflow's re-run and scripts/update-notes.sh (--ignore-tag TAG TAG) read the
+# tagged merge commit, so they get the same version again.
+#
 # Prints the version (like 1.5.0) when there is something to release and nothing when there is not;
 # both exit 0. A summary goes to stderr. The notes list the commits under "### Breaking changes",
 # "### New features" and "### Fixes" (perf too), oldest first, each subject without its type and with
@@ -31,7 +45,11 @@
 # release.sh --notes-file.
 set -euo pipefail
 
-die() { echo "error: $*" >&2; exit 1; }
+# Errors and warnings are also annotations on the run in GitHub Actions, so a wrong Release-As line
+# shows on the Plan job and not only in its log.
+annotate() { [[ "${GITHUB_ACTIONS:-}" != true ]] || echo "::$1 title=Release version::$2" >&2; }
+die() { echo "error: $*" >&2; annotate error "$*"; exit 1; }
+warn() { echo "warning: $*" >&2; annotate warning "$*"; }
 usage() { sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; }
 
 NOTES_FILE=""
@@ -108,13 +126,58 @@ while read -r commit; do
 done < <(git rev-list --no-merges --reverse "$RANGE")
 echo "commits since: $COUNTED conventional, $LINUX linux (left out), $IGNORED ignored" >&2
 
+# Release-As: lines of the message of REV, read only when REV is a merge commit (see the top) that is
+# not itself the last release (its line was that release's). The same pattern finds them elsewhere in
+# the range, where they do not count.
+RELEASE_AS_LINE='^release-as[[:space:]]*:'
+REV_COMMIT="$(git rev-parse "$REV^{commit}")"
+READ_RELEASE_AS=0
+if git rev-parse -q --verify "$REV_COMMIT^2" >/dev/null \
+    && [[ -z "$LAST_TAG" || "$(git rev-parse "$LAST_TAG^{commit}")" != "$REV_COMMIT" ]]; then
+    READ_RELEASE_AS=1
+fi
+while read -r commit; do
+    ((READ_RELEASE_AS)) && [[ "$commit" == "$REV_COMMIT" ]] && continue
+    warn "commit ${commit:0:12} has a Release-As line, which counts only in the merge commit being released; ignored"
+done < <(git log --format=%H --regexp-ignore-case --extended-regexp --grep="$RELEASE_AS_LINE" "$RANGE")
+RELEASE_AS=""
+if ((READ_RELEASE_AS)); then
+    while IFS= read -r line; do
+        value="${line#*:}"
+        value="${value#"${value%%[![:space:]]*}"}"
+        value="${value%"${value##*[![:space:]]}"}"
+        [[ "$value" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
+            || die "'$line' in the merge commit ${REV_COMMIT:0:12}: the version must be a stable X.Y.Z, like Release-As: 1.8.1"
+        [[ -z "$RELEASE_AS" || "$RELEASE_AS" == "$value" ]] \
+            || die "the merge commit ${REV_COMMIT:0:12} has two different Release-As lines ($RELEASE_AS and $value)"
+        RELEASE_AS="$value"
+    done < <(git log -1 --format=%B "$REV_COMMIT" | grep -iE "$RELEASE_AS_LINE" || true)
+fi
+
+LAST=("$MAJOR" "$MINOR" "$PATCH")
 case "$BUMP" in
-    0) echo "nothing to release (no feat, fix, perf or breaking change)" >&2; exit 0 ;;
+    0)
+        [[ -z "$RELEASE_AS" ]] || die "Release-As: $RELEASE_AS in the merge commit ${REV_COMMIT:0:12}, but no commit since ${LAST_TAG:-the start} counts for a release (no feat, fix, perf or breaking change); nothing is released"
+        echo "nothing to release (no feat, fix, perf or breaking change)" >&2
+        exit 0 ;;
     1) PATCH=$((PATCH + 1)) ;;
     2) MINOR=$((MINOR + 1)) PATCH=0 ;;
     3) MAJOR=$((MAJOR + 1)) MINOR=0 PATCH=0 ;;
 esac
 VERSION="$MAJOR.$MINOR.$PATCH"
+if [[ -n "$RELEASE_AS" ]]; then
+    # Higher than the last release, compared by number (BASH_REMATCH holds RELEASE_AS's parts).
+    [[ "$RELEASE_AS" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]
+    higher=0
+    for i in 0 1 2; do
+        ((BASH_REMATCH[i + 1] == LAST[i])) && continue
+        ((BASH_REMATCH[i + 1] > LAST[i])) && higher=1
+        break
+    done
+    ((higher)) || die "Release-As: $RELEASE_AS in the merge commit ${REV_COMMIT:0:12} is not higher than the last release ${LAST_TAG:-0.0.0}"
+    echo "computed version: $VERSION; Release-As in the merge commit ${REV_COMMIT:0:12}: $RELEASE_AS" >&2
+    VERSION="$RELEASE_AS"
+fi
 echo "next version: $VERSION" >&2
 
 if [[ -n "$NOTES_FILE" ]]; then
