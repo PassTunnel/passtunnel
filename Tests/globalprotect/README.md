@@ -148,3 +148,7 @@ sign-on. Write down the portal's address and the gateway names the GlobalProtect
    everything is reverted within a few seconds.
 6. Report the result with the GlobalProtect report issue template (`globalprotect_report.md`), with host names, user
    names and addresses replaced (examples as in this repository).
+
+Results so far: on 2026-11-22, PassTunnel 1.8.0 on macOS against one gateway: steps 1 to 4 as far as the sign-in,
+the routes, the HTTPS tunnel and the log, and the disconnect of step 5. Not done: the rekey interval and the kill
+test of step 5. Internal name resolution in step 3 failed because of #278.

@@ -5,7 +5,7 @@ title: "GlobalProtect: "
 labels: globalprotect
 ---
 
-<!-- Palo Alto GlobalProtect support is experimental: it has only been tested against openconnect's own test server, so a report from a real gateway helps a lot, whether it worked or not. Security problem? Please do not file it here. See SECURITY.md for private reporting. -->
+<!-- Palo Alto GlobalProtect support is experimental: it has been tried against openconnect's own test server and one real gateway, so a report from a real gateway helps a lot, whether it worked or not. Security problem? Please do not file it here. See SECURITY.md for private reporting. -->
 
 **Did it work?**
 Yes / No / Partly (for example, connected but some networks were not reachable). What happened:
