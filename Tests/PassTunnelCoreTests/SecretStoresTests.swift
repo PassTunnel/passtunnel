@@ -371,7 +371,12 @@ final class SecretStoreSelectionTests: SecretStoreTestCase {
             report,
             SecretStoreReport(
                 name: "file", available: false, setting: "auto", chosenBy: "environment",
-                error: SecretStoreUnavailable.noPassphrase.message))
+                error: SecretStoreUnavailable.noPassphraseForNewFile.message),
+            "no secrets file yet")
+        try Data("PTSF".utf8).write(to: AppPaths(root: root).secretsFileURL)
+        report = SecretStores.report(system: system(environment: env))
+        XCTAssertEqual(report.available, false)
+        XCTAssertEqual(report.error, SecretStoreUnavailable.noPassphrase.message, "a secrets file to unlock")
         env["PASSTUNNEL_SECRET_STORE"] = "vault"
         report = SecretStores.report(system: system(environment: env))
         XCTAssertEqual(report.name, "vault")
@@ -846,19 +851,22 @@ final class FileSecretStoreTests: SecretStoreTestCase {
     }
 
     /// No terminal and no passphrase file: a clear error at once, never a wait. Reading with no file
-    /// needs no passphrase.
+    /// needs no passphrase. The error says whether there is a file to unlock or none yet.
     func testWithoutAPassphrase() throws {
         let unattended = store(environment: ["PASSTUNNEL_PASSPHRASE_FILE": ""])
         XCTAssertNil(try unattended.read("acme/password"))
         XCTAssertNoThrow(try unattended.remove("acme/password"))
         XCTAssertThrowsError(try unattended.write("acme/password", Data("pw".utf8))) {
-            XCTAssertEqual($0 as? SecretStoreUnavailable, .noPassphrase)
+            XCTAssertEqual($0 as? SecretStoreUnavailable, .noPassphraseForNewFile)
         }
-        XCTAssertEqual(unattended.unavailability(), .noPassphrase)
+        XCTAssertEqual(unattended.unavailability(), .noPassphraseForNewFile)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
         try setPassphrase("correct horse")
         try store().write("acme/password", Data("pw".utf8))
         FileSecretStore.keys.forget()
+        XCTAssertEqual(unattended.unavailability(), .noPassphrase)
         XCTAssertThrowsError(try unattended.read("acme/password")) { XCTAssertEqual($0 as? SecretStoreUnavailable, .noPassphrase) }
+        XCTAssertThrowsError(try unattended.write("acme/totp", Data("x".utf8))) { XCTAssertEqual($0 as? SecretStoreUnavailable, .noPassphrase) }
         XCTAssertThrowsError(try unattended.remove("acme/password")) { XCTAssertEqual($0 as? SecretStoreUnavailable, .noPassphrase) }
     }
 

@@ -115,7 +115,7 @@ struct FileSecretStore: SecretStore {
     #endif
 
     /// Whether a passphrase can be had here (the file names one, or the user can be asked); the reason
-    /// when not.
+    /// when not, which says whether there is a secrets file yet.
     func unavailability() -> SecretStoreUnavailable? {
         if let path = passphraseFile {
             do {
@@ -128,7 +128,8 @@ struct FileSecretStore: SecretStore {
                 return SecretStoreUnavailable(error.localizedDescription)
             }
         }
-        return system.interaction.askPassphrase == nil ? .noPassphrase : nil
+        guard system.interaction.askPassphrase == nil else { return nil }
+        return FileManager.default.fileExists(atPath: url.path) ? .noPassphrase : .noPassphraseForNewFile
     }
 
     // MARK: SecretStore
@@ -316,7 +317,7 @@ struct FileSecretStore: SecretStore {
     /// The first write: from the passphrase file, or asked twice.
     private func newPassphrase() throws -> Data {
         if let path = passphraseFile { return try Self.readPassphrase(path) }
-        guard let ask = system.interaction.askPassphrase else { throw SecretStoreUnavailable.noPassphrase }
+        guard let ask = system.interaction.askPassphrase else { throw SecretStoreUnavailable.noPassphraseForNewFile }
         for _ in 0..<Self.attempts {
             guard var first = ask(String(localized: "New passphrase for the PassTunnel secrets file (\(url.path)): ")),
                 !first.isEmpty

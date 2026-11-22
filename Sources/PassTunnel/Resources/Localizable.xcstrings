@@ -4503,6 +4503,16 @@
         }
       }
     },
+    "There is no secrets file yet. Saving the first secret sets its passphrase, which cannot be asked for here: run the command in a terminal, or set PASSTUNNEL_PASSPHRASE_FILE to a file that holds it." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Henüz bir gizli bilgi dosyası yok. İlk gizli bilgi kaydedilirken dosyanın parola ifadesi belirlenir ve parola ifadesi burada sorulamıyor: komutu bir terminalde çalıştırın ya da PASSTUNNEL_PASSPHRASE_FILE değişkenini onu içeren bir dosyaya ayarlayın."
+          }
+        }
+      }
+    },
     "This Mac doesn’t trust the server’s certificate (%@)." : {
       "localizations" : {
         "tr" : {
