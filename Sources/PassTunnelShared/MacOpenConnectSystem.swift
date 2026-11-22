@@ -68,7 +68,7 @@ public final class MacOpenConnectSystem: OpenConnectSystem {
         guard OpenConnectPlan.Change.isService(settings.service), let store = Self.store() else { return false }
         let values = NSMutableDictionary()
         for (key, entity) in settings.values { values[key] = Self.propertyList(entity) }
-        let present = Self.presentKeys(store, settings.removedKeys)
+        guard let present = Self.presentKeys(store, settings.removedKeys) else { return false }
         return SCDynamicStoreSetMultiple(store, values, present.isEmpty ? nil : present as CFArray, nil)
     }
 
@@ -81,11 +81,14 @@ public final class MacOpenConnectSystem: OpenConnectSystem {
         }
     }
 
+    /// True only once the store was read and holds none of the keys: a store that cannot be read is no proof
+    /// they are gone, so the change stays the session's for the next try.
     public func removeDNS(service: String) -> Bool {
-        guard OpenConnectPlan.Change.isService(service), let store = Self.store() else { return false }
-        let present = Self.presentKeys(store, OpenConnectDNSSettings.keys(service: service))
+        guard OpenConnectPlan.Change.isService(service), let store = Self.store(),
+            let present = Self.presentKeys(store, OpenConnectDNSSettings.keys(service: service))
+        else { return false }
         guard !present.isEmpty else { return true }
-        return SCDynamicStoreSetMultiple(store, nil, present as CFArray, nil) && Self.presentKeys(store, present).isEmpty
+        return SCDynamicStoreSetMultiple(store, nil, present as CFArray, nil) && Self.presentKeys(store, present) == []
     }
 
     // MARK: Routing table
@@ -223,9 +226,16 @@ public final class MacOpenConnectSystem: OpenConnectSystem {
         SCDynamicStoreCreate(nil, "PassTunnel vpn-hook" as CFString, nil, nil)
     }
 
-    /// The keys of `keys` the store holds.
-    static func presentKeys(_ store: SCDynamicStore, _ keys: [String]) -> [String] {
-        guard !keys.isEmpty, let values = SCDynamicStoreCopyMultiple(store, keys as CFArray, nil) as? [String: Any] else { return [] }
+    /// The keys of `keys` the store holds; nil when it cannot be read.
+    static func presentKeys(_ store: SCDynamicStore, _ keys: [String]) -> [String]? {
+        guard !keys.isEmpty else { return [] }
+        return presentKeys(keys, in: SCDynamicStoreCopyMultiple(store, keys as CFArray, nil))
+    }
+
+    /// The keys of `keys` that `copied` holds. `SCDynamicStoreCopyMultiple` gives an empty dictionary when none
+    /// of them is there and NULL when it fails: then nil, never "none there".
+    static func presentKeys(_ keys: [String], in copied: CFDictionary?) -> [String]? {
+        guard let values = copied as? [String: Any] else { return nil }
         return keys.filter { values[$0] != nil }
     }
 

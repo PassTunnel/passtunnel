@@ -103,14 +103,20 @@ public struct OpenConnectPlan: Equatable, Sendable {
         /// `passtunnel-<uid>-<profile id>`.
         public let service: String
         public let interface: String
-        /// Every name is resolved through the tunnel (`OverridePrimary`): only for a full tunnel.
+        /// The service is made the primary one (`OverridePrimary`), so its DNS is the system's: only for a
+        /// full tunnel.
         public let primary: Bool
         public let servers: [IPAddress]
         /// `SearchDomains`: `CISCO_DEF_DOMAIN`.
         public let searchDomains: [String]
         /// `SupplementalMatchDomains`: the names resolved through the tunnel when it is not primary,
-        /// `CISCO_SPLIT_DNS` and `CISCO_DEF_DOMAIN`.
+        /// `CISCO_SPLIT_DNS` and `CISCO_DEF_DOMAIN`. Empty for a split tunnel whose server named no such
+        /// domains: its servers are then for every name.
         public let matchDomains: [String]
+
+        /// Every name is resolved through the tunnel: a full tunnel's DNS, or a split tunnel's without match
+        /// domains.
+        public var everyName: Bool { primary || matchDomains.isEmpty }
 
         public init(service: String, interface: String, primary: Bool, servers: [IPAddress], searchDomains: [String], matchDomains: [String]) {
             self.service = service
@@ -146,6 +152,8 @@ public struct OpenConnectPlan: Equatable, Sendable {
         ///     route 192.0.2.10/32 gateway link en0
         ///     route ::/1 reject
         ///     dns passtunnel-501-acme utun5 primary servers=10.0.0.53,2001:db8::53 search=example.com match=-
+        ///     dns passtunnel-501-acme utun5 split servers=10.0.0.53 search=example.com match=corp.example.com,example.com
+        ///     dns passtunnel-501-acme utun5 split servers=10.0.0.53 search=- match=-        (every name, not primary)
         ///
         /// Every value in it was checked, so no field holds a blank or a line break.
         public var text: String {
@@ -303,7 +311,11 @@ public struct OpenConnectPlan: Equatable, Sendable {
     ///    once, in the order server host route, reject routes, excludes, routes into the tunnel: the first wins
     ///    (an exclude over an include of the same network);
     /// 3. with `set_dns` and DNS servers (but those of a blocked family): DNS, primary for a full tunnel,
-    ///    otherwise for the split DNS and default domains only (none at all when there are no such domains).
+    ///    otherwise for the split DNS and default domains only; when there are no such domains, for every
+    ///    name without making the service primary (the default route stays where it is), but only with
+    ///    `set_routes` and only with the servers the plan's routes send into the tunnel (`routedIntoTunnel`):
+    ///    none of a family the tunnel has no address of, on a local network or behind an exclude. When no
+    ///    server is left (or without `set_routes`), no DNS at all.
     public static func connect(_ network: OpenConnectNetwork, policy: OpenConnectPolicy, underlay: Underlay) throws -> OpenConnectPlan {
         let built = build(network, policy: policy, underlay: underlay)
         if let family = built.missingGateway { throw Failure.noGateway(family) }
@@ -334,8 +346,12 @@ public struct OpenConnectPlan: Equatable, Sendable {
         var blocked: [IPAddress.Family] = []
         var keptLocal = 0
         var missingGateway: IPAddress.Family?
+        // The routes as planned and the local networks, for where a DNS server's traffic goes.
+        var planned: [Route] = []
+        var localNetworks: [IPNetwork] = []
         if policy.setRoutes {
             let local = underlay.local(tunnel: tunnel)
+            localNetworks = local
             var excludes: [Route] = []
             var rejects: [Route] = []
             var inside: [Route] = []
@@ -386,18 +402,26 @@ public struct OpenConnectPlan: Equatable, Sendable {
                 routes.append(route)
             }
             changes += routes.map { .route($0) }
+            planned = routes
         }
 
         let assignedFamilies = families.filter { n.assigned($0) != nil }
         let fullTunnel = policy.setRoutes && assignedFamilies.allSatisfy { full[$0] == true }
         // A blocked family's DNS servers cannot be reached: they are left out.
-        let servers = n.dnsServers.filter { !blocked.contains($0.family) }
+        var servers = n.dnsServers.filter { !blocked.contains($0.family) }
         if policy.setDNS, !servers.isEmpty {
             var match: [String] = []
             if !fullTunnel {
                 for domain in n.splitDNSDomains + n.defaultDomains where !match.contains(domain) { match.append(domain) }
             }
-            if fullTunnel || !match.isEmpty {
+            // A split tunnel without split DNS or default domains: no match domains, every name. Only with
+            // `set_routes`, and only the servers whose traffic the routes send into the tunnel: every name goes
+            // to them, so none may be reached around it (a machine on the local network, the physical default
+            // route). None left: no DNS.
+            if !fullTunnel, match.isEmpty {
+                servers = policy.setRoutes ? servers.filter { routedIntoTunnel($0, routes: planned, local: localNetworks, tunnel: tunnel) } : []
+            }
+            if !servers.isEmpty {
                 changes.append(
                     .dns(
                         DNS(
@@ -409,6 +433,16 @@ public struct OpenConnectPlan: Equatable, Sendable {
             OpenConnectPlan(interface: tunnel, changes: changes, fullTunnel: fullTunnel, blocked: blocked, keptLocal: keptLocal),
             missingGateway
         )
+    }
+
+    /// Whether traffic to `address` goes into `tunnel` by `routes`: the longest of them that holds it leads into
+    /// the tunnel, and no local network (an on-link prefix of the Mac's, `Underlay.local`) holds it as long or
+    /// longer. No route holds it: the original default route, around the tunnel. Routes of others (another
+    /// VPN's) are not known here.
+    static func routedIntoTunnel(_ address: IPAddress, routes: [Route], local: [IPNetwork], tunnel: String) -> Bool {
+        let best = routes.filter { $0.network.contains(address) }.max { $0.network.prefixLength < $1.network.prefixLength }
+        guard let best, best.via == .interface(tunnel) else { return false }
+        return !local.contains { $0.contains(address) && $0.prefixLength >= best.network.prefixLength }
     }
 
     init(interface: String, changes: [Change], fullTunnel: Bool, blocked: [IPAddress.Family], keptLocal: Int) {

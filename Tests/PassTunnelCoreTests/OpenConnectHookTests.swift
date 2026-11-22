@@ -117,6 +117,12 @@ final class OpenConnectHookTests: XCTestCase {
         splitDNSDomains: ["corp.example.com"], ipv4Includes: [IPNetwork("10.0.0.0/8")!], ipv4Excludes: [IPNetwork("10.99.0.0/16")!],
         ipv6Includes: [IPNetwork("2001:db8::/32")!])
 
+    /// IPv4 only, a split include, DNS servers and no domains (as a GlobalProtect gateway without `dns-suffix`).
+    static let splitWithoutDomains = OpenConnectNetwork(
+        interface: "utun5", gateway: IPAddress("192.0.2.10")!,
+        ipv4: .init(address: IPAddress("10.11.0.2")!, network: IPNetwork("10.11.0.0/24")), ipv6: nil, mtu: 1400,
+        dnsServers: [IPAddress("172.16.0.53")!, IPAddress("172.16.0.54")!], ipv4Includes: [IPNetwork("10.0.0.0/8")!])
+
     override func setUpWithError() throws {
         var template = Array("/tmp/pt-hook-XXXXXX".utf8CString)
         guard let made = mkdtemp(&template) else { throw XCTSkip("mkdtemp failed") }
@@ -247,6 +253,26 @@ final class OpenConnectHookTests: XCTestCase {
                 ]
             ])
         XCTAssertEqual(split.removedKeys, ["State:/Network/Service/passtunnel-501-acme/IPv4", "State:/Network/Service/passtunnel-501-acme/IPv6"])
+
+        // A split tunnel whose server named no domains: a resolver for the empty match domain, which IPMonitor makes
+        // the default one for every name; still no entity that could make the service primary.
+        let everyName = OpenConnectDNSSettings(
+            OpenConnectPlan.DNS(
+                service: service, interface: "utun5", primary: false, servers: [IPAddress("10.11.0.53")!, IPAddress("10.11.0.54")!],
+                searchDomains: [], matchDomains: []),
+            addresses: [IPAddress("10.11.0.2")!])
+        XCTAssertTrue(everyName.dns.everyName)
+        XCTAssertEqual(
+            everyName.values,
+            [
+                "State:/Network/Service/passtunnel-501-acme/DNS": [
+                    "ServerAddresses": .strings(["10.11.0.53", "10.11.0.54"]), "SupplementalMatchDomains": .strings([""])
+                ]
+            ])
+        XCTAssertEqual(
+            everyName.removedKeys, ["State:/Network/Service/passtunnel-501-acme/IPv4", "State:/Network/Service/passtunnel-501-acme/IPv6"])
+        XCTAssertFalse(split.dns.everyName)
+        XCTAssertTrue(primary.dns.everyName)
         // Only dynamic keys of the session's own service.
         for key in OpenConnectDNSSettings.keys(service: service) { XCTAssertTrue(key.hasPrefix("State:/Network/Service/passtunnel-501-acme/")) }
     }
@@ -366,6 +392,96 @@ final class OpenConnectHookTests: XCTestCase {
         // The server's address is not captured: no route to it was added (and the kernel's own stays).
         XCTAssertEqual(system.table, originalTable)
         XCTAssertEqual(system.addresses["utun5"], [])
+        XCTAssertEqual(system.dns, [:])
+    }
+
+    /// Issue 278: a split tunnel whose server named DNS servers but no domains uses them for every name, as an
+    /// OpenVPN server's without resolve-domains, without making the service primary (the default route stays).
+    func testConnectSplitTunnelWithoutDomainsThenDisconnect() throws {
+        let outcome = run(.connect(Self.splitWithoutDomains))
+        XCTAssertEqual(outcome, OpenConnectHook.Outcome(lines: ["passtunnel vpn-hook: utun5 up: 10.11.0.2, 3 routes, DNS 172.16.0.53 172.16.0.54\n"]))
+        XCTAssertEqual(
+            system.log,
+            [
+                "/sbin/ifconfig utun5 mtu 1400 up",
+                "/sbin/ifconfig utun5 inet 10.11.0.2 10.11.0.2 netmask 255.255.255.255",
+                "/sbin/route -n add -inet -net 10.0.0.0 -netmask 255.0.0.0 -interface utun5",
+                "/sbin/route -n add -inet -host 172.16.0.53 -interface utun5",
+                "/sbin/route -n add -inet -host 172.16.0.54 -interface utun5",
+                "dns set passtunnel-501-acme"
+            ])
+        XCTAssertEqual(
+            system.dns,
+            [
+                "State:/Network/Service/passtunnel-501-acme/DNS": [
+                    "ServerAddresses": .strings(["172.16.0.53", "172.16.0.54"]), "SupplementalMatchDomains": .strings([""])
+                ]
+            ])
+        // The default route is untouched: no half, no entity that could make the service primary.
+        XCTAssertTrue(system.table.contains(KernelRoute(network: IPNetwork("0.0.0.0/0")!, gateway: IPAddress("198.51.100.1"), interface: "en0")))
+        XCTAssertFalse(system.table.contains { $0.network.prefixLength <= 1 && $0.interface == "utun5" })
+        XCTAssertTrue(
+            try recordText().contains("= dns passtunnel-501-acme utun5 split servers=172.16.0.53,172.16.0.54 search=- match=-\n"))
+
+        // A reconnect finds the keys as they were set, and changes nothing.
+        XCTAssertFalse(run(.attemptReconnect(Self.splitWithoutDomains)).stopTool)
+        system.log = []
+        XCTAssertFalse(run(.reconnect(Self.splitWithoutDomains)).stopTool)
+        XCTAssertEqual(system.log, [])
+        XCTAssertEqual(try record().status, .up)
+
+        system.log = []
+        XCTAssertEqual(run(.disconnect), OpenConnectHook.Outcome())
+        XCTAssertEqual(
+            system.log,
+            [
+                "dns remove passtunnel-501-acme",
+                "/sbin/route -n delete -inet -host 172.16.0.54",
+                "/sbin/route -n delete -inet -host 172.16.0.53",
+                "/sbin/route -n delete -inet -net 10.0.0.0 -netmask 255.0.0.0",
+                "/sbin/ifconfig utun5 inet 10.11.0.2 delete",
+                "/sbin/ifconfig utun5 down"
+            ])
+        XCTAssertEqual(system.dns, [:])
+        XCTAssertEqual(system.table, originalTable)
+        XCTAssertEqual(try record().owned, [])
+    }
+
+    /// The same keys go when the helper reverts after openconnect died without its disconnect run.
+    func testTheHelperRemovesTheEveryNameDNSAfterTheToolWasKilled() throws {
+        XCTAssertFalse(run(.connect(Self.splitWithoutDomains)).stopTool)
+        XCTAssertNotNil(system.dns["State:/Network/Service/passtunnel-501-acme/DNS"])
+        system.interfaces["utun5"] = 21
+        system.table.removeAll { $0.interface == "utun5" }
+        system.log = []
+        var killed = 0
+        XCTAssertEqual(restore(killed: &killed), .done)
+        XCTAssertEqual(system.log, ["dns remove passtunnel-501-acme"])
+        XCTAssertEqual(system.dns, [:])
+        XCTAssertEqual(try record().owned, [])
+    }
+
+    /// Every name only goes to servers the routes send into the tunnel: an IPv6 server of an IPv4-only split
+    /// tunnel would be reached around it, so with no other server there is no DNS at all.
+    func testEveryNameDNSWithoutAServerInTheTunnelIsNotSet() throws {
+        let network = OpenConnectNetwork(
+            interface: "utun5", gateway: IPAddress("192.0.2.10")!,
+            ipv4: .init(address: IPAddress("10.11.0.2")!, network: IPNetwork("10.11.0.0/24")), ipv6: nil, mtu: 1400,
+            dnsServers: [IPAddress("2001:db8:1::53")!], ipv4Includes: [IPNetwork("10.0.0.0/8")!])
+        XCTAssertEqual(run(.connect(network)), OpenConnectHook.Outcome(lines: ["passtunnel vpn-hook: utun5 up: 10.11.0.2, 1 route\n"]))
+        XCTAssertFalse(system.log.contains { $0.hasPrefix("dns ") })
+        XCTAssertEqual(system.dns, [:])
+        XCTAssertFalse(try recordText().contains("dns "))
+        XCTAssertEqual(run(.disconnect), OpenConnectHook.Outcome())
+        XCTAssertEqual(system.table, originalTable)
+    }
+
+    func testSplitTunnelWithoutDomainsAndDNSOff() throws {
+        let policy = OpenConnectPolicy(uid: 501, profileID: "acme", setRoutes: true, setDNS: false)
+        XCTAssertEqual(
+            run(.connect(Self.splitWithoutDomains), policy: policy),
+            OpenConnectHook.Outcome(lines: ["passtunnel vpn-hook: utun5 up: 10.11.0.2, 1 route\n"]))
+        XCTAssertFalse(system.log.contains { $0.hasPrefix("dns ") || $0.contains("172.16.0.53") })
         XCTAssertEqual(system.dns, [:])
     }
 
@@ -1392,6 +1508,16 @@ final class OpenConnectHookTests: XCTestCase {
         // A truncated buffer ends the list, it does not trap.
         XCTAssertEqual(KernelRoute.parseDump(Array(buffer.prefix(buffer.count - 3))).count, 5)
         XCTAssertEqual(KernelRoute.parseDump([1, 2, 3]), [])
+    }
+
+    /// A dynamic store that cannot be read is no proof the keys are gone: `removeDNS` must not take it for done,
+    /// so the change stays the session's for the next try. Pure: no store is opened.
+    func testDNSKeysReadFromAStoreThatFailedAreUnknown() {
+        let keys = OpenConnectDNSSettings.keys(service: "passtunnel-501-acme")
+        XCTAssertNil(MacOpenConnectSystem.presentKeys(keys, in: nil))
+        XCTAssertEqual(MacOpenConnectSystem.presentKeys(keys, in: [:] as NSDictionary), [])
+        let one: NSDictionary = [keys[2]: ["ServerAddresses": ["10.11.0.53"]] as NSDictionary]
+        XCTAssertEqual(MacOpenConnectSystem.presentKeys(keys, in: one), [keys[2]])
     }
     #endif
 }
