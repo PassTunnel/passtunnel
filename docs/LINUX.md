@@ -493,7 +493,7 @@ and fakes for the system tools; the Mac's tests a Keychain service of their own)
   `PASSTUNNEL_PASSPHRASE_FILE` (a regular file of the user that group and others cannot access, final
   line breaks dropped), else from a no-echo prompt when the CLI runs on a terminal without
   `--no-input` (twice for a new file; three tries for a wrong one); otherwise the command fails at
-  once. A process derives the key once and keeps it (a failed passphrase is not tried again); the
+  once (before the first secret is saved, the error says there is no file yet). A process derives the key once and keeps it (a failed passphrase is not tried again); the
   passphrase and the decrypted items are overwritten after use, as far as Swift allows. Commands
   that touch a profile's secrets ask, including `add` and `import`, which clear what an earlier
   profile with the same id left behind. Wrong passphrase and a changed file give the same error.

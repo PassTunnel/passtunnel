@@ -186,7 +186,7 @@ final class SecretStoreTests: CoreTestCase {
         try store.save(p)
         XCTAssertFalse(Secrets.has(p.id, .password), "no file yet: nothing saved, nothing asked")
         XCTAssertThrowsError(try Secrets.set(p.id, .password, "pw")) {
-            XCTAssertEqual($0 as? SecretStoreUnavailable, .noPassphrase)
+            XCTAssertEqual($0 as? SecretStoreUnavailable, .noPassphraseForNewFile)
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: home.appendingPathComponent("secrets.enc").path))
         XCTAssertNil(Preferences.load().secretStoreUsed, "nothing was saved, nothing recorded")
@@ -199,7 +199,7 @@ final class SecretStoreTests: CoreTestCase {
         XCTAssertEqual(report.secretStore?.name, "file")
         XCTAssertEqual(report.secretStore?.available, false)
         XCTAssertEqual(report.secretStore?.chosenBy, "environment")
-        XCTAssertEqual(report.secretStore?.error, SecretStoreUnavailable.noPassphrase.message)
+        XCTAssertEqual(report.secretStore?.error, SecretStoreUnavailable.noPassphraseForNewFile.message)
         XCTAssertEqual(
             report.profiles[0].problems.filter { $0.code == AutomationErrorCode.credentialsMissing.rawValue }.count, 2,
             "no file yet: both secrets are simply missing")
