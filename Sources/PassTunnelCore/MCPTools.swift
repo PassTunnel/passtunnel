@@ -444,9 +444,13 @@ enum Schema {
                 "code_seconds_left": int, "tries": int,
                 "clock": described(clock, "After a rejected sign-in: how far \(MCPWording.thisMachines) clock was off, when known."),
                 "server_cert": described(
-                    string, "For a configuration failure over a certificate that was not trusted: the pin-sha256 of the server's key, when it could be read."),
+                    string,
+                    "For a configuration failure over a certificate that was not trusted: the pin-sha256 of the server's key, when it could be read."
+                ),
                 "gateways": described(
-                    array(string), "For a Palo Alto GlobalProtect configuration failure: the portal's gateways, when the profile's gateway does not pick exactly one of them and their names could be read.")
+                    array(string),
+                    "For a Palo Alto GlobalProtect configuration failure: the portal's gateways, when the profile's gateway does not pick exactly one of them and their names could be read."
+                )
             ], required: ["kind", "at", "credentials_sent", "code_sent"]),
         "Why the last connect failed.")
 
