@@ -2,7 +2,11 @@
 #
 #   plan            scripts/next-version.sh works out the version and the release notes from the
 #                   commit subjects since the last release. No feat, fix, perf or breaking change: no
-#                   release, and the run ends here (successfully, with a notice).
+#                   release, and the run ends here (successfully, with a notice). A line
+#                   "Release-As: X.Y.Z" in the message of the merge commit (written when the release
+#                   pull request is merged) sets the version instead; a wrong one (not a stable X.Y.Z
+#                   higher than the last release, two different ones, nothing to release) fails this
+#                   job, and nothing is released.
 #   release         builds, signs and notarizes the release and uploads it to a draft release with
 #                   scripts/release.sh VERSION --publish --draft --notes-file …, attests the dmg, zip
 #                   and MCP bundle (build provenance; PassTunnel.dmg, the dmg's copy under a name
@@ -98,20 +102,34 @@ jobs:
             echo "HEAD is $tag (release: $draft); finishing it"
             git tag -d "$tag" >/dev/null
           fi
-          version="$(scripts/next-version.sh --notes "$notes")"
+          # A Release-As line of HEAD (the merge commit) that is wrong stops the job here.
+          log="$RUNNER_TEMP/next-version.log"
+          if ! version="$(scripts/next-version.sh --notes "$notes" 2>"$log")"; then
+            cat "$log" >&2
+            echo "::error title=No release::scripts/next-version.sh failed (the error above); nothing is released"
+            exit 1
+          fi
+          cat "$log" >&2
           if [[ -n "$tag" && "$version" != "${tag#v}" ]]; then
-            echo "::error::HEAD is tagged $tag, but the commits since the last release give '${version:-no release}'"
+            echo "::error::HEAD is tagged $tag, but the commits since the last release and the Release-As line of HEAD give '${version:-no release}'"
             exit 1
           fi
           if [[ -z "$version" ]]; then
             echo "::notice title=No release::no feat, fix, perf or breaking change since the last release"
             exit 0
           fi
-          echo "::notice title=Release::PassTunnel $version"
+          # With Release-As, next-version.sh logs "computed version: X.Y.Z; Release-As …".
+          computed="$(sed -n 's/^computed version: \([0-9.]*\); Release-As.*/\1/p' "$log")"
+          echo "::notice title=Release::PassTunnel $version${computed:+ (Release-As in the merge commit; the commits alone give $computed)}"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           delimiter="notes-$(openssl rand -hex 16)"
           { echo "notes<<$delimiter"; cat "$notes"; echo "$delimiter"; } >> "$GITHUB_OUTPUT"
-          { echo "## PassTunnel $version"; echo; cat "$notes"; } >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## PassTunnel $version"
+            echo
+            [[ -z "$computed" ]] || { echo "Set by Release-As in the merge commit; the commits alone give $computed."; echo; }
+            cat "$notes"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   release:
     name: Build and publish
