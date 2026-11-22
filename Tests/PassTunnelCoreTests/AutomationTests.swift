@@ -933,6 +933,44 @@ final class MCPServerTests: XCTestCase {
         XCTAssertEqual(tools.map { $0["name"] as? String }, ["list_profiles", "get_status", "get_logs", "diagnose", "connect", "disconnect"])
     }
 
+    /// Each read tool says when to use one of the others instead, and what a field means is in the
+    /// output schema rather than in the description: every failure kind and notice kind is explained there.
+    func testToolTextsPointToEachOtherAndTheSchemasExplainTheKinds() async throws {
+        let server = makeServer(allowConnect: true)
+        let list = try await reply(server, request(2, "tools/list"))
+        let tools = try XCTUnwrap((list["result"] as? [String: Any])?["tools"] as? [[String: Any]])
+        var descriptions: [String: String] = [:]
+        for tool in tools { descriptions[tool["name"] as? String ?? ""] = tool["description"] as? String }
+        let siblings = [
+            "list_profiles": ["get_status", "diagnose"], "get_status": ["get_logs", "diagnose"],
+            "get_logs": ["get_status", "diagnose"], "diagnose": ["get_status", "get_logs"], "connect": ["get_logs"]
+        ]
+        for (tool, others) in siblings {
+            let text = try XCTUnwrap(descriptions[tool])
+            for other in others { XCTAssertTrue(text.contains(other), "\(tool) names \(other): \(text)") }
+        }
+        let status = try XCTUnwrap(descriptions["get_status"])
+        XCTAssertFalse(status.contains("next_try_at"), "field meanings live in the output schema")
+        XCTAssertFalse(status.contains("server_cert"), "field meanings live in the output schema")
+
+        let output = try XCTUnwrap(tools.first { $0["name"] as? String == "get_status" }?["outputSchema"] as? [String: Any])
+        let profiles = try XCTUnwrap((output["properties"] as? [String: Any])?["profiles"] as? [String: Any])
+        let profile = try XCTUnwrap((profiles["items"] as? [String: Any])?["properties"] as? [String: Any])
+        func description(_ node: Any?) -> String { (node as? [String: Any])?["description"] as? String ?? "" }
+        for field in ["ip", "since", "failure", "next_try_at", "tries", "connect_refusal", "experimental", "notices"] {
+            XCTAssertFalse(description(profile[field]).isEmpty, field)
+        }
+        let failure = try XCTUnwrap((profile["failure"] as? [String: Any])?["properties"] as? [String: Any])
+        let kinds = description(failure["kind"])
+        for kind in ConnectionFailure.Kind.allCases { XCTAssertTrue(kinds.contains("\(kind.rawValue):"), kind.rawValue) }
+        for field in ["server_cert", "gateways", "clock", "credentials_sent", "code_sent"] {
+            XCTAssertFalse(description(failure[field]).isEmpty, field)
+        }
+        let notice = try XCTUnwrap(
+            ((profile["notices"] as? [String: Any])?["items"] as? [String: Any])?["properties"] as? [String: Any])
+        for kind in StatusNotice.allCases { XCTAssertTrue(description(notice["kind"]).contains("\(kind.rawValue):"), kind.rawValue) }
+    }
+
     func testStatusWithoutTheHelperDoesNotFail() async throws {
         try makeOpenVPN()
         helper.statusError = HelperClientError.notInstalled
