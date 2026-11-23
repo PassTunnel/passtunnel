@@ -1049,8 +1049,15 @@ Security rules (helper):
     `setting` and finds no address, `match_domains_string` no resolve domain, and the full branch goes on: it
     backs up the primary service's DNS and writes an override with an empty `ServerAddresses`, the search
     domains and `SearchOrder` 5000, and exits 0 (run with the real script and stubs: a lone DoT server and a
-    search domain give exactly that). The dns-down does the same with `n` (262) and restores only while that
-    service still has no servers. The model follows it (`OpenVPNDNSSession.servers` empty, the override then
+    search domain give exactly that). The dns-down does the same with `n` (262): its addresses are empty, so it
+    restores the backup onto whatever service is primary *then* whenever that one's `ServerAddresses` also reads
+    as empty (275–280), not only onto the service it changed. With no primary service the backup goes to the
+    key without an ID, `Setup:/Network/Service//DNS`, which no service reads, and the backup key is removed
+    (run with stubs). **Known limit:** when the primary is now another service without servers of its own (a
+    DHCP-only one: the user moved from Ethernet with manual DNS to Wi-Fi before disconnecting, say), that
+    service gets the recorded service's backup, its manual servers; the helper repairs the recorded service
+    only and neither changes nor reports the other one (nothing ties it to the session; the shape is no
+    override's). The model follows it (`OpenVPNDNSSession.servers` empty, the override then
     without servers), so it is given back and reported like any other. That `$(find_compat_profile)` (226 and
     262) is the only command substitution that hides an `exit`: no other function the script runs in `$(…)`
     has one. Only a record with status 0 is evidence, and only a
@@ -1081,7 +1088,16 @@ Security rules (helper):
     process that is gone is invalid and is removed and taken, except in the very second its status (ctime)
     last changed, when it may still be being written (shlock then fails that try; a second later it removes
     it). A link or a fifo there counts as invalid content and only its name is removed; a directory is never
-    removed. So junk written into the lock blocks the helper no longer than it blocks the script. Each event
+    removed. So junk written into the lock blocks the helper no longer than it blocks the script. A fifo
+    planted there blocks the script itself: `shlock` opens the lock without `O_NONBLOCK` and waits on it, which
+    is the script's own exposure and nothing the helper can lift. **Limit of the protocol:** removing a stale
+    lock is by name; the helper checks that the entry is still the one it read, but `shlock` does not, so if
+    `shlock` read a stale lock just before the helper replaced it, it removes the helper's fresh lock and
+    links its own, and both believe they hold it. A stale lock (a dead pid) exists only when the script was
+    killed while it held it. What follows: in that window the helper's write is guarded only the way it is
+    against any change by someone else: it reads the service's key again right before it writes (changed
+    meanwhile: left) and reads it back after (overwritten again: a failed try, retried). That narrows the
+    window to the moment between that read and the write; it does not close it. Each event
     (a session's end, a start, a 15 s retry, the adoption at the helper's start) asks for the lock at most once
     for all the sessions it checks, and waits for it at most `Supervisor.scriptLockWait` (0.5 s) on the
     helper's queue; when it is not had, those sessions stay pending (`lockBusy`) and the next event tries

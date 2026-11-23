@@ -13,8 +13,15 @@ import Foundation
 /// writes junk into blocks it no longer than it blocks the script.
 ///
 /// `/var/lock` is world-writable (the script makes it 1777), so anyone can put something there: nothing in it is
-/// followed (a link or a fifo where the lock goes is invalid content and goes as `shlock` lets it go; only the
-/// name is removed), a directory there is never removed, and the wait is bounded.
+/// followed (a link or a fifo where the lock goes is invalid content, and only its name is removed; `shlock` itself
+/// removes a link that way but waits on a fifo, as it opens without `O_NONBLOCK`: the script's own exposure), a
+/// directory there is never removed, and the wait is bounded.
+///
+/// Limit of the protocol: a stale lock is removed by name. The helper checks that the entry is still the one it
+/// read; `shlock` does not, so a `shlock` that read a stale lock just before the helper replaced it removes the
+/// helper's fresh lock and links its own, and both hold it. A stale lock exists only when the script was killed
+/// while it held it; the helper's write is then guarded only by reading the key again right before it and back
+/// after it (`OpenVPNDNS.restore`).
 public enum ScriptLock {
     public static let scriptPath = "/var/lock/openvpn-dns-updown.lock"
 
