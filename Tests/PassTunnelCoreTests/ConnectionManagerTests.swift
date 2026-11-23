@@ -899,6 +899,30 @@ final class ConnectionManagerTests: XCTestCase {
         XCTAssertEqual(helper.starts.count, 4)
     }
 
+    /// `handlesDrops` off (the MCP server): a drop only shows as disconnected. Nothing is recorded or
+    /// sent and nothing reconnects; a connect afterwards works as before.
+    func testWithoutDropHandlingADropIsOnlyShown() async throws {
+        let p = try makeOpenVPN(autoReconnect: true)
+        let m = makeManager()
+        m.handlesDrops = false
+        try await m.connect(p.id)
+        let recorded = m.activity(p.id)
+        helper.simulateExit(p.id)
+        await m.refresh()
+        XCTAssertEqual(m.state(p.id), .disconnected)
+        XCTAssertNil(m.reconnecting[p.id], "set in the refresh itself, before an attempt would start")
+        await m.refresh()
+        XCTAssertEqual(m.state(p.id), .disconnected)
+        XCTAssertTrue(events.isEmpty, "\(events)")
+        XCTAssertEqual(m.activity(p.id), recorded, "no link_dropped")
+        XCTAssertEqual(helper.starts.count, 1)
+        XCTAssertEqual(clock.sleeps.filter { [5, 15, 45].contains($0) }, [])
+
+        try await m.connect(p.id)
+        XCTAssertTrue(m.state(p.id).isConnected)
+        XCTAssertEqual(helper.starts.count, 2)
+    }
+
     func testReconnectGivesUpAfterLastAttempt() async throws {
         let p = try makeOpenVPN(autoReconnect: true)
         let m = makeManager()
