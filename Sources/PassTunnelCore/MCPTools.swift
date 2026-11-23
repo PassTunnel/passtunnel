@@ -35,7 +35,7 @@ enum MCPWording {
     static let timeout = "How long to wait for the connection (after the Touch ID confirmation)."
     static let timeServer = "Apple's time server (time.apple.com)"
     static let diagnoseTools =
-        "; also whether each VPN tool bundled with the app starts on this macOS version (run with --version; nothing is contacted)"
+        "; also whether each VPN tool bundled with the app starts on this macOS version (run with --version; nothing is contacted), and whether a VPN's DNS servers are still set on a network service with no VPN session to undo them (no name resolves then)"
     static let anyConnectPlatform =
         "Cisco AnyConnect and Palo Alto GlobalProtect need macOS 15.4 or later: on an older macOS they are refused with config_invalid before anything is asked or sent, and list_profiles shows that as connect_refusal."
     static let instructionsAnyConnect =
@@ -450,6 +450,10 @@ enum Schema {
                 "gateways": described(
                     array(string),
                     "For a Palo Alto GlobalProtect configuration failure: the portal's gateways, when the profile's gateway does not pick exactly one of them and their names could be read."
+                ),
+                "dns_left_behind": described(
+                    dnsLeftBehind,
+                    "For host_not_found: a network service whose DNS still points to a VPN's DNS servers, which only that VPN can reach, so no name resolves (macOS only); the likely reason. Tell the user: a restart sets it back."
                 )
             ], required: ["kind", "at", "credentials_sent", "code_sent"]),
         "Why the last connect failed.")
@@ -513,7 +517,7 @@ enum Schema {
             "reason": string, "seconds": int, "username": string, "password": bool, "code": bool,
             "seconds_left": int, "format": string, "address": string, "will_reconnect": bool, "attempt": int, "of": int,
             "tries": int, "next_at": dateTime, "reply": string, "failure": oneOf(ConnectionFailure.Kind.allCases.map(\.rawValue)),
-            "credentials_sent": bool
+            "credentials_sent": bool, "service": string, "settings": array(string)
         ], required: ["at", "event"])
 
     static let logReport = result(
@@ -545,6 +549,9 @@ enum Schema {
         ["online": bool, "interface": oneOf(NetworkStatus.Interface.allCases.map(\.rawValue))],
         required: [])
 
+    /// `DNSLeftBehind`: a network service and the VPN's DNS servers still set on it.
+    static let dnsLeftBehind = result(["service": string, "servers": array(string)], required: ["service", "servers"])
+
     /// `ToolCheck`: one VPN tool of the app run with `--version`.
     static let toolCheck = result(
         ["name": string, "ok": bool, "version": string, "problem": string, "note": string], required: ["name", "ok"])
@@ -559,6 +566,10 @@ enum Schema {
         properties["secret_store"] = secretStore
         #else
         properties["tools"] = array(toolCheck)
+        properties["dns_left_behind"] = described(
+            array(dnsLeftBehind),
+            "Network services whose DNS still points to a VPN's DNS servers that OpenVPN's DNS script set, with no VPN session running to undo it: no name resolves there (host_not_found). PassTunnel leaves them as they are, as nothing shows it set them; restarting the Mac sets them back."
+        )
         #endif
         return result(properties, required: ["version", "app_path", "in_applications", "helper", "profiles"])
     }()

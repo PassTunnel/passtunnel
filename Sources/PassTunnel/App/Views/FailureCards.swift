@@ -412,6 +412,7 @@ struct MessageCard: View {
         if let reason = failure.reason?.trimmingCharacters(in: .whitespacesAndNewlines), !reason.isEmpty, reason != shown {
             lines.append(reason)
         }
+        if let dns = failure.dnsLeftBehind { lines.append(dns.sentence) }
         if !failure.credentialsSent { lines.append(String(localized: "Your password and code were not sent.")) }
         return lines
     }

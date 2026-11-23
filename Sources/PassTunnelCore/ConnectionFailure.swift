@@ -68,9 +68,13 @@ public struct ConnectionFailure: Codable, Equatable, Sendable {
         case notGlobalProtectServer = "not_globalprotect_server"
     }
 
+    /// hostNotFound: a VPN's DNS left on a network service of the Mac when the connect failed
+    /// (`DNSLeftBehind.current`), the likely reason no name could be found.
+    public var dnsLeftBehind: DNSLeftBehind?
+
     /// The JSON keys: every stored property but `detail`.
     enum CodingKeys: String, CodingKey {
-        case kind, at, reply, reason, serverCert, gateways, credentialsSent, codeSent, codeSecondsLeft, tries, clock
+        case kind, at, reply, reason, serverCert, gateways, credentialsSent, codeSent, codeSecondsLeft, tries, clock, dnsLeftBehind
     }
     /// The credentials reached the server: the TLS session with it came up (OpenVPN "Control Channel",
     /// openfortivpn "Connected to gateway"), or it answered the sign-in.
@@ -203,6 +207,7 @@ public struct ConnectionFailure: Codable, Equatable, Sendable {
             parts.append(String(localized: "Not retried, to avoid a lockout."))
         case .unreachable, .hostNotFound:
             if let tries, tries > 1 { parts.append(String(localized: "No answer after \(tries) tries.")) }
+            if let dnsLeftBehind { parts.append(dnsLeftBehind.sentence) }
         case .failed:
             if !credentialsSent { parts.append(String(localized: "Your sign-in was not sent.")) }
         case .ssoRequired:

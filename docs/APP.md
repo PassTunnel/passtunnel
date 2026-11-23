@@ -135,7 +135,13 @@ One binary, two modes:
   automatic attempts `reconnecting` (attempt of total) and, after a failed one, `next_try`;
   `disconnect` records `disconnected_by_user` when the session was up (for a session this process has
   not seen, from the tool's log) and `stopped_by_user` for a connect, a code wait or pending reconnects
-  it ended. The password is never recorded; a code at most as its first three digits (never more than
+  it ended. What the helper wrote into the profile's log about the Mac's DNS after an OpenVPN session
+  (docs/ARCHITECTURE.md, "DNS script (macOS)") becomes `dns_restored` (a network service got its own DNS
+  back: its name and what of the VPN's was still set) or `dns_left_behind` (a VPN's DNS is still set there:
+  the helper tries again, or nothing showed that PassTunnel set it), recorded when a connect ends, after a
+  disconnect and after a drop, each once since the last `connecting`; a `host_not_found` failure while a
+  VPN's DNS is left behind records `dns_left_behind` before `failed` and says so on the failure card
+  (`ConnectionFailure.dnsLeftBehind`). The password is never recorded; a code at most as its first three digits (never more than
   half of it), which only the app may show (`ActivityEvent.sentence(showingCodeDigits:)`); the CLI and
   MCP leave them out (`withoutCodeDigits`). `activity(id)` reads the file, `lastSending(id)` gives "sent
   at 09:41:02" / "Sent with 22 s left", and the `activity` publisher sends each event this process records.

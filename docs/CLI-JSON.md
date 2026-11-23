@@ -289,7 +289,10 @@ known`, `certificate has expired`), `code_seconds_left` (the code's seconds left
 (`configuration`, Palo Alto GlobalProtect: the portal lists more than one gateway and the profile's `gateway` names none
 of them; the portal's labels in its order, each printable ASCII of at most 64 bytes, at most 32, absent when they could
 not be read that way), `clock` (`auth_rejected`: a [ClockOffset](#clockoffset), how far the clock was
-off when it was measured after the rejection or checked on request since; see below). `reply` and
+off when it was measured after the rejection or checked on request since; see below), `dns_left_behind`
+(`host_not_found`, macOS: a network service whose DNS still points to a VPN's DNS servers that OpenVPN's DNS
+script set, with no VPN session running to undo it, so no name resolves; `{"service": "Wi-Fi", "servers":
+["10.8.0.1"]}`, the first one `diagnose` would list). `reply` and
 `reason` pass through the same redaction as `log --json`. New kinds may be added.
 
 After a FortiGate rejects a sign-in, the process that sent it asks the gateway for its time (one
@@ -418,7 +421,13 @@ connecting, without connecting and without any secret's value.
 ```
 
 `helper`: a [HelperReport](#helperreport). `macos_version` (macOS only): the running macOS as
-`major.minor.patch`, such as `27.0.1` (the build number is not included); left out on Linux. Per profile: `ok` (nothing found that would stop a
+`major.minor.patch`, such as `27.0.1` (the build number is not included); left out on Linux.
+`dns_left_behind` (macOS only): the network services whose DNS still points to a VPN's DNS servers that
+OpenVPN's DNS script set while no session of it is running to undo it, each `{"service": "Wi-Fi", "servers":
+["10.8.0.1"]}`; empty when there are none, left out on Linux and when the system configuration cannot be read.
+No name resolves on such a service. PassTunnel gives back what its own sessions set (the helper checks after
+every OpenVPN session); these are settings nothing shows it set, so it leaves them, and restarting the Mac sets
+them back. Per profile: `ok` (nothing found that would stop a
 connect; the server can still refuse it), `server`, `protected`, `password_saved` / `totp_saved`
 (whether, never the value), `asks_for` (fields asked on every connect: `username`, `password`, `otp`),
 `problems` (error objects), `experimental` (`true` for Palo Alto GlobalProtect, otherwise left out), and `clock`, the profile's last [ClockOffset](#clockoffset) when there is
@@ -494,6 +503,8 @@ One event of the activity log (`profiles/<id>/activity.jsonl`, the last 500 even
 | `failed` | `failure` (a [ConnectionFailure](#connectionfailure) `kind`: `host_not_found`, `configuration`, `setup`, `timeout`, `tool_unsupported`, `host_scan_required`, `sso_required` or `failed`), `reason`, `credentials_sent` | The attempt failed otherwise |
 | `stopped_by_user` | | A connect, a code wait or the automatic reconnects were stopped |
 | `disconnected_by_user` | | A connection that was up was ended |
+| `dns_restored` | `service` (the network service, e.g. `Wi-Fi`), `settings` (what of the VPN's was still set: its DNS servers, or its search domains) | After an OpenVPN session ended, the helper gave that service its own DNS back |
+| `dns_left_behind` | `service`, `settings` (the VPN's DNS servers still set) | A VPN's DNS is still set on that service with no session to undo it: the helper could not give it back yet and tries again, or nothing showed that PassTunnel set it and it was left as it is; no name resolves there |
 
 Never a password and never a code digit: the file keeps at most the first three digits of a code
 for the app, and the CLI and the MCP server leave them out. New kinds of events may be added; skip

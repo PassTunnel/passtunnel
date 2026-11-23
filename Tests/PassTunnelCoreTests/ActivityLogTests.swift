@@ -35,7 +35,8 @@ final class ActivityLogTests: CoreTestCase {
             .unreachable(tries: 1, reason: nil), .nextTry(at: t0.addingTimeInterval(30)),
             .rejected(reply: "AUTH_FAILED,Invalid OTP"), .rejected(reply: nil),
             .failed(kind: .hostNotFound, reason: "Name or service not known", credentialsSent: false),
-            .failed(kind: .timeout, reason: nil, credentialsSent: true), .stoppedByUser, .disconnectedByUser
+            .failed(kind: .timeout, reason: nil, credentialsSent: true), .stoppedByUser, .disconnectedByUser,
+            .dnsRestored(service: "Wi-Fi", settings: ["10.8.0.1", "10.8.0.2"]), .dnsLeftBehind(service: "Wi-Fi", settings: ["10.8.0.1"])
         ]
     }
 
@@ -206,6 +207,11 @@ final class ActivityLogTests: CoreTestCase {
         XCTAssertEqual(say(.stoppedByUser), "Stopped by you")
         XCTAssertEqual(say(.disconnectedByUser), "Disconnected by you")
         XCTAssertEqual(
+            say(.dnsRestored(service: "Wi-Fi", settings: ["10.8.0.1", "10.8.0.2"])),
+            "Gave the Mac its DNS back: Wi-Fi still used the VPN’s 10.8.0.1, 10.8.0.2")
+        XCTAssertEqual(
+            say(.dnsLeftBehind(service: "Wi-Fi", settings: ["10.8.0.1"])), "Wi-Fi still uses the DNS of a VPN that is not connected (10.8.0.1)")
+        XCTAssertEqual(
             ActivityEvent(at: t0, .authAccepted).line(timeZone: TimeZone(identifier: "UTC")!),
             "2023-11-14 22:13:20  Authentication accepted")
     }
@@ -214,13 +220,13 @@ final class ActivityLogTests: CoreTestCase {
 
     func testToneByKind() {
         let tones = Dictionary(grouping: everyKind.map { ActivityEvent(at: t0, $0) }, by: \.tone).mapValues { Set($0.map(\.name)) }
-        XCTAssertEqual(tones[.error], ["link_dropped", "unreachable", "rejected", "failed"])
+        XCTAssertEqual(tones[.error], ["link_dropped", "unreachable", "rejected", "failed", "dns_left_behind"])
         XCTAssertEqual(tones[.wait], ["waiting_for_code"])
         XCTAssertEqual(
             tones[.neutral],
             [
                 "connecting", "sending", "auth_accepted", "connected", "reconnecting", "next_try",
-                "stopped_by_user", "disconnected_by_user"
+                "stopped_by_user", "disconnected_by_user", "dns_restored"
             ])
     }
 

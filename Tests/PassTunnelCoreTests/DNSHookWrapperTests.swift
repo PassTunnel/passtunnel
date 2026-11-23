@@ -97,6 +97,7 @@ final class DNSHookWrapperTests: XCTestCase {
         XCTAssertEqual(lines.first, "#!/bin/bash")
         XCTAssertEqual(lines.first { !$0.hasPrefix("#") }, "PATH=/usr/bin:/bin:/usr/sbin:/sbin", "before anything runs")
         XCTAssertTrue(HelperCore.dnsHookText.hasSuffix("exit $status\n"))
+        XCTAssertFalse(HelperCore.dnsHookText.contains("rm -f \"$record\""), "the record outlives the dns-down")
     }
 
     #if os(macOS)
@@ -133,8 +134,18 @@ final class DNSHookWrapperTests: XCTestCase {
             ])
 
         XCTAssertEqual(try run(hook, openVPN.merging(["script_type": "dns-down", "exit_with": "4"]) { $1 }), 4)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: recordPath), "a dns-down ran: nothing is owed")
-        XCTAssertNil(try HelperCore.pendingDNSDown(runDir: dir.path))
+        XCTAssertTrue(HelperCore.dnsDownRan(runDir: dir.path))
+        XCTAssertNil(try HelperCore.pendingDNSDown(runDir: dir.path), "a dns-down ran: nothing is owed")
+        XCTAssertEqual(
+            try HelperCore.dnsSession(runDir: dir.path),
+            ["dev": "utun7", "dns_search_domain_1": "corp.example.com", "dns_server_1_address_1": "192.0.2.53"],
+            "whatever the script did, the record stays for the helper's check")
+
+        // A new dns-up owes a dns-down again.
+        XCTAssertEqual(try run(hook, openVPN.merging(["script_type": "dns-up"]) { $1 }), 0)
+        XCTAssertFalse(HelperCore.dnsDownRan(runDir: dir.path))
+        XCTAssertEqual(try HelperCore.pendingDNSDown(runDir: dir.path), pending)
+        XCTAssertEqual(try run(hook, openVPN.merging(["script_type": "dns-down"]) { $1 }), 0)
 
         // What the helper runs for a skipped dns-down: the script itself with the recorded variables.
         let env = Dictionary(
@@ -149,9 +160,28 @@ final class DNSHookWrapperTests: XCTestCase {
             """
             dns-up /usr/bin:/bin:/usr/sbin:/sbin 192.0.2.53
             dns-down /usr/bin:/bin:/usr/sbin:/sbin 192.0.2.53
+            dns-up /usr/bin:/bin:/usr/sbin:/sbin 192.0.2.53
+            dns-down /usr/bin:/bin:/usr/sbin:/sbin 192.0.2.53
             dns-down /usr/bin:/bin:/usr/sbin:/sbin 192.0.2.53
 
             """)
+
+        // What a check that could not finish keeps: the record and the mark, nothing else.
+        HelperCore.keepOnlyDNSRecord(runDir: dir.path)
+        XCTAssertEqual(
+            Set(try FileManager.default.contentsOfDirectory(atPath: dir.path)), [HelperCore.dnsRecordName, HelperCore.dnsDownMarkName])
+    }
+
+    func testHelperMarksTheDNSDownItRan() throws {
+        try Self.record.write(toFile: dir.appendingPathComponent(HelperCore.dnsRecordName).path, atomically: true, encoding: .utf8)
+        XCTAssertNotNil(try HelperCore.pendingDNSDown(runDir: dir.path))
+        HelperCore.markDNSDownRan(runDir: dir.path)
+        HelperCore.markDNSDownRan(runDir: dir.path)
+        XCTAssertNil(try HelperCore.pendingDNSDown(runDir: dir.path), "never run twice")
+        XCTAssertEqual(try HelperCore.dnsSession(runDir: dir.path)?["dev"], "utun7")
+        try FileManager.default.removeItem(at: dir.appendingPathComponent(HelperCore.dnsDownMarkName))
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent(HelperCore.dnsDownMarkName), withIntermediateDirectories: false)
+        XCTAssertFalse(HelperCore.dnsDownRan(runDir: dir.path), "only a regular file marks it")
     }
 
     private func run(_ executable: String, _ environment: [String: String], arguments: [String] = []) throws -> Int32 {

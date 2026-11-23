@@ -11,26 +11,32 @@ extension HelperCore {
     public static let dnsScriptSearchPath = "/usr/bin:/bin:/usr/sbin:/sbin"
 
     /// Written by the wrapper before the script's dns-up runs: the variables OpenVPN passed, one
-    /// `name=value` per line. The wrapper removes it after a dns-down. One left behind when the tool has
-    /// exited is a dns-down OpenVPN never ran (`pendingDNSDown`).
+    /// `name=value` per line. It stays until the helper has checked, once the tool has ended, that the Mac
+    /// has its DNS back (`OpenVPNDNS.settle`): the session's evidence of what the script set.
     public static let dnsRecordName = "dns-up.env"
+
+    /// Written by the wrapper once the script's dns-down has run (whatever it did; a dns-up removes it). A
+    /// record without it when the tool has exited is a dns-down OpenVPN never ran (`pendingDNSDown`).
+    public static let dnsDownMarkName = "dns-down.ran"
 
     /// Larger records are refused (OpenVPN passes at most a few dozen short values).
     static let maxDNSRecordBytes = 64 << 10
 
-    /// The wrapper (`dnsHookName`, 0700), OpenVPN's `--dns-updown`. It fixes `PATH`, keeps the record and
-    /// hands the script's exit status back to OpenVPN. `${!dns_@}` lists the names of the set `dns_*`
-    /// variables.
+    /// The wrapper (`dnsHookName`, 0700), OpenVPN's `--dns-updown`. It fixes `PATH`, keeps the record, marks a
+    /// dns-down that ran, and hands the script's exit status back to OpenVPN. `${!dns_@}` lists the names of the
+    /// set `dns_*` variables.
     public static let dnsHookText = """
         #!/bin/bash
         # Written by the PassTunnel helper. Runs OpenVPN's dns-updown with a fixed PATH and records the
-        # variables of a dns-up, so that the helper can run the dns-down OpenVPN skipped.
+        # variables of a dns-up, so that the helper can run the dns-down OpenVPN skipped and check that
+        # the Mac has its DNS back once the session has ended.
         PATH=\(dnsScriptSearchPath)
         export PATH
         umask 077
         dir=${0%/*}
         record="$dir/\(dnsRecordName)"
         if [ "$script_type" = dns-up ]; then
+            /bin/rm -f "$dir/\(dnsDownMarkName)"
             for name in dev ${!dns_@}; do
                 printf '%s=%s\\n' "$name" "${!name}"
             done > "$record.new" && /bin/mv -f "$record.new" "$record"
@@ -38,7 +44,7 @@ extension HelperCore {
         fi
         /bin/bash "$dir/dns-updown"
         status=$?
-        /bin/rm -f "$record"
+        : > "$dir/\(dnsDownMarkName)"
         exit $status
 
         """
@@ -56,6 +62,23 @@ extension HelperCore {
     /// OpenVPN itself lets through (`validate_domain`'s characters, plus `:` for IPv6 addresses), and
     /// unless `dev` and a server address are among them.
     public static func dnsDownEnvironment(record: String) -> [String]? {
+        guard let lines = dnsRecordLines(record) else { return nil }
+        return ["PATH=" + dnsScriptSearchPath, "script_type=dns-down"] + lines
+    }
+
+    /// The recorded variables by name, checked as `dnsDownEnvironment` checks them.
+    public static func dnsVariables(record: String) -> [String: String]? {
+        guard let lines = dnsRecordLines(record) else { return nil }
+        var out: [String: String] = [:]
+        for line in lines {
+            let eq = line.firstIndex(of: "=")!
+            out[String(line[..<eq])] = String(line[line.index(after: eq)...])
+        }
+        return out
+    }
+
+    /// The record's lines, nil unless they pass `dnsDownEnvironment`'s checks.
+    static func dnsRecordLines(_ record: String) -> [String]? {
         var lines = record.components(separatedBy: "\n")
         guard lines.last == "" else { return nil }
         lines.removeLast()
@@ -71,7 +94,7 @@ extension HelperCore {
         guard names.contains("dev"), names.contains(where: { $0.hasPrefix("dns_server_") && $0.contains("_address_") }) else {
             return nil
         }
-        return ["PATH=" + dnsScriptSearchPath, "script_type=dns-down"] + lines
+        return lines
     }
 
     /// `dev`, `dns_search_domain_<i>`, `dns_server_<n>_address_<m>`, `…_port_<m>`, `…_resolve_domain_<m>`,
@@ -99,10 +122,48 @@ extension HelperCore {
         }
     }
 
-    /// The dns-down still owed for the session in `runDir`: nil when there is no record, else
-    /// `dnsDownEnvironment` of it. The record must be a regular, single-link file we own; anything else,
-    /// or a record `dnsDownEnvironment` refuses, throws.
+    /// The dns-down still owed for the session in `runDir`: nil when there is no record or a dns-down ran after
+    /// it (`dnsDownMarkName`), else `dnsDownEnvironment` of it. Throws as `dnsRecord` does.
     public static func pendingDNSDown(runDir: String) throws -> [String]? {
+        guard !dnsDownRan(runDir: runDir), let text = try dnsRecord(runDir: runDir) else { return nil }
+        guard let environment = dnsDownEnvironment(record: text) else { throw Failure.unsafeFile(dnsRecordName) }
+        return environment
+    }
+
+    /// What the session in `runDir` recorded: nil when there is no record, else the variables
+    /// (`dnsVariables`). Throws as `dnsRecord` does.
+    public static func dnsSession(runDir: String) throws -> [String: String]? {
+        guard let text = try dnsRecord(runDir: runDir) else { return nil }
+        guard let variables = dnsVariables(record: text) else { throw Failure.unsafeFile(dnsRecordName) }
+        return variables
+    }
+
+    /// Whether the dns-down after the last dns-up has run: the wrapper's mark (or the helper's, once it ran
+    /// the one OpenVPN skipped) is a regular file.
+    public static func dnsDownRan(runDir: String) -> Bool {
+        var st = stat()
+        return lstat(runDir + "/" + dnsDownMarkName, &st) == 0 && (st.st_mode & S_IFMT) == S_IFREG
+    }
+
+    /// Marks the dns-down as run (the helper ran the one OpenVPN skipped): a retry never runs it again.
+    public static func markDNSDownRan(runDir: String) {
+        let fd = open(runDir + "/" + dnsDownMarkName, O_WRONLY | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        if fd >= 0 { close(fd) }
+    }
+
+    /// Removes everything in a session directory but the DNS record and the mark: what a check of the Mac's DNS
+    /// that could not finish leaves for the next try (the configuration, the auth file, the socket and the
+    /// scripts go now).
+    public static func keepOnlyDNSRecord(runDir: String) {
+        let entries = (try? FileManager.default.contentsOfDirectory(atPath: runDir)) ?? []
+        for entry in entries where entry != dnsRecordName && entry != dnsDownMarkName {
+            removeEntry(runDir + "/" + entry)
+        }
+    }
+
+    /// The record's text: nil when there is none. It must be a regular, single-link file we own, at most
+    /// `maxDNSRecordBytes` of UTF-8; anything else throws.
+    static func dnsRecord(runDir: String) throws -> String? {
         let path = runDir + "/" + dnsRecordName
         let fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
         guard fd >= 0 else {
@@ -129,9 +190,7 @@ extension HelperCore {
             count += n
         }
         guard count <= maxDNSRecordBytes else { throw Failure.fileTooLarge(path) }
-        guard let text = String(bytes: bytes[..<count], encoding: .utf8),
-            let environment = dnsDownEnvironment(record: text)
-        else { throw Failure.unsafeFile(dnsRecordName) }
-        return environment
+        guard let text = String(bytes: bytes[..<count], encoding: .utf8) else { throw Failure.unsafeFile(dnsRecordName) }
+        return text
     }
 }

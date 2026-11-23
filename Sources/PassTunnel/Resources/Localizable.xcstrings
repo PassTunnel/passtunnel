@@ -171,6 +171,16 @@
         }
       }
     },
+    "%@ still uses the DNS of a VPN that is not connected (%@)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ hâlâ bağlı olmayan bir VPN’in DNS’ini kullanıyor (%2$@)"
+          }
+        }
+      }
+    },
     "%@ support is experimental" : {
       "localizations" : {
         "tr" : {
@@ -973,6 +983,16 @@
         }
       }
     },
+    "Gave the Mac its DNS back: %@ still used the VPN’s %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mac’in DNS’i geri verildi: %1$@ hâlâ VPN’in %2$@ ayarını kullanıyordu"
+          }
+        }
+      }
+    },
     "Leave out the path after the address, such as /global-protect/…." : {
       "localizations" : {
         "tr" : {
@@ -1369,6 +1389,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sunucu çoklu oturum açma (SAML) ile oturum açtırıyor"
+          }
+        }
+      }
+    },
+    "This Mac’s DNS still points to a VPN’s DNS server (%@ on %@), which only that VPN can reach, so no name can be found. Restarting the Mac sets it back." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu Mac’in DNS’i hâlâ bir VPN’in DNS sunucusunu gösteriyor (%2$@ üzerinde %1$@). Bu sunucuya yalnızca o VPN ulaşabildiği için hiçbir ad bulunamıyor. Mac’i yeniden başlatmak bunu eski hâline getirir."
           }
         }
       }

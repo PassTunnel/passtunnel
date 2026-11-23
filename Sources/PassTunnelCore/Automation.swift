@@ -479,6 +479,9 @@ public struct DiagnoseReport: Codable, Equatable {
     public var tools: [ToolCheck]?
     /// The macOS version as "major.minor.patch", such as "27.0.1"; nil on Linux.
     public var macosVersion: String?
+    /// The Mac: a VPN's DNS that OpenVPN's DNS script left on a network service with no session to undo it
+    /// (`DNSLeftBehind`), empty when there is none; nil on Linux and when it cannot be read.
+    public var dnsLeftBehind: [DNSLeftBehind]?
 }
 
 public struct ProfileCheck: Codable, Equatable {

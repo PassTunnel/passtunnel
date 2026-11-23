@@ -41,6 +41,7 @@ public struct FailureDetails: Equatable {
             result += " (\(words))"
         }
         lines.append(String(localized: "Result: \(result)"))
+        if let dns = failure.dnsLeftBehind { lines.append(dns.sentence) }
         lines.append(
             failure.credentialsSent
                 ? String(localized: "Your sign-in reached the server.")
