@@ -462,6 +462,13 @@ public final class ConnectionManager: ObservableObject {
     /// and the MCP server report the failure and leave the retrying to their caller.
     public var retriesUnreachable = false
 
+    /// Handle a drop (a profile seen connected, then gone without a user stop): record `link_dropped`,
+    /// send `dropped` and, for a profile that can, reconnect. The app and the CLI keep it on. The MCP
+    /// server turns it off: a refresh there only shows the profile as disconnected and neither records
+    /// the drop nor reconnects (the app does, when it runs), so a status call never starts a VPN. Off,
+    /// the manager also keeps no secrets of a confirmed session: only an automatic reconnect uses them.
+    public var handlesDrops = true
+
     public let events = PassthroughSubject<ConnectionEvent, Never>()
     /// Every activity event this manager records, as it is appended to the profile's `activity.jsonl`
     /// (`activity(_:)` reads the file, which also holds what other processes recorded).
@@ -505,6 +512,9 @@ public final class ConnectionManager: ObservableObject {
     private var userStopped: Set<String> = []
     private var sessionActive: Set<String> = []  // reached "connected" in the current session
     private var connectedAt: [String: Date] = [:]
+    /// The tool process of each session as the helper reports it: a new one under a session this manager
+    /// knew means another process stopped it and started another between two polls (`noteSessionProcess`).
+    private var sessionPIDs: [String: Int32] = [:]
     private var mgmtSockets: [String: String] = [:]  // management socket per profile, as the helper reports it
     /// The network of each openconnect session, as the helper reports it from the hook's record.
     private var tunnelStates: [String: TunnelStatus] = [:]
@@ -681,10 +691,16 @@ public final class ConnectionManager: ObservableObject {
         for id in states.keys where !ids.contains(id) { forget(id) }
         for p in profiles {
             guard let new = observed[p.id], !isBusy(p.id) else { continue }
+            if let pid = running?[p.id] { noteSessionProcess(p.id, pid) }
             apply(new, to: p, immediateReconnect: wakeIDs.contains(p.id))
         }
-        // Stopped by a disconnect in another process (app ↔ CLI).
-        for id in unreachableRetries.keys where !retryRunning.contains(id) && hasUserStoppedMarker(id) { cancelReconnect(id) }
+        // Stopped by a disconnect in another process (app ↔ CLI): a pending reconnect and the retries end, and
+        // the secrets kept for them go too. An attempt under way sees the stop itself.
+        let pending = Set(unreachableRetries.keys).union(reconnectTasks.keys)
+        for id in pending where !retryRunning.contains(id) && !isBusy(id) && hasUserStoppedMarker(id) {
+            cancelReconnect(id)
+            endSessionSecrets(id)
+        }
     }
 
     private func observe(_ p: Profile, running: [String: Int32]?) async -> (state: ConnectionState, unverified: Bool) {
@@ -811,9 +827,32 @@ public final class ConnectionManager: ObservableObject {
         case .disconnected:
             guard sessionActive.remove(id) != nil else { break }
             endSession(id)
-            if userStopped.remove(id) != nil || hasUserStoppedMarker(id) { break }
+            if userStopped.remove(id) != nil || hasUserStoppedMarker(id) {
+                endSessionSecrets(id)  // stopped here or in another process: nothing reconnects with them
+                break
+            }
+            guard handlesDrops else { break }
             handleDrop(p, afterWake: immediateReconnect)
         }
+    }
+
+    /// The helper runs `id` in process `pid`. Another process than the one of the session this manager knew:
+    /// that session was stopped and another started meanwhile (by another process, between two polls), so it
+    /// ended here, with its kept secrets, and the new one is followed like any session started elsewhere.
+    private func noteSessionProcess(_ id: String, _ pid: Int32) {
+        if let known = sessionPIDs[id], known != pid, sessionActive.remove(id) != nil {
+            endSession(id)
+            endSessionSecrets(id)
+        }
+        sessionPIDs[id] = pid
+    }
+
+    /// Another process stopped `id` (`passtunnel disconnect`, the MCP server): an automatic reconnect or
+    /// retry of this manager ends there, and the secrets kept for it go. True then.
+    private func stoppedElsewhere(_ id: String) -> Bool {
+        guard hasUserStoppedMarker(id) else { return false }
+        endSessionSecrets(id)
+        return true
     }
 
     // MARK: actions
@@ -844,6 +883,9 @@ public final class ConnectionManager: ObservableObject {
         cancelReconnect(id)
         if let inFlight = connectTasks[id] { return try await inFlight.value }
         let current = state(id).isActive || followOnly ? nil : try? store.get(id)
+        // The profile is down and its automatic reconnects are cancelled: what they kept is nobody's now. This
+        // connect asks, or uses the reuse window, and keeps its own once connected.
+        if interactive, current != nil { endSessionSecrets(id) }
         // A confirmation given for other server settings does not count: ask now, naming the new server.
         if let p = current { vault.forgetUnlessBound(p) }
         if interactive, let p = current, vault.needsPrompt(p, for: .connect) {
@@ -1104,6 +1146,7 @@ public final class ConnectionManager: ObservableObject {
             record(id, .connected(address: result.ip, viaLastKnownAddress: progress.lastKnownAddress?.address))
             setState(id, .connected(ip: result.ip, since: result.since ?? since))
             sessionActive.insert(id)
+            sessionPIDs[id] = response.pid
             connectedAt[id] = since
             healthFailures[id] = 0
             keepSessionSecrets(p, stored, destination: destination)
@@ -1532,6 +1575,7 @@ public final class ConnectionManager: ObservableObject {
         let since = result.since ?? clock.now()
         setState(p.id, .connected(ip: result.ip, since: since))
         sessionActive.insert(p.id)
+        sessionPIDs[p.id] = session.pid
         connectedAt[p.id] = since
         healthFailures[p.id] = 0
     }
@@ -1572,6 +1616,7 @@ public final class ConnectionManager: ObservableObject {
     private func keepSessionSecrets(_ p: Profile, _ stored: [SecretKind: String], destination: ProfileDestination) {
         endSessionSecrets(p.id)
         changedDestinations.remove(p.id)
+        guard handlesDrops else { return }  // nothing here reconnects with them
         let protected = stored.filter { vault.isProtected(p.id, $0.key) }
         guard !protected.isEmpty else { return }
         sessionSecrets[p.id] = protected.mapValues { Array($0.utf8) }
@@ -2135,7 +2180,7 @@ public final class ConnectionManager: ObservableObject {
             }
         }
         for (i, delay) in delays.enumerated() {
-            guard reconnectGen[id] == gen else { return }
+            guard reconnectGen[id] == gen, !stoppedElsewhere(id) else { return }
             let wait = (i == 0 && immediate) ? 0 : delay
             reconnecting[id] = ReconnectInfo(
                 attempt: i + 1, maxAttempts: delays.count,
@@ -2143,7 +2188,8 @@ public final class ConnectionManager: ObservableObject {
             // After a failed attempt; before the first one, the drop says it reconnects.
             if i > 0 && wait > 0 { record(id, .nextTry(at: clock.now().addingTimeInterval(wait))) }
             do { try await clock.sleep(wait) } catch { return }
-            guard reconnectGen[id] == gen else { return }
+            // Stopped in another process during the wait: no attempt (it would remove the stop's marker).
+            guard reconnectGen[id] == gen, !stoppedElsewhere(id) else { return }
             if state(id).isConnected {
                 events.send(.reconnected(profileID: id))
                 return
@@ -2281,7 +2327,7 @@ public final class ConnectionManager: ObservableObject {
     /// code (the code of a try that never reached the server is given back, `noteFailure`).
     private func runRetry(_ id: String, gen: Int, anyNetwork: Bool = false) async {
         guard retryGen[id] == gen, var retry = unreachableRetries[id], !retryRunning.contains(id) else { return }
-        if hasUserStoppedMarker(id) { return endRetry(id, .cancelled) }
+        if stoppedElsewhere(id) { return endRetry(id, .cancelled) }
         if state(id).isConnected { return endRetry(id, .connected) }
         retry.nextTryAt = nil
         retry.waitingForNetwork = !anyNetwork && networkStatus.online == false
@@ -2452,6 +2498,7 @@ public final class ConnectionManager: ObservableObject {
                 guard self.reconnectGen[id] == gen else { return }
                 if error is DestinationChangedError { return self.reportChangedDestination(id) }
                 if self.beginRetryIfUnreachable(id, afterDrop: true) { return }
+                self.endSessionSecrets(id)  // the session is over, as after a drop's last reconnect
                 self.events.send(.reconnectFailed(profileID: id, reason: error.localizedDescription))
             }
         }
@@ -2651,6 +2698,7 @@ public final class ConnectionManager: ObservableObject {
         failedGateways[id] = nil
         clockOffsets[id] = nil
         sessionActive.remove(id)
+        sessionPIDs[id] = nil
         userStopped.remove(id)
     }
 

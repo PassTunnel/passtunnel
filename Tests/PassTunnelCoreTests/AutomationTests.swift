@@ -1318,6 +1318,87 @@ final class MCPServerTests: XCTestCase {
         XCTAssertEqual(helper.stops, ["acme"])
     }
 
+    /// A drop get_status finds in the default, read-only mode is only shown: no record, no reconnect.
+    func testGetStatusOnlyReportsADrop() async throws {
+        try await checkDropIsOnlyReported(by: "get_status", allowConnect: false)
+    }
+
+    /// The same for list_profiles, with connect allowed; a connect asked for afterwards works as usual.
+    func testListProfilesOnlyReportsADrop() async throws {
+        try await checkDropIsOnlyReported(by: "list_profiles", allowConnect: true)
+    }
+
+    /// A profile with auto-reconnect, connected by the app, drops while this server watches it through
+    /// `tool`: it shows as disconnected, and this server neither records the drop nor schedules a
+    /// reconnect. Both would happen in the refresh itself (`handleDrop` records, then sets `reconnecting`
+    /// before it starts the attempt), so they are checked right after the call. With `allowConnect`, a
+    /// connect afterwards works as usual.
+    func checkDropIsOnlyReported(
+        by tool: String, allowConnect: Bool,
+        file: StaticString = #filePath, line: UInt = #line
+    ) async throws {
+        var p = try makeOpenVPN()
+        p.autoReconnect = true
+        try store.save(p)
+        helper.simulateExternalStart(p.id, profileDir: store.dir(p.id).path, since: t0)
+        let server = makeServer(allowConnect: allowConnect)
+        let manager = server.tools.service.manager
+        func shown() async throws -> [String: Any] {
+            let result = try await structured(server, tool, file: file, line: line)
+            let profiles = try XCTUnwrap(result["profiles"] as? [[String: Any]], file: file, line: line)
+            return try XCTUnwrap(profiles.first { $0["id"] as? String == p.id }, file: file, line: line)
+        }
+
+        let before = try await shown()
+        XCTAssertEqual(before["state"] as? String, "connected", file: file, line: line)
+        let recorded = manager.activity(p.id)
+        helper.simulateExit(p.id)
+        let dropped = try await shown()
+        XCTAssertEqual(dropped["state"] as? String, "disconnected", file: file, line: line)
+        if tool == "get_status" {
+            XCTAssertNil(dropped["failure"], "a drop is not a failed connect", file: file, line: line)
+        }
+        XCTAssertEqual(manager.activity(p.id), recorded, "no link_dropped", file: file, line: line)
+        XCTAssertNil(manager.reconnecting[p.id], file: file, line: line)
+        XCTAssertTrue(helper.starts.isEmpty, "\(helper.starts)", file: file, line: line)
+
+        guard allowConnect else { return }
+        let connected = try await structured(server, "connect", ["profile_id": p.id], file: file, line: line)
+        XCTAssertEqual(connected["state"] as? String, "connected", file: file, line: line)
+        XCTAssertEqual(helper.starts.count, 1, file: file, line: line)
+    }
+
+    /// A protected session this server started and another process (the app, a terminal) stopped: no
+    /// decrypted secret of it stays behind. Only a connect that never asks (an automatic reconnect,
+    /// which this server does not run) would read such a copy, so this one is made through the server's
+    /// manager: after the reuse window it needs a confirmation instead of going ahead.
+    func testAProtectedSessionStoppedElsewhereLeavesNoConfirmationBehind() async throws {
+        let server = makeServer(allowConnect: true)
+        let manager = server.tools.service.manager
+        let plain = try makeOpenVPN()
+        var p = plain
+        p.requireAuth = .connect
+        try await manager.vault.applyProtection(from: plain, to: p)
+        try store.save(p)
+
+        let connected = try await structured(server, "connect", ["profile_id": p.id])
+        XCTAssertEqual(connected["state"] as? String, "connected")
+        XCTAssertEqual(authenticator.calls, 1)
+        try await ConnectionManager(store: store, helper: helper, clock: clock).disconnect(p.id)
+        let status = try await structured(server, "get_status", ["profile_id": p.id])
+        XCTAssertEqual((status["profiles"] as? [[String: Any]])?.first?["state"] as? String, "disconnected")
+
+        clock.advance(Preferences().authReuseInterval + 1)
+        do {
+            try await manager.connect(p.id, interactive: false)
+            XCTFail("connected with the secrets of the stopped session")
+        } catch {
+            XCTAssertEqual(error as? PTError, .confirmationRequired)
+        }
+        XCTAssertEqual(authenticator.calls, 1)
+        XCTAssertEqual(helper.starts.count, 1)
+    }
+
     /// Two connected tunnels that claim the same networks or names: the second connect goes ahead and says
     /// so in `warnings`; the result of any other call has none.
     func testConnectWarnsAboutOverlappingTunnels() async throws {

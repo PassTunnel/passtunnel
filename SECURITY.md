@@ -848,8 +848,13 @@ the "Ask again after" time (Settings → General → Security: 1, 5 or 15 minute
 end it early. LocalAuthentication's own `touchIDAuthenticationAllowableReuseDuration` is left at 0: it
 would let a recent Touch ID unlock of the Mac count as the confirmation, which is exactly the situation
 this option is for. A connected session keeps its
-decrypted secrets in memory so an automatic reconnect after a drop needs no prompt; they are
-overwritten (best effort) when you disconnect or the session ends. After the Mac was asleep, a
+decrypted secrets in memory so an automatic reconnect after a drop needs no prompt. This session copy
+is held by the process that connected the session (the app; a `passtunnel` command ends with its
+process, and the MCP server keeps none) and overwritten (best effort) when that process sees the
+session end: when you disconnect there, when its reconnects fail, or when it sees, at its next check,
+that `passtunnel disconnect` or the MCP server stopped the session or that another session replaced
+it. The session copy is separate from the reuse window above: a confirmation can still count for the
+rest of that window after a disconnect. After the Mac was asleep, a
 dropped protected profile is not reconnected on its own: a notification asks you to reconnect. In the
 same way, "Connect at login" never asks at login: a protected profile set to connect at login gets a
 notification you click to connect (and confirm). Each
@@ -1005,7 +1010,9 @@ command yourself, limited further by the read-only default.**
 - **Read-only by default.** Without `--allow-connect` the tools are `list_profiles`, `get_status`,
   `get_logs` and `diagnose`. `connect` and `disconnect` are listed and callable only when the
   server was started with `passtunnel mcp --allow-connect`. No tool creates, changes or deletes a
-  profile or a secret, in any mode.
+  profile or a secret, in any mode. The server never starts a VPN on its own: a profile that dropped
+  shows as disconnected, and the server neither records the drop nor reconnects; that is left to the
+  app when it runs.
 - **No secrets in any answer.** No tool returns a password, a TOTP secret, a current one-time code,
   a private key or the contents of a configuration file; there is deliberately no tool for codes.
   `diagnose` says *whether* a password or TOTP secret is saved and names configuration problems by
