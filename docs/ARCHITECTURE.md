@@ -1268,6 +1268,14 @@ this version, for the profile's host and its destination as it is now. Then: the
 (`.last-otp`, unless another process wrote a newer record meanwhile), the activity records `trying_last_known_address`,
 and the sign-in runs again with the address and a code of its own time (the same one when its window still has time; a
 code is never sent twice). Every other failure by the name, a cancel, and a profile without an address, end as before.
+Both tries use the secrets the attempt read once, before the first (for a protected profile the confirmation, the
+reuse window or, in an automatic reconnect or retry, the session's kept copy; without one the attempt stops with
+`confirmationRequired` before either runs), and the attempt starts at most one tunnel. A stop in another process (the
+user-stopped marker of `passtunnel disconnect` or the MCP server) ends the attempt as cancelled when it comes before the
+second try, while the try at the address signs in (`watchForStopElsewhere` stops the run, as this manager's own
+`disconnect` does), or after that sign-in and before the tunnel starts. The sign-in runs are the user's processes, never
+the helper's session, so `noteSessionProcess` never takes them for a replaced session. With `handlesDrops` off (the MCP
+server) the fallback inside a connect is the same, and nothing reconnects on its own.
 A sign-in by the name that runs into its time limit is no exception: at openconnect's default verbosity nothing is
 printed between its first request line and "Connected to <address>", so a lookup that hangs cannot be told from a
 connection to a correct address that hangs; such a run stays `connectTimeout` with its code spent, and nothing falls
@@ -1283,7 +1291,12 @@ only when that whole output is there and within what is kept, ends with a whole 
 protocol's rule; for GlobalProtect no second part was written either) and no "Connected to HTTPS on" anywhere (an
 unfinished last line too: `VPNLog.openConnectTimeoutUnanswered`), the try counts as not answered: `serverUnreachable`
 ("no answer within 60 seconds"), explained below, with the code given back. Anything else, and every timeout of a run by
-the name, counts as sent.
+the name, counts as sent. The kill goes to the tool's process group, which it leads (Foundation's `Process` starts it
+with `POSIX_SPAWN_SETPGROUP`, on the Mac and in swift-corelibs-foundation on Linux), so a process it started goes too;
+`TrustedPath` does not refuse a script, so a distribution's openconnect that is a wrapper is stopped with what it
+started, unless that moved to a group of its own, which the kill cannot reach: then standard error may stay open, the
+output counts as incomplete, and the run counts as sent. The other runners (secret stores, the bundled tools' version
+checks) keep the gentle stop and no drain.
 
 **Outcomes.**
 - Connected: the activity's `connected` has `via_server_address` (recorded before the state changes, so whoever reads

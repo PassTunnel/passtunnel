@@ -241,10 +241,13 @@ struct SystemToolRunner: ToolRunning {
     /// How long standard error is read after a timeout, until its end of file.
     static let drainTime: TimeInterval = 2
 
-    /// At the deadline: `terminate` asks the tool to stop (SIGTERM, then SIGKILL after a second), `kill` stops it at
-    /// once (SIGKILL), so that it makes no progress after the deadline (a sign-in run, which could otherwise still
-    /// send a code while it winds down: `AnyConnectSignIn`). Either way standard error is then read to its end of
-    /// file (`ToolTimeout.errorOutputComplete`).
+    /// At the deadline: `terminate` asks the tool to stop (SIGTERM, then SIGKILL after a second) and keeps what standard
+    /// error held by then (`ToolTimeout.errorOutputComplete` false), as every runner did before. `kill` stops the tool
+    /// at once, with SIGKILL to its own process group when it leads one (Foundation starts it so on the Mac; a process
+    /// it started goes too) and else to it alone, so that it makes no progress after the deadline (a sign-in run,
+    /// which could otherwise still send a code while it winds down: `AnyConnectSignIn`), and then reads standard error
+    /// to its end of file for at most `drainTime` (`errorOutputComplete`). A process the tool moved out of its group
+    /// is not reached; it can keep standard error open, and the output then counts as incomplete.
     enum TimeoutStop: Sendable { case terminate, kill }
     var timeoutStop = TimeoutStop.terminate
 
@@ -317,20 +320,29 @@ struct SystemToolRunner: ToolRunning {
             throw ToolCancelled()
         }
         let remaining = deadline.timeIntervalSinceNow
-        if remaining <= 0 || exited.wait(timeout: .now() + remaining) == .timedOut {
-            switch timeoutStop {
-            case .terminate:
+        switch timeoutStop {
+        case .terminate:
+            if remaining <= 0 || exited.wait(timeout: .now() + remaining) == .timedOut {
                 stop()
-            case .kill:
-                kill(process.processIdentifier, SIGKILL)
-                _ = exited.wait(timeout: .now() + 1)
+                streams.output.wipe()
+                throw ToolTimeout(seconds: Int(timeout.rounded(.up)), errorOutput: streams.errorOutput)
             }
-            // What the tool wrote up to its end, still in the pipe: standard output is dropped, standard error read.
-            let complete = streams.drainErrorOutput(until: Date().addingTimeInterval(Self.drainTime))
-            streams.output.wipe()
-            throw ToolTimeout(
-                seconds: Int(timeout.rounded(.up)), errorOutput: streams.errorOutput,
-                errorOutputComplete: complete && !streams.errorOutputCut)
+        case .kill:
+            // With no time left, only a look: a tool that has already exited (and may be reaped) gets no signal, since
+            // its process id could be another process's by now.
+            let finished = exited.wait(timeout: .now() + max(remaining, 0)) == .success
+            if remaining <= 0 || !finished {
+                if !finished && process.isRunning {
+                    Self.killTool(process.processIdentifier)
+                    _ = exited.wait(timeout: .now() + 1)
+                }
+                // What the tool wrote up to its end, still in the pipe: standard output is dropped, standard error read.
+                let complete = streams.drainErrorOutput(until: Date().addingTimeInterval(Self.drainTime))
+                streams.output.wipe()
+                throw ToolTimeout(
+                    seconds: Int(timeout.rounded(.up)), errorOutput: streams.errorOutput,
+                    errorOutputComplete: complete && !streams.errorOutputCut)
+            }
         }
         let status =
             process.terminationReason == .uncaughtSignal
@@ -338,6 +350,16 @@ struct SystemToolRunner: ToolRunning {
             : process.terminationStatus
         return ToolOutput(
             status: status, output: streams.output, errorOutput: streams.errorOutput, errorOutputCut: streams.errorOutputCut)
+    }
+
+    /// SIGKILL to the tool's process group when the tool leads one of its own (never this process's), else to the tool.
+    /// Called only while the tool runs and is not reaped, so `pid` is still the tool's.
+    static func killTool(_ pid: pid_t) {
+        if getpgid(pid) == pid, pid != getpgrp() {
+            kill(-pid, SIGKILL)
+        } else {
+            kill(pid, SIGKILL)
+        }
     }
 
     /// Feeds standard input and collects both outputs with `poll`, until both outputs are closed or

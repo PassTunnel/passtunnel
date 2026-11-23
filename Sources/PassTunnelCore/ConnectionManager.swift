@@ -1101,10 +1101,14 @@ public final class ConnectionManager: ObservableObject {
                 } catch {
                     guard actionToken[id] == token, let known = lastKnownAddress(p, after: error, destination: destination, progress: progress)
                     else { throw error }
+                    // Stopped in another process meanwhile (`passtunnel disconnect`, the MCP server): no second try.
+                    if hasUserStoppedMarker(id) { throw PTError.connectCancelled }
                     tryLastKnownAddress(known, of: p, progress: &progress)
                 }
             }
             guard let request = started else { throw PTError.connectCancelled }
+            // A sign-in at the last known address that another process stopped just after it ended: no tunnel.
+            if progress.lastKnownAddress != nil, hasUserStoppedMarker(id) { throw PTError.connectCancelled }
             let response = try await helper.perform(request, timeout: timing.helperTimeout)
             guard response.ok else {
                 // config.ovpn changed after the secrets were checked against it: not sent anywhere.
@@ -1232,6 +1236,9 @@ public final class ConnectionManager: ObservableObject {
         signIns[id] = cancellation
         defer { if signIns[id] === cancellation { signIns[id] = nil } }
         if actionToken[id] != token { cancellation.cancel() }
+        // A try at the last known address also ends on a stop in another process, as on this manager's own.
+        let stopWatch = progress.lastKnownAddress == nil ? nil : watchForStopElsewhere(id, cancellation)
+        defer { stopWatch?.cancel() }
         let secrets = Array(Set(texts + [password] + (otp.map { [$0] } ?? [])))
         let server = serverAddress(p)
         let outcome = await withTaskCancellationHandler {
@@ -1370,6 +1377,9 @@ public final class ConnectionManager: ObservableObject {
         signIns[id] = cancellation
         defer { if signIns[id] === cancellation { signIns[id] = nil } }
         if actionToken[id] != token { cancellation.cancel() }
+        // A try at the last known address also ends on a stop in another process, as on this manager's own.
+        let stopWatch = progress.lastKnownAddress == nil ? nil : watchForStopElsewhere(id, cancellation)
+        defer { stopWatch?.cancel() }
         let secrets = Array(Set(texts + [password] + (otp.map { [$0] } ?? [])))
         let server = serverAddress(p)
         let outcome = await withTaskCancellationHandler {
@@ -1822,6 +1832,19 @@ public final class ConnectionManager: ObservableObject {
         var reachedAddress: String?
         /// This try goes to the address the server's name had at the last connection by name, the name not found.
         var lastKnownAddress: LastKnownAddress.Entry?
+    }
+
+    /// While a try at the last known address signs in: another process's stop (its user-stopped marker, which
+    /// `passtunnel disconnect` and the MCP server write) cancels the run, as this manager's own `disconnect` does, so
+    /// nothing more is sent and no tunnel follows. Checked every 0.2 s until the returned task is cancelled.
+    private func watchForStopElsewhere(_ id: String, _ cancellation: ToolCancellation) -> Task<Void, Never> {
+        Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                if self.hasUserStoppedMarker(id) { return cancellation.cancel() }
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+        }
     }
 
     /// The address to try after `error` (`LastKnownAddress`): only when the sign-in sent nothing and found no server by

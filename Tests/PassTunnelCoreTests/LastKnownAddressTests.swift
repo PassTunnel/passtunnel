@@ -720,6 +720,159 @@ extension ConnectionManagerTests {
     }
 }
 
+// MARK: - With a stop in another process, kept session secrets and drop handling (#294, #296)
+
+extension ConnectionManagerTests {
+    /// What another process's `passtunnel disconnect` leaves for this one: the user-stopped marker.
+    func stopElsewhere(_ id: String) {
+        try? Data().write(to: store.dir(id).appendingPathComponent(ConnectionManager.userStoppedMarker))
+    }
+
+    func expectCancelled(_ m: ConnectionManager, _ id: String, file: StaticString = #filePath, line: UInt = #line) async {
+        do {
+            try await m.connect(id)
+            XCTFail("connected", file: file, line: line)
+        } catch {
+            XCTAssertEqual(error as? PTError, .connectCancelled, file: file, line: line)
+        }
+    }
+
+    /// Another process stops the profile while the name is looked up: no second try, nothing sent, no tunnel.
+    func testAStopElsewhereBetweenTheTriesEndsTheConnect() async throws {
+        let r = try await connectedOnce()
+        r.fake.results = [Out.output(status: 1, stderr: Out.notFound), Out.success]
+        r.fake.onRun = { [weak self] index in if index == 1 { self?.stopElsewhere(r.profile.id) } }
+        await expectCancelled(r.manager, r.profile.id)
+        XCTAssertEqual(r.fake.calls.count, 2, "no try at the address")
+        XCTAssertEqual(helper.starts.count, 1, "no tunnel")
+        XCTAssertEqual(r.manager.state(r.profile.id), .disconnected)
+        XCTAssertTrue(stoppedMarker(r.profile.id), "the stop stands")
+        XCTAssertFalse(
+            r.manager.activity(r.profile.id).contains {
+                if case .tryingLastKnownAddress = $0.kind { return true }; return false
+            })
+    }
+
+    /// Another process stops the profile during the try at the address: the run is stopped there (as by this
+    /// manager's own disconnect), and no tunnel follows.
+    func testAStopElsewhereDuringTheTryAtTheAddressStopsIt() async throws {
+        let r = try await connectedOnce()
+        r.fake.results = [Out.output(status: 1, stderr: Out.notFound), Out.success]
+        r.fake.blockFromRun = 2
+        let task = Task { try await r.manager.connect(r.profile.id) }
+        await waitUntil { r.fake.calls.count == 3 }
+        stopElsewhere(r.profile.id)
+        do {
+            try await task.value
+            XCTFail("connected")
+        } catch {
+            XCTAssertEqual(error as? PTError, .connectCancelled)
+        }
+        XCTAssertTrue(r.fake.sawCancel, "the sign-in run was stopped")
+        XCTAssertEqual(helper.starts.count, 1, "no tunnel")
+        XCTAssertEqual(r.manager.failures[r.profile.id]?.kind, .cancelled)
+        XCTAssertEqual(r.manager.state(r.profile.id), .disconnected)
+        XCTAssertTrue(stoppedMarker(r.profile.id))
+    }
+
+    /// The try at the address signs in, and another process's stop comes before the tunnel starts: no tunnel.
+    func testAStopElsewhereAfterTheSignInAtTheAddressStartsNoTunnel() async throws {
+        let r = try await connectedOnce()
+        r.fake.results = [Out.output(status: 1, stderr: Out.notFound), Out.success]
+        r.fake.onRun = { [weak self] index in if index == 2 { self?.stopElsewhere(r.profile.id) } }
+        await expectCancelled(r.manager, r.profile.id)
+        XCTAssertEqual(r.fake.calls.count, 3)
+        XCTAssertEqual(helper.starts.count, 1, "no tunnel")
+        XCTAssertEqual(r.manager.state(r.profile.id), .disconnected)
+    }
+
+    /// A protected Cisco AnyConnect profile, with its manager.
+    func makeProtectedAnyConnect(_ fake: FakeOpenConnect) async throws -> (profile: Profile, manager: ConnectionManager) {
+        let m = try makeAnyConnectManager(fake)
+        let plain = try makeAnyConnect("Acme \(UUID().uuidString.prefix(8))", autoReconnect: true)
+        var p = plain
+        p.requireAuth = .connect
+        try await m.vault.applyProtection(from: plain, to: p)
+        try store.save(p)
+        helper.startLog = Out.hookUp
+        return (p, m)
+    }
+
+    /// A drop's reconnect of a protected profile, past the reuse window: both tries read the secrets the session
+    /// kept, nobody is asked, one tunnel is started, and the poll that follows sees the same session (the sign-in runs
+    /// are never the session's process), so its kept secrets stay for the next drop.
+    func testAReconnectTriesTheAddressWithTheKeptSecrets() async throws {
+        let fake = FakeOpenConnect()
+        let (p, m) = try await makeProtectedAnyConnect(fake)
+        fake.results = [Out.success]
+        try await m.connect(p.id)
+        XCTAssertEqual(authenticator.calls, 1)
+        XCTAssertNotNil(known(p))
+        try await clock.sleep(61)
+
+        fake.results = [Out.output(status: 1, stderr: Out.notFound), Out.success]
+        helper.simulateExit(p.id)
+        await m.refresh()
+        await waitUntil { m.state(p.id).isConnected }
+        XCTAssertEqual(fake.calls.count, 3)
+        for call in fake.calls[1...] { XCTAssertTrue(String(decoding: call.input, as: UTF8.self).hasPrefix("hunter2-pw\n")) }
+        XCTAssertTrue(fake.calls[2].config.contains(knownAddressLine))
+        XCTAssertEqual(authenticator.calls, 1, "no prompt for either try")
+        XCTAssertEqual(helper.starts.count, 2, "one tunnel for the reconnect")
+
+        await m.refresh()
+        XCTAssertTrue(m.state(p.id).isConnected, "the same session")
+        fake.results = [Out.success]
+        helper.simulateExit(p.id)
+        await m.refresh()
+        await waitUntil { m.state(p.id).isConnected }
+        XCTAssertEqual(authenticator.calls, 1, "its kept secrets were still there")
+    }
+
+    /// The kept copy ended (another process stopped the session): a connect that never asks, as a reconnect or a
+    /// retry makes, stops for a confirmation before either try runs.
+    func testWithoutKeptSecretsNeitherTryRuns() async throws {
+        let fake = FakeOpenConnect()
+        let (p, m) = try await makeProtectedAnyConnect(fake)
+        fake.results = [Out.success]
+        try await m.connect(p.id)
+        try await ConnectionManager(store: store, helper: helper, clock: clock).disconnect(p.id)
+        await m.refresh()
+        try await clock.sleep(61)
+        fake.results = [Out.output(status: 1, stderr: Out.notFound), Out.success]
+        do {
+            try await m.connect(p.id, interactive: false)
+            XCTFail("connected")
+        } catch {
+            XCTAssertEqual(error as? PTError, .confirmationRequired)
+        }
+        XCTAssertEqual(fake.calls.count, 1, "no sign-in at all")
+        XCTAssertEqual(helper.starts.count, 1)
+        XCTAssertEqual(authenticator.calls, 1)
+    }
+
+    /// `handlesDrops` off (the MCP server): the fallback works the same inside a connect, and a drop afterwards is
+    /// only shown: nothing reconnects, by the name or at the address.
+    func testWithoutDropHandlingTheFallbackIsTheSameAndNothingReconnects() async throws {
+        let r = try await connectedOnce()
+        r.manager.handlesDrops = false
+        r.fake.results = [Out.output(status: 1, stderr: Out.notFound), Out.success]
+        try await r.manager.connect(r.profile.id)
+        XCTAssertEqual(r.fake.calls.count, 3)
+        XCTAssertEqual(r.manager.activity(r.profile.id).last?.kind, .connected(address: "10.11.0.2", viaLastKnownAddress: "192.0.2.10"))
+        let recorded = r.manager.activity(r.profile.id)
+        helper.simulateExit(r.profile.id)
+        await r.manager.refresh()
+        await r.manager.refresh()
+        XCTAssertEqual(r.manager.state(r.profile.id), .disconnected)
+        XCTAssertNil(r.manager.reconnecting[r.profile.id])
+        XCTAssertEqual(r.fake.calls.count, 3, "no sign-in of its own")
+        XCTAssertEqual(helper.starts.count, 2)
+        XCTAssertEqual(r.manager.activity(r.profile.id), recorded)
+        XCTAssertEqual(known(r.profile)?.confirmedAt, t0, "the connection at the address confirmed nothing")
+    }
+}
+
 // MARK: - Pure parts
 
 final class LastKnownAddressUnitTests: XCTestCase {

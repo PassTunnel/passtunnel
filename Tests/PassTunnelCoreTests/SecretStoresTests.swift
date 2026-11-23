@@ -991,44 +991,57 @@ final class ToolRunnerTests: XCTestCase {
         XCTAssertEqual(result.status, 0)
     }
 
+    /// The gentle stop, as every runner but a sign-in's: SIGTERM, what standard error held at the deadline, no drain.
     func testTimeout() {
         let start = Date()
         XCTAssertThrowsError(try runner.run("/bin/sleep", ["30"], environment: [:], input: Data(), timeout: 0.5)) {
-            XCTAssertEqual($0 as? ToolTimeout, ToolTimeout(seconds: 1, errorOutputComplete: true))
+            XCTAssertEqual($0 as? ToolTimeout, ToolTimeout(seconds: 1))
         }
         XCTAssertLessThan(Date().timeIntervalSince(start), 5)
     }
 
-    /// #292: after the deadline standard error is read to its end, also what the tool wrote while it was being stopped
-    /// (here on SIGTERM, which the gentle stop sends).
-    func testATimeoutReadsWhatCameAfterTheDeadline() {
-        let script = "trap 'echo late >&2; exit 0' TERM; echo early >&2; while :; do sleep 0.05; done"
-        XCTAssertThrowsError(try runner.run("/bin/sh", ["-c", script], environment: [:], input: Data(), timeout: 0.5)) {
-            let timeout = $0 as? ToolTimeout
-            let text = timeout.map { String(decoding: $0.errorOutput, as: UTF8.self) } ?? ""
-            XCTAssertTrue(text.hasPrefix("early\n") && text.hasSuffix("late\n"), text)
-            XCTAssertEqual(timeout?.errorOutputComplete, true)
+    /// The gentle stop adds no wait for standard error: a process the tool left behind holding it open does not delay it.
+    func testTheGentleStopDoesNotDrain() {
+        let start = Date()
+        XCTAssertThrowsError(try runner.run("/bin/sh", ["-c", "echo early >&2; sleep 3 & wait"], environment: [:], input: Data(), timeout: 0.5)) {
+            XCTAssertEqual(($0 as? ToolTimeout)?.errorOutputComplete, false)
         }
+        XCTAssertLessThan(Date().timeIntervalSince(start), 2.4, "no drain time")
     }
 
-    /// A sign-in's runner kills at the deadline (no trap runs), then reads standard error to its end of file.
-    func testAKillingRunnerStopsAtOnceAndReadsToTheEnd() {
+    /// #292: a sign-in's runner kills the tool's process group at the deadline (no trap runs, a process it started
+    /// goes too), then reads standard error to its end of file.
+    func testAKillingRunnerStopsTheGroupAtOnceAndReadsToTheEnd() {
         let killing = SystemToolRunner(timeoutStop: .kill)
-        let script = "trap 'echo late >&2; exit 0' TERM; echo early >&2; exec sleep 30"
+        let script = "trap 'echo late >&2; exit 0' TERM; echo early >&2; sleep 30 & exec sleep 30"
         let start = Date()
         XCTAssertThrowsError(try killing.run("/bin/sh", ["-c", script], environment: [:], input: Data(), timeout: 0.5)) {
             let timeout = $0 as? ToolTimeout
             XCTAssertEqual(timeout.map { String(decoding: $0.errorOutput, as: UTF8.self) }, "early\n", "no progress after the deadline")
-            XCTAssertEqual(timeout?.errorOutputComplete, true)
+            XCTAssertEqual(timeout?.errorOutputComplete, true, "the child in its group went too: end of file")
         }
-        XCTAssertLessThan(Date().timeIntervalSince(start), 4)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 1.9, "the end of file came without waiting out the drain")
     }
 
-    /// When standard error does not reach its end of file (a process the tool left behind holds it open), the output
-    /// is marked incomplete.
-    func testAnOutputThatDoesNotEndIsIncomplete() {
+    /// What reaches standard error after the deadline, before its end of file, is read too (here from a process that
+    /// left the tool's group, which the kill does not reach).
+    func testAKillingRunnerReadsWhatCameAfterTheDeadline() throws {
+        guard FileManager.default.isExecutableFile(atPath: "/usr/bin/perl") else { throw XCTSkip("no perl") }
         let killing = SystemToolRunner(timeoutStop: .kill)
-        let script = "echo early >&2; sleep 5 & wait"
+        let script = "echo early >&2; /usr/bin/perl -e 'setpgrp(0,0); select(undef,undef,undef,0.8); print STDERR \"late\\n\"' & exec sleep 30"
+        XCTAssertThrowsError(try killing.run("/bin/sh", ["-c", script], environment: [:], input: Data(), timeout: 0.5)) {
+            let timeout = $0 as? ToolTimeout
+            XCTAssertEqual(timeout.map { String(decoding: $0.errorOutput, as: UTF8.self) }, "early\nlate\n")
+            XCTAssertEqual(timeout?.errorOutputComplete, true)
+        }
+    }
+
+    /// When standard error does not reach its end of file within the drain time (a process outside the tool's group
+    /// holds it open), the output is marked incomplete.
+    func testAnOutputThatDoesNotEndIsIncomplete() throws {
+        guard FileManager.default.isExecutableFile(atPath: "/usr/bin/perl") else { throw XCTSkip("no perl") }
+        let killing = SystemToolRunner(timeoutStop: .kill)
+        let script = "echo early >&2; /usr/bin/perl -e 'setpgrp(0,0); sleep 5' & exec sleep 30"
         XCTAssertThrowsError(try killing.run("/bin/sh", ["-c", script], environment: [:], input: Data(), timeout: 0.5)) {
             let timeout = $0 as? ToolTimeout
             XCTAssertEqual(timeout.map { String(decoding: $0.errorOutput, as: UTF8.self) }, "early\n")
