@@ -11,6 +11,65 @@ extension ConnectionManagerTests {
     static let wifiLeft = DNSLeftBehind(service: "Wi-Fi", servers: ["10.8.0.1"], inEffect: true)
     static let unusedLeft = DNSLeftBehind(service: "USB LAN", servers: ["10.7.0.1"], inEffect: false)
 
+    // MARK: with the last known server address (#292)
+
+    /// The name is not found while a VPN's DNS is left on the service the Mac uses, and the try at the server's last
+    /// known address fails too: the failure is `host_not_found` with both what was tried and the DNS behind it, in
+    /// the message, the card's lines, Copy details and the JSON; the activity says the DNS once, before the try.
+    func testALeftoverAndAFailedTryAtTheLastKnownAddress() async throws {
+        let r = try await connectedOnce()
+        r.manager.leftBehindDNS = { [Self.wifiLeft] }
+        r.fake.results = [Out.output(status: 1, stderr: Out.notFound), Out.output(status: 1, stderr: Out.refused)]
+        do { try await r.manager.connect(r.profile.id); XCTFail("connected") } catch {}
+        let failure = try XCTUnwrap(r.manager.failures[r.profile.id])
+        XCTAssertEqual(failure.kind, .hostNotFound)
+        XCTAssertEqual(failure.lastKnownAddress, tried(.unreachable, "Connection refused"))
+        XCTAssertEqual(failure.dnsLeftBehind, Self.wifiLeft)
+        XCTAssertEqual(failure.details, Self.wifiLeft.sentence)
+        XCTAssertTrue(
+            try XCTUnwrap(r.manager.lastError[r.profile.id]).contains("Check the network connection and its DNS"),
+            "the try's own words point at the DNS too: no contradiction")
+
+        let details = try XCTUnwrap(r.manager.failureDetails(r.profile.id)).text(timeZone: TimeZone(identifier: "UTC")!)
+        let triedLine = try XCTUnwrap(details.range(of: "Tried instead: the last known address 192.0.2.10"))
+        let dnsLine = try XCTUnwrap(details.range(of: Self.wifiLeft.sentence))
+        XCTAssertLessThan(triedLine.lowerBound, dnsLine.lowerBound)
+
+        let json = try XCTUnwrap(try AutomationJSON.object(failure) as? [String: Any])
+        XCTAssertNotNil(json["last_known_address"])
+        XCTAssertEqual((json["dns_left_behind"] as? [String: Any])?["service"] as? String, "Wi-Fi")
+
+        let kinds = r.manager.activity(r.profile.id).map(\.kind)
+        let since = kinds.suffix(from: try XCTUnwrap(kinds.lastIndex { if case .connecting = $0 { return true } else { return false } }))
+        let left = ActivityEvent.Kind.dnsLeftBehind(service: "Wi-Fi", settings: ["10.8.0.1"])
+        XCTAssertEqual(since.filter { $0 == left }.count, 1, "once, though the failure carries it as well: \(since)")
+        let leftAt = try XCTUnwrap(since.firstIndex(of: left))
+        let tryingAt = try XCTUnwrap(since.firstIndex { if case .tryingLastKnownAddress = $0 { return true } else { return false } })
+        XCTAssertLessThan(leftAt, tryingAt)
+        XCTAssertEqual(since.last, .lastKnownAddressFailed(tried(.unreachable, "Connection refused")))
+    }
+
+    /// The try at the last known address connects while the VPN's DNS is still left behind: no failure, and the
+    /// activity says the DNS once, before the try and the connection through the address.
+    func testALeftoverAndAConnectionThroughTheLastKnownAddress() async throws {
+        let r = try await connectedOnce()
+        r.manager.leftBehindDNS = { [Self.wifiLeft] }
+        r.fake.results = [Out.output(status: 1, stderr: Out.notFound), Out.success]
+        try await r.manager.connect(r.profile.id)
+        XCTAssertNil(r.manager.failures[r.profile.id])
+        let kinds = r.manager.activity(r.profile.id).map(\.kind)
+        let since = Array(kinds.suffix(from: try XCTUnwrap(kinds.lastIndex { if case .connecting = $0 { return true } else { return false } })))
+        let left = ActivityEvent.Kind.dnsLeftBehind(service: "Wi-Fi", settings: ["10.8.0.1"])
+        XCTAssertEqual(since.filter { $0 == left }.count, 1, "\(since)")
+        XCTAssertEqual(since.last, .connected(address: "10.11.0.2", viaLastKnownAddress: "192.0.2.10"))
+
+        // Ended and connected again the same way: once per connect.
+        try await r.manager.disconnect(r.profile.id)
+        r.fake.results = [Out.output(status: 1, stderr: Out.notFound), Out.success]
+        try await r.manager.connect(r.profile.id)
+        XCTAssertEqual(r.manager.activity(r.profile.id).map(\.kind).filter { $0 == left }.count, 2)
+    }
+
     /// A leftover on a service the Mac does not use now explains nothing: it is not attached, and its sentence says
     /// it is not in use.
     func testOnlyALeftoverInEffectExplainsANameNotFound() async throws {

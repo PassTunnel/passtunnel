@@ -169,6 +169,34 @@ extension VPNLog {
         return verdict
     }
 
+    /// Whether a sign-in run at the server's last known address that was stopped at its time limit (`ToolTimeout`)
+    /// got no answer there: its standard error (`text`), which must be all of it (`ToolTimeout.errorOutputComplete`,
+    /// the caller's to check), shows nothing sent (`sent` false: no form, by the caller's rule for the protocol), no
+    /// TLS session with a server ("Connected to HTTPS on", looked for in the raw text, a last line without its line
+    /// break included) and ends with a whole line. Anything else may have used the code.
+    static func openConnectTimeoutUnanswered(_ text: String, sent: Bool) -> Bool {
+        !sent && !text.contains("Connected to HTTPS on") && (text.isEmpty || text.hasSuffix("\n"))
+    }
+
+    /// A server name openconnect could not resolve, in its exact shape at the end of its output: "getaddrinfo failed
+    /// for host '<name>': <reason>" (ssl.c 410) right before "Failed to open HTTPS connection to <name>" (the same
+    /// name) and, last, an optional "Failed to complete authentication". The name when it is a valid host, "" when it
+    /// is something else; nil for any other output. Whole printable lines only; a server could still print these lines
+    /// in a message, which can at most turn its own refusal into this (also never retried).
+    static func openConnectLookupFailure(_ lines: [Substring]) -> String? {
+        var tail = Array(lines)
+        if tail.last == "Failed to complete authentication" { tail.removeLast() }
+        guard tail.count >= 2 else { return nil }
+        let lookup = tail[tail.count - 2]
+        let prefix = "getaddrinfo failed for host '"
+        guard lookup.hasPrefix(prefix) else { return nil }
+        let rest = lookup.dropFirst(prefix.count)
+        guard let quote = rest.firstIndex(of: "'"), rest[quote...].hasPrefix("': ") else { return nil }
+        let name = String(rest[..<quote])
+        guard !name.isEmpty, tail[tail.count - 1] == "Failed to open HTTPS connection to " + name else { return nil }
+        return OpenConnectAuthConfig.isValidHost(name) ? name.lowercased() : ""
+    }
+
     /// Why a sign-in run that did not end with a session cookie failed, from its standard error (`text`, the
     /// whole of it, redacted) and its exit status (128 + the signal when one ended it). `credentialsSent`: the
     /// caller's verdict over the complete output (`openConnectCredentialsSent`, or true when it has only part
@@ -177,7 +205,8 @@ extension VPNLog {
     /// 1. dyld stopped openconnect (`toolUnsupported`: it never ran);
     /// 2. once a form may have been submitted, `authFailed` whatever else the output says: the server's
     ///    text is in it by then, and nothing is retried or reported as unsent that may have used the code
-    ///    (a host scan asked for only then is a refused sign-in too);
+    ///    (a host scan asked for only then is a refused sign-in too); except a name that could not be
+    ///    found then (`openConnectLookupFailure`): `hostNotFoundAfterSignIn`, also never retried;
     /// 3. the server asked for a host scan, in openconnect's two exact lines (`hostScanRequired`);
     /// 4. before any TLS session with the server: its certificate refused (`serverCertificateRejected`), its
     ///    name not found (`hostNotFound`), no answer (`serverUnreachable`);
@@ -191,8 +220,12 @@ extension VPNLog {
     ) -> PTError {
         let tail = tail(text)
         if status > 128, let reason = toolLoadFailure(text) { return .toolUnsupported(reason: reason, log: tail) }
-        if credentialsSent { return .authFailed(tail) }
         let lines = openConnectLines(text)
+        if credentialsSent {
+            // A name that could not be found after the sign-in went out (a server that sends it on): a name problem.
+            if let host = openConnectLookupFailure(lines) { return .hostNotFoundAfterSignIn(server: server, host: host, log: tail) }
+            return .authFailed(tail)
+        }
         if openConnectAskedForHostScan(lines) { return .hostScanRequired(log: tail) }
         let early = openConnectBeforeServer(text)
         if let failure = openConnectCertificateFailure(early) {

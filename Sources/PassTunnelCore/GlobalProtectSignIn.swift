@@ -224,6 +224,9 @@ struct GlobalProtectSignIn: @unchecked Sendable {
             return failed(PTError.connectCancelled)
         } catch let timedOut as ToolTimeout {
             let log = AnyConnectSignIn.log(AnyConnectSignIn.redacted(timedOut.errorOutput, secrets: secrets + written.secrets))
+            if Self.unanswered(timedOut, atKnownAddress: config.resolveAddress != nil, secondPartWritten: written.at != nil) {
+                return failed(AnyConnectSignIn.noAnswer(timedOut, server: server, log: log), log: log, sent: false)
+            }
             return failed(PTError.connectTimeout(timedOut.seconds), log: log, sent: true)
         } catch {
             return failed(PTError.fileError(toolPath))
@@ -278,6 +281,13 @@ struct GlobalProtectSignIn: @unchecked Sendable {
         } catch {
             return failed(PTError.signInUnusable(String(describing: error)), log: log, sent: true)
         }
+    }
+
+    /// Whether a run stopped at its time limit got no answer: at the last known address only, as for Cisco AnyConnect
+    /// (`AnyConnectSignIn.unanswered`, by GlobalProtect's rule for what was sent), and never once a second part was
+    /// written.
+    static func unanswered(_ timedOut: ToolTimeout, atKnownAddress: Bool, secondPartWritten: Bool) -> Bool {
+        !secondPartWritten && AnyConnectSignIn.unanswered(timedOut, atKnownAddress: atKnownAddress, sent: VPNLog.globalProtectCredentialsSent)
     }
 
     /// Standard error's size and when it last changed, for `promptQuietTime`.

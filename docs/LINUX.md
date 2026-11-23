@@ -651,6 +651,12 @@ when asked.
   first of the candidates above, resolved and checked as a tool is). A server-sent browser sign-in form
   would make it run `xdg-open` as the user. There is no "Fetch fingerprint" on Linux; the pin comes from
   the log hint. The daemon gets only the cookie, the fingerprint and the address.
+- **Last known server address** (#292): as on the Mac (ARCHITECTURE.md, "Last known server address"): when the
+  server's name cannot be resolved, the sign-in runs once more with `resolve <host>:<address>` for the address of the
+  last connection by that name, kept in `~/.local/share/passtunnel/profiles/<id>/last-address.json`. Every openconnect
+  PassTunnel accepts (9.01 and later) reads `resolve` from its file and prints `RESOLVE`; the daemon gets that address as
+  before and changes nothing. Palo Alto GlobalProtect the same, with `skip_portal` only; FortiGate and OpenVPN have no
+  fallback on Linux either.
 - **The start** (`Supervisor`, `startOpenConnect`): after the usual start permission check and the
   session limits, a session of the profile whose network or DNS is not restored yet is restored first,
   or the start is refused ("The network settings of the last … session are not restored yet."); then the

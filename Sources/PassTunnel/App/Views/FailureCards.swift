@@ -406,10 +406,13 @@ struct MessageCard: View {
         }
     }
 
-    /// The tool's reason, unless the status line says it already, and that nothing was sent.
+    /// The tool's reason, unless the status line says it already (after a try at the last known address, what that
+    /// try met), and that nothing was sent.
     static func lines(_ failure: ConnectionFailure, shown: String) -> [String] {
         var lines: [String] = []
-        if let reason = failure.reason?.trimmingCharacters(in: .whitespacesAndNewlines), !reason.isEmpty, reason != shown {
+        if let tried = failure.lastKnownAddress {
+            lines.append(tried.addressSentences)
+        } else if let reason = failure.reason?.trimmingCharacters(in: .whitespacesAndNewlines), !reason.isEmpty, reason != shown {
             lines.append(reason)
         }
         if let dns = failure.dnsLeftBehind { lines.append(dns.sentence) }

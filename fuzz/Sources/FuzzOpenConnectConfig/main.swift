@@ -70,16 +70,19 @@ func LLVMFuzzerTestOneInput(_ data: UnsafePointer<UInt8>?, _ size: Int) -> CInt 
         precondition(!scriptPath.utf8.contains { " ;|&$`'\"\\<>()*?[]{}~#!\n".utf8.contains($0) }, "a shell character in script")
     }
 
-    // The sign-in run's file.
+    // The sign-in run's file (with the root's address as the last known address, #292).
     let auth = OpenConnectAuthConfig(
-        host: host, port: port, usergroup: usergroup, username: username, authgroup: authgroup, serverCert: serverCert)
+        host: host, port: port, usergroup: usergroup, username: username, authgroup: authgroup, serverCert: serverCert,
+        resolveAddress: resolveAddress)
     let noExternalAuth = flags.contains("n")
     if (try? auth.validate()) != nil, (try? auth.render(noExternalAuth: noExternalAuth)) == nil {
         preconditionFailure("a valid sign-in config failed its final check")
     }
     if let text = try? auth.render(caFile: caFile, noExternalAuth: noExternalAuth) {
         guard let read = readLikeOpenConnect(Array(text.utf8), table: table) else { preconditionFailure("openconnect would refuse the sign-in file") }
-        var expected = ["protocol", "server", "user"]
+        var expected = ["protocol", "server"]
+        if resolveAddress != nil { expected.append("resolve") }
+        expected.append("user")
         if !authgroup.isEmpty { expected.append("authgroup") }
         expected += serverCert.isEmpty ? ["no-system-trust", "cafile"] : ["servercert"]
         expected += ["non-inter", "passwd-on-stdin"]
@@ -87,6 +90,11 @@ func LLVMFuzzerTestOneInput(_ data: UnsafePointer<UInt8>?, _ size: Int) -> CInt 
         precondition(read.map(\.option) == expected, "sign-in file has options \(read.map(\.option)), expected \(expected)")
         let values = Dictionary(read.map { ($0.option, $0.value) }, uniquingKeysWith: { a, _ in a })
         precondition(values["server"] == expectedURL(path: usergroup), "server not recovered")
+        if let resolveAddress {
+            // Only the server's own name, lowercased as in `server`, and exactly the address.
+            precondition(
+                values["resolve"] == Array((host.lowercased() + ":" + resolveAddress).utf8), "sign-in resolve does not name the server's host")
+        }
         precondition(values["user"] == Array(username.utf8), "user name not recovered")
         if !authgroup.isEmpty { precondition(values["authgroup"] == Array(authgroup.utf8), "group not recovered") }
         if serverCert.isEmpty {

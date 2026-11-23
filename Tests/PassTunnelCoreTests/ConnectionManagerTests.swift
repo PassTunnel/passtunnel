@@ -382,6 +382,8 @@ final class ConnectionManagerTests: XCTestCase {
             authenticator: authenticator)
         m.events.sink { [weak self] in self?.events.append($0) }.store(in: &bag)
         m.serverClock = serverClock
+        // Never this Mac's own DNS: a test that wants a VPN's DNS left behind sets it.
+        m.leftBehindDNS = { [] }
         return m
     }
 

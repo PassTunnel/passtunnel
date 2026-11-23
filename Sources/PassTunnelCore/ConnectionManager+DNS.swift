@@ -15,11 +15,20 @@ extension ConnectionManager {
         var kinds: [ActivityEvent.Kind] = []
         if (try? store.get(id))?.type == .openvpn { kinds = Self.dnsEvents(in: VPNLog.read(store.logURL(id))) }
         if let left = failure?.dnsLeftBehind {
-            let kind = Self.dnsEvent(.leftBehind, service: left.service, settings: left.servers)
+            let kind = Self.dnsEvent(.leftBehind, service: left.service, settings: left.settings)
             if !kinds.contains(kind) { kinds.append(kind) }
         }
         guard !kinds.isEmpty else { return }
         for kind in Self.unrecorded(kinds, in: activity(id)) { record(id, kind) }
+    }
+
+    /// Records the VPN's DNS left on the service the Mac uses now (`leftBehindDNS`, in effect), unless the activity has
+    /// it since the last `connecting`: when a server's name was not found and its last known address is tried, so that
+    /// the cause shows whether that try connects or not.
+    func recordLeftBehindDNS(_ id: String) {
+        guard let left = leftBehindDNS()?.first(where: \.inEffect) else { return }
+        let kind = Self.dnsEvent(.leftBehind, service: left.service, settings: left.settings)
+        for kind in Self.unrecorded([kind], in: activity(id)) { record(id, kind) }
     }
 
     /// The helper's notes in an OpenVPN log, as activity events (a note it could not act on yet and one it left

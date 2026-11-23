@@ -37,6 +37,9 @@ public struct DNSLeftBehind: Codable, Equatable, Sendable {
         #endif
     }
 
+    /// What an activity event lists: the servers, or without any the search domains.
+    public var settings: [String] { servers.isEmpty ? searchDomains : servers }
+
     /// In effect: "This Mac’s DNS still points to a VPN’s DNS server (10.8.0.1 on Wi-Fi), which only that VPN can
     /// reach, so no name can be found. Restarting the Mac sets it back." Otherwise what happens once the service is
     /// used again.

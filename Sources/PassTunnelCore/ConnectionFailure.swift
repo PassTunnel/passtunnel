@@ -10,7 +10,8 @@ public struct ConnectionFailure: Codable, Equatable, Sendable {
         /// The server refused the sign-in (OpenVPN `AUTH_FAILED`, openfortivpn "Could not authenticate").
         /// Never retried: retrying could lock the account.
         case authRejected = "auth_rejected"
-        /// The server's name could not be resolved.
+        /// The server's name could not be resolved (with `lastKnownAddress`, its last known address failed too; with
+        /// `credentialsSent`, a name the sign-in was sent on to could not be found, `PTError.hostNotFoundAfterSignIn`).
         case hostNotFound = "host_not_found"
         /// The server did not answer: connection refused or timed out, no route, no TLS answer in time.
         case unreachable
@@ -68,13 +69,19 @@ public struct ConnectionFailure: Codable, Equatable, Sendable {
         case notGlobalProtectServer = "not_globalprotect_server"
     }
 
-    /// hostNotFound: a VPN's DNS left on a network service of the Mac when the connect failed
-    /// (`DNSLeftBehind.current`), the likely reason no name could be found.
+    /// hostNotFound: the name was not found, so the server's last known address was tried, and how that ended with
+    /// nothing sent (`PTError.knownAddressFailed`); `reason` is then that try's.
+    public var lastKnownAddress: KnownAddressTry?
+
+    /// hostNotFound: a VPN's DNS left on the network service the Mac uses when the connect failed
+    /// (`DNSLeftBehind.current`), the likely reason no name could be found; with `lastKnownAddress` too, the likely
+    /// reason the name failed and the address was tried at all.
     public var dnsLeftBehind: DNSLeftBehind?
 
     /// The JSON keys: every stored property but `detail`.
     enum CodingKeys: String, CodingKey {
-        case kind, at, reply, reason, serverCert, gateways, credentialsSent, codeSent, codeSecondsLeft, tries, clock, dnsLeftBehind
+        case kind, at, reply, reason, serverCert, gateways, credentialsSent, codeSent, codeSecondsLeft, tries, clock, lastKnownAddress,
+            dnsLeftBehind
     }
     /// The credentials reached the server: the TLS session with it came up (OpenVPN "Control Channel",
     /// openfortivpn "Connected to gateway"), or it answered the sign-in.
@@ -143,6 +150,17 @@ public struct ConnectionFailure: Codable, Equatable, Sendable {
             f.tries = f.tries ?? log.map(VPNLog.tries)
         case PTError.hostNotFound:
             f.kind = .hostNotFound
+        case let PTError.knownAddressFailed(_, tried, _):
+            // The root cause stays the failure's kind: the name; the try at the address is the detail.
+            f.kind = .hostNotFound
+            f.reason = tried.reason.isEmpty ? nil : tried.reason
+            f.credentialsSent = false
+            f.lastKnownAddress = tried
+            f.tries = nil
+        case PTError.hostNotFoundAfterSignIn:
+            f.kind = .hostNotFound
+            f.reason = nil
+            f.credentialsSent = true
         case PTError.setupFailed(let reason, _):
             f.kind = .setup
             f.reason = reason

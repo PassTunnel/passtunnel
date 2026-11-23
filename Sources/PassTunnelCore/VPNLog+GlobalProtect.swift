@@ -354,7 +354,8 @@ extension VPNLog {
     /// 1. dyld stopped openconnect: `toolUnsupported`;
     /// 2. the SAML line: `ssoRequired` (whether anything was sent is the caller's `credentialsSent`);
     /// 3. once sent: openconnect asked for the gateway (`invalidField("gateway")`, the labels from
-    ///    `globalProtectGateways`), the gateway's key refused (`gatewayCertificateRejected`), else `authFailed`;
+    ///    `globalProtectGateways`), the gateway's key refused (`gatewayCertificateRejected`), a name that could
+    ///    not be found (`hostNotFoundAfterSignIn`: the gateway's, say), else `authFailed`;
     /// 4. before anything was sent: from the lines before the first TLS session the portal's certificate
     ///    (`serverCertificateRejected`), its name (`hostNotFound`), no answer (`serverUnreachable`); "Server is
     ///    neither a GlobalProtect portal nor a gateway." (`invalidField("host")`); "User input required in
@@ -376,6 +377,8 @@ extension VPNLog {
                     gateway: OpenConnectAuthConfig.isIPv6Literal(other.host) ? "[\(other.host)]:\(other.port)" : "\(other.host):\(other.port)",
                     reason: failure.reason, pin: failure.pin, log: tail)
             }
+            // The gateway's (or another server's) name could not be found after the portal's sign-in: a name problem.
+            if let host = openConnectLookupFailure(lines) { return .hostNotFoundAfterSignIn(server: server, host: host, log: tail) }
             return .authFailed(tail)
         }
         let early = openConnectBeforeServer(text)

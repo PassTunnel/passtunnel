@@ -513,6 +513,16 @@
         }
       }
     },
+    "(confirmed %@ ago)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(%@ önce doğrulandı)"
+          }
+        }
+      }
+    },
     "(macOS status %lld)" : {
       "localizations" : {
         "tr" : {
@@ -703,6 +713,86 @@
         }
       }
     },
+    "Check the installation and every profile without connecting, with the last clock measurement. --check-clock also asks the NTP server this computer is set up with how far the clock is off." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kurulumu ve her profili bağlanmadan denetler, son saat ölçümünü de gösterir. --check-clock, saatin ne kadar saptığını bu bilgisayarın ayarlı olduğu NTP sunucusuna da sorar."
+          }
+        }
+      }
+    },
+    "Check the installation, the VPN tools and every profile without connecting, with the last clock measurement. --check-clock also asks Apple’s time server (time.apple.com) how far the clock is off." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kurulumu, VPN araçlarını ve her profili bağlanmadan denetler, son saat ölçümünü de gösterir. --check-clock, saatin ne kadar saptığını Apple’ın zaman sunucusuna (time.apple.com) da sorar."
+          }
+        }
+      }
+    },
+    "Gave the Mac its DNS back: %@ still had a VPN’s DNS settings" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mac’in DNS’i geri verildi: %@ hâlâ bir VPN’in DNS ayarlarını taşıyordu"
+          }
+        }
+      }
+    },
+    "Gave the Mac its DNS back: %@ still used the VPN’s %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mac’in DNS’i geri verildi: %1$@ hâlâ VPN’in %2$@ ayarını kullanıyordu"
+          }
+        }
+      }
+    },
+    "The DNS of %@ still has settings OpenVPN’s DNS script left for a VPN that is not connected, without any DNS server. Restarting the Mac sets it back." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ağının DNS’inde, OpenVPN’in DNS betiğinin bağlı olmayan bir VPN için bıraktığı ayarlar hâlâ duruyor; hiçbir DNS sunucusu yok. Mac’i yeniden başlatmak bunu eski hâline getirir."
+          }
+        }
+      }
+    },
+    "This Mac’s DNS still points to a VPN’s DNS server (%@ on %@), which only that VPN can reach, so no name can be found. Restarting the Mac sets it back." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu Mac’in DNS’i hâlâ bir VPN’in DNS sunucusunu gösteriyor (%2$@ üzerinde %1$@). Bu sunucuya yalnızca o VPN ulaşabildiği için hiçbir ad bulunamıyor. Mac’i yeniden başlatmak bunu eski hâline getirir."
+          }
+        }
+      }
+    },
+    "a server name was still needed and could not be found" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "bir sunucu adı yine gerekti ve bulunamadı"
+          }
+        }
+      }
+    },
+    "A server name was still needed there and could not be found either. Check the network connection and its DNS." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Orada da bir sunucu adı gerekti ve o da bulunamadı. Ağ bağlantısını ve DNS’ini denetleyin."
+          }
+        }
+      }
+    },
     "A user name can have at most 255 bytes, no control characters and no “=” at the start." : {
       "localizations" : {
         "tr" : {
@@ -853,6 +943,16 @@
         }
       }
     },
+    "At the last known address %@, a server name was still needed and could not be found" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilinen son adres %@ üzerinde bir sunucu adı yine gerekti ve bulunamadı"
+          }
+        }
+      }
+    },
     "Change Gateway" : {
       "localizations" : {
         "tr" : {
@@ -919,6 +1019,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cisco AnyConnect için macOS %@ veya üstü gerekir."
+          }
+        }
+      }
+    },
+    "Connected through the last known server address %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilinen son sunucu adresi %@ üzerinden bağlandı"
+          }
+        }
+      }
+    },
+    "Connected, %@, through the last known server address %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlandı, %1$@, bilinen son sunucu adresi %2$@ üzerinden"
           }
         }
       }
@@ -1003,22 +1123,52 @@
         }
       }
     },
-    "Gave the Mac its DNS back: %@ still had a VPN’s DNS settings" : {
+    "it could not be reached" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mac’in DNS’i geri verildi: %@ hâlâ bir VPN’in DNS ayarlarını taşıyordu"
+            "value" : "ulaşılamadı"
           }
         }
       }
     },
-    "Gave the Mac its DNS back: %@ still used the VPN’s %@" : {
+    "It could not be reached there either (%@). Check the network connection and its DNS." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mac’in DNS’i geri verildi: %1$@ hâlâ VPN’in %2$@ ayarını kullanıyordu"
+            "value" : "Oradan da ulaşılamadı (%@). Ağ bağlantısını ve DNS’ini denetleyin."
+          }
+        }
+      }
+    },
+    "It could not be reached there either. Check the network connection and its DNS." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oradan da ulaşılamadı. Ağ bağlantısını ve DNS’ini denetleyin."
+          }
+        }
+      }
+    },
+    "Its last known address %@, confirmed %@, was tried as well." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilinen son adresi %1$@ (%2$@ tarihinde doğrulandı) de denendi."
+          }
+        }
+      }
+    },
+    "Last known server address: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilinen son sunucu adresi: %@"
           }
         }
       }
@@ -1233,6 +1383,16 @@
         }
       }
     },
+    "Server name %@ not found, trying its last known address %@, confirmed %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu adı %1$@ bulunamadı, bilinen son adresi %2$@ deneniyor (%3$@ tarihinde doğrulandı)"
+          }
+        }
+      }
+    },
     "Show Log has it. Enter the gateway’s name as the portal lists it in the profile." : {
       "localizations" : {
         "tr" : {
@@ -1259,16 +1419,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Portalı atla ve doğrudan ağ geçidinde oturum aç"
-          }
-        }
-      }
-    },
-    "The DNS of %@ still has settings OpenVPN’s DNS script left for a VPN that is not connected, without any DNS server. Restarting the Mac sets it back." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ ağının DNS’inde, OpenVPN’in DNS betiğinin bağlı olmayan bir VPN için bıraktığı ayarlar hâlâ duruyor; hiçbir DNS sunucusu yok. Mac’i yeniden başlatmak bunu eski hâline getirir."
           }
         }
       }
@@ -1319,6 +1469,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ağ geçidinin portalın listelediği adı. Portal birden fazla listelediğinde gerekir; aksi halde boş bırakın."
+          }
+        }
+      }
+    },
+    "The last known address %@ could not be reached either" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilinen son adres %@ da ulaşılamadı"
           }
         }
       }
@@ -1423,6 +1583,26 @@
         }
       }
     },
+    "The server at the last known address %@ failed the certificate check; that address was forgotten" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilinen son adres %@ üzerindeki sunucu sertifika denetiminden geçemedi; bu adres unutuldu"
+          }
+        }
+      }
+    },
+    "The server name %@ could not be found, so its last known address %@, confirmed %@, was tried." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu adı %1$@ bulunamadı, bu yüzden bilinen son adresi %2$@ (%3$@ tarihinde doğrulandı) denendi."
+          }
+        }
+      }
+    },
     "The server signs in with single sign-on (SAML)" : {
       "localizations" : {
         "tr" : {
@@ -1433,12 +1613,42 @@
         }
       }
     },
-    "This Mac’s DNS still points to a VPN’s DNS server (%@ on %@), which only that VPN can reach, so no name can be found. Restarting the Mac sets it back." : {
+    "The server there failed the certificate check (%@), so that address was forgotten." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bu Mac’in DNS’i hâlâ bir VPN’in DNS sunucusunu gösteriyor (%2$@ üzerinde %1$@). Bu sunucuya yalnızca o VPN ulaşabildiği için hiçbir ad bulunamıyor. Mac’i yeniden başlatmak bunu eski hâline getirir."
+            "value" : "Oradaki sunucu sertifika denetiminden geçemedi (%@), bu yüzden bu adres unutuldu."
+          }
+        }
+      }
+    },
+    "the server there failed the certificate check, and the address was forgotten" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "oradaki sunucu sertifika denetiminden geçemedi ve adres unutuldu"
+          }
+        }
+      }
+    },
+    "The server there failed the certificate check, so that address was forgotten." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oradaki sunucu sertifika denetiminden geçemedi, bu yüzden bu adres unutuldu."
+          }
+        }
+      }
+    },
+    "The server’s name could not be found when connecting, so its last known address was used. This network’s DNS may not be working." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlanırken sunucunun adı bulunamadı, bu yüzden bilinen son adresi kullanıldı. Bu ağın DNS’i çalışmıyor olabilir."
           }
         }
       }
@@ -1509,6 +1719,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ağ geçidi bir cihaz bilgi raporu (HIP) istedi; PassTunnel bunu göndermez. Erişim kısıtlanabilir."
+          }
+        }
+      }
+    },
+    "Tried instead: the last known address %@, confirmed %@: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bunun yerine denenen: bilinen son adres %1$@, doğrulandığı zaman %2$@: %3$@"
           }
         }
       }
@@ -2313,22 +2533,22 @@
         }
       }
     },
-    "Check the installation, the VPN tools and every profile without connecting, with the last clock measurement. --check-clock also asks Apple’s time server (time.apple.com) how far the clock is off." : {
+    "Check the installation, the VPN tools and every profile without connecting, with the last clock measurement and the last known server address. --check-clock also asks Apple’s time server (time.apple.com) how far the clock is off." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kurulumu, VPN araçlarını ve her profili bağlanmadan denetler, son saat ölçümünü de gösterir. --check-clock, saatin ne kadar saptığını Apple’ın zaman sunucusuna (time.apple.com) da sorar."
+            "value" : "Kurulumu, VPN araçlarını ve her profili bağlanmadan denetler, son saat ölçümünü ve bilinen son sunucu adresini de gösterir. --check-clock, saatin ne kadar saptığını Apple’ın zaman sunucusuna (time.apple.com) da sorar."
           }
         }
       }
     },
-    "Check the installation and every profile without connecting, with the last clock measurement. --check-clock also asks the NTP server this computer is set up with how far the clock is off." : {
+    "Check the installation and every profile without connecting, with the last clock measurement and the last known server address. --check-clock also asks the NTP server this computer is set up with how far the clock is off." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kurulumu ve her profili bağlanmadan denetler, son saat ölçümünü de gösterir. --check-clock, saatin ne kadar saptığını bu bilgisayarın ayarlı olduğu NTP sunucusuna da sorar."
+            "value" : "Kurulumu ve her profili bağlanmadan denetler, son saat ölçümünü ve bilinen son sunucu adresini de gösterir. --check-clock, saatin ne kadar saptığını bu bilgisayarın ayarlı olduğu NTP sunucusuna da sorar."
           }
         }
       }
@@ -11223,6 +11443,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Oturum açma bilgileriniz gönderilmedi."
+          }
+        }
+      }
+    },
+    "Your sign-in was sent to %@, so a one-time code sent with it is used up, but a server name it was sent on to could not be found. Check the network connection and its DNS." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oturum açma bilgileriniz %@ adresine gönderildi, bu yüzden onunla gönderilen tek kullanımlık kod artık kullanılmış sayılır; ancak oradan yönlendirildiği bir sunucu adı bulunamadı. Ağ bağlantısını ve DNS’ini denetleyin."
+          }
+        }
+      }
+    },
+    "Your sign-in was sent to %@, so a one-time code sent with it is used up, but the server name %@ it was sent on to could not be found. Check the network connection and its DNS." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oturum açma bilgileriniz %1$@ adresine gönderildi, bu yüzden onunla gönderilen tek kullanımlık kod artık kullanılmış sayılır; ancak oradan yönlendirildiği %2$@ sunucu adı bulunamadı. Ağ bağlantısını ve DNS’ini denetleyin."
           }
         }
       }
