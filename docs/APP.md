@@ -55,13 +55,15 @@ One binary, two modes:
      the log decides (`VPNLog.verdict`): a name that did not resolve is `PTError.hostNotFound`, a server
      that never answered (refused, timed out, no route, no TLS answer; or nothing at all in time after the
      tool tried) `PTError.serverUnreachable` with the tool's reason, else `connectFailed` / `connectTimeout`.
-     Cisco AnyConnect, and Palo Alto GlobalProtect with `skip_portal`: a name that did not resolve (or gave no answer
-     in time) before anything was sent is tried once more at the address it had at the last connection by it
-     (`LastKnownAddress`, docs/ARCHITECTURE.md, "Last known server address"; the certificate is still checked against
-     the name); when that fails too, the failure keeps the name's kind (`host_not_found`, or `unreachable` for no
-     answer: `PTError.knownAddressFailed`) and says which address, confirmed when, was tried and what happened there.
-     A sign-in stopped at its time limit with nothing sent and no TLS session is no answer, and its code goes back.
-     A name not found after the sign-in went out is `hostNotFoundAfterSignIn`, never a rejection, never retried.
+     Cisco AnyConnect, and Palo Alto GlobalProtect with `skip_portal`: a name that did not resolve before anything was
+     sent is tried once more at the address it had at the last connection by it (`LastKnownAddress`,
+     docs/ARCHITECTURE.md, "Last known server address"; the certificate is still checked against the name); when that
+     fails too with nothing sent, the failure stays `host_not_found` (`PTError.knownAddressFailed`) and says which
+     address, confirmed when, was tried and what happened there. Only that try may read a timeout as no answer (the
+     run killed, its whole output read: nothing sent, no TLS session), and then its code goes back; a timeout by the
+     name stays a timeout with its code spent. A name not found after the sign-in went out is
+     `hostNotFoundAfterSignIn`, shown with its own message (sign-in sent, code used up, the name), never a rejection,
+     never retried.
      FortiGate and OpenVPN have no such fallback.
   5. any failure is kept typed in `failures[id]` (`ConnectionFailure`: kind, the server's reply, the tool's
      reason, whether the sign-in reached the server — the TLS session came up — and whether a code went
@@ -139,9 +141,9 @@ One binary, two modes:
   when connected), `connected` (address), or its failure: `rejected` (the server's `AUTH_FAILED…` reply),
   `unreachable` (tries, reason) or `failed` (the `ConnectionFailure` kind, reason, whether the sign-in was
   sent; nothing for a cancel, which `disconnect` records). A try at the server's last known address after its name failed
-  records `trying_last_known_address` (host, server address, confirmed when, not found or no answer) before that try's
-  events; its `connected` then has `via_server_address`, and its failure is `last_known_address_failed` (the
-  `KnownAddressTry`) instead of `failed` or `unreachable`. A session it
+  records `trying_last_known_address` (host, server address, confirmed when) before that try's events; its `connected`
+  then has `via_server_address`, and its failure is `last_known_address_failed` (the `KnownAddressTry`) instead of
+  `failed`. A session it
   only follows records nothing (its owner does). Drops record `link_dropped` (whether it reconnects),
   automatic attempts `reconnecting` (attempt of total) and, after a failed one, `next_try`;
   `disconnect` records `disconnected_by_user` when the session was up (for a session this process has
@@ -373,9 +375,9 @@ The main window (`MainSplitView`, decision D-23) is a `NavigationSplitView`, abo
   again only when the log or the activity changes): "The gateway asked for a host information report, which PassTunnel
   does not send. Access may be limited." A Cisco AnyConnect or Palo Alto GlobalProtect connection made at the server's
   last known address shows "The server’s name could not be found when connecting, so its last known address was used.
-  This network’s DNS may not be working." the same way; a failed try there shows, on the `host_not_found` or the
-  unreachable card, which address, confirmed when, was tried and what happened (`KnownAddressTry.addressSentences`;
-  the status line says what happened by the name). Failures:
+  This network’s DNS may not be working." the same way; a failed try there shows, on the `host_not_found` card, which
+  address, confirmed when, was tried and what happened (`KnownAddressTry.addressSentences`; the status line says that
+  the name was not found). Failures:
   - **Choose a gateway** (`GatewayChoiceCard`, `DisplayStatus.Failure.gatewayRequired`): the portal lists more than
     one gateway and the profile names none (or one it does not list). The portal's labels as Core read them
     (`GatewayChoice`: printable ASCII, 1–64 bytes, at most 32, only those `gateway` takes) under **Choose Gateway**,

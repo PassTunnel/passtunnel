@@ -169,31 +169,32 @@ extension VPNLog {
         return verdict
     }
 
-    /// A sign-in run stopped at its time limit (`ToolTimeout`) whose standard error (`text`, whole) shows that nothing
-    /// was sent (`sent` false: no form, by the caller's rule for the protocol) and that no TLS session with a server
-    /// came up: nothing answered, so it is no answer (`serverUnreachable`), not a timeout of a sign-in that may have
-    /// used the code. Returns whether not even a TCP connection was made ("Connected to <address>:<port>" is
-    /// openconnect's own line after `connect`, ssl.c 459), so that the time went on the name lookup or on a
-    /// connection to an address that never answered; nil when something answered or may have been sent.
-    static func openConnectTimeoutUnanswered(_ text: String, sent: Bool) -> Bool? {
-        guard !sent else { return nil }
-        let lines = openConnectLines(text)
-        guard !lines.contains(where: { $0.hasPrefix("Connected to HTTPS on ") }) else { return nil }
-        return !lines.contains { $0.hasPrefix("Connected to ") }
+    /// Whether a sign-in run at the server's last known address that was stopped at its time limit (`ToolTimeout`)
+    /// got no answer there: its standard error (`text`), which must be all of it (`ToolTimeout.errorOutputComplete`,
+    /// the caller's to check), shows nothing sent (`sent` false: no form, by the caller's rule for the protocol), no
+    /// TLS session with a server ("Connected to HTTPS on", looked for in the raw text, a last line without its line
+    /// break included) and ends with a whole line. Anything else may have used the code.
+    static func openConnectTimeoutUnanswered(_ text: String, sent: Bool) -> Bool {
+        !sent && !text.contains("Connected to HTTPS on") && (text.isEmpty || text.hasSuffix("\n"))
     }
 
-    /// A server name openconnect could not resolve ("getaddrinfo failed for host '<name>': …", ssl.c 410): the
-    /// name when it is a valid host, "" when the line names something else; nil without such a line. Read from
-    /// whole printable lines only; a server could print such a line in a message, which can at most turn its own
-    /// refusal into this (also never retried).
+    /// A server name openconnect could not resolve, in its exact shape at the end of its output: "getaddrinfo failed
+    /// for host '<name>': <reason>" (ssl.c 410) right before "Failed to open HTTPS connection to <name>" (the same
+    /// name) and, last, an optional "Failed to complete authentication". The name when it is a valid host, "" when it
+    /// is something else; nil for any other output. Whole printable lines only; a server could still print these lines
+    /// in a message, which can at most turn its own refusal into this (also never retried).
     static func openConnectLookupFailure(_ lines: [Substring]) -> String? {
-        for line in lines.reversed() where line.hasPrefix("getaddrinfo failed for host '") {
-            let rest = line.dropFirst("getaddrinfo failed for host '".count)
-            guard let quote = rest.firstIndex(of: "'") else { return "" }
-            let name = String(rest[..<quote])
-            return OpenConnectAuthConfig.isValidHost(name) ? name.lowercased() : ""
-        }
-        return nil
+        var tail = Array(lines)
+        if tail.last == "Failed to complete authentication" { tail.removeLast() }
+        guard tail.count >= 2 else { return nil }
+        let lookup = tail[tail.count - 2]
+        let prefix = "getaddrinfo failed for host '"
+        guard lookup.hasPrefix(prefix) else { return nil }
+        let rest = lookup.dropFirst(prefix.count)
+        guard let quote = rest.firstIndex(of: "'"), rest[quote...].hasPrefix("': ") else { return nil }
+        let name = String(rest[..<quote])
+        guard !name.isEmpty, tail[tail.count - 1] == "Failed to open HTTPS connection to " + name else { return nil }
+        return OpenConnectAuthConfig.isValidHost(name) ? name.lowercased() : ""
     }
 
     /// Why a sign-in run that did not end with a session cookie failed, from its standard error (`text`, the

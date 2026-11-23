@@ -39,10 +39,13 @@ struct ToolOutput: Equatable {
 }
 
 /// The tool did not finish within `seconds` and was stopped. `errorOutput`: what it wrote on standard
-/// error until then (never its standard output, which may hold a secret).
+/// error (never its standard output, which may hold a secret). `errorOutputComplete`: all of it, up to the
+/// end of file after the tool was stopped, within `SystemToolRunner.maxOutput`; false when that could not be
+/// confirmed, and then nothing may be concluded from what is missing.
 struct ToolTimeout: Error, Equatable {
     var seconds: Int
     var errorOutput = Data()
+    var errorOutputComplete = false
 }
 
 /// The run was cancelled (`ToolCancellation`) and the tool stopped.
@@ -235,6 +238,19 @@ extension ToolRunning {
 struct SystemToolRunner: ToolRunning {
     /// The most kept of each output stream.
     static let maxOutput = 1 << 20
+    /// How long standard error is read after a timeout, until its end of file.
+    static let drainTime: TimeInterval = 2
+
+    /// At the deadline: `terminate` asks the tool to stop (SIGTERM, then SIGKILL after a second), `kill` stops it at
+    /// once (SIGKILL), so that it makes no progress after the deadline (a sign-in run, which could otherwise still
+    /// send a code while it winds down: `AnyConnectSignIn`). Either way standard error is then read to its end of
+    /// file (`ToolTimeout.errorOutputComplete`).
+    enum TimeoutStop: Sendable { case terminate, kill }
+    var timeoutStop = TimeoutStop.terminate
+
+    init(timeoutStop: TimeoutStop = .terminate) {
+        self.timeoutStop = timeoutStop
+    }
 
     func run(
         _ path: String, _ arguments: [String], environment: [String: String], input: Data,
@@ -302,9 +318,19 @@ struct SystemToolRunner: ToolRunning {
         }
         let remaining = deadline.timeIntervalSinceNow
         if remaining <= 0 || exited.wait(timeout: .now() + remaining) == .timedOut {
-            stop()
+            switch timeoutStop {
+            case .terminate:
+                stop()
+            case .kill:
+                kill(process.processIdentifier, SIGKILL)
+                _ = exited.wait(timeout: .now() + 1)
+            }
+            // What the tool wrote up to its end, still in the pipe: standard output is dropped, standard error read.
+            let complete = streams.drainErrorOutput(until: Date().addingTimeInterval(Self.drainTime))
             streams.output.wipe()
-            throw ToolTimeout(seconds: Int(timeout.rounded(.up)), errorOutput: streams.errorOutput)
+            throw ToolTimeout(
+                seconds: Int(timeout.rounded(.up)), errorOutput: streams.errorOutput,
+                errorOutputComplete: complete && !streams.errorOutputCut)
         }
         let status =
             process.terminationReason == .uncaughtSignal
@@ -373,6 +399,32 @@ struct SystemToolRunner: ToolRunning {
                     }
                 }
             }
+        }
+
+        /// After the tool was stopped: reads standard error until its end of file or `deadline` (standard output is
+        /// read too, so a tool blocked on it cannot hold standard error open, and then dropped). True at end of file.
+        mutating func drainErrorOutput(until deadline: Date) -> Bool {
+            closeInput()
+            var buffer = [UInt8](repeating: 0, count: 16 * 1024)
+            defer { _ = buffer.withUnsafeMutableBytes { $0.initializeMemory(as: UInt8.self, repeating: 0) } }
+            while errorOpen {
+                let remaining = deadline.timeIntervalSinceNow
+                guard remaining > 0 else { return false }
+                var fds: [pollfd] = [pollfd(fd: errorFD, events: Int16(POLLIN), revents: 0)]
+                if outputOpen { fds.append(pollfd(fd: outputFD, events: Int16(POLLIN), revents: 0)) }
+                let rc = poll(&fds, nfds_t(fds.count), Int32((min(remaining, 0.25) * 1000).rounded(.up)))
+                if rc < 0 && errno != EINTR { return false }
+                guard rc > 0 else { continue }
+                for entry in fds where entry.revents != 0 {
+                    if entry.fd == outputFD {
+                        var cut = false
+                        if !read(outputFD, into: &output, buffer: &buffer, cut: &cut) { outputOpen = false }
+                    } else if !read(errorFD, into: &errorOutput, buffer: &buffer, cut: &errorOutputCut) {
+                        errorOpen = false
+                    }
+                }
+            }
+            return true
         }
 
         private mutating func writeInput() {

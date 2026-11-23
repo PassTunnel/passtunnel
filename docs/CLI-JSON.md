@@ -268,7 +268,7 @@ and MCP).
 | `kind` | Error code | When |
 |---|---|---|
 | `auth_rejected` | `credentials_rejected` | The server refused the sign-in (OpenVPN `AUTH_FAILED`, openfortivpn "Could not authenticate"). It is never retried, also not by the automatic reconnect: retrying could lock the account |
-| `host_not_found` | `host_not_found` | The server's name could not be resolved. With `last_known_address`, the server's last known address was tried as well and failed too (see below). With `credentials_sent`, a name the sign-in was sent on to (a GlobalProtect gateway's, say) could not be found after it went out: not retried, the code is spent |
+| `host_not_found` | `host_not_found` | The server's name could not be resolved. With `last_known_address`, the server's last known address was tried as well and failed too (see below). With `credentials_sent`, a name the sign-in was sent on to (a GlobalProtect gateway's, say) could not be found after it went out, in openconnect's exact lines: not retried, a code sent with it is used up |
 | `unreachable` | `server_unreachable` | The server did not answer: connection refused or timed out, no route, no TLS answer in time. The sign-in was not sent |
 | `configuration` | `config_invalid`, `connect_failed`, `credentials_missing`, … | The configuration, a key or the server's certificate was refused (OpenVPN `Options error`, `VERIFY ERROR`; openfortivpn's gateway certificate; Cisco AnyConnect: the certificate or the pinned key, with `server_cert`), or something the profile needs is missing (Cisco AnyConnect: also a group the server does not offer, or a server that asks for more than the password and the code) |
 | `setup` | `connect_failed` | The tunnel came up, but its network setup failed |
@@ -295,15 +295,15 @@ not be read that way), `clock` (`auth_rejected`: a [ClockOffset](#clockoffset), 
 off when it was measured after the rejection or checked on request since; see below). `reply` and
 `reason` pass through the same redaction as `log --json`. New kinds may be added.
 
-`last_known_address` (Cisco AnyConnect, and Palo Alto GlobalProtect with `skip_portal`): the server's name failed, so
-the address that name had at the last connection by it was tried too, and that failed as well. The kind stays the root
-cause: `host_not_found`, or `unreachable` when the name only did not answer in time; the DNS problem is never hidden.
-`address` (the server's address that was tried), `confirmed_at` (when a connection by the name last used it), `by_name`
-(`not_found`, or `no_answer`: nothing came back by the name in time, before anything was sent), `outcome`
-(`unreachable`: it could not be reached there, refused, no TLS answer or nothing in time; `certificate_refused`: a server
-there failed the certificate check, and the address was forgotten; `name_not_found`: a server name was still needed
-there and could not be found) and `reason` (the tool's words, also the failure's `reason`; may be empty). Nothing was
-sent (`credentials_sent` false). The `error` message says the same in words:
+`last_known_address` (`host_not_found`; Cisco AnyConnect, and Palo Alto GlobalProtect with `skip_portal`): the server's
+name could not be found, so the address that name had at the last connection by it was tried too, with nothing sent
+there, and that failed as well. The kind stays `host_not_found`, the root cause; the DNS problem is never hidden, and
+the app does not start its retries of an unreachable server for it. `address` (the server's address that was tried),
+`confirmed_at` (when a connection by the name last used it), `outcome` (`unreachable`: it could not be reached there,
+refused, no TLS answer or nothing before the sign-in's time limit; `certificate_refused`: a server there failed the
+certificate check, and the address was forgotten; `name_not_found`: a server name was still needed there and could not
+be found) and `reason` (the tool's words, also the failure's `reason`; may be empty). Nothing was sent
+(`credentials_sent` false). The `error` message says the same in words:
 
 ```json
 {
@@ -312,7 +312,7 @@ sent (`credentials_sent` false). The `error` message says the same in words:
   "credentials_sent" : false,
   "kind" : "host_not_found",
   "last_known_address" : {
-    "address" : "203.0.113.5", "by_name" : "not_found", "confirmed_at" : "2026-11-20T08:15:00Z", "outcome" : "unreachable",
+    "address" : "203.0.113.5", "confirmed_at" : "2026-11-20T08:15:00Z", "outcome" : "unreachable",
     "reason" : "Connection refused"
   },
   "reason" : "Connection refused"
@@ -515,14 +515,14 @@ One event of the activity log (`profiles/<id>/activity.jsonl`, the last 500 even
 | `waiting_for_code` | `reason` (`used`: this period's code was already sent; `expiring`: 5 s or less left), `seconds` | The next one-time code is waited for |
 | `sending` | `username`, `password` (a password was sent), `code` (a code was sent), `seconds_left` (the code's, from a TOTP secret), `format` (the template, e.g. `{password}{otp}`, or `separate`; only with a code) | The credentials were handed to the VPN tool |
 | `auth_accepted` | | The server accepted the sign-in |
-| `trying_last_known_address` | `host`, `server_address`, `confirmed_at`, `by_name` (`not_found`, `no_answer`) | The server's name (`host`) was not found, or did not answer in time, before anything was sent; the address it had at the last connection by it (`server_address`, used then at `confirmed_at`) is tried instead. The events after it are that try's |
+| `trying_last_known_address` | `host`, `server_address`, `confirmed_at` | The server's name (`host`) was not found before anything was sent; the address it had at the last connection by it (`server_address`, used then at `confirmed_at`) is tried instead. The events after it are that try's |
 | `connected` | `address` (the tunnel's; `""` when unknown), `via_server_address` (only when the server was reached at its last known address: that address) | The tunnel is up |
 | `link_dropped` | `will_reconnect` | The connection ended without anyone stopping it |
 | `reconnecting` | `attempt`, `of` | An automatic reconnect attempt starts |
 | `unreachable` | `tries`, `reason` (the tool's words, e.g. `Connection refused`) | The server did not answer; the sign-in was not sent |
 | `next_try` | `next_at` | The next automatic attempt starts then |
 | `rejected` | `reply` (what the server answered, e.g. `AUTH_FAILED`; absent when it said nothing) | The server refused the sign-in; not retried |
-| `last_known_address_failed` | `server_address`, `confirmed_at`, `by_name`, `outcome`, `reason` (absent when empty), as in [ConnectionFailure](#connectionfailure)'s `last_known_address` | The try at the last known address failed too. The connect ends with it |
+| `last_known_address_failed` | `server_address`, `confirmed_at`, `outcome`, `reason` (absent when empty), as in [ConnectionFailure](#connectionfailure)'s `last_known_address` | The try at the last known address failed too, with nothing sent. The connect ends with it |
 | `failed` | `failure` (a [ConnectionFailure](#connectionfailure) `kind`: `host_not_found`, `configuration`, `setup`, `timeout`, `tool_unsupported`, `host_scan_required`, `sso_required` or `failed`), `reason`, `credentials_sent` | The attempt failed otherwise |
 | `stopped_by_user` | | A connect, a code wait or the automatic reconnects were stopped |
 | `disconnected_by_user` | | A connection that was up was ended |

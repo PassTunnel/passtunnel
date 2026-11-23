@@ -1257,41 +1257,55 @@ itself is no secret, but it stays on this computer: `exportShare` writes the pro
 the profile watcher ignores the file. There is no maximum age and no command to forget it by hand (beyond changing the
 server or deleting the profile); `diagnose` shows its age.
 
-**Using it.** Only after the sign-in by the name sent nothing and either did not find the name (`hostNotFound`) or got
-no connection at all before its time limit (the lookup or the connection hung: openconnect never printed
-"Connected to <address>"; `AnyConnectSignIn.Failure.noConnection`), once per attempt, and only with a file that is the
-user's alone, of this version, for the profile's host and its destination as it is now. Then: the code that never left
-is given back (`.last-otp`, unless another process wrote a newer record meanwhile), the activity records
-`trying_last_known_address`, and the sign-in runs again with the address and a code of its own time (the same one when
-its window still has time; a code is never sent twice). Every other failure by the name, a cancel, and a profile
-without an address, end as before.
+**Using it.** Only after the sign-in by the name sent nothing and did not find the name (openconnect's
+"getaddrinfo failed for host …": `hostNotFound`), once per attempt, and only with a file that is the user's alone, of
+this version, for the profile's host and its destination as it is now. Then: the code that never left is given back
+(`.last-otp`, unless another process wrote a newer record meanwhile), the activity records `trying_last_known_address`,
+and the sign-in runs again with the address and a code of its own time (the same one when its window still has time; a
+code is never sent twice). Every other failure by the name, a cancel, and a profile without an address, end as before.
+A sign-in by the name that runs into its time limit is no exception: at openconnect's default verbosity nothing is
+printed between its first request line and "Connected to <address>", so a lookup that hangs cannot be told from a
+connection to a correct address that hangs; such a run stays `connectTimeout` with its code spent, and nothing falls
+back.
 
-A sign-in stopped at its time limit (60 s) counts as sent, and its code as spent, only when its output shows something
-may have been sent (a TLS session with the server came up, or a second request); otherwise it is no answer
-(`serverUnreachable`, "no answer within 60 seconds") and the code goes back (`VPNLog.openConnectTimeoutUnanswered`).
-openconnect has no connect timeout of its own, so a silently dropped address takes those 60 s: the try at the address
-keeps the sign-in's full limit, since a shorter one could stop a slow genuine sign-in after the code went out.
+**A time limit at the address.** openconnect has no connect timeout of its own, so a remembered address that drops
+everything silently runs into the sign-in's limit (`Timing.signInTimeout`, 60 s; for a GlobalProtect sign-in with a
+second part, plus the TOTP period, which a `skip_portal` profile never has). The try keeps that full limit, since a
+shorter one could stop a slow genuine sign-in after the code went out. At the limit the sign-in run is killed at once
+(`SystemToolRunner.TimeoutStop.kill`: SIGKILL, so it cannot finish a handshake or send a form while it winds down) and
+its standard error is read to its end of file (`ToolTimeout.errorOutputComplete`). Only for the try at the address,
+only when that whole output is there and within what is kept, ends with a whole line, has no second request (the
+protocol's rule; for GlobalProtect no second part was written either) and no "Connected to HTTPS on" anywhere (an
+unfinished last line too: `VPNLog.openConnectTimeoutUnanswered`), the try counts as not answered: `serverUnreachable`
+("no answer within 60 seconds"), explained below, with the code given back. Anything else, and every timeout of a run by
+the name, counts as sent.
 
 **Outcomes.**
 - Connected: the activity's `connected` has `via_server_address` (recorded before the state changes, so whoever reads
   on that change sees this session's event), and while it is up `status`, the MCP `get_status` and the app show the
   notice `connected_through_last_known_address` (`StatusNotice`, from the activity's last `connected`).
-- Nothing was sent at the address and it failed: it could not be reached (refused, no TLS answer, nothing in time), a
-  server there failed the certificate check, or a server name was still needed there and could not be found. The
-  failure is `PTError.knownAddressFailed` with a `KnownAddressTry` (address, `confirmed_at`, `by_name`: `not_found` or
-  `no_answer`, `outcome`, the tool's words). Its kind stays the root cause: `host_not_found`, or `unreachable` when the
-  name only did not answer in time; never a state that hides the DNS problem. The message says what happened by the
-  name, which address confirmed when was tried, and what happened there; `ConnectionFailure.lastKnownAddress`, the
-  activity's `last_known_address_failed`, the app's card and "Copy details" ("Tried instead: …") carry the same. The
-  address is kept, except when a server there failed the certificate check or the sign-in there ended on another
-  server (`signInUnusable`): then it is forgotten. No "Trust This Server" offer is made for a server reached at a
-  remembered address.
-- The genuine server at the address answered (it refused the sign-in, has no such group, asks for a host scan, …): as
-  by the name (a rejection is never retried); the address is kept.
+- Nothing was sent at the address (`credentialsSent` false) and it failed for want of the server: it could not be
+  reached (refused, no TLS answer, nothing before the limit), a server there failed the certificate check, or a server
+  name was still needed there and could not be found. The failure is `PTError.knownAddressFailed` with a
+  `KnownAddressTry` (address, `confirmed_at`, `outcome`, the tool's words); its kind stays the root cause,
+  `host_not_found`, so it never starts the retries of an unreachable server and never hides the DNS problem. The
+  message says that the name was not found, which address confirmed when was tried, and what happened there;
+  `ConnectionFailure.lastKnownAddress`, the activity's `last_known_address_failed`, the app's card and "Copy details"
+  ("Tried instead: …") carry the same. The address is kept, except when a server there failed the certificate check or
+  the sign-in there demonstrably ended at another server or key (`signInUnusable` with
+  `DestinationError.otherServer` or `.fingerprintMismatch`; not an output it could not read): then it is forgotten. No
+  "Trust This Server" offer is made for a server reached at a remembered address.
+- Once something was sent at the address (the sign-in, and then the tunnel run), the failure is that one, as by the
+  name: a refused sign-in (never retried), a group the server does not have, a host scan, a tunnel that did not come
+  up; the code counts as spent and the address is kept.
 - A name that could not be found *after* the sign-in went out (a server that sends it on, a GlobalProtect gateway) is
-  `PTError.hostNotFoundAfterSignIn` (`host_not_found` with `credentials_sent`), never a refused sign-in, never retried
-  automatically and with the code spent, and never followed by a try at an address. openconnect's line can also come
-  from a server's message; then a refusal reads as a name problem, which is no less safe.
+  `PTError.hostNotFoundAfterSignIn` (`host_not_found` with `credentials_sent`): its message says that the sign-in was
+  sent, that a code sent with it is used up, and which name could not be found; the app shows it as that message, not
+  with the "check the address" hint. It is never retried automatically and never followed by a try at an address. It
+  is recognized only in openconnect's exact shape at the end of the output ("getaddrinfo failed for host 'X': …", then
+  "Failed to open HTTPS connection to X", then at most "Failed to complete authentication"); anything else after a sent
+  sign-in stays a refused sign-in. Those lines could also come from a server's message; then a refusal reads as a name
+  problem, which is no less safe.
 
 **Dropped.** `ProfileStore.save` forgets the address when the profile's destination changes (host, port, user group,
 pins, `skip_portal`, type) or the profile stops using one, `setOVPN` whenever a configuration is imported, a connect

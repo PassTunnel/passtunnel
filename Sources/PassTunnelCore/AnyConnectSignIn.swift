@@ -29,8 +29,10 @@ import Glibc
 ///   `OpenConnectAuthResult.maxOutputBytes`.
 /// - **Output:** standard output, which holds the cookie, is read only by `OpenConnectAuthResult.parse` and
 ///   overwritten after it; it is never logged. Standard error (openconnect's progress in this mode) is read
-///   whole for whether a form was submitted (`VPNLog.openConnectCredentialsSent`; when the run timed out or
-///   standard error went past what is kept, the code counts as sent), then passed through `LogRedactor`
+///   whole for whether a form was submitted (`VPNLog.openConnectCredentialsSent`; when standard error went past
+///   what is kept, the code counts as sent; when the run timed out too, except for a try at the last known address
+///   whose whole standard error, read to its end after the tool was killed, shows that nothing was sent and no TLS
+///   session came up: `VPNLog.openConnectTimeoutUnanswered`), then passed through `LogRedactor`
 ///   with the answers and the cookie as literal secrets, and only then cut to `maxLogBytes` for the log.
 ///
 /// `@unchecked Sendable`: `run` is called once, on a background queue; the runner it holds
@@ -156,9 +158,6 @@ struct AnyConnectSignIn: @unchecked Sendable {
         var error: Error
         var log: String
         var credentialsSent: Bool
-        /// Stopped at its time limit without any connection made (`VPNLog.openConnectTimeoutUnanswered`): the name
-        /// lookup, or a connection to an address that never answered, took the time.
-        var noConnection = false
     }
 
     /// Runs the sign-in for `config` with `answers` on standard input (overwritten by the caller), and checks
@@ -208,13 +207,10 @@ struct AnyConnectSignIn: @unchecked Sendable {
             return failed(PTError.connectCancelled)
         } catch let timedOut as ToolTimeout {
             let log = Self.log(Self.redacted(timedOut.errorOutput, secrets: secrets))
-            // Nothing sent and nothing answered (all of standard error kept): no answer, the code goes back.
-            let text = String(decoding: timedOut.errorOutput, as: UTF8.self)
-            if timedOut.errorOutput.count < SystemToolRunner.maxOutput,
-                let noConnection = VPNLog.openConnectTimeoutUnanswered(text, sent: VPNLog.openConnectCredentialsSent(text))
-            {
-                return .failure(
-                    Failure(error: Self.noAnswer(timedOut, server: server, log: log), log: log, credentialsSent: false, noConnection: noConnection))
+            // At the last known address only: all of standard error, read to its end after the kill, shows nothing
+            // sent and no TLS session, so nothing answered there; the code goes back.
+            if Self.unanswered(timedOut, atKnownAddress: config.resolveAddress != nil, sent: VPNLog.openConnectCredentialsSent) {
+                return failed(Self.noAnswer(timedOut, server: server, log: log), log: log, sent: false)
             }
             // Stopped part-way: what it did last is not known, so the code counts as sent.
             return failed(PTError.connectTimeout(timedOut.seconds), log: log, sent: true)
@@ -255,6 +251,15 @@ struct AnyConnectSignIn: @unchecked Sendable {
         } catch {
             return failed(PTError.signInUnusable(String(describing: error)), log: log, sent: true)
         }
+    }
+
+    /// Whether a run stopped at its time limit got no answer, which only a try at the last known address concludes
+    /// (`atKnownAddress`; by the name a timeout stays one, its code spent): its standard error is complete and within
+    /// what is kept, and `VPNLog.openConnectTimeoutUnanswered` holds with `sent`, the protocol's rule over it.
+    static func unanswered(_ timedOut: ToolTimeout, atKnownAddress: Bool, sent: (String) -> Bool) -> Bool {
+        guard atKnownAddress, timedOut.errorOutputComplete, timedOut.errorOutput.count < SystemToolRunner.maxOutput else { return false }
+        let text = String(decoding: timedOut.errorOutput, as: UTF8.self)
+        return VPNLog.openConnectTimeoutUnanswered(text, sent: sent(text))
     }
 
     /// A run stopped at its time limit that nothing answered: `serverUnreachable` with the time.

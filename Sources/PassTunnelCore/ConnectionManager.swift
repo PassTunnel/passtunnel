@@ -484,7 +484,9 @@ public final class ConnectionManager: ObservableObject {
     /// Linux. Replaced in tests, and by the `passtunnel` command's tests.
     public var systemVersion: OperatingSystemVersion? = ConnectionManager.currentMacOS
     /// Runs Cisco AnyConnect's sign-in (`AnyConnectSignIn`); a fake in tests, which never run openconnect.
-    var toolRunner: ToolRunning = SystemToolRunner()
+    /// Killed at its deadline, then its standard error read to the end, so a sign-in stopped there makes no progress
+    /// afterwards and the whole of what it did is known (`SystemToolRunner.TimeoutStop.kill`).
+    var toolRunner: ToolRunning = SystemToolRunner(timeoutStop: .kill)
     /// The openconnect the sign-in runs: the app bundle's (`AnyConnectSignIn.bundledTool`); nil outside one and
     /// on Linux, where `locateOpenConnect` finds the distribution's.
     var openConnectPath: String? = AnyConnectSignIn.bundledTool()
@@ -1099,7 +1101,7 @@ public final class ConnectionManager: ObservableObject {
                 pid: response.pid)
             let since = result.since ?? clock.now()
             // Recorded before the state changes: whoever reads the notices on that change reads this session's event.
-            record(id, .connected(address: result.ip, viaLastKnownAddress: progress.lastKnownAddress?.entry.address))
+            record(id, .connected(address: result.ip, viaLastKnownAddress: progress.lastKnownAddress?.address))
             setState(id, .connected(ip: result.ip, since: result.since ?? since))
             sessionActive.insert(id)
             connectedAt[id] = since
@@ -1121,11 +1123,12 @@ public final class ConnectionManager: ObservableObject {
                 _ = try? store.update(id) { $0.lastUsername = u }
             }
         } catch let thrown {
-            // After a try at the last known address: the name not found stays the failure, with what that try met.
-            let error =
-                progress.lastKnownAddress.map {
-                    Self.explaining(thrown, triedAt: $0.entry, byName: $0.byName, server: serverAddress(of: progress.profile))
-                } ?? thrown
+            // After a try at the last known address that sent nothing: the name not found stays the failure, with what
+            // that try met. Once something was sent there (the sign-in, then the tunnel run), the failure is that.
+            var error = thrown
+            if let known = progress.lastKnownAddress, progress.credentialsSent == false {
+                error = Self.explaining(thrown, triedAt: known, server: serverAddress(of: progress.profile))
+            }
             let cancelled = actionToken[id] != token
             if !(error is NothingToFollow) { noteFailure(id, cancelled ? PTError.connectCancelled : error, progress) }
             if cancelled { throw PTError.connectCancelled }
@@ -1161,7 +1164,7 @@ public final class ConnectionManager: ObservableObject {
         let pin = p.serverCert.isEmpty ? "" : OpenConnectPin.normalize(p.serverCert) ?? p.serverCert
         let config = OpenConnectAuthConfig(
             host: p.host, port: p.port, usergroup: p.usergroup, username: username, authgroup: p.authgroup, serverCert: pin,
-            resolveAddress: progress.lastKnownAddress?.entry.address)
+            resolveAddress: progress.lastKnownAddress?.address)
         let texts = [composed.secret] + (composed.separateOTP.map { [$0] } ?? [])
         let answers: SecretBytes
         do {
@@ -1202,7 +1205,6 @@ public final class ConnectionManager: ObservableObject {
         switch outcome {
         case .failure(let failure):
             progress.credentialsSent = failure.credentialsSent
-            progress.noConnection = failure.noConnection
             if !failure.log.isEmpty { writeSignInLog(id, failure.log) }
             progress.toolRan = !failure.log.isEmpty
             if actionToken[id] != token { throw PTError.connectCancelled }
@@ -1271,7 +1273,7 @@ public final class ConnectionManager: ObservableObject {
         let gatewayPin = normalized(p.gatewayServerCert)
         let config = OpenConnectAuthConfig(
             protocol: .gp, host: p.host, port: p.port, username: username, serverCert: pin, skipPortal: p.skipPortal,
-            gateway: p.gateway, gatewayServerCert: gatewayPin, resolveAddress: progress.lastKnownAddress?.entry.address)
+            gateway: p.gateway, gatewayServerCert: gatewayPin, resolveAddress: progress.lastKnownAddress?.address)
         let texts = GlobalProtectAnswers.lines(password: password, code: otp, delivery: p.otpDelivery, template: p.otpTemplate)
         let answers: SecretBytes
         do {
@@ -1351,7 +1353,6 @@ public final class ConnectionManager: ObservableObject {
         switch outcome {
         case .failure(let failure):
             progress.credentialsSent = failure.credentialsSent
-            progress.noConnection = failure.noConnection
             progress.gateways = failure.gateways
             progress.failureReason = failure.reason
             progress.failureDetail = failure.detail
@@ -1774,44 +1775,39 @@ public final class ConnectionManager: ObservableObject {
         var profile: Profile?
         /// The address the sign-in reached the profile's host at, kept once the tunnel is up (`LastKnownAddress`).
         var reachedAddress: String?
-        /// This try goes to the address the server's name had at the last connection by name, after the name was not
-        /// found (or did not answer in time: `byName`).
-        var lastKnownAddress: (entry: LastKnownAddress.Entry, byName: KnownAddressTry.ByName)?
-        /// The sign-in stopped at its time limit without any connection made (`AnyConnectSignIn.Failure.noConnection`).
-        var noConnection = false
+        /// This try goes to the address the server's name had at the last connection by name, the name not found.
+        var lastKnownAddress: LastKnownAddress.Entry?
     }
 
-    /// The address to try after `error` (`LastKnownAddress`), and what happened by the name: only when the sign-in
-    /// sent nothing and found no server by the profile's name (`hostNotFound`), or got no connection at all before its
-    /// time limit (the lookup or the connection hung: `serverUnreachable` with `noConnection`); when this attempt has
-    /// not tried an address yet; when the profile can use one (`LastKnownAddress.applies`); and when one is known for
-    /// its destination as it is now. nil otherwise: the failure stands as it is.
+    /// The address to try after `error` (`LastKnownAddress`): only when the sign-in sent nothing and found no server by
+    /// the profile's name (`hostNotFound`), when this attempt has not tried an address yet, when the profile can use
+    /// one (`LastKnownAddress.applies`), and when one is known for its destination as it is now. nil otherwise: the
+    /// failure stands as it is (a sign-in by the name that ran into its time limit among them, as before #292).
     private func lastKnownAddress(
         _ p: Profile, after error: Error, destination: ProfileDestination, progress: AttemptProgress
-    ) -> (entry: LastKnownAddress.Entry, byName: KnownAddressTry.ByName)? {
-        guard progress.lastKnownAddress == nil, progress.credentialsSent == false, LastKnownAddress.applies(to: p) else { return nil }
-        let byName: KnownAddressTry.ByName
-        switch error as? PTError {
-        case .hostNotFound?: byName = .notFound
-        case .serverUnreachable? where progress.noConnection: byName = .noAnswer
-        default: return nil
-        }
-        guard let entry = LastKnownAddress.read(p, destination: destination, store: store, droppingStale: true) else { return nil }
-        return (entry, byName)
+    ) -> LastKnownAddress.Entry? {
+        guard progress.lastKnownAddress == nil, progress.credentialsSent == false, LastKnownAddress.applies(to: p),
+            case .hostNotFound? = error as? PTError
+        else { return nil }
+        return LastKnownAddress.read(p, destination: destination, store: store, droppingStale: true)
     }
 
-    /// What a failed try at the last known address `known` ends a connect with, when nothing was sent there: it could
-    /// not be reached (refused, no TLS answer, nothing in time), a server there failed the certificate check, or a
-    /// name was still needed and not found. Then `PTError.knownAddressFailed`, which says what happened by the name
-    /// (`byName`) and then at the address, confirmed when. Anything else (the server there took or refused the
-    /// sign-in, or the sign-in went out) stays as it is.
-    nonisolated static func explaining(
-        _ error: Error, triedAt known: LastKnownAddress.Entry, byName: KnownAddressTry.ByName, server: String
-    ) -> Error {
+    /// The reasons of a sign-in that ended at another server or another key than the profile's
+    /// (`OpenConnectAuthResult.checkDestination`), which at a remembered address show that it is not the server's.
+    nonisolated static let wrongServerAtAddress: Set<String> = [
+        OpenConnectAuthResult.DestinationError.otherServer.description,
+        OpenConnectAuthResult.DestinationError.fingerprintMismatch.description
+    ]
+
+    /// What a try at the last known address `known` that sent nothing (the caller checks) ends a connect with, when it
+    /// failed for want of the server: it could not be reached (refused, no TLS answer, nothing before the sign-in's time
+    /// limit), a server there failed the certificate check, or a name was still needed and not found. Then
+    /// `PTError.knownAddressFailed`, which says that the name was not found and what happened at the address,
+    /// confirmed when. Anything else (the server there answered) stays as it is.
+    nonisolated static func explaining(_ error: Error, triedAt known: LastKnownAddress.Entry, server: String) -> Error {
         func tried(_ outcome: KnownAddressTry.Outcome, _ reason: String, _ log: String) -> Error {
             PTError.knownAddressFailed(
-                server: server,
-                tried: KnownAddressTry(address: known.address, confirmedAt: known.confirmedAt, byName: byName, outcome: outcome, reason: reason),
+                server: server, tried: KnownAddressTry(address: known.address, confirmedAt: known.confirmedAt, outcome: outcome, reason: reason),
                 log: log)
         }
         switch error as? PTError {
@@ -1824,23 +1820,17 @@ public final class ConnectionManager: ObservableObject {
 
     /// Readies the attempt's second try, at `known`: the code never reached a server, so it is given back as after
     /// any such failure (`noteFailure`) and the try takes the code of its own time; the activity says why.
-    private func tryLastKnownAddress(
-        _ known: (entry: LastKnownAddress.Entry, byName: KnownAddressTry.ByName), of p: Profile, progress: inout AttemptProgress
-    ) {
+    private func tryLastKnownAddress(_ known: LastKnownAddress.Entry, of p: Profile, progress: inout AttemptProgress) {
         if let used = progress.usedCode, usedCode(p.id) == used.written { restoreUsedCode(p.id, used.previous) }
         progress.usedCode = nil
         progress.handed = nil
         progress.credentialsSent = nil
-        progress.noConnection = false
         progress.toolRan = false
         progress.gateways = nil
         progress.failureReason = nil
         progress.failureDetail = nil
         progress.lastKnownAddress = known
-        record(
-            p.id,
-            .tryingLastKnownAddress(
-                host: known.entry.host, address: known.entry.address, confirmedAt: known.entry.confirmedAt, byName: known.byName))
+        record(p.id, .tryingLastKnownAddress(host: known.host, address: known.address, confirmedAt: known.confirmedAt))
     }
 
     /// Keeps why the attempt failed (`failures`), records it in the activity of a session this manager
@@ -1864,12 +1854,13 @@ public final class ConnectionManager: ObservableObject {
         if case PTError.gatewayCertificateRejected(let host, _, _, _) = error { gateway = host }
         // A server reached at the remembered address instead of by its name is never offered to be trusted. The
         // address is forgotten only on evidence that it is not the server's any more: a server there failed the
-        // certificate check, or the sign-in there ended somewhere else than the profile's server.
+        // certificate check, or the sign-in there demonstrably ended at another server or key
+        // (`Self.wrongServerAtAddress`); not for an output it could not read, which says nothing about the address.
         let viaKnownAddress = progress.lastKnownAddress != nil
         if viaKnownAddress {
             switch error as? PTError {
             case .knownAddressFailed(_, let tried, _)? where tried.outcome == .certificateRefused: LastKnownAddress.forget(id, store: store)
-            case .signInUnusable?: LastKnownAddress.forget(id, store: store)
+            case .signInUnusable(let reason)? where Self.wrongServerAtAddress.contains(reason): LastKnownAddress.forget(id, store: store)
             default: break
             }
         }

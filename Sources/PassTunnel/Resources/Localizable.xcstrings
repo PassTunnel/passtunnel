@@ -1133,16 +1133,6 @@
         }
       }
     },
-    "No answer by the name %@ in time, trying its last known address %@, confirmed %@" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@ adıyla zamanında yanıt yok, bilinen son adresi %2$@ deneniyor (%3$@ tarihinde doğrulandı)"
-          }
-        }
-      }
-    },
     "Not a GlobalProtect server" : {
       "localizations" : {
         "tr" : {
@@ -1499,16 +1489,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Portalın listesi okunamadı"
-          }
-        }
-      }
-    },
-    "The server %@ did not answer by its name in time, so its last known address %@, confirmed %@, was tried." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@ sunucusu adıyla zamanında yanıt vermedi, bu yüzden bilinen son adresi %2$@ (%3$@ tarihinde doğrulandı) denendi."
           }
         }
       }
@@ -11377,22 +11357,22 @@
         }
       }
     },
-    "Your sign-in was sent to %@, but a server name it was sent on to could not be found. Check the network connection and its DNS." : {
+    "Your sign-in was sent to %@, so a one-time code sent with it is used up, but a server name it was sent on to could not be found. Check the network connection and its DNS." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Oturum açma bilgileriniz %@ adresine gönderildi, ancak oradan yönlendirildiği bir sunucu adı bulunamadı. Ağ bağlantısını ve DNS’ini denetleyin."
+            "value" : "Oturum açma bilgileriniz %@ adresine gönderildi, bu yüzden onunla gönderilen tek kullanımlık kod artık kullanılmış sayılır; ancak oradan yönlendirildiği bir sunucu adı bulunamadı. Ağ bağlantısını ve DNS’ini denetleyin."
           }
         }
       }
     },
-    "Your sign-in was sent to %@, but the server name %@ it was sent on to could not be found. Check the network connection and its DNS." : {
+    "Your sign-in was sent to %@, so a one-time code sent with it is used up, but the server name %@ it was sent on to could not be found. Check the network connection and its DNS." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Oturum açma bilgileriniz %1$@ adresine gönderildi, ancak oradan yönlendirildiği %2$@ sunucu adı bulunamadı. Ağ bağlantısını ve DNS’ini denetleyin."
+            "value" : "Oturum açma bilgileriniz %1$@ adresine gönderildi, bu yüzden onunla gönderilen tek kullanımlık kod artık kullanılmış sayılır; ancak oradan yönlendirildiği %2$@ sunucu adı bulunamadı. Ağ bağlantısını ve DNS’ini denetleyin."
           }
         }
       }

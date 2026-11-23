@@ -308,10 +308,7 @@ struct UnreachableCard: View {
         Card(style: .compact) {
             Lead(text: Text(lead))
             networkRow(network)
-            // After a try at the last known address (the name did not answer in time), what that try met.
-            DiagnosisRow(
-                symbol: .rejected, title: Self.title(server),
-                detail: failure?.lastKnownAddress.map { Text($0.addressSentences) } ?? failure?.reason.flatMap { $0.isEmpty ? nil : Text($0) })
+            DiagnosisRow(symbol: .rejected, title: Self.title(server), detail: failure?.reason.flatMap { $0.isEmpty ? nil : Text($0) })
             DiagnosisRow(
                 symbol: .info, title: Text(String(localized: "On a guest or hotel network?")),
                 detail: Text(String(localized: "Some networks block VPN traffic. Try another network or ask your IT team.")))

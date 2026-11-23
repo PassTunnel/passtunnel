@@ -89,9 +89,16 @@ final class FakeOpenConnect: ToolRunning, @unchecked Sendable {
             lock.unlock()
             throw ToolCancelled()
         }
-        guard let result else { throw ToolTimeout(seconds: Int(timeout)) }
+        guard let result else {
+            // A missing result is the test's mistake; a timeout with no output would read as no answer.
+            XCTFail("FakeOpenConnect ran out of prepared results (run \(index))")
+            throw OutOfResults()
+        }
         return try result.get()
     }
+
+    /// A run the test prepared no result for.
+    struct OutOfResults: Error {}
 }
 
 /// openconnect 9.21's output, as it prints it (captured from the bundled tool against a closed local port, a
@@ -603,7 +610,12 @@ extension ConnectionManagerTests {
             Out.lostAfterForm,
             // A rejection message holding openconnect's own words, and a host scan asked for only now.
             afterForm + "Login failed.\nFailed to open HTTPS connection to vpn.example.com\n" + Out.failed,
-            afterForm + "Error: Server asked us to run CSD hostscan.\nYou need to provide a suitable --csd-wrapper argument.\n" + Out.failed
+            afterForm + "Error: Server asked us to run CSD hostscan.\nYou need to provide a suitable --csd-wrapper argument.\n" + Out.failed,
+            // A lookup failure not in openconnect's exact shape at the end: a rejection as before.
+            afterForm + "getaddrinfo failed for host 'vpn.example.com': no\n" + Out.failed,
+            afterForm + "getaddrinfo failed for host 'vpn.example.com': no\nFailed to open HTTPS connection to vpn2.example.com\n" + Out.failed,
+            afterForm + "getaddrinfo failed for host 'vpn.example.com': no\nFailed to open HTTPS connection to vpn.example.com\nLogin failed.\n"
+                + Out.failed
         ]
         for stderr in cases {
             let r = try await signInFailure(Out.output(status: 1, stderr: stderr))
@@ -613,7 +625,8 @@ extension ConnectionManagerTests {
             XCTAssertFalse(ConnectionManager.isRetryable(r.error))
             XCTAssertNotNil(r.manager.usedCode(r.profile.id), "the code stays spent")
         }
-        let notFound = afterForm + "getaddrinfo failed for host 'vpn.example.com': no\n" + Out.failed
+        let notFound =
+            afterForm + "getaddrinfo failed for host 'vpn.example.com': no\nFailed to open HTTPS connection to vpn.example.com\n" + Out.failed
         let r = try await signInFailure(Out.output(status: 1, stderr: notFound))
         XCTAssertEqual(
             r.error as? PTError,
@@ -657,11 +670,13 @@ extension ConnectionManagerTests {
         XCTAssertNil(r.manager.usedCode(r.profile.id))
     }
 
-    /// A run stopped at the deadline: what it did last is unknown, so the code counts as sent.
+    /// A sign-in by the name stopped at the deadline: what it did last is unknown, so the code counts as sent, whatever
+    /// its output shows and even when that output is complete (only a try at the last known address may conclude
+    /// otherwise, `AnyConnectSignIn.unanswered`).
     func testATimeoutKeepsTheCodeSpent() async throws {
-        // A TLS session came up (the form may be on its way): the code counts as sent.
-        for stderr in [Out.post + Out.tls + Out.post, Out.post + Out.tls] {
-            let r = try await signInFailure(.failure(ToolTimeout(seconds: 60, errorOutput: Data(stderr.utf8))))
+        for (stderr, complete) in [(Out.post, false), (Out.post, true), (Out.post + Out.tls + Out.post, true)] {
+            let r = try await signInFailure(
+                .failure(ToolTimeout(seconds: 60, errorOutput: Data(stderr.utf8), errorOutputComplete: complete)))
             XCTAssertEqual(r.error as? PTError, .connectTimeout(60))
             XCTAssertEqual(r.failure.kind, .timeout)
             XCTAssertTrue(r.failure.credentialsSent)
@@ -670,22 +685,28 @@ extension ConnectionManagerTests {
         }
     }
 
-    /// #292: stopped at the limit with nothing sent and no TLS session (the name lookup or the connection hung):
-    /// no answer, and the code goes back.
-    func testATimeoutThatNothingAnsweredIsNoAnswer() async throws {
-        for stderr in [Out.post, Out.post + "Connected to 192.0.2.10:8443\n"] {
-            let r = try await signInFailure(.failure(ToolTimeout(seconds: 60, errorOutput: Data(stderr.utf8))))
-            XCTAssertEqual(
-                r.error as? PTError,
-                .serverUnreachable(server: "vpn.example.com:8443", reason: "no answer within 60 seconds", log: VPNLog.tail(stderr)))
-            XCTAssertEqual(r.failure.kind, .unreachable)
-            XCTAssertFalse(r.failure.credentialsSent)
-            XCTAssertNil(r.manager.usedCode(r.profile.id), "given back")
+    /// #292: what a timeout at the last known address may conclude "no answer" from: all of standard error, within what
+    /// is kept, ending with a whole line, no second request and no "Connected to HTTPS on" anywhere, an unfinished last
+    /// line too.
+    func testWhenATimeoutAtTheAddressIsNoAnswer() {
+        func timeout(_ text: String, complete: Bool = true) -> ToolTimeout {
+            ToolTimeout(seconds: 60, errorOutput: Data(text.utf8), errorOutputComplete: complete)
         }
-        XCTAssertEqual(VPNLog.openConnectTimeoutUnanswered(Out.post, sent: false), true, "no connection at all")
-        XCTAssertEqual(VPNLog.openConnectTimeoutUnanswered(Out.post + "Connected to 192.0.2.10:8443\n", sent: false), false)
-        XCTAssertNil(VPNLog.openConnectTimeoutUnanswered(Out.post + Out.tls, sent: false))
-        XCTAssertNil(VPNLog.openConnectTimeoutUnanswered(Out.post, sent: true))
+        func unanswered(_ t: ToolTimeout, atKnownAddress: Bool = true) -> Bool {
+            AnyConnectSignIn.unanswered(t, atKnownAddress: atKnownAddress, sent: VPNLog.openConnectCredentialsSent)
+        }
+        XCTAssertTrue(unanswered(timeout(Out.post)))
+        XCTAssertTrue(unanswered(timeout(Out.post + "Connected to 192.0.2.10:8443\n")), "a TCP connection, no TLS session")
+        XCTAssertTrue(unanswered(timeout("")))
+        XCTAssertFalse(unanswered(timeout(Out.post), atKnownAddress: false), "by the name: never")
+        XCTAssertFalse(unanswered(timeout(Out.post, complete: false)), "output not read to its end")
+        XCTAssertFalse(unanswered(timeout(Out.post + Out.tls)), "a TLS session")
+        XCTAssertFalse(unanswered(timeout(Out.post + "Connected to HTTPS on vpn.example.com with ciphersuite")), "an unfinished TLS line")
+        XCTAssertFalse(unanswered(timeout(Out.post + "SSL negotiation with vpn")), "an unfinished last line")
+        XCTAssertFalse(unanswered(timeout(Out.post + Out.post)), "a second request")
+        let big = Out.post + String(repeating: "x", count: SystemToolRunner.maxOutput) + "\n"
+        XCTAssertFalse(unanswered(timeout(big)), "more than is kept")
+        XCTAssertFalse(VPNLog.openConnectTimeoutUnanswered(Out.post, sent: true))
     }
 
     /// A banner past the log's limit does not hide the form that was submitted after it.

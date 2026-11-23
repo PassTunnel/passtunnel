@@ -85,7 +85,7 @@ extension ConnectionManagerTests {
         XCTAssertEqual(openConnectStarts().last?.resolve, "vpn.example.com:192.0.2.10", "the tunnel run goes to the same address")
         let kinds = r.manager.activity(r.profile.id).map(\.kind)
         XCTAssertTrue(
-            kinds.contains(.tryingLastKnownAddress(host: "vpn.example.com", address: "192.0.2.10", confirmedAt: t0, byName: .notFound)), "\(kinds)")
+            kinds.contains(.tryingLastKnownAddress(host: "vpn.example.com", address: "192.0.2.10", confirmedAt: t0)), "\(kinds)")
         XCTAssertEqual(kinds.last, .connected(address: "10.11.0.2", viaLastKnownAddress: "192.0.2.10"))
         XCTAssertEqual(r.manager.notices(r.profile.id), [.connectedThroughLastKnownAddress])
         XCTAssertEqual(lastConnectionWhenConnected, .some("192.0.2.10"), "recorded before the state changed")
@@ -123,8 +123,8 @@ extension ConnectionManagerTests {
         XCTAssertEqual(r.manager.activity(r.profile.id).last?.kind, .failed(kind: .hostNotFound, reason: nil, credentialsSent: false))
     }
 
-    func tried(_ outcome: KnownAddressTry.Outcome, _ reason: String, byName: KnownAddressTry.ByName = .notFound) -> KnownAddressTry {
-        KnownAddressTry(address: "192.0.2.10", confirmedAt: t0, byName: byName, outcome: outcome, reason: reason)
+    func tried(_ outcome: KnownAddressTry.Outcome, _ reason: String) -> KnownAddressTry {
+        KnownAddressTry(address: "192.0.2.10", confirmedAt: t0, outcome: outcome, reason: reason)
     }
 
     /// The address cannot be reached either: `host_not_found` (the root cause) that says which address, confirmed
@@ -171,15 +171,20 @@ extension ConnectionManagerTests {
         let json = try XCTUnwrap(String(data: try JSONCoding.encode(failure), encoding: .utf8))
         XCTAssertTrue(json.contains("\"last_known_address\""), json)
         XCTAssertTrue(json.contains("\"outcome\" : \"unreachable\""), json)
-        XCTAssertTrue(json.contains("\"by_name\" : \"not_found\""), json)
+        XCTAssertFalse(json.contains("by_name"), json)
         XCTAssertEqual(try JSONCoding.decode(ConnectionFailure.self, from: Data(json.utf8)), failure)
     }
 
-    /// The address is silently dropped: the sign-in stops at its time limit with nothing sent and no TLS session.
-    /// That is no answer at the address, explained like any other, and the code goes back.
+    /// The address is silently dropped: the sign-in, killed at its time limit with all of its output read, shows
+    /// nothing sent and no TLS session. That is no answer at the address, explained like any other (`host_not_found`,
+    /// no retries of an unreachable server), and the code goes back.
     func testATimeoutAtTheAddressIsExplainedAndGivesTheCodeBack() async throws {
         let r = try await connectedOnce()
-        r.fake.results = [Out.output(status: 1, stderr: Out.notFound), .failure(ToolTimeout(seconds: 60, errorOutput: Data(Out.post.utf8)))]
+        r.manager.retriesUnreachable = true
+        r.fake.results = [
+            Out.output(status: 1, stderr: Out.notFound),
+            .failure(ToolTimeout(seconds: 60, errorOutput: Data(Out.post.utf8), errorOutputComplete: true))
+        ]
         do {
             try await r.manager.connect(r.profile.id)
             XCTFail("connected")
@@ -194,50 +199,137 @@ extension ConnectionManagerTests {
         XCTAssertFalse(failure.credentialsSent)
         XCTAssertFalse(failure.codeSent)
         XCTAssertEqual(r.manager.usedCode(r.profile.id), .init(counter: TOTP.counter(params: r.profile.totp, at: t0), period: 30), "given back")
+        XCTAssertNil(r.manager.unreachableRetry(r.profile.id), "no retries of an unreachable server")
         XCTAssertNotNil(known(r.profile))
     }
 
-    /// The name lookup hangs until the limit (nothing sent, no connection made): it counts as not sent, the address
-    /// is tried, and a connection there is made; when the address fails too the failure says the name did not answer.
-    func testANameThatDoesNotAnswerInTimeFallsBackToo() async throws {
-        let r = try await connectedOnce()
-        let hang = Result<ToolOutput, Error>.failure(ToolTimeout(seconds: 60, errorOutput: Data(Out.post.utf8)))
-        r.fake.results = [hang, Out.success]
-        try await r.manager.connect(r.profile.id)
-        XCTAssertEqual(r.fake.calls.count, 3)
-        XCTAssertTrue(r.fake.calls[2].config.contains(knownAddressLine))
-        XCTAssertTrue(
-            r.manager.activity(r.profile.id).map(\.kind).contains(
-                .tryingLastKnownAddress(host: "vpn.example.com", address: "192.0.2.10", confirmedAt: t0, byName: .noAnswer)))
-        try await r.manager.disconnect(r.profile.id)
-        clock.advance(3600)
+    /// At the address, a timeout whose output may hide a sign-in counts as sent: output not read to its end, more than
+    /// is kept, an unfinished TLS line, a TLS session. The code stays spent and nothing says "not sent".
+    func testATimeoutAtTheAddressThatMayHaveSentCountsAsSent() async throws {
+        let big = Out.post + String(repeating: "x", count: SystemToolRunner.maxOutput) + "\n"
+        let cases: [(String, Bool)] = [
+            (Out.post, false), (big, true), (Out.post + "Connected to HTTPS on vpn.example.com with", true), (Out.post + Out.tls, true)
+        ]
+        for (stderr, complete) in cases {
+            let r = try await connectedOnce()
+            r.fake.results = [
+                Out.output(status: 1, stderr: Out.notFound),
+                .failure(ToolTimeout(seconds: 60, errorOutput: Data(stderr.utf8), errorOutputComplete: complete))
+            ]
+            do {
+                try await r.manager.connect(r.profile.id)
+                XCTFail("connected")
+            } catch {
+                XCTAssertEqual(error as? PTError, .connectTimeout(60))
+                XCTAssertFalse(error.localizedDescription.contains("not sent"))
+            }
+            let failure = try XCTUnwrap(r.manager.failures[r.profile.id])
+            XCTAssertEqual(failure.kind, .timeout)
+            XCTAssertTrue(failure.credentialsSent)
+            XCTAssertNil(failure.lastKnownAddress)
+            XCTAssertEqual(
+                r.manager.usedCode(r.profile.id), .init(counter: TOTP.counter(params: r.profile.totp, at: clock.now()), period: 30),
+                "the code stays spent")
+        }
+    }
 
-        r.fake.results = [hang, Out.output(status: 1, stderr: Out.refused)]
+    /// By the name, a sign-in that runs into its time limit stays a timeout with its code spent, as before #292,
+    /// whatever its output: a hung lookup cannot be told from a hung connection to a correct address. No try at the
+    /// address, no retries of an unreachable server.
+    func testATimeoutByTheNameNeverFallsBack() async throws {
+        for stderr in [Out.post, Out.post + "Connected to 192.0.2.10:8443\n"] {
+            let r = try await connectedOnce()
+            r.manager.retriesUnreachable = true
+            r.fake.results = [.failure(ToolTimeout(seconds: 60, errorOutput: Data(stderr.utf8), errorOutputComplete: true)), Out.success]
+            do {
+                try await r.manager.connect(r.profile.id)
+                XCTFail("connected")
+            } catch {
+                XCTAssertEqual(error as? PTError, .connectTimeout(60))
+            }
+            XCTAssertEqual(r.fake.calls.count, 2, "no try at the address")
+            XCTAssertEqual(r.manager.failures[r.profile.id]?.kind, .timeout)
+            XCTAssertNotNil(r.manager.usedCode(r.profile.id))
+            XCTAssertNil(r.manager.unreachableRetry(r.profile.id))
+        }
+    }
+
+    /// The sign-in at the address was accepted, then the tunnel run failed: that failure as it is, the code spent,
+    /// nothing saying "not sent", the address kept.
+    func testATunnelFailureAfterASignInAtTheAddressIsThatFailure() async throws {
+        let r = try await connectedOnce()
+        r.fake.results = [Out.output(status: 1, stderr: Out.notFound), Out.success]
+        helper.startLog = Out.hookFailed
+        let reason = "INTERNAL_IP4_DNS is not a list of IPv4 and IPv6 addresses"
+        helper.openConnectTunnel = TunnelStatus(state: .failed, reason: reason, interface: "utun5")
         do {
             try await r.manager.connect(r.profile.id)
+            XCTFail("connected")
+        } catch {
+            XCTAssertEqual(error as? PTError, .setupFailed(reason: reason, log: VPNLog.tail(Out.hookFailed)))
+            XCTAssertFalse(error.localizedDescription.contains("not sent"))
+        }
+        let failure = try XCTUnwrap(r.manager.failures[r.profile.id])
+        XCTAssertEqual(failure.kind, .setup)
+        XCTAssertTrue(failure.credentialsSent)
+        XCTAssertNil(failure.lastKnownAddress)
+        XCTAssertNotNil(r.manager.usedCode(r.profile.id))
+        XCTAssertNotNil(known(r.profile))
+        XCTAssertEqual(r.manager.activity(r.profile.id).last?.kind, .failed(kind: .setup, reason: reason, credentialsSent: true))
+    }
+
+    /// Palo Alto GlobalProtect (`skip_portal`): a timeout at the address with nothing sent is no answer there, and its
+    /// code goes back; a second part written, or a run by the name, counts as sent.
+    func testGlobalProtectTimeoutAtTheAddress() async throws {
+        let p = try makeGlobalProtectProfile("Acme GP Time", gateway: "", skipPortal: true)
+        helper.startLog = GP.hipAndUp
+        let prelogin = "POST https://vpn.example.com:8443/ssl-vpn/prelogin.esp?tmp=tmp&clientVer=4100&clientos=Mac\n"
+        let signedIn = prelogin + GP.portalTLS + "POST https://vpn.example.com:8443/ssl-vpn/login.esp\n"
+        let stdout = GP.stdout(
+            host: "192.0.2.10", connectURL: "https://vpn.example.com:8443/", fingerprint: GP.portalPin, resolve: "vpn.example.com:192.0.2.10")
+        let notFound =
+            prelogin + "getaddrinfo failed for host 'vpn.example.com': nodename nor servname provided, or not known\n"
+            + "Failed to open HTTPS connection to vpn.example.com\n" + GP.failed
+        let fake = FakeOpenConnect()
+        fake.results = [Out.output(stdout: stdout, stderr: signedIn)]
+        let m = try makeGlobalProtectManager(fake)
+        try await m.connect(p.id)
+        try await m.disconnect(p.id)
+        clock.advance(3600)
+        fake.results = [
+            Out.output(status: 1, stderr: notFound),
+            .failure(ToolTimeout(seconds: 60, errorOutput: Data(prelogin.utf8), errorOutputComplete: true))
+        ]
+        do {
+            try await m.connect(p.id)
             XCTFail("connected")
         } catch {
             guard case .knownAddressFailed(_, let t, _)? = error as? PTError else { return XCTFail("\(error)") }
-            XCTAssertEqual(t, tried(.unreachable, "Connection refused", byName: .noAnswer))
-            XCTAssertEqual(AutomationErrorCode.of(error), .serverUnreachable)
-            XCTAssertTrue(error.localizedDescription.hasPrefix("The server vpn.example.com:8443 did not answer by its name in time"))
+            XCTAssertEqual(t.outcome, .unreachable)
         }
-        XCTAssertEqual(r.manager.failures[r.profile.id]?.kind, .unreachable, "the name did not answer: not claimed as not found")
-        XCTAssertEqual(r.manager.failures[r.profile.id]?.lastKnownAddress?.byName, .noAnswer)
+        XCTAssertEqual(m.usedCode(p.id), .init(counter: TOTP.counter(params: p.totp, at: t0), period: 30), "given back")
+
+        let timeout = ToolTimeout(seconds: 90, errorOutput: Data(prelogin.utf8), errorOutputComplete: true)
+        XCTAssertTrue(GlobalProtectSignIn.unanswered(timeout, atKnownAddress: true, secondPartWritten: false))
+        XCTAssertFalse(GlobalProtectSignIn.unanswered(timeout, atKnownAddress: true, secondPartWritten: true), "a second part written")
+        XCTAssertFalse(GlobalProtectSignIn.unanswered(timeout, atKnownAddress: false, secondPartWritten: false), "by the name")
+        let sent = ToolTimeout(seconds: 90, errorOutput: Data(signedIn.utf8), errorOutputComplete: true)
+        XCTAssertFalse(GlobalProtectSignIn.unanswered(sent, atKnownAddress: true, secondPartWritten: false), "a login request")
+        let incomplete = ToolTimeout(seconds: 90, errorOutput: Data(prelogin.utf8), errorOutputComplete: false)
+        XCTAssertFalse(GlobalProtectSignIn.unanswered(incomplete, atKnownAddress: true, secondPartWritten: false))
     }
 
-    /// By the name, a TCP connection was made and then nothing came: the name resolved, so the address is not tried.
-    func testATimeoutAfterAConnectionDoesNotTryTheAddress() async throws {
+    /// At the address, a sign-in whose printed result cannot be read says nothing about the address: it is kept.
+    func testAnUnreadableResultAtTheAddressKeepsIt() async throws {
         let r = try await connectedOnce()
-        let connected = Out.post + "Connected to 192.0.2.10:8443\n"
-        r.fake.results = [.failure(ToolTimeout(seconds: 60, errorOutput: Data(connected.utf8))), Out.success]
+        r.fake.results = [Out.output(status: 1, stderr: Out.notFound), Out.output(stdout: "COOKIE='x'\n", stderr: Out.signedIn)]
         do {
             try await r.manager.connect(r.profile.id)
             XCTFail("connected")
         } catch {
-            XCTAssertEqual(AutomationErrorCode.of(error), .serverUnreachable)
+            guard case .signInUnusable? = error as? PTError else { return XCTFail("\(error)") }
         }
-        XCTAssertEqual(r.fake.calls.count, 2)
+        XCTAssertNotNil(known(r.profile))
     }
 
     /// By the name, the sign-in went out and then a name it was sent on to could not be found: a name problem (never
@@ -676,8 +768,8 @@ final class LastKnownAddressUnitTests: XCTestCase {
         XCTAssertThrowsError(try OpenConnectAuthConfig.checkRendered(moved, lineCount: lines, caFile: ca), "out of place")
     }
 
-    func tried(_ outcome: KnownAddressTry.Outcome, _ reason: String = "", byName: KnownAddressTry.ByName = .notFound) -> KnownAddressTry {
-        KnownAddressTry(address: "192.0.2.10", confirmedAt: at, byName: byName, outcome: outcome, reason: reason)
+    func tried(_ outcome: KnownAddressTry.Outcome, _ reason: String = "") -> KnownAddressTry {
+        KnownAddressTry(address: "192.0.2.10", confirmedAt: at, outcome: outcome, reason: reason)
     }
 
     /// The activity events: JSON round trip, keys and sentences. `server_address` is the server's address and
@@ -685,13 +777,12 @@ final class LastKnownAddressUnitTests: XCTestCase {
     func testTheActivityEvents() throws {
         let date = PTError.dateText(at)
         let events: [ActivityEvent] = [
-            ActivityEvent(at: at, .tryingLastKnownAddress(host: "vpn.example.com", address: "192.0.2.10", confirmedAt: at, byName: .notFound)),
+            ActivityEvent(at: at, .tryingLastKnownAddress(host: "vpn.example.com", address: "192.0.2.10", confirmedAt: at)),
             ActivityEvent(at: at, .connected(address: "10.11.0.2", viaLastKnownAddress: "192.0.2.10")),
             ActivityEvent(at: at, .connected(address: "10.11.0.2")),
             ActivityEvent(at: at, .lastKnownAddressFailed(tried(.unreachable, "Connection refused"))),
             ActivityEvent(at: at, .lastKnownAddressFailed(tried(.certificateRefused))),
-            ActivityEvent(at: at, .lastKnownAddressFailed(tried(.nameNotFound))),
-            ActivityEvent(at: at, .tryingLastKnownAddress(host: "vpn.example.com", address: "192.0.2.10", confirmedAt: at, byName: .noAnswer))
+            ActivityEvent(at: at, .lastKnownAddressFailed(tried(.nameNotFound)))
         ]
         for event in events {
             let data = try ActivityLog.encoder().encode(event)
@@ -700,7 +791,7 @@ final class LastKnownAddressUnitTests: XCTestCase {
         }
         let json = try events.map { String(decoding: try ActivityLog.encoder().encode($0), as: UTF8.self) }
         XCTAssertTrue(json[0].contains("\"server_address\":\"192.0.2.10\""), json[0])
-        XCTAssertTrue(json[0].contains("\"by_name\":\"not_found\""), json[0])
+        XCTAssertFalse(json[0].contains("by_name"), json[0])
         XCTAssertTrue(json[1].contains("\"address\":\"10.11.0.2\"") && json[1].contains("\"via_server_address\":\"192.0.2.10\""), json[1])
         XCTAssertFalse(json[2].contains("via_server_address"))
         XCTAssertTrue(json[3].contains("\"outcome\":\"unreachable\"") && json[3].contains("\"server_address\""), json[3])
@@ -708,8 +799,6 @@ final class LastKnownAddressUnitTests: XCTestCase {
         XCTAssertEqual(events[0].name, "trying_last_known_address")
         XCTAssertEqual(events[3].name, "last_known_address_failed")
         XCTAssertEqual(events[0].sentence(), "Server name vpn.example.com not found, trying its last known address 192.0.2.10, confirmed \(date)")
-        XCTAssertEqual(
-            events[6].sentence(), "No answer by the name vpn.example.com in time, trying its last known address 192.0.2.10, confirmed \(date)")
         XCTAssertEqual(events[1].sentence(), "Connected, 10.11.0.2, through the last known server address 192.0.2.10")
         XCTAssertEqual(events[2].sentence(), "Connected, 10.11.0.2")
         XCTAssertEqual(events[3].sentence(), "The last known address 192.0.2.10 could not be reached either (Connection refused)")
@@ -731,8 +820,8 @@ final class LastKnownAddressUnitTests: XCTestCase {
             "The server name vpn.example.com:443 could not be found, so its last known address 192.0.2.10, confirmed \(date), was tried. "
                 + "The server there failed the certificate check, so that address was forgotten. Your sign-in was not sent.")
         XCTAssertEqual(
-            PTError.knownAddressFailed(server: "vpn.example.com:443", tried: tried(.nameNotFound, byName: .noAnswer), log: "").localizedDescription,
-            "The server vpn.example.com:443 did not answer by its name in time, so its last known address 192.0.2.10, confirmed \(date), was tried. "
+            PTError.knownAddressFailed(server: "vpn.example.com:443", tried: tried(.nameNotFound), log: "").localizedDescription,
+            "The server name vpn.example.com:443 could not be found, so its last known address 192.0.2.10, confirmed \(date), was tried. "
                 + "A server name was still needed there and could not be found either. Check the network connection and its DNS. Your sign-in was not sent."
         )
         XCTAssertEqual(
@@ -742,16 +831,16 @@ final class LastKnownAddressUnitTests: XCTestCase {
         XCTAssertFalse(tried(.unreachable).addressSentences.contains("()"))
         XCTAssertEqual(
             PTError.hostNotFoundAfterSignIn(server: "vpn.example.com:443", host: "", log: "").localizedDescription,
-            "Your sign-in was sent to vpn.example.com:443, but a server name it was sent on to could not be found. Check the network connection and its DNS."
-        )
+            "Your sign-in was sent to vpn.example.com:443, so a one-time code sent with it is used up, but a server name it was sent on to "
+                + "could not be found. Check the network connection and its DNS.")
     }
 
     /// Only no answer, a certificate refused or a name still missing at the address becomes `knownAddressFailed`;
     /// anything the server there said, or a sign-in that went out, stays as it was.
     func testWhichFailuresAtTheAddressAreExplained() {
         let entry = LastKnownAddress.Entry(host: "vpn.example.com", address: "192.0.2.10", confirmedAt: at)
-        func explained(_ error: PTError, byName: KnownAddressTry.ByName = .notFound) -> PTError? {
-            ConnectionManager.explaining(error, triedAt: entry, byName: byName, server: "vpn.example.com:443") as? PTError
+        func explained(_ error: PTError) -> PTError? {
+            ConnectionManager.explaining(error, triedAt: entry, server: "vpn.example.com:443") as? PTError
         }
         XCTAssertEqual(
             explained(.serverUnreachable(server: "x", reason: "Connection refused", log: "tail")),
@@ -760,8 +849,8 @@ final class LastKnownAddressUnitTests: XCTestCase {
             explained(.serverCertificateRejected(reason: "signer not found", pin: Out.otherPin, log: "tail")),
             .knownAddressFailed(server: "vpn.example.com:443", tried: tried(.certificateRefused, "signer not found"), log: "tail"))
         XCTAssertEqual(
-            explained(.hostNotFound(server: "x", log: "tail"), byName: .noAnswer),
-            .knownAddressFailed(server: "vpn.example.com:443", tried: tried(.nameNotFound, byName: .noAnswer), log: "tail"))
+            explained(.hostNotFound(server: "x", log: "tail")),
+            .knownAddressFailed(server: "vpn.example.com:443", tried: tried(.nameNotFound), log: "tail"))
         for other in [
             PTError.authFailed("tail"), .connectTimeout(60), .hostScanRequired(log: ""), .hostNotFoundAfterSignIn(server: "", host: "", log: "")
         ] {
@@ -773,14 +862,28 @@ final class LastKnownAddressUnitTests: XCTestCase {
         XCTAssertEqual(failure.reason, "Connection refused")
         XCTAssertEqual(failure.lastKnownAddress?.address, "192.0.2.10")
         XCTAssertFalse(failure.credentialsSent)
-        let noAnswer = ConnectionFailure.of(
-            PTError.knownAddressFailed(server: "s", tried: tried(.unreachable, byName: .noAnswer), log: ""), log: nil, handed: nil, at: at)
-        XCTAssertEqual(noAnswer.kind, .unreachable)
-        XCTAssertNil(noAnswer.reason)
+        let noReason = ConnectionFailure.of(
+            PTError.knownAddressFailed(server: "s", tried: tried(.unreachable), log: ""), log: nil, handed: nil, at: at)
+        XCTAssertEqual(noReason.kind, .hostNotFound)
+        XCTAssertNil(noReason.reason)
         let after = ConnectionFailure.of(
             PTError.hostNotFoundAfterSignIn(server: "s", host: "gw1.example.com", log: ""), log: nil, handed: .init(code: true), at: at)
         XCTAssertEqual(after.kind, .hostNotFound)
         XCTAssertTrue(after.credentialsSent && after.codeSent)
+        // The app shows it with its own message, which says the sign-in went out, not as "check the address".
+        XCTAssertEqual(DisplayStatus.Failure(after, error: "sent, then not found"), .message("sent, then not found"))
+        XCTAssertEqual(DisplayStatus.Failure(failure, error: "x"), .hostNotFound)
+        // Its lines: only in openconnect's exact shape at the end.
+        func lookup(_ text: String) -> String? { VPNLog.openConnectLookupFailure(VPNLog.openConnectLines(text)) }
+        let shape =
+            "getaddrinfo failed for host 'gw1.example.com': nodename nor servname provided, or not known\n"
+            + "Failed to open HTTPS connection to gw1.example.com\n"
+        XCTAssertEqual(lookup(shape + "Failed to complete authentication\n"), "gw1.example.com")
+        XCTAssertEqual(lookup(shape), "gw1.example.com")
+        XCTAssertNil(lookup(shape + "Login failed.\nFailed to complete authentication\n"), "not at the end")
+        XCTAssertNil(lookup(shape.replacingOccurrences(of: "connection to gw1", with: "connection to gw2")), "another name")
+        XCTAssertNil(lookup("Failed to open HTTPS connection to gw1.example.com\n"), "no lookup line")
+        XCTAssertNil(lookup("getaddrinfo failed for host 'gw1.example.com': no\n"), "no second line")
         XCTAssertEqual(StatusNotice.allCases.count, 2)
         XCTAssertFalse(StatusNotice.connectedThroughLastKnownAddress.message.isEmpty)
         // The tunnel run of a gateway gets its address too (`resolve`): it never looks the gateway up again.

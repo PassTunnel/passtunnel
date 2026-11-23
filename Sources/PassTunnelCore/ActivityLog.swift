@@ -22,10 +22,10 @@ public struct ActivityEvent: Equatable, Sendable {
         case waitingForCode(reason: CodeWait, seconds: Int, codePrefix: String?)
         /// The credentials were handed to the VPN tool.
         case sending(Sending)
-        /// The server's name (`host`) was not found, or did not answer in time (`byName`), before anything was sent:
-        /// the address (`address`, the server's) that name had at the last connection by it, `confirmedAt`, is tried
-        /// instead (`LastKnownAddress`). What follows is that try's outcome.
-        case tryingLastKnownAddress(host: String, address: String, confirmedAt: Date, byName: KnownAddressTry.ByName)
+        /// The server's name (`host`) was not found, before anything was sent: the address (`address`, the server's)
+        /// that name had at the last connection by it, `confirmedAt`, is tried instead (`LastKnownAddress`). What
+        /// follows is that try's outcome.
+        case tryingLastKnownAddress(host: String, address: String, confirmedAt: Date)
         /// The server accepted the sign-in (OpenVPN pushed the tunnel settings, openfortivpn "Authenticated").
         case authAccepted
         /// The tunnel is up with this address ("" when unknown). `viaLastKnownAddress`: the server's address it was
@@ -258,14 +258,9 @@ public struct ActivityEvent: Equatable, Sendable {
             }
             if let left = s.secondsLeft { text += " · " + String(localized: "\(left) s left") }
             return text
-        case let .tryingLastKnownAddress(host, address, confirmedAt, byName):
+        case let .tryingLastKnownAddress(host, address, confirmedAt):
             let date = PTError.dateText(confirmedAt)
-            switch byName {
-            case .notFound:
-                return String(localized: "Server name \(host) not found, trying its last known address \(address), confirmed \(date)")
-            case .noAnswer:
-                return String(localized: "No answer by the name \(host) in time, trying its last known address \(address), confirmed \(date)")
-            }
+            return String(localized: "Server name \(host) not found, trying its last known address \(address), confirmed \(date)")
         case .authAccepted:
             return String(localized: "Authentication accepted")
         case let .connected(address, via?):
@@ -372,7 +367,7 @@ extension ActivityEvent: Codable {
         case at, event, host, port, transport = "protocol", reason, seconds, codePrefix = "code_prefix", username,
             password, code, secondsLeft = "seconds_left", format, address, willReconnect = "will_reconnect",
             attempt, of, tries, nextAt = "next_at", reply, failure, credentialsSent = "credentials_sent",
-            serverAddress = "server_address", viaServerAddress = "via_server_address", confirmedAt = "confirmed_at", byName = "by_name",
+            serverAddress = "server_address", viaServerAddress = "via_server_address", confirmedAt = "confirmed_at",
             outcome
     }
 
@@ -400,7 +395,7 @@ extension ActivityEvent: Codable {
         case "trying_last_known_address":
             kind = .tryingLastKnownAddress(
                 host: try c.decode(String.self, forKey: .host), address: try c.decode(String.self, forKey: .serverAddress),
-                confirmedAt: try c.decode(Date.self, forKey: .confirmedAt), byName: try c.decode(KnownAddressTry.ByName.self, forKey: .byName))
+                confirmedAt: try c.decode(Date.self, forKey: .confirmedAt))
         case "auth_accepted": kind = .authAccepted
         case "connected":
             kind = .connected(
@@ -422,7 +417,6 @@ extension ActivityEvent: Codable {
             kind = .lastKnownAddressFailed(
                 KnownAddressTry(
                     address: try c.decode(String.self, forKey: .serverAddress), confirmedAt: try c.decode(Date.self, forKey: .confirmedAt),
-                    byName: try c.decode(KnownAddressTry.ByName.self, forKey: .byName),
                     outcome: try c.decode(KnownAddressTry.Outcome.self, forKey: .outcome),
                     reason: try c.decodeIfPresent(String.self, forKey: .reason) ?? ""))
         case "stopped_by_user": kind = .stoppedByUser
@@ -452,11 +446,10 @@ extension ActivityEvent: Codable {
             try c.encodeIfPresent(s.codePrefix, forKey: .codePrefix)
             try c.encodeIfPresent(s.secondsLeft, forKey: .secondsLeft)
             try c.encodeIfPresent(s.format, forKey: .format)
-        case let .tryingLastKnownAddress(host, address, confirmedAt, byName):
+        case let .tryingLastKnownAddress(host, address, confirmedAt):
             try c.encode(host, forKey: .host)
             try c.encode(address, forKey: .serverAddress)
             try c.encode(confirmedAt, forKey: .confirmedAt)
-            try c.encode(byName, forKey: .byName)
         case let .connected(address, via):
             try c.encode(address, forKey: .address)
             try c.encodeIfPresent(via, forKey: .viaServerAddress)
@@ -479,7 +472,6 @@ extension ActivityEvent: Codable {
         case .lastKnownAddressFailed(let tried):
             try c.encode(tried.address, forKey: .serverAddress)
             try c.encode(tried.confirmedAt, forKey: .confirmedAt)
-            try c.encode(tried.byName, forKey: .byName)
             try c.encode(tried.outcome, forKey: .outcome)
             if !tried.reason.isEmpty { try c.encode(tried.reason, forKey: .reason) }
         case .authAccepted, .stoppedByUser, .disconnectedByUser:

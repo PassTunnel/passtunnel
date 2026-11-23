@@ -69,8 +69,8 @@ public struct ConnectionFailure: Codable, Equatable, Sendable {
         case notGlobalProtectServer = "not_globalprotect_server"
     }
 
-    /// The name was not found (`hostNotFound`) or did not answer in time (`unreachable`), so the server's last known
-    /// address was tried, and how that ended (`PTError.knownAddressFailed`); `reason` is then that try's.
+    /// hostNotFound: the name was not found, so the server's last known address was tried, and how that ended with
+    /// nothing sent (`PTError.knownAddressFailed`); `reason` is then that try's.
     public var lastKnownAddress: KnownAddressTry?
 
     /// The JSON keys: every stored property but `detail`.
@@ -146,7 +146,7 @@ public struct ConnectionFailure: Codable, Equatable, Sendable {
             f.kind = .hostNotFound
         case let PTError.knownAddressFailed(_, tried, _):
             // The root cause stays the failure's kind: the name; the try at the address is the detail.
-            f.kind = tried.byName == .notFound ? .hostNotFound : .unreachable
+            f.kind = .hostNotFound
             f.reason = tried.reason.isEmpty ? nil : tried.reason
             f.credentialsSent = false
             f.lastKnownAddress = tried

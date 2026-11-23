@@ -967,7 +967,7 @@ final class MCPServerTests: XCTestCase {
         let failure = try XCTUnwrap((profile["failure"] as? [String: Any])?["properties"] as? [String: Any])
         let kinds = description(failure["kind"])
         for kind in ConnectionFailure.Kind.allCases { XCTAssertTrue(kinds.contains("\(kind.rawValue):"), kind.rawValue) }
-        for field in ["server_cert", "gateways", "clock", "credentials_sent", "code_sent"] {
+        for field in ["server_cert", "gateways", "clock", "credentials_sent", "code_sent", "last_known_address"] {
             XCTAssertFalse(description(failure[field]).isEmpty, field)
         }
         let notice = try XCTUnwrap(

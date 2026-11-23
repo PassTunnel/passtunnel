@@ -36,14 +36,14 @@ public enum PTError: Error, Equatable, LocalizedError {
     case toolUnsupported(reason: String, log: String)  // dyld stopped the VPN tool ("Symbol not found: _x"); log tail
     case serverUnreachable(server: String, reason: String, log: String)  // no answer, refused, no route: nothing sent; log tail
     case hostNotFound(server: String, log: String)  // the server's name did not resolve; log tail
-    /// The server could not be found by its name (or did not answer by it in time), so the address its name had at
-    /// the last successful connection by name (#292) was tried, and that failed too (`KnownAddressTry`). Nothing was
-    /// sent. Log tail of the try at the address. Its failure kind is `host_not_found`, or `unreachable` when the name
-    /// only did not answer in time.
+    /// The server's name could not be found, so the address that name had at the last successful connection by it
+    /// (#292) was tried, and that failed too, with nothing sent there (`KnownAddressTry`). Log tail of the try at the
+    /// address. Its failure kind is `host_not_found`, the root cause.
     case knownAddressFailed(server: String, tried: KnownAddressTry, log: String)
     /// The sign-in was sent, and then a server name it was sent on to (a Palo Alto GlobalProtect gateway, or another
     /// host the server named) could not be found: a name problem, not a refused sign-in. `host` is that name when
-    /// openconnect's line gave a valid one, else empty; log tail. Not retried automatically (the code is spent).
+    /// openconnect's lines gave a valid one, else empty; log tail. Not retried automatically (a code sent with it is
+    /// used up).
     case hostNotFoundAfterSignIn(server: String, host: String, log: String)
     case connectTimeout(Int)  // seconds
     case connectCancelled
@@ -163,12 +163,12 @@ public enum PTError: Error, Equatable, LocalizedError {
             if host.isEmpty {
                 return String(
                     localized:
-                        "Your sign-in was sent to \(server), but a server name it was sent on to could not be found. Check the network connection and its DNS."
+                        "Your sign-in was sent to \(server), so a one-time code sent with it is used up, but a server name it was sent on to could not be found. Check the network connection and its DNS."
                 )
             }
             return String(
                 localized:
-                    "Your sign-in was sent to \(server), but the server name \(host) it was sent on to could not be found. Check the network connection and its DNS."
+                    "Your sign-in was sent to \(server), so a one-time code sent with it is used up, but the server name \(host) it was sent on to could not be found. Check the network connection and its DNS."
             )
         case .connectTimeout(let seconds):
             return String(localized: "The VPN did not connect within \(seconds) seconds.")
@@ -248,21 +248,13 @@ extension PTError {
     }
 }
 
-/// A try at the address a server's name had at the last successful connection by name (#292), after the name failed,
-/// that failed as well (`PTError.knownAddressFailed`). In JSON (`ConnectionFailure.lastKnownAddress`): `address`,
-/// `confirmed_at`, `by_name`, `outcome`, `reason`.
+/// A try at the address a server's name had at the last successful connection by that name (#292), after the name
+/// was not found, that failed as well with nothing sent (`PTError.knownAddressFailed`). In JSON
+/// (`ConnectionFailure.lastKnownAddress`): `address`, `confirmed_at`, `outcome`, `reason`.
 public struct KnownAddressTry: Codable, Equatable, Sendable {
-    /// What happened by the name.
-    public enum ByName: String, Codable, Sendable {
-        /// The name could not be resolved.
-        case notFound = "not_found"
-        /// Nothing came back by the name in time, before anything was sent (the lookup or the connection hung).
-        case noAnswer = "no_answer"
-    }
-
     /// What happened at the address.
     public enum Outcome: String, Codable, Sendable {
-        /// It could not be reached: refused, timed out, no route, no TLS answer, nothing in time.
+        /// It could not be reached: refused, timed out, no route, no TLS answer, nothing before the sign-in's time limit.
         case unreachable
         /// A server there failed the certificate check; the address was forgotten.
         case certificateRefused = "certificate_refused"
@@ -274,15 +266,13 @@ public struct KnownAddressTry: Codable, Equatable, Sendable {
     public var address: String
     /// When a connection by the server's name last used that address.
     public var confirmedAt: Date
-    public var byName: ByName
     public var outcome: Outcome
     /// The tool's words for the outcome ("Connection refused"); may be empty.
     public var reason: String
 
-    public init(address: String, confirmedAt: Date, byName: ByName, outcome: Outcome, reason: String) {
+    public init(address: String, confirmedAt: Date, outcome: Outcome, reason: String) {
         self.address = address
         self.confirmedAt = confirmedAt
-        self.byName = byName
         self.outcome = outcome
         self.reason = reason
     }
@@ -293,18 +283,9 @@ public struct KnownAddressTry: Codable, Equatable, Sendable {
     /// refused). Check the network connection and its DNS."
     public func sentences(server: String) -> String {
         let date = PTError.dateText(confirmedAt)
-        let first: String
-        switch byName {
-        case .notFound:
-            first = String(
-                localized: "The server name \(server) could not be found, so its last known address \(address), confirmed \(date), was tried.")
-        case .noAnswer:
-            first = String(
-                localized:
-                    "The server \(server) did not answer by its name in time, so its last known address \(address), confirmed \(date), was tried.")
-        }
-        let second = outcomeSentence
-        return first + " " + second
+        let first = String(
+            localized: "The server name \(server) could not be found, so its last known address \(address), confirmed \(date), was tried.")
+        return first + " " + outcomeSentence
     }
 
     /// The try at the address alone, for a place that already says what happened by the name (the app's failure
