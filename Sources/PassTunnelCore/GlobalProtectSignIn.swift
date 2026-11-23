@@ -168,6 +168,8 @@ struct GlobalProtectSignIn: @unchecked Sendable {
         /// What the sign-in's output showed, typed (`ConnectionFailure.detail`).
         var detail: ConnectionFailure.Detail?
         var secondPartAt: Date?
+        /// As `AnyConnectSignIn.Failure.noConnection`.
+        var noConnection = false
     }
 
     /// Runs the sign-in for `config` (`protocol: .gp`) with `answers` (the first part) and `second` on standard
@@ -224,6 +226,17 @@ struct GlobalProtectSignIn: @unchecked Sendable {
             return failed(PTError.connectCancelled)
         } catch let timedOut as ToolTimeout {
             let log = AnyConnectSignIn.log(AnyConnectSignIn.redacted(timedOut.errorOutput, secrets: secrets + written.secrets))
+            // Nothing sent (no second part either) and nothing answered: no answer, the code goes back.
+            let text = String(decoding: timedOut.errorOutput, as: UTF8.self)
+            if written.at == nil, timedOut.errorOutput.count < SystemToolRunner.maxOutput,
+                let noConnection = VPNLog.openConnectTimeoutUnanswered(text, sent: VPNLog.globalProtectCredentialsSent(text))
+            {
+                var failure = Failure(
+                    error: AnyConnectSignIn.noAnswer(timedOut, server: server, log: log), log: log, credentialsSent: false,
+                    secondPartAt: written.at)
+                failure.noConnection = noConnection
+                return .failure(failure)
+            }
             return failed(PTError.connectTimeout(timedOut.seconds), log: log, sent: true)
         } catch {
             return failed(PTError.fileError(toolPath))

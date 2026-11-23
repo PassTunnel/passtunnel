@@ -43,16 +43,15 @@ public struct FailureDetails: Equatable {
         }
         lines.append(String(localized: "Result: \(result)"))
         if let tried = failure.lastKnownAddress {
-            let since = f.string(from: tried.learnedAt)
-            let reason = failure.reason ?? ""
-            lines.append(
-                tried.certificateRefused
-                    ? String(
-                        localized:
-                            "Tried instead: the last known address \(tried.address) (remembered since \(since)); the server there failed the certificate check (\(reason)), so the address was forgotten"
-                    )
-                    : String(
-                        localized: "Tried instead: the last known address \(tried.address) (remembered since \(since)); no answer (\(reason))"))
+            let confirmed = f.string(from: tried.confirmedAt)
+            var outcome: String
+            switch tried.outcome {
+            case .unreachable: outcome = String(localized: "it could not be reached")
+            case .certificateRefused: outcome = String(localized: "the server there failed the certificate check, and the address was forgotten")
+            case .nameNotFound: outcome = String(localized: "a server name was still needed and could not be found")
+            }
+            if !tried.reason.isEmpty { outcome += " (\(tried.reason))" }
+            lines.append(String(localized: "Tried instead: the last known address \(tried.address), confirmed \(confirmed): \(outcome)"))
         }
         lines.append(
             failure.credentialsSent

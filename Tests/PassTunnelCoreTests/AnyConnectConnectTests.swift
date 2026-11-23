@@ -27,6 +27,10 @@ final class FakeOpenConnect: ToolRunning, @unchecked Sendable {
     private var _sawCancel = false
     /// The run waits until it is cancelled, then throws `ToolCancelled`.
     var blockUntilCancelled = false
+    /// The same from this run on (0-based), the runs before it return their results.
+    var blockFromRun = Int.max
+    /// Called with the run's index (0-based) on the runner's thread, before its result is returned.
+    var onRun: ((Int) -> Void)?
 
     var calls: [Call] {
         lock.lock()
@@ -74,9 +78,11 @@ final class FakeOpenConnect: ToolRunning, @unchecked Sendable {
             directoryMode: mode((configPath as NSString).deletingLastPathComponent), timeout: timeout)
         lock.lock()
         _calls.append(call)
+        let index = _calls.count - 1
         let result = _results.count > 1 ? _results.removeFirst() : _results.first
         lock.unlock()
-        if blockUntilCancelled {
+        onRun?(index)
+        if blockUntilCancelled || index >= blockFromRun {
             while cancellation?.isCancelled != true { usleep(5000) }
             lock.lock()
             _sawCancel = true
@@ -589,15 +595,15 @@ extension ConnectionManagerTests {
     }
 
     /// Once a form may have been submitted, whatever the rest of the output says (the server's text is in it),
-    /// the sign-in counts as refused: not retried, not reported as unsent, the code kept as spent.
+    /// the sign-in counts as refused: not retried, not reported as unsent, the code kept as spent. A name not found
+    /// then is the exception (#292): a name problem (`hostNotFoundAfterSignIn`), equally never retried and spent.
     func testAfterAFormEverythingIsARejection() async throws {
         let afterForm = Out.post + Out.tls + "XML POST enabled\n" + Out.post
         let cases = [
             Out.lostAfterForm,
             // A rejection message holding openconnect's own words, and a host scan asked for only now.
             afterForm + "Login failed.\nFailed to open HTTPS connection to vpn.example.com\n" + Out.failed,
-            afterForm + "Error: Server asked us to run CSD hostscan.\nYou need to provide a suitable --csd-wrapper argument.\n" + Out.failed,
-            afterForm + "getaddrinfo failed for host 'vpn.example.com': no\n" + Out.failed
+            afterForm + "Error: Server asked us to run CSD hostscan.\nYou need to provide a suitable --csd-wrapper argument.\n" + Out.failed
         ]
         for stderr in cases {
             let r = try await signInFailure(Out.output(status: 1, stderr: stderr))
@@ -607,6 +613,16 @@ extension ConnectionManagerTests {
             XCTAssertFalse(ConnectionManager.isRetryable(r.error))
             XCTAssertNotNil(r.manager.usedCode(r.profile.id), "the code stays spent")
         }
+        let notFound = afterForm + "getaddrinfo failed for host 'vpn.example.com': no\n" + Out.failed
+        let r = try await signInFailure(Out.output(status: 1, stderr: notFound))
+        XCTAssertEqual(
+            r.error as? PTError,
+            .hostNotFoundAfterSignIn(
+                server: "vpn.example.com:8443", host: "vpn.example.com", log: VPNLog.tail(VPNLog.read(store.logURL(r.profile.id)))))
+        XCTAssertEqual(r.failure.kind, .hostNotFound)
+        XCTAssertTrue(r.failure.credentialsSent)
+        XCTAssertFalse(ConnectionManager.isRetryable(r.error))
+        XCTAssertNotNil(r.manager.usedCode(r.profile.id), "the code stays spent")
     }
 
     /// openconnect's messages count only as the whole lines it writes.
@@ -643,7 +659,8 @@ extension ConnectionManagerTests {
 
     /// A run stopped at the deadline: what it did last is unknown, so the code counts as sent.
     func testATimeoutKeepsTheCodeSpent() async throws {
-        for stderr in [Out.post, Out.post + Out.tls + Out.post] {
+        // A TLS session came up (the form may be on its way): the code counts as sent.
+        for stderr in [Out.post + Out.tls + Out.post, Out.post + Out.tls] {
             let r = try await signInFailure(.failure(ToolTimeout(seconds: 60, errorOutput: Data(stderr.utf8))))
             XCTAssertEqual(r.error as? PTError, .connectTimeout(60))
             XCTAssertEqual(r.failure.kind, .timeout)
@@ -651,6 +668,24 @@ extension ConnectionManagerTests {
             XCTAssertNotNil(r.manager.usedCode(r.profile.id))
             XCTAssertEqual(VPNLog.read(store.logURL(r.profile.id)), stderr)
         }
+    }
+
+    /// #292: stopped at the limit with nothing sent and no TLS session (the name lookup or the connection hung):
+    /// no answer, and the code goes back.
+    func testATimeoutThatNothingAnsweredIsNoAnswer() async throws {
+        for stderr in [Out.post, Out.post + "Connected to 192.0.2.10:8443\n"] {
+            let r = try await signInFailure(.failure(ToolTimeout(seconds: 60, errorOutput: Data(stderr.utf8))))
+            XCTAssertEqual(
+                r.error as? PTError,
+                .serverUnreachable(server: "vpn.example.com:8443", reason: "no answer within 60 seconds", log: VPNLog.tail(stderr)))
+            XCTAssertEqual(r.failure.kind, .unreachable)
+            XCTAssertFalse(r.failure.credentialsSent)
+            XCTAssertNil(r.manager.usedCode(r.profile.id), "given back")
+        }
+        XCTAssertEqual(VPNLog.openConnectTimeoutUnanswered(Out.post, sent: false), true, "no connection at all")
+        XCTAssertEqual(VPNLog.openConnectTimeoutUnanswered(Out.post + "Connected to 192.0.2.10:8443\n", sent: false), false)
+        XCTAssertNil(VPNLog.openConnectTimeoutUnanswered(Out.post + Out.tls, sent: false))
+        XCTAssertNil(VPNLog.openConnectTimeoutUnanswered(Out.post, sent: true))
     }
 
     /// A banner past the log's limit does not hide the form that was submitted after it.

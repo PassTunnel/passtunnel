@@ -36,10 +36,12 @@ final class ActivityLogTests: CoreTestCase {
             .rejected(reply: "AUTH_FAILED,Invalid OTP"), .rejected(reply: nil),
             .failed(kind: .hostNotFound, reason: "Name or service not known", credentialsSent: false),
             .failed(kind: .timeout, reason: nil, credentialsSent: true), .stoppedByUser, .disconnectedByUser,
-            .tryingLastKnownAddress(host: "vpn.example.com", address: "203.0.113.5"),
+            .tryingLastKnownAddress(host: "vpn.example.com", address: "203.0.113.5", confirmedAt: t0, byName: .notFound),
             .connected(address: "10.8.0.6", viaLastKnownAddress: "203.0.113.5"),
-            .lastKnownAddressFailed(address: "203.0.113.5", learnedAt: t0, reason: "Connection refused", certificateRefused: false),
-            .lastKnownAddressFailed(address: "203.0.113.5", learnedAt: t0, reason: nil, certificateRefused: true)
+            .lastKnownAddressFailed(
+                KnownAddressTry(address: "203.0.113.5", confirmedAt: t0, byName: .notFound, outcome: .unreachable, reason: "Connection refused")),
+            .lastKnownAddressFailed(
+                KnownAddressTry(address: "203.0.113.5", confirmedAt: t0, byName: .noAnswer, outcome: .certificateRefused, reason: ""))
         ]
     }
 

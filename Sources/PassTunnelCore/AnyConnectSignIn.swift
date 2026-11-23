@@ -156,6 +156,9 @@ struct AnyConnectSignIn: @unchecked Sendable {
         var error: Error
         var log: String
         var credentialsSent: Bool
+        /// Stopped at its time limit without any connection made (`VPNLog.openConnectTimeoutUnanswered`): the name
+        /// lookup, or a connection to an address that never answered, took the time.
+        var noConnection = false
     }
 
     /// Runs the sign-in for `config` with `answers` on standard input (overwritten by the caller), and checks
@@ -204,8 +207,16 @@ struct AnyConnectSignIn: @unchecked Sendable {
         } catch is ToolCancelled {
             return failed(PTError.connectCancelled)
         } catch let timedOut as ToolTimeout {
-            // Stopped part-way: what it did last is not known, so the code counts as sent.
             let log = Self.log(Self.redacted(timedOut.errorOutput, secrets: secrets))
+            // Nothing sent and nothing answered (all of standard error kept): no answer, the code goes back.
+            let text = String(decoding: timedOut.errorOutput, as: UTF8.self)
+            if timedOut.errorOutput.count < SystemToolRunner.maxOutput,
+                let noConnection = VPNLog.openConnectTimeoutUnanswered(text, sent: VPNLog.openConnectCredentialsSent(text))
+            {
+                return .failure(
+                    Failure(error: Self.noAnswer(timedOut, server: server, log: log), log: log, credentialsSent: false, noConnection: noConnection))
+            }
+            // Stopped part-way: what it did last is not known, so the code counts as sent.
             return failed(PTError.connectTimeout(timedOut.seconds), log: log, sent: true)
         } catch {
             return failed(PTError.fileError(toolPath))
@@ -244,6 +255,11 @@ struct AnyConnectSignIn: @unchecked Sendable {
         } catch {
             return failed(PTError.signInUnusable(String(describing: error)), log: log, sent: true)
         }
+    }
+
+    /// A run stopped at its time limit that nothing answered: `serverUnreachable` with the time.
+    static func noAnswer(_ timedOut: ToolTimeout, server: String, log: String) -> PTError {
+        .serverUnreachable(server: server, reason: String(localized: "no answer within \(timedOut.seconds) seconds"), log: VPNLog.tail(log))
     }
 
     /// What standard output's `COOKIE='…'` holds, as literal secrets, without the parser's rules: the value up to

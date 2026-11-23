@@ -169,6 +169,33 @@ extension VPNLog {
         return verdict
     }
 
+    /// A sign-in run stopped at its time limit (`ToolTimeout`) whose standard error (`text`, whole) shows that nothing
+    /// was sent (`sent` false: no form, by the caller's rule for the protocol) and that no TLS session with a server
+    /// came up: nothing answered, so it is no answer (`serverUnreachable`), not a timeout of a sign-in that may have
+    /// used the code. Returns whether not even a TCP connection was made ("Connected to <address>:<port>" is
+    /// openconnect's own line after `connect`, ssl.c 459), so that the time went on the name lookup or on a
+    /// connection to an address that never answered; nil when something answered or may have been sent.
+    static func openConnectTimeoutUnanswered(_ text: String, sent: Bool) -> Bool? {
+        guard !sent else { return nil }
+        let lines = openConnectLines(text)
+        guard !lines.contains(where: { $0.hasPrefix("Connected to HTTPS on ") }) else { return nil }
+        return !lines.contains { $0.hasPrefix("Connected to ") }
+    }
+
+    /// A server name openconnect could not resolve ("getaddrinfo failed for host '<name>': …", ssl.c 410): the
+    /// name when it is a valid host, "" when the line names something else; nil without such a line. Read from
+    /// whole printable lines only; a server could print such a line in a message, which can at most turn its own
+    /// refusal into this (also never retried).
+    static func openConnectLookupFailure(_ lines: [Substring]) -> String? {
+        for line in lines.reversed() where line.hasPrefix("getaddrinfo failed for host '") {
+            let rest = line.dropFirst("getaddrinfo failed for host '".count)
+            guard let quote = rest.firstIndex(of: "'") else { return "" }
+            let name = String(rest[..<quote])
+            return OpenConnectAuthConfig.isValidHost(name) ? name.lowercased() : ""
+        }
+        return nil
+    }
+
     /// Why a sign-in run that did not end with a session cookie failed, from its standard error (`text`, the
     /// whole of it, redacted) and its exit status (128 + the signal when one ended it). `credentialsSent`: the
     /// caller's verdict over the complete output (`openConnectCredentialsSent`, or true when it has only part
@@ -177,7 +204,8 @@ extension VPNLog {
     /// 1. dyld stopped openconnect (`toolUnsupported`: it never ran);
     /// 2. once a form may have been submitted, `authFailed` whatever else the output says: the server's
     ///    text is in it by then, and nothing is retried or reported as unsent that may have used the code
-    ///    (a host scan asked for only then is a refused sign-in too);
+    ///    (a host scan asked for only then is a refused sign-in too); except a name that could not be
+    ///    found then (`openConnectLookupFailure`): `hostNotFoundAfterSignIn`, also never retried;
     /// 3. the server asked for a host scan, in openconnect's two exact lines (`hostScanRequired`);
     /// 4. before any TLS session with the server: its certificate refused (`serverCertificateRejected`), its
     ///    name not found (`hostNotFound`), no answer (`serverUnreachable`);
@@ -191,8 +219,12 @@ extension VPNLog {
     ) -> PTError {
         let tail = tail(text)
         if status > 128, let reason = toolLoadFailure(text) { return .toolUnsupported(reason: reason, log: tail) }
-        if credentialsSent { return .authFailed(tail) }
         let lines = openConnectLines(text)
+        if credentialsSent {
+            // A name that could not be found after the sign-in went out (a server that sends it on): a name problem.
+            if let host = openConnectLookupFailure(lines) { return .hostNotFoundAfterSignIn(server: server, host: host, log: tail) }
+            return .authFailed(tail)
+        }
         if openConnectAskedForHostScan(lines) { return .hostScanRequired(log: tail) }
         let early = openConnectBeforeServer(text)
         if let failure = openConnectCertificateFailure(early) {

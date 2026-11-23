@@ -119,7 +119,7 @@ final class MCPTools {
         Tool(
             name: "get_status", title: "Get connection status",
             description:
-                "Reports the connection state of every VPN profile, or of one: disconnected, connecting or connected. Use it to answer whether a VPN is up, which tunnel address it has and since when, or why its last connect failed (failure). Use get_logs instead when failure does not explain enough and the VPN tool's own output is needed, and diagnose when the cause may be the installation, a profile's configuration or its saved credentials. Each call asks the privileged helper that starts VPNs which ones are running before it answers. The helper object says whether that helper is installed and current. PassTunnel does not retry a failure of kind auth_rejected, host_scan_required or sso_required: tell the user instead of connecting again. connect_refusal means this system cannot connect the profile at all. A connected profile can have notices to pass on to the user (Palo Alto GlobalProtect: hip_report_not_sent; Cisco AnyConnect and Palo Alto GlobalProtect: connected_through_last_known_address, the server's name could not be resolved and its last known address was used). A failure of kind host_not_found with last_known_address means the name could not be resolved and the address remembered from the last successful connection failed too: both the DNS and that address are involved.",
+                "Reports the connection state of every VPN profile, or of one: disconnected, connecting or connected. Use it to answer whether a VPN is up, which tunnel address it has and since when, or why its last connect failed (failure). Use get_logs instead when failure does not explain enough and the VPN tool's own output is needed, and diagnose when the cause may be the installation, a profile's configuration or its saved credentials. Each call asks the privileged helper that starts VPNs which ones are running before it answers. The helper object says whether that helper is installed and current. PassTunnel does not retry a failure of kind auth_rejected, host_scan_required or sso_required: tell the user instead of connecting again. connect_refusal means this system cannot connect the profile at all. A connected profile can have notices to pass on to the user (Palo Alto GlobalProtect: hip_report_not_sent; Cisco AnyConnect and Palo Alto GlobalProtect: connected_through_last_known_address, the server's name could not be resolved and its last known address was used). A failure with last_known_address means the server's name failed and its last known address failed too: both the DNS and that address are involved.",
             input: Schema.object(["profile_id": Schema.profileID(optional: true)]), output: Schema.statusReport, readOnly: true),
         Tool(
             name: "get_logs", title: "Read VPN log",
@@ -434,7 +434,7 @@ enum Schema {
             [
                 "kind": described(
                     oneOf(ConnectionFailure.Kind.allCases.map(\.rawValue)),
-                    "auth_rejected: the server refused the sign-in (never retried). host_not_found: the server's name could not be resolved (with last_known_address when its remembered address was tried as well and failed too). unreachable: the server could not be reached (connection refused or timed out, no route, no TLS answer in time); the sign-in was not sent. configuration: the configuration, a key or the server's certificate was refused, or something the profile needs is missing. setup: setting up the tunnel's network, such as its routes or DNS, failed. timeout: the tunnel did not come up in time. cancelled: stopped before it finished. tool_unsupported: the VPN tool does not run on this macOS version. host_scan_required: a Cisco AnyConnect server requires a host scan, which PassTunnel never runs. sso_required: a Palo Alto GlobalProtect portal or gateway signs in with single sign-on, which PassTunnel does not support. failed: anything else."
+                    "auth_rejected: the server refused the sign-in (never retried). host_not_found: the server's name could not be resolved (with last_known_address when its last known address was tried as well and failed too; with credentials_sent when a name the sign-in was sent on to, such as a gateway's, could not be found: not retried). unreachable: the server could not be reached (connection refused or timed out, no route, no TLS answer in time); the sign-in was not sent. configuration: the configuration, a key or the server's certificate was refused, or something the profile needs is missing. setup: setting up the tunnel's network, such as its routes or DNS, failed. timeout: the tunnel did not come up in time. cancelled: stopped before it finished. tool_unsupported: the VPN tool does not run on this macOS version. host_scan_required: a Cisco AnyConnect server requires a host scan, which PassTunnel never runs. sso_required: a Palo Alto GlobalProtect portal or gateway signs in with single sign-on, which PassTunnel does not support. failed: anything else."
                 ),
                 "at": ["type": "string", "format": "date-time"],
                 "reply": described(string, "The server's reply, with credentials redacted."),
@@ -453,9 +453,11 @@ enum Schema {
                 ),
                 "last_known_address": described(
                     result(
-                        ["address": string, "learned_at": dateTime, "certificate_refused": bool],
-                        required: ["address", "learned_at", "certificate_refused"]),
-                    "For host_not_found: the server's name could not be resolved, so the address it had at its last successful connection (remembered since learned_at) was tried too, and nothing answered there (reason says why) or a server there failed the certificate check (certificate_refused; the address was then forgotten). Both the DNS and that address are involved; the sign-in was not sent."
+                        [
+                            "address": string, "confirmed_at": dateTime, "by_name": oneOf(["not_found", "no_answer"]),
+                            "outcome": oneOf(["unreachable", "certificate_refused", "name_not_found"]), "reason": string
+                        ], required: ["address", "confirmed_at", "by_name", "outcome", "reason"]),
+                    "The server's name could not be resolved (by_name not_found; the failure kind is host_not_found) or did not answer in time (no_answer; kind unreachable), so the address that name had at the last connection by it (confirmed_at) was tried too, and failed: it could not be reached (unreachable), a server there failed the certificate check (certificate_refused; the address was then forgotten), or a server name was still needed there and not found (name_not_found). Both the DNS and that address are involved; the sign-in was not sent."
                 )
             ], required: ["kind", "at", "credentials_sent", "code_sent"]),
         "Why the last connect failed.")
@@ -519,7 +521,8 @@ enum Schema {
             "reason": string, "seconds": int, "username": string, "password": bool, "code": bool,
             "seconds_left": int, "format": string, "address": string, "will_reconnect": bool, "attempt": int, "of": int,
             "tries": int, "next_at": dateTime, "reply": string, "failure": oneOf(ConnectionFailure.Kind.allCases.map(\.rawValue)),
-            "credentials_sent": bool, "last_known_address": string, "learned_at": dateTime, "certificate_refused": bool
+            "credentials_sent": bool, "server_address": string, "via_server_address": string, "confirmed_at": dateTime,
+            "by_name": oneOf(["not_found", "no_answer"]), "outcome": oneOf(["unreachable", "certificate_refused", "name_not_found"])
         ], required: ["at", "event"])
 
     static let logReport = result(
@@ -538,8 +541,8 @@ enum Schema {
             "password_saved": bool, "totp_saved": bool, "asks_for": array(oneOf(["username", "password", "otp"])),
             "problems": array(errorReport), "clock": clock, "experimental": experimental,
             "last_known_address": described(
-                result(["host": string, "address": string, "learned_at": dateTime], required: ["host", "address", "learned_at"]),
-                "Cisco AnyConnect and Palo Alto GlobalProtect: the address the server had at its last successful connection, kept for when its name cannot be resolved, and since when. Read from this computer only; nothing is contacted."
+                result(["host": string, "address": string, "confirmed_at": dateTime], required: ["host", "address", "confirmed_at"]),
+                "Cisco AnyConnect, and Palo Alto GlobalProtect with skip_portal: the address the server's name had at the last connection by that name (confirmed_at), kept for when the name cannot be resolved. Read from this computer only; nothing is contacted."
             )
         ], required: ["id", "name", "type", "ok", "server", "protected", "asks_for", "problems"])
 

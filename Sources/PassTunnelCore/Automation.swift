@@ -106,7 +106,9 @@ public enum AutomationErrorCode: String, Codable, CaseIterable, Sendable {
             .serverCertificateRejected, .signInNeedsMoreAnswers, .signInUnusable, .ssoRequired, .gatewayCertificateRejected:
             return .connectFailed
         case .serverUnreachable: return .serverUnreachable
-        case .hostNotFound, .knownAddressFailed: return .hostNotFound
+        case .hostNotFound, .hostNotFoundAfterSignIn: return .hostNotFound
+        // The name only did not answer in time (`byName` no_answer): as for the failure's kind, unreachable.
+        case .knownAddressFailed(_, let tried, _): return tried.byName == .notFound ? .hostNotFound : .serverUnreachable
         case .authFailed: return .credentialsRejected
         case .connectTimeout: return .timeout
         case .otherVPNActive: return .otherVPNActive

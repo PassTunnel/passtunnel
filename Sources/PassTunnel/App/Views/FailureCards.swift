@@ -308,7 +308,10 @@ struct UnreachableCard: View {
         Card(style: .compact) {
             Lead(text: Text(lead))
             networkRow(network)
-            DiagnosisRow(symbol: .rejected, title: Self.title(server), detail: failure?.reason.flatMap { $0.isEmpty ? nil : Text($0) })
+            // After a try at the last known address (the name did not answer in time), what that try met.
+            DiagnosisRow(
+                symbol: .rejected, title: Self.title(server),
+                detail: failure?.lastKnownAddress.map { Text($0.addressSentences) } ?? failure?.reason.flatMap { $0.isEmpty ? nil : Text($0) })
             DiagnosisRow(
                 symbol: .info, title: Text(String(localized: "On a guest or hotel network?")),
                 detail: Text(String(localized: "Some networks block VPN traffic. Try another network or ask your IT team.")))
@@ -410,8 +413,8 @@ struct MessageCard: View {
     /// try met), and that nothing was sent.
     static func lines(_ failure: ConnectionFailure, shown: String) -> [String] {
         var lines: [String] = []
-        if let tried = failure.lastKnownAddressSentence {
-            lines.append(tried)
+        if let tried = failure.lastKnownAddress {
+            lines.append(tried.addressSentences)
         } else if let reason = failure.reason?.trimmingCharacters(in: .whitespacesAndNewlines), !reason.isEmpty, reason != shown {
             lines.append(reason)
         }

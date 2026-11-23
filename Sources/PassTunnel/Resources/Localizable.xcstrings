@@ -483,6 +483,16 @@
         }
       }
     },
+    "(confirmed %@ ago)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(%@ önce doğrulandı)"
+          }
+        }
+      }
+    },
     "(macOS status %lld)" : {
       "localizations" : {
         "tr" : {
@@ -499,16 +509,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "(güncel değil; “passtunnel helper install” ile güncellenir)"
-          }
-        }
-      }
-    },
-    "(remembered %@ ago)" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "(%@ önce kaydedildi)"
           }
         }
       }
@@ -683,6 +683,26 @@
         }
       }
     },
+    "a server name was still needed and could not be found" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "bir sunucu adı yine gerekti ve bulunamadı"
+          }
+        }
+      }
+    },
+    "A server name was still needed there and could not be found either. Check the network connection and its DNS." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Orada da bir sunucu adı gerekti ve o da bulunamadı. Ağ bağlantısını ve DNS’ini denetleyin."
+          }
+        }
+      }
+    },
     "A user name can have at most 255 bytes, no control characters and no “=” at the start." : {
       "localizations" : {
         "tr" : {
@@ -829,6 +849,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "BT ekibinize sorun"
+          }
+        }
+      }
+    },
+    "At the last known address %@, a server name was still needed and could not be found" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilinen son adres %@ üzerinde bir sunucu adı yine gerekti ve bulunamadı"
           }
         }
       }
@@ -1003,22 +1033,42 @@
         }
       }
     },
-    "Its last known address %@, remembered from %@, was tried too and did not answer (%@)." : {
+    "it could not be reached" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bilinen son adresi %1$@ (%2$@ tarihinden kalma) da denendi ve yanıt vermedi (%3$@)."
+            "value" : "ulaşılamadı"
           }
         }
       }
     },
-    "Its last known address %@, remembered from %@, was tried too; the server there failed the certificate check (%@), so that address was forgotten." : {
+    "It could not be reached there either (%@). Check the network connection and its DNS." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bilinen son adresi %1$@ (%2$@ tarihinden kalma) da denendi; oradaki sunucu sertifika denetiminden geçemedi (%3$@), bu yüzden bu adres unutuldu."
+            "value" : "Oradan da ulaşılamadı (%@). Ağ bağlantısını ve DNS’ini denetleyin."
+          }
+        }
+      }
+    },
+    "It could not be reached there either. Check the network connection and its DNS." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oradan da ulaşılamadı. Ağ bağlantısını ve DNS’ini denetleyin."
+          }
+        }
+      }
+    },
+    "Its last known address %@, confirmed %@, was tried as well." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilinen son adresi %1$@ (%2$@ tarihinde doğrulandı) de denendi."
           }
         }
       }
@@ -1079,6 +1129,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Yeni %@ Profili…"
+          }
+        }
+      }
+    },
+    "No answer by the name %@ in time, trying its last known address %@, confirmed %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ adıyla zamanında yanıt yok, bilinen son adresi %2$@ deneniyor (%3$@ tarihinde doğrulandı)"
           }
         }
       }
@@ -1243,32 +1303,12 @@
         }
       }
     },
-    "Server name %@ not found, trying its last known address %@" : {
+    "Server name %@ not found, trying its last known address %@, confirmed %@" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sunucu adı %1$@ bulunamadı, bilinen son adresi %2$@ deneniyor"
-          }
-        }
-      }
-    },
-    "Server name not found, and its last known address %@ (from %@) did not answer" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sunucu adı bulunamadı, bilinen son adresi %1$@ (%2$@ tarihinden) de yanıt vermedi"
-          }
-        }
-      }
-    },
-    "Server name not found, and the server at its last known address %@ (from %@) failed the certificate check; that address was forgotten" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sunucu adı bulunamadı, bilinen son adresi %1$@ (%2$@ tarihinden) üzerindeki sunucu da sertifika denetiminden geçemedi; bu adres unutuldu"
+            "value" : "Sunucu adı %1$@ bulunamadı, bilinen son adresi %2$@ deneniyor (%3$@ tarihinde doğrulandı)"
           }
         }
       }
@@ -1349,6 +1389,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ağ geçidinin portalın listelediği adı. Portal birden fazla listelediğinde gerekir; aksi halde boş bırakın."
+          }
+        }
+      }
+    },
+    "The last known address %@ could not be reached either" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilinen son adres %@ da ulaşılamadı"
           }
         }
       }
@@ -1453,22 +1503,32 @@
         }
       }
     },
-    "The server name %@ could not be found, so its address remembered from %@, %@, was tried. It did not answer either (%@): check the network connection and its DNS. Your sign-in was not sent." : {
+    "The server %@ did not answer by its name in time, so its last known address %@, confirmed %@, was tried." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sunucu adı %1$@ bulunamadı, bu yüzden %2$@ tarihinden kalma adresi %3$@ denendi. O da yanıt vermedi (%4$@): ağ bağlantısını ve DNS’ini denetleyin. Oturum açma bilgileriniz gönderilmedi."
+            "value" : "%1$@ sunucusu adıyla zamanında yanıt vermedi, bu yüzden bilinen son adresi %2$@ (%3$@ tarihinde doğrulandı) denendi."
           }
         }
       }
     },
-    "The server name %@ could not be found, so its address remembered from %@, %@, was tried. The server there failed the certificate check (%@), so that address was forgotten. Your sign-in was not sent." : {
+    "The server at the last known address %@ failed the certificate check; that address was forgotten" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sunucu adı %1$@ bulunamadı, bu yüzden %2$@ tarihinden kalma adresi %3$@ denendi. Oradaki sunucu sertifika denetiminden geçemedi (%4$@), bu yüzden bu adres unutuldu. Oturum açma bilgileriniz gönderilmedi."
+            "value" : "Bilinen son adres %@ üzerindeki sunucu sertifika denetiminden geçemedi; bu adres unutuldu"
+          }
+        }
+      }
+    },
+    "The server name %@ could not be found, so its last known address %@, confirmed %@, was tried." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu adı %1$@ bulunamadı, bu yüzden bilinen son adresi %2$@ (%3$@ tarihinde doğrulandı) denendi."
           }
         }
       }
@@ -1479,6 +1539,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sunucu çoklu oturum açma (SAML) ile oturum açtırıyor"
+          }
+        }
+      }
+    },
+    "The server there failed the certificate check (%@), so that address was forgotten." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oradaki sunucu sertifika denetiminden geçemedi (%@), bu yüzden bu adres unutuldu."
+          }
+        }
+      }
+    },
+    "the server there failed the certificate check, and the address was forgotten" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "oradaki sunucu sertifika denetiminden geçemedi ve adres unutuldu"
+          }
+        }
+      }
+    },
+    "The server there failed the certificate check, so that address was forgotten." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oradaki sunucu sertifika denetiminden geçemedi, bu yüzden bu adres unutuldu."
           }
         }
       }
@@ -1563,22 +1653,12 @@
         }
       }
     },
-    "Tried instead: the last known address %@ (remembered since %@); no answer (%@)" : {
+    "Tried instead: the last known address %@, confirmed %@: %@" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bunun yerine denenen: bilinen son adres %1$@ (%2$@ tarihinden beri kayıtlı); yanıt yok (%3$@)"
-          }
-        }
-      }
-    },
-    "Tried instead: the last known address %@ (remembered since %@); the server there failed the certificate check (%@), so the address was forgotten" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bunun yerine denenen: bilinen son adres %1$@ (%2$@ tarihinden beri kayıtlı); oradaki sunucu sertifika denetiminden geçemedi (%3$@), bu yüzden adres unutuldu"
+            "value" : "Bunun yerine denenen: bilinen son adres %1$@, doğrulandığı zaman %2$@: %3$@"
           }
         }
       }
@@ -11293,6 +11373,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Oturum açma bilgileriniz gönderilmedi."
+          }
+        }
+      }
+    },
+    "Your sign-in was sent to %@, but a server name it was sent on to could not be found. Check the network connection and its DNS." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oturum açma bilgileriniz %@ adresine gönderildi, ancak oradan yönlendirildiği bir sunucu adı bulunamadı. Ağ bağlantısını ve DNS’ini denetleyin."
+          }
+        }
+      }
+    },
+    "Your sign-in was sent to %@, but the server name %@ it was sent on to could not be found. Check the network connection and its DNS." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oturum açma bilgileriniz %1$@ adresine gönderildi, ancak oradan yönlendirildiği %2$@ sunucu adı bulunamadı. Ağ bağlantısını ve DNS’ini denetleyin."
           }
         }
       }

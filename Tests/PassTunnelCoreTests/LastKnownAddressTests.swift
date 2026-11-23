@@ -37,7 +37,7 @@ extension ConnectionManagerTests {
         let entry = try XCTUnwrap(known(r.profile))
         XCTAssertEqual(entry.host, "vpn.example.com")
         XCTAssertEqual(entry.address, "192.0.2.10")
-        XCTAssertEqual(entry.learnedAt, t0)
+        XCTAssertEqual(entry.confirmedAt, t0)
         let url = store.dir(r.profile.id).appendingPathComponent(LastKnownAddress.fileName)
         let mode = try XCTUnwrap(FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? NSNumber)
         XCTAssertEqual(mode.intValue, 0o600)
@@ -57,10 +57,18 @@ extension ConnectionManagerTests {
 
     /// The name is not found: the sign-in runs again with the address for the name, and connects. The file differs
     /// from the first run's only by the `resolve` line, so the trust (pin or CA bundle) and the server name are the
-    /// same; the code never reached a server, so the second run takes it again.
+    /// same; the code never reached a server, so the second run takes it again. The date stays the one of the last
+    /// connection by the name, and the connection is marked as made at the address before its state changes.
     func testConnectsAtTheLastKnownAddressWhenTheNameIsNotFound() async throws {
         let r = try await connectedOnce()
         r.fake.results = [Out.output(status: 1, stderr: Out.notFound), Out.success]
+        // What an observer of the state change reads (the source of the app's notices): this session's event already.
+        var lastConnectionWhenConnected: String??
+        r.manager.$states.sink { [weak m = r.manager, id = r.profile.id] states in
+            if states[id]?.isConnected == true, lastConnectionWhenConnected == nil, let m {
+                lastConnectionWhenConnected = .some(ActivityEvent.lastConnection(in: m.activity(id))?.viaLastKnownAddress)
+            }
+        }.store(in: &bag)
         try await r.manager.connect(r.profile.id)
 
         let calls = r.fake.calls
@@ -76,15 +84,20 @@ extension ConnectionManagerTests {
         XCTAssertTrue(r.manager.state(r.profile.id).isConnected)
         XCTAssertEqual(openConnectStarts().last?.resolve, "vpn.example.com:192.0.2.10", "the tunnel run goes to the same address")
         let kinds = r.manager.activity(r.profile.id).map(\.kind)
-        XCTAssertTrue(kinds.contains(.tryingLastKnownAddress(host: "vpn.example.com", address: "192.0.2.10")), "\(kinds)")
+        XCTAssertTrue(
+            kinds.contains(.tryingLastKnownAddress(host: "vpn.example.com", address: "192.0.2.10", confirmedAt: t0, byName: .notFound)), "\(kinds)")
         XCTAssertEqual(kinds.last, .connected(address: "10.11.0.2", viaLastKnownAddress: "192.0.2.10"))
         XCTAssertEqual(r.manager.notices(r.profile.id), [.connectedThroughLastKnownAddress])
-        XCTAssertEqual(known(r.profile)?.learnedAt, t0.addingTimeInterval(3600), "refreshed by the connection")
+        XCTAssertEqual(lastConnectionWhenConnected, .some("192.0.2.10"), "recorded before the state changed")
+        XCTAssertEqual(known(r.profile)?.confirmedAt, t0, "a connection at the address confirms nothing: the date stays")
         XCTAssertNil(r.manager.failures[r.profile.id])
+        // The status of `status --json` and the MCP get_status.
+        let status = AutomationService(store: store, manager: r.manager).status(try store.get(r.profile.id))
+        XCTAssertEqual(status.notices?.map(\.kind), ["connected_through_last_known_address"])
     }
 
     /// The name resolves: one run, no `resolve`, nothing in the activity about it, and the address the connection
-    /// used now replaces the remembered one (a server that moved is picked up at once).
+    /// used now replaces the remembered one, with the time (a server that moved is picked up at once).
     func testNothingChangesWhenTheNameResolves() async throws {
         let r = try await connectedOnce()
         r.fake.results = [Out.output(stdout: Out.stdout(host: "192.0.2.99", resolve: "vpn.example.com:192.0.2.99"), stderr: Out.signedIn)]
@@ -99,7 +112,7 @@ extension ConnectionManagerTests {
         XCTAssertEqual(kinds.last, .connected(address: "10.11.0.2"))
         XCTAssertEqual(r.manager.notices(r.profile.id), [])
         XCTAssertEqual(known(r.profile)?.address, "192.0.2.99")
-        XCTAssertEqual(known(r.profile)?.learnedAt, t0.addingTimeInterval(3600))
+        XCTAssertEqual(known(r.profile)?.confirmedAt, t0.addingTimeInterval(3600))
     }
 
     /// A profile that never connected fails with `host_not_found` as before, after one run.
@@ -110,8 +123,13 @@ extension ConnectionManagerTests {
         XCTAssertEqual(r.manager.activity(r.profile.id).last?.kind, .failed(kind: .hostNotFound, reason: nil, credentialsSent: false))
     }
 
-    /// The address does not answer either: `host_not_found` (the root cause) that says which address, from when, was
-    /// tried and what it gave, in the error, the failure, the activity and "Copy details". The address is kept.
+    func tried(_ outcome: KnownAddressTry.Outcome, _ reason: String, byName: KnownAddressTry.ByName = .notFound) -> KnownAddressTry {
+        KnownAddressTry(address: "192.0.2.10", confirmedAt: t0, byName: byName, outcome: outcome, reason: reason)
+    }
+
+    /// The address cannot be reached either: `host_not_found` (the root cause) that says which address, confirmed
+    /// when, was tried and what it gave, in the error, the failure, the activity and "Copy details". The address is
+    /// kept and the code goes back.
     func testAFailedTryAtTheAddressExplainsItself() async throws {
         let r = try await connectedOnce()
         r.fake.results = [Out.output(status: 1, stderr: Out.notFound), Out.output(status: 1, stderr: Out.refused)]
@@ -121,38 +139,132 @@ extension ConnectionManagerTests {
         } catch {
             XCTAssertEqual(
                 error as? PTError,
-                .knownAddressFailed(
-                    server: "vpn.example.com:8443", address: "192.0.2.10", learnedAt: t0, reason: "Connection refused",
-                    certificateRefused: false, log: VPNLog.tail(Out.refused)))
+                .knownAddressFailed(server: "vpn.example.com:8443", tried: tried(.unreachable, "Connection refused"), log: VPNLog.tail(Out.refused)))
             XCTAssertEqual(AutomationErrorCode.of(error), .hostNotFound)
-            let text = error.localizedDescription
-            XCTAssertTrue(text.contains("vpn.example.com:8443") && text.contains("192.0.2.10") && text.contains(PTError.dateText(t0)), text)
-            XCTAssertTrue(text.contains("could not be found") && text.contains("did not answer"), text)
+            XCTAssertEqual(
+                error.localizedDescription,
+                "The server name vpn.example.com:8443 could not be found, so its last known address 192.0.2.10, confirmed "
+                    + PTError.dateText(t0) + ", was tried. It could not be reached there either (Connection refused). "
+                    + "Check the network connection and its DNS. Your sign-in was not sent.")
         }
         XCTAssertEqual(r.fake.calls.count, 3)
         let failure = try XCTUnwrap(r.manager.failures[r.profile.id])
         XCTAssertEqual(failure.kind, .hostNotFound)
         XCTAssertEqual(failure.reason, "Connection refused")
         XCTAssertFalse(failure.credentialsSent)
-        XCTAssertEqual(failure.lastKnownAddress, .init(address: "192.0.2.10", learnedAt: t0, certificateRefused: false))
-        XCTAssertNotNil(failure.lastKnownAddressSentence)
+        XCTAssertEqual(failure.lastKnownAddress, tried(.unreachable, "Connection refused"))
         XCTAssertEqual(r.manager.lastError[r.profile.id]?.contains("192.0.2.10"), true)
         XCTAssertEqual(
             r.manager.usedCode(r.profile.id), .init(counter: TOTP.counter(params: r.profile.totp, at: t0), period: 30),
             "the code never left: given back, the first connect's record stays")
-        XCTAssertEqual(
-            r.manager.activity(r.profile.id).last?.kind,
-            .lastKnownAddressFailed(address: "192.0.2.10", learnedAt: t0, reason: "Connection refused", certificateRefused: false))
+        XCTAssertEqual(r.manager.activity(r.profile.id).last?.kind, .lastKnownAddressFailed(tried(.unreachable, "Connection refused")))
         let details = try XCTUnwrap(r.manager.failureDetails(r.profile.id)).text(timeZone: TimeZone(identifier: "UTC")!)
         XCTAssertTrue(details.contains("Result: The server name was not found\n"), details)
-        XCTAssertTrue(details.contains("192.0.2.10"), details)
+        XCTAssertTrue(
+            details.contains(
+                "Tried instead: the last known address 192.0.2.10, confirmed 2023-11-14 22:13:20 +00:00: it could not be reached (Connection refused)"
+            ),
+            details)
         XCTAssertNotNil(known(r.profile), "no answer is no reason to forget it")
 
         // The JSON of `status --json` and the MCP tools.
         let json = try XCTUnwrap(String(data: try JSONCoding.encode(failure), encoding: .utf8))
         XCTAssertTrue(json.contains("\"last_known_address\""), json)
-        XCTAssertTrue(json.contains("\"certificate_refused\" : false"), json)
+        XCTAssertTrue(json.contains("\"outcome\" : \"unreachable\""), json)
+        XCTAssertTrue(json.contains("\"by_name\" : \"not_found\""), json)
         XCTAssertEqual(try JSONCoding.decode(ConnectionFailure.self, from: Data(json.utf8)), failure)
+    }
+
+    /// The address is silently dropped: the sign-in stops at its time limit with nothing sent and no TLS session.
+    /// That is no answer at the address, explained like any other, and the code goes back.
+    func testATimeoutAtTheAddressIsExplainedAndGivesTheCodeBack() async throws {
+        let r = try await connectedOnce()
+        r.fake.results = [Out.output(status: 1, stderr: Out.notFound), .failure(ToolTimeout(seconds: 60, errorOutput: Data(Out.post.utf8)))]
+        do {
+            try await r.manager.connect(r.profile.id)
+            XCTFail("connected")
+        } catch {
+            XCTAssertEqual(
+                error as? PTError,
+                .knownAddressFailed(
+                    server: "vpn.example.com:8443", tried: tried(.unreachable, "no answer within 60 seconds"), log: VPNLog.tail(Out.post)))
+        }
+        let failure = try XCTUnwrap(r.manager.failures[r.profile.id])
+        XCTAssertEqual(failure.kind, .hostNotFound)
+        XCTAssertFalse(failure.credentialsSent)
+        XCTAssertFalse(failure.codeSent)
+        XCTAssertEqual(r.manager.usedCode(r.profile.id), .init(counter: TOTP.counter(params: r.profile.totp, at: t0), period: 30), "given back")
+        XCTAssertNotNil(known(r.profile))
+    }
+
+    /// The name lookup hangs until the limit (nothing sent, no connection made): it counts as not sent, the address
+    /// is tried, and a connection there is made; when the address fails too the failure says the name did not answer.
+    func testANameThatDoesNotAnswerInTimeFallsBackToo() async throws {
+        let r = try await connectedOnce()
+        let hang = Result<ToolOutput, Error>.failure(ToolTimeout(seconds: 60, errorOutput: Data(Out.post.utf8)))
+        r.fake.results = [hang, Out.success]
+        try await r.manager.connect(r.profile.id)
+        XCTAssertEqual(r.fake.calls.count, 3)
+        XCTAssertTrue(r.fake.calls[2].config.contains(knownAddressLine))
+        XCTAssertTrue(
+            r.manager.activity(r.profile.id).map(\.kind).contains(
+                .tryingLastKnownAddress(host: "vpn.example.com", address: "192.0.2.10", confirmedAt: t0, byName: .noAnswer)))
+        try await r.manager.disconnect(r.profile.id)
+        clock.advance(3600)
+
+        r.fake.results = [hang, Out.output(status: 1, stderr: Out.refused)]
+        do {
+            try await r.manager.connect(r.profile.id)
+            XCTFail("connected")
+        } catch {
+            guard case .knownAddressFailed(_, let t, _)? = error as? PTError else { return XCTFail("\(error)") }
+            XCTAssertEqual(t, tried(.unreachable, "Connection refused", byName: .noAnswer))
+            XCTAssertEqual(AutomationErrorCode.of(error), .serverUnreachable)
+            XCTAssertTrue(error.localizedDescription.hasPrefix("The server vpn.example.com:8443 did not answer by its name in time"))
+        }
+        XCTAssertEqual(r.manager.failures[r.profile.id]?.kind, .unreachable, "the name did not answer: not claimed as not found")
+        XCTAssertEqual(r.manager.failures[r.profile.id]?.lastKnownAddress?.byName, .noAnswer)
+    }
+
+    /// By the name, a TCP connection was made and then nothing came: the name resolved, so the address is not tried.
+    func testATimeoutAfterAConnectionDoesNotTryTheAddress() async throws {
+        let r = try await connectedOnce()
+        let connected = Out.post + "Connected to 192.0.2.10:8443\n"
+        r.fake.results = [.failure(ToolTimeout(seconds: 60, errorOutput: Data(connected.utf8))), Out.success]
+        do {
+            try await r.manager.connect(r.profile.id)
+            XCTFail("connected")
+        } catch {
+            XCTAssertEqual(AutomationErrorCode.of(error), .serverUnreachable)
+        }
+        XCTAssertEqual(r.fake.calls.count, 2)
+    }
+
+    /// By the name, the sign-in went out and then a name it was sent on to could not be found: a name problem (never
+    /// a rejection), the code spent, no try at the address, never retried.
+    func testALookupFailureAfterTheSignInWasSentNeverFallsBack() async throws {
+        let r = try await connectedOnce()
+        let stderr =
+            Out.post + Out.tls + "XML POST enabled\n" + Out.post
+            + "getaddrinfo failed for host 'vpn2.example.com': nodename nor servname provided, or not known\n"
+            + "Failed to open HTTPS connection to vpn2.example.com\n" + Out.failed
+        r.fake.results = [Out.output(status: 1, stderr: stderr), Out.success]
+        do {
+            try await r.manager.connect(r.profile.id)
+            XCTFail("connected")
+        } catch {
+            XCTAssertEqual(
+                error as? PTError, .hostNotFoundAfterSignIn(server: "vpn.example.com:8443", host: "vpn2.example.com", log: VPNLog.tail(stderr)))
+            XCTAssertFalse(ConnectionManager.isRetryable(error))
+            XCTAssertEqual(AutomationErrorCode.of(error), .hostNotFound)
+            XCTAssertTrue(error.localizedDescription.contains("vpn2.example.com"), error.localizedDescription)
+        }
+        XCTAssertEqual(r.fake.calls.count, 2, "no try at the address after the sign-in went out")
+        let failure = try XCTUnwrap(r.manager.failures[r.profile.id])
+        XCTAssertEqual(failure.kind, .hostNotFound)
+        XCTAssertTrue(failure.credentialsSent)
+        XCTAssertTrue(failure.codeSent)
+        XCTAssertEqual(r.manager.usedCode(r.profile.id), .init(counter: TOTP.counter(params: r.profile.totp, at: clock.now()), period: 30))
     }
 
     /// A server at the address fails the certificate check: still `host_not_found`, the address is forgotten, and
@@ -165,38 +277,56 @@ extension ConnectionManagerTests {
             try await r.manager.connect(r.profile.id)
             XCTFail("connected")
         } catch {
-            guard case .knownAddressFailed(_, "192.0.2.10", _, "signer not found", true, _)? = error as? PTError else {
-                return XCTFail("\(error)")
-            }
-            XCTAssertTrue(error.localizedDescription.contains("forgotten"), error.localizedDescription)
+            guard case .knownAddressFailed(_, let t, _)? = error as? PTError else { return XCTFail("\(error)") }
+            XCTAssertEqual(t, tried(.certificateRefused, "signer not found"))
+            XCTAssertTrue(error.localizedDescription.contains("so that address was forgotten"), error.localizedDescription)
         }
         XCTAssertTrue(r.fake.calls[2].config.contains("no-system-trust\ncafile "), "the CA bundle, as by the name")
         XCTAssertEqual(r.manager.failures[r.profile.id]?.kind, .hostNotFound)
         XCTAssertNil(r.manager.trustOffers[r.profile.id], "no Trust This Server for a server reached at the address")
         XCTAssertNil(known(r.profile))
         XCTAssertFalse(FileManager.default.fileExists(atPath: LastKnownAddress.url(r.profile.id, store: store).path))
-        guard case .lastKnownAddressFailed(_, _, _, true)? = r.manager.activity(r.profile.id).last?.kind else {
-            return XCTFail("\(String(describing: r.manager.activity(r.profile.id).last))")
-        }
+        XCTAssertEqual(r.manager.activity(r.profile.id).last?.kind, .lastKnownAddressFailed(tried(.certificateRefused, "signer not found")))
     }
 
-    /// The server at the address refuses the sign-in: a rejection as any other (never retried), the address kept.
-    func testARejectionAtTheAddressIsARejection() async throws {
+    /// The genuine server at the address (its certificate passed) refuses the sign-in, or answers something the
+    /// profile does not fit: the address is kept, as it is the server's.
+    func testAnAnswerOfTheServerAtTheAddressKeepsIt() async throws {
+        for stderr in [Out.rejected, Out.noSuchGroup, Out.hostScan] {
+            let r = try await connectedOnce()
+            r.fake.results = [Out.output(status: 1, stderr: Out.notFound), Out.output(status: 1, stderr: stderr)]
+            do {
+                try await r.manager.connect(r.profile.id)
+                XCTFail("connected")
+            } catch {
+                if case .knownAddressFailed? = error as? PTError { XCTFail("\(error)") }
+            }
+            XCTAssertEqual(r.fake.calls.count, 3, "no third run")
+            XCTAssertNotNil(known(r.profile), stderr)
+        }
         let r = try await connectedOnce()
         r.fake.results = [Out.output(status: 1, stderr: Out.notFound), Out.output(status: 1, stderr: Out.rejected)]
+        do { try await r.manager.connect(r.profile.id) } catch {}
+        XCTAssertEqual(r.manager.failures[r.profile.id]?.kind, .authRejected, "a rejection stays one, never retried")
+    }
+
+    /// The sign-in at the address ends on another server than the profile's: the address is forgotten.
+    func testADestinationMismatchAtTheAddressForgetsIt() async throws {
+        let r = try await connectedOnce()
+        let other = Out.output(
+            stdout: Out.stdout(connectURL: "https://vpn9.example.com:8443/", resolve: "vpn9.example.com:192.0.2.10"), stderr: Out.signedIn)
+        r.fake.results = [Out.output(status: 1, stderr: Out.notFound), other]
         do {
             try await r.manager.connect(r.profile.id)
             XCTFail("connected")
         } catch {
-            guard case .authFailed? = error as? PTError else { return XCTFail("\(error)") }
+            guard case .signInUnusable? = error as? PTError else { return XCTFail("\(error)") }
         }
-        XCTAssertEqual(r.fake.calls.count, 3, "no third run")
-        XCTAssertEqual(r.manager.failures[r.profile.id]?.kind, .authRejected)
-        XCTAssertNotNil(known(r.profile))
+        XCTAssertNil(known(r.profile))
     }
 
-    /// Only a name that was not found leads to the address: a server that did not answer by its name is not tried
-    /// elsewhere.
+    /// Only a name that was not found (or did not answer at all) leads to the address: a server that refused by its
+    /// name is not tried elsewhere.
     func testOtherFailuresDoNotTryTheAddress() async throws {
         let r = try await connectedOnce()
         r.fake.results = [Out.output(status: 1, stderr: Out.refused), Out.success]
@@ -209,9 +339,97 @@ extension ConnectionManagerTests {
         XCTAssertEqual(r.fake.calls.count, 2)
     }
 
+    // MARK: cancelling and codes
+
+    /// A disconnect during the try at the address stops it: no third run, a cancel, the address kept.
+    func testDisconnectDuringTheTryAtTheAddress() async throws {
+        let r = try await connectedOnce()
+        r.fake.results = [Out.output(status: 1, stderr: Out.notFound), Out.success]
+        r.fake.blockFromRun = 2
+        let task = Task { try await r.manager.connect(r.profile.id) }
+        await waitUntil { r.fake.calls.count == 3 }
+        try await r.manager.disconnect(r.profile.id)
+        do {
+            try await task.value
+            XCTFail("connected")
+        } catch {
+            XCTAssertEqual(error as? PTError, .connectCancelled)
+        }
+        XCTAssertTrue(r.fake.sawCancel)
+        XCTAssertEqual(r.fake.calls.count, 3)
+        XCTAssertEqual(r.manager.failures[r.profile.id]?.kind, .cancelled)
+        XCTAssertNotNil(known(r.profile))
+        XCTAssertEqual(r.manager.activity(r.profile.id).last?.kind, .stoppedByUser)
+    }
+
+    /// A disconnect during the try by the name: the cancel is no failure to fall back from.
+    func testDisconnectDuringTheTryByTheNameNeverTriesTheAddress() async throws {
+        let r = try await connectedOnce()
+        r.fake.blockFromRun = 1
+        let task = Task { try await r.manager.connect(r.profile.id) }
+        await waitUntil { r.fake.calls.count == 2 }
+        try await r.manager.disconnect(r.profile.id)
+        do {
+            try await task.value
+            XCTFail("connected")
+        } catch {
+            XCTAssertEqual(error as? PTError, .connectCancelled)
+        }
+        XCTAssertEqual(r.fake.calls.count, 2)
+        XCTAssertFalse(
+            r.manager.activity(r.profile.id).contains {
+                if case .tryingLastKnownAddress = $0.kind { return true }; return false
+            })
+    }
+
+    /// The code's window ends while the name is looked up: the try at the address takes the new window's code.
+    func testACodeWindowRolloverBetweenTheTries() async throws {
+        let r = try await connectedOnce()
+        // 3600 s after t0 is 20 s into a window: 10 s left, enough not to wait first.
+        r.fake.results = [Out.output(status: 1, stderr: Out.notFound), Out.success]
+        r.fake.onRun = { [clock] index in if index == 1 { clock?.advance(12) } }
+        try await r.manager.connect(r.profile.id)
+        let first = try code(at: t0.addingTimeInterval(3600))
+        let second = try code(at: clock.now())
+        XCTAssertNotEqual(first, second)
+        XCTAssertTrue(String(decoding: r.fake.calls[1].input, as: UTF8.self).contains(first))
+        XCTAssertTrue(String(decoding: r.fake.calls[2].input, as: UTF8.self).contains(second))
+        XCTAssertEqual(r.manager.usedCode(r.profile.id), .init(counter: TOTP.counter(params: r.profile.totp, at: clock.now()), period: 30))
+    }
+
+    /// Another process sends the next window's code while the name is looked up (it saw this one spent, so it waited
+    /// for the next, and wrote `.last-otp`): that record is not put back, and the try at the address, now in that
+    /// window, waits for the one after it instead of sending the same code.
+    func testAnotherProcessSpendingTheCodeBetweenTheTries() async throws {
+        let r = try await connectedOnce()
+        r.fake.results = [Out.output(status: 1, stderr: Out.notFound), Out.success]
+        let usedURL = store.dir(r.profile.id).appendingPathComponent(ConnectionManager.usedOTPFile)
+        let window = ConnectionManager.UsedOTPWindow(counter: TOTP.counter(params: r.profile.totp, at: clock.now()) + 1, period: 30)
+        r.fake.onRun = { [clock] index in
+            guard index == 1 else { return }
+            clock?.advance(12)
+            try? JSONCoding.write(window, to: usedURL, mode: 0o600)
+        }
+        try await r.manager.connect(r.profile.id)
+        let kinds = r.manager.activity(r.profile.id).map(\.kind)
+        guard
+            let trying = kinds.lastIndex(where: {
+                if case .tryingLastKnownAddress = $0 { return true }; return false
+            })
+        else {
+            return XCTFail("\(kinds)")
+        }
+        XCTAssertTrue(
+            kinds[trying...].contains {
+                if case .waitingForCode(.used, _, _) = $0 { return true }; return false
+            }, "\(kinds)")
+        XCTAssertNotEqual(r.fake.calls[2].input, r.fake.calls[1].input, "never the code another process sent")
+        XCTAssertEqual(r.manager.usedCode(r.profile.id)?.counter, window.counter + 1)
+    }
+
     // MARK: staleness
 
-    /// Changing the profile's server (host, port, pin) drops the address; other edits keep it.
+    /// Changing the profile's server (host, port, pin, user group, type) drops the address; other edits keep it.
     func testChangingTheServerDropsTheAddress() async throws {
         let r = try await connectedOnce()
         let url = LastKnownAddress.url(r.profile.id, store: store)
@@ -220,13 +438,15 @@ extension ConnectionManagerTests {
         _ = try store.update(r.profile.id) { $0.port = 9443 }
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "another port")
 
-        let s = try await connectedOnce()
-        _ = try store.update(s.profile.id) { $0.host = "vpn2.example.com" }
-        XCTAssertFalse(FileManager.default.fileExists(atPath: LastKnownAddress.url(s.profile.id, store: store).path), "another host")
-
-        let t = try await connectedOnce()
-        _ = try store.update(t.profile.id) { $0.serverCert = Out.otherPin }
-        XCTAssertFalse(FileManager.default.fileExists(atPath: LastKnownAddress.url(t.profile.id, store: store).path), "another pin")
+        let changes: [(String, (inout Profile) -> Void)] = [
+            ("host", { $0.host = "vpn2.example.com" }), ("pin", { $0.serverCert = Out.otherPin }),
+            ("user group", { $0.usergroup = "sales" }), ("type", { $0.type = .openvpn })
+        ]
+        for (what, change) in changes {
+            let s = try await connectedOnce()
+            _ = try store.update(s.profile.id, change)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: LastKnownAddress.url(s.profile.id, store: store).path), what)
+        }
     }
 
     /// A file written for another destination (the profile was edited by hand) is never used, and a connect removes it.
@@ -272,7 +492,7 @@ extension ConnectionManagerTests {
         XCTAssertFalse(FileManager.default.fileExists(atPath: LastKnownAddress.url(forti.id, store: store).path))
         let saved = LastKnownAddress.Saved(
             version: LastKnownAddress.version, destination: destination.fingerprint, host: "vpn.example.com", address: "192.0.2.10",
-            learnedAt: t0)
+            confirmedAt: t0)
         try JSONCoding.write(saved, to: LastKnownAddress.url(forti.id, store: store), mode: 0o600)
         XCTAssertNil(LastKnownAddress.read(forti, destination: destination, store: store))
     }
@@ -303,10 +523,10 @@ extension ConnectionManagerTests {
     func testDiagnoseShowsTheRememberedAddress() async throws {
         let r = try await connectedOnce()
         let check = AutomationService(store: store, manager: r.manager).check(try store.get(r.profile.id))
-        XCTAssertEqual(check.lastKnownAddress, .init(host: "vpn.example.com", address: "192.0.2.10", learnedAt: t0))
+        XCTAssertEqual(check.lastKnownAddress, .init(host: "vpn.example.com", address: "192.0.2.10", confirmedAt: t0))
         let json = try XCTUnwrap(String(data: try JSONCoding.encode(check), encoding: .utf8))
         XCTAssertTrue(json.contains("\"last_known_address\""), json)
-        XCTAssertTrue(json.contains("\"learned_at\""), json)
+        XCTAssertTrue(json.contains("\"confirmed_at\""), json)
 
         let fresh = try makeAnyConnect("Acme Fresh")
         XCTAssertNil(AutomationService(store: store, manager: r.manager).check(fresh).lastKnownAddress)
@@ -344,18 +564,67 @@ extension ConnectionManagerTests {
         XCTAssertEqual(m.activity(p.id).map(\.kind).last, .connected(address: "10.12.0.2", viaLastKnownAddress: "192.0.2.10"))
     }
 
-    /// A gateway on another host than the portal's is not the server whose name a connect looks up first: nothing
-    /// is learned.
-    func testGlobalProtectGatewayElsewhereLearnsNothing() async throws {
+    /// A file for a portal profile (put there by hand, or from before): written as for its destination.
+    func plantEntry(_ p: Profile) throws {
+        let saved = LastKnownAddress.Saved(
+            version: LastKnownAddress.version, destination: ProfileDestination.of(p, store: store).fingerprint, host: "vpn.example.com",
+            address: "192.0.2.10", confirmedAt: t0)
+        try JSONCoding.write(saved, to: LastKnownAddress.url(p.id, store: store), mode: 0o600)
+    }
+
+    /// With a portal (no `skip_portal`) the sign-in may be sent on to a gateway of another name, which a network
+    /// without DNS could not find either, after the code went out: such a profile never uses an address, and a
+    /// connection by the name that has none to keep forgets one that is there.
+    func testGlobalProtectWithAPortalNeverUsesAnAddress() async throws {
         let p = try makeGlobalProtectProfile()
+        XCTAssertFalse(LastKnownAddress.applies(to: p))
+        try plantEntry(p)
+        XCTAssertNil(known(p))
+        let notFound =
+            GP.portalPrelogin + "getaddrinfo failed for host 'vpn.example.com': nodename nor servname provided, or not known\n"
+            + "Failed to open HTTPS connection to vpn.example.com\n" + GP.failed
+        let failing = FakeGlobalProtect(clock: clock, script: [.stderr(notFound)], status: 1)
+        let m = try makeGlobalProtectManager(failing)
+        do {
+            try await m.connect(p.id)
+            XCTFail("connected")
+        } catch {
+            guard case .hostNotFound? = error as? PTError else { return XCTFail("\(error)") }
+        }
+        XCTAssertEqual(failing.runs.count, 1, "no try at an address")
+
         helper.startLog = GP.hipAndUp
         let fake = FakeGlobalProtect(
             clock: clock, script: [.stderr(GP.untilSecondSignIn), .advance(4), .advance(6), .stderr(GP.afterSecondSignIn)],
             stdout: GP.stdout())
-        let m = try makeGlobalProtectManager(fake)
-        try await m.connect(p.id)
-        XCTAssertTrue(m.state(p.id).isConnected)
-        XCTAssertNil(known(p))
+        let m2 = try makeGlobalProtectManager(fake)
+        try await m2.connect(p.id)
+        XCTAssertTrue(m2.state(p.id).isConnected)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: LastKnownAddress.url(p.id, store: store).path), "forgotten")
+    }
+
+    /// GlobalProtect: after the portal's sign-in, the gateway's name not found is a name problem, never a rejection.
+    func testGlobalProtectGatewayNotFoundAfterTheSignInIsANameProblem() {
+        let stderr =
+            GP.portalPrelogin + GP.portalTLS + GP.portalConfig + "Challenge: " + GP.portalConfig + GP.oneGateway + GP.gatewayLogin
+            + "getaddrinfo failed for host 'gw1.example.com': nodename nor servname provided, or not known\n"
+            + "Failed to open HTTPS connection to gw1.example.com\n" + GP.failed
+        XCTAssertTrue(VPNLog.globalProtectCredentialsSent(stderr))
+        XCTAssertEqual(
+            VPNLog.globalProtectSignInError(
+                stderr, status: 1, credentialsSent: true, gateway: "US East", host: "vpn.example.com", port: 8443, server: "vpn.example.com:8443"),
+            .hostNotFoundAfterSignIn(server: "vpn.example.com:8443", host: "gw1.example.com", log: VPNLog.tail(stderr)))
+    }
+
+    /// Changing `skip_portal` or the gateway pin of a GlobalProtect profile drops its address.
+    func testGlobalProtectChangesDropTheAddress() throws {
+        for change in [{ (p: inout Profile) in p.skipPortal = false }, { (p: inout Profile) in p.gatewayServerCert = GP.otherPin }] {
+            let p = try makeGlobalProtectProfile("Acme GP \(UUID().uuidString.prefix(6))", gateway: "", skipPortal: true)
+            try plantEntry(p)
+            XCTAssertNotNil(known(p))
+            _ = try store.update(p.id, change)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: LastKnownAddress.url(p.id, store: store).path))
+        }
     }
 }
 
@@ -407,65 +676,142 @@ final class LastKnownAddressUnitTests: XCTestCase {
         XCTAssertThrowsError(try OpenConnectAuthConfig.checkRendered(moved, lineCount: lines, caFile: ca), "out of place")
     }
 
-    /// The activity events: JSON round trip and sentences.
+    func tried(_ outcome: KnownAddressTry.Outcome, _ reason: String = "", byName: KnownAddressTry.ByName = .notFound) -> KnownAddressTry {
+        KnownAddressTry(address: "192.0.2.10", confirmedAt: at, byName: byName, outcome: outcome, reason: reason)
+    }
+
+    /// The activity events: JSON round trip, keys and sentences. `server_address` is the server's address and
+    /// `address` stays the tunnel's (`connected`).
     func testTheActivityEvents() throws {
+        let date = PTError.dateText(at)
         let events: [ActivityEvent] = [
-            ActivityEvent(at: at, .tryingLastKnownAddress(host: "vpn.example.com", address: "192.0.2.10")),
+            ActivityEvent(at: at, .tryingLastKnownAddress(host: "vpn.example.com", address: "192.0.2.10", confirmedAt: at, byName: .notFound)),
             ActivityEvent(at: at, .connected(address: "10.11.0.2", viaLastKnownAddress: "192.0.2.10")),
             ActivityEvent(at: at, .connected(address: "10.11.0.2")),
-            ActivityEvent(
-                at: at, .lastKnownAddressFailed(address: "192.0.2.10", learnedAt: at, reason: "Connection refused", certificateRefused: false)),
-            ActivityEvent(at: at, .lastKnownAddressFailed(address: "192.0.2.10", learnedAt: at, reason: nil, certificateRefused: true))
+            ActivityEvent(at: at, .lastKnownAddressFailed(tried(.unreachable, "Connection refused"))),
+            ActivityEvent(at: at, .lastKnownAddressFailed(tried(.certificateRefused))),
+            ActivityEvent(at: at, .lastKnownAddressFailed(tried(.nameNotFound))),
+            ActivityEvent(at: at, .tryingLastKnownAddress(host: "vpn.example.com", address: "192.0.2.10", confirmedAt: at, byName: .noAnswer))
         ]
         for event in events {
             let data = try ActivityLog.encoder().encode(event)
             XCTAssertEqual(try ActivityLog.decoder().decode(ActivityEvent.self, from: data), event)
             XCTAssertTrue(ActivityEvent.names.contains(event.name), event.name)
         }
-        let json = String(decoding: try ActivityLog.encoder().encode(events[1]), as: UTF8.self)
-        XCTAssertTrue(json.contains("\"last_known_address\":\"192.0.2.10\""), json)
-        XCTAssertFalse(String(decoding: try ActivityLog.encoder().encode(events[2]), as: UTF8.self).contains("last_known_address"))
+        let json = try events.map { String(decoding: try ActivityLog.encoder().encode($0), as: UTF8.self) }
+        XCTAssertTrue(json[0].contains("\"server_address\":\"192.0.2.10\""), json[0])
+        XCTAssertTrue(json[0].contains("\"by_name\":\"not_found\""), json[0])
+        XCTAssertTrue(json[1].contains("\"address\":\"10.11.0.2\"") && json[1].contains("\"via_server_address\":\"192.0.2.10\""), json[1])
+        XCTAssertFalse(json[2].contains("via_server_address"))
+        XCTAssertTrue(json[3].contains("\"outcome\":\"unreachable\"") && json[3].contains("\"server_address\""), json[3])
+        XCTAssertFalse(json[4].contains("reason"), "no empty reason")
         XCTAssertEqual(events[0].name, "trying_last_known_address")
         XCTAssertEqual(events[3].name, "last_known_address_failed")
-        XCTAssertEqual(events[0].sentence(), "Server name vpn.example.com not found, trying its last known address 192.0.2.10")
+        XCTAssertEqual(events[0].sentence(), "Server name vpn.example.com not found, trying its last known address 192.0.2.10, confirmed \(date)")
+        XCTAssertEqual(
+            events[6].sentence(), "No answer by the name vpn.example.com in time, trying its last known address 192.0.2.10, confirmed \(date)")
         XCTAssertEqual(events[1].sentence(), "Connected, 10.11.0.2, through the last known server address 192.0.2.10")
         XCTAssertEqual(events[2].sentence(), "Connected, 10.11.0.2")
+        XCTAssertEqual(events[3].sentence(), "The last known address 192.0.2.10 could not be reached either (Connection refused)")
         XCTAssertEqual(
-            events[3].sentence(),
-            "Server name not found, and its last known address 192.0.2.10 (from \(PTError.dateText(at))) did not answer (Connection refused)")
-        XCTAssertTrue(events[4].sentence().contains("certificate check"))
+            events[4].sentence(), "The server at the last known address 192.0.2.10 failed the certificate check; that address was forgotten",
+            "no empty parentheses")
+        XCTAssertEqual(events[5].sentence(), "At the last known address 192.0.2.10, a server name was still needed and could not be found")
         XCTAssertEqual(events[3].tone, .error)
-        XCTAssertEqual(ActivityEvent.lastConnection(in: events)?.viaLastKnownAddress, nil, "the last connected one counts")
+        XCTAssertEqual(ActivityEvent.lastConnection(in: Array(events.prefix(3)))?.viaLastKnownAddress, nil, "the last connected one counts")
         XCTAssertEqual(ActivityEvent.lastConnection(in: Array(events.prefix(2)))?.viaLastKnownAddress, "192.0.2.10")
     }
 
-    /// Only a missing name or a missing answer at the address becomes `knownAddressFailed`; anything the server there
-    /// said stays as it was.
-    func testWhichFailuresAtTheAddressAreExplained() {
-        let entry = LastKnownAddress.Entry(host: "vpn.example.com", address: "192.0.2.10", learnedAt: at)
-        let unreachable = PTError.serverUnreachable(server: "x", reason: "Connection refused", log: "tail")
+    /// The messages: one wording for the date ("confirmed"), what happened by the name, then at the address, with no
+    /// empty parentheses; the card's form says only the address part.
+    func testTheMessages() {
+        let date = PTError.dateText(at)
         XCTAssertEqual(
-            ConnectionManager.explaining(unreachable, triedAt: entry, server: "vpn.example.com:443") as? PTError,
-            .knownAddressFailed(
-                server: "vpn.example.com:443", address: "192.0.2.10", learnedAt: at, reason: "Connection refused", certificateRefused: false,
-                log: "tail"))
-        let untrusted = PTError.serverCertificateRejected(reason: "signer not found", pin: Out.otherPin, log: "tail")
-        guard case .knownAddressFailed(_, _, _, _, true, _)? = ConnectionManager.explaining(untrusted, triedAt: entry, server: "") as? PTError
-        else { return XCTFail() }
-        for other in [PTError.authFailed("tail"), .connectTimeout(60), .hostScanRequired(log: "")] {
-            XCTAssertEqual(ConnectionManager.explaining(other, triedAt: entry, server: "") as? PTError, other)
+            PTError.knownAddressFailed(server: "vpn.example.com:443", tried: tried(.certificateRefused), log: "").localizedDescription,
+            "The server name vpn.example.com:443 could not be found, so its last known address 192.0.2.10, confirmed \(date), was tried. "
+                + "The server there failed the certificate check, so that address was forgotten. Your sign-in was not sent.")
+        XCTAssertEqual(
+            PTError.knownAddressFailed(server: "vpn.example.com:443", tried: tried(.nameNotFound, byName: .noAnswer), log: "").localizedDescription,
+            "The server vpn.example.com:443 did not answer by its name in time, so its last known address 192.0.2.10, confirmed \(date), was tried. "
+                + "A server name was still needed there and could not be found either. Check the network connection and its DNS. Your sign-in was not sent."
+        )
+        XCTAssertEqual(
+            tried(.unreachable).addressSentences,
+            "Its last known address 192.0.2.10, confirmed \(date), was tried as well. It could not be reached there either. "
+                + "Check the network connection and its DNS.")
+        XCTAssertFalse(tried(.unreachable).addressSentences.contains("()"))
+        XCTAssertEqual(
+            PTError.hostNotFoundAfterSignIn(server: "vpn.example.com:443", host: "", log: "").localizedDescription,
+            "Your sign-in was sent to vpn.example.com:443, but a server name it was sent on to could not be found. Check the network connection and its DNS."
+        )
+    }
+
+    /// Only no answer, a certificate refused or a name still missing at the address becomes `knownAddressFailed`;
+    /// anything the server there said, or a sign-in that went out, stays as it was.
+    func testWhichFailuresAtTheAddressAreExplained() {
+        let entry = LastKnownAddress.Entry(host: "vpn.example.com", address: "192.0.2.10", confirmedAt: at)
+        func explained(_ error: PTError, byName: KnownAddressTry.ByName = .notFound) -> PTError? {
+            ConnectionManager.explaining(error, triedAt: entry, byName: byName, server: "vpn.example.com:443") as? PTError
+        }
+        XCTAssertEqual(
+            explained(.serverUnreachable(server: "x", reason: "Connection refused", log: "tail")),
+            .knownAddressFailed(server: "vpn.example.com:443", tried: tried(.unreachable, "Connection refused"), log: "tail"))
+        XCTAssertEqual(
+            explained(.serverCertificateRejected(reason: "signer not found", pin: Out.otherPin, log: "tail")),
+            .knownAddressFailed(server: "vpn.example.com:443", tried: tried(.certificateRefused, "signer not found"), log: "tail"))
+        XCTAssertEqual(
+            explained(.hostNotFound(server: "x", log: "tail"), byName: .noAnswer),
+            .knownAddressFailed(server: "vpn.example.com:443", tried: tried(.nameNotFound, byName: .noAnswer), log: "tail"))
+        for other in [
+            PTError.authFailed("tail"), .connectTimeout(60), .hostScanRequired(log: ""), .hostNotFoundAfterSignIn(server: "", host: "", log: "")
+        ] {
+            XCTAssertEqual(explained(other), other)
         }
         let failure = ConnectionFailure.of(
-            PTError.knownAddressFailed(
-                server: "s", address: "192.0.2.10", learnedAt: at, reason: "Connection refused", certificateRefused: false, log: ""),
-            log: nil, handed: nil, at: at)
+            PTError.knownAddressFailed(server: "s", tried: tried(.unreachable, "Connection refused"), log: ""), log: nil, handed: nil, at: at)
         XCTAssertEqual(failure.kind, .hostNotFound)
         XCTAssertEqual(failure.reason, "Connection refused")
         XCTAssertEqual(failure.lastKnownAddress?.address, "192.0.2.10")
         XCTAssertFalse(failure.credentialsSent)
+        let noAnswer = ConnectionFailure.of(
+            PTError.knownAddressFailed(server: "s", tried: tried(.unreachable, byName: .noAnswer), log: ""), log: nil, handed: nil, at: at)
+        XCTAssertEqual(noAnswer.kind, .unreachable)
+        XCTAssertNil(noAnswer.reason)
+        let after = ConnectionFailure.of(
+            PTError.hostNotFoundAfterSignIn(server: "s", host: "gw1.example.com", log: ""), log: nil, handed: .init(code: true), at: at)
+        XCTAssertEqual(after.kind, .hostNotFound)
+        XCTAssertTrue(after.credentialsSent && after.codeSent)
         XCTAssertEqual(StatusNotice.allCases.count, 2)
         XCTAssertFalse(StatusNotice.connectedThroughLastKnownAddress.message.isEmpty)
+        // The tunnel run of a gateway gets its address too (`resolve`): it never looks the gateway up again.
+        XCTAssertEqual(
+            try OpenConnectAuthResult.checkDestination(
+                host: "gw1.example.com", port: 443, connectURL: "https://gw1.example.com/", resolve: "gw1.example.com:192.0.2.20",
+                fingerprint: Out.pin, pins: [], client: true
+            ).resolveAddress, "192.0.2.20")
     }
 
     private typealias Out = OpenConnectOutput
+}
+
+// MARK: - The command line
+
+extension AnyConnectCLITests {
+    /// `passtunnel diagnose` shows the address and how long ago a connection by the name confirmed it; its JSON has
+    /// `last_known_address` with `confirmed_at`. Nothing is contacted.
+    func testDiagnoseShowsTheLastKnownServerAddress() async throws {
+        let p = try makeProfile("Acme Known")
+        LastKnownAddress.save(
+            "192.0.2.10", for: p, destination: ProfileDestination.of(p, store: store), store: store, at: Date().addingTimeInterval(-7200))
+        let human = try await run(
+            .diagnose(checkClock: false, json: false), macOS: OperatingSystemVersion(majorVersion: 15, minorVersion: 4, patchVersion: 0))
+        XCTAssertTrue(human.out.contains("Last known server address: 192.0.2.10"), human.out)
+        XCTAssertTrue(human.out.contains("(confirmed "), human.out)
+        let json = try await run(
+            .diagnose(checkClock: false, json: true), macOS: OperatingSystemVersion(majorVersion: 15, minorVersion: 4, patchVersion: 0))
+        let profiles = try XCTUnwrap(json.json?["profiles"] as? [[String: Any]])
+        let known = try XCTUnwrap(profiles.first { $0["id"] as? String == p.id }?["last_known_address"] as? [String: Any])
+        XCTAssertEqual(known["address"] as? String, "192.0.2.10")
+        XCTAssertNotNil(known["confirmed_at"] as? String)
+    }
 }
