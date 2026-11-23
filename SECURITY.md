@@ -848,9 +848,13 @@ the "Ask again after" time (Settings → General → Security: 1, 5 or 15 minute
 end it early. LocalAuthentication's own `touchIDAuthenticationAllowableReuseDuration` is left at 0: it
 would let a recent Touch ID unlock of the Mac count as the confirmation, which is exactly the situation
 this option is for. A connected session keeps its
-decrypted secrets in memory so an automatic reconnect after a drop needs no prompt; they are
-overwritten (best effort) when you disconnect, also with `passtunnel disconnect` or the MCP server, or
-the session ends otherwise, for example when its reconnects fail. After the Mac was asleep, a
+decrypted secrets in memory so an automatic reconnect after a drop needs no prompt. This session copy
+is held by the process that connected the session (the app; a `passtunnel` command ends with its
+process, and the MCP server keeps none) and overwritten (best effort) when that process sees the
+session end: when you disconnect there, when its reconnects fail, or when it sees, at its next check,
+that `passtunnel disconnect` or the MCP server stopped the session or that another session replaced
+it. The session copy is separate from the reuse window above: a confirmation can still count for the
+rest of that window after a disconnect. After the Mac was asleep, a
 dropped protected profile is not reconnected on its own: a notification asks you to reconnect. In the
 same way, "Connect at login" never asks at login: a protected profile set to connect at login gets a
 notification you click to connect (and confirm). Each

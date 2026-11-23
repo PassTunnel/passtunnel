@@ -997,6 +997,110 @@ final class ConnectionManagerTests: XCTestCase {
         try await assertNoKeptSecrets(m, p.id, prompts: 1, starts: 2)
     }
 
+    /// The retries' wait ends before any poll sees another process's stop: the retry itself ends them, and the
+    /// kept secrets with them.
+    func testRetriesThatSeeTheStopFirstKeepNoSecrets() async throws {
+        let hold = HoldingClock(clock, holding: 30)
+        let m = makeRetryingManager(clock: hold)
+        let p = try await makeProtected(in: m, autoReconnect: true)
+        try await m.connect(p.id)
+        makeServerUnreachable()
+        helper.simulateExit(p.id)
+        await m.refresh()
+        await waitUntil { m.unreachableRetries[p.id] != nil && hold.waiting == 1 }
+        let starts = helper.starts.count
+        try await ConnectionManager(store: store, helper: helper, clock: clock).disconnect(p.id)
+        hold.release()
+        await waitUntil { m.unreachableRetries[p.id] == nil }
+        makeServerReachable()
+        try await assertNoKeptSecrets(m, p.id, prompts: 1, starts: starts)
+    }
+
+    func stoppedMarker(_ id: String) -> Bool {
+        FileManager.default.fileExists(atPath: store.dir(id).appendingPathComponent(ConnectionManager.userStoppedMarker).path)
+    }
+
+    /// A drop's reconnect waits; another process stops the profile meanwhile: when the wait ends, no attempt
+    /// is made (the stop stays), and the kept secrets go.
+    func testAPendingReconnectHonoursAStopInAnotherProcess() async throws {
+        let hold = HoldingClock(clock, holding: 5)
+        let m = makeManager(clock: hold)
+        let p = try await makeProtected(in: m, autoReconnect: true)
+        try await m.connect(p.id)
+        helper.simulateExit(p.id)
+        await m.refresh()
+        await waitUntil { hold.waiting == 1 }
+        try await ConnectionManager(store: store, helper: helper, clock: clock).disconnect(p.id)
+        hold.release()
+        await waitUntil { m.reconnecting[p.id] == nil }
+        XCTAssertEqual(events, [.dropped(profileID: p.id, willReconnect: true)])
+        XCTAssertEqual(m.state(p.id), .disconnected)
+        XCTAssertTrue(stoppedMarker(p.id), "the stop stands")
+        try await assertNoKeptSecrets(m, p.id, prompts: 1, starts: 1)
+    }
+
+    /// A drop's reconnect waits; another process connects the profile and then stops it, each seen by a poll:
+    /// the poll that sees the stop ends the pending reconnect at once, and the kept secrets go.
+    func testAPollThatSeesAStopEndsAPendingReconnect() async throws {
+        let hold = HoldingClock(clock, holding: 5)
+        let m = makeManager(clock: hold)
+        let p = try await makeProtected(in: m, autoReconnect: true)
+        try await m.connect(p.id)
+        helper.simulateExit(p.id)
+        await m.refresh()
+        await waitUntil { hold.waiting == 1 }
+        helper.simulateExternalStart(p.id, profileDir: store.dir(p.id).path, since: t0)
+        await m.refresh()
+        XCTAssertTrue(m.state(p.id).isConnected)
+        try await ConnectionManager(store: store, helper: helper, clock: clock).disconnect(p.id)
+        await m.refresh()
+        XCTAssertNil(m.reconnecting[p.id])
+        await waitUntil { hold.waiting == 0 }
+        XCTAssertEqual(m.state(p.id), .disconnected)
+        try await assertNoKeptSecrets(m, p.id, prompts: 1, starts: 1)
+    }
+
+    /// A manual connect replaces a pending reconnect; when the user cancels its confirmation, nothing of the
+    /// dropped session stays for a later connect that never asks.
+    func testACancelledManualConnectLeavesNoKeptSecrets() async throws {
+        let hold = HoldingClock(clock, holding: 5)
+        let m = makeManager(clock: hold)
+        let p = try await makeProtected(in: m, autoReconnect: true)
+        try await m.connect(p.id)
+        try await clock.sleep(61)  // past the reuse window: the manual connect asks
+        helper.simulateExit(p.id)
+        await m.refresh()
+        await waitUntil { hold.waiting == 1 }
+        authenticator.results = [PTError.userConfirmationCancelled]
+        do {
+            try await m.connect(p.id)
+            XCTFail("expected a cancel")
+        } catch {
+            XCTAssertEqual(error as? PTError, .userConfirmationCancelled)
+        }
+        XCTAssertNil(m.reconnecting[p.id])
+        try await assertNoKeptSecrets(m, p.id, prompts: 2, starts: 1)
+    }
+
+    /// Another process stops the session and starts another between two polls: this manager sees it connected
+    /// both times, but in a new process, so the first session's secrets are not used for the second one.
+    func testASessionReplacedBetweenPollsKeepsNoSecrets() async throws {
+        let m = makeManager()
+        let p = try await makeProtected(in: m, autoReconnect: true)
+        try await m.connect(p.id)
+        helper.simulateExit(p.id)
+        helper.simulateExternalStart(p.id, profileDir: store.dir(p.id).path, since: t0)
+        await m.refresh()
+        XCTAssertTrue(m.state(p.id).isConnected)
+        try await clock.sleep(61)
+        helper.simulateExit(p.id)
+        await m.refresh()
+        await waitUntil { self.events.count == 2 }
+        XCTAssertEqual(events.last, .reconnectFailed(profileID: p.id, reason: PTError.confirmationRequired.localizedDescription))
+        XCTAssertEqual(authenticator.calls, 1)
+        XCTAssertEqual(helper.starts.count, 1)
+    }
+
     func testReconnectGivesUpAfterLastAttempt() async throws {
         let p = try makeOpenVPN(autoReconnect: true)
         let m = makeManager()
