@@ -43,13 +43,10 @@ final class Supervisor {
     /// Sessions whose tool ended but whose network could not be restored yet: only their record is left, the
     /// profile cannot start over it, and `retryRestores` tries again.
     private var pendingRestores: Set<Key> = []
-    /// OpenVPN sessions whose tool ended but whose DNS check could not finish (`settleDNS`): only their DNS
-    /// record is left, and `retryDNS` tries again. A session `failed` holds up a start of its profile; one
-    /// `parked` (its DNS sits in the backup of another running session of the script) does not.
-    private var pendingDNS: [Key: DNSPending] = [:]
-    private let dnsSystem: OpenVPNDNSSystem = MacOpenVPNDNSSystem(name: "PassTunnel helper")
-
-    enum DNSPending { case failed, parked }
+    /// OpenVPN sessions' DNS once their tool has ended (`OpenVPNDNSKeeper`): settled, retried, carried over a start.
+    private let dns: OpenVPNDNSKeeper
+    /// How long a check of a session's DNS waits for OpenVPN's script lock before it counts as a failed try.
+    static let scriptLockWait: TimeInterval = 3
 
     private var sessions: [SessionPolicy.Session] {
         jobs.values.map {
@@ -60,6 +57,12 @@ final class Supervisor {
     init(core: HelperCore, stager: ToolStager) {
         self.core = core
         self.stager = stager
+        let dnsLog = Logger(subsystem: PT.helperLabel, category: "dns")
+        dns = OpenVPNDNSKeeper(
+            runRoot: core.runRoot, system: MacOpenVPNDNSSystem(name: "PassTunnel helper"),
+            lock: { ScriptLock.acquire(wait: Self.scriptLockWait) },
+            appendToLog: { key, owner, line in core.appendToLog(line, owner: owner, profileID: key.profileID, uid: key.uid) },
+            report: { dnsLog.notice("\($0, privacy: .public)") })
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + Self.logCheckInterval, repeating: Self.logCheckInterval)
         timer.setEventHandler { [weak self] in self?.capLogs() }
@@ -68,8 +71,9 @@ final class Supervisor {
         let retry = DispatchSource.makeTimerSource(queue: queue)
         retry.schedule(deadline: .now() + Self.restoreRetryInterval, repeating: Self.restoreRetryInterval)
         retry.setEventHandler { [weak self] in
-            self?.retryRestores()
-            self?.retryDNS()
+            guard let self else { return }
+            self.retryRestores()
+            self.dns.retry(live: self.liveRunDirs(), isRunning: { self.jobs[$0] != nil })
         }
         retry.resume()
         restoreTimer = retry
@@ -150,17 +154,9 @@ final class Supervisor {
         // What earlier OpenVPN sessions left of the Mac's DNS is put back first, before anything new runs: the
         // script backs up whatever the primary service has at a dns-up, so a new session would take it for the
         // Mac's own. What it says goes into the new session's log once that exists.
-        var dnsNotes: [OpenVPNDNS.Note] = []
-        retryDNS { dnsNotes.append($0) }
-        switch pendingDNS[key] {
-        case .failed?:
-            return .failure(HelperCore.stillRestoringMessage(typeName: HelperCore.Tool.openvpn.displayName))
-        case .parked?:
-            log.notice("starting \(profileID, privacy: .public) of uid \(uid) over the DNS record of its last session (parked)")
-            pendingDNS[key] = nil
-        case nil:
-            break
-        }
+        // Notes about other profiles' sessions go to their own logs; this profile's come back for its new log.
+        let (decision, dnsNotes) = dns.beforeStart(key, live: liveRunDirs(), isRunning: { self.jobs[$0] != nil })
+        if case .refuse(let message) = decision { return .failure(message) }
         // The root-owned copy of the tools and their libraries, each file checked (requirement and pins)
         // as copied; tools still running from another build's copy keep theirs.
         var staged: ToolStager.Staged?
@@ -176,17 +172,24 @@ final class Supervisor {
             plan = try prepare(stage)
         } catch {
             log.error("start \(profileID, privacy: .public) rejected: \(String(describing: error), privacy: .public)")
+            _ = dns.startFailed(key, runDir: PT.sessionDir(uid: uid, profileID: profileID, runRoot: core.runRoot))
             return .failure(error)
         }
         defer { close(plan.logFD) }
+        dns.carry(into: plan.runDir, key: key)
         for note in dnsNotes { Self.writeNote(note, to: plan.logFD) }
-        if plan.tool == .openvpn, plan.dnsUpdownPath != nil { reportLeftBehindDNS(profileID: profileID, uid: uid, logFD: plan.logFD) }
+        if plan.tool == .openvpn, plan.dnsUpdownPath != nil {
+            if let logName = plan.logName {
+                try? HelperCore.writeDNSOwner(runDir: plan.runDir, HelperCore.DNSOwner(profileDir: plan.profileDir.path, logName: logName))
+            }
+            for note in dns.leftBehindNotes(before: key) { Self.writeNote(note, to: plan.logFD) }
+        }
         let requirement = PT.toolRequirement(identifier: plan.tool.signingIdentifier)
         do {
             let executable = try stage().executable(plan.tool)
-            if let dns = plan.dnsUpdownPath {
+            if let script = plan.dnsUpdownPath {
                 // The root-owned copy openvpn runs; the release's own build only (`PinnedTools`).
-                try Self.checkDNSScript(dns)
+                try Self.checkDNSScript(script)
             }
             // Requirement, then the cdhashes this helper was built with, both on the started process
             // (the staged file is root-owned; this also covers whatever posix_spawn actually opened).
@@ -229,7 +232,8 @@ final class Supervisor {
             log.info("started \(plan.tool.rawValue, privacy: .public) for \(profileID, privacy: .public), uid \(uid), pid \(pid)")
             return .success(pid: pid, mgmtSocket: plan.mgmtSocket)
         } catch {
-            core.removeRunDir(profileID: profileID, uid: uid)
+            // A record carried over this start stays (`OpenVPNDNSKeeper.startFailed`); else the directory goes.
+            if dns.startFailed(key, runDir: plan.runDir) { core.removeRunDir(profileID: profileID, uid: uid) }
             let line = "PassTunnel: \(error)\n"
             _ = line.withCString { write(plan.logFD, $0, strlen($0)) }
             log.error("start \(profileID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
@@ -347,16 +351,19 @@ final class Supervisor {
         queue.sync {
             for job in jobs.values {
                 kill(-job.pid, SIGKILL)
+                kill(job.pid, SIGKILL)
+                // Nothing is restored while the tool or its group (a dns-down of its script) may still run: then
+                // the next helper does it (`adoptOrphans`).
+                guard Self.waitUntilGone(job, timeout: 2) else {
+                    log.error("pid \(job.pid) of \(job.profileID, privacy: .public) is not gone; leaving its clean-up to the next helper")
+                    continue
+                }
                 restoreDNS(runDir: job.runDir, profileID: job.profileID, uid: job.ownerUID, outputFD: job.logFD)
                 // Left for the next helper when it fails (`adoptOrphans`).
-                let dnsSettled = settleDNS(job.key, runDir: job.runDir) { Self.writeNote($0, to: job.logFD) }
-                if restoreNetwork(job.key, runDir: job.runDir, outputFD: job.logFD) {
-                    if dnsSettled {
-                        core.removeRunDir(profileID: job.profileID, uid: job.ownerUID)
-                    } else {
-                        HelperCore.keepOnlyDNSRecord(runDir: job.runDir)
-                    }
-                }
+                let live = liveRunDirs(except: job.key)
+                let settled = dns.settle(job.key, runDir: job.runDir, live: live, sink: job.logFD.map { fd in { Self.writeNote($0, to: fd) } })
+                let restored = restoreNetwork(job.key, runDir: job.runDir, outputFD: job.logFD)
+                OpenVPNDNSKeeper.cleanUp(runDir: job.runDir, settled: settled, networkRestored: restored)
             }
         }
     }
@@ -397,14 +404,13 @@ final class Supervisor {
         jobs[job.key] = nil
         kill(-job.pid, SIGTERM)  // leftovers in the group (pppd)
         restoreDNS(runDir: job.runDir, profileID: job.profileID, uid: job.ownerUID, outputFD: job.logFD)
-        let dnsSettled = settleDNS(job.key, runDir: job.runDir) { Self.writeNote($0, to: job.logFD) }
+        // An adopted session has no log descriptor here: its notes go to the log its owner file names.
+        let settled = dns.settle(
+            job.key, runDir: job.runDir, live: liveRunDirs(), sink: job.logFD.map { fd in { Self.writeNote($0, to: fd) } })
         let restored = restoreNetwork(job.key, runDir: job.runDir, outputFD: job.logFD)
         if let fd = job.logFD { close(fd) }
-        if restored && dnsSettled {
-            core.removeRunDir(profileID: job.profileID, uid: job.ownerUID)  // config, auth file and socket
-        } else if restored {
-            HelperCore.keepOnlyDNSRecord(runDir: job.runDir)  // the configuration and the auth file go now
-        }
+        // The configuration, auth file and socket go; while the DNS is not back, its records stay.
+        OpenVPNDNSKeeper.cleanUp(runDir: job.runDir, settled: settled, networkRestored: restored)
         log.info("\(job.profileID, privacy: .public) of uid \(job.ownerUID) exited (pid \(job.pid), status \(status))")
         job.waiters.forEach { $0() }
     }
@@ -441,6 +447,9 @@ final class Supervisor {
             // Not "PassTunnel: ", which `VPNLog.isFatal` reads as a failed start.
             let line = "PassTunnel helper: OpenVPN did not undo its DNS settings; running dns-down\n"
             _ = line.withCString { write(output, $0, strlen($0)) }
+            // Never twice, also when this helper is killed while it runs: marked before it starts. When the check
+            // or the spawn fails, it did not run and nothing is marked (`OpenVPNDNSKeeper` settles the DNS anyway).
+            HelperCore.markDNSDownTried(runDir: runDir)
             let pid = try Spawner.spawn(
                 executable: "/bin/bash", arguments: [script], environment: environment,
                 workingDirectory: runDir, outputFD: output)
@@ -450,102 +459,28 @@ final class Supervisor {
         } catch {
             log.error("restoring DNS for \(profileID, privacy: .public) of uid \(uid) failed: \(String(describing: error), privacy: .public)")
         }
-        // Run (or tried): `settleDNS` checks what it did, and a retry never runs it again.
-        HelperCore.markDNSDownRan(runDir: runDir)
     }
 
-    /// Checks, once the tool of the session in `runDir` has ended (and after the dns-down it owed), that the Mac
-    /// has its DNS back, whatever OpenVPN's script did or said (`OpenVPNDNS.settle`, from the session's record):
-    /// where the script's DNS for it is still set, the network preferences' DNS is put back. Each service given
-    /// back, and each that could not be, is logged and handed to `output` (the session's log). True when nothing
-    /// is left to do (also without a record, or with one that cannot be read: nothing then shows what the session
-    /// set); false while something is: the record stays, `retryDNS` tries again, and a `failed` one holds up a
-    /// start of the profile.
-    private func settleDNS(_ key: Key, runDir: String, output: (OpenVPNDNS.Note) -> Void) -> Bool {
-        dispatchPrecondition(condition: .onQueue(queue))
-        let session: OpenVPNDNSSession
-        do {
-            guard let variables = try HelperCore.dnsSession(runDir: runDir) else {
-                pendingDNS[key] = nil
-                return true
+    /// The session directories of the running jobs (but `key`'s): what their records say they hold.
+    private func liveRunDirs(except key: Key? = nil) -> [String] {
+        jobs.values.filter { $0.key != key }.map(\.runDir)
+    }
+
+    /// Waits until `job`'s process and its process group are gone, at most `timeout`; false when they are not.
+    private static func waitUntilGone(_ job: Job, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        var reaped = !job.isChild
+        repeat {
+            if !reaped {
+                var status: Int32 = 0
+                let r = waitpid(job.pid, &status, WNOHANG)
+                reaped = r == job.pid || (r < 0 && errno == ECHILD)
             }
-            guard let s = OpenVPNDNSSession(variables: variables) else { throw HelperCore.Failure.unsafeFile(HelperCore.dnsRecordName) }
-            session = s
-        } catch {
-            log.error("not checking the DNS of \(key.profileID, privacy: .public) of uid \(key.uid): \(String(describing: error), privacy: .public)")
-            pendingDNS[key] = nil
-            return true
-        }
-        let result = OpenVPNDNS.settle(session, live: liveDNSSessions(excluding: key), system: dnsSystem)
-        func gaveBack(_ restored: [OpenVPNDNS.Restored]) {
-            for r in restored {
-                log.notice(
-                    "gave \(r.service, privacy: .public) its DNS back after \(key.profileID, privacy: .public) of uid \(key.uid): it still used \(r.settings.joined(separator: " "), privacy: .public)"
-                )
-                output(OpenVPNDNS.Note(.restored, service: r.service, settings: r.settings))
-            }
-        }
-        switch result {
-        case .done(let restored):
-            gaveBack(restored)
-            pendingDNS[key] = nil
-            return true
-        case .parked(let restored):
-            gaveBack(restored)
-            log.notice(
-                "the DNS of \(key.profileID, privacy: .public) of uid \(key.uid) is in the backup of another running session; looking again later")
-            pendingDNS[key] = .parked
-            return false
-        case let .failed(reason, restored, left):
-            gaveBack(restored)
-            log.error("checking the DNS of \(key.profileID, privacy: .public) of uid \(key.uid) failed: \(reason, privacy: .public); trying again")
-            for r in left { output(OpenVPNDNS.Note(.notRestored, service: r.service, settings: r.settings, reason: reason)) }
-            pendingDNS[key] = .failed
-            return false
-        }
-    }
-
-    /// What the running OpenVPN sessions but `key`'s have set (their records), for `OpenVPNDNS.settle`: a session
-    /// whose dns-down ran already holds nothing.
-    private func liveDNSSessions(excluding key: Key) -> [OpenVPNDNSSession] {
-        jobs.values.compactMap { job in
-            guard job.key != key, !HelperCore.dnsDownRan(runDir: job.runDir),
-                let variables = try? HelperCore.dnsSession(runDir: job.runDir)
-            else { return nil }
-            return OpenVPNDNSSession(variables: variables)
-        }
-    }
-
-    /// Settles again the DNS of the sessions that could not be (`pendingDNS`): every `restoreRetryInterval`, and
-    /// before any start. `output` gets what was given back.
-    private func retryDNS(output: (OpenVPNDNS.Note) -> Void = { _ in }) {
-        dispatchPrecondition(condition: .onQueue(queue))
-        for key in pendingDNS.keys.sorted(by: { ($0.uid, $0.profileID) < ($1.uid, $1.profileID) }) where jobs[key] == nil {
-            let dir = PT.sessionDir(uid: key.uid, profileID: key.profileID, runRoot: core.runRoot)
-            if settleDNS(key, runDir: dir, output: output) {
-                core.removeRunDir(profileID: key.profileID, uid: key.uid)
-                log.notice("settled the DNS of \(key.profileID, privacy: .public) of uid \(key.uid)")
-            }
-        }
-    }
-
-    /// Before an OpenVPN session starts: a VPN's DNS that OpenVPN's script set and no session will undo
-    /// (`OpenVPNDNS.leftBehind`) is reported in the helper's log and the session's, never changed: nothing shows
-    /// that PassTunnel set it (a record would, and those were settled before this). One that the record of a
-    /// session still being retried matches is that session's, and not reported as without one.
-    private func reportLeftBehindDNS(profileID: String, uid: uid_t, logFD: Int32) {
-        guard let found = OpenVPNDNS.leftBehind(system: dnsSystem), !found.isEmpty else { return }
-        let retried = pendingDNS.keys.compactMap { key -> OpenVPNDNSSession? in
-            let dir = PT.sessionDir(uid: key.uid, profileID: key.profileID, runRoot: core.runRoot)
-            guard let variables = try? HelperCore.dnsSession(runDir: dir) else { return nil }
-            return OpenVPNDNSSession(variables: variables)
-        }
-        for item in found where !retried.contains(where: { $0.servers == item.servers }) {
-            log.notice(
-                "before \(profileID, privacy: .public) of uid \(uid): \(item.service, privacy: .public) still uses \(item.servers.joined(separator: " "), privacy: .public), set by OpenVPN's DNS script with no session to undo it; left as it is"
-            )
-            Self.writeNote(OpenVPNDNS.Note(.leftBehind, service: item.service, settings: item.servers), to: logFD)
-        }
+            let processGone = reaped && (job.isChild || (kill(job.pid, 0) != 0 && errno == ESRCH))
+            if processGone && kill(-job.pid, 0) != 0 && errno == ESRCH { return true }
+            usleep(20_000)
+        } while Date() < deadline
+        return false
     }
 
     /// A note as one line of a session's log (none without one). Not "PassTunnel: ", which `VPNLog.isFatal`
@@ -679,13 +614,8 @@ final class Supervisor {
             // adopted, so that what one of those set is never taken for theirs.
             var unsettled: [(key: Key, path: String)] = []
             defer {
-                for (key, dir) in unsettled {
-                    if settleDNS(key, runDir: dir, output: { _ in }) {
-                        HelperCore.removeEntry(dir)
-                    } else {
-                        HelperCore.keepOnlyDNSRecord(runDir: dir)
-                    }
-                }
+                // Their notes go to the log each owner file names.
+                dns.settleOrphans(unsettled, live: liveRunDirs())
                 stopStrandedLaunches(recorded: recorded)
             }
             for entry in Self.entries(root) {
@@ -738,7 +668,9 @@ final class Supervisor {
                         }
                         // OpenVPN's DNS, also of a session a previous helper could not check.
                         if HelperCore.isValidProfileID(id), Self.isRealDirectory(path + "/" + id),
-                            (try? HelperCore.dnsSession(runDir: path + "/" + id)) != nil
+                            HelperCore.DNSSlot.allCases.contains(where: {
+                                HelperCore.isRegularFile(path + "/" + id + "/" + $0.recordName)
+                            })
                         {
                             unsettled.append((Key(uid: uid, profileID: id), path + "/" + id))
                             continue

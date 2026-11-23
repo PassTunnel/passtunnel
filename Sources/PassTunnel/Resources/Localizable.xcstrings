@@ -171,6 +171,16 @@
         }
       }
     },
+    "%@ still has a VPN’s DNS server (%@), which only that VPN can reach. It is not in use now; once it is, no name can be found. Restarting the Mac sets it back." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ hâlâ bir VPN’in DNS sunucusunu kullanıyor (%2$@); bu sunucuya yalnızca o VPN ulaşabilir. Şu an kullanımda değil; kullanıldığında hiçbir ad bulunamaz. Mac’i yeniden başlatmak bunu eski hâline getirir."
+          }
+        }
+      }
+    },
     "%@ still uses the DNS of a VPN that is not connected (%@)" : {
       "localizations" : {
         "tr" : {

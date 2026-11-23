@@ -453,7 +453,7 @@ enum Schema {
                 ),
                 "dns_left_behind": described(
                     dnsLeftBehind,
-                    "For host_not_found: a network service whose DNS still points to a VPN's DNS servers, which only that VPN can reach, so no name resolves (macOS only); the likely reason. Tell the user: a restart sets it back."
+                    "For host_not_found: the network service in use, whose DNS still points to a VPN's DNS servers, which only that VPN can reach, so no name resolves (macOS only); the likely reason. Tell the user: a restart sets it back."
                 )
             ], required: ["kind", "at", "credentials_sent", "code_sent"]),
         "Why the last connect failed.")
@@ -550,7 +550,14 @@ enum Schema {
         required: [])
 
     /// `DNSLeftBehind`: a network service and the VPN's DNS servers still set on it.
-    static let dnsLeftBehind = result(["service": string, "servers": array(string)], required: ["service", "servers"])
+    static let dnsLeftBehind = result(
+        [
+            "service": string, "servers": array(string),
+            "in_effect": described(
+                bool,
+                "The Mac uses it now (the primary service, or the default resolver has those servers); otherwise only once that service is used again."
+            )
+        ], required: ["service", "servers", "in_effect"])
 
     /// `ToolCheck`: one VPN tool of the app run with `--version`.
     static let toolCheck = result(
@@ -568,7 +575,7 @@ enum Schema {
         properties["tools"] = array(toolCheck)
         properties["dns_left_behind"] = described(
             array(dnsLeftBehind),
-            "Network services whose DNS still points to a VPN's DNS servers that OpenVPN's DNS script set, with no VPN session running to undo it: no name resolves there (host_not_found). PassTunnel leaves them as they are, as nothing shows it set them; restarting the Mac sets them back."
+            "Network services whose DNS still points to a VPN's DNS servers that OpenVPN's DNS script set, with no VPN session running to undo it. While one is in use (in_effect), no name resolves (host_not_found). PassTunnel leaves them as they are, as nothing shows it set them; restarting the Mac sets them back."
         )
         #endif
         return result(properties, required: ["version", "app_path", "in_applications", "helper", "profiles"])

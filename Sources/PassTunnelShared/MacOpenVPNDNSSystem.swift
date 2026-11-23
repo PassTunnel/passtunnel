@@ -82,6 +82,18 @@ public final class MacOpenVPNDNSSystem: OpenVPNDNSSystem {
         return SCNetworkServiceGetName(service) as String?
     }
 
+    public func primaryService() -> String? {
+        guard let store = store(), let value = SCDynamicStoreCopyValue(store, "State:/Network/Global/IPv4" as CFString),
+            case .string(let id)? = Self.entity(value)?["PrimaryService"], OpenVPNDNS.isServiceID(id)
+        else { return nil }
+        return id
+    }
+
+    public func globalDNSServers() -> [String]? {
+        guard let store = store(), let value = SCDynamicStoreCopyValue(store, "State:/Network/Global/DNS" as CFString) else { return nil }
+        return Self.entity(value)?["ServerAddresses"]?.strings
+    }
+
     // MARK: Store
 
     /// Every key matching `pattern` with a dictionary value; nil when the store cannot be read (an empty

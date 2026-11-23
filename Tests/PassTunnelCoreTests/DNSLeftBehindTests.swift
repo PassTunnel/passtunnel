@@ -8,7 +8,44 @@ import XCTest
 /// the activity, and a server name that is not found while a VPN's DNS is left behind says so
 /// (`ConnectionManager+DNS`, `DNSLeftBehind`).
 extension ConnectionManagerTests {
-    static let wifiLeft = DNSLeftBehind(service: "Wi-Fi", servers: ["10.8.0.1"])
+    static let wifiLeft = DNSLeftBehind(service: "Wi-Fi", servers: ["10.8.0.1"], inEffect: true)
+    static let unusedLeft = DNSLeftBehind(service: "USB LAN", servers: ["10.7.0.1"], inEffect: false)
+
+    /// A leftover on a service the Mac does not use now explains nothing: it is not attached, and its sentence says
+    /// it is not in use.
+    func testOnlyALeftoverInEffectExplainsANameNotFound() async throws {
+        let p = try makeOpenVPN()
+        let m = makeManager()
+        m.leftBehindDNS = { [Self.unusedLeft] }
+        helper.openVPNStateLine = nil
+        helper.startLog = Self.notFoundLog
+        do { try await m.connect(p.id); XCTFail("connected") } catch {}
+        XCTAssertNil(m.failures[p.id]?.dnsLeftBehind)
+        m.leftBehindDNS = { [Self.unusedLeft, Self.wifiLeft] }
+        do { try await m.connect(p.id); XCTFail("connected") } catch {}
+        XCTAssertEqual(m.failures[p.id]?.dnsLeftBehind, Self.wifiLeft)
+        XCTAssertEqual(
+            Self.unusedLeft.sentence,
+            "USB LAN still has a VPN’s DNS server (10.7.0.1), which only that VPN can reach. It is not in use now; once it is, no name can be found. Restarting the Mac sets it back."
+        )
+    }
+
+    /// The notes are read from OpenVPN logs only (openfortivpn prints a gateway's words into its log), and only
+    /// around the tool's own lines.
+    func testNotesOnlyFromOpenVPNLogsAndAroundTheToolsLines() async throws {
+        let forti = try makeForti()
+        let note = OpenVPNDNS.Note(.restored, service: "Wi-Fi", settings: ["10.8.0.1"])
+        try Data((note.line + "\n").utf8).write(to: store.logURL(forti.id))
+        let m = makeManager()
+        m.recordDNSNotes(forti.id)
+        XCTAssertEqual(m.activity(forti.id), [])
+
+        let p = try makeOpenVPN()
+        try Data(("2026-11-22 11:00:00 OpenVPN 2.7.9\n" + note.line + "\n2026-11-22 11:00:01 Initialization Sequence Completed\n").utf8)
+            .write(to: store.logURL(p.id))
+        m.recordDNSNotes(p.id)
+        XCTAssertEqual(m.activity(p.id), [], "a line the tool printed")
+    }
     static let notFoundLog =
         "2026-10-25 09:41:00 RESOLVE: Cannot resolve host address: vpn.example.com:1194 (nodename nor servname provided, or not known)\n"
 
@@ -34,6 +71,7 @@ extension ConnectionManagerTests {
         let dns = try XCTUnwrap(json["dns_left_behind"] as? [String: Any])
         XCTAssertEqual(dns["service"] as? String, "Wi-Fi")
         XCTAssertEqual(dns["servers"] as? [String], ["10.8.0.1"])
+        XCTAssertEqual(dns["in_effect"] as? Bool, true)
         let details = FailureDetails(
             profileName: p.name, server: "", failure: failure, network: NetworkStatus(online: true, interface: .wifi),
             app: AppInfo(

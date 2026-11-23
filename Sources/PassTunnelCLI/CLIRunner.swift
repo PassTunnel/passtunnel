@@ -1323,7 +1323,9 @@ final class CLIRunner {
             }
         }
         if let network = report.network { CLITerminal.out(String(localized: "Network: \(network.summary)")) }
-        for dns in report.dnsLeftBehind ?? [] { CLITerminal.out(CLITerminal.bold("✗") + " " + dns.sentence) }
+        for dns in report.dnsLeftBehind ?? [] {
+            CLITerminal.out(dns.inEffect ? CLITerminal.bold("✗") + " " + dns.sentence : "– " + CLITerminal.dim(dns.sentence))
+        }
         if let secrets = report.secretStore {
             CLITerminal.out(String(localized: "Secret store: \(secrets.name)"))
             for skipped in secrets.skipped ?? [] {

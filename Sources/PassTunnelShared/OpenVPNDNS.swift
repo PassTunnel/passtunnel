@@ -28,17 +28,20 @@ public indirect enum PlistValue: Equatable, Sendable {
 public typealias DNSEntity = [String: PlistValue]
 
 /// What OpenVPN's macOS `dns-updown` sets for one session, worked out from the variables of its dns-up (the
-/// record `HelperCore.dnsHookText` keeps) the way the script does (docs/ARCHITECTURE.md, "DNS script (macOS)").
+/// record `HelperCore.dnsHookText` keeps) exactly the way the script does (docs/ARCHITECTURE.md, "DNS script
+/// (macOS)"; script lines from the pinned copy).
 public struct OpenVPNDNSSession: Equatable, Sendable {
     public var dev: String
-    /// The addresses of the first server the script can use (`find_compat_profile`: plain transport, no DNSSEC,
-    /// only port 53), in order; empty when there is none, and the script then sets nothing.
+    /// The addresses of the first server the script can use (`find_compat_profile`, 105–125: plain transport, no
+    /// DNSSEC, only port 53), in order and as they are, a repeated one too (`addresses_string`, 181–193); empty
+    /// when there is none, and the script then sets nothing.
     public var servers: [String]
-    /// `dns_search_domain_<i>` up to the first gap, each once.
+    /// `dns_search_domain_<i>` up to the first gap, without the ones the script takes for repeats
+    /// (`search_domains_string`, 195–208: `scriptList`).
     public var searchDomains: [String]
-    /// That server's `resolve_domain_<i>`: not empty, the script's split branch (its own `State:` key and the
-    /// search domains on the primary service); empty, its full branch (the primary service's `Setup:` DNS
-    /// replaced).
+    /// That server's `resolve_domain_<i>` (`match_domains_string`, 210–223, the same way): not empty, the
+    /// script's split branch (its own `State:` key and the search domains on the primary service); empty, its full
+    /// branch (the primary service's `Setup:` DNS replaced).
     public var matchDomains: [String]
 
     public var isSplit: Bool { !matchDomains.isEmpty }
@@ -53,11 +56,11 @@ public struct OpenVPNDNSSession: Equatable, Sendable {
     /// From the recorded variables (`HelperCore.dnsVariables`); nil without a `dev` the keys can name.
     public init?(variables v: [String: String]) {
         guard let dev = v["dev"], OpenVPNDNS.isDeviceName(dev) else { return nil }
-        func list(_ name: (Int) -> String) -> [String] {
+        func values(_ name: (Int) -> String) -> [String] {
             var out: [String] = []
             var i = 1
             while i <= OpenVPNDNS.maxIndex, let value = v[name(i)], !value.isEmpty {
-                if !out.contains(value) { out.append(value) }
+                out.append(value)
                 i += 1
             }
             return out
@@ -88,13 +91,32 @@ public struct OpenVPNDNSSession: Equatable, Sendable {
             matchDomains = []
             return
         }
-        servers = list { "dns_server_\(n)_address_\($0)" }
-        searchDomains = list { "dns_search_domain_\($0)" }
-        matchDomains = list { "dns_server_\(n)_resolve_domain_\($0)" }
+        servers = values { "dns_server_\(n)_address_\($0)" }
+        searchDomains = Self.scriptList(values { "dns_search_domain_\($0)" })
+        matchDomains = Self.scriptList(values { "dns_server_\(n)_resolve_domain_\($0)" })
     }
 
-    /// The `Setup:` DNS the full branch writes on the primary service: the servers, the search domains (an empty
-    /// list when there are none) and `SearchOrder` 5000.
+    /// The list the script builds of `values`: each is added unless `[[ "$list" =~ (^| )VALUE( |$) ]]` matches the
+    /// list so far (`"a b "`). VALUE is not quoted there, so it is a regular expression: of the characters a value
+    /// can hold (`HelperCore.isDNSValueScalar`) only `.` means something, any character, a space included.
+    public static func scriptList(_ values: [String]) -> [String] {
+        var out: [String] = []
+        var list = ""
+        for value in values {
+            let pattern = value.map { $0 == "." ? "." : NSRegularExpression.escapedPattern(for: String($0)) }.joined()
+            let matched =
+                (try? NSRegularExpression(pattern: "(^| )" + pattern + "( |$)"))
+                .map { $0.firstMatch(in: list, range: NSRange(list.startIndex..., in: list)) != nil } ?? false
+            if !matched {
+                out.append(value)
+                list += value + " "
+            }
+        }
+        return out
+    }
+
+    /// The `Setup:` DNS the full branch writes on the primary service (246–255): the servers, the search domains
+    /// (an empty list when there are none) and `SearchOrder` 5000.
     public var overrideEntity: DNSEntity {
         [
             "ServerAddresses": .array(servers.map(PlistValue.string)),
@@ -102,6 +124,28 @@ public struct OpenVPNDNSSession: Equatable, Sendable {
             "SearchOrder": .integer(OpenVPNDNS.scriptSearchOrder)
         ]
     }
+}
+
+/// A session's record (`HelperCore.dnsRecord`): what its dns-up was asked to set, how the script ended, and which
+/// service was primary around it.
+public struct OpenVPNDNSRecord: Equatable, Sendable {
+    public var session: OpenVPNDNSSession
+    /// The script's exit status at the dns-up; nil when the wrapper wrote none (the dns-up has not finished, or an
+    /// older wrapper ran it).
+    public var status: Int32?
+    /// The primary service right before and right after the script (the same both times); nil when it was not
+    /// the same, there was none, or nothing was written.
+    public var service: String?
+
+    public init(session: OpenVPNDNSSession, status: Int32? = nil, service: String? = nil) {
+        self.session = session
+        self.status = status
+        self.service = service
+    }
+
+    /// The script finished its dns-up with status 0: it set what `session` says. Only such a record is evidence,
+    /// and only such a running session holds anything.
+    public var succeeded: Bool { status == 0 }
 }
 
 /// What the helper reads and changes of the Mac's DNS for OpenVPN's script, behind a protocol: the logic
@@ -127,13 +171,18 @@ public protocol OpenVPNDNSSystem: AnyObject {
     func interfaceExists(_ name: String) -> Bool
     /// The service's name in the network preferences ("Wi-Fi"); nil when it has none.
     func serviceName(_ service: String) -> String?
+    /// The primary service (`State:/Network/Global/IPv4`, `PrimaryService`); nil when there is none.
+    func primaryService() -> String?
+    /// The servers of the Mac's default resolver (`State:/Network/Global/DNS`, `ServerAddresses`); nil when there
+    /// are none.
+    func globalDNSServers() -> [String]?
 }
 
 /// Gives the Mac its DNS back after an OpenVPN session (docs/ARCHITECTURE.md, "DNS script (macOS)"). OpenVPN's
 /// script restores the primary service's DNS at dns-down only while that service is still primary and still has
 /// the VPN's servers; with no network then, or another primary service, it leaves the VPN's DNS where it put it.
-/// The helper does not trust its exit status: once the session has ended it looks for what the script set for
-/// that session (`OpenVPNDNSSession`, from the record) and puts back what the network preferences hold.
+/// The helper does not trust its exit status: once the session has ended it looks at the service its dns-up
+/// changed (the record) and puts back what the network preferences hold.
 public enum OpenVPNDNS {
     /// `SearchOrder` of the script's full branch.
     public static let scriptSearchOrder = 5000
@@ -150,7 +199,7 @@ public enum OpenVPNDNS {
         case unreadable
     }
 
-    /// One service the helper gave its DNS back.
+    /// One service the helper gave its DNS back, or could not.
     public struct Restored: Equatable, Sendable {
         public var serviceID: String
         /// The service's name ("Wi-Fi"), or its ID when it has none.
@@ -166,14 +215,32 @@ public enum OpenVPNDNS {
     }
 
     /// How settling a session's DNS went.
-    public enum Settlement: Equatable, Sendable {
-        /// Nothing of the session is left (`restored`: what the helper put back for it).
-        case done(restored: [Restored])
-        /// The session's DNS is in the backup of another session of the script that is running: when that one
-        /// ends, the script puts it back on a service, and the helper looks again then.
-        case parked(restored: [Restored])
-        /// Something could not be read or put back: the record stays, and the helper tries again.
-        case failed(reason: String, restored: [Restored], left: [Restored])
+    public struct Settlement: Equatable, Sendable {
+        public enum Outcome: Equatable, Sendable {
+            /// Nothing of the session is left to do.
+            case done
+            /// Something of the session waits for a tunnel that is there: the backup of another running session of
+            /// the script holds its DNS (that session's script puts it back on a service when it ends), or a tunnel
+            /// of the session's name holds its keys. The helper looks again; a start is not held up.
+            case parked
+            /// Something could not be read or put back: the record stays, and the helper tries again.
+            case failed(String)
+        }
+
+        public var outcome: Outcome
+        /// What the helper gave back.
+        public var restored: [Restored] = []
+        /// What it could not (with `failed`).
+        public var left: [Restored] = []
+        /// What it left as it is and why, for the helper's log only.
+        public var reports: [String] = []
+
+        public init(_ outcome: Outcome, restored: [Restored] = [], left: [Restored] = [], reports: [String] = []) {
+            self.outcome = outcome
+            self.restored = restored
+            self.left = left
+            self.reports = reports
+        }
     }
 
     /// A DNS entity as configd publishes it: entries that are dictionaries left out (`flatten` makes keys of
@@ -189,17 +256,21 @@ public enum OpenVPNDNS {
         return nil
     }
 
-    /// The entity with an empty `SearchDomains` left out: the script writes one when the server sent no search
-    /// domains.
-    static func withoutEmptySearchDomains(_ e: DNSEntity) -> DNSEntity {
-        var e = e
-        if e["SearchDomains"]?.strings == [] { e["SearchDomains"] = nil }
-        return e
-    }
-
-    /// Whether `entity` is exactly what the script's full branch wrote for `session`.
+    /// Whether `entity` is what the script's full branch wrote for `session`: the same `ServerAddresses`,
+    /// `SearchOrder` 5000, nothing else but `SearchDomains`, and those holding the session's. More search domains
+    /// may be there: a split session's dns-up puts its own and the Mac's current ones in front
+    /// (`set_search_domains`, 135–155), and its dns-down takes only its own out again.
     public static func isOverride(_ entity: DNSEntity, of session: OpenVPNDNSSession) -> Bool {
-        !session.servers.isEmpty && withoutEmptySearchDomains(entity) == withoutEmptySearchDomains(session.overrideEntity)
+        guard !session.servers.isEmpty, entity["SearchOrder"] == .integer(scriptSearchOrder),
+            entity["ServerAddresses"]?.strings == session.servers,
+            Set(entity.keys).isSubset(of: ["ServerAddresses", "SearchDomains", "SearchOrder"])
+        else { return false }
+        var domains: [String] = []
+        if let value = entity["SearchDomains"] {
+            guard let list = value.strings else { return false }
+            domains = list
+        }
+        return Set(session.searchDomains).isSubset(of: domains)
     }
 
     /// Whether `entity` has the shape of the script's full branch: `ServerAddresses` (not empty), `SearchOrder` 5000,
@@ -225,89 +296,111 @@ public enum OpenVPNDNS {
 
     // MARK: Settling a session
 
-    /// Looks for what the script set for `session`, now that it has ended, and puts back what the network
-    /// preferences hold where it is still set:
-    /// - full branch: every service whose `Setup:` DNS is exactly the session's override (`isOverride`), unless a
-    ///   session in `live` set the same one (it may be that one's, which its own end settles); the session's own
-    ///   backup once its tunnel is gone (a stale one makes every later dns-up of the script fail); and a backup of
-    ///   another session that holds the override (`parked`).
-    /// - split branch: its `State:` key once its tunnel is gone, and every service whose search domains still start
-    ///   with the session's while the rest of its DNS is what the preferences hold, unless a session in `live` has
-    ///   search domains there too.
-    /// A service whose DNS is anything else (changed by someone in the meantime) is left as it is.
-    public static func settle(_ session: OpenVPNDNSSession, live: [OpenVPNDNSSession], system: OpenVPNDNSSystem) -> Settlement {
-        guard !session.servers.isEmpty else { return .done(restored: []) }
-        guard let services = system.serviceDNS() else {
-            return .failed(reason: "the system configuration cannot be read", restored: [], left: [])
+    /// Looks, now that the session of `record` has ended, at what its script set, and puts back what the network
+    /// preferences hold where that is still set. Only a dns-up that succeeded counts (`OpenVPNDNSRecord.succeeded`),
+    /// and only on the service it changed (`OpenVPNDNSRecord.service`); without that service nothing is scanned:
+    /// it is reported. `live`: the records of the sessions still running (only those that succeeded hold anything).
+    /// - full branch: the service's `Setup:` DNS, when it is still the session's override (`isOverride`) and no
+    ///   running session that changed the same service set the same; the session's own backup once no tunnel of
+    ///   its name is there (a stale one makes every later dns-up of the script fail); a backup of another session
+    ///   that holds the override: `parked` while that tunnel is there, reported once it is gone.
+    /// - split branch: its `State:` key once no tunnel of its name is there; the service's search domains while
+    ///   they still start with the session's and the rest of its DNS is what the preferences hold, unless a
+    ///   running split session has search domains there too.
+    /// A tunnel of the session's name that is there but is no running session of PassTunnel's (the number was
+    /// taken again) keeps what is named after it: `parked`, reported. A setting anyone changed since is left as
+    /// it is.
+    public static func settle(_ record: OpenVPNDNSRecord, live: [OpenVPNDNSRecord], system: OpenVPNDNSSystem) -> Settlement {
+        let session = record.session
+        guard record.succeeded else {
+            let why =
+                record.status.map { "its dns-up failed (status \($0)), so it set nothing" }
+                ?? "its dns-up left no result, so nothing shows what it set"
+            return Settlement(.done, reports: [why + "; nothing changed for it"])
         }
-        var restored: [Restored] = []
-        var left: [Restored] = []
+        guard !session.servers.isEmpty else { return Settlement(.done) }
+        guard let services = system.serviceDNS(), let backups = system.scriptBackups(), let tunnels = system.tunnelDNS() else {
+            return Settlement(.failed("the system configuration cannot be read"))
+        }
+        let running = live.filter(\.succeeded)
+        let liveDevs = Set(live.map(\.session.dev))
+        let tunnelThere = system.interfaceExists(session.dev)
+        var s = Settlement(.done)
         var failure: String?
-        var parked = false
-        let tunnelGone = !system.interfaceExists(session.dev) && !live.contains { $0.dev == session.dev }
+        var waiting = false
 
         func put(_ id: String, _ current: DNSEntity, settings: [String]) {
             let entry = Restored(serviceID: id, service: name(of: id, system: system), settings: settings)
             switch restore(id, current: current, system: system) {
-            case .restored: restored.append(entry)
+            case .restored: s.restored.append(entry)
             case .unchanged: break
             case .failed(let reason):
                 failure = failure ?? reason
-                left.append(entry)
+                s.left.append(entry)
+            }
+        }
+        /// A key named after the session's `dev`: removed once no tunnel of that name is there; kept while one is,
+        /// waited for when no running session of PassTunnel's has that name.
+        func removeNamed(_ what: String, _ remove: () -> Bool) {
+            if liveDevs.contains(session.dev) { return }
+            if tunnelThere {
+                waiting = true
+                s.reports.append("a tunnel named \(session.dev) is there again: its \(what) is left until it is gone")
+            } else if !remove() {
+                failure = failure ?? "its \(what) could not be removed"
             }
         }
 
+        let service = record.service.flatMap { isServiceID($0) ? $0 : nil }
+        if service == nil {
+            s.reports.append("which service its dns-up changed is not known (the primary service changed around it): no service is changed for it")
+        }
         if !session.isSplit {
-            let held = live.contains { !$0.isSplit && $0.servers == session.servers && $0.searchDomains == session.searchDomains }
-            for (id, entity) in services.sorted(by: { $0.key < $1.key }) where isServiceID(id) && isOverride(entity, of: session) && !held {
-                put(id, entity, settings: session.servers)
-            }
-            guard let backups = system.scriptBackups() else {
-                return .failed(reason: "the system configuration cannot be read", restored: restored, left: left)
-            }
-            if backups[session.dev] != nil, tunnelGone {
-                if !system.removeScriptBackup(dev: session.dev) { failure = failure ?? "its backup could not be removed" }
-            }
-            parked =
-                !held
-                && backups.contains { dev, backup in
-                    dev != session.dev && isOverride(normalized(backup) ?? [:], of: session)
+            if let id = service, let entity = services[id], isOverride(entity, of: session) {
+                let held = running.contains { !$0.session.isSplit && $0.service == id && isOverride(entity, of: $0.session) }
+                if held {
+                    s.reports.append("\(name(of: id, system: system)) has the same DNS from a running session: left to it")
+                } else {
+                    put(id, entity, settings: session.servers)
                 }
-        } else {
-            guard let tunnels = system.tunnelDNS() else {
-                return .failed(reason: "the system configuration cannot be read", restored: restored, left: left)
             }
-            if let entity = tunnels[session.dev], tunnelGone, entity["ServerAddresses"]?.strings == session.servers,
+            if backups[session.dev] != nil { removeNamed("backup") { system.removeScriptBackup(dev: session.dev) } }
+            for (dev, backup) in backups.sorted(by: { $0.key < $1.key }) where dev != session.dev {
+                guard isDeviceName(dev), let entity = normalized(backup), isOverride(entity, of: session) else { continue }
+                if system.interfaceExists(dev) || liveDevs.contains(dev) {
+                    waiting = true
+                    s.reports.append("the backup of the running session on \(dev) holds this session's DNS: looking again when it ends")
+                } else {
+                    s.reports.append("the backup of \(dev), whose tunnel is gone, holds this session's DNS: left as it is")
+                }
+            }
+        } else {
+            if let entity = tunnels[session.dev], entity["ServerAddresses"]?.strings == session.servers,
                 entity["SupplementalMatchDomains"]?.strings == session.matchDomains
             {
-                if !system.removeTunnelDNS(dev: session.dev) {
-                    failure = failure ?? "its split DNS could not be removed"
-                    left.append(Restored(serviceID: "", service: "openvpn-\(session.dev)", settings: session.matchDomains))
-                }
+                removeNamed("split DNS") { system.removeTunnelDNS(dev: session.dev) }
             }
-            if !session.searchDomains.isEmpty {
-                let liveDomains = Set(live.flatMap { $0.isSplit ? $0.searchDomains : [] })
-                for (id, entity) in services.sorted(by: { $0.key < $1.key }) where isServiceID(id) {
-                    guard let domains = entity["SearchDomains"]?.strings, domains.starts(with: session.searchDomains),
-                        liveDomains.isDisjoint(with: domains)
-                    else { continue }
-                    let preferences = system.preferencesDNS(service: id)
-                    if preferences == .unreadable {
-                        failure = failure ?? "the network preferences cannot be read"
-                        continue
-                    }
+            if let id = service, !session.searchDomains.isEmpty, let entity = services[id],
+                let domains = entity["SearchDomains"]?.strings, domains.starts(with: session.searchDomains)
+            {
+                let liveDomains = Set(running.flatMap { $0.session.isSplit ? $0.session.searchDomains : [] })
+                let preferences = system.preferencesDNS(service: id)
+                if !liveDomains.isDisjoint(with: domains) {
+                    s.reports.append("\(name(of: id, system: system)) has search domains of a running session too: left to it")
+                } else if preferences == .unreadable {
+                    failure = failure ?? "the network preferences cannot be read"
+                } else {
                     var rest = entity
                     rest["SearchDomains"] = nil
                     var configured = normalized(preferences) ?? [:]
                     configured["SearchDomains"] = nil
                     // Anything else changed too: someone else set it since.
-                    guard rest == configured else { continue }
-                    put(id, entity, settings: session.searchDomains)
+                    if rest == configured { put(id, entity, settings: session.searchDomains) }
                 }
             }
         }
-        if let failure { return .failed(reason: failure, restored: restored, left: left) }
-        return parked ? .parked(restored: restored) : .done(restored: restored)
+        if let failure { s.outcome = .failed(failure) } else if waiting { s.outcome = .parked }
+        return s
     }
 
     enum Outcome: Equatable {
@@ -351,11 +444,15 @@ public enum OpenVPNDNS {
         public var serviceID: String
         public var service: String
         public var servers: [String]
+        /// The Mac uses it now: the service is the primary one, or the default resolver has those servers.
+        /// Otherwise it matters only once that service is used again.
+        public var inEffect: Bool
 
-        public init(serviceID: String, service: String, servers: [String]) {
+        public init(serviceID: String, service: String, servers: [String], inEffect: Bool) {
             self.serviceID = serviceID
             self.service = service
             self.servers = servers
+            self.inEffect = inEffect
         }
     }
 
@@ -366,12 +463,17 @@ public enum OpenVPNDNS {
     public static func leftBehind(system: OpenVPNDNSSystem) -> [LeftBehind]? {
         guard let services = system.serviceDNS(), let backups = system.scriptBackups() else { return nil }
         if backups.keys.contains(where: { isDeviceName($0) && system.interfaceExists($0) }) { return [] }
+        let primary = system.primaryService()
+        let resolver = system.globalDNSServers()
         var out: [LeftBehind] = []
         for (id, entity) in services.sorted(by: { $0.key < $1.key }) where isServiceID(id) && isScriptOverride(entity) {
             let preferences = system.preferencesDNS(service: id)
             guard preferences != .unreadable, normalized(preferences) != normalized(entity) else { continue }
-            let servers = (entity["ServerAddresses"]?.strings ?? []).filter(Note.isSetting)
-            out.append(LeftBehind(serviceID: id, service: name(of: id, system: system), servers: servers))
+            let all = entity["ServerAddresses"]?.strings ?? []
+            out.append(
+                LeftBehind(
+                    serviceID: id, service: name(of: id, system: system), servers: all.filter(Note.isSetting),
+                    inEffect: primary == id || resolver == all))
         }
         return out
     }
@@ -465,9 +567,24 @@ public enum OpenVPNDNS {
             if self.service.isEmpty || self.settings.isEmpty { return nil }
         }
 
-        /// Every note in `log`, in order.
-        public static func all(in log: String) -> [Note] {
-            log.split(whereSeparator: \.isNewline).compactMap { Note(line: String($0)) }
+        /// The helper's notes in a session's log: only those before the tool's first line (written at the start,
+        /// before it ran) and after its last one (written once it ended). A line the tool printed, in which a
+        /// server's words can be, never counts, even when it reads like one.
+        public static func helperNotes(in log: String) -> [Note] {
+            let lines = log.split(whereSeparator: \.isNewline).map(String.init).filter { !$0.allSatisfy(\.isWhitespace) }
+            var head: [Note] = []
+            var i = 0
+            while i < lines.count, let note = Note(line: lines[i]) {
+                head.append(note)
+                i += 1
+            }
+            var tail: [Note] = []
+            var j = lines.count - 1
+            while j >= i, let note = Note(line: lines[j]) {
+                tail.insert(note, at: 0)
+                j -= 1
+            }
+            return head + tail
         }
     }
 }

@@ -1053,6 +1053,8 @@ public final class ConnectionManager: ObservableObject {
             let creds = try resolveCredentials(p, given: given, stored: stored)
             // A helper left running from another app version would misplace or reject the session.
             try await helper.ensureCompatible()
+            // The last session's log, before the start makes it anew: what a retry of the helper added after it ended.
+            recordDNSNotes(id)
             record(id, connectingEvent(p))
             progress.recorded = true
 
@@ -1805,7 +1807,8 @@ public final class ConnectionManager: ObservableObject {
         if case PTError.invalidField("gateway") = error { failure.gateways = progress.gateways }
         if let reason = progress.failureReason { failure.reason = reason }
         failure.detail = progress.failureDetail
-        if failure.kind == .hostNotFound { failure.dnsLeftBehind = leftBehindDNS()?.first }
+        // Only a leftover the Mac uses now explains it (an unused adapter's does not).
+        if failure.kind == .hostNotFound { failure.dnsLeftBehind = leftBehindDNS()?.first(where: \.inEffect) }
         failures[id] = failure
         var gateway: String?
         if case PTError.gatewayCertificateRejected(let host, _, _, _) = error { gateway = host }

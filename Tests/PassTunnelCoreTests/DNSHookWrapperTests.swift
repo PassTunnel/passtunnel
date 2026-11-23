@@ -92,6 +92,45 @@ final class DNSHookWrapperTests: XCTestCase {
         }
     }
 
+    func testResultsAndOtherSessionFiles() throws {
+        let id = "8E3F0A1C-0000-4000-8000-00000000A001"
+        XCTAssertEqual(HelperCore.dnsResult("status=0\nservice=\(id)\n")?.service, id)
+        XCTAssertEqual(HelperCore.dnsResult("status=1\nservice=\n")?.status, 1)
+        XCTAssertNil(HelperCore.dnsResult("status=1\nservice=\n")?.service)
+        for bad in [
+            "", "status=0\n", "status=0\nservice=\(id)", "status=256\nservice=\n", "status=-1\nservice=\n", "status=0x\nservice=\n",
+            "status=0\nservice=a/b\n", "status=0\nservice=\nmore\n", "service=\nstatus=0\n"
+        ] {
+            XCTAssertNil(HelperCore.dnsResult(bad), bad.debugDescription)
+        }
+
+        // Written by nobody but root (here: the test's user), and by nobody else.
+        let path = dir.appendingPathComponent(HelperCore.dnsRecordName).path
+        try Self.record.write(toFile: path, atomically: true, encoding: .utf8)
+        XCTAssertNotNil(try HelperCore.dnsRecord(runDir: dir.path))
+        XCTAssertEqual(chmod(path, 0o620), 0)
+        XCTAssertThrowsError(try HelperCore.dnsRecord(runDir: dir.path)) {
+            XCTAssertEqual($0 as? HelperCore.Failure, .insecurePermissions(path))
+        }
+        XCTAssertEqual(chmod(path, 0o600), 0)
+        try "status=x\n".write(toFile: dir.appendingPathComponent(HelperCore.dnsResultName).path, atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try HelperCore.dnsRecord(runDir: dir.path))
+
+        // A record carried over a start.
+        XCTAssertThrowsError(try HelperCore.writeCarriedDNSRecord(runDir: dir.path, record: "dev=utun7\n", result: nil))
+        XCTAssertThrowsError(try HelperCore.writeCarriedDNSRecord(runDir: dir.path, record: Self.record, result: "status=x\n"))
+        try HelperCore.writeCarriedDNSRecord(runDir: dir.path, record: Self.record, result: "status=0\nservice=\(id)\n")
+        let carried = try XCTUnwrap(HelperCore.dnsRecord(runDir: dir.path, slot: .carried))
+        XCTAssertEqual(carried.service, id)
+        XCTAssertTrue(carried.succeeded)
+        HelperCore.removeDNSSlot(runDir: dir.path, .carried)
+        XCTAssertNil(try HelperCore.dnsRecord(runDir: dir.path, slot: .carried))
+
+        XCTAssertThrowsError(try HelperCore.writeDNSOwner(runDir: dir.path, HelperCore.DNSOwner(profileDir: "/a\nb", logName: "vpn.log")))
+        try "relative\nvpn.log\n".write(toFile: dir.appendingPathComponent(HelperCore.dnsOwnerName).path, atomically: true, encoding: .utf8)
+        XCTAssertNil(HelperCore.dnsOwner(runDir: dir.path))
+    }
+
     func testHookText() {
         let lines = HelperCore.dnsHookText.split(separator: "\n").map(String.init)
         XCTAssertEqual(lines.first, "#!/bin/bash")
@@ -132,19 +171,27 @@ final class DNSHookWrapperTests: XCTestCase {
                 "PATH=/usr/bin:/bin:/usr/sbin:/sbin", "script_type=dns-down", "dev=utun7",
                 "dns_search_domain_1=corp.example.com", "dns_server_1_address_1=192.0.2.53"
             ])
+        // The result: the status, and the primary service as `scutil` showed it before and after (this Mac's, read
+        // only; none when it has none).
+        let result = try String(contentsOfFile: dir.appendingPathComponent(HelperCore.dnsResultName).path, encoding: .utf8)
+        let parsed = try XCTUnwrap(HelperCore.dnsResult(result), result)
+        XCTAssertEqual(parsed.status, 3)
+        let failed = try XCTUnwrap(HelperCore.dnsRecord(runDir: dir.path))
+        XCTAssertFalse(failed.succeeded, "a failed dns-up is no evidence")
 
         XCTAssertEqual(try run(hook, openVPN.merging(["script_type": "dns-down", "exit_with": "4"]) { $1 }), 4)
         XCTAssertTrue(HelperCore.dnsDownRan(runDir: dir.path))
         XCTAssertNil(try HelperCore.pendingDNSDown(runDir: dir.path), "a dns-down ran: nothing is owed")
         XCTAssertEqual(
-            try HelperCore.dnsSession(runDir: dir.path),
-            ["dev": "utun7", "dns_search_domain_1": "corp.example.com", "dns_server_1_address_1": "192.0.2.53"],
+            try HelperCore.dnsRecord(runDir: dir.path)?.session,
+            OpenVPNDNSSession(dev: "utun7", servers: ["192.0.2.53"], searchDomains: ["corp.example.com"]),
             "whatever the script did, the record stays for the helper's check")
 
-        // A new dns-up owes a dns-down again.
+        // A new dns-up owes a dns-down again, and its result replaces the last one.
         XCTAssertEqual(try run(hook, openVPN.merging(["script_type": "dns-up"]) { $1 }), 0)
         XCTAssertFalse(HelperCore.dnsDownRan(runDir: dir.path))
         XCTAssertEqual(try HelperCore.pendingDNSDown(runDir: dir.path), pending)
+        XCTAssertEqual(try HelperCore.dnsRecord(runDir: dir.path)?.status, 0)
         XCTAssertEqual(try run(hook, openVPN.merging(["script_type": "dns-down"]) { $1 }), 0)
 
         // What the helper runs for a skipped dns-down: the script itself with the recorded variables.
@@ -166,20 +213,56 @@ final class DNSHookWrapperTests: XCTestCase {
 
             """)
 
-        // What a check that could not finish keeps: the record and the mark, nothing else.
+        // What a check that could not finish keeps: the records, the marks and the owner, nothing else.
+        try HelperCore.writeDNSOwner(runDir: dir.path, HelperCore.DNSOwner(profileDir: "/Users/alice/x", logName: "vpn.log"))
+        HelperCore.markDNSDownTried(runDir: dir.path)
         HelperCore.keepOnlyDNSRecord(runDir: dir.path)
         XCTAssertEqual(
-            Set(try FileManager.default.contentsOfDirectory(atPath: dir.path)), [HelperCore.dnsRecordName, HelperCore.dnsDownMarkName])
+            Set(try FileManager.default.contentsOfDirectory(atPath: dir.path)),
+            [
+                HelperCore.dnsRecordName, HelperCore.dnsResultName, HelperCore.dnsDownMarkName, HelperCore.dnsDownTriedName,
+                HelperCore.dnsOwnerName
+            ])
+        XCTAssertEqual(HelperCore.dnsOwner(runDir: dir.path), HelperCore.DNSOwner(profileDir: "/Users/alice/x", logName: "vpn.log"))
     }
 
-    func testHelperMarksTheDNSDownItRan() throws {
+    /// The service the wrapper records: the primary service as `scutil` shows it right before and right after the
+    /// script, only when it is the same both times and an ID; nothing otherwise. A stand-in for `scutil` (in a copy of
+    /// the wrapper) shows what a file says, which the stand-in script changes to change the primary service.
+    func testTheServiceIsTheSamePrimaryServiceBeforeAndAfter() throws {
+        let fake = dir.appendingPathComponent("scutil").path
+        let primaryFile = dir.appendingPathComponent("primary").path
+        try HelperCore.writeNewFile(
+            fake, Data("#!/bin/bash\n/bin/cat > /dev/null\necho \"  PrimaryService : $(/bin/cat '\(primaryFile)')\"\n".utf8), mode: 0o700)
+        let hook = dir.appendingPathComponent(HelperCore.dnsHookName).path
+        try HelperCore.writeNewFile(
+            hook, Data(HelperCore.dnsHookText.replacingOccurrences(of: "/usr/sbin/scutil", with: fake).utf8), mode: 0o700)
+        let script = "#!/bin/bash\n[ -n \"$next\" ] && echo \"$next\" > '\(primaryFile)'\nexit 0\n"
+        try HelperCore.writeNewFile(dir.appendingPathComponent("dns-updown").path, Data(script.utf8), mode: 0o700)
+        let id = "8E3F0A1C-0000-4000-8000-00000000A001"
+        let up = ["dev": "utun7", "dns_server_1_address_1": "10.8.0.1", "script_type": "dns-up"]
+
+        func service(primary: String, next: String = "") throws -> String? {
+            try primary.write(toFile: primaryFile, atomically: true, encoding: .utf8)
+            XCTAssertEqual(try run(hook, up.merging(["next": next]) { $1 }), 0)
+            return try HelperCore.dnsRecord(runDir: dir.path)?.service
+        }
+        XCTAssertEqual(try service(primary: id), id)
+        XCTAssertNil(try service(primary: id, next: "8E3F0A1C-0000-4000-8000-00000000A002"), "it changed around the script")
+        XCTAssertNil(try service(primary: ""), "no primary service")
+        XCTAssertNil(try service(primary: "x;y"), "not an ID")
+        XCTAssertNil(try service(primary: "../a"), "not an ID")
+        XCTAssertTrue(try HelperCore.dnsRecord(runDir: dir.path)?.succeeded ?? false)
+    }
+
+    /// The helper's own run of a skipped dns-down is marked before it starts: never twice, also after a crash.
+    func testHelperMarksTheDNSDownItTried() throws {
         try Self.record.write(toFile: dir.appendingPathComponent(HelperCore.dnsRecordName).path, atomically: true, encoding: .utf8)
         XCTAssertNotNil(try HelperCore.pendingDNSDown(runDir: dir.path))
-        HelperCore.markDNSDownRan(runDir: dir.path)
-        HelperCore.markDNSDownRan(runDir: dir.path)
+        HelperCore.markDNSDownTried(runDir: dir.path)
+        HelperCore.markDNSDownTried(runDir: dir.path)
         XCTAssertNil(try HelperCore.pendingDNSDown(runDir: dir.path), "never run twice")
-        XCTAssertEqual(try HelperCore.dnsSession(runDir: dir.path)?["dev"], "utun7")
-        try FileManager.default.removeItem(at: dir.appendingPathComponent(HelperCore.dnsDownMarkName))
+        XCTAssertFalse(HelperCore.dnsDownRan(runDir: dir.path), "it is not the wrapper's: the session still looks running to no one")
         try FileManager.default.createDirectory(at: dir.appendingPathComponent(HelperCore.dnsDownMarkName), withIntermediateDirectories: false)
         XCTAssertFalse(HelperCore.dnsDownRan(runDir: dir.path), "only a regular file marks it")
     }

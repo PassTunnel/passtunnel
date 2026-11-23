@@ -876,7 +876,7 @@ Run directory layout (all root-owned; `HelperCore.makeRunDir`):
     <profileID>/                0711   one per session, recreated on start, removed when the tool exits
                                        (once the network and the DNS are back; until then only their record stays)
       config.ovpn | openfortivpn.conf | openconnect.conf, auth, policy, dns-updown, dns-hook, dns-up.env,
-      dns-down.ran, state
+      dns-up.result, dns-down.ran, dns-down.helper, dns-owner, dns-carried.env, dns-carried.result, state
                                 0600/0700 root
       mgmt.sock                 0600   owned by <uid> (OpenVPN only)
   tools/                        0755   staged tools (`ToolStager`), root:wheel
@@ -965,7 +965,8 @@ Security rules (helper):
   signed and pinned; its copy `dns-updown` runs as root through `dns-hook`, a wrapper the helper writes
   into the run directory (`HelperCore.dnsHookText`, `HelperCore+DNSHook.swift`). How it handles what a
   server pushes (issue #151; checked against the OpenVPN 2.7.8 sources and that script, line numbers from
-  them):
+  them; the script's lines hold for the release's pinned OpenVPN, `OPENVPN_VERSION` in scripts/release.env,
+  2.7.9 now, whose `libexec/openvpn/dns-updown` is byte for byte the 2.7.8 one):
   - *What reaches it.* Only `dev`, `script_type` and the `dns_*` variables of `setenv_dns_options`
     (`dns.c` 504–569), in an environment built fresh for each run (`do_run_up_down_command`, `dns.c`
     572–588; `make_env_array` adds nothing, `env_set.c` 440–474): no pushed `setenv`, no `PATH`. Pushed
@@ -1022,62 +1023,110 @@ Security rules (helper):
     exited (`Supervisor.finish`, `stopAll`, and `adoptOrphans` for a tool that ended while no helper ran)
     is a dns-down OpenVPN skipped: the helper checks the `dns-updown` copy again and runs it with
     `script_type=dns-down` and the recorded variables (`HelperCore.pendingDNSDown`: a regular, single-link
-    file it owns, at most 64 KB, only `dev` and the `dns_*` names OpenVPN sets, values of the characters
-    above, else nothing runs), output into the session's log, for at most `dnsRestoreTimeout` (10 s),
-    then writes the mark (`markDNSDownRan`), so a later try never runs it again. This also covers a tool
-    killed after `stopGrace`. The Linux daemon reverts what its own hook recorded in the same way
-    (LINUX.md, "DNS").
-  - *Giving the Mac its DNS back* (`OpenVPNDNS`, Shared, tested with a fake `OpenVPNDNSSystem`; the Mac's is
-    `MacOpenVPNDNSSystem`: `SCDynamicStore` for the keys, `SCPreferences` read only for the network
-    preferences). Once a session's tool has ended and the owed dns-down ran, `Supervisor.settleDNS` reads the
-    session's record (`HelperCore.dnsSession`) and works out what the script set for it the way the script
-    does (`OpenVPNDNSSession`: the first server of plain transport, no DNSSEC and only port 53, its addresses,
-    the search domains once each, its `resolve_domain`s), whatever the script printed or returned. Then
-    (`OpenVPNDNS.settle`):
-    - full branch: every service whose `Setup:` DNS is exactly that override (`isOverride`: those three
-      properties and nothing else) gets back what the network preferences hold for it
-      (`/NetworkServices/<id>/DNS`, as configd publishes it: an empty or `__INACTIVE__` entity is none,
-      entries that are dictionaries are left out): that entity, or no key when they hold none. The key is
-      read again right before the write (changed since: left), written, and read back; it is restored only
-      when it then equals the preferences. It does not matter which service is primary now. A service whose
-      DNS is anything else (someone changed it, also through System Settings, which republishes it from the
-      preferences) is left as it is. A running session (another job's record, without its dns-down mark)
-      that set the same override holds it: it may be that one's, which its own end settles. The session's
-      own `DnsBackup` is removed once no interface of its `dev` exists (a stale one makes every later
-      dns-up fail). When another running session's backup holds the override (its dns-up backed up a
-      leftover), the record is kept (`parked`): that session's script puts it back on a service when it
-      ends, and the next try restores it there.
-    - split branch: the session's `State:` key is removed once no interface of its `dev` exists and it still
-      has the session's servers and match domains; a service whose search domains still start with the
-      session's, while the rest of its DNS is what the preferences hold, gets the preferences' DNS back
-      unless a running split session's search domains are there too.
-    The helper writes only keys of checked names: service IDs of letters, digits and `-` (`isServiceID`)
-    read from the store, `dev` of letters and digits (`isDeviceName`) from the record. Nothing is changed
-    without a record: the record (root-owned, in a root-owned directory, written by the hook OpenVPN ran as
-    root) is the evidence that this session's script wrote that override. A failure (store or preferences
-    unreadable, the write refused or not holding) keeps the record and only it (`keepOnlyDNSRecord`: the
-    configuration and auth file go), `retryDNS` tries again every `restoreRetryInterval` (15 s) and before
-    every start, and a start of that profile is refused while it fails ("The network settings of this
-    profile's last OpenVPN session are still being restored"; a `parked` one does not hold a start up).
-    `adoptOrphans` settles the directories of ended sessions after it adopted every running one. Each service
-    given back, and each that could not be, goes into the helper's log and, as `PassTunnel helper: restored
-    the DNS of “<service>”, which still used the VPN's <servers>` (or `could not restore … ; trying again`),
-    into the session's log (`OpenVPNDNS.Note`); `disconnect` gets its answer only after that.
+    file it owns, writable by nobody else, at most 64 KB, only `dev` and the `dns_*` names OpenVPN sets,
+    values of the characters above, else nothing runs), output into the session's log, for at most
+    `dnsRestoreTimeout` (10 s). Right before it starts it, the helper writes `dns-down.helper`
+    (`markDNSDownTried`): it is never run twice, also when the helper is killed while it runs (a second run
+    would only find nothing to restore; the check below does not depend on it). When the copy fails its
+    check or cannot be started, nothing ran and nothing is marked. This also covers a tool killed after
+    `stopGrace`; `stopAll` first waits (at most 2 s) until the tool and its process group are gone, and
+    leaves a session that is not to the next helper. The Linux daemon reverts what its own hook recorded in
+    the same way (LINUX.md, "DNS").
+  - *What a dns-up set, and where* (#297). The record alone holds only what the server sent, not whether the
+    script used it or on which service. So `dns-hook` no longer `exec`s the script for a dns-up: it reads the
+    primary service as the script does (`show State:/Network/Global/IPv4`, `PrimaryService`, only an ID of
+    letters, digits and `-`), runs the script, reads it again, and writes `dns-up.result`: `status=<the
+    script's exit status>` and `service=<that ID>`, the ID only when it was the same before and after. The
+    script reads the primary service in between (`primary_dns_key`, 50–53, at 248 and 254, and for the
+    search domains at 137), and nothing it does changes which service is primary, so the same reading before
+    and after is the service it wrote to; only a network change within the script's few milliseconds that
+    comes back to the same service could slip through. When the two readings differ (or there is no primary
+    service), `service` is empty and the helper changes nothing for that session: it reports it. A status
+    other than 0 means the script stopped before it wrote anything (no lock, "already redirecting to another
+    tunnel", no usable server: 37–43, 242–245, 109–111). Only a record with status 0 is evidence, and only a
+    running session whose record has status 0 holds anything (`OpenVPNDNSRecord.succeeded`). What it set is
+    worked out exactly as the script does (`OpenVPNDNSSession`): the first server of plain transport, no
+    DNSSEC and only port 53 (`find_compat_profile`, 105–125); every address of it as sent, a repeated one too
+    (`addresses_string`, 181–193); the search domains and `resolve_domain`s without those the script takes for
+    repeats, whose test (203, 218) is an unquoted `=~`, a regular expression in which a `.` matches any
+    character, a space included (`OpenVPNDNSSession.scriptList`). `DNSScriptTests` runs the real script
+    (Homebrew's, when it is installed; it is not in the repository) against a stand-in for `scutil` and
+    compares what it writes with the model.
+  - *Giving the Mac its DNS back* (`OpenVPNDNS.settle` and `OpenVPNDNSKeeper`, Shared, tested with a fake
+    `OpenVPNDNSSystem`, a fake lock and logs in memory; the Mac's system is `MacOpenVPNDNSSystem`:
+    `SCDynamicStore` for the keys, `SCPreferences` read only for the network preferences). Once a session's
+    tool has ended and the owed dns-down ran, the helper reads the session's records (its own, and one
+    carried over its start, below) and, holding OpenVPN's script lock (`ScriptLock`: the script's own
+    `shlock` protocol on `/var/lock/openvpn-dns-updown.lock`, 29–44, so it never reads and writes in the
+    middle of another session's dns-up or dns-down; waited for at most 3 s, else a failed try), looks only at
+    the service the record names:
+    - full branch: that service's `Setup:` DNS, when it is still the session's override (`isOverride`: the
+      same `ServerAddresses`, `SearchOrder` 5000, nothing but `SearchDomains` besides, and those still holding
+      the session's: a split session's dns-up puts its own and the Mac's current ones in front,
+      `set_search_domains`, 135–155, and its dns-down takes only its own out), gets back what the network
+      preferences hold for it (`/NetworkServices/<id>/DNS`, as configd publishes it: an empty or
+      `__INACTIVE__` entity is none, entries that are dictionaries are left out): that entity, or no key when
+      they hold none. The key is read again right before the write (changed since: left), written, and read
+      back; it is restored only when it then equals the preferences. It does not matter which service is
+      primary now. The same override on another service (another profile, or another OpenVPN on the Mac with
+      the same server) is not this session's and is not touched. A running session that changed the same
+      service the same way holds it: it may be that one's, which its own end settles. The session's own
+      `DnsBackup` is removed once no interface of its `dev` exists (a stale one makes every later dns-up
+      fail). A backup of another `dev` that holds the override (its dns-up backed up a leftover): while that
+      tunnel is there or its session runs, the record is kept (`parked`), and that session's script puts the
+      override back when it ends; once that tunnel is gone and no session runs on it, it is only reported.
+    - split branch: the session's `State:` key, once no interface of its `dev` exists and it still has the
+      session's servers and match domains; the service's search domains, while they still start with the
+      session's and the rest of its DNS is what the preferences hold, unless a running split session's
+      search domains are there too.
+    - A tunnel of the session's `dev` that is there but is no running session of PassTunnel's (the number was
+      taken again): what is named after it stays, the record is `parked`, reported, and tried again until that
+      tunnel is gone. A running session of that name owns them.
+    The helper writes only keys of checked names: service IDs of letters, digits and `-` (`isServiceID`),
+    `dev` of letters and digits (`isDeviceName`). Nothing is changed without a record that proves it: the
+    record and its result (root-owned, in a root-owned directory, written by the hook OpenVPN ran as root).
+    A failure (the lock not had in time, store or preferences unreadable, the write refused or not holding)
+    keeps the records and only them (`keepOnlyDNSRecord`: the configuration and auth file go); the keeper
+    tries again every `restoreRetryInterval` (15 s) and before every start, and refuses a start of that
+    profile while it fails ("The DNS settings of this profile's last OpenVPN session are still being
+    restored, so it cannot connect yet. Try again shortly; if this keeps happening, restarting the Mac
+    clears it.": a restart empties the run directory and republishes the `Setup:` keys). A `parked` record
+    does not hold a start up: `beforeStart` takes its text, and once the start has made the new session
+    directory, `carry(into:)` writes it there as `dns-carried.env` / `dns-carried.result`, settled with the new
+    session's own record at its end (a start that fails keeps it: `startFailed`). `adoptOrphans` settles the
+    directories of ended sessions only after it adopted every running one.
+    Each service given back, and each that could not be, goes into the helper's log and into the log of the
+    session it is about, and no other (`OpenVPNDNS.Note`: `PassTunnel helper: restored the DNS of
+    “<service>”, which still used the VPN's <servers>`, or `could not restore … ; trying again`): through the
+    session's own descriptor while the helper holds it; otherwise (an adopted session, a retry, a start that
+    retries other profiles' sessions) appended to the log `dns-owner` names (the profile directory and the
+    log's name, written at the start), the directory checked as a start checks it, the log a regular,
+    single-link `.log` file of that user opened without following a link (`HelperCore.appendToLog`). What a
+    start's retry says about the profile being started goes into its new log. `disconnect` gets its answer
+    only after the check.
   - *Left behind with no record* (an older helper kept none; another OpenVPN on the Mac uses the same
     script). Before an OpenVPN start, after the retries, `OpenVPNDNS.leftBehind` looks for a `Setup:` DNS in
     the script's shape (`ServerAddresses`, `SearchOrder` 5000, `SearchDomains` or not, nothing else) that
     differs from the preferences while no session of the script is redirecting DNS (no `DnsBackup` of an
-    interface that exists). It is reported, never changed: in the helper's log and as `PassTunnel helper:
-    the DNS of “<service>” still uses <servers>, set by OpenVPN's DNS script with no session running to undo
-    it; left as it is …` in the new session's log. Rule: the helper changes only what a record of
-    PassTunnel's own proves; that shape, no backup, or the DNS a profile was pushed last time
-    (`network.json`, written by the user's own processes) do not prove that PassTunnel wrote it rather than
-    another OpenVPN with the same server, and a restart sets it back anyway. The app reads the same thing
-    (unprivileged, `DNSLeftBehind.current`): `diagnose` lists it (`dns_left_behind`), a `host_not_found`
-    failure carries it (`ConnectionFailure.dnsLeftBehind`: "This Mac's DNS still points to a VPN's DNS
-    server (… on …), which only that VPN can reach …"), and `ConnectionManager.recordDNSNotes` turns the
-    helper's lines in the profile's log into `dns_restored` / `dns_left_behind` activity events (when a
-    connect ends, after a disconnect and after a drop; each once since the last `connecting`).
+    interface that exists), and says whether the Mac uses it now (`inEffect`: it is the primary service, or
+    the default resolver, `State:/Network/Global/DNS`, has those servers). It is reported, never changed: in
+    the helper's log and as `PassTunnel helper: the DNS of “<service>” still uses <servers>, set by OpenVPN's
+    DNS script with no session running to undo it; left as it is …` in the new session's log (not for a
+    service a pending record names). Rule: the helper changes only what a record of PassTunnel's own proves;
+    that shape, no backup, or the DNS a profile was pushed last time (`network.json`, written by the user's
+    own processes) do not prove that PassTunnel wrote it rather than another OpenVPN with the same server, and
+    a restart sets it back anyway. The app reads the same thing (unprivileged, `DNSLeftBehind.current`):
+    `diagnose` lists each with `in_effect` (`dns_left_behind`); a `host_not_found` failure carries the first
+    one in effect only (`ConnectionFailure.dnsLeftBehind`: "This Mac's DNS still points to a VPN's DNS
+    server (… on …), which only that VPN can reach …"; an unused adapter's leftover explains nothing); and
+    `ConnectionManager.recordDNSNotes` turns the helper's lines in an OpenVPN profile's log into
+    `dns_restored` / `dns_left_behind` activity events: before a connect (what a retry added to the last
+    session's log), when a connect ends, after a disconnect and after a drop, each once since the last
+    `connecting`. Only lines before the tool's first line and after its last one count
+    (`OpenVPNDNS.Note.helperNotes`), and only OpenVPN's logs are read: the tools print a server's words into
+    the same log (openfortivpn a gateway's prompts; OpenVPN starts each of its lines with a timestamp, but a
+    message that holds a line break could start a line), so a line in between that reads like a note never
+    counts.
   - *For OpenVPN upstream:* a fixed `PATH` in the script; keeping `updown` across a `PUSH_UPDATE` and
     running the dns-down of the old values before replacing them; the lock in `/var/lock`, which the script
     creates mode 1777 (29–33), so any local user can hold `openvpn-dns-updown.lock` with the pid of a live
@@ -2804,7 +2853,8 @@ CSD's `hostScanRequired` lines do not exist in this protocol (`auth.c` is AnyCon
   (`AppModel.editableTypes`; the editor is refused with "needs a newer PassTunnel") until G6 adds the type's fields.
   The CLI and MCP take the type since G5 ([Experimental](#experimental-g2-g5-g6-g9)).
 - The Mac helper's refusal while the last session's network is still being restored names the request's type
-  (`HelperCore.stillRestoringMessage`); while an OpenVPN session's DNS is, it names OpenVPN.
+  (`HelperCore.stillRestoringMessage`); while the DNS of the last OpenVPN session is, it says so and that a restart
+  of the Mac clears it (`OpenVPNDNSKeeper.stillRestoringMessage`).
 
 ### As built (G7, #234)
 
