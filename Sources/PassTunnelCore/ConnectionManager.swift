@@ -688,8 +688,11 @@ public final class ConnectionManager: ObservableObject {
             guard let new = observed[p.id], !isBusy(p.id) else { continue }
             apply(new, to: p, immediateReconnect: wakeIDs.contains(p.id))
         }
-        // Stopped by a disconnect in another process (app ↔ CLI).
-        for id in unreachableRetries.keys where !retryRunning.contains(id) && hasUserStoppedMarker(id) { cancelReconnect(id) }
+        // Stopped by a disconnect in another process (app ↔ CLI); the secrets kept for the retries go too.
+        for id in unreachableRetries.keys where !retryRunning.contains(id) && hasUserStoppedMarker(id) {
+            cancelReconnect(id)
+            endSessionSecrets(id)
+        }
     }
 
     private func observe(_ p: Profile, running: [String: Int32]?) async -> (state: ConnectionState, unverified: Bool) {
@@ -816,7 +819,10 @@ public final class ConnectionManager: ObservableObject {
         case .disconnected:
             guard sessionActive.remove(id) != nil else { break }
             endSession(id)
-            if userStopped.remove(id) != nil || hasUserStoppedMarker(id) { break }
+            if userStopped.remove(id) != nil || hasUserStoppedMarker(id) {
+                endSessionSecrets(id)  // stopped here or in another process: nothing reconnects with them
+                break
+            }
             guard handlesDrops else { break }
             handleDrop(p, afterWake: immediateReconnect)
         }
@@ -2350,6 +2356,7 @@ public final class ConnectionManager: ObservableObject {
                 guard self.reconnectGen[id] == gen else { return }
                 if error is DestinationChangedError { return self.reportChangedDestination(id) }
                 if self.beginRetryIfUnreachable(id, afterDrop: true) { return }
+                self.endSessionSecrets(id)  // the session is over, as after a drop's last reconnect
                 self.events.send(.reconnectFailed(profileID: id, reason: error.localizedDescription))
             }
         }

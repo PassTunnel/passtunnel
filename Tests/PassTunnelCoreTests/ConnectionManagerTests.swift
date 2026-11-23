@@ -923,6 +923,80 @@ final class ConnectionManagerTests: XCTestCase {
         XCTAssertEqual(helper.starts.count, 2)
     }
 
+    // MARK: kept session secrets end with the session
+
+    /// Past the reuse window, a connect that never asks (as an automatic reconnect does) must need a
+    /// confirmation again: the secrets kept for the ended session are gone.
+    func assertNoKeptSecrets(
+        _ m: ConnectionManager, _ id: String, prompts: Int, starts: Int,
+        file: StaticString = #filePath, line: UInt = #line
+    ) async throws {
+        try await clock.sleep(61)
+        do {
+            try await m.connect(id, interactive: false)
+            XCTFail("connected with the secrets of the ended session", file: file, line: line)
+        } catch {
+            XCTAssertEqual(error as? PTError, .confirmationRequired, file: file, line: line)
+        }
+        XCTAssertEqual(authenticator.calls, prompts, file: file, line: line)
+        XCTAssertEqual(helper.starts.count, starts, file: file, line: line)
+    }
+
+    /// A protected session another process stopped (the CLI, the MCP server): a stop, not a drop, and
+    /// nothing of its confirmation stays behind.
+    func testASessionAnotherProcessStoppedKeepsNoSecrets() async throws {
+        let m = makeManager()
+        let p = try await makeProtected(in: m, autoReconnect: true)
+        try await m.connect(p.id)
+        XCTAssertEqual(authenticator.calls, 1)
+        try await ConnectionManager(store: store, helper: helper, clock: clock).disconnect(p.id)
+        await m.refresh()
+        XCTAssertEqual(m.state(p.id), .disconnected)
+        XCTAssertTrue(events.isEmpty, "a stop, not a drop: \(events)")
+        try await assertNoKeptSecrets(m, p.id, prompts: 1, starts: 1)
+    }
+
+    /// The retries of an unreachable server after a drop run with the session's secrets; another
+    /// process's disconnect ends them, and the secrets with them.
+    func testRetriesAnotherProcessStoppedKeepNoSecrets() async throws {
+        let hold = HoldingClock(clock, holding: 30)
+        let m = makeRetryingManager(clock: hold)
+        let p = try await makeProtected(in: m, autoReconnect: true)
+        try await m.connect(p.id)
+        makeServerUnreachable()
+        helper.simulateExit(p.id)
+        await m.refresh()
+        await waitUntil { m.unreachableRetries[p.id] != nil && hold.waiting == 1 }
+        XCTAssertEqual(authenticator.calls, 1, "the reconnects used the kept secrets")
+        let starts = helper.starts.count
+        try await ConnectionManager(store: store, helper: helper, clock: clock).disconnect(p.id)
+        await m.refresh()
+        XCTAssertNil(m.unreachableRetries[p.id])
+        await waitUntil { hold.waiting == 0 }
+        makeServerReachable()
+        try await assertNoKeptSecrets(m, p.id, prompts: 1, starts: starts)
+    }
+
+    /// A health-forced reconnect that fails ends the session like a drop's last reconnect does.
+    func testAFailedForcedReconnectKeepsNoSecrets() async throws {
+        let m = makeManager()
+        let p = try await makeProtected(in: m, autoReconnect: true, healthHost: "10.0.0.5")
+        try await m.connect(p.id)
+        helper.failStarts = 1
+        healthResults = [false, false]
+        await m.runHealthChecks()
+        await m.runHealthChecks()
+        await waitUntil {
+            self.events.contains {
+                if case .reconnectFailed = $0 { return true }
+                return false
+            }
+        }
+        XCTAssertEqual(m.state(p.id), .disconnected)
+        XCTAssertEqual(authenticator.calls, 1)
+        try await assertNoKeptSecrets(m, p.id, prompts: 1, starts: 2)
+    }
+
     func testReconnectGivesUpAfterLastAttempt() async throws {
         let p = try makeOpenVPN(autoReconnect: true)
         let m = makeManager()

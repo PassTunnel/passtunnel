@@ -849,7 +849,8 @@ end it early. LocalAuthentication's own `touchIDAuthenticationAllowableReuseDura
 would let a recent Touch ID unlock of the Mac count as the confirmation, which is exactly the situation
 this option is for. A connected session keeps its
 decrypted secrets in memory so an automatic reconnect after a drop needs no prompt; they are
-overwritten (best effort) when you disconnect or the session ends. After the Mac was asleep, a
+overwritten (best effort) when you disconnect, also with `passtunnel disconnect` or the MCP server, or
+the session ends otherwise, for example when its reconnects fail. After the Mac was asleep, a
 dropped protected profile is not reconnected on its own: a notification asks you to reconnect. In the
 same way, "Connect at login" never asks at login: a protected profile set to connect at login gets a
 notification you click to connect (and confirm). Each
