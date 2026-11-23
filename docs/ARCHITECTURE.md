@@ -683,8 +683,10 @@ for an envelope), so literal masking does not cover it; the keyword and pattern 
   answered with -32700, and ignores SIGPIPE; it also keeps a `VaultExpiry`, which resets the
   vault on screen lock and sleep as the app does). Its `ConnectionManager` is never `start()`ed (no
   polling, health checks or wake handling, no `retriesUnreachable`) and runs with `handlesDrops` off: a
-  drop that the refresh of `get_status` or `list_profiles` finds shows as `disconnected`, and recording
-  it (`link_dropped`) and reconnecting stay the app's. `MCPTools` holds the tool definitions and JSON
+  drop that the refresh of `get_status` or `list_profiles` finds shows as `disconnected`, and the MCP
+  server neither records it (`link_dropped`) nor reconnects; that is left to the app when it runs. With
+  the switch off, the manager also keeps no secrets of a confirmed session (`keepSessionSecrets`), as
+  nothing in that process reconnects with them. `MCPTools` holds the tool definitions and JSON
   Schemas (`Schema`), checks arguments (`Arguments`: every key must be consumed, a `null` counts as
   absent; `profile_id` via `Slug.isValid`; booleans must be JSON booleans and integers JSON numbers
   without a fraction) and encodes results with `AutomationJSON.object` for `structuredContent` and as text.

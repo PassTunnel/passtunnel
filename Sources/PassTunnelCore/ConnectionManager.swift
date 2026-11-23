@@ -464,8 +464,9 @@ public final class ConnectionManager: ObservableObject {
 
     /// Handle a drop (a profile seen connected, then gone without a user stop): record `link_dropped`,
     /// send `dropped` and, for a profile that can, reconnect. The app and the CLI keep it on. The MCP
-    /// server turns it off: a refresh there only shows the profile as disconnected, and recording the
-    /// drop and reconnecting stay the app's, so a status call never starts a VPN.
+    /// server turns it off: a refresh there only shows the profile as disconnected and neither records
+    /// the drop nor reconnects (the app does, when it runs), so a status call never starts a VPN. Off,
+    /// the manager also keeps no secrets of a confirmed session: only an automatic reconnect uses them.
     public var handlesDrops = true
 
     public let events = PassthroughSubject<ConnectionEvent, Never>()
@@ -816,10 +817,7 @@ public final class ConnectionManager: ObservableObject {
             guard sessionActive.remove(id) != nil else { break }
             endSession(id)
             if userStopped.remove(id) != nil || hasUserStoppedMarker(id) { break }
-            guard handlesDrops else {
-                endSessionSecrets(id)  // nothing reconnects with them here
-                break
-            }
+            guard handlesDrops else { break }
             handleDrop(p, afterWake: immediateReconnect)
         }
     }
@@ -1545,6 +1543,7 @@ public final class ConnectionManager: ObservableObject {
     private func keepSessionSecrets(_ p: Profile, _ stored: [SecretKind: String], destination: ProfileDestination) {
         endSessionSecrets(p.id)
         changedDestinations.remove(p.id)
+        guard handlesDrops else { return }  // nothing here reconnects with them
         let protected = stored.filter { vault.isProtected(p.id, $0.key) }
         guard !protected.isEmpty else { return }
         sessionSecrets[p.id] = protected.mapValues { Array($0.utf8) }

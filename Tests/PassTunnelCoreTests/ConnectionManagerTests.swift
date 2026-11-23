@@ -910,9 +910,7 @@ final class ConnectionManagerTests: XCTestCase {
         helper.simulateExit(p.id)
         await m.refresh()
         XCTAssertEqual(m.state(p.id), .disconnected)
-        XCTAssertNil(m.reconnecting[p.id])
-        // The fake clock lets a reconnect's waits (5, 15, 45 s) pass at once: any attempt would have run by now.
-        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertNil(m.reconnecting[p.id], "set in the refresh itself, before an attempt would start")
         await m.refresh()
         XCTAssertEqual(m.state(p.id), .disconnected)
         XCTAssertTrue(events.isEmpty, "\(events)")
