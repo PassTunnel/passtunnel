@@ -1091,7 +1091,12 @@ Security rules (helper):
     removed. So junk written into the lock blocks the helper no longer than it blocks the script. A fifo
     planted there blocks the script itself: `shlock` opens the lock without `O_NONBLOCK` and waits on it, which
     is the script's own exposure and nothing the helper can lift. **Limit of the protocol:** removing a stale
-    lock is by name; the helper checks that the entry is still the one it read, but `shlock` does not, so if
+    lock is by name. The helper reads the entry again right before it removes it and goes on only when it is
+    unchanged: the same device, inode, change time to the nanosecond, kind and first bytes (`ScriptLock.Entry`;
+    an inode number alone is no proof, as a file system may give a new file the number of one just removed, and
+    Linux's do); its own lock it removes only while it is still the same inode holding its own pid
+    (`ScriptLock.Held.release`). A short window between that last read and the unlink stays. `shlock` does
+    not read again at all, so if
     `shlock` read a stale lock just before the helper replaced it, it removes the helper's fresh lock and
     links its own, and both believe they hold it. A stale lock (a dead pid) exists only when the script was
     killed while it held it. What follows: in that window the helper's write is guarded only the way it is

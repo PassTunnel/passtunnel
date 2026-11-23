@@ -112,13 +112,57 @@ final class ScriptLockTests: XCTestCase {
         again.release()
     }
 
-    /// A lock someone replaced after it was taken is not removed by its release.
+    /// A lock someone replaced after it was taken is not removed by its release: neither a new file (which a file
+    /// system may give the inode number of the one just removed, as Linux's do) nor the same file written over in
+    /// place (the same inode for certain: what an inode number alone cannot tell apart). Its own lock, still
+    /// naming this process, is removed.
     func testReleaseRemovesOnlyItsOwnLock() throws {
         let held = try XCTUnwrap(acquire(Clock(Date())))
         try FileManager.default.removeItem(atPath: path)
         try "1\n".write(toFile: path, atomically: true, encoding: .utf8)
         held.release()
-        XCTAssertTrue(FileManager.default.fileExists(atPath: path))
+        XCTAssertEqual(try String(contentsOfFile: path, encoding: .utf8), "1\n")
+        try FileManager.default.removeItem(atPath: path)
+
+        let same = try XCTUnwrap(acquire(Clock(Date())))
+        var before = stat()
+        XCTAssertEqual(lstat(path, &before), 0)
+        try overwriteInPlace("1\n")
+        var after = stat()
+        XCTAssertEqual(lstat(path, &after), 0)
+        XCTAssertEqual(after.st_ino, before.st_ino, "the same inode")
+        same.release()
+        XCTAssertEqual(try String(contentsOfFile: path, encoding: .utf8), "1\n", "no longer ours: kept")
+        try FileManager.default.removeItem(atPath: path)
+
+        let own = try XCTUnwrap(acquire(Clock(Date())))
+        own.release()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path))
+    }
+
+    /// A stale lock that someone turns into a valid one between its reading and its removal (here: written over in
+    /// place, so the same inode, device and kind) is left: the lock is read again right before the removal, its
+    /// change time and contents too.
+    func testAStaleLockChangedBeforeItsRemovalIsLeft() throws {
+        try "junk\n".write(toFile: path, atomically: true, encoding: .utf8)
+        let later = changeTime().addingTimeInterval(5)
+        let temp = dir.appendingPathComponent(".passtunnel-shlock.\(getpid())").path
+        XCTAssertNil(ScriptLock.tryOnce(path: path, temp: temp, pid: getpid(), now: later) { try? self.overwriteInPlace("1\n") })
+        XCTAssertEqual(try String(contentsOfFile: path, encoding: .utf8), "1\n", "a valid lock now: kept")
+
+        try "junk\n".write(toFile: path, atomically: true, encoding: .utf8)
+        XCTAssertNil(ScriptLock.tryOnce(path: path, temp: temp, pid: getpid(), now: changeTime().addingTimeInterval(5)))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path), "unchanged: removed, the next try takes it")
+    }
+
+    /// Writes `text` over the lock file in place: the same inode, new contents (and a new change time, which may
+    /// fall in the same tick of the file system's clock).
+    func overwriteInPlace(_ text: String) throws {
+        let fd = open(path, O_WRONLY | O_TRUNC | O_NOFOLLOW)
+        XCTAssertGreaterThanOrEqual(fd, 0)
+        defer { close(fd) }
+        let bytes = Array(text.utf8)
+        XCTAssertEqual(bytes.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }, bytes.count)
     }
 
     /// No directory: no run of the script ever took the lock (it makes the directory first); none is needed. A

@@ -139,6 +139,18 @@ final class DNSHookWrapperTests: XCTestCase {
         XCTAssertFalse(HelperCore.dnsHookText.contains("rm -f \"$record\""), "the record outlives the dns-down")
     }
 
+    /// The helper's own run of a skipped dns-down is marked before it starts: never twice, also after a crash.
+    func testHelperMarksTheDNSDownItTried() throws {
+        try Self.record.write(toFile: dir.appendingPathComponent(HelperCore.dnsRecordName).path, atomically: true, encoding: .utf8)
+        XCTAssertNotNil(try HelperCore.pendingDNSDown(runDir: dir.path))
+        HelperCore.markDNSDownTried(runDir: dir.path)
+        HelperCore.markDNSDownTried(runDir: dir.path)
+        XCTAssertNil(try HelperCore.pendingDNSDown(runDir: dir.path), "never run twice")
+        XCTAssertFalse(HelperCore.dnsDownRan(runDir: dir.path), "it is not the wrapper's: the session still looks running to no one")
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent(HelperCore.dnsDownMarkName), withIntermediateDirectories: false)
+        XCTAssertFalse(HelperCore.dnsDownRan(runDir: dir.path), "only a regular file marks it")
+    }
+
     #if os(macOS)
     /// Runs the wrapper against a stand-in for OpenVPN's script that only writes down what it got.
     func testHookRunsScriptWithFixedPathAndKeepsRecord() throws {
@@ -253,18 +265,6 @@ final class DNSHookWrapperTests: XCTestCase {
         XCTAssertNil(try service(primary: "x;y"), "not an ID")
         XCTAssertNil(try service(primary: "../a"), "not an ID")
         XCTAssertTrue(try HelperCore.dnsRecord(runDir: dir.path)?.succeeded ?? false)
-    }
-
-    /// The helper's own run of a skipped dns-down is marked before it starts: never twice, also after a crash.
-    func testHelperMarksTheDNSDownItTried() throws {
-        try Self.record.write(toFile: dir.appendingPathComponent(HelperCore.dnsRecordName).path, atomically: true, encoding: .utf8)
-        XCTAssertNotNil(try HelperCore.pendingDNSDown(runDir: dir.path))
-        HelperCore.markDNSDownTried(runDir: dir.path)
-        HelperCore.markDNSDownTried(runDir: dir.path)
-        XCTAssertNil(try HelperCore.pendingDNSDown(runDir: dir.path), "never run twice")
-        XCTAssertFalse(HelperCore.dnsDownRan(runDir: dir.path), "it is not the wrapper's: the session still looks running to no one")
-        try FileManager.default.createDirectory(at: dir.appendingPathComponent(HelperCore.dnsDownMarkName), withIntermediateDirectories: false)
-        XCTAssertFalse(HelperCore.dnsDownRan(runDir: dir.path), "only a regular file marks it")
     }
 
     private func run(_ executable: String, _ environment: [String: String], arguments: [String] = []) throws -> Int32 {

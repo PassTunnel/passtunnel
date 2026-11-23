@@ -26,24 +26,30 @@ public enum ScriptLock {
     public static let scriptPath = "/var/lock/openvpn-dns-updown.lock"
 
     /// A lock this process holds; `release` (or the end of its life) removes the lock file, only while it is
-    /// still the one it made.
+    /// still the one it made: the same device and inode, and still a regular file that names this process. An inode
+    /// number alone is no proof: a file system may give a new file the number of one just removed (Linux file
+    /// systems do; on the Mac's APFS new files got new numbers whenever we looked, but nothing promises it).
     public final class Held {
         let path: String?
         let device: dev_t
         let inode: ino_t
+        let pid: pid_t
         private var released = false
 
-        init(path: String?, device: dev_t = 0, inode: ino_t = 0) {
+        init(path: String?, device: dev_t = 0, inode: ino_t = 0, pid: pid_t = 0) {
             self.path = path
             self.device = device
             self.inode = inode
+            self.pid = pid
         }
 
         public func release() {
             guard !released, let path else { return }
             released = true
-            var st = stat()
-            if lstat(path, &st) == 0, st.st_dev == device, st.st_ino == inode { unlink(path) }
+            guard let entry = Entry.at(path), entry.kind == S_IFREG, entry.device == device, entry.inode == inode,
+                entry.pid == pid
+            else { return }
+            unlink(path)
         }
 
         deinit { release() }
@@ -70,7 +76,8 @@ public enum ScriptLock {
         }
     }
 
-    static func tryOnce(path: String, temp: String, pid: pid_t, now: Date) -> Held? {
+    /// `beforeRemoving`: the tests' way in between the reading of a stale lock and its removal.
+    static func tryOnce(path: String, temp: String, pid: pid_t, now: Date, beforeRemoving: () -> Void = {}) -> Held? {
         // A temporary file that holds the pid: anything of that name is removed first (never followed).
         unlink(temp)
         let fd = open(temp, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o644)
@@ -82,18 +89,73 @@ public enum ScriptLock {
         if link(temp, path) == 0 {
             var st = stat()
             guard lstat(path, &st) == 0 else { return nil }
-            return Held(path: path, device: st.st_dev, inode: st.st_ino)
+            return Held(path: path, device: st.st_dev, inode: st.st_ino, pid: pid)
         }
         guard errno == EEXIST else { return nil }
         // Taken. Valid while it names a running process; otherwise removed as `shlock` removes it, once its status
-        // did not change in this second, and only while it is still that entry. The next try takes it.
-        var st = stat()
-        guard lstat(path, &st) == 0, (st.st_mode & S_IFMT) != S_IFDIR else { return nil }
-        if let holder = holder(path), holder == pid || kill(holder, 0) == 0 || errno == EPERM { return nil }
-        guard changeSeconds(st) < Int(now.timeIntervalSince1970.rounded(.down)) else { return nil }
-        var again = stat()
-        if lstat(path, &again) == 0, again.st_dev == st.st_dev, again.st_ino == st.st_ino { unlink(path) }
+        // did not change in this second, and only while it is still the entry that was read: the same device, inode,
+        // change time (to the nanosecond), kind and first bytes, read again right before the removal. The next try
+        // takes it. Removal is by name, so a window stays between that read and the unlink (docs/ARCHITECTURE.md).
+        guard let first = Entry.at(path), first.kind != S_IFDIR else { return nil }
+        if let holder = first.pid, holder == pid || kill(holder, 0) == 0 || errno == EPERM { return nil }
+        guard first.changeSeconds < Int(now.timeIntervalSince1970.rounded(.down)) else { return nil }
+        beforeRemoving()
+        if Entry.at(path) == first { unlink(path) }
         return nil
+    }
+
+    /// What is at the lock path, read without following: its identity, its change time, its kind and, for a
+    /// regular file, its first 32 bytes. Two reads that give equal entries saw the same, unchanged lock; equal inode
+    /// numbers alone do not show that.
+    struct Entry: Equatable {
+        var device: dev_t
+        var inode: ino_t
+        var changeSeconds: Int
+        var changeNanoseconds: Int
+        var kind: mode_t
+        var bytes: [UInt8]?
+
+        static func at(_ path: String) -> Entry? {
+            var st = stat()
+            guard lstat(path, &st) == 0 else { return nil }
+            let kind = st.st_mode & S_IFMT
+            var bytes: [UInt8]?
+            if kind == S_IFREG {
+                let fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+                guard fd >= 0 else { return nil }
+                defer { close(fd) }
+                var opened = stat()
+                guard fstat(fd, &opened) == 0, (opened.st_mode & S_IFMT) == S_IFREG, opened.st_dev == st.st_dev,
+                    opened.st_ino == st.st_ino
+                else { return nil }
+                var buffer = [UInt8](repeating: 0, count: 32)
+                let n = buffer.withUnsafeMutableBytes { read(fd, $0.baseAddress, $0.count) }
+                guard n >= 0 else { return nil }
+                bytes = Array(buffer[..<n])
+            }
+            return Entry(
+                device: st.st_dev, inode: st.st_ino, changeSeconds: ScriptLock.changeSeconds(st),
+                changeNanoseconds: ScriptLock.changeNanoseconds(st), kind: kind, bytes: bytes)
+        }
+
+        /// The pid it names: a regular file whose first 32 bytes are a decimal pid above 0, with white space around it
+        /// at most; nil for anything else.
+        var pid: pid_t? {
+            guard let bytes, !bytes.isEmpty else { return nil }
+            let text = String(decoding: bytes, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard (1...10).contains(text.count), text.allSatisfy({ $0.isASCII && $0.isNumber }), let pid = pid_t(text), pid > 0 else {
+                return nil
+            }
+            return pid
+        }
+    }
+
+    static func changeNanoseconds(_ st: stat) -> Int {
+        #if os(Linux)
+        return Int(st.st_ctim.tv_nsec)
+        #else
+        return Int(st.st_ctimespec.tv_nsec)
+        #endif
     }
 
     /// When the entry's status last changed, in whole seconds.
@@ -103,23 +165,5 @@ public enum ScriptLock {
         #else
         return Int(st.st_ctimespec.tv_sec)
         #endif
-    }
-
-    /// The pid a lock file names: nil unless it is a regular file (not followed) whose first 32 bytes are a
-    /// decimal pid above 0, with white space around it at most.
-    static func holder(_ path: String) -> pid_t? {
-        let fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
-        guard fd >= 0 else { return nil }
-        defer { close(fd) }
-        var st = stat()
-        guard fstat(fd, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG else { return nil }
-        var bytes = [UInt8](repeating: 0, count: 32)
-        let n = bytes.withUnsafeMutableBytes { read(fd, $0.baseAddress, $0.count) }
-        guard n > 0 else { return nil }
-        let text = String(decoding: bytes[..<n], as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard (1...10).contains(text.count), text.allSatisfy({ $0.isASCII && $0.isNumber }), let pid = pid_t(text), pid > 0 else {
-            return nil
-        }
-        return pid
     }
 }
