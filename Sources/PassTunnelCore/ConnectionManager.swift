@@ -487,6 +487,9 @@ public final class ConnectionManager: ObservableObject {
     /// The routes through a tunnel interface (`RoutingTable.routes(onInterface:)`), read for a FortiGate
     /// tunnel when it is up; replaced in tests.
     var tunnelRoutes: (String) -> [RoutingTable.Route] = RoutingTable.routes(onInterface:)
+    /// A VPN's DNS left on the Mac's network services (`DNSLeftBehind.current`), read when a server's name is not
+    /// found; replaced in tests.
+    var leftBehindDNS: () -> [DNSLeftBehind]? = DNSLeftBehind.current
     /// The macOS this runs on, for the types that need a later one than the app (`connectRefusal`); nil on
     /// Linux. Replaced in tests, and by the `passtunnel` command's tests.
     public var systemVersion: OperatingSystemVersion? = ConnectionManager.currentMacOS
@@ -957,6 +960,8 @@ public final class ConnectionManager: ObservableObject {
         guard r.ok else { throw PTError.helperFailed(r.error ?? "") }
         if wasActive || wasReconnecting || r.pid != nil {
             record(id, wasConnected ? .disconnectedByUser : .stoppedByUser)
+            // The helper answers once the session has ended, its DNS checked (`Supervisor.settleDNS`).
+            recordDNSNotes(id)
         }
         return wasActive || r.pid != nil
     }
@@ -1050,6 +1055,8 @@ public final class ConnectionManager: ObservableObject {
             let creds = try resolveCredentials(p, given: given, stored: stored)
             // A helper left running from another app version would misplace or reject the session.
             try await helper.ensureCompatible()
+            // The last session's log, before the start makes it anew: what a retry of the helper added after it ended.
+            recordDNSNotes(id)
             record(id, connectingEvent(p))
             progress.recorded = true
 
@@ -1146,6 +1153,8 @@ public final class ConnectionManager: ObservableObject {
                 p, token: token, socketPath: response.mgmtSocket ?? socketPath(id),
                 pid: response.pid)
             let since = result.since ?? clock.now()
+            // What the helper wrote at the start, before the tool ran: once per connect, however many tries it took.
+            recordDNSNotes(id)
             // Recorded before the state changes: whoever reads the notices on that change reads this session's event.
             record(id, .connected(address: result.ip, viaLastKnownAddress: progress.lastKnownAddress?.address))
             setState(id, .connected(ip: result.ip, since: result.since ?? since))
@@ -1898,6 +1907,9 @@ public final class ConnectionManager: ObservableObject {
         progress.failureReason = nil
         progress.failureDetail = nil
         progress.lastKnownAddress = known
+        // The name was not found: a VPN's DNS left on the service the Mac uses is the likely reason. Said once,
+        // before the try, whatever it ends with (`recordDNSNotes` does not record it again for its failure).
+        recordLeftBehindDNS(p.id)
         record(p.id, .tryingLastKnownAddress(host: known.host, address: known.address, confirmedAt: known.confirmedAt))
     }
 
@@ -1917,6 +1929,8 @@ public final class ConnectionManager: ObservableObject {
         if case PTError.invalidField("gateway") = error { failure.gateways = progress.gateways }
         if let reason = progress.failureReason { failure.reason = reason }
         failure.detail = progress.failureDetail
+        // Only a leftover the Mac uses now explains it (an unused adapter's does not).
+        if failure.kind == .hostNotFound { failure.dnsLeftBehind = leftBehindDNS()?.first(where: \.inEffect) }
         failures[id] = failure
         var gateway: String?
         if case PTError.gatewayCertificateRejected(let host, _, _, _) = error { gateway = host }
@@ -1944,6 +1958,7 @@ public final class ConnectionManager: ObservableObject {
             restoreUsedCode(id, used.previous)
         }
         guard progress.owned && progress.recorded else { return }
+        recordDNSNotes(id, failure: failure)
         if let tried = failure.lastKnownAddress { return record(id, .lastKnownAddressFailed(tried)) }
         switch failure.kind {
         case .authRejected: record(id, .rejected(reply: failure.reply))
@@ -2155,6 +2170,8 @@ public final class ConnectionManager: ObservableObject {
     /// `afterWake`: the drop was found right after the Mac woke up; reconnect at once, or, for a profile
     /// that requires a confirmation to connect, ask the user (`droppedWhileAsleep`) rather than prompt.
     private func handleDrop(_ p: Profile, afterWake: Bool) {
+        // What the helper said about the Mac's DNS when the session ended, if it is in the log by now.
+        defer { recordDNSNotes(p.id) }
         let willReconnect = canAutoReconnect(p)
         if afterWake && willReconnect && vault.requiresConfirmation(p) {
             endSessionSecrets(p.id)
@@ -2655,7 +2672,7 @@ public final class ConnectionManager: ObservableObject {
 
     /// Appends to the profile's `activity.jsonl` (best effort: a log that cannot be written never fails a
     /// connection) and publishes it on `activity`.
-    private func record(_ id: String, _ kind: ActivityEvent.Kind) {
+    func record(_ id: String, _ kind: ActivityEvent.Kind) {
         let event = ActivityEvent(at: clock.now(), kind)
         try? ActivityLog(url: store.activityURL(id)).append(event)
         activity.send(ActivityRecord(profileID: id, event: event))

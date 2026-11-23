@@ -53,6 +53,8 @@ public struct FailureDetails: Equatable {
             if !tried.reason.isEmpty { outcome += " (\(tried.reason))" }
             lines.append(String(localized: "Tried instead: the last known address \(tried.address), confirmed \(confirmed): \(outcome)"))
         }
+        // Why the name was not found, after what was tried instead.
+        if let dns = failure.dnsLeftBehind { lines.append(dns.sentence) }
         lines.append(
             failure.credentialsSent
                 ? String(localized: "Your sign-in reached the server.")

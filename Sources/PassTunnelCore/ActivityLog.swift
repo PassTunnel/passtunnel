@@ -52,6 +52,12 @@ public struct ActivityEvent: Equatable, Sendable {
         case stoppedByUser
         /// The user ended a connection that was up.
         case disconnectedByUser
+        /// The helper gave a network service ("Wi-Fi") its own DNS back: an OpenVPN session had ended and its DNS
+        /// was still set there (`settings`: the VPN's servers, or its search domains).
+        case dnsRestored(service: String, settings: [String])
+        /// A VPN's DNS is still set on a network service with no session to undo it: the helper could not give it
+        /// back yet and tries again, or nothing showed that PassTunnel set it, so it was left (`DNSLeftBehind`).
+        case dnsLeftBehind(service: String, settings: [String])
     }
 
     /// Why a connect waits for the next TOTP window.
@@ -109,6 +115,8 @@ public struct ActivityEvent: Equatable, Sendable {
         case .lastKnownAddressFailed: return "last_known_address_failed"
         case .stoppedByUser: return "stopped_by_user"
         case .disconnectedByUser: return "disconnected_by_user"
+        case .dnsRestored: return "dns_restored"
+        case .dnsLeftBehind: return "dns_left_behind"
         }
     }
 
@@ -116,7 +124,7 @@ public struct ActivityEvent: Equatable, Sendable {
     public static let names = [
         "connecting", "waiting_for_code", "sending", "trying_last_known_address", "auth_accepted", "connected",
         "link_dropped", "reconnecting", "unreachable", "next_try", "rejected", "failed", "last_known_address_failed",
-        "stopped_by_user", "disconnected_by_user"
+        "stopped_by_user", "disconnected_by_user", "dns_restored", "dns_left_behind"
     ]
 
     /// At most the first three digits of `code`, never more than half of it, so a short typed code is not
@@ -137,8 +145,9 @@ public struct ActivityEvent: Equatable, Sendable {
     public var tone: Tone {
         switch kind {
         case .waitingForCode: return .wait
-        case .linkDropped, .unreachable, .rejected, .failed, .lastKnownAddressFailed: return .error
+        case .linkDropped, .unreachable, .rejected, .failed, .lastKnownAddressFailed, .dnsLeftBehind: return .error
         case .connecting, .sending, .tryingLastKnownAddress, .authAccepted, .connected, .reconnecting, .nextTry, .stoppedByUser,
+            .dnsRestored,
             .disconnectedByUser:
             return .neutral
         }
@@ -309,6 +318,14 @@ public struct ActivityEvent: Equatable, Sendable {
             return String(localized: "Stopped by you")
         case .disconnectedByUser:
             return String(localized: "Disconnected by you")
+        case let .dnsRestored(service, settings):
+            let list = settings.joined(separator: ", ")
+            if settings.isEmpty { return String(localized: "Gave the Mac its DNS back: \(service) still had a VPN’s DNS settings") }
+            return String(localized: "Gave the Mac its DNS back: \(service) still used the VPN’s \(list)")
+        case let .dnsLeftBehind(service, settings):
+            let list = settings.joined(separator: ", ")
+            if settings.isEmpty { return String(localized: "\(service) still has the DNS settings of a VPN that is not connected") }
+            return String(localized: "\(service) still uses the DNS of a VPN that is not connected (\(list))")
         }
     }
 
@@ -368,7 +385,7 @@ extension ActivityEvent: Codable {
             password, code, secondsLeft = "seconds_left", format, address, willReconnect = "will_reconnect",
             attempt, of, tries, nextAt = "next_at", reply, failure, credentialsSent = "credentials_sent",
             serverAddress = "server_address", viaServerAddress = "via_server_address", confirmedAt = "confirmed_at",
-            outcome
+            outcome, service, settings
     }
 
     public init(from decoder: Decoder) throws {
@@ -421,6 +438,10 @@ extension ActivityEvent: Codable {
                     reason: try c.decodeIfPresent(String.self, forKey: .reason) ?? ""))
         case "stopped_by_user": kind = .stoppedByUser
         case "disconnected_by_user": kind = .disconnectedByUser
+        case "dns_restored":
+            kind = .dnsRestored(service: try c.decode(String.self, forKey: .service), settings: try c.decode([String].self, forKey: .settings))
+        case "dns_left_behind":
+            kind = .dnsLeftBehind(service: try c.decode(String.self, forKey: .service), settings: try c.decode([String].self, forKey: .settings))
         case let other:
             throw DecodingError.dataCorruptedError(forKey: .event, in: c, debugDescription: "unknown event \(other)")
         }
@@ -474,6 +495,9 @@ extension ActivityEvent: Codable {
             try c.encode(tried.confirmedAt, forKey: .confirmedAt)
             try c.encode(tried.outcome, forKey: .outcome)
             if !tried.reason.isEmpty { try c.encode(tried.reason, forKey: .reason) }
+        case let .dnsRestored(service, settings), let .dnsLeftBehind(service, settings):
+            try c.encode(service, forKey: .service)
+            try c.encode(settings, forKey: .settings)
         case .authAccepted, .stoppedByUser, .disconnectedByUser:
             break
         }

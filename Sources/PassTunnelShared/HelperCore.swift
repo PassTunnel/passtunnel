@@ -143,6 +143,9 @@ public struct HelperCore {
         /// Literal values the tool's output must never write to the log (openconnect: the session cookie). When
         /// set, the output goes through a pipe and `MaskingCopier` (`OutputMask`) instead of straight into the log.
         public var maskedSecrets: [String]? = nil
+        /// The log's name in `profileDir` (OpenVPN), for what the helper says about the session's DNS once it no
+        /// longer holds `logFD` (`HelperCore.DNSOwner`).
+        public var logName: String? = nil
     }
 
     public static let configFileName = "config.ovpn"
@@ -372,10 +375,12 @@ public struct HelperCore {
                 tlsVersionMin: OVPNSanitizer.tlsVersionFloor(of: sanitized),
                 hasDNSUpdown: openVPNHasDNSUpdown)
             let logFD = try dir.createLogFile(logName)
-            return LaunchPlan(
+            var plan = LaunchPlan(
                 profileID: s.profileID, ownerUID: uid, tool: .openvpn, arguments: args,
                 runDir: runDir, sessionDir: session, logFD: logFD, dnsUpdownPath: dnsPath,
                 profileDir: dir, mgmtSocket: socketPath)
+            plan.logName = logName
+            return plan
         } catch {
             removeRunDir(profileID: s.profileID, uid: uid)
             throw error

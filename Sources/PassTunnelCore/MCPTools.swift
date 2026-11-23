@@ -35,7 +35,7 @@ enum MCPWording {
     static let timeout = "How long to wait for the connection (after the Touch ID confirmation)."
     static let timeServer = "Apple's time server (time.apple.com)"
     static let diagnoseTools =
-        "; also whether each VPN tool bundled with the app starts on this macOS version (run with --version; nothing is contacted)"
+        "; also whether each VPN tool bundled with the app starts on this macOS version (run with --version; nothing is contacted), and whether a VPN's DNS servers are still set on a network service with no VPN session to undo them (no name resolves then)"
     static let anyConnectPlatform =
         "Cisco AnyConnect and Palo Alto GlobalProtect need macOS 15.4 or later: on an older macOS they are refused with config_invalid before anything is asked or sent, and list_profiles shows that as connect_refusal."
     static let instructionsAnyConnect =
@@ -458,7 +458,10 @@ enum Schema {
                             "outcome": oneOf(["unreachable", "certificate_refused", "name_not_found"]), "reason": string
                         ], required: ["address", "confirmed_at", "outcome", "reason"]),
                     "For host_not_found: the server's name could not be resolved, so the address that name had at the last connection by it (confirmed_at) was tried too, with nothing sent there, and failed: it could not be reached (unreachable), a server there failed the certificate check (certificate_refused; the address was then forgotten), or a server name was still needed there and not found (name_not_found). Both the DNS and that address are involved; the sign-in was not sent."
-
+                ),
+                "dns_left_behind": described(
+                    dnsLeftBehind,
+                    "For host_not_found: the network service in use, whose DNS still points to a VPN's DNS servers, which only that VPN can reach, so no name resolves (macOS only); the likely reason, also when last_known_address says what was tried instead. Tell the user: a restart sets it back."
                 )
             ], required: ["kind", "at", "credentials_sent", "code_sent"]),
         "Why the last connect failed.")
@@ -523,7 +526,7 @@ enum Schema {
             "seconds_left": int, "format": string, "address": string, "will_reconnect": bool, "attempt": int, "of": int,
             "tries": int, "next_at": dateTime, "reply": string, "failure": oneOf(ConnectionFailure.Kind.allCases.map(\.rawValue)),
             "credentials_sent": bool, "server_address": string, "via_server_address": string, "confirmed_at": dateTime,
-            "outcome": oneOf(["unreachable", "certificate_refused", "name_not_found"])
+            "outcome": oneOf(["unreachable", "certificate_refused", "name_not_found"]), "service": string, "settings": array(string)
         ], required: ["at", "event"])
 
     static let logReport = result(
@@ -559,6 +562,18 @@ enum Schema {
         ["online": bool, "interface": oneOf(NetworkStatus.Interface.allCases.map(\.rawValue))],
         required: [])
 
+    /// `DNSLeftBehind`: a network service and the VPN's DNS servers still set on it.
+    static let dnsLeftBehind = result(
+        [
+            "service": string,
+            "servers": described(array(string), "Empty when the VPN sent no server its DNS script could use; it then still left its settings."),
+            "search_domains": array(string),
+            "in_effect": described(
+                bool,
+                "The Mac uses it now (the primary service, or the default resolver has those servers); otherwise only once that service is used again."
+            )
+        ], required: ["service", "servers", "in_effect"])
+
     /// `ToolCheck`: one VPN tool of the app run with `--version`.
     static let toolCheck = result(
         ["name": string, "ok": bool, "version": string, "problem": string, "note": string], required: ["name", "ok"])
@@ -573,6 +588,10 @@ enum Schema {
         properties["secret_store"] = secretStore
         #else
         properties["tools"] = array(toolCheck)
+        properties["dns_left_behind"] = described(
+            array(dnsLeftBehind),
+            "Network services whose DNS still points to a VPN's DNS servers that OpenVPN's DNS script set, with no VPN session running to undo it. While one is in use (in_effect), no name resolves (host_not_found). PassTunnel leaves them as they are, as nothing shows it set them; restarting the Mac sets them back."
+        )
         #endif
         return result(properties, required: ["version", "app_path", "in_applications", "helper", "profiles"])
     }()

@@ -41,7 +41,9 @@ final class ActivityLogTests: CoreTestCase {
             .lastKnownAddressFailed(
                 KnownAddressTry(address: "203.0.113.5", confirmedAt: t0, outcome: .unreachable, reason: "Connection refused")),
             .lastKnownAddressFailed(
-                KnownAddressTry(address: "203.0.113.5", confirmedAt: t0, outcome: .certificateRefused, reason: ""))
+                KnownAddressTry(address: "203.0.113.5", confirmedAt: t0, outcome: .certificateRefused, reason: "")),
+            .dnsRestored(service: "Wi-Fi", settings: ["10.8.0.1", "10.8.0.2"]), .dnsRestored(service: "Wi-Fi", settings: []),
+            .dnsLeftBehind(service: "Wi-Fi", settings: ["10.8.0.1"])
         ]
     }
 
@@ -212,6 +214,11 @@ final class ActivityLogTests: CoreTestCase {
         XCTAssertEqual(say(.stoppedByUser), "Stopped by you")
         XCTAssertEqual(say(.disconnectedByUser), "Disconnected by you")
         XCTAssertEqual(
+            say(.dnsRestored(service: "Wi-Fi", settings: ["10.8.0.1", "10.8.0.2"])),
+            "Gave the Mac its DNS back: Wi-Fi still used the VPN’s 10.8.0.1, 10.8.0.2")
+        XCTAssertEqual(
+            say(.dnsLeftBehind(service: "Wi-Fi", settings: ["10.8.0.1"])), "Wi-Fi still uses the DNS of a VPN that is not connected (10.8.0.1)")
+        XCTAssertEqual(
             ActivityEvent(at: t0, .authAccepted).line(timeZone: TimeZone(identifier: "UTC")!),
             "2023-11-14 22:13:20  Authentication accepted")
     }
@@ -220,13 +227,13 @@ final class ActivityLogTests: CoreTestCase {
 
     func testToneByKind() {
         let tones = Dictionary(grouping: everyKind.map { ActivityEvent(at: t0, $0) }, by: \.tone).mapValues { Set($0.map(\.name)) }
-        XCTAssertEqual(tones[.error], ["link_dropped", "unreachable", "rejected", "failed", "last_known_address_failed"])
+        XCTAssertEqual(tones[.error], ["link_dropped", "unreachable", "rejected", "failed", "last_known_address_failed", "dns_left_behind"])
         XCTAssertEqual(tones[.wait], ["waiting_for_code"])
         XCTAssertEqual(
             tones[.neutral],
             [
                 "connecting", "sending", "trying_last_known_address", "auth_accepted", "connected", "reconnecting", "next_try",
-                "stopped_by_user", "disconnected_by_user"
+                "stopped_by_user", "disconnected_by_user", "dns_restored"
             ])
     }
 
