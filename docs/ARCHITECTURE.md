@@ -681,7 +681,10 @@ for an envelope), so literal masking does not cover it; the keyword and pattern 
   writes each reply as one line through an injected `send` (stdout in `runStdio`, which reads stdin
   on a background thread through `LineReader`, at most 1 MiB per line, a longer one is skipped and
   answered with -32700, and ignores SIGPIPE; it also keeps a `VaultExpiry`, which resets the
-  vault on screen lock and sleep as the app does). `MCPTools` holds the tool definitions and JSON
+  vault on screen lock and sleep as the app does). Its `ConnectionManager` is never `start()`ed (no
+  polling, health checks or wake handling, no `retriesUnreachable`) and runs with `handlesDrops` off: a
+  drop that the refresh of `get_status` or `list_profiles` finds shows as `disconnected`, and recording
+  it (`link_dropped`) and reconnecting stay the app's. `MCPTools` holds the tool definitions and JSON
   Schemas (`Schema`), checks arguments (`Arguments`: every key must be consumed, a `null` counts as
   absent; `profile_id` via `Slug.isValid`; booleans must be JSON booleans and integers JSON numbers
   without a fraction) and encodes results with `AutomationJSON.object` for `structuredContent` and as text.

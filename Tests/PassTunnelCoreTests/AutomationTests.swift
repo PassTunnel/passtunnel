@@ -1318,6 +1318,55 @@ final class MCPServerTests: XCTestCase {
         XCTAssertEqual(helper.stops, ["acme"])
     }
 
+    /// A drop get_status finds is only reported: recording it and reconnecting stay the app's.
+    func testGetStatusOnlyReportsADrop() async throws {
+        try await checkDropIsOnlyReported(by: "get_status")
+    }
+
+    /// The same for list_profiles.
+    func testListProfilesOnlyReportsADrop() async throws {
+        try await checkDropIsOnlyReported(by: "list_profiles")
+    }
+
+    /// A profile with auto-reconnect, connected by the app, drops while this server (with connect
+    /// allowed) watches it through `tool`: it shows as disconnected, and this server starts no VPN and
+    /// writes nothing to the activity log, also once the reconnect waits (5, 15, 45 s) would have passed.
+    /// A connect asked for afterwards works as usual.
+    func checkDropIsOnlyReported(by tool: String, file: StaticString = #filePath, line: UInt = #line) async throws {
+        var p = try makeOpenVPN()
+        p.autoReconnect = true
+        try store.save(p)
+        helper.simulateExternalStart(p.id, profileDir: store.dir(p.id).path, since: t0)
+        let server = makeServer(allowConnect: true)
+        let manager = server.tools.service.manager
+        func shown() async throws -> [String: Any] {
+            let result = try await structured(server, tool, file: file, line: line)
+            let profiles = try XCTUnwrap(result["profiles"] as? [[String: Any]], file: file, line: line)
+            return try XCTUnwrap(profiles.first { $0["id"] as? String == p.id }, file: file, line: line)
+        }
+
+        let before = try await shown()
+        XCTAssertEqual(before["state"] as? String, "connected", file: file, line: line)
+        let recorded = manager.activity(p.id)
+        helper.simulateExit(p.id)
+        let dropped = try await shown()
+        XCTAssertEqual(dropped["state"] as? String, "disconnected", file: file, line: line)
+        XCTAssertNil(dropped["failure"], "a drop is not a failed connect", file: file, line: line)
+        XCTAssertNil(manager.reconnecting[p.id], file: file, line: line)
+
+        // The fake clock lets the reconnect waits pass at once: any attempt would have run by now.
+        try await Task.sleep(nanoseconds: 300_000_000)
+        let later = try await shown()
+        XCTAssertEqual(later["state"] as? String, "disconnected", file: file, line: line)
+        XCTAssertTrue(helper.starts.isEmpty, "\(helper.starts)", file: file, line: line)
+        XCTAssertEqual(manager.activity(p.id), recorded, "no link_dropped", file: file, line: line)
+        XCTAssertEqual(clock.sleeps.filter { [5, 15, 45].contains($0) }, [], file: file, line: line)
+
+        let connected = try await structured(server, "connect", ["profile_id": p.id], file: file, line: line)
+        XCTAssertEqual(connected["state"] as? String, "connected", file: file, line: line)
+        XCTAssertEqual(helper.starts.count, 1, file: file, line: line)
+    }
+
     /// Two connected tunnels that claim the same networks or names: the second connect goes ahead and says
     /// so in `warnings`; the result of any other call has none.
     func testConnectWarnsAboutOverlappingTunnels() async throws {

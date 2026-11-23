@@ -1005,7 +1005,8 @@ command yourself, limited further by the read-only default.**
 - **Read-only by default.** Without `--allow-connect` the tools are `list_profiles`, `get_status`,
   `get_logs` and `diagnose`. `connect` and `disconnect` are listed and callable only when the
   server was started with `passtunnel mcp --allow-connect`. No tool creates, changes or deletes a
-  profile or a secret, in any mode.
+  profile or a secret, in any mode. The server never starts a VPN on its own: a profile that dropped
+  shows as disconnected, and recording the drop and reconnecting are left to the app.
 - **No secrets in any answer.** No tool returns a password, a TOTP secret, a current one-time code,
   a private key or the contents of a configuration file; there is deliberately no tool for codes.
   `diagnose` says *whether* a password or TOTP secret is saved and names configuration problems by

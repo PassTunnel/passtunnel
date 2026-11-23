@@ -44,6 +44,8 @@ public final class MCPServer {
         service: AutomationService, allowConnect: Bool, serverVersion: String = AppInfo.current.version,
         send: @escaping (Data) -> Void, log: @escaping (String) -> Void = { _ in }
     ) {
+        // A refresh only reports a drop; the app records it and reconnects (no VPN starts from a read-only tool).
+        service.manager.handlesDrops = false
         tools = MCPTools(service: service, allowConnect: allowConnect, log: log)
         self.serverVersion = serverVersion
         self.send = send

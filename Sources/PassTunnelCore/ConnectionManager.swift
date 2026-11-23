@@ -462,6 +462,12 @@ public final class ConnectionManager: ObservableObject {
     /// and the MCP server report the failure and leave the retrying to their caller.
     public var retriesUnreachable = false
 
+    /// Handle a drop (a profile seen connected, then gone without a user stop): record `link_dropped`,
+    /// send `dropped` and, for a profile that can, reconnect. The app and the CLI keep it on. The MCP
+    /// server turns it off: a refresh there only shows the profile as disconnected, and recording the
+    /// drop and reconnecting stay the app's, so a status call never starts a VPN.
+    public var handlesDrops = true
+
     public let events = PassthroughSubject<ConnectionEvent, Never>()
     /// Every activity event this manager records, as it is appended to the profile's `activity.jsonl`
     /// (`activity(_:)` reads the file, which also holds what other processes recorded).
@@ -810,6 +816,10 @@ public final class ConnectionManager: ObservableObject {
             guard sessionActive.remove(id) != nil else { break }
             endSession(id)
             if userStopped.remove(id) != nil || hasUserStoppedMarker(id) { break }
+            guard handlesDrops else {
+                endSessionSecrets(id)  // nothing reconnects with them here
+                break
+            }
             handleDrop(p, afterWake: immediateReconnect)
         }
     }
