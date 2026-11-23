@@ -247,7 +247,9 @@ struct SystemToolRunner: ToolRunning {
     /// it started goes too) and else to it alone, so that it makes no progress after the deadline (a sign-in run,
     /// which could otherwise still send a code while it winds down: `AnyConnectSignIn`), and then reads standard error
     /// to its end of file for at most `drainTime` (`errorOutputComplete`). A process the tool moved out of its group
-    /// is not reached; it can keep standard error open, and the output then counts as incomplete.
+    /// is not reached; it can keep standard error open, and the output then counts as incomplete. (On Linux,
+    /// swift-corelibs-foundation reports the tool's exit only once every process that inherited its exit socket has
+    /// closed it, so a child left running delays `exited` there; the group kill ends such children too.)
     enum TimeoutStop: Sendable { case terminate, kill }
     var timeoutStop = TimeoutStop.terminate
 

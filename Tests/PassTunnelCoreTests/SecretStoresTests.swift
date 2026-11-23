@@ -1000,13 +1000,17 @@ final class ToolRunnerTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(start), 5)
     }
 
-    /// The gentle stop adds no wait for standard error: a process the tool left behind holding it open does not delay it.
+    /// The gentle stop reads nothing after the deadline, as before #292: what the tool writes once it is asked to stop
+    /// (here its SIGTERM trap) is not in the error, and the output is not claimed complete. No wall clock: on Linux,
+    /// swift-corelibs-foundation reports the exit only once every process holding the tool's exit socket has closed
+    /// it, so how long the stop takes depends on the tool's children (also on origin/dev).
     func testTheGentleStopDoesNotDrain() {
-        let start = Date()
-        XCTAssertThrowsError(try runner.run("/bin/sh", ["-c", "echo early >&2; sleep 3 & wait"], environment: [:], input: Data(), timeout: 0.5)) {
-            XCTAssertEqual(($0 as? ToolTimeout)?.errorOutputComplete, false)
+        let script = "trap 'echo late >&2; exit 0' TERM; echo early >&2; while :; do sleep 0.05; done"
+        XCTAssertThrowsError(try runner.run("/bin/sh", ["-c", script], environment: [:], input: Data(), timeout: 0.5)) {
+            let timeout = $0 as? ToolTimeout
+            XCTAssertEqual(timeout.map { String(decoding: $0.errorOutput, as: UTF8.self) }, "early\n", "nothing read after the deadline")
+            XCTAssertEqual(timeout?.errorOutputComplete, false)
         }
-        XCTAssertLessThan(Date().timeIntervalSince(start), 2.4, "no drain time")
     }
 
     /// #292: a sign-in's runner kills the tool's process group at the deadline (no trap runs, a process it started
@@ -1014,13 +1018,11 @@ final class ToolRunnerTests: XCTestCase {
     func testAKillingRunnerStopsTheGroupAtOnceAndReadsToTheEnd() {
         let killing = SystemToolRunner(timeoutStop: .kill)
         let script = "trap 'echo late >&2; exit 0' TERM; echo early >&2; sleep 30 & exec sleep 30"
-        let start = Date()
         XCTAssertThrowsError(try killing.run("/bin/sh", ["-c", script], environment: [:], input: Data(), timeout: 0.5)) {
             let timeout = $0 as? ToolTimeout
             XCTAssertEqual(timeout.map { String(decoding: $0.errorOutput, as: UTF8.self) }, "early\n", "no progress after the deadline")
-            XCTAssertEqual(timeout?.errorOutputComplete, true, "the child in its group went too: end of file")
+            XCTAssertEqual(timeout?.errorOutputComplete, true, "the child in its group went too: end of file within the drain")
         }
-        XCTAssertLessThan(Date().timeIntervalSince(start), 1.9, "the end of file came without waiting out the drain")
     }
 
     /// What reaches standard error after the deadline, before its end of file, is read too (here from a process that
