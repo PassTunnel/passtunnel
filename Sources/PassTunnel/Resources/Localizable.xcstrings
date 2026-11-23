@@ -503,6 +503,16 @@
         }
       }
     },
+    "(remembered %@ ago)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(%@ önce kaydedildi)"
+          }
+        }
+      }
+    },
     "(status unavailable)" : {
       "localizations" : {
         "tr" : {
@@ -893,6 +903,26 @@
         }
       }
     },
+    "Connected through the last known server address %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilinen son sunucu adresi %@ üzerinden bağlandı"
+          }
+        }
+      }
+    },
+    "Connected, %@, through the last known server address %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlandı, %1$@, bilinen son sunucu adresi %2$@ üzerinden"
+          }
+        }
+      }
+    },
     "Connecting to the portal…" : {
       "localizations" : {
         "tr" : {
@@ -969,6 +999,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ağ geçidi anahtarı"
+          }
+        }
+      }
+    },
+    "Its last known address %@, remembered from %@, was tried too and did not answer (%@)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilinen son adresi %1$@ (%2$@ tarihinden kalma) da denendi ve yanıt vermedi (%3$@)."
+          }
+        }
+      }
+    },
+    "Its last known address %@, remembered from %@, was tried too; the server there failed the certificate check (%@), so that address was forgotten." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilinen son adresi %1$@ (%2$@ tarihinden kalma) da denendi; oradaki sunucu sertifika denetiminden geçemedi (%3$@), bu yüzden bu adres unutuldu."
+          }
+        }
+      }
+    },
+    "Last known server address: %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilinen son sunucu adresi: %@"
           }
         }
       }
@@ -1183,6 +1243,36 @@
         }
       }
     },
+    "Server name %@ not found, trying its last known address %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu adı %1$@ bulunamadı, bilinen son adresi %2$@ deneniyor"
+          }
+        }
+      }
+    },
+    "Server name not found, and its last known address %@ (from %@) did not answer" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu adı bulunamadı, bilinen son adresi %1$@ (%2$@ tarihinden) de yanıt vermedi"
+          }
+        }
+      }
+    },
+    "Server name not found, and the server at its last known address %@ (from %@) failed the certificate check; that address was forgotten" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu adı bulunamadı, bilinen son adresi %1$@ (%2$@ tarihinden) üzerindeki sunucu da sertifika denetiminden geçemedi; bu adres unutuldu"
+          }
+        }
+      }
+    },
     "Show Log has it. Enter the gateway’s name as the portal lists it in the profile." : {
       "localizations" : {
         "tr" : {
@@ -1363,12 +1453,42 @@
         }
       }
     },
+    "The server name %@ could not be found, so its address remembered from %@, %@, was tried. It did not answer either (%@): check the network connection and its DNS. Your sign-in was not sent." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu adı %1$@ bulunamadı, bu yüzden %2$@ tarihinden kalma adresi %3$@ denendi. O da yanıt vermedi (%4$@): ağ bağlantısını ve DNS’ini denetleyin. Oturum açma bilgileriniz gönderilmedi."
+          }
+        }
+      }
+    },
+    "The server name %@ could not be found, so its address remembered from %@, %@, was tried. The server there failed the certificate check (%@), so that address was forgotten. Your sign-in was not sent." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunucu adı %1$@ bulunamadı, bu yüzden %2$@ tarihinden kalma adresi %3$@ denendi. Oradaki sunucu sertifika denetiminden geçemedi (%4$@), bu yüzden bu adres unutuldu. Oturum açma bilgileriniz gönderilmedi."
+          }
+        }
+      }
+    },
     "The server signs in with single sign-on (SAML)" : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sunucu çoklu oturum açma (SAML) ile oturum açtırıyor"
+          }
+        }
+      }
+    },
+    "The server’s name could not be found when connecting, so its last known address was used. This network’s DNS may not be working." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlanırken sunucunun adı bulunamadı, bu yüzden bilinen son adresi kullanıldı. Bu ağın DNS’i çalışmıyor olabilir."
           }
         }
       }
@@ -1439,6 +1559,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ağ geçidi bir cihaz bilgi raporu (HIP) istedi; PassTunnel bunu göndermez. Erişim kısıtlanabilir."
+          }
+        }
+      }
+    },
+    "Tried instead: the last known address %@ (remembered since %@); no answer (%@)" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bunun yerine denenen: bilinen son adres %1$@ (%2$@ tarihinden beri kayıtlı); yanıt yok (%3$@)"
+          }
+        }
+      }
+    },
+    "Tried instead: the last known address %@ (remembered since %@); the server there failed the certificate check (%@), so the address was forgotten" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bunun yerine denenen: bilinen son adres %1$@ (%2$@ tarihinden beri kayıtlı); oradaki sunucu sertifika denetiminden geçemedi (%3$@), bu yüzden adres unutuldu"
           }
         }
       }
@@ -2243,22 +2383,22 @@
         }
       }
     },
-    "Check the installation, the VPN tools and every profile without connecting, with the last clock measurement. --check-clock also asks Apple’s time server (time.apple.com) how far the clock is off." : {
+    "Check the installation, the VPN tools and every profile without connecting, with the last clock measurement and the last known server address. --check-clock also asks Apple’s time server (time.apple.com) how far the clock is off." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kurulumu, VPN araçlarını ve her profili bağlanmadan denetler, son saat ölçümünü de gösterir. --check-clock, saatin ne kadar saptığını Apple’ın zaman sunucusuna (time.apple.com) da sorar."
+            "value" : "Kurulumu, VPN araçlarını ve her profili bağlanmadan denetler, son saat ölçümünü ve bilinen son sunucu adresini de gösterir. --check-clock, saatin ne kadar saptığını Apple’ın zaman sunucusuna (time.apple.com) da sorar."
           }
         }
       }
     },
-    "Check the installation and every profile without connecting, with the last clock measurement. --check-clock also asks the NTP server this computer is set up with how far the clock is off." : {
+    "Check the installation and every profile without connecting, with the last clock measurement and the last known server address. --check-clock also asks the NTP server this computer is set up with how far the clock is off." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kurulumu ve her profili bağlanmadan denetler, son saat ölçümünü de gösterir. --check-clock, saatin ne kadar saptığını bu bilgisayarın ayarlı olduğu NTP sunucusuna da sorar."
+            "value" : "Kurulumu ve her profili bağlanmadan denetler, son saat ölçümünü ve bilinen son sunucu adresini de gösterir. --check-clock, saatin ne kadar saptığını bu bilgisayarın ayarlı olduğu NTP sunucusuna da sorar."
           }
         }
       }

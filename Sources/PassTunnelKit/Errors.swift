@@ -36,6 +36,11 @@ public enum PTError: Error, Equatable, LocalizedError {
     case toolUnsupported(reason: String, log: String)  // dyld stopped the VPN tool ("Symbol not found: _x"); log tail
     case serverUnreachable(server: String, reason: String, log: String)  // no answer, refused, no route: nothing sent; log tail
     case hostNotFound(server: String, log: String)  // the server's name did not resolve; log tail
+    /// The server's name did not resolve, and the address it had at its last successful connection (#292),
+    /// remembered since `learnedAt`, was tried instead and failed too: nothing answered there (`reason` in the tool's
+    /// words), or a server there failed the certificate check (`certificateRefused`; the address is then forgotten).
+    /// Nothing was sent. Log tail of the try at the address. Its failure kind is `host_not_found`, the root cause.
+    case knownAddressFailed(server: String, address: String, learnedAt: Date, reason: String, certificateRefused: Bool, log: String)
     case connectTimeout(Int)  // seconds
     case connectCancelled
     case otherVPNActive(String)  // interface of the VPN that already takes all traffic
@@ -148,6 +153,18 @@ public enum PTError: Error, Equatable, LocalizedError {
                 return String(localized: "The server’s name could not be found. Check the server address and the network connection.")
             }
             return String(localized: "The server name \(server) could not be found. Check the server address and the network connection.")
+        case let .knownAddressFailed(server, address, learnedAt, reason, certificateRefused, _):
+            let date = Self.dateText(learnedAt)
+            if certificateRefused {
+                return String(
+                    localized:
+                        "The server name \(server) could not be found, so its address remembered from \(date), \(address), was tried. The server there failed the certificate check (\(reason)), so that address was forgotten. Your sign-in was not sent."
+                )
+            }
+            return String(
+                localized:
+                    "The server name \(server) could not be found, so its address remembered from \(date), \(address), was tried. It did not answer either (\(reason)): check the network connection and its DNS. Your sign-in was not sent."
+            )
         case .connectTimeout(let seconds):
             return String(localized: "The VPN did not connect within \(seconds) seconds.")
         case .connectCancelled:
@@ -216,12 +233,24 @@ extension PTError {
     public var logTail: String {
         switch self {
         case .authFailed(let tail), .connectFailed(let tail), .setupFailed(_, let tail), .serverUnreachable(_, _, let tail),
-            .hostNotFound(_, let tail), .toolUnsupported(_, let tail), .hostScanRequired(let tail),
+            .hostNotFound(_, let tail), .knownAddressFailed(_, _, _, _, _, let tail), .toolUnsupported(_, let tail), .hostScanRequired(let tail),
             .serverCertificateRejected(_, _, let tail), .signInNeedsMoreAnswers(let tail), .ssoRequired(let tail),
             .gatewayCertificateRejected(_, _, _, let tail):
             return tail
         default: return ""
         }
+    }
+}
+
+extension PTError {
+    /// A date in a message, in the user's language: "Nov 20, 2026 at 09:41".
+    public static func dateText(_ date: Date, locale: Locale = .current, timeZone: TimeZone = .current) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.timeZone = timeZone
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
     }
 }
 

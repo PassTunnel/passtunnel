@@ -110,7 +110,13 @@ public struct ProfileStore {
         }
         try paths.ensureDirectories()
         try FileIO.makeDirectory(dir(p.id))
+        // The profile as stored, when it has a remembered server address that a change of its server must drop.
+        var previous: Profile?
+        if FileManager.default.fileExists(atPath: dir(p.id).appendingPathComponent(LastKnownAddress.fileName).path) {
+            previous = try? get(p.id)
+        }
         try JSONCoding.write(p, to: profileURL(p.id), mode: 0o600)
+        LastKnownAddress.forgetIfMoved(from: previous, to: p, store: self)
     }
 
     /// Read-modify-write of one profile: re-reads `profile.json`, applies `change` and saves the
@@ -185,6 +191,7 @@ public struct ProfileStore {
         guard p.type == .openvpn else { throw PTError.wrongProfileType(id) }
         let text = try preparedOVPN(url).text
         try FileIO.writeAtomically(Data(text.utf8), to: ovpnURL(id), mode: 0o600)
+        LastKnownAddress.forget(id, store: self)  // another configuration, maybe another server
         p.configSourceName = url.lastPathComponent
         p.configImportedAt = Self.wholeSeconds(now)
         try save(p)

@@ -1342,6 +1342,11 @@ final class CLIRunner {
                 CLITerminal.out("    " + String(localized: "This profile asks for: \(list)."))
             }
             if let clock = check.clock { CLITerminal.out("    " + clockLine(clock)) }
+            if let known = check.lastKnownAddress {
+                CLITerminal.out(
+                    "    " + String(localized: "Last known server address: \(known.address)") + " "
+                        + CLITerminal.dim(String(localized: "(remembered \(CLIDurations.since(known.learnedAt)) ago)")))
+            }
         }
         if let clock = report.clock {
             CLITerminal.out(clockLine(clock))

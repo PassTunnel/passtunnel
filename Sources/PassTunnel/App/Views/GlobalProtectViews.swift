@@ -123,11 +123,13 @@ struct ExperimentalReportRow: View {
 
 extension AppModel {
     /// What the user should know about `p`'s connection that is up (`ConnectionManager.notices`: the gateway asked for
-    /// a HIP report); empty otherwise. The session's log is read again only when it changed.
+    /// a HIP report, the server was reached at its last known address); empty otherwise. The session's log and the
+    /// activity are read again only when one of them changed.
     func notices(_ p: Profile) -> [StatusNotice] {
         if previewStates != nil { return state(p.id).isConnected ? previewNotices[p.id] ?? [] : [] }
-        guard p.type == .globalprotect, state(p.id).isConnected else { return [] }
-        return NoticeCache.notices(p.id, url: store.logURL(p.id)) { connections.notices(p.id) }
+        guard p.type.usesOpenConnect, state(p.id).isConnected else { return [] }
+        let activity = store.dir(p.id).appendingPathComponent(ActivityLog.fileName)
+        return NoticeCache.notices(p.id, urls: [store.logURL(p.id), activity]) { connections.notices(p.id) }
     }
 }
 
@@ -139,11 +141,13 @@ private enum NoticeCache {
         var size: Int?
     }
 
-    private static var cache: [String: (stamp: Stamp, notices: [StatusNotice])] = [:]
+    private static var cache: [String: (stamp: [Stamp], notices: [StatusNotice])] = [:]
 
-    static func notices(_ id: String, url: URL, read: () -> [StatusNotice]) -> [StatusNotice] {
-        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
-        let stamp = Stamp(modified: attributes?[.modificationDate] as? Date, size: (attributes?[.size] as? NSNumber)?.intValue)
+    static func notices(_ id: String, urls: [URL], read: () -> [StatusNotice]) -> [StatusNotice] {
+        let stamp = urls.map { url in
+            let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+            return Stamp(modified: attributes?[.modificationDate] as? Date, size: (attributes?[.size] as? NSNumber)?.intValue)
+        }
         if let entry = cache[id], entry.stamp == stamp { return entry.notices }
         let notices = read()
         cache[id] = (stamp, notices)

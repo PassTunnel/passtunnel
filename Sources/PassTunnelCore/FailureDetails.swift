@@ -37,10 +37,23 @@ public struct FailureDetails: Equatable {
         lines.append(String(localized: "Profile: \(profileName)"))
         if !server.isEmpty { lines.append(String(localized: "Server: \(server)")) }
         var result = Self.result(failure.kind)
-        if let words = failure.kind == .authRejected ? failure.reply : failure.reason, !words.isEmpty {
+        // With a tried address the reason is that try's, which its own line gives.
+        if failure.lastKnownAddress == nil, let words = failure.kind == .authRejected ? failure.reply : failure.reason, !words.isEmpty {
             result += " (\(words))"
         }
         lines.append(String(localized: "Result: \(result)"))
+        if let tried = failure.lastKnownAddress {
+            let since = f.string(from: tried.learnedAt)
+            let reason = failure.reason ?? ""
+            lines.append(
+                tried.certificateRefused
+                    ? String(
+                        localized:
+                            "Tried instead: the last known address \(tried.address) (remembered since \(since)); the server there failed the certificate check (\(reason)), so the address was forgotten"
+                    )
+                    : String(
+                        localized: "Tried instead: the last known address \(tried.address) (remembered since \(since)); no answer (\(reason))"))
+        }
         lines.append(
             failure.credentialsSent
                 ? String(localized: "Your sign-in reached the server.")

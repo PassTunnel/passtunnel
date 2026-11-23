@@ -251,6 +251,12 @@ public struct OpenConnectAuthConfig: Equatable, Sendable {
     public var gateway: String
     /// GlobalProtect: the gateway's pin when its key is not the portal's, or empty. Empty for Cisco AnyConnect.
     public var gatewayServerCert: String
+    /// The address to connect to for `host` instead of looking the name up (`resolve <host>:<address>`): the
+    /// address the profile's server had at its last successful connection, when its name cannot be resolved
+    /// (#292). Only the lookup changes: openconnect still sends `host` as the server name (SNI) and checks the
+    /// certificate against it, or against the pins (gnutls.c 2208–2211, 2370–2377; main.c's `gai_override_cb`
+    /// replaces `getaddrinfo` for that name alone). Nil to look the name up; never set for an IP-address host.
+    public var resolveAddress: String?
 
     public static let maxUsergroupBytes = 255
     public static let maxAuthgroupBytes = 255
@@ -283,7 +289,8 @@ public struct OpenConnectAuthConfig: Equatable, Sendable {
 
     public init(
         protocol: OpenConnectProtocol = .anyconnect, host: String, port: Int = 443, usergroup: String = "", username: String,
-        authgroup: String = "", serverCert: String = "", skipPortal: Bool = false, gateway: String = "", gatewayServerCert: String = ""
+        authgroup: String = "", serverCert: String = "", skipPortal: Bool = false, gateway: String = "", gatewayServerCert: String = "",
+        resolveAddress: String? = nil
     ) {
         self.protocol = `protocol`
         self.host = host
@@ -295,6 +302,7 @@ public struct OpenConnectAuthConfig: Equatable, Sendable {
         self.skipPortal = skipPortal
         self.gateway = gateway
         self.gatewayServerCert = gatewayServerCert
+        self.resolveAddress = resolveAddress
     }
 
     public func validate() throws {
@@ -323,12 +331,21 @@ public struct OpenConnectAuthConfig: Equatable, Sendable {
         try OpenConnectSyntax.checkText(gateway, field: "gateway", maxBytes: Self.maxGatewayBytes, allowEmpty: true)
         guard serverCert.isEmpty || OpenConnectPin.isValid(serverCert) else { throw E.invalidServerCert }
         guard gatewayServerCert.isEmpty || OpenConnectPin.isValid(gatewayServerCert) else { throw E.invalidServerCert }
+        if let resolveAddress {
+            // openconnect splits `resolve` at its first ':' and would connect to a literal anyway.
+            guard !OpenConnectSyntax.isIPLiteral(host) else {
+                throw E.invalidValue(field: "resolve address", reason: "not used for a server given as an IP address")
+            }
+            guard OpenConnectSyntax.isIPLiteral(resolveAddress) else {
+                throw E.invalidValue(field: "resolve address", reason: "not an IPv4 or IPv6 address")
+            }
+        }
     }
 
-    /// Every key `render` can write, in its order (`servercert` twice and `disable-ipv6` only for
-    /// GlobalProtect).
+    /// Every key `render` can write, in its order (`resolve` only with `resolveAddress`, `servercert` twice and
+    /// `disable-ipv6` only for GlobalProtect).
     public static let renderedKeys = [
-        "protocol", "server", "user", "authgroup", "servercert", "no-system-trust", "cafile", "non-inter", "passwd-on-stdin",
+        "protocol", "server", "resolve", "user", "authgroup", "servercert", "no-system-trust", "cafile", "non-inter", "passwd-on-stdin",
         "no-external-auth", "disable-ipv6"
     ]
 
@@ -342,7 +359,9 @@ public struct OpenConnectAuthConfig: Equatable, Sendable {
     /// (`skipPortal`), `gateway` is the `authgroup` line, and each pin that is set (`serverCert`, then
     /// `gatewayServerCert`) is a `servercert` line, since openconnect checks every server of the run against
     /// them and any of them turns system trust off. `disableIPv6` renders `disable-ipv6` (GlobalProtect only,
-    /// for a Linux openconnect older than 9.20).
+    /// for a Linux openconnect older than 9.20). `resolveAddress` renders `resolve <host>:<address>` right after
+    /// `server`, with the same lowercased host (openconnect compares the two byte for byte); the trust lines are
+    /// the same with it or without it.
     public func render(caFile: String = OpenConnectConfig.systemCAFile, noExternalAuth: Bool, disableIPv6: Bool = false) throws -> String {
         try validate()
         guard OpenConnectSyntax.isSafePath(caFile) else {
@@ -357,9 +376,10 @@ public struct OpenConnectAuthConfig: Equatable, Sendable {
         var lines = [
             OpenConnectConfig.header,
             "protocol \(self.protocol.rawValue)",
-            "server \(OpenConnectSyntax.serverURL(host: host, port: port, usergroup: path))",
-            "user \(username)"
+            "server \(OpenConnectSyntax.serverURL(host: host, port: port, usergroup: path))"
         ]
+        if let resolveAddress { lines.append("resolve \(host.lowercased()):\(resolveAddress)") }
+        lines.append("user \(username)")
         let group = gp ? gateway : authgroup
         if !group.isEmpty { lines.append("authgroup \(group)") }
         let pins = [serverCert, gatewayServerCert].filter { !$0.isEmpty }
@@ -381,7 +401,8 @@ public struct OpenConnectAuthConfig: Equatable, Sendable {
     /// As `OpenConnectConfig.checkRendered`, for this file's keys: also the trust is exactly `servercert`
     /// with a valid pin, or both `no-system-trust` and `cafile caFile`. `protocol` is `anyconnect` or `gp`, and
     /// the rest is checked by that protocol's rules: for GlobalProtect the path is empty or `gateway`,
-    /// `servercert` may appear twice (once in every other file) and `disable-ipv6` may follow.
+    /// `servercert` may appear twice (once in every other file) and `disable-ipv6` may follow. A `resolve` line
+    /// must name the host of `server`, which must be a name.
     public static func checkRendered(_ text: String, lineCount: Int, caFile: String) throws {
         let gp = OpenConnectSyntax.protocolLine(text) == .gp
         var specs: [OpenConnectSyntax.Spec] = [
@@ -391,6 +412,7 @@ public struct OpenConnectAuthConfig: Equatable, Sendable {
                 // No user group and no `:<field>` for a single sign-on cookie.
                 return !gp || url.path.isEmpty || url.path == gatewayPath
             },
+            .init("resolve", required: false, value: OpenConnectSyntax.isValidResolveOption),
             .init("user", required: true) { OpenConnectSyntax.isValidText($0, maxBytes: maxUsernameBytes) },
             .init("authgroup", required: false) { OpenConnectSyntax.isValidText($0, maxBytes: gp ? maxGatewayBytes : maxAuthgroupBytes) },
             .init("servercert", required: false, value: OpenConnectPin.isValid)
@@ -404,7 +426,16 @@ public struct OpenConnectAuthConfig: Equatable, Sendable {
             .init("no-external-auth", required: false, value: nil)
         ]
         if gp { specs.append(.init("disable-ipv6", required: false, value: nil)) }
-        let keys = try OpenConnectSyntax.check(text, lineCount: lineCount, specs: specs).map(\.key)
+        let options = try OpenConnectSyntax.check(text, lineCount: lineCount, specs: specs)
+        if let resolve = options.first(where: { $0.key == "resolve" })?.value {
+            // Only the lookup of the server's own name, which `isValidResolveOption` already holds to a name.
+            guard let server = options.first(where: { $0.key == "server" })?.value, let url = OpenConnectSyntax.parseServerURL(server),
+                OpenConnectSyntax.resolveName(resolve) == url.host
+            else {
+                throw OpenConnectConfig.ValidationError.unsafeOutput("resolve names another host than server")
+            }
+        }
+        let keys = options.map(\.key)
         let pinned = keys.contains("servercert")
         let systemCAs = keys.contains("no-system-trust") && keys.contains("cafile")
         let partial = keys.contains("no-system-trust") != keys.contains("cafile")

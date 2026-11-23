@@ -215,7 +215,11 @@ public enum PT {
     after a rejected sign-in, 0600),
     `profiles/<id>/network.json` (`ProfileNetwork`: the routes and DNS options of the last connect, 0600, replaced
     atomically; read only if it is a regular file of the user without group or other access, for the profile's
-    current destination, otherwise ignored)
+    current destination, otherwise ignored),
+    `profiles/<id>/last-address.json` (`LastKnownAddress`, Cisco AnyConnect and Palo Alto GlobalProtect: the address the
+    server had at its last successful connection, the host it belongs to, when it was learned and the destination
+    fingerprint; 0600, replaced atomically, read under the same rules as `network.json`; never exported;
+    [Last known server address](#last-known-server-address-292))
     (the OpenVPN management socket is in the helper's run directory, see below)
   - Linux only (`~/.local/share/passtunnel/`, LINUX.md): `secrets/<account>.cred` (systemd-creds
     store), `secrets.enc` and `.secrets.lock` (file store)
@@ -1136,8 +1140,8 @@ public enum ConnectionState: Equatable { case disconnected, connecting(String), 
 A server that did not answer (`ConnectionFailure.Kind.unreachable`: nothing reached it, so its code was
 given back) is tried again when `retriesUnreachable` is on (the app): every `Timing.unreachableRetryDelay`
 (30 s), at most `unreachableMaxTries` (10) tries in all, after a connect of the manager (manual or at login)
-and after a drop's automatic reconnects (5, 15, 45 s; decision D-7). `host_not_found`, a rejected sign-in
-and every other failure end it. Each try is `performConnect(interactive: false)` with a fresh code: a
+and after a drop's automatic reconnects (5, 15, 45 s; decision D-7). `host_not_found` (also after a failed try at the
+[last known address](#last-known-server-address-292)), a rejected sign-in and every other failure end it. Each try is `performConnect(interactive: false)` with a fresh code: a
 protected profile uses the session's or the reuse window's secrets, else it stops with
 `confirmationRequired`. `unreachableRetries` (published) and `unreachableRetry(_:)` (also another live
 process's, from `profiles/<id>/.retry`) hold the tries, when the first and the last failed, and
@@ -1204,6 +1208,71 @@ tunnel. Hence:
   with …" / "Peer Connection Initiated with …") via the default gateway from `ROUTE_GATEWAY`, and the
   "route add command failed" line after it. A session killed without cleanup (e.g. the helper was
   unregistered while connected) leaves that route behind; it is the route OpenVPN wanted anyway.
+
+## Last known server address (#292)
+
+On a network whose DNS does not answer before the VPN is up (for example one that only gives internet through the VPN,
+with the Mac's DNS set by hand to resolvers that network blocks), the server's name cannot be resolved and every connect
+would end with `host_not_found` before anything is sent, although the server is reachable at its address. So a profile
+remembers the address its server had at the last successful connection, and a connect whose name lookup fails tries that
+address instead. The name lookup always comes first; the address is never pinned.
+
+**Which types, and why the checks stay the same.** The address may only replace the name lookup: the server is still
+verified against its name, or the profile's pin, exactly as strictly as by name.
+- *Cisco AnyConnect and Palo Alto GlobalProtect* (macOS and Linux): the user's sign-in run gets
+  `resolve <host>:<address>` in its file (`OpenConnectAuthConfig.resolveAddress`, rendered right after `server`, same
+  lowercased host; `checkRendered` refuses a `resolve` for another host or for an IP-address server). openconnect's
+  `--resolve` replaces `getaddrinfo` for that one name and nothing else (9.21 main.c `gai_override_cb`, ssl.c 398–399):
+  the server name it sends (SNI) and checks the certificate against stays the URL's host (gnutls.c 2208–2211,
+  2370–2377), and the trust lines (`servercert` pins, or `no-system-trust` and `cafile`) are byte for byte those of the
+  run by name. The sign-in then prints `RESOLVE='<host>:<address>'` as always, which the existing destination check binds
+  the tunnel run to (`OpenConnectStart.resolve`, unchanged): the helper's protocol and the daemon are untouched.
+- *FortiGate* has no fallback: openfortivpn resolves the `host` it is given and checks the certificate against that same
+  `host` (1.24.1 tunnel.c 622 `getaddrinfo(gateway_host)`, 881 `X509_check_host(cert, gateway_host)`, 1308 SNI); given
+  an address, it would check the certificate against the address instead of the name, and lose the SNI.
+- *OpenVPN* has no fallback: OpenVPN itself could take an address safely (none of its certificate checks involve the
+  `remote` name; `verify-x509-name` names its own), but the helper reads `config.ovpn` from the profile directory, held to
+  its hash, and runs it with fixed flags, so it cannot be told an address without a change of the helper.
+
+**Learning.** The sign-in's `RESOLVE` address (what openconnect connected to; `AnyConnectSignIn.Success.address`, or the
+GlobalProtect destination's `resolveAddress`) is kept once the tunnel is up (`ConnectionManager.performConnect`), with the
+time and the `ProfileDestination` fingerprint, and only for the profile's own host name (a GlobalProtect gateway on another
+host is not what a connect looks up first; an IP-address host has nothing to look up). Every successful connection
+replaces it, so a server that moved is picked up at the next connect whose lookup works. Why a fingerprint and not the
+settings: as for `network.json`, the fingerprint covers what the destination is (for OpenVPN the whole `config.ovpn`, keys
+included) without copying any of it; the address itself is no secret, but it stays on this computer: `exportShare`
+writes the profile and its `config.ovpn` only, and the profile watcher ignores the file.
+
+**Using it.** Only when the sign-in by name failed with `PTError.hostNotFound`, before anything was sent
+(`credentialsSent` false), once per attempt, and only with a file that is the user's alone, of this version, for the
+profile's host and its destination as it is now. Then: the code that never left is given back (`.last-otp`), the activity
+records `trying_last_known_address` (host, address), and the sign-in runs again with the address and a code of its own
+time (the same one when its window still has time; a code is never sent twice). Every other failure by name, and a
+profile without an address, ends as before.
+
+**Outcomes.**
+- Connected: the activity's `connected` has `last_known_address`, and while it is up `status`, the MCP `get_status`
+  and the app show the notice `connected_through_last_known_address` (`StatusNotice`, from the activity's last
+  `connected`): the DNS was not answering at connect time.
+- Nothing answered at the address, or a server there failed the certificate check: the failure stays `host_not_found`
+  (the root cause, never `unreachable`), as `PTError.knownAddressFailed` (server, address, since when, the try's reason):
+  its message says the name was not found, which address remembered from when was tried and what happened there;
+  `ConnectionFailure.lastKnownAddress` and the activity's `last_known_address_failed` carry the same, and "Copy details"
+  has a "Tried instead" line. Not answering keeps the address (the network may be down); a certificate failure forgets
+  it, and no "Trust This Server" offer is made for a server reached at a remembered address.
+- The server there took or refused the sign-in: as by name (a rejection is never retried); the address is kept.
+
+**Dropped.** `ProfileStore.save` forgets the address when the profile's destination changes (host, port, user group,
+pins, type), `setOVPN` whenever a configuration is imported, a connect that would use it removes a file that does not
+match the profile as it is now, and deleting the profile removes its directory.
+
+**Seeing it.** `passtunnel diagnose` and the MCP `diagnose` show it per profile (`last_known_address`: host, address,
+`learned_at`; "Last known server address: 203.0.113.5 (remembered 2d ago)"), read from the file only. In
+`passtunnel log --activity` and the MCP `get_logs` (activity) a fallback reads "Server name vpn.example.com not found,
+trying its last known address 203.0.113.5", followed by "Connected, 10.0.0.2, through the last known server address
+203.0.113.5" or "Server name not found, and its last known address 203.0.113.5 (from …) did not answer (Connection
+refused)". The sign-in's log (`vpn.log` until the tunnel run replaces it) is the second run's; openconnect prints the
+override only at its trace level.
 
 ## Cisco AnyConnect backend
 

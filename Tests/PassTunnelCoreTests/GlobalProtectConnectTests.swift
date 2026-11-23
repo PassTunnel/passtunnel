@@ -1139,6 +1139,6 @@ final class GlobalProtectSignInTests: XCTestCase {
         other = lines
         other[1] += "\r"
         XCTAssertFalse(VPNLog.globalProtectHIPRequested(other.joined(separator: "\n") + "\n"))
-        XCTAssertEqual(StatusNotice.allCases.map(\.rawValue), ["hip_report_not_sent"])
+        XCTAssertEqual(StatusNotice.allCases.map(\.rawValue), ["hip_report_not_sent", "connected_through_last_known_address"])
     }
 }

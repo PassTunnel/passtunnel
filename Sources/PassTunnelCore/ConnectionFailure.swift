@@ -10,7 +10,7 @@ public struct ConnectionFailure: Codable, Equatable, Sendable {
         /// The server refused the sign-in (OpenVPN `AUTH_FAILED`, openfortivpn "Could not authenticate").
         /// Never retried: retrying could lock the account.
         case authRejected = "auth_rejected"
-        /// The server's name could not be resolved.
+        /// The server's name could not be resolved (and, with `lastKnownAddress`, its remembered address failed too).
         case hostNotFound = "host_not_found"
         /// The server did not answer: connection refused or timed out, no route, no TLS answer in time.
         case unreachable
@@ -68,9 +68,28 @@ public struct ConnectionFailure: Codable, Equatable, Sendable {
         case notGlobalProtectServer = "not_globalprotect_server"
     }
 
+    /// hostNotFound: the address the server had at its last successful connection, tried because its name was not
+    /// found, and how that try ended (`PTError.knownAddressFailed`); `reason` is then that try's.
+    public var lastKnownAddress: TriedAddress?
+
+    /// See `lastKnownAddress`.
+    public struct TriedAddress: Codable, Equatable, Sendable {
+        public var address: String
+        /// Since when the address was remembered (the connection that learned it).
+        public var learnedAt: Date
+        /// A server there failed the certificate check (the address was forgotten); false: nothing answered.
+        public var certificateRefused: Bool
+
+        public init(address: String, learnedAt: Date, certificateRefused: Bool) {
+            self.address = address
+            self.learnedAt = learnedAt
+            self.certificateRefused = certificateRefused
+        }
+    }
+
     /// The JSON keys: every stored property but `detail`.
     enum CodingKeys: String, CodingKey {
-        case kind, at, reply, reason, serverCert, gateways, credentialsSent, codeSent, codeSecondsLeft, tries, clock
+        case kind, at, reply, reason, serverCert, gateways, credentialsSent, codeSent, codeSecondsLeft, tries, clock, lastKnownAddress
     }
     /// The credentials reached the server: the TLS session with it came up (OpenVPN "Control Channel",
     /// openfortivpn "Connected to gateway"), or it answered the sign-in.
@@ -139,6 +158,12 @@ public struct ConnectionFailure: Codable, Equatable, Sendable {
             f.tries = f.tries ?? log.map(VPNLog.tries)
         case PTError.hostNotFound:
             f.kind = .hostNotFound
+        case let PTError.knownAddressFailed(_, address, learnedAt, reason, certificateRefused, _):
+            // The root cause: the name was not found; the try at the remembered address is the detail.
+            f.kind = .hostNotFound
+            f.reason = reason
+            f.credentialsSent = false
+            f.lastKnownAddress = TriedAddress(address: address, learnedAt: learnedAt, certificateRefused: certificateRefused)
         case PTError.setupFailed(let reason, _):
             f.kind = .setup
             f.reason = reason
@@ -189,6 +214,22 @@ public struct ConnectionFailure: Codable, Equatable, Sendable {
         f.codeSent = f.credentialsSent && handed?.code == true
         f.codeSecondsLeft = f.codeSent ? handed?.codeSecondsLeft : nil
         return f
+    }
+
+    /// hostNotFound after a try at the last known address: what that try met, in the user's language ("Its last known
+    /// address 203.0.113.5, remembered from Nov 20, 2026 at 09:41, was tried too and did not answer (Connection
+    /// refused)."); nil otherwise.
+    public var lastKnownAddressSentence: String? {
+        guard let tried = lastKnownAddress else { return nil }
+        let date = PTError.dateText(tried.learnedAt)
+        let reason = reason ?? ""
+        if tried.certificateRefused {
+            return String(
+                localized:
+                    "Its last known address \(tried.address), remembered from \(date), was tried too; the server there failed the certificate check (\(reason)), so that address was forgotten."
+            )
+        }
+        return String(localized: "Its last known address \(tried.address), remembered from \(date), was tried too and did not answer (\(reason)).")
     }
 
     /// The facts behind it, worded for the CLI ("The code was sent with 22 s left."); nil when there

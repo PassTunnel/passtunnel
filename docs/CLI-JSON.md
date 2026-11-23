@@ -183,9 +183,12 @@ From `status`, `connect`, `disconnect`, `toggle` and the MCP tools `get_status`,
 `state` is `disconnected`, `connecting` or `connected`. Present only when they apply: `connect_refusal` (this system
 cannot connect the profile: an error object, see [ProfileSummary](#profilesummary)), `experimental` (`true` for a
 profile of an experimental type, Palo Alto GlobalProtect), `notices` (while connected: what the user should know about
-the connection, a list of `{"kind", "message"}`; the only kind so far is `hip_report_not_sent`, Palo Alto GlobalProtect:
+the connection, a list of `{"kind", "message"}`: `hip_report_not_sent`, Palo Alto GlobalProtect:
 the gateway asked for a host information report, which PassTunnel never sends, so the gateway may limit what the tunnel
-reaches; `message` is the sentence to show; the log is not repeated; new kinds may be added), `phase`
+reaches; `connected_through_last_known_address`, Cisco AnyConnect and Palo Alto GlobalProtect: the server's name could
+not be resolved when the connection was made, so it was reached at the address it had at its last successful
+connection (docs/ARCHITECTURE.md, "Last known server address"), and the network's DNS may not be working; `message` is
+the sentence to show; the log is not repeated; new kinds may be added), `phase`
 (while connecting, in the user's language), `ip`, `since`, `duration_seconds`, `health`
 (`reachable` / `unreachable`, only from a process that runs health checks), `error` (why the last
 attempt in this process failed) and `failure` (the same as a [ConnectionFailure](#connectionfailure);
@@ -265,7 +268,7 @@ and MCP).
 | `kind` | Error code | When |
 |---|---|---|
 | `auth_rejected` | `credentials_rejected` | The server refused the sign-in (OpenVPN `AUTH_FAILED`, openfortivpn "Could not authenticate"). It is never retried, also not by the automatic reconnect: retrying could lock the account |
-| `host_not_found` | `host_not_found` | The server's name could not be resolved |
+| `host_not_found` | `host_not_found` | The server's name could not be resolved. With `last_known_address`, the address the server had at its last successful connection was tried as well and failed too (see below) |
 | `unreachable` | `server_unreachable` | The server did not answer: connection refused or timed out, no route, no TLS answer in time. The sign-in was not sent |
 | `configuration` | `config_invalid`, `connect_failed`, `credentials_missing`, … | The configuration, a key or the server's certificate was refused (OpenVPN `Options error`, `VERIFY ERROR`; openfortivpn's gateway certificate; Cisco AnyConnect: the certificate or the pinned key, with `server_cert`), or something the profile needs is missing (Cisco AnyConnect: also a group the server does not offer, or a server that asks for more than the password and the code) |
 | `setup` | `connect_failed` | The tunnel came up, but its network setup failed |
@@ -291,6 +294,25 @@ of them; the portal's labels in its order, each printable ASCII of at most 64 by
 not be read that way), `clock` (`auth_rejected`: a [ClockOffset](#clockoffset), how far the clock was
 off when it was measured after the rejection or checked on request since; see below). `reply` and
 `reason` pass through the same redaction as `log --json`. New kinds may be added.
+
+`last_known_address` (`host_not_found`, Cisco AnyConnect and Palo Alto GlobalProtect): the server's name was not found,
+so the address it had at its last successful connection was tried too, and that failed as well; the failure stays
+`host_not_found`, the root cause, so the DNS problem is never hidden. `address`, `learned_at` (since when it was
+remembered: the connection that learned it) and `certificate_refused` (`false`: nothing answered there, `reason` is
+that try's words such as `Connection refused`; `true`: a server there failed the certificate check, `reason` is
+openconnect's, and the address was forgotten). Nothing was sent either way (`credentials_sent` false). The `error`
+message says the same in words:
+
+```json
+{
+  "at" : "2026-11-22T09:41:02Z",
+  "code_sent" : false,
+  "credentials_sent" : false,
+  "kind" : "host_not_found",
+  "last_known_address" : { "address" : "203.0.113.5", "certificate_refused" : false, "learned_at" : "2026-11-20T08:15:00Z" },
+  "reason" : "Connection refused"
+}
+```
 
 After a FortiGate rejects a sign-in, the process that sent it asks the gateway for its time (one
 `HEAD /` request over TLS, trusted as openfortivpn trusts the gateway; at most 5 s), so a wrong clock
@@ -421,8 +443,11 @@ connecting, without connecting and without any secret's value.
 `major.minor.patch`, such as `27.0.1` (the build number is not included); left out on Linux. Per profile: `ok` (nothing found that would stop a
 connect; the server can still refuse it), `server`, `protected`, `password_saved` / `totp_saved`
 (whether, never the value), `asks_for` (fields asked on every connect: `username`, `password`, `otp`),
-`problems` (error objects), `experimental` (`true` for Palo Alto GlobalProtect, otherwise left out), and `clock`, the profile's last [ClockOffset](#clockoffset) when there is
-one (any process's; a FortiGate gateway's after a rejected sign-in). Linux adds `secret_store`, a
+`problems` (error objects), `experimental` (`true` for Palo Alto GlobalProtect, otherwise left out), `clock`, the profile's last [ClockOffset](#clockoffset) when there is
+one (any process's; a FortiGate gateway's after a rejected sign-in), and `last_known_address` (Cisco AnyConnect and Palo
+Alto GlobalProtect: `{"host", "address", "learned_at"}`, the address the server had at its last successful connection,
+which a connect tries when the name cannot be resolved, and since when; read from the profile's directory, nothing is
+contacted; left out when none is kept). Linux adds `secret_store`, a
 [SecretStoreReport](#secretstorereport). With `--check-clock` (MCP: `check_clock: true`) the time
 server is asked as well: `clock` is its ClockOffset, or `clock_error` says why it could not be
 measured. Without it, `diagnose` contacts nothing. For a Cisco AnyConnect profile the checks are the server
@@ -485,12 +510,14 @@ One event of the activity log (`profiles/<id>/activity.jsonl`, the last 500 even
 | `waiting_for_code` | `reason` (`used`: this period's code was already sent; `expiring`: 5 s or less left), `seconds` | The next one-time code is waited for |
 | `sending` | `username`, `password` (a password was sent), `code` (a code was sent), `seconds_left` (the code's, from a TOTP secret), `format` (the template, e.g. `{password}{otp}`, or `separate`; only with a code) | The credentials were handed to the VPN tool |
 | `auth_accepted` | | The server accepted the sign-in |
-| `connected` | `address` (`""` when unknown) | The tunnel is up |
+| `trying_last_known_address` | `host`, `address` | The server's name (`host`) was not found before anything was sent; the address it had at its last successful connection is tried instead. The events after it are that try's |
+| `connected` | `address` (`""` when unknown), `last_known_address` (only when the server was reached at its last known address) | The tunnel is up |
 | `link_dropped` | `will_reconnect` | The connection ended without anyone stopping it |
 | `reconnecting` | `attempt`, `of` | An automatic reconnect attempt starts |
 | `unreachable` | `tries`, `reason` (the tool's words, e.g. `Connection refused`) | The server did not answer; the sign-in was not sent |
 | `next_try` | `next_at` | The next automatic attempt starts then |
 | `rejected` | `reply` (what the server answered, e.g. `AUTH_FAILED`; absent when it said nothing) | The server refused the sign-in; not retried |
+| `last_known_address_failed` | `address`, `learned_at`, `reason`, `certificate_refused` | The try at the last known address failed too: nothing answered there, or a server there failed the certificate check and the address was forgotten. The connect ends `host_not_found` |
 | `failed` | `failure` (a [ConnectionFailure](#connectionfailure) `kind`: `host_not_found`, `configuration`, `setup`, `timeout`, `tool_unsupported`, `host_scan_required`, `sso_required` or `failed`), `reason`, `credentials_sent` | The attempt failed otherwise |
 | `stopped_by_user` | | A connect, a code wait or the automatic reconnects were stopped |
 | `disconnected_by_user` | | A connection that was up was ended |

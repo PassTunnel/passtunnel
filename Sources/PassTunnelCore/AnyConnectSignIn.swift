@@ -143,6 +143,8 @@ struct AnyConnectSignIn: @unchecked Sendable {
         var result: OpenConnectAuthResult
         /// `resolve` for the tunnel run: the sign-in's `RESOLVE` for a host name, nil for an IP address.
         var resolve: String?
+        /// The address in that `RESOLVE`, which the run connected to and the tunnel run will (nil for an IP address).
+        var address: String?
         /// The redacted standard error, for the log.
         var log: String
     }
@@ -238,7 +240,7 @@ struct AnyConnectSignIn: @unchecked Sendable {
         let log = Self.log(Self.redacted(output.errorOutput, secrets: secrets + cookieSecrets))
         do {
             let address = try result.checkDestination(host: config.host, port: config.port, profileServerCert: config.serverCert)
-            return .success(Success(result: result, resolve: address == nil ? nil : result.resolve, log: log))
+            return .success(Success(result: result, resolve: address == nil ? nil : result.resolve, address: address, log: log))
         } catch {
             return failed(PTError.signInUnusable(String(describing: error)), log: log, sent: true)
         }
