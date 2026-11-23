@@ -282,9 +282,11 @@ public struct ActivityEvent: Equatable, Sendable {
             return String(localized: "Disconnected by you")
         case let .dnsRestored(service, settings):
             let list = settings.joined(separator: ", ")
+            if settings.isEmpty { return String(localized: "Gave the Mac its DNS back: \(service) still had a VPN’s DNS settings") }
             return String(localized: "Gave the Mac its DNS back: \(service) still used the VPN’s \(list)")
         case let .dnsLeftBehind(service, settings):
             let list = settings.joined(separator: ", ")
+            if settings.isEmpty { return String(localized: "\(service) still has the DNS settings of a VPN that is not connected") }
             return String(localized: "\(service) still uses the DNS of a VPN that is not connected (\(list))")
         }
     }

@@ -181,6 +181,16 @@
         }
       }
     },
+    "%@ still has the DNS settings of a VPN that is not connected" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ hâlâ bağlı olmayan bir VPN’in DNS ayarlarını taşıyor"
+          }
+        }
+      }
+    },
     "%@ still uses the DNS of a VPN that is not connected (%@)" : {
       "localizations" : {
         "tr" : {
@@ -993,6 +1003,16 @@
         }
       }
     },
+    "Gave the Mac its DNS back: %@ still had a VPN’s DNS settings" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mac’in DNS’i geri verildi: %@ hâlâ bir VPN’in DNS ayarlarını taşıyordu"
+          }
+        }
+      }
+    },
     "Gave the Mac its DNS back: %@ still used the VPN’s %@" : {
       "localizations" : {
         "tr" : {
@@ -1239,6 +1259,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Portalı atla ve doğrudan ağ geçidinde oturum aç"
+          }
+        }
+      }
+    },
+    "The DNS of %@ still has settings OpenVPN’s DNS script left for a VPN that is not connected, without any DNS server. Restarting the Mac sets it back." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ağının DNS’inde, OpenVPN’in DNS betiğinin bağlı olmayan bir VPN için bıraktığı ayarlar hâlâ duruyor; hiçbir DNS sunucusu yok. Mac’i yeniden başlatmak bunu eski hâline getirir."
           }
         }
       }

@@ -22,13 +22,14 @@ final class DNSScriptTests: XCTestCase {
     static let wifi = OpenVPNDNSTests.wifi
 
     /// `scutil`'s commands the script uses (show, get, set, add, remove, list, d.init, d.add with `*` and `#`),
-    /// against `FAKE_STORE`. The current dictionary starts unset, as in scutil.
+    /// against `FAKE_STORE`. The current dictionary starts empty, and `get` of a key that is not there keeps it, as a fresh
+    /// `scutil` does (`d.show` prints `<dictionary> { }`, and still does after such a `get`: checked on a Mac, reading only).
     static let fakeScutil = #"""
         #!/usr/bin/python3 -I
         import json, os, re, sys
         path = os.environ["FAKE_STORE"]
         store = json.load(open(path))
-        d = None
+        d = {}
         def copy(v): return json.loads(json.dumps(v))
         for line in sys.stdin.read().split("\n"):
             w = line.split()
@@ -151,6 +152,7 @@ final class DNSScriptTests: XCTestCase {
         try runScript(script, "dns-up", variables)
         let written = try XCTUnwrap(store()["Setup:/Network/Service/\(Self.wifi)/DNS"])
         XCTAssertEqual(written, session.overrideEntity)
+        XCTAssertEqual(try store()["State:/Network/Service/openvpn-utun7/DnsBackup"], [:], "Wi-Fi had no DNS key: an empty backup")
 
         // The network goes away; the dns-down finds no primary service and leaves it.
         var now = try store().mapValues { entity in entity.mapValues(Self.json) }
@@ -165,6 +167,54 @@ final class DNSScriptTests: XCTestCase {
         system.services = [Self.wifi: session.overrideEntity]
         let settled = OpenVPNDNS.settle(OpenVPNDNSRecord(session: session, status: 0, service: Self.wifi), live: [], system: system)
         XCTAssertEqual(settled.restored.map(\.serviceID), [Self.wifi])
+    }
+
+    /// A normal end on a service without DNS of its own: the dns-down puts the empty backup back, `{}`, which is no
+    /// DNS as the preferences hold; nothing for the helper to do.
+    func testANormalEndLeavesAnEmptyDictionary() throws {
+        let script = try stubbedScript()
+        let variables = ["dev": "utun7", "dns_server_1_address_1": "10.8.0.1"]
+        try setStore(["State:/Network/Global/IPv4": ["PrimaryService": Self.wifi]])
+        try runScript(script, "dns-up", variables)
+        try runScript(script, "dns-down", variables)
+        let store = try store()
+        XCTAssertEqual(store["Setup:/Network/Service/\(Self.wifi)/DNS"], [:])
+        XCTAssertNil(store["State:/Network/Service/openvpn-utun7/DnsBackup"])
+        let system = FakeDNSSystem()
+        system.preferences = [Self.wifi: [:]]
+        system.services = [Self.wifi: [:]]
+        let session = try XCTUnwrap(OpenVPNDNSSession(variables: variables))
+        XCTAssertEqual(
+            OpenVPNDNS.settle(OpenVPNDNSRecord(session: session, status: 0, service: Self.wifi), live: [], system: system),
+            OpenVPNDNS.Settlement(.done))
+        XCTAssertEqual(system.writes, [])
+    }
+
+    /// No server the script can use (a DoT one only): its `exit 1` ends only the `$(…)` that runs it, and the
+    /// script goes on: status 0, a backup, and the override without any server, as the model says.
+    func testNoUsableServerAgainstTheModel() throws {
+        let script = try stubbedScript()
+        let variables = [
+            "dev": "utun7", "dns_server_1_address_1": "10.8.0.1", "dns_server_1_transport": "DoT",
+            "dns_search_domain_1": "corp.example.com"
+        ]
+        try setStore([
+            "State:/Network/Global/IPv4": ["PrimaryService": Self.wifi],
+            "Setup:/Network/Service/\(Self.wifi)/DNS": ["ServerAddresses": ["192.0.2.1"]]
+        ])
+        try runScript(script, "dns-up", variables)
+        let session = try XCTUnwrap(OpenVPNDNSSession(variables: variables))
+        XCTAssertEqual(session.servers, [])
+        let written = try XCTUnwrap(store()["Setup:/Network/Service/\(Self.wifi)/DNS"])
+        XCTAssertEqual(written, session.overrideEntity)
+        XCTAssertEqual(try store()["State:/Network/Service/openvpn-utun7/DnsBackup"], ["ServerAddresses": OpenVPNDNSTests.strings(["192.0.2.1"])])
+
+        let system = FakeDNSSystem()
+        system.preferences = [Self.wifi: ["ServerAddresses": OpenVPNDNSTests.strings(["192.0.2.1"])]]
+        system.services = [Self.wifi: written]
+        let settled = OpenVPNDNS.settle(OpenVPNDNSRecord(session: session, status: 0, service: Self.wifi), live: [], system: system)
+        XCTAssertEqual(settled.restored.map(\.settings), [["corp.example.com"]])
+        XCTAssertEqual(system.services[Self.wifi], ["ServerAddresses": OpenVPNDNSTests.strings(["192.0.2.1"])])
     }
 
     /// The split branch: its `State:` key is the model's; its dns-down removes it whatever the network.

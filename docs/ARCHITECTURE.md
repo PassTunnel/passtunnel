@@ -1042,24 +1042,52 @@ Security rules (helper):
     and after is the service it wrote to; only a network change within the script's few milliseconds that
     comes back to the same service could slip through. When the two readings differ (or there is no primary
     service), `service` is empty and the helper changes nothing for that session: it reports it. A status
-    other than 0 means the script stopped before it wrote anything (no lock, "already redirecting to another
-    tunnel", no usable server: 37–43, 242–245, 109–111). Only a record with status 0 is evidence, and only a
-    running session whose record has status 0 holds anything (`OpenVPNDNSRecord.succeeded`). What it set is
+    other than 0 means the script stopped before it wrote anything: it could not take its lock (37–43), or
+    another session's backup was there ("already redirecting to another tunnel", 242–245). **Found:** no
+    usable server is *not* one of them. `set_dns` runs `find_compat_profile` in `$(…)` (`local n=…`, 226), so
+    its `exit 1` (109–111) ends only that subshell: `n` becomes its message, `addresses_string $n` gets the word
+    `setting` and finds no address, `match_domains_string` no resolve domain, and the full branch goes on: it
+    backs up the primary service's DNS and writes an override with an empty `ServerAddresses`, the search
+    domains and `SearchOrder` 5000, and exits 0 (run with the real script and stubs: a lone DoT server and a
+    search domain give exactly that). The dns-down does the same with `n` (262) and restores only while that
+    service still has no servers. The model follows it (`OpenVPNDNSSession.servers` empty, the override then
+    without servers), so it is given back and reported like any other. That `$(find_compat_profile)` (226 and
+    262) is the only command substitution that hides an `exit`: no other function the script runs in `$(…)`
+    has one. Only a record with status 0 is evidence, and only a
+    running session whose record has status 0 holds anything (`OpenVPNDNSRecord.succeeded`). A session that
+    ran under an older helper (no `dns-up.result`), or whose wrapper was killed before it wrote the result,
+    has no status: it is never repaired, only reported, which is the safe side (nothing shows what it set, or
+    where). What it set is
     worked out exactly as the script does (`OpenVPNDNSSession`): the first server of plain transport, no
     DNSSEC and only port 53 (`find_compat_profile`, 105–125); every address of it as sent, a repeated one too
     (`addresses_string`, 181–193); the search domains and `resolve_domain`s without those the script takes for
     repeats, whose test (203, 218) is an unquoted `=~`, a regular expression in which a `.` matches any
-    character, a space included (`OpenVPNDNSSession.scriptList`). `DNSScriptTests` runs the real script
-    (Homebrew's, when it is installed; it is not in the repository) against a stand-in for `scutil` and
-    compares what it writes with the model.
+    character, a space included (`OpenVPNDNSSession.scriptList`). `scutil` starts each run with an empty
+    current dictionary, and a `get` of a key that is not there keeps it (seen on a Mac, reading only): a
+    primary service without DNS of its own gets the backup `{}`, and a normal end writes `{}` back onto it,
+    which is no DNS, as the preferences hold. `DNSScriptTests` runs the real script (Homebrew's, when it is
+    installed; it is not in the repository, and CI's Build and test job has no Homebrew openvpn, so there it
+    is skipped) against a stand-in for `scutil` and compares what it writes with the model; the model tests
+    (`OpenVPNDNSTests`) hold the same cases without the script.
   - *Giving the Mac its DNS back* (`OpenVPNDNS.settle` and `OpenVPNDNSKeeper`, Shared, tested with a fake
     `OpenVPNDNSSystem`, a fake lock and logs in memory; the Mac's system is `MacOpenVPNDNSSystem`:
     `SCDynamicStore` for the keys, `SCPreferences` read only for the network preferences). Once a session's
     tool has ended and the owed dns-down ran, the helper reads the session's records (its own, and one
-    carried over its start, below) and, holding OpenVPN's script lock (`ScriptLock`: the script's own
-    `shlock` protocol on `/var/lock/openvpn-dns-updown.lock`, 29–44, so it never reads and writes in the
-    middle of another session's dns-up or dns-down; waited for at most 3 s, else a failed try), looks only at
-    the service the record names:
+    carried over its start, below) and, holding OpenVPN's script lock, looks only at the service the record
+    names. The lock (`ScriptLock`) is the script's own (29–44) on `/var/lock/openvpn-dns-updown.lock`, so the
+    helper never reads and writes in the middle of another session's dns-up or dns-down. It keeps the rules
+    of `/usr/bin/shlock` as run on files in a scratch directory: the holder's pid as text; a lock is valid
+    while it names a process; one whose content is no pid above 0 (words, nothing, `0`, `-5`) or names a
+    process that is gone is invalid and is removed and taken, except in the very second its status (ctime)
+    last changed, when it may still be being written (shlock then fails that try; a second later it removes
+    it). A link or a fifo there counts as invalid content and only its name is removed; a directory is never
+    removed. So junk written into the lock blocks the helper no longer than it blocks the script. Each event
+    (a session's end, a start, a 15 s retry, the adoption at the helper's start) asks for the lock at most once
+    for all the sessions it checks, and waits for it at most `Supervisor.scriptLockWait` (0.5 s) on the
+    helper's queue; when it is not had, those sessions stay pending (`lockBusy`) and the next event tries
+    again. A lock that cannot be had is no failed check: it never refuses a start. A start that finds it busy
+    waits those 0.5 s once, then goes ahead and carries the profile's pending record into its new directory;
+    its own dns-up waits for the lock as the script always does:
     - full branch: that service's `Setup:` DNS, when it is still the session's override (`isOverride`: the
       same `ServerAddresses`, `SearchOrder` 5000, nothing but `SearchDomains` besides, and those still holding
       the session's: a split session's dns-up puts its own and the Mac's current ones in front,
@@ -1085,16 +1113,24 @@ Security rules (helper):
     The helper writes only keys of checked names: service IDs of letters, digits and `-` (`isServiceID`),
     `dev` of letters and digits (`isDeviceName`). Nothing is changed without a record that proves it: the
     record and its result (root-owned, in a root-owned directory, written by the hook OpenVPN ran as root).
-    A failure (the lock not had in time, store or preferences unreadable, the write refused or not holding)
-    keeps the records and only them (`keepOnlyDNSRecord`: the configuration and auth file go); the keeper
-    tries again every `restoreRetryInterval` (15 s) and before every start, and refuses a start of that
-    profile while it fails ("The DNS settings of this profile's last OpenVPN session are still being
-    restored, so it cannot connect yet. Try again shortly; if this keeps happening, restarting the Mac
-    clears it.": a restart empties the run directory and republishes the `Setup:` keys). A `parked` record
-    does not hold a start up: `beforeStart` takes its text, and once the start has made the new session
-    directory, `carry(into:)` writes it there as `dns-carried.env` / `dns-carried.result`, settled with the new
-    session's own record at its end (a start that fails keeps it: `startFailed`). `adoptOrphans` settles the
-    directories of ended sessions only after it adopted every running one.
+    A failure of a check that ran (store or preferences unreadable, the write refused or not holding) keeps
+    the records and only them (`keepOnlyDNSRecord`: the configuration and auth file go); the keeper tries
+    again every `restoreRetryInterval` (15 s) and before every start, and refuses a start of that profile
+    while it fails ("The DNS settings of this profile's last OpenVPN session are still being restored, so it
+    cannot connect yet. Try again shortly; if this keeps happening, restarting the Mac clears it.": a restart
+    empties the run directory and republishes the `Setup:` keys). A `parked` or `lockBusy` record does not
+    hold a start up: `beforeStart` takes its text, and once the start has made the new session directory,
+    `carry(into:)` writes it there as `dns-carried.env` / `dns-carried.result`, settled with the new session's
+    own record at its end (a start that fails keeps it: `startFailed`). When the old directory holds both a
+    record of its own and a carried one, only the newer is carried (logged). A carried record is not tried
+    again while the new session runs, only at its end. A record that is done goes at once, whichever slot it
+    is in. `adoptOrphans` settles the directories of ended sessions only after it adopted every running one.
+    `stopAll` settles each session in turn (each its own wait for the lock, and up to 2 s for its tool to be
+    gone): with several sessions it can run past the time the service manager gives a helper to exit, and the
+    next helper then finishes the clean-up (`adoptOrphans`). Restoring a service puts back what the
+    preferences hold, which drops search domains a still-running split session had put on that service; that
+    session then no longer has short names completed with them until it ends (its own dns-down takes them
+    out anyway).
     Each service given back, and each that could not be, goes into the helper's log and into the log of the
     session it is about, and no other (`OpenVPNDNS.Note`: `PassTunnel helper: restored the DNS of
     “<service>”, which still used the VPN's <servers>`, or `could not restore … ; trying again`): through the
@@ -1106,7 +1142,7 @@ Security rules (helper):
     only after the check.
   - *Left behind with no record* (an older helper kept none; another OpenVPN on the Mac uses the same
     script). Before an OpenVPN start, after the retries, `OpenVPNDNS.leftBehind` looks for a `Setup:` DNS in
-    the script's shape (`ServerAddresses`, `SearchOrder` 5000, `SearchDomains` or not, nothing else) that
+    the script's shape (`ServerAddresses`, empty too, `SearchOrder` 5000, `SearchDomains` or not, nothing else) that
     differs from the preferences while no session of the script is redirecting DNS (no `DnsBackup` of an
     interface that exists), and says whether the Mac uses it now (`inEffect`: it is the primary service, or
     the default resolver, `State:/Network/Global/DNS`, has those servers). It is reported, never changed: in

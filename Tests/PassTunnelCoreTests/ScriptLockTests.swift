@@ -2,8 +2,9 @@ import XCTest
 
 @testable import PassTunnelShared
 
-/// OpenVPN's script lock as the helper takes it (`ScriptLock`), in a directory of its own: `shlock`'s protocol, a
-/// stale lock, and whatever someone puts into the world-writable directory, never followed, never a hang.
+/// OpenVPN's script lock as the helper takes it (`ScriptLock`), in a directory of its own: `shlock`'s rules, as
+/// `/usr/bin/shlock` keeps them, for whatever is in the world-writable directory. Time is the test's own clock
+/// (the lock's file times are read once), so nothing depends on how long a run takes.
 final class ScriptLockTests: XCTestCase {
     var dir: URL!
     var path: String { dir.appendingPathComponent("openvpn-dns-updown.lock").path }
@@ -17,13 +18,22 @@ final class ScriptLockTests: XCTestCase {
         try? FileManager.default.removeItem(at: dir)
     }
 
-    /// A clock that moves only when the lock pauses: a wait of seconds takes none.
+    /// A clock that moves only when the lock pauses.
     final class Clock {
-        var now = Date(timeIntervalSince1970: 0)
+        var now: Date
         var pauses = 0
+
+        init(_ now: Date) { self.now = now }
     }
 
-    func acquire(_ clock: Clock = Clock(), pid: pid_t = getpid(), wait: TimeInterval = 1) -> ScriptLock.Held? {
+    /// The second the entry at `path` last changed (its ctime), as the clock's start: "now" is then that very second.
+    func changeTime() -> Date {
+        var st = stat()
+        XCTAssertEqual(lstat(path, &st), 0)
+        return Date(timeIntervalSince1970: TimeInterval(ScriptLock.changeSeconds(st)))
+    }
+
+    func acquire(_ clock: Clock, pid: pid_t = getpid(), wait: TimeInterval = 3) -> ScriptLock.Held? {
         ScriptLock.acquire(
             path: path, pid: pid, wait: wait, now: { clock.now },
             pause: {
@@ -33,65 +43,78 @@ final class ScriptLockTests: XCTestCase {
     }
 
     func testTakesAFreeLockAndGivesItBack() throws {
-        let held = try XCTUnwrap(acquire())
+        let held = try XCTUnwrap(acquire(Clock(Date())))
         XCTAssertEqual(try String(contentsOfFile: path, encoding: .utf8), "\(getpid())\n", "shlock's format: the pid as text")
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir.path), ["openvpn-dns-updown.lock"], "no temporary file left")
         held.release()
         XCTAssertFalse(FileManager.default.fileExists(atPath: path))
     }
 
-    /// Held by a process that runs (launchd here): waited for, then a failed try, in bounded time.
-    func testALiveHolderMakesItAFailedTry() throws {
+    /// Held by a process that runs (launchd here): valid, never removed; the try fails once `wait` has passed.
+    func testALiveHolderIsWaitedFor() throws {
         try "1\n".write(toFile: path, atomically: true, encoding: .utf8)
-        let clock = Clock()
-        XCTAssertNil(acquire(clock, wait: 3))
-        XCTAssertTrue((29...31).contains(clock.pauses), "\(clock.pauses)")
-        XCTAssertEqual(try String(contentsOfFile: path, encoding: .utf8), "1\n", "never removed")
+        let clock = Clock(changeTime().addingTimeInterval(10))
+        XCTAssertNil(acquire(clock, wait: 0.5))
+        XCTAssertGreaterThan(clock.pauses, 0)
+        XCTAssertEqual(try String(contentsOfFile: path, encoding: .utf8), "1\n")
     }
 
-    /// Held by a process that is gone: stale, taken.
-    func testAStaleLockIsTaken() throws {
+    /// Invalid (no pid above 0, or one of a process that is gone): kept while its status changed in this second, as
+    /// it may still be being written, removed and taken from the next second on, as `shlock` does.
+    func testAnInvalidLockGoesAfterItsSecond() throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/true")
         try process.run()
         process.waitUntilExit()
-        try "\(process.processIdentifier)\n".write(toFile: path, atomically: true, encoding: .utf8)
-        let held = try XCTUnwrap(acquire())
-        XCTAssertEqual(try String(contentsOfFile: path, encoding: .utf8), "\(getpid())\n")
-        held.release()
+        for content in ["junk\n", "", "0\n", "-5\n", "\(process.processIdentifier)\n", String(repeating: "7", count: 100)] {
+            try content.write(toFile: path, atomically: true, encoding: .utf8)
+            let start = changeTime()
+            XCTAssertNil(acquire(Clock(start), wait: 0), "\(content.debugDescription): written this second")
+            XCTAssertTrue(FileManager.default.fileExists(atPath: path))
+            let clock = Clock(start)
+            let held = try XCTUnwrap(acquire(clock, wait: 3), content.debugDescription)
+            XCTAssertGreaterThanOrEqual(clock.now.timeIntervalSince(start), 1, "not before its second has passed")
+            XCTAssertEqual(try String(contentsOfFile: path, encoding: .utf8), "\(getpid())\n")
+            held.release()
+        }
     }
 
-    /// What anyone can put there: a link, a fifo, a big file, words, a negative pid. Nothing is followed, read past a
-    /// few bytes or removed, and the try ends in time.
-    func testWhatOthersPutThereIsNeverFollowedNorRemoved() throws {
+    /// What anyone can put there instead of a file: a link and a fifo are invalid locks, and only their name goes (the
+    /// link's target stays as it is); a directory is never removed.
+    func testWhatOthersPutThereIsNeverFollowed() throws {
         let target = dir.appendingPathComponent("target").path
         try "0\n".write(toFile: target, atomically: true, encoding: .utf8)
         try FileManager.default.createSymbolicLink(atPath: path, withDestinationPath: target)
-        XCTAssertNil(acquire())
-        XCTAssertEqual(try String(contentsOfFile: target, encoding: .utf8), "0\n")
-        try FileManager.default.removeItem(atPath: path)
+        var clock = Clock(changeTime())
+        XCTAssertNil(acquire(clock, wait: 0))
+        clock = Clock(changeTime())
+        let held = try XCTUnwrap(acquire(clock))
+        XCTAssertEqual(try String(contentsOfFile: target, encoding: .utf8), "0\n", "never written through")
+        held.release()
 
         XCTAssertEqual(mkfifo(path, 0o600), 0)
-        XCTAssertNil(acquire(), "a fifo: not opened for long, not waited on")
+        clock = Clock(changeTime())
+        let fifo = try XCTUnwrap(acquire(clock), "a fifo: not waited on, removed")
+        fifo.release()
+
+        try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: false)
+        clock = Clock(changeTime().addingTimeInterval(60))
+        XCTAssertNil(acquire(clock, wait: 0.5))
+        var isDirectory: ObjCBool = false
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue)
         try FileManager.default.removeItem(atPath: path)
 
-        for planted in [String(repeating: "1", count: 100), "not a pid\n", "-5\n", "0\n", ""] {
-            try planted.write(toFile: path, atomically: true, encoding: .utf8)
-            XCTAssertNil(acquire(), planted)
-            XCTAssertTrue(FileManager.default.fileExists(atPath: path), planted)
-            try FileManager.default.removeItem(atPath: path)
-        }
         // A file where the helper's temporary file goes is removed, not written through.
         let temp = dir.appendingPathComponent(".passtunnel-shlock.\(getpid())").path
         try FileManager.default.createSymbolicLink(atPath: temp, withDestinationPath: target)
-        let held = try XCTUnwrap(acquire())
+        let again = try XCTUnwrap(acquire(Clock(Date())))
         XCTAssertEqual(try String(contentsOfFile: target, encoding: .utf8), "0\n")
-        held.release()
+        again.release()
     }
 
     /// A lock someone replaced after it was taken is not removed by its release.
     func testReleaseRemovesOnlyItsOwnLock() throws {
-        let held = try XCTUnwrap(acquire())
+        let held = try XCTUnwrap(acquire(Clock(Date())))
         try FileManager.default.removeItem(atPath: path)
         try "1\n".write(toFile: path, atomically: true, encoding: .utf8)
         held.release()

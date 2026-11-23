@@ -45,8 +45,10 @@ final class Supervisor {
     private var pendingRestores: Set<Key> = []
     /// OpenVPN sessions' DNS once their tool has ended (`OpenVPNDNSKeeper`): settled, retried, carried over a start.
     private let dns: OpenVPNDNSKeeper
-    /// How long a check of a session's DNS waits for OpenVPN's script lock before it counts as a failed try.
-    static let scriptLockWait: TimeInterval = 3
+    /// The longest an event (a session's end, a start, a retry) waits on this queue for OpenVPN's script lock, once
+    /// for all the sessions it checks (`OpenVPNDNSKeeper.LockRound`). The script holds it for one run of a few
+    /// hundred milliseconds; when it stays taken, the checks wait for the next event (`lockBusy`), never a start.
+    static let scriptLockWait: TimeInterval = 0.5
 
     private var sessions: [SessionPolicy.Session] {
         jobs.values.map {

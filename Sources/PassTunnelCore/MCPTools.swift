@@ -552,7 +552,9 @@ enum Schema {
     /// `DNSLeftBehind`: a network service and the VPN's DNS servers still set on it.
     static let dnsLeftBehind = result(
         [
-            "service": string, "servers": array(string),
+            "service": string,
+            "servers": described(array(string), "Empty when the VPN sent no server its DNS script could use; it then still left its settings."),
+            "search_domains": array(string),
             "in_effect": described(
                 bool,
                 "The Mac uses it now (the primary service, or the default resolver has those servers); otherwise only once that service is used again."

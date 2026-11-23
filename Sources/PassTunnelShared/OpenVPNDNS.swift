@@ -33,8 +33,11 @@ public typealias DNSEntity = [String: PlistValue]
 public struct OpenVPNDNSSession: Equatable, Sendable {
     public var dev: String
     /// The addresses of the first server the script can use (`find_compat_profile`, 105–125: plain transport, no
-    /// DNSSEC, only port 53), in order and as they are, a repeated one too (`addresses_string`, 181–193); empty
-    /// when there is none, and the script then sets nothing.
+    /// DNSSEC, only port 53), in order and as they are, a repeated one too (`addresses_string`, 181–193). Empty when
+    /// there is none: the script then still goes on (`set_dns` calls `find_compat_profile` in `$(…)`, 226, so its
+    /// `exit 1`, 109–111, ends only that subshell and `n` becomes its message): it writes the full branch's
+    /// override with no `ServerAddresses` at all (an empty list), the search domains and `SearchOrder` 5000, and
+    /// exits 0.
     public var servers: [String]
     /// `dns_search_domain_<i>` up to the first gap, without the ones the script takes for repeats
     /// (`search_domains_string`, 195–208: `scriptList`).
@@ -85,14 +88,16 @@ public struct OpenVPNDNSSession: Equatable, Sendable {
             n += 1
         }
         self.dev = dev
+        // The search domains are not the server's (`search_domains_string` does not use `n`).
+        searchDomains = Self.scriptList(values { "dns_search_domain_\($0)" })
         guard let n = server else {
+            // `n` is "setting DNS failed, no compatible server profile", and `$n` unquoted gives the functions the
+            // word `setting`: no `dns_server_setting_…` variable exists, so no address and no resolve domain.
             servers = []
-            searchDomains = []
             matchDomains = []
             return
         }
         servers = values { "dns_server_\(n)_address_\($0)" }
-        searchDomains = Self.scriptList(values { "dns_search_domain_\($0)" })
         matchDomains = Self.scriptList(values { "dns_server_\(n)_resolve_domain_\($0)" })
     }
 
@@ -260,24 +265,27 @@ public enum OpenVPNDNS {
     /// `SearchOrder` 5000, nothing else but `SearchDomains`, and those holding the session's. More search domains
     /// may be there: a split session's dns-up puts its own and the Mac's current ones in front
     /// (`set_search_domains`, 135–155), and its dns-down takes only its own out again.
+    /// A session with no usable server has an empty `ServerAddresses` (`OpenVPNDNSSession.servers`), which an
+    /// entity without the key matches as well.
     public static func isOverride(_ entity: DNSEntity, of session: OpenVPNDNSSession) -> Bool {
-        guard !session.servers.isEmpty, entity["SearchOrder"] == .integer(scriptSearchOrder),
-            entity["ServerAddresses"]?.strings == session.servers,
-            Set(entity.keys).isSubset(of: ["ServerAddresses", "SearchDomains", "SearchOrder"])
+        guard entity["SearchOrder"] == .integer(scriptSearchOrder),
+            Set(entity.keys).isSubset(of: ["ServerAddresses", "SearchDomains", "SearchOrder"]),
+            let servers = stringList(entity["ServerAddresses"]), servers == session.servers,
+            let domains = stringList(entity["SearchDomains"])
         else { return false }
-        var domains: [String] = []
-        if let value = entity["SearchDomains"] {
-            guard let list = value.strings else { return false }
-            domains = list
-        }
         return Set(session.searchDomains).isSubset(of: domains)
     }
 
-    /// Whether `entity` has the shape of the script's full branch: `ServerAddresses` (not empty), `SearchOrder` 5000,
-    /// `SearchDomains` or not, and nothing else.
+    /// A list of strings, an absent one as empty; nil for anything else.
+    static func stringList(_ value: PlistValue?) -> [String]? {
+        guard let value else { return [] }
+        return value.strings
+    }
+
+    /// Whether `entity` has the shape of the script's full branch: `ServerAddresses` (empty too: no usable server),
+    /// `SearchOrder` 5000, `SearchDomains` or not, and nothing else.
     public static func isScriptOverride(_ entity: DNSEntity) -> Bool {
-        guard entity["SearchOrder"] == .integer(scriptSearchOrder), let servers = entity["ServerAddresses"]?.strings, !servers.isEmpty
-        else { return false }
+        guard entity["SearchOrder"] == .integer(scriptSearchOrder), entity["ServerAddresses"]?.strings != nil else { return false }
         if let domains = entity["SearchDomains"], domains.strings == nil { return false }
         return Set(entity.keys).isSubset(of: ["ServerAddresses", "SearchDomains", "SearchOrder"])
     }
@@ -318,7 +326,6 @@ public enum OpenVPNDNS {
                 ?? "its dns-up left no result, so nothing shows what it set"
             return Settlement(.done, reports: [why + "; nothing changed for it"])
         }
-        guard !session.servers.isEmpty else { return Settlement(.done) }
         guard let services = system.serviceDNS(), let backups = system.scriptBackups(), let tunnels = system.tunnelDNS() else {
             return Settlement(.failed("the system configuration cannot be read"))
         }
@@ -361,7 +368,8 @@ public enum OpenVPNDNS {
                 if held {
                     s.reports.append("\(name(of: id, system: system)) has the same DNS from a running session: left to it")
                 } else {
-                    put(id, entity, settings: session.servers)
+                    // What the note names: the servers, or without any the search domains.
+                    put(id, entity, settings: session.servers.isEmpty ? session.searchDomains : session.servers)
                 }
             }
             if backups[session.dev] != nil { removeNamed("backup") { system.removeScriptBackup(dev: session.dev) } }
@@ -443,17 +451,23 @@ public enum OpenVPNDNS {
     public struct LeftBehind: Equatable, Sendable {
         public var serviceID: String
         public var service: String
+        /// The VPN's servers; empty when its server was none the script could use (`OpenVPNDNSSession.servers`).
         public var servers: [String]
+        public var searchDomains: [String]
         /// The Mac uses it now: the service is the primary one, or the default resolver has those servers.
         /// Otherwise it matters only once that service is used again.
         public var inEffect: Bool
 
-        public init(serviceID: String, service: String, servers: [String], inEffect: Bool) {
+        public init(serviceID: String, service: String, servers: [String], searchDomains: [String] = [], inEffect: Bool) {
             self.serviceID = serviceID
             self.service = service
             self.servers = servers
+            self.searchDomains = searchDomains
             self.inEffect = inEffect
         }
+
+        /// What a note names: the servers, or without any the search domains.
+        public var settings: [String] { servers.isEmpty ? searchDomains : servers }
     }
 
     /// The services whose `Setup:` DNS has the shape the script's full branch writes (`isScriptOverride`), differs
@@ -473,7 +487,8 @@ public enum OpenVPNDNS {
             out.append(
                 LeftBehind(
                     serviceID: id, service: name(of: id, system: system), servers: all.filter(Note.isSetting),
-                    inEffect: primary == id || resolver == all))
+                    searchDomains: (entity["SearchDomains"]?.strings ?? []).filter(Note.isSetting),
+                    inEffect: primary == id || (!all.isEmpty && resolver == all)))
         }
         return out
     }
@@ -516,6 +531,9 @@ public enum OpenVPNDNS {
         static let leftEnd =
             ", set by OpenVPN's DNS script with no session running to undo it; left as it is, as nothing shows that PassTunnel set it"
 
+        /// The list of a note without settings.
+        static let none = "(none)"
+
         /// An address or a domain name as the line lists it (`HelperCore.isDNSValueScalar`'s characters).
         static func isSetting(_ s: String) -> Bool {
             !s.isEmpty && s.utf8.count <= 255 && s.unicodeScalars.allSatisfy(HelperCore.isDNSValueScalar)
@@ -523,7 +541,7 @@ public enum OpenVPNDNS {
 
         /// The line, without its line break. Not "PassTunnel: ", which the app reads as a failed start.
         public var line: String {
-            let list = settings.joined(separator: ", ")
+            let list = settings.isEmpty ? Self.none : settings.joined(separator: ", ")
             switch kind {
             case .restored:
                 return Self.prefix + Self.restoredHead + service + Self.restoredTail + list
@@ -546,7 +564,13 @@ public enum OpenVPNDNS {
                 guard r.lowerBound >= start else { return nil }
                 return (String(text[start..<r.lowerBound]), String(text[r.upperBound...]))
             }
-            func settings(_ list: String) -> [String] { list.components(separatedBy: ", ") }
+            // "(none)": the script set neither servers nor search domains (no usable server, none sent); any other
+            // list must keep at least one setting.
+            var none = false
+            func settings(_ list: String) -> [String] {
+                none = list == Self.none
+                return none ? [] : list.components(separatedBy: ", ")
+            }
             if let parts = split(rest, head: Self.restoredHead, tail: Self.restoredTail) {
                 self.init(.restored, service: parts.0, settings: settings(parts.1))
             } else if let parts = split(rest, head: Self.notRestoredHead, tail: Self.notRestoredTail),
@@ -564,7 +588,7 @@ public enum OpenVPNDNS {
             } else {
                 return nil
             }
-            if self.service.isEmpty || self.settings.isEmpty { return nil }
+            if self.service.isEmpty || (self.settings.isEmpty && !none) { return nil }
         }
 
         /// The helper's notes in a session's log: only those before the tool's first line (written at the start,

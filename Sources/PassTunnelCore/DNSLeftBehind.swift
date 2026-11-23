@@ -10,15 +10,19 @@ import PassTunnelShared
 public struct DNSLeftBehind: Codable, Equatable, Sendable {
     /// The network service ("Wi-Fi").
     public var service: String
-    /// The VPN's DNS servers still set on it.
+    /// The VPN's DNS servers still set on it; empty when the VPN's server was none the script could use, which then
+    /// still writes its settings without any server.
     public var servers: [String]
+    /// The VPN's search domains still set on it.
+    public var searchDomains: [String]
     /// The Mac uses it now: the service is the primary one, or the default resolver has those servers. Otherwise
     /// it matters only once that service is used again.
     public var inEffect: Bool
 
-    public init(service: String, servers: [String], inEffect: Bool) {
+    public init(service: String, servers: [String], searchDomains: [String] = [], inEffect: Bool) {
         self.service = service
         self.servers = servers
+        self.searchDomains = searchDomains
         self.inEffect = inEffect
     }
 
@@ -26,7 +30,7 @@ public struct DNSLeftBehind: Codable, Equatable, Sendable {
     public static func current() -> [DNSLeftBehind]? {
         #if os(macOS)
         return OpenVPNDNS.leftBehind(system: MacOpenVPNDNSSystem())?.map {
-            DNSLeftBehind(service: $0.service, servers: $0.servers, inEffect: $0.inEffect)
+            DNSLeftBehind(service: $0.service, servers: $0.servers, searchDomains: $0.searchDomains, inEffect: $0.inEffect)
         }
         #else
         return nil
@@ -38,6 +42,13 @@ public struct DNSLeftBehind: Codable, Equatable, Sendable {
     /// used again.
     public var sentence: String {
         let list = servers.joined(separator: ", ")
+        if servers.isEmpty {
+            // What happens to lookups then is up to the system: only what is there is said.
+            return String(
+                localized:
+                    "The DNS of \(service) still has settings OpenVPN’s DNS script left for a VPN that is not connected, without any DNS server. Restarting the Mac sets it back."
+            )
+        }
         if inEffect {
             return String(
                 localized:

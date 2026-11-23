@@ -425,9 +425,10 @@ connecting, without connecting and without any secret's value.
 `major.minor.patch`, such as `27.0.1` (the build number is not included); left out on Linux.
 `dns_left_behind` (macOS only): the network services whose DNS still points to a VPN's DNS servers that
 OpenVPN's DNS script set while no session of it is running to undo it, each `{"service": "Wi-Fi", "servers":
-["10.8.0.1"], "in_effect": true}`; empty when there are none, left out on Linux and when the system
+["10.8.0.1"], "search_domains": ["corp.example.com"], "in_effect": true}` (`servers` is empty when the VPN sent no
+server the script could use: it then still writes its settings, without servers); empty when there are none, left out on Linux and when the system
 configuration cannot be read. `in_effect`: the Mac uses it now (it is the primary service, or the default
-resolver has those servers), and then no name resolves; otherwise it matters only once that service is used
+resolver has those servers), and then, with servers, no name resolves; otherwise it matters only once that service is used
 again. PassTunnel gives back what its own sessions set (the helper checks after every OpenVPN session);
 these are settings nothing shows it set, so it leaves them, and restarting the Mac sets them back. Per profile: `ok` (nothing found that would stop a
 connect; the server can still refuse it), `server`, `protected`, `password_saved` / `totp_saved`

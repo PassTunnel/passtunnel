@@ -9,11 +9,14 @@ public final class OpenVPNDNSKeeper {
     public typealias Key = SessionPolicy.Key
 
     public enum Pending: Equatable, Sendable {
-        /// The check could not finish: tried again, and a start of the profile waits.
+        /// The check ran and could not finish: tried again, and a start of the profile waits.
         case failed
         /// Something waits for a tunnel that is there (`OpenVPNDNS.Settlement.Outcome.parked`): tried again; a start
         /// of the profile goes ahead and carries the record into its session directory.
         case parked
+        /// OpenVPN's script lock could not be had, so the check did not run: tried again, and like `parked` it never
+        /// holds a start up (anyone can hold or fill the lock file).
+        case lockBusy
     }
 
     public enum Start: Equatable, Sendable {
@@ -23,7 +26,8 @@ public final class OpenVPNDNSKeeper {
 
     public let runRoot: String
     let system: OpenVPNDNSSystem
-    /// OpenVPN's script lock (`ScriptLock`); nil when it could not be had in time.
+    /// OpenVPN's script lock (`ScriptLock`), waited for a short, bounded time; nil when it could not be had. Taken
+    /// at most once per event (a session's end, a start, a retry), for every session that event checks together.
     let lock: () -> ScriptLock.Held?
     /// Appends a line to the log a session directory's owner file names (the helper: `HelperCore.appendToLog`).
     let appendToLog: (_ key: Key, _ owner: HelperCore.DNSOwner, _ line: String) -> Void
@@ -46,9 +50,31 @@ public final class OpenVPNDNSKeeper {
 
     public func runDir(_ key: Key) -> String { PT.sessionDir(uid: key.uid, profileID: key.profileID, runRoot: runRoot) }
 
-    /// Why a start of a profile is refused while its last session's DNS could not be settled.
+    /// Why a start of a profile is refused while its last session's DNS check ran and could not finish.
     public static let stillRestoringMessage =
         "The DNS settings of this profile's last OpenVPN session are still being restored, so it cannot connect yet. Try again shortly; if this keeps happening, restarting the Mac clears it."
+
+    /// One event's use of the lock: asked for once, the first time a check needs it, and given back at the end.
+    final class LockRound {
+        private let take: () -> ScriptLock.Held?
+        private var asked = false
+        private var held: ScriptLock.Held?
+
+        init(_ take: @escaping () -> ScriptLock.Held?) { self.take = take }
+
+        var lock: ScriptLock.Held? {
+            if !asked {
+                asked = true
+                held = take()
+            }
+            return held
+        }
+
+        func end() {
+            held?.release()
+            held = nil
+        }
+    }
 
     // MARK: Settling
 
@@ -59,6 +85,12 @@ public final class OpenVPNDNSKeeper {
     /// read: nothing then shows what it set); false while something is (`pending`), and the records stay.
     @discardableResult
     public func settle(_ key: Key, runDir: String, live: [String], sink: ((OpenVPNDNS.Note) -> Void)? = nil) -> Bool {
+        let round = LockRound(lock)
+        defer { round.end() }
+        return settle(key, runDir: runDir, live: live, sink: sink, round: round)
+    }
+
+    func settle(_ key: Key, runDir: String, live: [String], sink: ((OpenVPNDNS.Note) -> Void)?, round: LockRound) -> Bool {
         func say(_ note: OpenVPNDNS.Note) {
             if let sink {
                 sink(note)
@@ -79,12 +111,11 @@ public final class OpenVPNDNSKeeper {
             pending[key] = nil
             return true
         }
-        guard let held = lock() else {
-            report("checking the DNS of \(key.profileID) of uid \(key.uid): OpenVPN's DNS script lock was not free; trying again")
-            pending[key] = .failed
+        guard round.lock != nil else {
+            report("checking the DNS of \(key.profileID) of uid \(key.uid): OpenVPN's DNS script lock is held; trying again")
+            pending[key] = .lockBusy
             return false
         }
-        defer { held.release() }
         let running = live.compactMap { dir -> OpenVPNDNSRecord? in
             HelperCore.dnsDownRan(runDir: dir) ? nil : (try? HelperCore.dnsRecord(runDir: dir)).flatMap { $0 }
         }
@@ -98,7 +129,8 @@ public final class OpenVPNDNSKeeper {
             for line in s.reports { report("\(key.profileID) of uid \(key.uid): \(line)") }
             switch s.outcome {
             case .done:
-                if slot == .carried { HelperCore.removeDNSSlot(runDir: runDir, slot) }
+                // Whichever slot: a record that is done is never looked at again.
+                HelperCore.removeDNSSlot(runDir: runDir, slot)
             case .parked:
                 state = state ?? .parked
             case .failed(let reason):
@@ -121,14 +153,17 @@ public final class OpenVPNDNSKeeper {
     }
 
     /// Settles again every session in `pending` whose profile is not running (`isRunning`): every 15 s, and before
-    /// every start. The notes of `holding` (the profile being started, whose log is about to be made anew) go to
-    /// `collect`; every other session's go to its own log.
+    /// every start, all under one use of the lock (one bounded wait for the whole event, never one per session).
+    /// The notes of `holding` (the profile being started, whose log is about to be made anew) go to `collect`;
+    /// every other session's go to its own log.
     public func retry(
         live: [String], isRunning: (Key) -> Bool, holding: Key? = nil, collect: @escaping (OpenVPNDNS.Note) -> Void = { _ in }
     ) {
+        let round = LockRound(lock)
+        defer { round.end() }
         for key in pending.keys.sorted(by: { ($0.uid, $0.profileID) < ($1.uid, $1.profileID) }) where !isRunning(key) {
             let dir = runDir(key)
-            if settle(key, runDir: dir, live: live, sink: key == holding ? collect : nil) {
+            if settle(key, runDir: dir, live: live, sink: key == holding ? collect : nil, round: round) {
                 HelperCore.removeEntry(dir)
                 report("settled the DNS of \(key.profileID) of uid \(key.uid)")
             }
@@ -136,22 +171,23 @@ public final class OpenVPNDNSKeeper {
     }
 
     /// Before a start of `key`'s profile: every pending session is tried again first (a dns-up of the new session
-    /// would back up whatever the primary service has). Still `failed`: refused. `parked`: the start goes ahead, and
-    /// the record is carried into the new session directory (`carry(into:)`), so what it set stays attributable.
-    /// The notes of `key`'s own last session come back to be written into the new log.
+    /// would back up whatever the primary service has). Refused only when the check of its last session ran and
+    /// failed. `parked`, or the lock not had (`lockBusy`): the start goes ahead, and the record is carried into the
+    /// new session directory (`carry(into:)`), so what it set stays attributable. The notes of `key`'s own last
+    /// session come back to be written into the new log.
     public func beforeStart(_ key: Key, live: [String], isRunning: (Key) -> Bool) -> (start: Start, notes: [OpenVPNDNS.Note]) {
         var notes: [OpenVPNDNS.Note] = []
         retry(live: live, isRunning: isRunning, holding: key) { notes.append($0) }
         switch pending[key] {
         case .failed?:
             return (.refuse(Self.stillRestoringMessage), notes)
-        case .parked?:
+        case .parked?, .lockBusy?:
             let dir = runDir(key)
             let own = (try? HelperCore.dnsRecordTexts(runDir: dir, slot: .current)) ?? nil
             let older = (try? HelperCore.dnsRecordTexts(runDir: dir, slot: .carried)) ?? nil
             if let texts = own ?? older { carrying[key] = texts }
             if own != nil && older != nil {
-                report("starting \(key.profileID) of uid \(key.uid): of two parked records only the newer one is carried")
+                report("starting \(key.profileID) of uid \(key.uid): of two pending records only the newer one is carried")
             }
             pending[key] = nil
             return (.proceed, notes)
@@ -203,8 +239,10 @@ public final class OpenVPNDNSKeeper {
     /// Session directories with a record whose tool is gone, found when the helper starts (`adoptOrphans`), settled
     /// once every running session is adopted (`live`), so that what one of those set is never taken for theirs.
     public func settleOrphans(_ dirs: [(key: Key, path: String)], live: [String]) {
+        let round = LockRound(lock)
+        defer { round.end() }
         for (key, dir) in dirs {
-            Self.cleanUp(runDir: dir, settled: settle(key, runDir: dir, live: live), networkRestored: true)
+            Self.cleanUp(runDir: dir, settled: settle(key, runDir: dir, live: live, sink: nil, round: round), networkRestored: true)
         }
     }
 
@@ -221,9 +259,9 @@ public final class OpenVPNDNSKeeper {
             })
         return found.filter { !claimed.contains($0.serviceID) }.map { item in
             report(
-                "before \(key.profileID) of uid \(key.uid): \(item.service) still uses \(item.servers.joined(separator: " ")), set by OpenVPN's DNS script with no session to undo it; left as it is"
+                "before \(key.profileID) of uid \(key.uid): \(item.service) still uses \(item.settings.joined(separator: " ")), set by OpenVPN's DNS script with no session to undo it; left as it is"
             )
-            return OpenVPNDNS.Note(.leftBehind, service: item.service, settings: item.servers)
+            return OpenVPNDNS.Note(.leftBehind, service: item.service, settings: item.settings)
         }
     }
 }

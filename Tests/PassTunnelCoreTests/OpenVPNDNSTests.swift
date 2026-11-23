@@ -139,6 +139,50 @@ final class OpenVPNDNSTests: XCTestCase {
         XCTAssertNil(OpenVPNDNSSession(variables: ["dev": "utun7/x", "dns_server_1_address_1": "10.8.0.1"]), "no key is built from that")
     }
 
+    /// No server the script can use: `find_compat_profile`'s `exit 1` ends only the `$(…)` it runs in, and the script
+    /// writes its override without any server, with the search domains and `SearchOrder` 5000, and exits 0. That is
+    /// recognised, given back and reported like any other.
+    func testNoUsableServerStillWritesAnOverride() throws {
+        let session = try XCTUnwrap(
+            OpenVPNDNSSession(variables: [
+                "dev": "utun7", "dns_server_1_address_1": "192.0.2.53", "dns_server_1_transport": "DoT",
+                "dns_server_1_resolve_domain_1": "corp.example.com", "dns_search_domain_1": "corp.example.com"
+            ]))
+        XCTAssertEqual(session, OpenVPNDNSSession(dev: "utun7", servers: [], searchDomains: ["corp.example.com"]), "no resolve domains: full branch")
+        XCTAssertEqual(
+            session.overrideEntity,
+            ["ServerAddresses": .array([]), "SearchDomains": Self.strings(["corp.example.com"]), "SearchOrder": .integer(5000)])
+
+        system.services[Self.wifi] = session.overrideEntity
+        system.primary = Self.wifi
+        let left = try XCTUnwrap(OpenVPNDNS.leftBehind(system: system)?.first)
+        XCTAssertEqual(left.servers, [])
+        XCTAssertEqual(left.searchDomains, ["corp.example.com"])
+        XCTAssertEqual(left.settings, ["corp.example.com"])
+        XCTAssertTrue(left.inEffect)
+
+        let s = settle(OpenVPNDNSRecord(session: session, status: 0, service: Self.wifi))
+        XCTAssertEqual(s.restored, [OpenVPNDNS.Restored(serviceID: Self.wifi, service: "Wi-Fi", settings: ["corp.example.com"])])
+        XCTAssertNil(system.services[Self.wifi])
+
+        // Without search domains either: the note says so.
+        let bare = OpenVPNDNSSession(dev: "utun7", servers: [])
+        system.services[Self.wifi] = ["ServerAddresses": .array([]), "SearchDomains": .array([]), "SearchOrder": .integer(5000)]
+        XCTAssertEqual(settle(OpenVPNDNSRecord(session: bare, status: 0, service: Self.wifi)).restored.map(\.settings), [[]])
+        let note = OpenVPNDNS.Note(.restored, service: "Wi-Fi", settings: [])
+        XCTAssertEqual(note.line, "PassTunnel helper: restored the DNS of “Wi-Fi”, which still used the VPN's (none)")
+        XCTAssertEqual(OpenVPNDNS.Note(line: note.line), note)
+    }
+
+    /// What the script leaves at a normal end on a service without DNS of its own: `scutil` starts with an empty
+    /// dictionary, so the backup is `{}` and the dns-down writes `{}` back. That is no DNS, as the preferences hold:
+    /// nothing to do.
+    func testAnEmptyDictionaryIsNoDNS() {
+        system.services[Self.wifi] = [:]
+        XCTAssertEqual(settle(), OpenVPNDNS.Settlement(.done))
+        XCTAssertEqual(system.writes, [])
+    }
+
     /// The script's own repeat test: an unquoted `=~`, so a `.` matches any character, a space too.
     func testDomainListsAsTheScriptBuildsThem() {
         XCTAssertEqual(OpenVPNDNSSession.scriptList(["a.example", "a.example", "b.example"]), ["a.example", "b.example"])
@@ -407,7 +451,10 @@ final class OpenVPNDNSTests: XCTestCase {
         system.primary = Self.ethernet
         XCTAssertEqual(
             OpenVPNDNS.leftBehind(system: system),
-            [OpenVPNDNS.LeftBehind(serviceID: Self.wifi, service: "Wi-Fi", servers: ["10.8.0.1"], inEffect: false)])
+            [
+                OpenVPNDNS.LeftBehind(
+                    serviceID: Self.wifi, service: "Wi-Fi", servers: ["10.8.0.1"], searchDomains: ["corp.example.com"], inEffect: false)
+            ])
         system.resolver = ["10.8.0.1"]
         XCTAssertEqual(OpenVPNDNS.leftBehind(system: system)?.first?.inEffect, true)
         system.resolver = nil
@@ -433,7 +480,8 @@ final class OpenVPNDNSTests: XCTestCase {
         XCTAssertTrue(OpenVPNDNS.isScriptOverride(["ServerAddresses": Self.strings(["10.8.0.1"]), "SearchOrder": .integer(5000)]))
         XCTAssertTrue(Self.session.overrideEntity.keys.count == 3 && OpenVPNDNS.isScriptOverride(Self.session.overrideEntity))
         XCTAssertFalse(OpenVPNDNS.isScriptOverride(["ServerAddresses": Self.strings(["10.8.0.1"])]))
-        XCTAssertFalse(OpenVPNDNS.isScriptOverride(["ServerAddresses": .array([]), "SearchOrder": .integer(5000)]))
+        XCTAssertTrue(OpenVPNDNS.isScriptOverride(["ServerAddresses": .array([]), "SearchOrder": .integer(5000)]), "no usable server")
+        XCTAssertFalse(OpenVPNDNS.isScriptOverride(["SearchOrder": .integer(5000)]))
         XCTAssertFalse(
             OpenVPNDNS.isScriptOverride(["ServerAddresses": Self.strings(["10.8.0.1"]), "SearchOrder": .integer(5000), "DomainName": .string("x")]))
         XCTAssertFalse(OpenVPNDNS.isScriptOverride(["ServerAddresses": Self.strings(["10.8.0.1"]), "SearchOrder": .integer(1)]))

@@ -10,6 +10,7 @@ final class OpenVPNDNSKeeperTests: XCTestCase {
     var system: FakeDNSSystem!
     var keeper: OpenVPNDNSKeeper!
     var lockFree = true
+    var lockCalls = 0
     var appended: [(key: OpenVPNDNSKeeper.Key, owner: HelperCore.DNSOwner, line: String)] = []
     var reports: [String] = []
 
@@ -33,7 +34,11 @@ final class OpenVPNDNSKeeperTests: XCTestCase {
         appended = []
         reports = []
         keeper = OpenVPNDNSKeeper(
-            runRoot: root.path, system: system, lock: { [unowned self] in self.lockFree ? ScriptLock.Held(path: nil) : nil },
+            runRoot: root.path, system: system,
+            lock: { [unowned self] in
+                self.lockCalls += 1
+                return self.lockFree ? ScriptLock.Held(path: nil) : nil
+            },
             appendToLog: { [unowned self] key, owner, line in self.appended.append((key, owner, line)) },
             report: { [unowned self] in self.reports.append($0) })
     }
@@ -61,29 +66,92 @@ final class OpenVPNDNSKeeperTests: XCTestCase {
 
     // MARK: Start
 
-    /// While a check fails, a start of that profile is refused, saying what to do; once it succeeds, the start goes
-    /// ahead, and the note of its last session comes back for the new log.
+    /// While a check that ran fails, a start of that profile is refused, saying what to do; once it succeeds, the
+    /// start goes ahead, and the note of its last session comes back for the new log.
     func testAStartWaitsWhileTheCheckFails() throws {
         let dir = try session(alice, record: Self.recordA, service: Self.wifi)
         system.services[Self.wifi] = Self.sessionA.overrideEntity
-        lockFree = false
+        system.refusedWrites = 2
         XCTAssertFalse(keeper.settle(alice, runDir: dir, live: []))
         XCTAssertEqual(keeper.pending[alice], .failed)
-        XCTAssertTrue(reports.contains { $0.contains("lock was not free") })
 
         let refused = keeper.beforeStart(alice, live: [], isRunning: { _ in false })
         XCTAssertEqual(refused.start, .refuse(OpenVPNDNSKeeper.stillRestoringMessage))
         XCTAssertTrue(OpenVPNDNSKeeper.stillRestoringMessage.contains("DNS settings of this profile's last OpenVPN session"))
         XCTAssertTrue(OpenVPNDNSKeeper.stillRestoringMessage.contains("restarting the Mac clears it"))
-        XCTAssertEqual(system.writes, [])
 
-        lockFree = true
         let (start, notes) = keeper.beforeStart(alice, live: [], isRunning: { _ in false })
         XCTAssertEqual(start, .proceed)
         XCTAssertEqual(notes, [OpenVPNDNS.Note(.restored, service: "Wi-Fi", settings: ["10.8.0.1"])])
-        XCTAssertTrue(appended.isEmpty, "its own note goes into its new log, not the old one")
+        XCTAssertTrue(appended.allSatisfy { !$0.line.contains("restored the DNS") }, "its own note goes into its new log, not the old one")
         XCTAssertNil(keeper.pending[alice])
         XCTAssertFalse(FileManager.default.fileExists(atPath: dir))
+    }
+
+    /// A lock that cannot be had (anyone can hold or fill the lock file) is no failed check: the session stays
+    /// pending (`lockBusy`), a start is never refused for it, and the record is carried into the new session.
+    func testABusyLockNeverRefusesAStart() throws {
+        let dir = try session(alice, record: Self.recordA, service: Self.wifi)
+        system.services[Self.wifi] = Self.sessionA.overrideEntity
+        system.refusedWrites = 1
+        XCTAssertFalse(keeper.settle(alice, runDir: dir, live: []))
+        XCTAssertEqual(keeper.pending[alice], .failed)
+        lockFree = false
+        let (start, _) = keeper.beforeStart(alice, live: [], isRunning: { _ in false })
+        XCTAssertEqual(start, .proceed, "not even over a check that failed before: this one did not run")
+        XCTAssertEqual(system.writes.count, 1, "nothing written without the lock")
+        XCTAssertTrue(reports.contains { $0.contains("lock is held") })
+
+        // The start makes the directory anew; the record goes with it, and the session's end settles it.
+        try FileManager.default.removeItem(atPath: dir)
+        let new = try session(alice, record: Self.recordB, service: nil, status: 1)
+        keeper.carry(into: new, key: alice)
+        lockFree = true
+        XCTAssertTrue(keeper.settle(alice, runDir: new, live: []))
+        XCTAssertNil(system.services[Self.wifi])
+    }
+
+    /// One event asks for the lock once, for all the sessions it checks, never once per session; an event with
+    /// nothing to check does not ask.
+    func testTheLockIsAskedForOncePerEvent() throws {
+        for (i, key) in [alice, bob, OpenVPNDNSKeeper.Key(uid: 503, profileID: "home")].enumerated() {
+            try session(key, record: "dev=utun\(i + 1)\ndns_server_1_address_1=10.8.0.\(i + 1)\n", service: Self.wifi)
+            lockFree = false
+            keeper.settle(key, runDir: keeper.runDir(key), live: [])
+        }
+        XCTAssertEqual(keeper.pending.count, 3)
+        lockCalls = 0
+        keeper.retry(live: [], isRunning: { _ in false })
+        XCTAssertEqual(lockCalls, 1)
+        XCTAssertEqual(Set(keeper.pending.values), [.lockBusy])
+        lockCalls = 0
+        _ = keeper.beforeStart(alice, live: [], isRunning: { _ in false })
+        XCTAssertEqual(lockCalls, 1)
+        lockFree = true
+        keeper.retry(live: [], isRunning: { _ in false })
+        XCTAssertEqual(keeper.pending.count, 0)
+        lockCalls = 0
+        keeper.retry(live: [], isRunning: { _ in false })
+        let nobody = OpenVPNDNSKeeper.Key(uid: 504, profileID: "none")
+        XCTAssertTrue(keeper.settle(nobody, runDir: keeper.runDir(nobody), live: []))
+        XCTAssertEqual(lockCalls, 0, "nothing to check")
+    }
+
+    /// A record that is done goes, whichever slot it is in: the session's own one is not checked again while a
+    /// carried one waits.
+    func testADoneRecordGoesWhicheverSlot() throws {
+        let dir = try session(alice, record: Self.recordA, service: Self.wifi)
+        try HelperCore.writeCarriedDNSRecord(runDir: dir, record: Self.recordB, result: "status=0\nservice=\(Self.ethernet)\n")
+        system.services[Self.wifi] = Self.sessionA.overrideEntity
+        system.interfaces = ["utun9"]
+        system.backups["utun9"] = Self.sessionB.overrideEntity
+        XCTAssertFalse(keeper.settle(alice, runDir: dir, live: []))
+        XCTAssertEqual(keeper.pending[alice], .parked)
+        XCTAssertNil(try HelperCore.dnsRecord(runDir: dir, slot: .current), "done: gone")
+        XCTAssertNotNil(try HelperCore.dnsRecord(runDir: dir, slot: .carried), "parked: kept")
+        let writes = system.writes
+        keeper.retry(live: [], isRunning: { _ in false })
+        XCTAssertEqual(system.writes, writes)
     }
 
     /// A start retries everyone's pending sessions; each one's notes go into its own log only.
