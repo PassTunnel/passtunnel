@@ -354,7 +354,8 @@ public final class AutomationService {
             server: ProfileDestination.of(p, store: store).host, protected: ProfileSummary.isProtected(p),
             passwordSaved: passwordSaved, totpSaved: totpSaved, asksFor: p.needs.map(\.rawValue),
             problems: problems.map(ErrorReport.init), clock: manager.lastClock(p.id),
-            experimental: p.type.isExperimental ? true : nil)
+            experimental: p.type.isExperimental ? true : nil,
+            lastKnownAddress: LastKnownAddress.read(p, destination: ProfileDestination.of(p, store: store), store: store))
     }
 }
 

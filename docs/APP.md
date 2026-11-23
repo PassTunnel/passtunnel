@@ -55,6 +55,16 @@ One binary, two modes:
      the log decides (`VPNLog.verdict`): a name that did not resolve is `PTError.hostNotFound`, a server
      that never answered (refused, timed out, no route, no TLS answer; or nothing at all in time after the
      tool tried) `PTError.serverUnreachable` with the tool's reason, else `connectFailed` / `connectTimeout`.
+     Cisco AnyConnect, and Palo Alto GlobalProtect with `skip_portal`: a name that did not resolve before anything was
+     sent is tried once more at the address it had at the last connection by it (`LastKnownAddress`,
+     docs/ARCHITECTURE.md, "Last known server address"; the certificate is still checked against the name); when that
+     fails too with nothing sent, the failure stays `host_not_found` (`PTError.knownAddressFailed`) and says which
+     address, confirmed when, was tried and what happened there. Only that try may read a timeout as no answer (the
+     run killed, its whole output read: nothing sent, no TLS session), and then its code goes back; a timeout by the
+     name stays a timeout with its code spent. A name not found after the sign-in went out is
+     `hostNotFoundAfterSignIn`, shown with its own message (sign-in sent, code used up, the name), never a rejection,
+     never retried.
+     FortiGate and OpenVPN have no such fallback.
   5. any failure is kept typed in `failures[id]` (`ConnectionFailure`: kind, the server's reply, the tool's
      reason, whether the sign-in reached the server — the TLS session came up — and whether a code went
      with it and with how many seconds left, tries); a cancelled attempt too, though it sets no
@@ -130,7 +140,10 @@ One binary, two modes:
   (OpenVPN `PUSH_REPLY` or a management state past AUTH, openfortivpn "Authenticated."; at the latest
   when connected), `connected` (address), or its failure: `rejected` (the server's `AUTH_FAILED…` reply),
   `unreachable` (tries, reason) or `failed` (the `ConnectionFailure` kind, reason, whether the sign-in was
-  sent; nothing for a cancel, which `disconnect` records). A session it
+  sent; nothing for a cancel, which `disconnect` records). A try at the server's last known address after its name failed
+  records `trying_last_known_address` (host, server address, confirmed when) before that try's events; its `connected`
+  then has `via_server_address`, and its failure is `last_known_address_failed` (the `KnownAddressTry`) instead of
+  `failed`. A session it
   only follows records nothing (its owner does). Drops record `link_dropped` (whether it reconnects),
   automatic attempts `reconnecting` (attempt of total) and, after a failed one, `next_try`;
   `disconnect` records `disconnected_by_user` when the session was up (for a session this process has
@@ -359,8 +372,12 @@ The main window (`MainSplitView`, decision D-23) is a `NavigationSplitView`, abo
   type picker); the menu bar shows none. Every failure card of the type ends with "Palo Alto GlobalProtect support is
   experimental" and the same link (`ExperimentalReportRow`). A connected profile whose gateway asked for a host
   information report shows the notice under the status line (`StatusNoticeRow`, `ConnectionManager.notices`, read
-  again only when the log changes): "The gateway asked for a host information report, which PassTunnel does not
-  send. Access may be limited." Failures:
+  again only when the log or the activity changes): "The gateway asked for a host information report, which PassTunnel
+  does not send. Access may be limited." A Cisco AnyConnect or Palo Alto GlobalProtect connection made at the server's
+  last known address shows "The server’s name could not be found when connecting, so its last known address was used.
+  This network’s DNS may not be working." the same way; a failed try there shows, on the `host_not_found` card, which
+  address, confirmed when, was tried and what happened (`KnownAddressTry.addressSentences`; the status line says that
+  the name was not found). Failures:
   - **Choose a gateway** (`GatewayChoiceCard`, `DisplayStatus.Failure.gatewayRequired`): the portal lists more than
     one gateway and the profile names none (or one it does not list). The portal's labels as Core read them
     (`GatewayChoice`: printable ASCII, 1–64 bytes, at most 32, only those `gateway` takes) under **Choose Gateway**,
@@ -828,8 +845,8 @@ passtunnel secret ID password|totp           reads from TTY (no echo) or stdin; 
 passtunnel secret-store [STORE]              Linux only: the secret store in use; STORE sets it (below)
 passtunnel default ID / pin ID / unpin ID
 passtunnel log ID [-f] [-n N] [--activity]   --activity: the activity log, worded (no code digits)
-passtunnel diagnose [--check-clock]          installation, helper, VPN tools, each profile's problems and last clock
-                                             measurement; --check-clock also asks the time server
+passtunnel diagnose [--check-clock]          installation, helper, VPN tools, each profile's problems, last clock
+                                             measurement and last known server address; --check-clock also asks the time server
 passtunnel helper status|install|uninstall
 passtunnel mcp [--allow-connect]             MCP server on stdio (below)
 passtunnel completion zsh|bash|fish

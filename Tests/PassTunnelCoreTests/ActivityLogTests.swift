@@ -35,7 +35,13 @@ final class ActivityLogTests: CoreTestCase {
             .unreachable(tries: 1, reason: nil), .nextTry(at: t0.addingTimeInterval(30)),
             .rejected(reply: "AUTH_FAILED,Invalid OTP"), .rejected(reply: nil),
             .failed(kind: .hostNotFound, reason: "Name or service not known", credentialsSent: false),
-            .failed(kind: .timeout, reason: nil, credentialsSent: true), .stoppedByUser, .disconnectedByUser
+            .failed(kind: .timeout, reason: nil, credentialsSent: true), .stoppedByUser, .disconnectedByUser,
+            .tryingLastKnownAddress(host: "vpn.example.com", address: "203.0.113.5", confirmedAt: t0),
+            .connected(address: "10.8.0.6", viaLastKnownAddress: "203.0.113.5"),
+            .lastKnownAddressFailed(
+                KnownAddressTry(address: "203.0.113.5", confirmedAt: t0, outcome: .unreachable, reason: "Connection refused")),
+            .lastKnownAddressFailed(
+                KnownAddressTry(address: "203.0.113.5", confirmedAt: t0, outcome: .certificateRefused, reason: ""))
         ]
     }
 
@@ -214,12 +220,12 @@ final class ActivityLogTests: CoreTestCase {
 
     func testToneByKind() {
         let tones = Dictionary(grouping: everyKind.map { ActivityEvent(at: t0, $0) }, by: \.tone).mapValues { Set($0.map(\.name)) }
-        XCTAssertEqual(tones[.error], ["link_dropped", "unreachable", "rejected", "failed"])
+        XCTAssertEqual(tones[.error], ["link_dropped", "unreachable", "rejected", "failed", "last_known_address_failed"])
         XCTAssertEqual(tones[.wait], ["waiting_for_code"])
         XCTAssertEqual(
             tones[.neutral],
             [
-                "connecting", "sending", "auth_accepted", "connected", "reconnecting", "next_try",
+                "connecting", "sending", "trying_last_known_address", "auth_accepted", "connected", "reconnecting", "next_try",
                 "stopped_by_user", "disconnected_by_user"
             ])
     }

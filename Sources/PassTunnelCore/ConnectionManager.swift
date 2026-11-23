@@ -491,7 +491,9 @@ public final class ConnectionManager: ObservableObject {
     /// Linux. Replaced in tests, and by the `passtunnel` command's tests.
     public var systemVersion: OperatingSystemVersion? = ConnectionManager.currentMacOS
     /// Runs Cisco AnyConnect's sign-in (`AnyConnectSignIn`); a fake in tests, which never run openconnect.
-    var toolRunner: ToolRunning = SystemToolRunner()
+    /// Killed at its deadline, then its standard error read to the end, so a sign-in stopped there makes no progress
+    /// afterwards and the whole of what it did is known (`SystemToolRunner.TimeoutStop.kill`).
+    var toolRunner: ToolRunning = SystemToolRunner(timeoutStop: .kill)
     /// The openconnect the sign-in runs: the app bundle's (`AnyConnectSignIn.bundledTool`); nil outside one and
     /// on Linux, where `locateOpenConnect` finds the distribution's.
     var openConnectPath: String? = AnyConnectSignIn.bundledTool()
@@ -1053,44 +1055,60 @@ public final class ConnectionManager: ObservableObject {
 
             var otp = creds.otp
             var codeTime: Date?
-            if let secret = creds.totpSecret {
-                try await waitForFreshCode(p, secret: secret, token: token)
-                let now = clock.now()
-                codeTime = now
-                otp = TOTP.code(secret: secret, params: p.totp, at: now)
-            }
-            try checkToken(id, token)
-            setState(id, .connecting(Phase.starting))
+            var started: HelperRequest?
+            // At most twice: by the server's name, then, when that name was not found, at its last known address.
+            while started == nil {
+                otp = creds.otp
+                codeTime = nil
+                if let secret = creds.totpSecret {
+                    try await waitForFreshCode(p, secret: secret, token: token)
+                    let now = clock.now()
+                    codeTime = now
+                    otp = TOTP.code(secret: secret, params: p.totp, at: now)
+                }
+                try checkToken(id, token)
+                setState(id, .connecting(Phase.starting))
 
-            let composed = OTPComposer.compose(
-                password: creds.password ?? "", otp: otp, delivery: p.otpDelivery,
-                template: p.otpTemplate, type: p.type)
-            let request: HelperRequest
-            switch p.type {
-            case .openvpn:
-                request = .startOpenVPN(
-                    OpenVPNStart(
-                        profileID: id, profileDir: store.dir(id).path, username: creds.username,
-                        secret: creds.password == nil ? nil : composed.secret, logPath: store.logURL(id).path,
-                        configSHA256: destination.configSHA256))
-            case .forti:
-                request = .startForti(
-                    FortiStart(
-                        profileID: id, profileDir: store.dir(id).path, host: p.host, port: p.port,
-                        username: creds.username ?? "", password: composed.secret, otp: composed.separateOTP,
-                        trustedCert: p.trustedCert, setDNS: p.setDNS, setRoutes: p.setRoutes,
-                        logPath: store.logURL(id).path))
-            case .anyconnect:
-                // The user's own sign-in first; only its cookie goes to the helper.
-                request = try await signIn(
-                    p, username: creds.username ?? "", password: creds.password ?? "", composed: composed, otp: otp,
-                    codeTime: codeTime, token: token, progress: &progress)
-            case .globalprotect:
-                // The portal's and the gateway's sign-in first; only the gateway's cookie goes to the helper.
-                request = try await globalProtectSignIn(
-                    p, username: creds.username ?? "", password: creds.password ?? "", otp: otp, totpSecret: creds.totpSecret,
-                    codeTime: codeTime, token: token, progress: &progress)
+                let composed = OTPComposer.compose(
+                    password: creds.password ?? "", otp: otp, delivery: p.otpDelivery,
+                    template: p.otpTemplate, type: p.type)
+                do {
+                    switch p.type {
+                    case .openvpn:
+                        started = .startOpenVPN(
+                            OpenVPNStart(
+                                profileID: id, profileDir: store.dir(id).path, username: creds.username,
+                                secret: creds.password == nil ? nil : composed.secret, logPath: store.logURL(id).path,
+                                configSHA256: destination.configSHA256))
+                    case .forti:
+                        started = .startForti(
+                            FortiStart(
+                                profileID: id, profileDir: store.dir(id).path, host: p.host, port: p.port,
+                                username: creds.username ?? "", password: composed.secret, otp: composed.separateOTP,
+                                trustedCert: p.trustedCert, setDNS: p.setDNS, setRoutes: p.setRoutes,
+                                logPath: store.logURL(id).path))
+                    case .anyconnect:
+                        // The user's own sign-in first; only its cookie goes to the helper.
+                        started = try await signIn(
+                            p, username: creds.username ?? "", password: creds.password ?? "", composed: composed, otp: otp,
+                            codeTime: codeTime, token: token, progress: &progress)
+                    case .globalprotect:
+                        // The portal's and the gateway's sign-in first; only the gateway's cookie goes to the helper.
+                        started = try await globalProtectSignIn(
+                            p, username: creds.username ?? "", password: creds.password ?? "", otp: otp, totpSecret: creds.totpSecret,
+                            codeTime: codeTime, token: token, progress: &progress)
+                    }
+                } catch {
+                    guard actionToken[id] == token, let known = lastKnownAddress(p, after: error, destination: destination, progress: progress)
+                    else { throw error }
+                    // Stopped in another process meanwhile (`passtunnel disconnect`, the MCP server): no second try.
+                    if hasUserStoppedMarker(id) { throw PTError.connectCancelled }
+                    tryLastKnownAddress(known, of: p, progress: &progress)
+                }
             }
+            guard let request = started else { throw PTError.connectCancelled }
+            // A sign-in at the last known address that another process stopped just after it ended: no tunnel.
+            if progress.lastKnownAddress != nil, hasUserStoppedMarker(id) { throw PTError.connectCancelled }
             let response = try await helper.perform(request, timeout: timing.helperTimeout)
             guard response.ok else {
                 // config.ovpn changed after the secrets were checked against it: not sent anywhere.
@@ -1128,8 +1146,9 @@ public final class ConnectionManager: ObservableObject {
                 p, token: token, socketPath: response.mgmtSocket ?? socketPath(id),
                 pid: response.pid)
             let since = result.since ?? clock.now()
+            // Recorded before the state changes: whoever reads the notices on that change reads this session's event.
+            record(id, .connected(address: result.ip, viaLastKnownAddress: progress.lastKnownAddress?.address))
             setState(id, .connected(ip: result.ip, since: result.since ?? since))
-            record(id, .connected(address: result.ip))
             sessionActive.insert(id)
             sessionPIDs[id] = response.pid
             connectedAt[id] = since
@@ -1137,11 +1156,26 @@ public final class ConnectionManager: ObservableObject {
             keepSessionSecrets(p, stored, destination: destination)
             noteSetupProblems(p)
             ProfileNetwork.record(p, store: store, tunnelRoutes: tunnelRoutes)
+            // The date is when a connection by the name last confirmed the address: one made at the address leaves the
+            // entry as it is; one by the name keeps what it used, or forgets an entry it could not confirm.
+            if progress.lastKnownAddress == nil {
+                if let address = progress.reachedAddress {
+                    LastKnownAddress.save(address, for: p, destination: destination, store: store, at: since)
+                } else {
+                    LastKnownAddress.forget(id, store: store)
+                }
+            }
             if p.username.trimmingCharacters(in: .whitespaces).isEmpty, let u = creds.username, p.lastUsername != u {
                 // Only this field: the profile may have been edited (CLI, editor) while connecting.
                 _ = try? store.update(id) { $0.lastUsername = u }
             }
-        } catch {
+        } catch let thrown {
+            // After a try at the last known address that sent nothing: the name not found stays the failure, with what
+            // that try met. Once something was sent there (the sign-in, then the tunnel run), the failure is that.
+            var error = thrown
+            if let known = progress.lastKnownAddress, progress.credentialsSent == false {
+                error = Self.explaining(thrown, triedAt: known, server: serverAddress(of: progress.profile))
+            }
             let cancelled = actionToken[id] != token
             if !(error is NothingToFollow) { noteFailure(id, cancelled ? PTError.connectCancelled : error, progress) }
             if cancelled { throw PTError.connectCancelled }
@@ -1164,7 +1198,9 @@ public final class ConnectionManager: ObservableObject {
     /// for the profile's `otp_delivery` (`.separate`: the password, then the code; `.combined`: the composed
     /// secret). The code counts as sent once the run starts (`.last-otp`); `progress.credentialsSent` tells
     /// `noteFailure` whether it can be given back. The run's standard error, redacted, becomes the profile's log
-    /// (the helper replaces it when it starts the tunnel). `disconnect` stops a run under way.
+    /// (the helper replaces it when it starts the tunnel). `disconnect` stops a run under way. A try at the
+    /// server's last known address (`progress.lastKnownAddress`) hands openconnect that address for the
+    /// profile's host (`resolve`); everything else, the trust included, is the same.
     private func signIn(
         _ p: Profile, username: String, password: String, composed: (secret: String, separateOTP: String?), otp: String?,
         codeTime: Date?, token: Int, progress: inout AttemptProgress
@@ -1174,7 +1210,8 @@ public final class ConnectionManager: ObservableObject {
         let tool = try await openConnectTool(for: .anyconnect)
         let pin = p.serverCert.isEmpty ? "" : OpenConnectPin.normalize(p.serverCert) ?? p.serverCert
         let config = OpenConnectAuthConfig(
-            host: p.host, port: p.port, usergroup: p.usergroup, username: username, authgroup: p.authgroup, serverCert: pin)
+            host: p.host, port: p.port, usergroup: p.usergroup, username: username, authgroup: p.authgroup, serverCert: pin,
+            resolveAddress: progress.lastKnownAddress?.address)
         let texts = [composed.secret] + (composed.separateOTP.map { [$0] } ?? [])
         let answers: SecretBytes
         do {
@@ -1199,6 +1236,9 @@ public final class ConnectionManager: ObservableObject {
         signIns[id] = cancellation
         defer { if signIns[id] === cancellation { signIns[id] = nil } }
         if actionToken[id] != token { cancellation.cancel() }
+        // A try at the last known address also ends on a stop in another process, as on this manager's own.
+        let stopWatch = progress.lastKnownAddress == nil ? nil : watchForStopElsewhere(id, cancellation)
+        defer { stopWatch?.cancel() }
         let secrets = Array(Set(texts + [password] + (otp.map { [$0] } ?? [])))
         let server = serverAddress(p)
         let outcome = await withTaskCancellationHandler {
@@ -1226,6 +1266,7 @@ public final class ConnectionManager: ObservableObject {
             try checkToken(id, token)
             record(id, .authAccepted)
             setState(id, .connecting(Phase.configuring))
+            progress.reachedAddress = success.address
             let r = success.result
             return .startOpenConnect(
                 OpenConnectStart(
@@ -1268,7 +1309,8 @@ public final class ConnectionManager: ObservableObject {
     /// input holds `GlobalProtectAnswers`: the first part now, and, with a TOTP secret and without `skip_portal`, a
     /// second part with the code of a later window once the run shows the second sign-in and the first code's window
     /// has ended; that code is recorded in `.last-otp` when it was written. The time limit is the sign-in's plus the
-    /// TOTP period when a second part may wait for the next window. The rest as `signIn`.
+    /// TOTP period when a second part may wait for the next window. The rest as `signIn`; the last known address is
+    /// the portal's (or, with `skip_portal`, the gateway's) host's, and learned only when the gateway is on that host.
     private func globalProtectSignIn(
         _ p: Profile, username: String, password: String, otp: String?, totpSecret: Data?, codeTime: Date?, token: Int,
         progress: inout AttemptProgress
@@ -1281,7 +1323,7 @@ public final class ConnectionManager: ObservableObject {
         let gatewayPin = normalized(p.gatewayServerCert)
         let config = OpenConnectAuthConfig(
             protocol: .gp, host: p.host, port: p.port, username: username, serverCert: pin, skipPortal: p.skipPortal,
-            gateway: p.gateway, gatewayServerCert: gatewayPin)
+            gateway: p.gateway, gatewayServerCert: gatewayPin, resolveAddress: progress.lastKnownAddress?.address)
         let texts = GlobalProtectAnswers.lines(password: password, code: otp, delivery: p.otpDelivery, template: p.otpTemplate)
         let answers: SecretBytes
         do {
@@ -1335,6 +1377,9 @@ public final class ConnectionManager: ObservableObject {
         signIns[id] = cancellation
         defer { if signIns[id] === cancellation { signIns[id] = nil } }
         if actionToken[id] != token { cancellation.cancel() }
+        // A try at the last known address also ends on a stop in another process, as on this manager's own.
+        let stopWatch = progress.lastKnownAddress == nil ? nil : watchForStopElsewhere(id, cancellation)
+        defer { stopWatch?.cancel() }
         let secrets = Array(Set(texts + [password] + (otp.map { [$0] } ?? [])))
         let server = serverAddress(p)
         let outcome = await withTaskCancellationHandler {
@@ -1377,6 +1422,8 @@ public final class ConnectionManager: ObservableObject {
             setState(id, .connecting(Phase.configuring))
             let r = success.result
             let gateway = success.destination
+            // Only a sign-in to the profile's host alone (`skip_portal`): a portal could send it on to another name.
+            if LastKnownAddress.applies(to: p), gateway.host == LastKnownAddress.hostName(p) { progress.reachedAddress = gateway.resolveAddress }
             return .startOpenConnect(
                 OpenConnectStart(
                     protocol: .gp, profileID: id, profileDir: store.dir(id).path, logPath: store.logURL(id).path, host: gateway.host,
@@ -1781,6 +1828,77 @@ public final class ConnectionManager: ObservableObject {
         var failureDetail: ConnectionFailure.Detail?
         /// The profile as the attempt read it.
         var profile: Profile?
+        /// The address the sign-in reached the profile's host at, kept once the tunnel is up (`LastKnownAddress`).
+        var reachedAddress: String?
+        /// This try goes to the address the server's name had at the last connection by name, the name not found.
+        var lastKnownAddress: LastKnownAddress.Entry?
+    }
+
+    /// While a try at the last known address signs in: another process's stop (its user-stopped marker, which
+    /// `passtunnel disconnect` and the MCP server write) cancels the run, as this manager's own `disconnect` does, so
+    /// nothing more is sent and no tunnel follows. Checked every 0.2 s until the returned task is cancelled.
+    private func watchForStopElsewhere(_ id: String, _ cancellation: ToolCancellation) -> Task<Void, Never> {
+        Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                if self.hasUserStoppedMarker(id) { return cancellation.cancel() }
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+        }
+    }
+
+    /// The address to try after `error` (`LastKnownAddress`): only when the sign-in sent nothing and found no server by
+    /// the profile's name (`hostNotFound`), when this attempt has not tried an address yet, when the profile can use
+    /// one (`LastKnownAddress.applies`), and when one is known for its destination as it is now. nil otherwise: the
+    /// failure stands as it is (a sign-in by the name that ran into its time limit among them, as before #292).
+    private func lastKnownAddress(
+        _ p: Profile, after error: Error, destination: ProfileDestination, progress: AttemptProgress
+    ) -> LastKnownAddress.Entry? {
+        guard progress.lastKnownAddress == nil, progress.credentialsSent == false, LastKnownAddress.applies(to: p),
+            case .hostNotFound? = error as? PTError
+        else { return nil }
+        return LastKnownAddress.read(p, destination: destination, store: store, droppingStale: true)
+    }
+
+    /// The reasons of a sign-in that ended at another server or another key than the profile's
+    /// (`OpenConnectAuthResult.checkDestination`), which at a remembered address show that it is not the server's.
+    nonisolated static let wrongServerAtAddress: Set<String> = [
+        OpenConnectAuthResult.DestinationError.otherServer.description,
+        OpenConnectAuthResult.DestinationError.fingerprintMismatch.description
+    ]
+
+    /// What a try at the last known address `known` that sent nothing (the caller checks) ends a connect with, when it
+    /// failed for want of the server: it could not be reached (refused, no TLS answer, nothing before the sign-in's time
+    /// limit), a server there failed the certificate check, or a name was still needed and not found. Then
+    /// `PTError.knownAddressFailed`, which says that the name was not found and what happened at the address,
+    /// confirmed when. Anything else (the server there answered) stays as it is.
+    nonisolated static func explaining(_ error: Error, triedAt known: LastKnownAddress.Entry, server: String) -> Error {
+        func tried(_ outcome: KnownAddressTry.Outcome, _ reason: String, _ log: String) -> Error {
+            PTError.knownAddressFailed(
+                server: server, tried: KnownAddressTry(address: known.address, confirmedAt: known.confirmedAt, outcome: outcome, reason: reason),
+                log: log)
+        }
+        switch error as? PTError {
+        case let .serverUnreachable(_, reason, log)?: return tried(.unreachable, reason, log)
+        case let .serverCertificateRejected(reason, _, log)?: return tried(.certificateRefused, reason, log)
+        case let .hostNotFound(_, log)?: return tried(.nameNotFound, "", log)
+        default: return error
+        }
+    }
+
+    /// Readies the attempt's second try, at `known`: the code never reached a server, so it is given back as after
+    /// any such failure (`noteFailure`) and the try takes the code of its own time; the activity says why.
+    private func tryLastKnownAddress(_ known: LastKnownAddress.Entry, of p: Profile, progress: inout AttemptProgress) {
+        if let used = progress.usedCode, usedCode(p.id) == used.written { restoreUsedCode(p.id, used.previous) }
+        progress.usedCode = nil
+        progress.handed = nil
+        progress.credentialsSent = nil
+        progress.toolRan = false
+        progress.gateways = nil
+        progress.failureReason = nil
+        progress.failureDetail = nil
+        progress.lastKnownAddress = known
+        record(p.id, .tryingLastKnownAddress(host: known.host, address: known.address, confirmedAt: known.confirmedAt))
     }
 
     /// Keeps why the attempt failed (`failures`), records it in the activity of a session this manager
@@ -1802,8 +1920,20 @@ public final class ConnectionManager: ObservableObject {
         failures[id] = failure
         var gateway: String?
         if case PTError.gatewayCertificateRejected(let host, _, _, _) = error { gateway = host }
-        trustOffers[id] = progress.profile.flatMap { ServerTrustOffer($0, pin: failure.serverCert, gateway: gateway) }
-        failedGateways[id] = failure.serverCert == nil ? nil : gateway
+        // A server reached at the remembered address instead of by its name is never offered to be trusted. The
+        // address is forgotten only on evidence that it is not the server's any more: a server there failed the
+        // certificate check, or the sign-in there demonstrably ended at another server or key
+        // (`Self.wrongServerAtAddress`); not for an output it could not read, which says nothing about the address.
+        let viaKnownAddress = progress.lastKnownAddress != nil
+        if viaKnownAddress {
+            switch error as? PTError {
+            case .knownAddressFailed(_, let tried, _)? where tried.outcome == .certificateRefused: LastKnownAddress.forget(id, store: store)
+            case .signInUnusable(let reason)? where Self.wrongServerAtAddress.contains(reason): LastKnownAddress.forget(id, store: store)
+            default: break
+            }
+        }
+        trustOffers[id] = viaKnownAddress ? nil : progress.profile.flatMap { ServerTrustOffer($0, pin: failure.serverCert, gateway: gateway) }
+        failedGateways[id] = failure.serverCert == nil || viaKnownAddress ? nil : gateway
         if failure.detail == .gatewayRequired {
             gatewayChoices[id] = progress.profile.flatMap { GatewayChoice($0, labels: failure.gateways) }
         } else {
@@ -1814,6 +1944,7 @@ public final class ConnectionManager: ObservableObject {
             restoreUsedCode(id, used.previous)
         }
         guard progress.owned && progress.recorded else { return }
+        if let tried = failure.lastKnownAddress { return record(id, .lastKnownAddressFailed(tried)) }
         switch failure.kind {
         case .authRejected: record(id, .rejected(reply: failure.reply))
         case .unreachable: record(id, .unreachable(tries: failure.tries ?? 1, reason: failure.reason))
@@ -1847,6 +1978,9 @@ public final class ConnectionManager: ObservableObject {
         if exited, let reason = VPNLog.toolLoadFailure(log) { return .toolUnsupported(reason: reason, log: VPNLog.tail(log)) }
         return unreached(p, log: log) ?? .connectFailed(VPNLog.tail(log))
     }
+
+    /// `serverAddress` of the profile an attempt read, "" before it read one.
+    private func serverAddress(of p: Profile?) -> String { p.map { serverAddress($0) } ?? "" }
 
     /// "vpn.example.com:1194", "[2001:db8::1]:443": the server a connect goes to; "" when unknown.
     private func serverAddress(_ p: Profile) -> String {
@@ -2135,7 +2269,7 @@ public final class ConnectionManager: ObservableObject {
             .protectionUnavailable, .anyConnectRequiresMacOS, .anyConnectToolUnavailable, .globalProtectRequiresMacOS,
             .globalProtectToolUnavailable,
             .hostScanRequired, .ssoRequired, .gatewayCertificateRejected,
-            .serverCertificateRejected, .signInNeedsMoreAnswers, .signInUnusable:
+            .serverCertificateRejected, .signInNeedsMoreAnswers, .signInUnusable, .hostNotFoundAfterSignIn:
             return false
         default:
             return true

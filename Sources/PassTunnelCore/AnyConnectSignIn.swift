@@ -29,8 +29,10 @@ import Glibc
 ///   `OpenConnectAuthResult.maxOutputBytes`.
 /// - **Output:** standard output, which holds the cookie, is read only by `OpenConnectAuthResult.parse` and
 ///   overwritten after it; it is never logged. Standard error (openconnect's progress in this mode) is read
-///   whole for whether a form was submitted (`VPNLog.openConnectCredentialsSent`; when the run timed out or
-///   standard error went past what is kept, the code counts as sent), then passed through `LogRedactor`
+///   whole for whether a form was submitted (`VPNLog.openConnectCredentialsSent`; when standard error went past
+///   what is kept, the code counts as sent; when the run timed out too, except for a try at the last known address
+///   whose whole standard error, read to its end after the tool was killed, shows that nothing was sent and no TLS
+///   session came up: `VPNLog.openConnectTimeoutUnanswered`), then passed through `LogRedactor`
 ///   with the answers and the cookie as literal secrets, and only then cut to `maxLogBytes` for the log.
 ///
 /// `@unchecked Sendable`: `run` is called once, on a background queue; the runner it holds
@@ -143,6 +145,8 @@ struct AnyConnectSignIn: @unchecked Sendable {
         var result: OpenConnectAuthResult
         /// `resolve` for the tunnel run: the sign-in's `RESOLVE` for a host name, nil for an IP address.
         var resolve: String?
+        /// The address in that `RESOLVE`, which the run connected to and the tunnel run will (nil for an IP address).
+        var address: String?
         /// The redacted standard error, for the log.
         var log: String
     }
@@ -202,8 +206,13 @@ struct AnyConnectSignIn: @unchecked Sendable {
         } catch is ToolCancelled {
             return failed(PTError.connectCancelled)
         } catch let timedOut as ToolTimeout {
-            // Stopped part-way: what it did last is not known, so the code counts as sent.
             let log = Self.log(Self.redacted(timedOut.errorOutput, secrets: secrets))
+            // At the last known address only: all of standard error, read to its end after the kill, shows nothing
+            // sent and no TLS session, so nothing answered there; the code goes back.
+            if Self.unanswered(timedOut, atKnownAddress: config.resolveAddress != nil, sent: VPNLog.openConnectCredentialsSent) {
+                return failed(Self.noAnswer(timedOut, server: server, log: log), log: log, sent: false)
+            }
+            // Stopped part-way: what it did last is not known, so the code counts as sent.
             return failed(PTError.connectTimeout(timedOut.seconds), log: log, sent: true)
         } catch {
             return failed(PTError.fileError(toolPath))
@@ -238,10 +247,24 @@ struct AnyConnectSignIn: @unchecked Sendable {
         let log = Self.log(Self.redacted(output.errorOutput, secrets: secrets + cookieSecrets))
         do {
             let address = try result.checkDestination(host: config.host, port: config.port, profileServerCert: config.serverCert)
-            return .success(Success(result: result, resolve: address == nil ? nil : result.resolve, log: log))
+            return .success(Success(result: result, resolve: address == nil ? nil : result.resolve, address: address, log: log))
         } catch {
             return failed(PTError.signInUnusable(String(describing: error)), log: log, sent: true)
         }
+    }
+
+    /// Whether a run stopped at its time limit got no answer, which only a try at the last known address concludes
+    /// (`atKnownAddress`; by the name a timeout stays one, its code spent): its standard error is complete and within
+    /// what is kept, and `VPNLog.openConnectTimeoutUnanswered` holds with `sent`, the protocol's rule over it.
+    static func unanswered(_ timedOut: ToolTimeout, atKnownAddress: Bool, sent: (String) -> Bool) -> Bool {
+        guard atKnownAddress, timedOut.errorOutputComplete, timedOut.errorOutput.count < SystemToolRunner.maxOutput else { return false }
+        let text = String(decoding: timedOut.errorOutput, as: UTF8.self)
+        return VPNLog.openConnectTimeoutUnanswered(text, sent: sent(text))
+    }
+
+    /// A run stopped at its time limit that nothing answered: `serverUnreachable` with the time.
+    static func noAnswer(_ timedOut: ToolTimeout, server: String, log: String) -> PTError {
+        .serverUnreachable(server: server, reason: String(localized: "no answer within \(timedOut.seconds) seconds"), log: VPNLog.tail(log))
     }
 
     /// What standard output's `COOKIE='…'` holds, as literal secrets, without the parser's rules: the value up to

@@ -8,8 +8,8 @@ import CoreServices
 /// Watches the support directory (profiles and `config.json`) with FSEvents and calls `onChange`
 /// on the main queue, debounced, when something another process (the CLI) or this one wrote may
 /// have changed what is stored. Noise the VPN tools produce while connected (`vpn.log`, the
-/// management socket, markers, the last-used code window, the activity log, the network claims, the retries of an
-/// unreachable server, temp files of atomic writes) is ignored. The app's own writes also
+/// management socket, markers, the last-used code window, the activity log, the network claims, the server's last known
+/// address, the retries of an unreachable server, temp files of atomic writes) is ignored. The app's own writes also
 /// trigger a call; a reload that finds nothing new must therefore be cheap and harmless.
 public final class ProfilesWatcher {
     public let paths: AppPaths
@@ -115,7 +115,7 @@ public final class ProfilesWatcher {
     static let ignoredNames: Set<String> = [
         "vpn.log", "mgmt.sock", ".lock", ".DS_Store", ".user-stopped", ".last-otp",
         ".mgmt-state", "activity.jsonl", ".activity.lock", "clock.json", ProfileNetwork.fileName,
-        ".retry"
+        LastKnownAddress.fileName, ".retry"
     ]
 
     /// Whether an event can mean a changed profile, config or preference.

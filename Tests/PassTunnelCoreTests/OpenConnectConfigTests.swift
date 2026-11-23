@@ -307,7 +307,7 @@ final class OpenConnectRenderedCheckTests: XCTestCase {
         ).render()
         // `disable-ipv6` is GlobalProtect's alone (GlobalProtectConfigTests).
         XCTAssertEqual(keys(fullRoot), OpenConnectConfig.renderedKeys.filter { $0 != "disable-ipv6" })
-        XCTAssertEqual(keys(auth), OpenConnectAuthConfig.renderedKeys.filter { $0 != "servercert" && $0 != "disable-ipv6" })
+        XCTAssertEqual(keys(auth), OpenConnectAuthConfig.renderedKeys.filter { !["servercert", "disable-ipv6", "resolve"].contains($0) })
     }
 
     func testTheCheckRefusesWhatAValidatorGapWouldLetThrough() {
@@ -439,9 +439,9 @@ final class OpenConnectRenderedCheckTests: XCTestCase {
     }
 
     /// The keys of one file are refused in the other: the root run never signs in, the sign-in never
-    /// gets the cookie, the hook or the resolved address.
+    /// gets the cookie or the hook. `resolve` is in both (the sign-in's only for the last known address, #292).
     func testEachFilesKeysAreRefusedInTheOther() {
-        let shared: Set = ["protocol", "server", "servercert", "non-inter"]
+        let shared: Set = ["protocol", "server", "servercert", "resolve", "non-inter"]
         for key in OpenConnectAuthConfig.renderedKeys where !shared.contains(key) {
             for line in ["\(key)\n", "\(key) x\n"] {
                 assertRootUnsafe(root.replacingOccurrences(of: "non-inter\n", with: "non-inter\n" + line))

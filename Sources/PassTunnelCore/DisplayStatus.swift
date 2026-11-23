@@ -79,6 +79,9 @@ public enum DisplayStatus: Equatable, Sendable {
         init(_ failure: ConnectionFailure?, error: String) {
             switch failure?.kind {
             case .authRejected?: self = .signInRejected
+            // A name not found after the sign-in went out (`PTError.hostNotFoundAfterSignIn`): its own words, which say
+            // that the sign-in was sent and name the server; not the "check the address" case.
+            case .hostNotFound? where failure?.credentialsSent == true: self = .message(error)
             case .hostNotFound?: self = .hostNotFound
             case .unreachable?: self = .unreachable(retry: nil)
             case .hostScanRequired?: self = .hostScanRequired
