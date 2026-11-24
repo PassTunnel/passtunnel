@@ -1323,6 +1323,9 @@ final class CLIRunner {
             }
         }
         if let network = report.network { CLITerminal.out(String(localized: "Network: \(network.summary)")) }
+        for dns in report.dnsLeftBehind ?? [] {
+            CLITerminal.out(dns.inEffect ? CLITerminal.bold("✗") + " " + dns.sentence : "– " + CLITerminal.dim(dns.sentence))
+        }
         if let secrets = report.secretStore {
             CLITerminal.out(String(localized: "Secret store: \(secrets.name)"))
             for skipped in secrets.skipped ?? [] {
@@ -1342,6 +1345,11 @@ final class CLIRunner {
                 CLITerminal.out("    " + String(localized: "This profile asks for: \(list)."))
             }
             if let clock = check.clock { CLITerminal.out("    " + clockLine(clock)) }
+            if let known = check.lastKnownAddress {
+                CLITerminal.out(
+                    "    " + String(localized: "Last known server address: \(known.address)") + " "
+                        + CLITerminal.dim(String(localized: "(confirmed \(CLIDurations.since(known.confirmedAt)) ago)")))
+            }
         }
         if let clock = report.clock {
             CLITerminal.out(clockLine(clock))

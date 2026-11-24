@@ -356,7 +356,7 @@ final class GlobalProtectRenderedCheckTests: XCTestCase {
         .render(noExternalAuth: true)
     static let fullAuth = try! OpenConnectAuthConfig(
         protocol: .gp, host: "vpn.example.com", username: "alice", serverCert: examplePin, skipPortal: true, gateway: "US East",
-        gatewayServerCert: otherExamplePin
+        gatewayServerCert: otherExamplePin, resolveAddress: "192.0.2.10"
     ).render(noExternalAuth: true, disableIPv6: true)
 
     var root: String { Self.root }
@@ -390,8 +390,8 @@ final class GlobalProtectRenderedCheckTests: XCTestCase {
         XCTAssertEqual(
             keys(fullAuth),
             [
-                "protocol", "server", "user", "authgroup", "servercert", "servercert", "non-inter", "passwd-on-stdin", "no-external-auth",
-                "disable-ipv6"
+                "protocol", "server", "resolve", "user", "authgroup", "servercert", "servercert", "non-inter", "passwd-on-stdin",
+                "no-external-auth", "disable-ipv6"
             ])
         XCTAssertEqual(Set(keys(fullAuth) + keys(auth)), Set(OpenConnectAuthConfig.renderedKeys))
     }
@@ -489,7 +489,7 @@ final class GlobalProtectRenderedCheckTests: XCTestCase {
                 }
             }
         }
-        let shared: Set = ["protocol", "server", "servercert", "non-inter", "disable-ipv6"]
+        let shared: Set = ["protocol", "server", "servercert", "resolve", "non-inter", "disable-ipv6"]
         for key in OpenConnectAuthConfig.renderedKeys where !shared.contains(key) {
             for line in ["\(key)\n", "\(key) x\n"] { assertRootUnsafe(root.replacingOccurrences(of: "non-inter\n", with: "non-inter\n" + line)) }
         }

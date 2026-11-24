@@ -383,6 +383,15 @@ extension SecretStoreUnavailable {
             ))
     }
 
+    /// Like `noPassphrase`, before there is a file: the first secret saved sets the passphrase.
+    static var noPassphraseForNewFile: Self {
+        Self(
+            String(
+                localized:
+                    "There is no secrets file yet. Saving the first secret sets its passphrase, which cannot be asked for here: run the command in a terminal, or set PASSTUNNEL_PASSPHRASE_FILE to a file that holds it."
+            ))
+    }
+
     static func passphraseFile(_ path: String) -> Self {
         Self(
             String(

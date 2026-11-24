@@ -933,6 +933,48 @@ final class MCPServerTests: XCTestCase {
         XCTAssertEqual(tools.map { $0["name"] as? String }, ["list_profiles", "get_status", "get_logs", "diagnose", "connect", "disconnect"])
     }
 
+    /// Each read tool says when to use one of the others instead, and what a field means is in the
+    /// output schema rather than in the description: every failure kind and notice kind is explained there.
+    func testToolTextsPointToEachOtherAndTheSchemasExplainTheKinds() async throws {
+        let server = makeServer(allowConnect: true)
+        let list = try await reply(server, request(2, "tools/list"))
+        let tools = try XCTUnwrap((list["result"] as? [String: Any])?["tools"] as? [[String: Any]])
+        var descriptions: [String: String] = [:]
+        for tool in tools { descriptions[tool["name"] as? String ?? ""] = tool["description"] as? String }
+        let siblings = [
+            "list_profiles": ["get_status", "diagnose"], "get_status": ["get_logs", "diagnose"],
+            "get_logs": ["get_status", "diagnose"], "diagnose": ["get_status", "get_logs"], "connect": ["get_logs"]
+        ]
+        for (tool, others) in siblings {
+            let text = try XCTUnwrap(descriptions[tool])
+            for other in others { XCTAssertTrue(text.contains(other), "\(tool) names \(other): \(text)") }
+        }
+        let listText = try XCTUnwrap(descriptions["list_profiles"])
+        XCTAssertTrue(listText.contains("needs_newer_version=true marks a profile saved by a newer PassTunnel"), listText)
+        let status = try XCTUnwrap(descriptions["get_status"])
+        // A client without output schemas (before 2025-06-18) still learns which failures not to retry.
+        for kind in ["auth_rejected", "host_scan_required", "sso_required"] { XCTAssertTrue(status.contains(kind), kind) }
+        XCTAssertFalse(status.contains("next_try_at"), "field meanings live in the output schema")
+        XCTAssertFalse(status.contains("server_cert"), "field meanings live in the output schema")
+
+        let output = try XCTUnwrap(tools.first { $0["name"] as? String == "get_status" }?["outputSchema"] as? [String: Any])
+        let profiles = try XCTUnwrap((output["properties"] as? [String: Any])?["profiles"] as? [String: Any])
+        let profile = try XCTUnwrap((profiles["items"] as? [String: Any])?["properties"] as? [String: Any])
+        func description(_ node: Any?) -> String { (node as? [String: Any])?["description"] as? String ?? "" }
+        for field in ["ip", "since", "failure", "next_try_at", "tries", "connect_refusal", "experimental", "notices"] {
+            XCTAssertFalse(description(profile[field]).isEmpty, field)
+        }
+        let failure = try XCTUnwrap((profile["failure"] as? [String: Any])?["properties"] as? [String: Any])
+        let kinds = description(failure["kind"])
+        for kind in ConnectionFailure.Kind.allCases { XCTAssertTrue(kinds.contains("\(kind.rawValue):"), kind.rawValue) }
+        for field in ["server_cert", "gateways", "clock", "credentials_sent", "code_sent", "last_known_address"] {
+            XCTAssertFalse(description(failure[field]).isEmpty, field)
+        }
+        let notice = try XCTUnwrap(
+            ((profile["notices"] as? [String: Any])?["items"] as? [String: Any])?["properties"] as? [String: Any])
+        for kind in StatusNotice.allCases { XCTAssertTrue(description(notice["kind"]).contains("\(kind.rawValue):"), kind.rawValue) }
+    }
+
     func testStatusWithoutTheHelperDoesNotFail() async throws {
         try makeOpenVPN()
         helper.statusError = HelperClientError.notInstalled
@@ -1274,6 +1316,87 @@ final class MCPServerTests: XCTestCase {
         let stopped = try await structured(server, "disconnect", ["profile_id": "acme"])
         XCTAssertEqual(stopped["state"] as? String, "disconnected")
         XCTAssertEqual(helper.stops, ["acme"])
+    }
+
+    /// A drop get_status finds in the default, read-only mode is only shown: no record, no reconnect.
+    func testGetStatusOnlyReportsADrop() async throws {
+        try await checkDropIsOnlyReported(by: "get_status", allowConnect: false)
+    }
+
+    /// The same for list_profiles, with connect allowed; a connect asked for afterwards works as usual.
+    func testListProfilesOnlyReportsADrop() async throws {
+        try await checkDropIsOnlyReported(by: "list_profiles", allowConnect: true)
+    }
+
+    /// A profile with auto-reconnect, connected by the app, drops while this server watches it through
+    /// `tool`: it shows as disconnected, and this server neither records the drop nor schedules a
+    /// reconnect. Both would happen in the refresh itself (`handleDrop` records, then sets `reconnecting`
+    /// before it starts the attempt), so they are checked right after the call. With `allowConnect`, a
+    /// connect afterwards works as usual.
+    func checkDropIsOnlyReported(
+        by tool: String, allowConnect: Bool,
+        file: StaticString = #filePath, line: UInt = #line
+    ) async throws {
+        var p = try makeOpenVPN()
+        p.autoReconnect = true
+        try store.save(p)
+        helper.simulateExternalStart(p.id, profileDir: store.dir(p.id).path, since: t0)
+        let server = makeServer(allowConnect: allowConnect)
+        let manager = server.tools.service.manager
+        func shown() async throws -> [String: Any] {
+            let result = try await structured(server, tool, file: file, line: line)
+            let profiles = try XCTUnwrap(result["profiles"] as? [[String: Any]], file: file, line: line)
+            return try XCTUnwrap(profiles.first { $0["id"] as? String == p.id }, file: file, line: line)
+        }
+
+        let before = try await shown()
+        XCTAssertEqual(before["state"] as? String, "connected", file: file, line: line)
+        let recorded = manager.activity(p.id)
+        helper.simulateExit(p.id)
+        let dropped = try await shown()
+        XCTAssertEqual(dropped["state"] as? String, "disconnected", file: file, line: line)
+        if tool == "get_status" {
+            XCTAssertNil(dropped["failure"], "a drop is not a failed connect", file: file, line: line)
+        }
+        XCTAssertEqual(manager.activity(p.id), recorded, "no link_dropped", file: file, line: line)
+        XCTAssertNil(manager.reconnecting[p.id], file: file, line: line)
+        XCTAssertTrue(helper.starts.isEmpty, "\(helper.starts)", file: file, line: line)
+
+        guard allowConnect else { return }
+        let connected = try await structured(server, "connect", ["profile_id": p.id], file: file, line: line)
+        XCTAssertEqual(connected["state"] as? String, "connected", file: file, line: line)
+        XCTAssertEqual(helper.starts.count, 1, file: file, line: line)
+    }
+
+    /// A protected session this server started and another process (the app, a terminal) stopped: no
+    /// decrypted secret of it stays behind. Only a connect that never asks (an automatic reconnect,
+    /// which this server does not run) would read such a copy, so this one is made through the server's
+    /// manager: after the reuse window it needs a confirmation instead of going ahead.
+    func testAProtectedSessionStoppedElsewhereLeavesNoConfirmationBehind() async throws {
+        let server = makeServer(allowConnect: true)
+        let manager = server.tools.service.manager
+        let plain = try makeOpenVPN()
+        var p = plain
+        p.requireAuth = .connect
+        try await manager.vault.applyProtection(from: plain, to: p)
+        try store.save(p)
+
+        let connected = try await structured(server, "connect", ["profile_id": p.id])
+        XCTAssertEqual(connected["state"] as? String, "connected")
+        XCTAssertEqual(authenticator.calls, 1)
+        try await ConnectionManager(store: store, helper: helper, clock: clock).disconnect(p.id)
+        let status = try await structured(server, "get_status", ["profile_id": p.id])
+        XCTAssertEqual((status["profiles"] as? [[String: Any]])?.first?["state"] as? String, "disconnected")
+
+        clock.advance(Preferences().authReuseInterval + 1)
+        do {
+            try await manager.connect(p.id, interactive: false)
+            XCTFail("connected with the secrets of the stopped session")
+        } catch {
+            XCTAssertEqual(error as? PTError, .confirmationRequired)
+        }
+        XCTAssertEqual(authenticator.calls, 1)
+        XCTAssertEqual(helper.starts.count, 1)
     }
 
     /// Two connected tunnels that claim the same networks or names: the second connect goes ahead and says

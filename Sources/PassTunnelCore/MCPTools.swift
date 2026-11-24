@@ -35,7 +35,7 @@ enum MCPWording {
     static let timeout = "How long to wait for the connection (after the Touch ID confirmation)."
     static let timeServer = "Apple's time server (time.apple.com)"
     static let diagnoseTools =
-        "; also whether each VPN tool bundled with the app starts on this macOS version (run with --version; nothing is contacted)"
+        "; also whether each VPN tool bundled with the app starts on this macOS version (run with --version; nothing is contacted), and whether a VPN's DNS servers are still set on a network service with no VPN session to undo them (no name resolves then)"
     static let anyConnectPlatform =
         "Cisco AnyConnect and Palo Alto GlobalProtect need macOS 15.4 or later: on an older macOS they are refused with config_invalid before anything is asked or sent, and list_profiles shows that as connect_refusal."
     static let instructionsAnyConnect =
@@ -113,18 +113,18 @@ final class MCPTools {
         Tool(
             name: "list_profiles", title: "List VPN profiles",
             description:
-                "Lists the VPN profiles configured in PassTunnel with their current state. Use the returned id as profile_id in the other tools. A profile with connect_refusal (code and message) is of a type this system cannot connect, such as Cisco AnyConnect or Palo Alto GlobalProtect on an older macOS; connect refuses it. experimental=true marks a profile of an experimental type (Palo Alto GlobalProtect). \(MCPWording.listProtected)",
+                "Lists the VPN profiles configured in PassTunnel with their current state. Call it first: the id of each profile is the profile_id the other tools take. Use get_status instead for the tunnel address of a connected profile or why its last connect failed, and diagnose to check a profile's configuration and saved credentials. A profile with connect_refusal cannot be connected on this system, such as Cisco AnyConnect or Palo Alto GlobalProtect on an older macOS. connect would fail with that same code and message, so tell the user the message instead. needs_newer_version=true marks a profile saved by a newer PassTunnel: get_status leaves it out, and the tools that take a profile_id refuse it with config_invalid. experimental=true marks a profile of an experimental type (Palo Alto GlobalProtect). \(MCPWording.listProtected)",
             input: Schema.object([:]), output: Schema.object(["profiles": Schema.array(Schema.profileSummary)], required: ["profiles"]),
             readOnly: true),
         Tool(
             name: "get_status", title: "Get connection status",
             description:
-                "Returns the connection state of every profile (or only profile_id): disconnected, connecting or connected, the tunnel IP, since when, the last error and why it happened (failure: auth_rejected, host_not_found, unreachable, configuration, setup, timeout, cancelled, tool_unsupported (the VPN tool does not run on this macOS version), host_scan_required (a Cisco AnyConnect server requires a host scan, which PassTunnel never runs), sso_required (a Palo Alto GlobalProtect portal or gateway signs in with single sign-on, which PassTunnel does not support) or failed; for a configuration failure, server_cert (the key of the server whose certificate was not trusted) and, for GlobalProtect, gateways (the portal's gateways when the profile's gateway names none of them); the server's reply; whether the sign-in and a one-time code were sent; for a rejected sign-in, clock: how far \(MCPWording.thisMachines) clock was off, when known), when the app tries a server that did not answer again (next_try_at, tries), and whether the privileged helper that starts VPNs is installed and current. connect_refusal says why a profile cannot be connected on this system at all. experimental is true on a profile of an experimental type (Palo Alto GlobalProtect); notices lists what the user should know about a connected profile (hip_report_not_sent).",
+                "Reports the connection state of every VPN profile, or of one: disconnected, connecting or connected. Use it to answer whether a VPN is up, which tunnel address it has and since when, or why its last connect failed (failure). Use get_logs instead when failure does not explain enough and the VPN tool's own output is needed, and diagnose when the cause may be the installation, a profile's configuration or its saved credentials. Each call asks the privileged helper that starts VPNs which ones are running before it answers. The helper object says whether that helper is installed and current. PassTunnel does not retry a failure of kind auth_rejected, host_scan_required or sso_required, or a host_not_found with credentials_sent true (a name the sign-in was sent on to could not be found; a code sent with it is used up): tell the user instead of connecting again. connect_refusal means this system cannot connect the profile at all. A connected profile can have notices to pass on to the user (Palo Alto GlobalProtect: hip_report_not_sent; Cisco AnyConnect, and Palo Alto GlobalProtect with skip_portal: connected_through_last_known_address, the server's name could not be resolved and its last known address was used). A failure with last_known_address means the server's name failed and its last known address failed too: both the DNS and that address are involved.",
             input: Schema.object(["profile_id": Schema.profileID(optional: true)]), output: Schema.statusReport, readOnly: true),
         Tool(
             name: "get_logs", title: "Read VPN log",
             description:
-                "Returns the last lines of a profile's VPN log, for explaining why a connection failed. source \"raw\" (the default): the OpenVPN, openfortivpn or openconnect output of the current or last session. source \"activity\": what PassTunnel did and saw, also for sessions the app or a terminal started (connecting, waiting for a fresh code, credentials sent, sign-in accepted or rejected, connected, drops, reconnects, stopped by the user), as sentences in lines and as typed events. Anything that looks like a credential is replaced by <redacted>; passwords and one-time codes are never included.",
+                "Returns the last lines of one profile's VPN log, to explain why a connection failed or dropped. source \"raw\" (the default) is the OpenVPN, openfortivpn or openconnect output of the current or last session. source \"activity\" is what PassTunnel did and saw over that profile's recent sessions, also those the app or a terminal started (connecting, waiting for a fresh code, credentials sent, sign-in accepted or rejected, connected, drops, reconnects, stopped by the user), as sentences in lines and as typed events. Call get_status first: its failure may already say why. Use diagnose instead for problems outside one connection, such as the installation, the configuration or missing credentials. It returns at most the requested number of lines (or events), newest last; truncated is true when the log holds more. A profile that has no log yet returns no lines. Anything that looks like a credential is replaced by <redacted>; passwords and one-time codes are never included.",
             input: Schema.object(
                 [
                     "profile_id": Schema.profileID(optional: false),
@@ -140,7 +140,7 @@ final class MCPTools {
         Tool(
             name: "diagnose", title: "Diagnose PassTunnel",
             description:
-                "Checks the PassTunnel installation and every profile without connecting: app version and location, helper installed/enabled/outdated, whether \(MCPWording.theMachine) is online and over what kind of network (from the system's own view, nothing is contacted), and per profile whether the configuration, server and saved credentials are in place (never their values) and the last clock measurement (a FortiGate gateway's time, taken after it rejected a sign-in)\(MCPWording.diagnoseTools). Start here when something does not work. A clock off by \(ClockOffset.warnSeconds) s or more makes one-time codes fail.",
+                "Checks the PassTunnel installation and every profile without connecting: app version and location, helper installed/enabled/outdated, whether \(MCPWording.theMachine) is online and over what kind of network (from the system's own view, nothing is contacted), and per profile whether the configuration, server and saved credentials are in place (never their values) and the last clock measurement (a FortiGate gateway's time, taken after it rejected a sign-in)\(MCPWording.diagnoseTools). Start here when something does not work; use get_status for whether a profile is connected now and why its last connect failed, and get_logs for the VPN tool's output. A clock off by \(ClockOffset.warnSeconds) s or more can make one-time codes fail.",
             input: Schema.object([
                 "check_clock": Schema.boolean(
                     default: false,
@@ -154,7 +154,7 @@ final class MCPTools {
         Tool(
             name: "connect", title: "Connect a VPN profile",
             description:
-                "Connects a VPN profile and, by default, waits until it is connected or has failed. \(MCPWording.connectProtected) \(MCPWording.anyConnectPlatform) Profiles that ask for a user name, password or code on every connect cannot be connected this way. A failure carries a failure object (why, the server's reply, whether the sign-in was sent); a rejected sign-in is never retried, so do not retry it either. The result's warnings list connected profiles whose tunnels claim some of the same networks or DNS names (kind overlap): that traffic goes through only one of the two tunnels. The connection goes ahead; tell the user. The result's notices (Palo Alto GlobalProtect: hip_report_not_sent) are also for the user. Connecting changes \(MCPWording.theMachines) network routes; only connect when the user asked for it.",
+                "Connects one VPN profile and, by default, waits until it is connected or has failed. Connecting changes \(MCPWording.theMachines) network routes; only connect when the user asked for it. If the profile is already connected, its state is returned; with wait, an attempt already under way is followed. \(MCPWording.connectProtected) \(MCPWording.anyConnectPlatform) Starting a connection for a profile that asks for a user name, password or code on every connect fails with input_required: the user connects it in PassTunnel or in a terminal. With wait, the call fails with timeout when timeout_seconds runs out, and it tries to stop a connect it started. The error of a failed attempt includes a failure object when PassTunnel could tell why; get_logs shows the VPN tool's output. A rejected sign-in is never retried, so do not retry it either. The result's warnings list connected or connecting profiles whose tunnels claim some of the same networks or DNS names (kind overlap): that traffic goes through only one of the two tunnels. The connection goes ahead; tell the user. The result's notices (Palo Alto GlobalProtect: hip_report_not_sent; connected_through_last_known_address) are also for the user.",
             input: Schema.object(
                 [
                     "profile_id": Schema.profileID(optional: false),
@@ -168,7 +168,7 @@ final class MCPTools {
         Tool(
             name: "disconnect", title: "Disconnect a VPN profile",
             description:
-                "Disconnects a VPN profile (also stops a connect in progress). Returns the final state; disconnecting a profile that is not connected does nothing.",
+                "Disconnects one VPN profile: it asks the privileged helper to stop the profile's VPN process and cancels a connect this server has under way. Only disconnect when the user asked for it. It also marks the profile as stopped by the user, so the app makes no further tries to reach a server of that profile that did not answer. With wait, it then waits up to timeout_seconds for the profile to show as stopped and fails with timeout if it does not. Returns the profile's state.",
             input: Schema.object(
                 [
                     "profile_id": Schema.profileID(optional: false),
@@ -375,6 +375,12 @@ enum Schema {
     }
 
     static func array(_ items: [String: Any]) -> [String: Any] { ["type": "array", "items": items] }
+    /// `schema` with a `description`, for result fields whose meaning the name and type do not carry.
+    static func described(_ schema: [String: Any], _ text: String) -> [String: Any] {
+        var s = schema
+        s["description"] = text
+        return s
+    }
     static let string: [String: Any] = ["type": "string"]
     static let bool: [String: Any] = ["type": "boolean"]
     static let int: [String: Any] = ["type": "integer"]
@@ -407,8 +413,8 @@ enum Schema {
             "id": string, "name": string, "type": vpnType, "is_default": bool, "pinned": bool, "username": string,
             "password_mode": oneOf(PasswordMode.allCases.map(\.rawValue)), "otp_mode": oneOf(OTPMode.allCases.map(\.rawValue)),
             "require_auth": oneOf(AuthRequirement.allCases.map(\.rawValue)), "protected": bool, "auto_reconnect": bool,
-            "connect_at_login": bool, "state": state, "needs_newer_version": bool, "connect_refusal": errorReport,
-            "experimental": bool
+            "connect_at_login": bool, "state": state, "needs_newer_version": bool, "connect_refusal": connectRefusal,
+            "experimental": experimental
         ],
         required: [
             "id", "name", "type", "is_default", "pinned", "username", "password_mode", "otp_mode", "require_auth",
@@ -423,12 +429,42 @@ enum Schema {
         ], required: ["offset_seconds", "source", "checked_at"])
 
     /// `ConnectionFailure`: why the last connect failed.
-    static let failure = result(
-        [
-            "kind": oneOf(ConnectionFailure.Kind.allCases.map(\.rawValue)), "at": ["type": "string", "format": "date-time"],
-            "reply": string, "reason": string, "credentials_sent": bool, "code_sent": bool, "code_seconds_left": int,
-            "tries": int, "clock": clock, "server_cert": string, "gateways": array(string)
-        ], required: ["kind", "at", "credentials_sent", "code_sent"])
+    static let failure = described(
+        result(
+            [
+                "kind": described(
+                    oneOf(ConnectionFailure.Kind.allCases.map(\.rawValue)),
+                    "auth_rejected: the server refused the sign-in (never retried). host_not_found: the server's name could not be resolved (with last_known_address when its last known address was tried as well and failed too; with credentials_sent when a name the sign-in was sent on to, such as a gateway's, could not be found: not retried). unreachable: the server could not be reached (connection refused or timed out, no route, no TLS answer in time); the sign-in was not sent. configuration: the configuration, a key or the server's certificate was refused, or something the profile needs is missing. setup: setting up the tunnel's network, such as its routes or DNS, failed. timeout: the tunnel did not come up in time. cancelled: stopped before it finished. tool_unsupported: the VPN tool does not run on this macOS version. host_scan_required: a Cisco AnyConnect server requires a host scan, which PassTunnel never runs. sso_required: a Palo Alto GlobalProtect portal or gateway signs in with single sign-on, which PassTunnel does not support. failed: anything else."
+                ),
+                "at": ["type": "string", "format": "date-time"],
+                "reply": described(string, "The server's reply, with credentials redacted."),
+                "reason": described(string, "Why, in the VPN tool's or PassTunnel's words, with credentials redacted."),
+                "credentials_sent": described(bool, "Whether PassTunnel judges that the sign-in reached the server."),
+                "code_sent": described(bool, "Whether a one-time code went with a sign-in judged as sent; that code is then used up."),
+                "code_seconds_left": int, "tries": int,
+                "clock": described(clock, "After a rejected sign-in: how far \(MCPWording.thisMachines) clock was off, when known."),
+                "server_cert": described(
+                    string,
+                    "For a configuration failure over a certificate that was not trusted: the pin-sha256 of the server's key, when it could be read."
+                ),
+                "gateways": described(
+                    array(string),
+                    "For a Palo Alto GlobalProtect configuration failure: the portal's gateways, when the profile's gateway does not pick exactly one of them and their names could be read."
+                ),
+                "last_known_address": described(
+                    result(
+                        [
+                            "address": string, "confirmed_at": dateTime,
+                            "outcome": oneOf(["unreachable", "certificate_refused", "name_not_found"]), "reason": string
+                        ], required: ["address", "confirmed_at", "outcome", "reason"]),
+                    "For host_not_found: the server's name could not be resolved, so the address that name had at the last connection by it (confirmed_at) was tried too, with nothing sent there, and failed: it could not be reached (unreachable), a server there failed the certificate check (certificate_refused; the address was then forgotten), or a server name was still needed there and not found (name_not_found). Both the DNS and that address are involved; the sign-in was not sent."
+                ),
+                "dns_left_behind": described(
+                    dnsLeftBehind,
+                    "For host_not_found: the network service in use, whose DNS still points to a VPN's DNS servers, which only that VPN can reach, so no name resolves (macOS only); the likely reason, also when last_known_address says what was tried instead. Tell the user: a restart sets it back."
+                )
+            ], required: ["kind", "at", "credentials_sent", "code_sent"]),
+        "Why the last connect failed.")
 
     /// `ConnectWarning`: another connected tunnel takes over some of the same networks or DNS names.
     static let warning = result(
@@ -439,15 +475,34 @@ enum Schema {
 
     /// `NoticeReport`: something to tell the user about a connection that is up.
     static let notice = result(
-        ["kind": oneOf(StatusNotice.allCases.map(\.rawValue)), "message": string], required: ["kind", "message"])
+        [
+            "kind": described(
+                oneOf(StatusNotice.allCases.map(\.rawValue)),
+                "hip_report_not_sent: the Palo Alto GlobalProtect gateway asked for a host information report, which PassTunnel does not send, so access may be limited. connected_through_last_known_address: (Cisco AnyConnect, and Palo Alto GlobalProtect with skip_portal) the server's name could not be resolved when connecting, so the address it had at its last successful connection was used; the network's DNS may not be working."
+            ), "message": described(string, "The sentence to show the user.")
+        ], required: ["kind", "message"])
+
+    /// `connect_refusal`, the same in every result that has it.
+    static let connectRefusal = described(
+        errorReport, "Present when this system cannot connect the profile at all: the code and message connect would fail with.")
+    static let experimental = described(bool, "true for a profile of an experimental type (Palo Alto GlobalProtect).")
 
     static let profileStatus = result(
         [
-            "id": string, "name": string, "type": vpnType, "state": state, "phase": string, "ip": string,
-            "since": ["type": "string", "format": "date-time"], "duration_seconds": int, "is_default": bool, "protected": bool,
-            "auto_reconnect": bool, "health": oneOf(["reachable", "unreachable"]), "error": string, "failure": failure,
-            "warning": string, "status_unavailable": bool, "warnings": array(warning), "next_try_at": dateTime, "tries": int,
-            "connect_refusal": errorReport, "experimental": bool, "notices": array(notice)
+            "id": string, "name": string, "type": vpnType, "state": state, "phase": string,
+            "ip": described(string, "The tunnel address, while connected."),
+            "since": described(dateTime, "When the connection started, as far as PassTunnel can tell."), "duration_seconds": int, "is_default": bool,
+            "protected": bool, "auto_reconnect": bool, "health": oneOf(["reachable", "unreachable"]),
+            "error": described(string, "Why the last attempt seen by this process failed, in words."), "failure": failure,
+            "warning": string,
+            "status_unavailable": described(bool, "Connected, but the VPN's management interface did not answer: ip and since may be stale."),
+            "warnings": described(
+                array(warning),
+                "Only in the result of connect: connected or connecting profiles whose tunnels claim some of the same networks or DNS names."),
+            "next_try_at": described(dateTime, "While the app tries again to reach a server that did not answer: when the next try is scheduled."),
+            "tries": described(int, "While the app tries again to reach a server that did not answer: how many tries found it unreachable."),
+            "connect_refusal": connectRefusal, "experimental": experimental,
+            "notices": described(array(notice), "While connected: what the user should know about the connection.")
         ], required: ["id", "name", "type", "state", "is_default", "protected", "auto_reconnect"])
 
     static let helper = result(
@@ -470,12 +525,14 @@ enum Schema {
             "reason": string, "seconds": int, "username": string, "password": bool, "code": bool,
             "seconds_left": int, "format": string, "address": string, "will_reconnect": bool, "attempt": int, "of": int,
             "tries": int, "next_at": dateTime, "reply": string, "failure": oneOf(ConnectionFailure.Kind.allCases.map(\.rawValue)),
-            "credentials_sent": bool
+            "credentials_sent": bool, "server_address": string, "via_server_address": string, "confirmed_at": dateTime,
+            "outcome": oneOf(["unreachable", "certificate_refused", "name_not_found"]), "service": string, "settings": array(string)
         ], required: ["at", "event"])
 
     static let logReport = result(
         [
-            "id": string, "lines": array(string), "truncated": bool,
+            "id": string, "lines": array(string),
+            "truncated": described(bool, "The log holds more than was returned."),
             "source": oneOf(logSources), "events": array(activityEvent)
         ],
         required: ["id", "lines", "truncated"])
@@ -486,7 +543,11 @@ enum Schema {
         [
             "id": string, "name": string, "type": vpnType, "ok": bool, "server": string, "protected": bool,
             "password_saved": bool, "totp_saved": bool, "asks_for": array(oneOf(["username", "password", "otp"])),
-            "problems": array(errorReport), "clock": clock, "experimental": bool
+            "problems": array(errorReport), "clock": clock, "experimental": experimental,
+            "last_known_address": described(
+                result(["host": string, "address": string, "confirmed_at": dateTime], required: ["host", "address", "confirmed_at"]),
+                "Cisco AnyConnect, and Palo Alto GlobalProtect with skip_portal: the address the server's name had at the last connection by that name (confirmed_at), kept for when the name cannot be resolved. Read from this computer only; nothing is contacted."
+            )
         ], required: ["id", "name", "type", "ok", "server", "protected", "asks_for", "problems"])
 
     static let secretStore = result(
@@ -500,6 +561,18 @@ enum Schema {
     static let network = result(
         ["online": bool, "interface": oneOf(NetworkStatus.Interface.allCases.map(\.rawValue))],
         required: [])
+
+    /// `DNSLeftBehind`: a network service and the VPN's DNS servers still set on it.
+    static let dnsLeftBehind = result(
+        [
+            "service": string,
+            "servers": described(array(string), "Empty when the VPN sent no server its DNS script could use; it then still left its settings."),
+            "search_domains": array(string),
+            "in_effect": described(
+                bool,
+                "The Mac uses it now (the primary service, or the default resolver has those servers); otherwise only once that service is used again."
+            )
+        ], required: ["service", "servers", "in_effect"])
 
     /// `ToolCheck`: one VPN tool of the app run with `--version`.
     static let toolCheck = result(
@@ -515,6 +588,10 @@ enum Schema {
         properties["secret_store"] = secretStore
         #else
         properties["tools"] = array(toolCheck)
+        properties["dns_left_behind"] = described(
+            array(dnsLeftBehind),
+            "Network services whose DNS still points to a VPN's DNS servers that OpenVPN's DNS script set, with no VPN session running to undo it. While one is in use (in_effect), no name resolves (host_not_found). PassTunnel leaves them as they are, as nothing shows it set them; restarting the Mac sets them back."
+        )
         #endif
         return result(properties, required: ["version", "app_path", "in_applications", "helper", "profiles"])
     }()

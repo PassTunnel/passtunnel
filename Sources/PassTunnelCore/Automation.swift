@@ -106,7 +106,7 @@ public enum AutomationErrorCode: String, Codable, CaseIterable, Sendable {
             .serverCertificateRejected, .signInNeedsMoreAnswers, .signInUnusable, .ssoRequired, .gatewayCertificateRejected:
             return .connectFailed
         case .serverUnreachable: return .serverUnreachable
-        case .hostNotFound: return .hostNotFound
+        case .hostNotFound, .hostNotFoundAfterSignIn, .knownAddressFailed: return .hostNotFound
         case .authFailed: return .credentialsRejected
         case .connectTimeout: return .timeout
         case .otherVPNActive: return .otherVPNActive
@@ -479,6 +479,9 @@ public struct DiagnoseReport: Codable, Equatable {
     public var tools: [ToolCheck]?
     /// The macOS version as "major.minor.patch", such as "27.0.1"; nil on Linux.
     public var macosVersion: String?
+    /// The Mac: a VPN's DNS that OpenVPN's DNS script left on a network service with no session to undo it
+    /// (`DNSLeftBehind`), empty when there is none; nil on Linux and when it cannot be read.
+    public var dnsLeftBehind: [DNSLeftBehind]?
 }
 
 public struct ProfileCheck: Codable, Equatable {
@@ -499,6 +502,9 @@ public struct ProfileCheck: Codable, Equatable {
     public var clock: ClockOffset?
     /// `true` for a profile of an experimental type (see `ProfileSummary.experimental`); left out otherwise.
     public var experimental: Bool?
+    /// The address the server had at its last successful connection, kept for when its name cannot be resolved
+    /// (`LastKnownAddress`: Cisco AnyConnect and Palo Alto GlobalProtect), and since when; left out when none is.
+    public var lastKnownAddress: LastKnownAddress.Entry?
 }
 
 /// App identity for `version` and `diagnose`.

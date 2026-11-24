@@ -597,9 +597,11 @@ public enum VPNLog {
     /// not found: _strchrnul". Only as the log's first line: dyld writes it before the tool can write
     /// anything, and later lines can be a server's words (openfortivpn prints the gateway's prompts).
     /// Callers also need the tool to have exited (dyld aborts it): it is not a fatal marker. dlopen errors
-    /// (OpenVPN plugins) do not start with "dyld".
+    /// (OpenVPN plugins) do not start with "dyld". The helper's own lines before the tool ran ("PassTunnel
+    /// helper: …", the Mac's DNS after an earlier session) come before it and are skipped.
     public static func toolLoadFailure(_ text: String) -> String? {
-        guard let first = text.split(whereSeparator: \.isNewline).first(where: { !$0.allSatisfy(\.isWhitespace) }) else {
+        let lines = text.split(whereSeparator: \.isNewline)
+        guard let first = lines.first(where: { !$0.allSatisfy(\.isWhitespace) && !$0.hasPrefix("PassTunnel helper: ") }) else {
             return nil
         }
         var line = first.drop { $0 == " " || $0 == "\t" }

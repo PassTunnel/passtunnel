@@ -43,6 +43,12 @@ final class Supervisor {
     /// Sessions whose tool ended but whose network could not be restored yet: only their record is left, the
     /// profile cannot start over it, and `retryRestores` tries again.
     private var pendingRestores: Set<Key> = []
+    /// OpenVPN sessions' DNS once their tool has ended (`OpenVPNDNSKeeper`): settled, retried, carried over a start.
+    private let dns: OpenVPNDNSKeeper
+    /// The longest an event (a session's end, a start, a retry) waits on this queue for OpenVPN's script lock, once
+    /// for all the sessions it checks (`OpenVPNDNSKeeper.LockRound`). The script holds it for one run of a few
+    /// hundred milliseconds; when it stays taken, the checks wait for the next event (`lockBusy`), never a start.
+    static let scriptLockWait: TimeInterval = 0.5
 
     private var sessions: [SessionPolicy.Session] {
         jobs.values.map {
@@ -53,6 +59,12 @@ final class Supervisor {
     init(core: HelperCore, stager: ToolStager) {
         self.core = core
         self.stager = stager
+        let dnsLog = Logger(subsystem: PT.helperLabel, category: "dns")
+        dns = OpenVPNDNSKeeper(
+            runRoot: core.runRoot, system: MacOpenVPNDNSSystem(name: "PassTunnel helper"),
+            lock: { ScriptLock.acquire(wait: Self.scriptLockWait) },
+            appendToLog: { key, owner, line in core.appendToLog(line, owner: owner, profileID: key.profileID, uid: key.uid) },
+            report: { dnsLog.notice("\($0, privacy: .public)") })
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + Self.logCheckInterval, repeating: Self.logCheckInterval)
         timer.setEventHandler { [weak self] in self?.capLogs() }
@@ -60,7 +72,11 @@ final class Supervisor {
         logTimer = timer
         let retry = DispatchSource.makeTimerSource(queue: queue)
         retry.schedule(deadline: .now() + Self.restoreRetryInterval, repeating: Self.restoreRetryInterval)
-        retry.setEventHandler { [weak self] in self?.retryRestores() }
+        retry.setEventHandler { [weak self] in
+            guard let self else { return }
+            self.retryRestores()
+            self.dns.retry(live: self.liveRunDirs(), isRunning: { self.jobs[$0] != nil })
+        }
         retry.resume()
         restoreTimer = retry
     }
@@ -137,6 +153,12 @@ final class Supervisor {
             }
             core.removeRunDir(profileID: profileID, uid: uid)
         }
+        // What earlier OpenVPN sessions left of the Mac's DNS is put back first, before anything new runs: the
+        // script backs up whatever the primary service has at a dns-up, so a new session would take it for the
+        // Mac's own. What it says goes into the new session's log once that exists.
+        // Notes about other profiles' sessions go to their own logs; this profile's come back for its new log.
+        let (decision, dnsNotes) = dns.beforeStart(key, live: liveRunDirs(), isRunning: { self.jobs[$0] != nil })
+        if case .refuse(let message) = decision { return .failure(message) }
         // The root-owned copy of the tools and their libraries, each file checked (requirement and pins)
         // as copied; tools still running from another build's copy keep theirs.
         var staged: ToolStager.Staged?
@@ -152,15 +174,24 @@ final class Supervisor {
             plan = try prepare(stage)
         } catch {
             log.error("start \(profileID, privacy: .public) rejected: \(String(describing: error), privacy: .public)")
+            _ = dns.startFailed(key, runDir: PT.sessionDir(uid: uid, profileID: profileID, runRoot: core.runRoot))
             return .failure(error)
         }
         defer { close(plan.logFD) }
+        dns.carry(into: plan.runDir, key: key)
+        for note in dnsNotes { Self.writeNote(note, to: plan.logFD) }
+        if plan.tool == .openvpn, plan.dnsUpdownPath != nil {
+            if let logName = plan.logName {
+                try? HelperCore.writeDNSOwner(runDir: plan.runDir, HelperCore.DNSOwner(profileDir: plan.profileDir.path, logName: logName))
+            }
+            for note in dns.leftBehindNotes(before: key) { Self.writeNote(note, to: plan.logFD) }
+        }
         let requirement = PT.toolRequirement(identifier: plan.tool.signingIdentifier)
         do {
             let executable = try stage().executable(plan.tool)
-            if let dns = plan.dnsUpdownPath {
+            if let script = plan.dnsUpdownPath {
                 // The root-owned copy openvpn runs; the release's own build only (`PinnedTools`).
-                try Self.checkDNSScript(dns)
+                try Self.checkDNSScript(script)
             }
             // Requirement, then the cdhashes this helper was built with, both on the started process
             // (the staged file is root-owned; this also covers whatever posix_spawn actually opened).
@@ -203,7 +234,8 @@ final class Supervisor {
             log.info("started \(plan.tool.rawValue, privacy: .public) for \(profileID, privacy: .public), uid \(uid), pid \(pid)")
             return .success(pid: pid, mgmtSocket: plan.mgmtSocket)
         } catch {
-            core.removeRunDir(profileID: profileID, uid: uid)
+            // A record carried over this start stays (`OpenVPNDNSKeeper.startFailed`); else the directory goes.
+            if dns.startFailed(key, runDir: plan.runDir) { core.removeRunDir(profileID: profileID, uid: uid) }
             let line = "PassTunnel: \(error)\n"
             _ = line.withCString { write(plan.logFD, $0, strlen($0)) }
             log.error("start \(profileID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
@@ -321,11 +353,19 @@ final class Supervisor {
         queue.sync {
             for job in jobs.values {
                 kill(-job.pid, SIGKILL)
+                kill(job.pid, SIGKILL)
+                // Nothing is restored while the tool or its group (a dns-down of its script) may still run: then
+                // the next helper does it (`adoptOrphans`).
+                guard Self.waitUntilGone(job, timeout: 2) else {
+                    log.error("pid \(job.pid) of \(job.profileID, privacy: .public) is not gone; leaving its clean-up to the next helper")
+                    continue
+                }
                 restoreDNS(runDir: job.runDir, profileID: job.profileID, uid: job.ownerUID, outputFD: job.logFD)
                 // Left for the next helper when it fails (`adoptOrphans`).
-                if restoreNetwork(job.key, runDir: job.runDir, outputFD: job.logFD) {
-                    core.removeRunDir(profileID: job.profileID, uid: job.ownerUID)
-                }
+                let live = liveRunDirs(except: job.key)
+                let settled = dns.settle(job.key, runDir: job.runDir, live: live, sink: job.logFD.map { fd in { Self.writeNote($0, to: fd) } })
+                let restored = restoreNetwork(job.key, runDir: job.runDir, outputFD: job.logFD)
+                OpenVPNDNSKeeper.cleanUp(runDir: job.runDir, settled: settled, networkRestored: restored)
             }
         }
     }
@@ -366,9 +406,13 @@ final class Supervisor {
         jobs[job.key] = nil
         kill(-job.pid, SIGTERM)  // leftovers in the group (pppd)
         restoreDNS(runDir: job.runDir, profileID: job.profileID, uid: job.ownerUID, outputFD: job.logFD)
+        // An adopted session has no log descriptor here: its notes go to the log its owner file names.
+        let settled = dns.settle(
+            job.key, runDir: job.runDir, live: liveRunDirs(), sink: job.logFD.map { fd in { Self.writeNote($0, to: fd) } })
         let restored = restoreNetwork(job.key, runDir: job.runDir, outputFD: job.logFD)
         if let fd = job.logFD { close(fd) }
-        if restored { core.removeRunDir(profileID: job.profileID, uid: job.ownerUID) }  // config, auth file and socket
+        // The configuration, auth file and socket go; while the DNS is not back, its records stay.
+        OpenVPNDNSKeeper.cleanUp(runDir: job.runDir, settled: settled, networkRestored: restored)
         log.info("\(job.profileID, privacy: .public) of uid \(job.ownerUID) exited (pid \(job.pid), status \(status))")
         job.waiters.forEach { $0() }
     }
@@ -405,6 +449,9 @@ final class Supervisor {
             // Not "PassTunnel: ", which `VPNLog.isFatal` reads as a failed start.
             let line = "PassTunnel helper: OpenVPN did not undo its DNS settings; running dns-down\n"
             _ = line.withCString { write(output, $0, strlen($0)) }
+            // Never twice, also when this helper is killed while it runs: marked before it starts. When the check
+            // or the spawn fails, it did not run and nothing is marked (`OpenVPNDNSKeeper` settles the DNS anyway).
+            HelperCore.markDNSDownTried(runDir: runDir)
             let pid = try Spawner.spawn(
                 executable: "/bin/bash", arguments: [script], environment: environment,
                 workingDirectory: runDir, outputFD: output)
@@ -414,6 +461,36 @@ final class Supervisor {
         } catch {
             log.error("restoring DNS for \(profileID, privacy: .public) of uid \(uid) failed: \(String(describing: error), privacy: .public)")
         }
+    }
+
+    /// The session directories of the running jobs (but `key`'s): what their records say they hold.
+    private func liveRunDirs(except key: Key? = nil) -> [String] {
+        jobs.values.filter { $0.key != key }.map(\.runDir)
+    }
+
+    /// Waits until `job`'s process and its process group are gone, at most `timeout`; false when they are not.
+    private static func waitUntilGone(_ job: Job, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        var reaped = !job.isChild
+        repeat {
+            if !reaped {
+                var status: Int32 = 0
+                let r = waitpid(job.pid, &status, WNOHANG)
+                reaped = r == job.pid || (r < 0 && errno == ECHILD)
+            }
+            let processGone = reaped && (job.isChild || (kill(job.pid, 0) != 0 && errno == ESRCH))
+            if processGone && kill(-job.pid, 0) != 0 && errno == ESRCH { return true }
+            usleep(20_000)
+        } while Date() < deadline
+        return false
+    }
+
+    /// A note as one line of a session's log (none without one). Not "PassTunnel: ", which `VPNLog.isFatal`
+    /// reads as a failed start.
+    private static func writeNote(_ note: OpenVPNDNS.Note, to fd: Int32?) {
+        guard let fd else { return }
+        let line = note.line + "\n"
+        _ = line.withCString { write(fd, $0, strlen($0)) }
     }
 
     /// Waits for child `pid` at most `timeout`, then kills its process group. The exit status (128 + the
@@ -535,7 +612,14 @@ final class Supervisor {
             var st = stat()
             guard lstat(root, &st) == 0, (st.st_mode & S_IFMT) == S_IFDIR, st.st_uid == geteuid() else { return }
             var recorded = Set<pid_t>()
-            defer { stopStrandedLaunches(recorded: recorded) }
+            // Session directories with a DNS record whose tool is gone: checked once every running session is
+            // adopted, so that what one of those set is never taken for theirs.
+            var unsettled: [(key: Key, path: String)] = []
+            defer {
+                // Their notes go to the log each owner file names.
+                dns.settleOrphans(unsettled, live: liveRunDirs())
+                stopStrandedLaunches(recorded: recorded)
+            }
             for entry in Self.entries(root) {
                 let path = root + "/" + entry
                 if entry == ToolStager.toolsDirName { continue }  // staged tools (`ToolStager`)
@@ -582,6 +666,15 @@ final class Supervisor {
                         if HelperCore.isValidProfileID(id), Self.isRealDirectory(path + "/" + id),
                             !restoreNetwork(Key(uid: uid, profileID: id), runDir: path + "/" + id, outputFD: nil)
                         {
+                            continue
+                        }
+                        // OpenVPN's DNS, also of a session a previous helper could not check.
+                        if HelperCore.isValidProfileID(id), Self.isRealDirectory(path + "/" + id),
+                            HelperCore.DNSSlot.allCases.contains(where: {
+                                HelperCore.isRegularFile(path + "/" + id + "/" + $0.recordName)
+                            })
+                        {
+                            unsettled.append((Key(uid: uid, profileID: id), path + "/" + id))
                             continue
                         }
                         HelperCore.removeEntry(path + "/" + id); continue

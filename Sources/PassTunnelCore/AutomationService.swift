@@ -280,7 +280,8 @@ public final class AutomationService {
             version: appInfo.version, build: appInfo.build, appPath: appInfo.appPath,
             inApplications: appInfo.inApplications, helper: helper,
             profiles: profiles.map { check($0, globalProtectTool: globalProtectTool) }, secretStore: await Self.secretStoreReport(),
-            network: await network(), tools: await tools(appInfo), macosVersion: AppInfo.macOSVersion)
+            network: await network(), tools: await tools(appInfo), macosVersion: AppInfo.macOSVersion,
+            dnsLeftBehind: manager.leftBehindDNS())
         if checkClock {
             do { report.clock = try await manager.checkClock() } catch { report.clockError = error.localizedDescription }
         }
@@ -354,7 +355,8 @@ public final class AutomationService {
             server: ProfileDestination.of(p, store: store).host, protected: ProfileSummary.isProtected(p),
             passwordSaved: passwordSaved, totpSaved: totpSaved, asksFor: p.needs.map(\.rawValue),
             problems: problems.map(ErrorReport.init), clock: manager.lastClock(p.id),
-            experimental: p.type.isExperimental ? true : nil)
+            experimental: p.type.isExperimental ? true : nil,
+            lastKnownAddress: LastKnownAddress.read(p, destination: ProfileDestination.of(p, store: store), store: store))
     }
 }
 

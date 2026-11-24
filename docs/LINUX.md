@@ -493,7 +493,7 @@ and fakes for the system tools; the Mac's tests a Keychain service of their own)
   `PASSTUNNEL_PASSPHRASE_FILE` (a regular file of the user that group and others cannot access, final
   line breaks dropped), else from a no-echo prompt when the CLI runs on a terminal without
   `--no-input` (twice for a new file; three tries for a wrong one); otherwise the command fails at
-  once. A process derives the key once and keeps it (a failed passphrase is not tried again); the
+  once (before the first secret is saved, the error says there is no file yet). A process derives the key once and keeps it (a failed passphrase is not tried again); the
   passphrase and the decrypted items are overwritten after use, as far as Swift allows. Commands
   that touch a profile's secrets ask, including `add` and `import`, which clear what an earlier
   profile with the same id left behind. Wrong passphrase and a changed file give the same error.
@@ -543,13 +543,30 @@ and fakes for the system tools; the Mac's tests a Keychain service of their own)
     container with the checkout at `/src`, give the same bytes (it is built without debug
     information, see `build-linux.sh`). The workflow `Repeatable build` checks it on x86_64; see
     [RELEASING.md](RELEASING.md#verifying-a-release).
-  - The `Dockerfile` builds `passtunnel` in release mode on the CI's Swift image (`swift:6.4.1-noble`)
-    and runs `passtunnel mcp` on `ubuntu:24.04` as the user `mcp` (uid 10001), both images pinned by
-    digest: what MCP directories build and introspect. It starts without a profile store or a secret
-    store and answers `initialize` and `tools/list`. Inside a container it can only manage a VPN of
-    that container (none without a `passtunneld` there), never the host's. It is a development
-    build (`0.0.0-dev`). The jobs `Docker image` build it on both architectures and run an MCP
-    session with it, without a network.
+  - The `Dockerfile` builds `passtunnel` in release mode on the CI's Swift image
+    (`swift:6.4.1-noble`) and runs `passtunnel mcp` on `ubuntu:24.04` as the user `mcp` (uid 10001),
+    both images pinned by digest: for MCP directories that build and introspect a server from its
+    Dockerfile. It starts without a profile store or a secret store and answers `initialize` and
+    `tools/list`. Inside a container it can only manage a VPN of that container (none without a
+    `passtunneld` there), never the host's. It is a development build (`0.0.0-dev`). The jobs
+    `Docker image` build it on both architectures and run an MCP session with it, without a network.
+  - Glama, the directory behind the README's badge, does not build the `Dockerfile`: it generates
+    its own from a build definition kept in the server's admin page there (Admin → Dockerfile), so
+    the definition is recorded here. Base image `debian:trixie-slim`. Build steps:
+
+    ```sh
+    apt-get update && apt-get install -y --no-install-recommends binutils binutils-gold unzip libc6-dev libgcc-14-dev libstdc++-14-dev libcurl4-openssl-dev libedit2 libsqlite3-0 libxml2-dev libncurses-dev libz3-dev pkg-config tzdata zlib1g-dev && rm -rf /var/lib/apt/lists/*
+    curl -fsSL https://download.swift.org/swift-6.4.2-release/debian13/swift-6.4.2-RELEASE/swift-6.4.2-RELEASE-debian13.tar.gz | tar -xz --strip-components=1 -C /
+    scripts/swift-retry.sh swift build -c release --static-swift-stdlib --product passtunnel && install -m 0755 $(swift build -c release --static-swift-stdlib --show-bin-path)/passtunnel /usr/local/bin/passtunnel
+    ```
+
+    The command is `mcp-proxy -- passtunnel mcp`: read-only, without `--allow-connect`, so `connect`
+    and `disconnect` are not listed there. No environment variables, no placeholder parameters.
+    `unzip` and `binutils-gold` are needed on top of the usual Swift dependencies (a build without
+    `unzip` failed). The Swift version is written by hand in that definition and has to be changed
+    there when the repository moves to another Swift version. Glama builds the head of the default
+    branch (`dev`) unless a commit is pinned; a release there is cut by hand with PassTunnel's
+    version as its label ("Auto-Release" is off), after the GitHub release of that version.
 - **Phase 3:** `.deb` and `.rpm` built with nfpm, holding the binaries, `passtunnel.service` and
   `passtunnel.socket`, the polkit policy and the `passtunnel` group; a signed apt and dnf repository
   on GitHub Pages; updates through the package manager (the daemon is restarted only when no session
@@ -634,6 +651,12 @@ when asked.
   first of the candidates above, resolved and checked as a tool is). A server-sent browser sign-in form
   would make it run `xdg-open` as the user. There is no "Fetch fingerprint" on Linux; the pin comes from
   the log hint. The daemon gets only the cookie, the fingerprint and the address.
+- **Last known server address** (#292): as on the Mac (ARCHITECTURE.md, "Last known server address"): when the
+  server's name cannot be resolved, the sign-in runs once more with `resolve <host>:<address>` for the address of the
+  last connection by that name, kept in `~/.local/share/passtunnel/profiles/<id>/last-address.json`. Every openconnect
+  PassTunnel accepts (9.01 and later) reads `resolve` from its file and prints `RESOLVE`; the daemon gets that address as
+  before and changes nothing. Palo Alto GlobalProtect the same, with `skip_portal` only; FortiGate and OpenVPN have no
+  fallback on Linux either.
 - **The start** (`Supervisor`, `startOpenConnect`): after the usual start permission check and the
   session limits, a session of the profile whose network or DNS is not restored yet is restored first,
   or the start is refused ("The network settings of the last … session are not restored yet."); then the

@@ -243,6 +243,9 @@ final class ConnectionFailureTests: XCTestCase {
         XCTAssertNil(VPNLog.toolLoadFailure("INFO:   Connected to gateway.\n" + symbol), "a server's words")
         XCTAssertNotEqual(VPNLog.verdict("INFO:   Connected to gateway.\n" + symbol)?.kind, .toolUnsupported)
         XCTAssertNil(VPNLog.toolLoadFailure("PassTunnel: something\n" + symbol))
+        XCTAssertEqual(
+            VPNLog.toolLoadFailure("PassTunnel helper: restored the DNS of “Wi-Fi”, which still used the VPN's 10.8.0.1\n" + symbol),
+            "Symbol not found: _strchrnul", "the helper's lines before the tool ran")
         XCTAssertNil(VPNLog.toolLoadFailure("dyld[12]: some other note\n"))
         XCTAssertNil(VPNLog.toolLoadFailure("dyld[x]: Symbol not found: _a\n"), "not dyld's prefix")
         XCTAssertNil(VPNLog.toolLoadFailure("libdyld: Symbol not found: _a\n"))

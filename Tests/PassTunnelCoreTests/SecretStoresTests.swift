@@ -371,7 +371,12 @@ final class SecretStoreSelectionTests: SecretStoreTestCase {
             report,
             SecretStoreReport(
                 name: "file", available: false, setting: "auto", chosenBy: "environment",
-                error: SecretStoreUnavailable.noPassphrase.message))
+                error: SecretStoreUnavailable.noPassphraseForNewFile.message),
+            "no secrets file yet")
+        try Data("PTSF".utf8).write(to: AppPaths(root: root).secretsFileURL)
+        report = SecretStores.report(system: system(environment: env))
+        XCTAssertEqual(report.available, false)
+        XCTAssertEqual(report.error, SecretStoreUnavailable.noPassphrase.message, "a secrets file to unlock")
         env["PASSTUNNEL_SECRET_STORE"] = "vault"
         report = SecretStores.report(system: system(environment: env))
         XCTAssertEqual(report.name, "vault")
@@ -846,19 +851,22 @@ final class FileSecretStoreTests: SecretStoreTestCase {
     }
 
     /// No terminal and no passphrase file: a clear error at once, never a wait. Reading with no file
-    /// needs no passphrase.
+    /// needs no passphrase. The error says whether there is a file to unlock or none yet.
     func testWithoutAPassphrase() throws {
         let unattended = store(environment: ["PASSTUNNEL_PASSPHRASE_FILE": ""])
         XCTAssertNil(try unattended.read("acme/password"))
         XCTAssertNoThrow(try unattended.remove("acme/password"))
         XCTAssertThrowsError(try unattended.write("acme/password", Data("pw".utf8))) {
-            XCTAssertEqual($0 as? SecretStoreUnavailable, .noPassphrase)
+            XCTAssertEqual($0 as? SecretStoreUnavailable, .noPassphraseForNewFile)
         }
-        XCTAssertEqual(unattended.unavailability(), .noPassphrase)
+        XCTAssertEqual(unattended.unavailability(), .noPassphraseForNewFile)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
         try setPassphrase("correct horse")
         try store().write("acme/password", Data("pw".utf8))
         FileSecretStore.keys.forget()
+        XCTAssertEqual(unattended.unavailability(), .noPassphrase)
         XCTAssertThrowsError(try unattended.read("acme/password")) { XCTAssertEqual($0 as? SecretStoreUnavailable, .noPassphrase) }
+        XCTAssertThrowsError(try unattended.write("acme/totp", Data("x".utf8))) { XCTAssertEqual($0 as? SecretStoreUnavailable, .noPassphrase) }
         XCTAssertThrowsError(try unattended.remove("acme/password")) { XCTAssertEqual($0 as? SecretStoreUnavailable, .noPassphrase) }
     }
 
@@ -983,12 +991,64 @@ final class ToolRunnerTests: XCTestCase {
         XCTAssertEqual(result.status, 0)
     }
 
+    /// The gentle stop, as every runner but a sign-in's: SIGTERM, what standard error held at the deadline, no drain.
     func testTimeout() {
         let start = Date()
         XCTAssertThrowsError(try runner.run("/bin/sleep", ["30"], environment: [:], input: Data(), timeout: 0.5)) {
             XCTAssertEqual($0 as? ToolTimeout, ToolTimeout(seconds: 1))
         }
         XCTAssertLessThan(Date().timeIntervalSince(start), 5)
+    }
+
+    /// The gentle stop reads nothing after the deadline, as before #292: what the tool writes once it is asked to stop
+    /// (here its SIGTERM trap) is not in the error, and the output is not claimed complete. No wall clock: on Linux,
+    /// swift-corelibs-foundation reports the exit only once every process holding the tool's exit socket has closed
+    /// it, so how long the stop takes depends on the tool's children (also on origin/dev).
+    func testTheGentleStopDoesNotDrain() {
+        let script = "trap 'echo late >&2; exit 0' TERM; echo early >&2; while :; do sleep 0.05; done"
+        XCTAssertThrowsError(try runner.run("/bin/sh", ["-c", script], environment: [:], input: Data(), timeout: 0.5)) {
+            let timeout = $0 as? ToolTimeout
+            XCTAssertEqual(timeout.map { String(decoding: $0.errorOutput, as: UTF8.self) }, "early\n", "nothing read after the deadline")
+            XCTAssertEqual(timeout?.errorOutputComplete, false)
+        }
+    }
+
+    /// #292: a sign-in's runner kills the tool's process group at the deadline (no trap runs, a process it started
+    /// goes too), then reads standard error to its end of file.
+    func testAKillingRunnerStopsTheGroupAtOnceAndReadsToTheEnd() {
+        let killing = SystemToolRunner(timeoutStop: .kill)
+        let script = "trap 'echo late >&2; exit 0' TERM; echo early >&2; sleep 30 & exec sleep 30"
+        XCTAssertThrowsError(try killing.run("/bin/sh", ["-c", script], environment: [:], input: Data(), timeout: 0.5)) {
+            let timeout = $0 as? ToolTimeout
+            XCTAssertEqual(timeout.map { String(decoding: $0.errorOutput, as: UTF8.self) }, "early\n", "no progress after the deadline")
+            XCTAssertEqual(timeout?.errorOutputComplete, true, "the child in its group went too: end of file within the drain")
+        }
+    }
+
+    /// What reaches standard error after the deadline, before its end of file, is read too (here from a process that
+    /// left the tool's group, which the kill does not reach).
+    func testAKillingRunnerReadsWhatCameAfterTheDeadline() throws {
+        guard FileManager.default.isExecutableFile(atPath: "/usr/bin/perl") else { throw XCTSkip("no perl") }
+        let killing = SystemToolRunner(timeoutStop: .kill)
+        let script = "echo early >&2; /usr/bin/perl -e 'setpgrp(0,0); select(undef,undef,undef,0.8); print STDERR \"late\\n\"' & exec sleep 30"
+        XCTAssertThrowsError(try killing.run("/bin/sh", ["-c", script], environment: [:], input: Data(), timeout: 0.5)) {
+            let timeout = $0 as? ToolTimeout
+            XCTAssertEqual(timeout.map { String(decoding: $0.errorOutput, as: UTF8.self) }, "early\nlate\n")
+            XCTAssertEqual(timeout?.errorOutputComplete, true)
+        }
+    }
+
+    /// When standard error does not reach its end of file within the drain time (a process outside the tool's group
+    /// holds it open), the output is marked incomplete.
+    func testAnOutputThatDoesNotEndIsIncomplete() throws {
+        guard FileManager.default.isExecutableFile(atPath: "/usr/bin/perl") else { throw XCTSkip("no perl") }
+        let killing = SystemToolRunner(timeoutStop: .kill)
+        let script = "echo early >&2; /usr/bin/perl -e 'setpgrp(0,0); sleep 5' & exec sleep 30"
+        XCTAssertThrowsError(try killing.run("/bin/sh", ["-c", script], environment: [:], input: Data(), timeout: 0.5)) {
+            let timeout = $0 as? ToolTimeout
+            XCTAssertEqual(timeout.map { String(decoding: $0.errorOutput, as: UTF8.self) }, "early\n")
+            XCTAssertEqual(timeout?.errorOutputComplete, false)
+        }
     }
 
     func testMissingTool() {
