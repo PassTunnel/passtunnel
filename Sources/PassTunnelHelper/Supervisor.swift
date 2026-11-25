@@ -232,7 +232,7 @@ final class Supervisor {
             if plan.mgmtSocket != nil { restrictSocketWhenReady(job.key, pid: pid, attempt: 0) }
             if plan.tool == .openconnect { superviseOpenConnect(job.key, pid: pid, since: Date()) }
             log.info("started \(plan.tool.rawValue, privacy: .public) for \(profileID, privacy: .public), uid \(uid), pid \(pid)")
-            return .success(pid: pid, mgmtSocket: plan.mgmtSocket)
+            return .started(pid: pid, mgmtSocket: plan.mgmtSocket, remoteQuery: plan.queriesRemote)
         } catch {
             // A record carried over this start stays (`OpenVPNDNSKeeper.startFailed`); else the directory goes.
             if dns.startFailed(key, runDir: plan.runDir) { core.removeRunDir(profileID: profileID, uid: uid) }

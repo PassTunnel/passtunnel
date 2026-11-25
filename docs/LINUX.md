@@ -655,8 +655,10 @@ when asked.
   server's name cannot be resolved, the sign-in runs once more with `resolve <host>:<address>` for the address of the
   last connection by that name, kept in `~/.local/share/passtunnel/profiles/<id>/last-address.json`. Every openconnect
   PassTunnel accepts (9.01 and later) reads `resolve` from its file and prints `RESOLVE`; the daemon gets that address as
-  before and changes nothing. Palo Alto GlobalProtect the same, with `skip_portal` only; FortiGate and OpenVPN have no
-  fallback on Linux either.
+  before and changes nothing. Palo Alto GlobalProtect the same, with `skip_portal` only. OpenVPN (#298) as on the Mac:
+  `passtunneld` adds `--management-query-remote` when the start request sets `query_remote` (`HelperCore` builds the
+  command line for both) and says so in its reply (`remote_query`); the `passtunnel` command's management connections
+  answer the question. FortiGate has no fallback on Linux either.
 - **The start** (`Supervisor`, `startOpenConnect`): after the usual start permission check and the
   session limits, a session of the profile whose network or DNS is not restored yet is restored first,
   or the start is refused ("The network settings of the last … session are not restored yet."); then the

@@ -39,7 +39,7 @@ extension ConnectionManager {
     /// The notices of `id`'s connection while it is connected (`StatusNotice`); empty otherwise. Reads its log and,
     /// for the types that use a last known address, its activity.
     public func notices(_ id: String) -> [StatusNotice] {
-        guard state(id).isConnected, let p = try? store.get(id), p.type.usesOpenConnect else { return [] }
+        guard state(id).isConnected, let p = try? store.get(id), p.type.usesOpenConnect || p.type == .openvpn else { return [] }
         var notices = StatusNotice.of(p.type, log: VPNLog.read(store.logURL(id)))
         if LastKnownAddress.isSupported(p.type), ActivityEvent.lastConnection(in: activity(id))?.viaLastKnownAddress != nil {
             notices.append(.connectedThroughLastKnownAddress)

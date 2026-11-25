@@ -146,6 +146,9 @@ public struct HelperCore {
         /// The log's name in `profileDir` (OpenVPN), for what the helper says about the session's DNS once it no
         /// longer holds `logFD` (`HelperCore.DNSOwner`).
         public var logName: String? = nil
+        /// OpenVPN runs with `--management-query-remote` (`OpenVPNStart.queryRemote`); the start reply says so
+        /// (`HelperResponse.remoteQuery`).
+        public var queriesRemote = false
     }
 
     public static let configFileName = "config.ovpn"
@@ -373,13 +376,14 @@ public struct HelperCore {
                 authFile: authPath, dnsUpdown: hookPath,
                 verbosity: Self.openVPNVerbosity(sanitized),
                 tlsVersionMin: OVPNSanitizer.tlsVersionFloor(of: sanitized),
-                hasDNSUpdown: openVPNHasDNSUpdown)
+                hasDNSUpdown: openVPNHasDNSUpdown, queryRemote: s.queryRemote == true)
             let logFD = try dir.createLogFile(logName)
             var plan = LaunchPlan(
                 profileID: s.profileID, ownerUID: uid, tool: .openvpn, arguments: args,
                 runDir: runDir, sessionDir: session, logFD: logFD, dnsUpdownPath: dnsPath,
                 profileDir: dir, mgmtSocket: socketPath)
             plan.logName = logName
+            plan.queriesRemote = s.queryRemote == true
             return plan
         } catch {
             removeRunDir(profileID: s.profileID, uid: uid)
@@ -428,11 +432,16 @@ public struct HelperCore {
     /// `--tls-version-min` (`tlsVersionMin`, from `OVPNSanitizer.tlsVersionFloor(of:)`: 1.2, or the config's
     /// own 1.3) holds the TLS floor even for a spelling the sanitizer missed: OpenVPN reads the command line
     /// and the file in order and the last `tls-version-min` wins, so this one, after `--config`, does.
+    /// `queryRemote` (`OpenVPNStart.queryRemote`, #298) adds `--management-query-remote`: before each try OpenVPN
+    /// asks the management client (`>REMOTE:host,port,proto`) whether to use that server as it is (`remote
+    /// ACCEPT`) or another address for it (`remote MOD`), and waits for the answer. Nothing else changes: the
+    /// certificate checks are the config's, which never involve the `remote` name. Configs cannot set any
+    /// `management*` option themselves (`OVPNSanitizer.forbiddenPrefixes`).
     public static func openVPNArguments(
         configPath: String, mgmtSocket: String, clientUser: String,
         authFile: String?, dnsUpdown: String?, verbosity: Int = defaultVerbosity,
         tlsVersionMin: [String] = [OVPNSanitizer.minimumTLSVersion],
-        hasDNSUpdown: Bool = true
+        hasDNSUpdown: Bool = true, queryRemote: Bool = false
     ) -> [String] {
         var args = ignoredPushPrefixes.flatMap { ["--pull-filter", "ignore", $0] }
         args +=
@@ -441,7 +450,8 @@ public struct HelperCore {
                 "--config", configPath,
                 "--verb", String(min(max(0, verbosity), maxVerbosity)),
                 "--management", mgmtSocket, "unix",
-                "--management-client-user", clientUser,
+                "--management-client-user", clientUser
+            ] + (queryRemote ? ["--management-query-remote"] : []) + [
                 "--auth-nocache",
                 "--remap-usr1", "SIGTERM",
                 "--connect-retry-max", "3",

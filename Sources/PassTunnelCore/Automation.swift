@@ -503,7 +503,7 @@ public struct ProfileCheck: Codable, Equatable {
     /// `true` for a profile of an experimental type (see `ProfileSummary.experimental`); left out otherwise.
     public var experimental: Bool?
     /// The address the server had at its last successful connection, kept for when its name cannot be resolved
-    /// (`LastKnownAddress`: Cisco AnyConnect and Palo Alto GlobalProtect), and since when; left out when none is.
+    /// (`LastKnownAddress`: Cisco AnyConnect, Palo Alto GlobalProtect and OpenVPN), and since when; left out when none is.
     public var lastKnownAddress: LastKnownAddress.Entry?
 }
 
