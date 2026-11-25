@@ -16,6 +16,15 @@ public enum VPNLog {
         return String(decoding: data, as: UTF8.self)
     }
 
+    /// The whole log, or nil when it is longer than `maxBytes` (or cannot be read): for decisions that must see
+    /// every line of a run, not only its end.
+    static func readWhole(_ url: URL, maxBytes: Int = maxReadBytes) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: maxBytes + 1), data.count <= maxBytes else { return nil }
+        return String(decoding: data, as: UTF8.self)
+    }
+
     /// The first `maxBytes` of the log (start-up lines: tunnel device, pushed options). The helper keeps
     /// them when it trims a long log.
     public static func readHead(_ url: URL, maxBytes: Int = 64 * 1024) -> String {
@@ -552,6 +561,45 @@ public enum VPNLog {
             return String(line[line.index(after: open)..<line.index(before: line.endIndex)])
         }
         if let r = line.range(of: "getaddrinfo: ") { return String(line[r.upperBound...]) }
+        return nil
+    }
+
+    /// The hosts OpenVPN could not resolve, from its resolver's own records: lines that start (after OpenVPN's
+    /// timestamp) with "RESOLVE: Cannot resolve host address: vpn.example.com:1194 (nodename nor servname provided,
+    /// or not known)" → "vpn.example.com" (the part before the last colon, the port; an IPv6 literal is never looked
+    /// up). Text that only contains those words elsewhere in a line (a server's `ECHO`, a pushed option) does not
+    /// count. In log order, repeats included.
+    public static func openVPNUnresolvedHosts(_ text: String) -> [String] {
+        let marker = "RESOLVE: Cannot resolve host address: "
+        var hosts: [String] = []
+        for raw in text.split(whereSeparator: \.isNewline) {
+            let line = withoutTimestamp(raw)
+            guard line.hasPrefix(marker) else { continue }
+            let target = line.dropFirst(marker.count).prefix { !$0.isWhitespace }
+            guard let colon = target.lastIndex(of: ":") else {
+                if !target.isEmpty { hosts.append(String(target)) }
+                continue
+            }
+            let host = target[..<colon]
+            if !host.isEmpty { hosts.append(String(host)) }
+        }
+        return hosts
+    }
+
+    /// OpenVPN's words when the server's certificate failed one of the config's checks during the handshake (before
+    /// anything was sent): "VERIFY ERROR: depth=0, error=…", "VERIFY X509NAME ERROR: …", "VERIFY KU ERROR",
+    /// "VERIFY EKU ERROR", a `peer-fingerprint` mismatch, OpenSSL's "certificate verify failed". nil when there is none.
+    public static func openVPNPeerCheckFailure(_ text: String) -> String? {
+        let markers = [
+            "VERIFY ERROR", "VERIFY X509NAME ERROR", "VERIFY KU ERROR", "VERIFY EKU ERROR", "peer-fingerprint",
+            "certificate verify failed"
+        ]
+        for raw in text.split(whereSeparator: \.isNewline) {
+            let line = withoutTimestamp(raw)
+            if let marker = markers.first(where: { line.contains($0) }) {
+                return configurationProblem(line) ?? marker
+            }
+        }
         return nil
     }
 

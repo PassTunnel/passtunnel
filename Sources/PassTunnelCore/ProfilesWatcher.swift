@@ -115,7 +115,7 @@ public final class ProfilesWatcher {
     static let ignoredNames: Set<String> = [
         "vpn.log", "mgmt.sock", ".lock", ".DS_Store", ".user-stopped", ".last-otp",
         ".mgmt-state", "activity.jsonl", ".activity.lock", "clock.json", ProfileNetwork.fileName,
-        LastKnownAddress.fileName, ".retry"
+        LastKnownAddress.fileName, OpenVPNRemoteAnswer.recordFile, ".retry"
     ]
 
     /// Whether an event can mean a changed profile, config or preference.

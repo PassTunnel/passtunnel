@@ -292,7 +292,7 @@ final class Supervisor {
             if plan.mgmtSocket != nil { restrictSocketWhenReady(job.key, pid: pid, attempt: 0) }
             if plan.tool == .openconnect { superviseOpenConnect(job.key, pid: pid, since: Date()) }
             DaemonLog.info("started \(spec.name) \(tool.version) for \(profileID), uid \(uid), pid \(pid)")
-            return .success(pid: pid, mgmtSocket: plan.mgmtSocket)
+            return .started(pid: pid, mgmtSocket: plan.mgmtSocket, remoteQuery: plan.queriesRemote)
         } catch {
             if let fds = pipeFDs, fds.read >= 0 { close(fds.read) }
             core.removeRunDir(profileID: profileID, uid: uid)

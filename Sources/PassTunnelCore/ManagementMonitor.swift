@@ -4,10 +4,17 @@ import Foundation
 /// `>STATE:` notifications (`state on`), so polling does not open a new connection every few seconds
 /// (OpenVPN logs every client connect, command and disconnect). A dropped connection is reopened on
 /// the next query. Used by the app; the CLI's one-shot queries meanwhile find the interface busy and
-/// read the state the app shares (`ConnectionManager`'s snapshot file).
+/// read the state the app shares (`ConnectionManager`'s snapshot file). OpenVPN's `>REMOTE:` question (#298) is
+/// answered on the held connection as it comes (`remoteAnswer`), while the connection opens too.
 public final class PersistentManagementQuerier: ManagementQuerying, @unchecked Sendable {
     private let lock = NSLock()
     private var sessions: [String: Session] = [:]  // by socket path
+    private var _remoteAnswer: OpenVPNRemoteAnswer?
+
+    public var remoteAnswer: OpenVPNRemoteAnswer? {
+        get { lock.withLock { _remoteAnswer } }
+        set { lock.withLock { _remoteAnswer = newValue } }
+    }
     private var opening: [String: Task<Session, Error>] = [:]  // one open at a time per socket
     /// Wait for the banner when opening (OpenVPN sends it at once unless another client is served).
     var bannerTimeout: TimeInterval = 1
@@ -37,12 +44,16 @@ public final class PersistentManagementQuerier: ManagementQuerying, @unchecked S
             if let s = sessions[path], s.isAlive { return Task { s } }
             if let pending = opening[path] { return pending }
             let bannerTimeout = self.bannerTimeout
+            let answer = _remoteAnswer.map { answer in { (query: OpenVPNRemoteQuery) in answer.command(for: query, socketPath: path) } }
             let task = Task<Session, Error> { [weak self] in
                 let session: Session
                 do {
                     session = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Session, Error>) in
                         DispatchQueue.global(qos: .userInitiated).async {
-                            cont.resume(with: Result { try Session.open(path, bannerTimeout: bannerTimeout, timeout: timeout) })
+                            cont.resume(
+                                with: Result {
+                                    try Session.open(path, bannerTimeout: bannerTimeout, timeout: timeout, remoteAnswer: answer)
+                                })
                         }
                     }
                 } catch {
@@ -72,7 +83,7 @@ public final class PersistentManagementQuerier: ManagementQuerying, @unchecked S
             try s.write(command + "\n", timeout: timeout)
             return ""
         }
-        return try await ManagementSocket.sendOneShot(command, socketPath: socketPath, timeout: timeout)
+        return try await ManagementSocket.sendOneShot(command, socketPath: socketPath, timeout: timeout, remoteAnswer: remoteAnswer)
     }
 
     /// Closes the connection to `socketPath` (e.g. the profile went away).
@@ -104,17 +115,29 @@ public final class PersistentManagementQuerier: ManagementQuerying, @unchecked S
     final class Session: @unchecked Sendable {
         private let conn: ManagementSocket.Connection
         private let lock = NSLock()
+        /// One write at a time: commands from callers and answers from the reader thread. The reader thread closes
+        /// the descriptor holding it too, so no write ever goes to a descriptor that was closed (or reused).
+        /// Order: `writeLock`, then `lock`.
+        private let writeLock = NSLock()
         private var _latest: ManagementState?
         private var _alive = true
         private var descriptorClosed = false  // by the reader thread; never shut down after that
+        /// The command that answers a `>REMOTE:` question (`OpenVPNRemoteAnswer`); nil: none is answered.
+        private let remoteAnswer: ((OpenVPNRemoteQuery) -> String)?
 
-        private init(_ conn: ManagementSocket.Connection) { self.conn = conn }
+        private init(_ conn: ManagementSocket.Connection, remoteAnswer: ((OpenVPNRemoteQuery) -> String)?) {
+            self.conn = conn
+            self.remoteAnswer = remoteAnswer
+        }
 
         var latest: ManagementState? { lock.withLock { _latest } }
         var isAlive: Bool { lock.withLock { _alive } }
 
         /// Connects, turns real-time state on, asks for the current state and waits for it.
-        static func open(_ path: String, bannerTimeout: TimeInterval, timeout: TimeInterval) throws -> Session {
+        static func open(
+            _ path: String, bannerTimeout: TimeInterval, timeout: TimeInterval,
+            remoteAnswer: ((OpenVPNRemoteQuery) -> String)? = nil
+        ) throws -> Session {
             let conn = try ManagementSocket.Connection(path: path)
             let deadline = Date().addingTimeInterval(timeout)
             do {
@@ -128,9 +151,9 @@ public final class PersistentManagementQuerier: ManagementQuerying, @unchecked S
                 conn.close()
                 throw error is ManagementError ? error : ManagementError.busy
             }
-            let session = Session(conn)
+            let session = Session(conn, remoteAnswer: remoteAnswer)
             do {
-                try conn.write("state on\nstate\n", until: deadline)
+                try session.writeLocked("state on\nstate\n", until: deadline)
                 // Read until the reply to `state` arrives, then hand reading over to the thread.
                 while session.latest == nil {
                     guard let line = try conn.readLine(until: deadline) else { throw ManagementError.closed }
@@ -146,6 +169,16 @@ public final class PersistentManagementQuerier: ManagementQuerying, @unchecked S
 
         func handle(_ line: String) {
             var text = Substring(line)
+            if let remoteAnswer, let command = OpenVPNRemoteQuery.answer(to: line, with: remoteAnswer) {
+                // OpenVPN waits for it; its `SUCCESS:` reply is skipped below like any other. An answer that could not
+                // be written ends the connection, so the next query opens a new one, which OpenVPN asks again.
+                do {
+                    try writeLocked(command + "\n", until: Date().addingTimeInterval(3))
+                } catch {
+                    close()
+                }
+                return
+            }
             if text.hasPrefix(">STATE:") {
                 text = text.dropFirst(7)
             } else if text.hasPrefix(">") || text.hasPrefix("SUCCESS:") || text.hasPrefix("ERROR:") || text == "END" {
@@ -166,17 +199,27 @@ public final class PersistentManagementQuerier: ManagementQuerying, @unchecked S
                     break
                 }
             }
-            lock.withLock {
-                _alive = false
-                descriptorClosed = true
-                conn.close()
+            writeLock.withLock {
+                lock.withLock {
+                    _alive = false
+                    descriptorClosed = true
+                    conn.close()
+                }
             }
         }
 
         func write(_ text: String, timeout: TimeInterval) throws {
-            let open = lock.withLock { _alive && !descriptorClosed }
-            guard open else { throw ManagementError.closed }
-            try conn.write(text, until: Date().addingTimeInterval(timeout))
+            guard isAlive else { throw ManagementError.closed }
+            try writeLocked(text, until: Date().addingTimeInterval(timeout))
+        }
+
+        /// Writes `text` unless the reader thread closed the descriptor; holding `writeLock` keeps it from closing it
+        /// meanwhile.
+        private func writeLocked(_ text: String, until deadline: Date) throws {
+            try writeLock.withLock {
+                guard !lock.withLock({ descriptorClosed }) else { throw ManagementError.closed }
+                try conn.write(text, until: deadline)
+            }
         }
 
         /// Ends the connection; the reader thread finishes and closes the descriptor.

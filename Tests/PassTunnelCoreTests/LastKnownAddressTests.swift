@@ -570,11 +570,12 @@ extension ConnectionManagerTests {
 
     // MARK: types, export, diagnose
 
-    /// OpenVPN and FortiGate never learn or use an address, even from a file put in place.
-    func testOpenVPNAndFortiGateHaveNoFallback() throws {
+    /// FortiGate never learns or uses an address, even from a file put in place (OpenVPN does since #298, for a config
+    /// that fits: `OpenVPNLastKnownAddressTests`).
+    func testFortiGateHasNoFallback() throws {
         XCTAssertTrue(LastKnownAddress.isSupported(.anyconnect))
         XCTAssertTrue(LastKnownAddress.isSupported(.globalprotect))
-        XCTAssertFalse(LastKnownAddress.isSupported(.openvpn))
+        XCTAssertTrue(LastKnownAddress.isSupported(.openvpn))
         XCTAssertFalse(LastKnownAddress.isSupported(.forti))
         var forti = try store.create(name: "Acme Forti", type: .forti)
         forti.host = "vpn.example.com"

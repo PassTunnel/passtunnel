@@ -67,6 +67,10 @@ public struct ManagementSocket {
     /// Short retries while OpenVPN is starting up or another client is connected.
     public var connectAttempts = 5
     public var retryDelay: TimeInterval = 0.2
+    /// The answer to OpenVPN's `>REMOTE:` question (`OpenVPNRemoteAnswer`), for a run started with
+    /// `--management-query-remote`: OpenVPN asks every client that connects while it waits, so a one-shot
+    /// connection answers too. nil: the question is skipped like any other notification.
+    public var remoteAnswer: ((OpenVPNRemoteQuery) -> String)?
 
     public init(path: String) {
         self.path = path
@@ -114,6 +118,13 @@ public struct ManagementSocket {
         throw lastError
     }
 
+    /// Answers a `>REMOTE:` line on `conn` (`remoteAnswer`); true when it did.
+    private func answer(_ line: String, on conn: Connection, until deadline: Date) throws -> Bool {
+        guard let remoteAnswer, let command = OpenVPNRemoteQuery.answer(to: line, with: remoteAnswer) else { return false }
+        try conn.write(command + "\n", until: deadline)
+        return true
+    }
+
     /// Current connection state (`state` command).
     public func state(timeout: TimeInterval = 3) throws -> ManagementState {
         try Self.parseState(command("state", timeout: timeout))
@@ -136,18 +147,37 @@ public struct ManagementSocket {
             detail: field(2), remoteIP: field(4), localIPv6: field(8))
     }
 
+    /// The reply to the command just sent. A `>REMOTE:` question that comes meanwhile (OpenVPN repeats a pending one
+    /// right after the banner) is answered after the command, so the command's reply still comes first; the answers'
+    /// own replies are then read before the connection closes, so OpenVPN has taken them.
     private func readReply(_ conn: Connection, until deadline: Date) throws -> String {
         var lines: [String] = []
-        while let line = try conn.readLine(until: deadline) {
-            if line.hasPrefix(">") { continue }
-            if lines.isEmpty, line.hasPrefix("SUCCESS:") { return line }
-            if lines.isEmpty, line.hasPrefix("ERROR:") {
-                throw ManagementError.commandFailed(line.dropFirst(6).trimmingCharacters(in: .whitespaces))
+        var answers = 0
+        var reply: String?
+        while reply == nil, let line = try conn.readLine(until: deadline) {
+            if line.hasPrefix(">") {
+                if try answer(line, on: conn, until: deadline) { answers += 1 }
+                continue
             }
-            if line == "END" { return lines.joined(separator: "\n") }
-            lines.append(line)
+            if lines.isEmpty, line.hasPrefix("SUCCESS:") {
+                reply = line
+            } else if lines.isEmpty, line.hasPrefix("ERROR:") {
+                throw ManagementError.commandFailed(line.dropFirst(6).trimmingCharacters(in: .whitespaces))
+            } else if line == "END" {
+                reply = lines.joined(separator: "\n")
+            } else {
+                lines.append(line)
+            }
         }
-        throw ManagementError.closed
+        guard let reply else { throw ManagementError.closed }
+        while answers > 0, let line = try? conn.readLine(until: deadline) {
+            if line.hasPrefix(">") {
+                if (try? answer(line, on: conn, until: deadline)) == true { answers += 1 }
+            } else if line.hasPrefix("SUCCESS:") || line.hasPrefix("ERROR:") {
+                answers -= 1
+            }
+        }
+        return reply
     }
 
     // MARK: - Socket

@@ -185,7 +185,7 @@ cannot connect the profile: an error object, see [ProfileSummary](#profilesummar
 profile of an experimental type, Palo Alto GlobalProtect), `notices` (while connected: what the user should know about
 the connection, a list of `{"kind", "message"}`: `hip_report_not_sent`, Palo Alto GlobalProtect:
 the gateway asked for a host information report, which PassTunnel never sends, so the gateway may limit what the tunnel
-reaches; `connected_through_last_known_address`, Cisco AnyConnect and Palo Alto GlobalProtect with `skip_portal`: the server's name could
+reaches; `connected_through_last_known_address`, Cisco AnyConnect, Palo Alto GlobalProtect with `skip_portal`, and OpenVPN with one named server and an explicit server identity: the server's name could
 not be resolved when the connection was made, so it was reached at the address it had at its last successful
 connection (docs/ARCHITECTURE.md, "Last known server address"), and the network's DNS may not be working; `message` is
 the sentence to show; the log is not repeated; new kinds may be added), `phase`
@@ -300,7 +300,7 @@ leftover on a service not in use is never attached; with `last_known_address` to
 failed and the address was tried). `reply` and
 `reason` pass through the same redaction as `log --json`. New kinds may be added.
 
-`last_known_address` (`host_not_found`; Cisco AnyConnect, and Palo Alto GlobalProtect with `skip_portal`): the server's
+`last_known_address` (`host_not_found`; Cisco AnyConnect, Palo Alto GlobalProtect with `skip_portal`, and OpenVPN with one named server and an explicit server identity): the server's
 name could not be found, so the address that name had at the last connection by it was tried too, with nothing sent
 there, and that failed as well. The kind stays `host_not_found`, the root cause; the DNS problem is never hidden, and
 the app does not start its retries of an unreachable server for it. `address` (the server's address that was tried),
@@ -462,8 +462,8 @@ these are settings nothing shows it set, so it leaves them, and restarting the M
 connect; the server can still refuse it), `server`, `protected`, `password_saved` / `totp_saved`
 (whether, never the value), `asks_for` (fields asked on every connect: `username`, `password`, `otp`),
 `problems` (error objects), `experimental` (`true` for Palo Alto GlobalProtect, otherwise left out), `clock`, the profile's last [ClockOffset](#clockoffset) when there is
-one (any process's; a FortiGate gateway's after a rejected sign-in), and `last_known_address` (Cisco AnyConnect, and Palo
-Alto GlobalProtect with `skip_portal`: `{"host", "address", "confirmed_at"}`, the address the server's name had at the
+one (any process's; a FortiGate gateway's after a rejected sign-in), and `last_known_address` (Cisco AnyConnect, Palo
+Alto GlobalProtect with `skip_portal`, and OpenVPN with one named server and an explicit server identity: `{"host", "address", "confirmed_at"}`, the address the server's name had at the
 last connection by that name, which a connect tries when the name fails, and when that connection was; read from the
 profile's directory, nothing is contacted; left out when none is kept). Linux adds `secret_store`, a
 [SecretStoreReport](#secretstorereport). With `--check-clock` (MCP: `check_clock: true`) the time

@@ -227,6 +227,26 @@ FortiGate, stop, and status. It enforces the following rules on every request.
   packet, from 7 the data-channel keys, from 9 packet contents) out of the log, which you, the app
   and `get_logs` can read. Only `--server-poll-timeout 10` (how long a server that does not answer is
   waited for) comes before `--config`, as a default the configuration may change.
+- **The server address, only for a try at the last known address.** When a profile's server name
+  could not be resolved and nothing was sent, the app may start one more run at the address that name
+  had at the last connection made by it (the same rules as for Cisco AnyConnect: see "Last known server
+  address" in [ARCHITECTURE.md](docs/ARCHITECTURE.md#last-known-server-address-292)). For that run, and
+  only when the start request sets the flag `query_remote` (a true/false value: no text of the request
+  reaches the command line), the helper adds `--management-query-remote`. OpenVPN then asks over the
+  management socket, before each try, whether to use the configuration's server as it is (`remote
+  ACCEPT`) or another address (`remote MOD`). Only you can answer (the socket is yours alone, as
+  above), and what is answered is only where OpenVPN connects to: the configuration, the certificate
+  checks and everything else the helper runs stay exactly as without the flag. The app answers `remote
+  MOD` only for a configuration with one server name and an identity of that one server that
+  OpenVPN applies (`verify-x509-name` with a name or subject, or `peer-fingerprint`; read with
+  OpenVPN's exact option names, so an ignored spelling does not count), so a server at that address
+  must pass the same checks as by the name and be that server. `remote-cert-tls` and
+  `remote-cert-eku` alone are not enough: they only say *a* server of the CA, which another server at
+  an address that has moved on would also be. Any other question, or one that cannot be read, gets
+  `remote ACCEPT`. Configurations
+  can never set a `management…` option themselves ([sanitizer](#openvpn-configuration-sanitizer)). The
+  start reply says whether the helper added the flag; a helper that predates it ignores the flag and
+  the run goes by the name again.
 - **Management over a per-user unix socket.** The management interface is a unix socket in the
   session's root-owned run directory, not a TCP port. OpenVPN only serves the user named in
   `--management-client-user` (peer credential check). Once the socket exists, the helper also
