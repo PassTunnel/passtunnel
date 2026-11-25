@@ -1,5 +1,5 @@
 {
-  "originHash" : "1999fc29c41e71845adeda5b54839c78bd7430f3cf96ca55842cc7c34007b089",
+  "originHash" : "9087e110142f5eb3e43780d55096f012a5504155fcc18106664d9705d26add23",
   "pins" : [
     {
       "identity" : "sparkle",
@@ -24,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-crypto",
       "state" : {
-        "revision" : "f8fad2f95ad67b45f6340c0960e2396094d67e07",
-        "version" : "5.1.1"
+        "revision" : "3280a5f72874d2f73bf25551bbb64f524c76d834",
+        "version" : "5.1.2"
       }
     }
   ],
