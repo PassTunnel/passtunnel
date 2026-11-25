@@ -216,8 +216,8 @@ public enum PT {
     `profiles/<id>/network.json` (`ProfileNetwork`: the routes and DNS options of the last connect, 0600, replaced
     atomically; read only if it is a regular file of the user without group or other access, for the profile's
     current destination, otherwise ignored),
-    `profiles/<id>/last-address.json` (`LastKnownAddress`, Cisco AnyConnect and Palo Alto GlobalProtect with
-    `skip_portal`: the address the server's name had at the last connection by that name, the host it belongs to, when
+    `profiles/<id>/last-address.json` (`LastKnownAddress`, Cisco AnyConnect, Palo Alto GlobalProtect with
+    `skip_portal`, and OpenVPN with a config that fits (#298): the address the server's name had at the last connection by that name, the host it belongs to, when
     that connection confirmed it and the destination fingerprint; 0600, replaced atomically, read under the same rules
     as `network.json`; never exported;
     [Last known server address](#last-known-server-address-292))
@@ -719,6 +719,7 @@ stays tiny and versionable:
 public enum HelperRequest: Codable {
     case startOpenVPN(OpenVPNStart)        // profileID, profileDir, username?, secret? (password+otp already formatted), logPath,
                                            // configSHA256? ("config_sha256": hex SHA-256 of the config.ovpn the app checked)
+                                           // queryRemote? ("query_remote": true adds --management-query-remote, #298)
                                            // (mgmtPort: Int? still decodes for protocol 1 payloads but is ignored)
     case startForti(FortiStart)            // profileID, profileDir, host, port, username, password, otp?, trustedCert, setDNS, setRoutes, logPath
     case startOpenConnect(OpenConnectStart) // protocol 4: Cisco AnyConnect ("Helper protocol 4" below); passtunneld too since #187
@@ -730,6 +731,7 @@ public struct HelperResponse: Codable { ok: Bool; error: String?; errorCode: Str
                                          pid: Int32?; running: [String: Int32]?
                                          mgmtSocket: String?               // startOpenVPN → PT.mgmtSocketPath(uid, id)
                                          mgmtSockets: [String: String]?    // status → id → socket (caller's OpenVPN sessions)
+                                         remoteQuery: Bool?                // "remote_query": startOpenVPN ran with --management-query-remote
                                          helperBuild: Int? }               // "helper_build", every reply (see below)
 ```
 
@@ -1230,7 +1232,9 @@ Security rules (helper):
   check for every config, also those whose import commented out refused lines, `OVPNSkipRules`), writes
   the sanitized copy and the auth file into the session's run directory, then runs openvpn with fixed flags (`--management <runDir>/mgmt.sock unix`
   `--management-client-user <caller's user name>` so only the calling user can talk to it, no
-  `--management-hold`; `--verb N` with the config's last `verb` capped at 4, 3 when it sets none
+  `--management-hold`; `--management-query-remote` only when the request sets `query_remote` (a try at the server's
+  last known address, [OpenVPN](#openvpn-298) under "Last known server address"; the reply then has
+  `remote_query: true`); `--verb N` with the config's last `verb` capped at 4, 3 when it sets none
   (`HelperCore.openVPNVerbosity`, from `OVPNSanitizer.verbosity(of:)`); `--auth-nocache`,
   `--remap-usr1 SIGTERM`, `--connect-retry-max 3`, `--tls-version-min 1.2` (`1.3`, with `or-highest` if given,
   when the `tls-version-min` OpenVPN applies is 1.3: `OVPNSanitizer.tlsVersionFloor(of:)`, which recognizes lines
@@ -1423,9 +1427,7 @@ still verified against its name, or the profile's pin, exactly as strictly as by
   sent, not the name checked. Given an address, the CA path would check the certificate against the address instead of
   the name, and it cannot be turned off to leave only the pin, so the check would not be the same (and the helper has
   no way to pass `sni` either).
-- *OpenVPN* has no fallback: OpenVPN itself could take an address safely (none of its certificate checks involve the
-  `remote` name; `verify-x509-name` names its own), but the helper reads `config.ovpn` from the profile directory, held to
-  its hash, and runs it with fixed flags, so it cannot be told an address without a change of the helper.
+- *OpenVPN* (#298), for a config that fits (`OVPNAnalyzer.knownAddressFit`); see [OpenVPN](#openvpn-298) below.
 
 **Learning, and what the date means.** The sign-in's `RESOLVE` address (what openconnect connected to;
 `AnyConnectSignIn.Success.address`, or the GlobalProtect destination's `resolveAddress`) is kept once a connection *by
@@ -1505,8 +1507,8 @@ checks) keep the gentle stop and no drain.
 
 **Dropped.** `ProfileStore.save` forgets the address when the profile's destination changes (host, port, user group,
 pins, `skip_portal`, type) or the profile stops using one, `setOVPN` whenever a configuration is imported, a connect
-that would use it removes a file that does not match the profile as it is now, and deleting the profile removes its
-directory.
+that would use it removes a file that does not match the profile as it is now (for OpenVPN any other `config.ovpn`
+bytes, since the fingerprint covers the whole file), and deleting the profile removes its directory.
 
 **Seeing it.** `passtunnel diagnose` and the MCP `diagnose` show it per profile (`last_known_address`: host, address,
 `confirmed_at`; "Last known server address: 203.0.113.5 (confirmed 2d ago)"), read from the file only. In
@@ -1516,6 +1518,110 @@ server address 203.0.113.5" or "The last known address 203.0.113.5 could not be 
 The sign-in's log (`vpn.log` until the tunnel run replaces it) is the second run's; openconnect prints the override
 only at its trace level. One wording for the date per surface: "confirmed <date>" in messages and the activity,
 "confirmed <time>" in "Copy details", "(confirmed 2d ago)" in `diagnose`.
+
+### OpenVPN (#298)
+
+OpenVPN checks the server with the config's own rules, none of which involve the `remote` name: the CA chain,
+`verify-x509-name` (a name the config gives), `remote-cert-tls`/`remote-cert-eku` (key usages), `peer-fingerprint`
+(pins). So an address can replace the name lookup without changing a check, provided the config says which server
+it must be (not merely that it is a server). What was missing was a way to hand OpenVPN the address: the helper reads `config.ovpn` itself, held to its hash,
+and starts OpenVPN with fixed flags.
+
+**How the address reaches OpenVPN.** The start request has an optional flag, `query_remote` (`OpenVPNStart.queryRemote`):
+the helper then adds `--management-query-remote` and nothing else, so no text of the request reaches OpenVPN's
+command line and the config the helper runs is byte for byte the one it runs by the name. Before each try OpenVPN
+writes `>REMOTE:<host>,<port>,<proto>` to the management client and waits for the answer: `remote ACCEPT` (connect as
+configured) or `remote MOD <address> <port>` (connect to that address instead of the host; the config's checks apply
+as they are). The app sets the flag only for the try at the last known address; the run by the name never has it, so
+a normal connect never waits for anyone. The other design, a numeric address in the request with which the helper
+rewrites the matching `remote` of its run copy, was not taken: it needs more parsing as root (blocks, several remotes,
+spellings) and new free text in the request, where the question needs neither.
+
+**Who answers.** OpenVPN serves one management client at a time, sends the question to the client connected at that
+moment, and while the question is pending repeats it to every client that connects, right after the banner, and answers
+`state` meanwhile (`CONNECTING`). The answer therefore must not depend on which client OpenVPN
+happens to ask. Every management client PassTunnel has answers it the same way, from the profile's files
+(`OpenVPNRemoteAnswer`, which every `ConnectionManager` gives its querier):
+- the app's held connection (`PersistentManagementQuerier`), while it opens and afterwards from its reader thread, on
+  every question;
+- the one-shot connections (`ManagementSocket.command`, used by `SocketManagementQuerier`: the command line, the MCP
+  server, the app before it holds a connection, and the debug drop): a question that arrives with the banner or the
+  reply is answered after the command, and the answer's own reply is read before the connection closes;
+- the helper and `passtunneld` never connect to the socket; the health check and the routing checks do not use it.
+Every line that starts with `>REMOTE:` is answered: one that cannot be read (OpenVPN writes the question into a
+256-byte buffer, so a long host is cut) gets `remote ACCEPT`, never silence. A held connection whose answer cannot be
+written is closed, so the next query opens a new one, which OpenVPN asks again; its reader thread closes the descriptor
+only while it holds the write lock, so no write ever goes to a closed (or reused) descriptor.
+The socket is the user's alone (`--management-client-user`, mode 0600), so the only other client possible is one the
+user runs by hand (`nc -U …`); while that one holds the interface without answering, OpenVPN waits until the
+connect's time limit (60 s) ends the attempt, which then fails as a timeout. The answer: `remote MOD <address> <port>`
+when the profile (the directory name of the socket's session directory, `<run root>/<uid>/<id>/mgmt.sock`) has a last
+known address for exactly the host asked about (`LastKnownAddress.read`, for the config as it is now), with the port
+OpenVPN asked about, a number; `remote ACCEPT` for anything else. A `MOD` is first recorded in the profile's
+`.remote-answer` (0600; not given when it cannot be written), which the connecting process removes before it starts the
+run and reads when the run ended or connected: only a run that was told the address counts as a try at it (below). As
+only runs at the last known address ask, `MOD` is only ever the answer of such a run; if the entry went away meanwhile
+(the profile was edited), the answer is `ACCEPT` and the run is one by the name.
+
+**Hold, restarts, reconnects.** The helper never sets `--management-hold`, so no hold release is involved. OpenVPN asks
+in `next_connection_entry`, before each connection entry and address it tries; every question is answered. With
+`--remap-usr1 SIGTERM` the first restart of a run (a failed try, `ping-restart`, a TLS error) ends it, so a run at the
+address never goes on to try again on its own, and certainly never keeps using the address once the name works again:
+every later connect, reconnect or retry is a new run by the name first (`performConnect`). Nothing sends SIGHUP.
+
+**Which configs** (`OVPNAnalyzer.knownAddressFit`, then a host that is a name, not an IP address):
+- exactly one `remote`, and no `<connection>` block: with several servers (in order or `remote-random`) or blocks, an
+  address learned from one connection could be answered for another server's question, so such configs neither learn
+  nor use one (with a single `remote`, `remote-random` changes nothing and is accepted); `remote host port proto`
+  is fine, and the answer uses the port OpenVPN asks with;
+- no `http-proxy` or `socks-proxy` (the name goes to the proxy, and the address OpenVPN reports is the proxy's), no
+  `remote-random-hostname` (OpenVPN looks up another name than the `remote`), no `preresolve` (OpenVPN resolves every
+  name before it asks: checked with 2.7.9, which then keeps retrying the name and never asks) and no `ip-remote-hint`;
+- a numeric port (a service name such as `https` is answered `ACCEPT`, so such configs do not take part) and a host of
+  at most `OVPNAnalyzer.maxHostBytes` (200) bytes, so the question is never cut;
+- an identity of *this* server: `verify-x509-name <name>` of type `subject` (the default) or `name`, or a pinned
+  `peer-fingerprint` (directive or inline block). `remote-cert-tls server` and `remote-cert-eku` are roles, not an
+  identity: any server certificate of the CA has them, so a remembered address that has gone to another server of the
+  same CA would get the password and the code; `name-prefix` matches other names. Configs with only a role, or no
+  check at all, keep failing with `host_not_found` (by the name DNS decides where they go, not a remembered address).
+The identity and the `remote` are read as OpenVPN applies them (`OVPNSanitizer.appliedOptions`: one leading `--`, one
+exact `setenv opt`, case-sensitive names), so a spelling OpenVPN refuses, or ignores (after `setenv opt`, or listed in
+`ignore-unknown-option`), such as `VERIFY-X509-NAME`, never counts; the exclusions also match loosely (lowercased, any
+dashes), so a doubtful spelling only ever excludes.
+
+**Learning.** The address is the server address the management interface reports for `CONNECTED` (the `state` line's
+remote, `ManagementState.remoteIP`; an IPv4 address in IPv6 form is kept as IPv4), saved once a connection by the name
+is up, with the state's time, and only when the helper still reports the process this attempt started (`status`,
+the start reply's pid): the socket's path is the profile's whichever process runs there, but while that process runs
+the helper starts no other for the profile, so the state was its. Otherwise the entry is left as it is. A connection
+whose state came from elsewhere (the log, while another client held the interface) has no remote and forgets the
+entry, as a connection by the name without an address does for openconnect.
+
+**Using it.** After a run by the name ended with `host_not_found`, when that run's whole log (`VPNLog.readWhole`,
+at most 256 KiB, never only its end; the helper starts each run with a new log, and a longer one never falls back)
+shows no TLS session or anything later (`VPNLog.credentialsSent`) and has resolver records ("RESOLVE: Cannot resolve
+host address: <host>:<port>" at the start of a line, so not words inside a server's `ECHO`) that all name the
+profile's one server (`VPNLog.openVPNUnresolvedHosts`), and an entry fits the profile as it is now: the code handed to
+OpenVPN is given back (it never left), and a second run starts with `query_remote`. That run counts as a try at the
+address only once the profile's record shows that it was told the address (`remote MOD`): then the activity records
+`trying_last_known_address`, a connection is marked and a failure is explained as one at the address. Told `ACCEPT`,
+or nothing (no answer, or a helper that predates the flag: it ignores it, `Codable` skips unknown keys, and does not
+confirm it), the run is simply a second run by the name: nothing about the address is recorded, it may learn as any
+run by the name, and its failure is its own. At
+most one such run per attempt. Outcomes as above: a connection there is marked; a failure with nothing sent is
+`knownAddressFailed` (`unreachable` from OpenVPN's connect lines or no answer within the time limit, `name_not_found`,
+or `certificate_refused` from OpenVPN's verify lines, `VPNLog.openVPNPeerCheckFailure`, which forgets the address);
+once the TLS session came up the failure is the run's own (a refused sign-in stays one, never retried).
+
+**Helper compatibility.** `query_remote` and `remote_query` are optional keys, so `PT.helperProtocolVersion` stays 5:
+an older helper that ignores the flag runs OpenVPN as before and the app falls back to a run by the name (above),
+nothing waits and nothing breaks. The helper's build changes (its digest), and the Mac app only connects with the
+helper of its own build anyway (`ensureCompatible`, `HelperAutoUpdate`); on Linux `passtunneld` is checked against the
+installed binary the same way. The management behaviour above was checked by hand with OpenVPN 2.7.9 run as an
+ordinary user (`--dev null`, a `remote` in `.invalid`, one-shot clients): the question is repeated after the banner to
+every client until one answers, `remote ACCEPT` ends in "RESOLVE: Cannot resolve host address: …" and an exit (with
+`--remap-usr1 SIGTERM`), `remote MOD 127.0.0.1 1` makes OpenVPN connect to that address. Nothing was run against a real
+OpenVPN server, through the helper, or with a real DNS failure.
 
 ## Cisco AnyConnect backend
 

@@ -10,22 +10,28 @@ import Combine
 
 // MARK: - Fakes
 
-/// OpenVPN-like management server that answers `state` with a mutable line, for any number of clients.
+/// OpenVPN-like management server that answers `state` with a mutable line, for any number of clients. With
+/// `remoteQuery` (a run started with `--management-query-remote`), it asks that `>REMOTE:` question of every client
+/// right after the banner, as OpenVPN does while the question is pending, and reports CONNECTING until one answers;
+/// `remote MOD <address> <port>` then connects to that address (the state's remote), `remote ACCEPT` as configured.
 final class LoopingManagementServer: @unchecked Sendable {
     let path: String
     private let lock = NSLock()
     private var line: String
     private var stopped = false
     private var _commands: [String] = []
+    private var pendingQuery: String?
+    private var _remoteAnswers: [String] = []
     private let listenFD: Int32
     private let finished = DispatchSemaphore(value: 0)
     /// Runs on the server's thread after each `state` reply.
     private let onStateQuery: (() -> Void)?
 
-    init(path: String, stateLine: String, onStateQuery: (() -> Void)? = nil) {
+    init(path: String, stateLine: String, onStateQuery: (() -> Void)? = nil, remoteQuery: String? = nil) {
         self.path = path
         self.line = stateLine
         self.onStateQuery = onStateQuery
+        self.pendingQuery = remoteQuery
         unlink(path)
         listenFD = TestSocket.listenUnix(path, backlog: 8)
         Thread.detachNewThread { [self] in self.loop() }
@@ -39,6 +45,28 @@ final class LoopingManagementServer: @unchecked Sendable {
     private var isStopped: Bool { lock.lock(); defer { lock.unlock() }; return stopped }
     /// Commands other than `state` that clients sent.
     var commands: [String] { lock.lock(); defer { lock.unlock() }; return _commands }
+    /// The answers to the `>REMOTE:` question, in order.
+    var remoteAnswers: [String] { lock.lock(); defer { lock.unlock() }; return _remoteAnswers }
+    private var pending: String? { lock.lock(); defer { lock.unlock() }; return pendingQuery }
+
+    /// Reads one line, or "" when none comes within a second.
+    private static func readLine(_ fd: Int32, within seconds: Int32 = 1000) -> String {
+        var p = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+        guard poll(&p, 1, seconds) > 0 else { return "" }
+        return FakeManagementServer.readLine(fd)
+    }
+
+    private func takeAnswer(_ answer: String) {
+        lock.lock()
+        _remoteAnswers.append(answer)
+        pendingQuery = nil
+        let words = answer.split(separator: " ").map(String.init)
+        if words.count == 4, words[1] == "MOD" {
+            let f = line.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
+            if f.count > 4 { line = (f[..<4] + [words[2]] + f[5...]).joined(separator: ",") }
+        }
+        lock.unlock()
+    }
 
     private func loop() {
         while !isStopped {
@@ -48,9 +76,19 @@ final class LoopingManagementServer: @unchecked Sendable {
             guard c >= 0 else { continue }
             POSIXSocket.noSigPipe(c)
             FakeManagementServer.send(c, FakeManagementServer.banner)
+            let question = pending
+            if let question { FakeManagementServer.send(c, question + "\r\n") }
             let cmd = FakeManagementServer.readLine(c)
             if cmd == "state" {
-                FakeManagementServer.send(c, stateLine + "\r\nEND\r\n")
+                FakeManagementServer.send(c, (question == nil ? stateLine : "1700000000,CONNECTING,,,,,,,") + "\r\nEND\r\n")
+                if question != nil {
+                    // OpenVPN keeps waiting until a client answers; a client that does not just goes away.
+                    let answer = Self.readLine(c)
+                    if answer.hasPrefix("remote ") {
+                        takeAnswer(answer)
+                        FakeManagementServer.send(c, "SUCCESS: remote command succeeded\r\n")
+                    }
+                }
                 onStateQuery?()
             } else if cmd.hasPrefix("signal ") {
                 lock.lock(); _commands.append(cmd); lock.unlock()
@@ -94,6 +132,11 @@ final class FakeHelper: HelperClienting, @unchecked Sendable {
 
     /// Protocol version the fake helper reports; anything else than ours fails `ensureCompatible`.
     var protocolVersion = PT.helperProtocolVersion
+    /// The helper knows `OpenVPNStart.queryRemote` (#298): OpenVPN asks `>REMOTE:` for the config's server and the
+    /// start reply confirms it. False: a helper that predates it, which ignores the flag.
+    var knowsRemoteQuery = true
+    /// When set, `status` reports this pid for every running session (another process took the profile's place).
+    var statusPID: Int32?
 
     /// Start requests fail with this message while > 0 (decremented per start).
     var failStarts = 0
@@ -162,7 +205,8 @@ final class FakeHelper: HelperClienting, @unchecked Sendable {
                 (_running, sockets, _tunnels.filter { _running[$0.key] != nil }, _statusDelayPop())
             }
             if delay > 0 { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
-            return .success(running: snapshot, mgmtSockets: socks, tunnels: tunnels)
+            let pid = locked { statusPID }
+            return .success(running: pid.map { pid in snapshot.mapValues { _ in pid } } ?? snapshot, mgmtSockets: socks, tunnels: tunnels)
         case .startOpenVPN(let s):
             onStart?(request)
             // Like the helper: only the config.ovpn the app checked is started.
@@ -173,20 +217,26 @@ final class FakeHelper: HelperClienting, @unchecked Sendable {
             if let failure = takeFailure() { return failure }
             write(startLog, to: s.logPath)
             let sock = s.profileDir + "/" + PT.mgmtSocketName
+            var question: String?
+            if s.queryRemote == true, locked({ knowsRemoteQuery }) {
+                let config = (try? String(contentsOfFile: s.profileDir + "/config.ovpn", encoding: .utf8)) ?? ""
+                let endpoint = OVPNAnalyzer.endpoint(config)
+                question = ">REMOTE:\(endpoint?.host ?? ""),\(endpoint?.port ?? "1194"),\(endpoint?.tcp == true ? "tcp-client" : "udp")"
+            }
             if let line = openVPNStateLine {
                 let id = s.profileID
                 let onQuery = onStateQuery.map { f in { f(id) } }
-                let server = LoopingManagementServer(path: sock, stateLine: line(Date()), onStateQuery: onQuery)
+                let server = LoopingManagementServer(path: sock, stateLine: line(Date()), onStateQuery: onQuery, remoteQuery: question)
                 locked { servers[s.profileID] = server }
             }
             if locked({ exitAtStart }) {
                 simulateExit(s.profileID)
-                return .success(pid: 4242, mgmtSocket: sock)
+                return .started(pid: 4242, mgmtSocket: sock, remoteQuery: question != nil)
             }
             locked {
                 _running[s.profileID] = 4242; sockets[s.profileID] = sock
             }
-            return .success(pid: 4242, mgmtSocket: sock)
+            return .started(pid: 4242, mgmtSocket: sock, remoteQuery: question != nil)
         case .startForti(let s):
             if let failure = takeFailure() { return failure }
             write(startLog, to: s.logPath)
@@ -257,6 +307,11 @@ final class FakeHelper: HelperClienting, @unchecked Sendable {
 
     func managementCommands(_ id: String) -> [String] {
         locked { servers[id] }?.commands ?? []
+    }
+
+    /// The answers the running OpenVPN of `id` got to its `>REMOTE:` question.
+    func remoteAnswers(_ id: String) -> [String] {
+        locked { servers[id] }?.remoteAnswers ?? []
     }
 
     func setStateLine(_ id: String, _ line: String) {

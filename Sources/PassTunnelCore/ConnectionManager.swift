@@ -228,6 +228,10 @@ public protocol ManagementQuerying {
     /// Sends one management command. The app's querier uses the connection it holds (OpenVPN serves one
     /// client at a time); the default opens a one-shot connection and returns the reply.
     func send(_ command: String, socketPath: String, timeout: TimeInterval) async throws -> String
+    /// How this querier's connections answer OpenVPN's `>REMOTE:` question (`OpenVPNRemoteAnswer`, #298); the
+    /// manager sets it. Every client of a run started with `--management-query-remote` must answer, or OpenVPN
+    /// waits until the connect's time limit; a querier that keeps no answer (the default) never does.
+    var remoteAnswer: OpenVPNRemoteAnswer? { get set }
 }
 
 public extension ManagementQuerying {
@@ -235,19 +239,34 @@ public extension ManagementQuerying {
     func release(socketPath: String) {}
 
     func send(_ command: String, socketPath: String, timeout: TimeInterval) async throws -> String {
-        try await ManagementSocket.sendOneShot(command, socketPath: socketPath, timeout: timeout)
+        try await ManagementSocket.sendOneShot(command, socketPath: socketPath, timeout: timeout, remoteAnswer: remoteAnswer)
+    }
+
+    var remoteAnswer: OpenVPNRemoteAnswer? {
+        get { nil }
+        set {}
     }
 }
 
 extension ManagementSocket {
     /// `command` on a background queue (its I/O is blocking).
-    static func sendOneShot(_ command: String, socketPath: String, timeout: TimeInterval) async throws -> String {
+    static func sendOneShot(
+        _ command: String, socketPath: String, timeout: TimeInterval, remoteAnswer: OpenVPNRemoteAnswer? = nil
+    ) async throws -> String {
         try await withCheckedThrowingContinuation { cont in
             DispatchQueue.global(qos: .userInitiated).async {
-                let socket = ManagementSocket(path: socketPath)
+                var socket = ManagementSocket(path: socketPath)
+                socket.answering(remoteAnswer)
                 cont.resume(with: Result { try socket.command(command, timeout: timeout) })
             }
         }
+    }
+
+    /// Answers `>REMOTE:` on this socket with `answer` (`remoteAnswer`).
+    mutating func answering(_ answer: OpenVPNRemoteAnswer?) {
+        guard let answer else { return }
+        let path = self.path
+        remoteAnswer = { answer.command(for: $0, socketPath: path) }
     }
 }
 
@@ -266,6 +285,8 @@ public enum DebugDrop {
 
 /// `ManagementSocket` on a background queue (its I/O is blocking).
 public struct SocketManagementQuerier: ManagementQuerying {
+    public var remoteAnswer: OpenVPNRemoteAnswer?
+
     public init() {}
 
     public func state(socketPath: String, timeout: TimeInterval) async throws -> ManagementState {
@@ -273,9 +294,11 @@ public struct SocketManagementQuerier: ManagementQuerying {
         guard FileManager.default.fileExists(atPath: socketPath) else {
             throw ManagementError.connectFailed(socketPath, ENOENT)
         }
+        let answer = remoteAnswer
         return try await withCheckedThrowingContinuation { cont in
             DispatchQueue.global(qos: .userInitiated).async {
                 var socket = ManagementSocket(path: socketPath)
+                socket.answering(answer)
                 socket.connectAttempts = 2
                 socket.retryDelay = 0.1
                 cont.resume(with: Result { try socket.state(timeout: timeout) })
@@ -566,6 +589,9 @@ public final class ConnectionManager: ObservableObject {
     ) {
         self.store = store
         self.helper = helper
+        var management = management
+        // Whichever process OpenVPN asks, the answer comes from the profile's files (`OpenVPNRemoteAnswer`).
+        if management.remoteAnswer == nil { management.remoteAnswer = OpenVPNRemoteAnswer(store: store) }
         self.management = management
         self.clock = clock
         self.healthProbe = healthProbe
@@ -1062,96 +1088,134 @@ public final class ConnectionManager: ObservableObject {
 
             var otp = creds.otp
             var codeTime: Date?
-            var started: HelperRequest?
-            // At most twice: by the server's name, then, when that name was not found, at its last known address.
-            while started == nil {
-                otp = creds.otp
-                codeTime = nil
-                if let secret = creds.totpSecret {
-                    try await waitForFreshCode(p, secret: secret, token: token)
-                    let now = clock.now()
-                    codeTime = now
-                    otp = TOTP.code(secret: secret, params: p.totp, at: now)
-                }
-                try checkToken(id, token)
-                setState(id, .connecting(Phase.starting))
-
-                let composed = OTPComposer.compose(
-                    password: creds.password ?? "", otp: otp, delivery: p.otpDelivery,
-                    template: p.otpTemplate, type: p.type)
-                do {
-                    switch p.type {
-                    case .openvpn:
-                        started = .startOpenVPN(
-                            OpenVPNStart(
-                                profileID: id, profileDir: store.dir(id).path, username: creds.username,
-                                secret: creds.password == nil ? nil : composed.secret, logPath: store.logURL(id).path,
-                                configSHA256: destination.configSHA256))
-                    case .forti:
-                        started = .startForti(
-                            FortiStart(
-                                profileID: id, profileDir: store.dir(id).path, host: p.host, port: p.port,
-                                username: creds.username ?? "", password: composed.secret, otp: composed.separateOTP,
-                                trustedCert: p.trustedCert, setDNS: p.setDNS, setRoutes: p.setRoutes,
-                                logPath: store.logURL(id).path))
-                    case .anyconnect:
-                        // The user's own sign-in first; only its cookie goes to the helper.
-                        started = try await signIn(
-                            p, username: creds.username ?? "", password: creds.password ?? "", composed: composed, otp: otp,
-                            codeTime: codeTime, token: token, progress: &progress)
-                    case .globalprotect:
-                        // The portal's and the gateway's sign-in first; only the gateway's cookie goes to the helper.
-                        started = try await globalProtectSignIn(
-                            p, username: creds.username ?? "", password: creds.password ?? "", otp: otp, totpSecret: creds.totpSecret,
-                            codeTime: codeTime, token: token, progress: &progress)
+            var response = HelperResponse(ok: false)
+            var connected: (ip: String, since: Date?, server: String?)?
+            // OpenVPN: at most two runs, by the server's name, then, when that run found no server by the name and sent
+            // nothing, one at its last known address (the helper asks OpenVPN to let PassTunnel choose the address).
+            while connected == nil {
+                var started: HelperRequest?
+                // At most twice: by the server's name, then, when that name was not found, at its last known address.
+                while started == nil {
+                    otp = creds.otp
+                    codeTime = nil
+                    if let secret = creds.totpSecret {
+                        try await waitForFreshCode(p, secret: secret, token: token)
+                        let now = clock.now()
+                        codeTime = now
+                        otp = TOTP.code(secret: secret, params: p.totp, at: now)
                     }
-                } catch {
-                    guard actionToken[id] == token, let known = lastKnownAddress(p, after: error, destination: destination, progress: progress)
-                    else { throw error }
-                    // Stopped in another process meanwhile (`passtunnel disconnect`, the MCP server): no second try.
-                    if hasUserStoppedMarker(id) { throw PTError.connectCancelled }
-                    tryLastKnownAddress(known, of: p, progress: &progress)
-                }
-            }
-            guard let request = started else { throw PTError.connectCancelled }
-            // A sign-in at the last known address that another process stopped just after it ended: no tunnel.
-            if progress.lastKnownAddress != nil, hasUserStoppedMarker(id) { throw PTError.connectCancelled }
-            let response = try await helper.perform(request, timeout: timing.helperTimeout)
-            guard response.ok else {
-                // config.ovpn changed after the secrets were checked against it: not sent anywhere.
-                if response.errorCode == HelperResponse.ErrorCode.configChanged {
-                    throw DestinationChangedError(host: destination.host)
-                }
-                // Another process started it in the meantime: the helper refuses a second session.
-                if let session = session(id, in: await currentStatus()) {
-                    role?(.followed)
-                    progress.owned = false
-                    progress.toolRan = true
-                    return try await follow(p, token: token, session: session)
-                }
-                throw PTError.helperFailed(response.error ?? "")
-            }
-            progress.toolRan = true
-            // Cisco AnyConnect: the sign-in run had the code and the password (`signIn` noted both).
-            let sent = sending(p, username: creds.username ?? "", password: creds.password ?? "", otp: otp, codeTime: codeTime)
-            if !progress.anyConnect {
-                progress.handed = ConnectionFailure.Handed(code: sent.code, codeSecondsLeft: sent.secondsLeft)
-                if let codeTime {
-                    // The tool has it now; given back if it never reaches the server (`noteFailure`).
-                    progress.usedCode = (usedCode(id), rememberUsedCode(p, at: codeTime))
-                }
-            }
-            if actionToken[id] != token {
-                // Disconnected while the helper was starting the tool; its stop may have come first.
-                await stopQuietly(id)
-                throw PTError.connectCancelled
-            }
-            if creds.username != nil && !progress.anyConnect { record(id, .sending(sent)) }
+                    try checkToken(id, token)
+                    setState(id, .connecting(Phase.starting))
 
-            if let socket = response.mgmtSocket { mgmtSockets[id] = socket }
-            let result = try await waitUntilConnected(
-                p, token: token, socketPath: response.mgmtSocket ?? socketPath(id),
-                pid: response.pid)
+                    let composed = OTPComposer.compose(
+                        password: creds.password ?? "", otp: otp, delivery: p.otpDelivery,
+                        template: p.otpTemplate, type: p.type)
+                    do {
+                        switch p.type {
+                        case .openvpn:
+                            // What a run at the last known address is told is recorded anew (`OpenVPNRemoteAnswer`).
+                            if progress.lastKnownAddress != nil { OpenVPNRemoteAnswer.clearRecord(id, store: store) }
+                            started = .startOpenVPN(
+                                OpenVPNStart(
+                                    profileID: id, profileDir: store.dir(id).path, username: creds.username,
+                                    secret: creds.password == nil ? nil : composed.secret, logPath: store.logURL(id).path,
+                                    configSHA256: destination.configSHA256, queryRemote: progress.lastKnownAddress == nil ? nil : true))
+                        case .forti:
+                            started = .startForti(
+                                FortiStart(
+                                    profileID: id, profileDir: store.dir(id).path, host: p.host, port: p.port,
+                                    username: creds.username ?? "", password: composed.secret, otp: composed.separateOTP,
+                                    trustedCert: p.trustedCert, setDNS: p.setDNS, setRoutes: p.setRoutes,
+                                    logPath: store.logURL(id).path))
+                        case .anyconnect:
+                            // The user's own sign-in first; only its cookie goes to the helper.
+                            started = try await signIn(
+                                p, username: creds.username ?? "", password: creds.password ?? "", composed: composed, otp: otp,
+                                codeTime: codeTime, token: token, progress: &progress)
+                        case .globalprotect:
+                            // The portal's and the gateway's sign-in first; only the gateway's cookie goes to the helper.
+                            started = try await globalProtectSignIn(
+                                p, username: creds.username ?? "", password: creds.password ?? "", otp: otp, totpSecret: creds.totpSecret,
+                                codeTime: codeTime, token: token, progress: &progress)
+                        }
+                    } catch {
+                        guard actionToken[id] == token, let known = lastKnownAddress(p, after: error, destination: destination, progress: progress)
+                        else { throw error }
+                        // Stopped in another process meanwhile (`passtunnel disconnect`, the MCP server): no second try.
+                        if hasUserStoppedMarker(id) { throw PTError.connectCancelled }
+                        tryLastKnownAddress(known, of: p, progress: &progress)
+                    }
+                }
+                guard let request = started else { throw PTError.connectCancelled }
+                // A sign-in at the last known address that another process stopped just after it ended: no tunnel.
+                if progress.lastKnownAddress != nil, hasUserStoppedMarker(id) { throw PTError.connectCancelled }
+                response = try await helper.perform(request, timeout: timing.helperTimeout)
+                guard response.ok else {
+                    // config.ovpn changed after the secrets were checked against it: not sent anywhere.
+                    if response.errorCode == HelperResponse.ErrorCode.configChanged {
+                        throw DestinationChangedError(host: destination.host)
+                    }
+                    // Another process started it in the meantime: the helper refuses a second session.
+                    if let session = session(id, in: await currentStatus()) {
+                        role?(.followed)
+                        progress.owned = false
+                        progress.toolRan = true
+                        return try await follow(p, token: token, session: session)
+                    }
+                    throw PTError.helperFailed(response.error ?? "")
+                }
+                if p.type == .openvpn, progress.lastKnownAddress != nil, response.remoteQuery != true {
+                    // A helper that predates the question started OpenVPN as before: this run goes by the name again,
+                    // and is one like any other (it learns the address it connects to).
+                    progress.lastKnownAddress = nil
+                }
+                progress.toolRan = true
+                // Cisco AnyConnect: the sign-in run had the code and the password (`signIn` noted both).
+                let sent = sending(p, username: creds.username ?? "", password: creds.password ?? "", otp: otp, codeTime: codeTime)
+                if !progress.anyConnect {
+                    progress.handed = ConnectionFailure.Handed(code: sent.code, codeSecondsLeft: sent.secondsLeft)
+                    if let codeTime {
+                        // The tool has it now; given back if it never reaches the server (`noteFailure`).
+                        progress.usedCode = (usedCode(id), rememberUsedCode(p, at: codeTime))
+                    }
+                }
+                if actionToken[id] != token {
+                    // Disconnected while the helper was starting the tool; its stop may have come first.
+                    await stopQuietly(id)
+                    throw PTError.connectCancelled
+                }
+                if creds.username != nil && !progress.anyConnect { record(id, .sending(sent)) }
+
+                if let socket = response.mgmtSocket { mgmtSockets[id] = socket }
+                do {
+                    connected = try await waitUntilConnected(
+                        p, token: token, socketPath: response.mgmtSocket ?? socketPath(id),
+                        pid: response.pid)
+                    settleOpenVPNTry(p, progress: &progress)
+                } catch {
+                    settleOpenVPNTry(p, progress: &progress)
+                    // OpenVPN found no server by the name (the run is over: `waitUntilConnected` stopped it).
+                    guard p.type == .openvpn, actionToken[id] == token,
+                        let known = lastKnownAddress(p, after: error, destination: destination, progress: progress)
+                    else { throw error }
+                    if hasUserStoppedMarker(id) { throw PTError.connectCancelled }
+                    // Recorded once the helper confirms that OpenVPN asks for the address (above).
+                    tryLastKnownAddress(known, of: p, progress: &progress, recording: false)
+                }
+            }
+            guard let result = connected else { throw PTError.connectCancelled }
+            // OpenVPN: the address the management interface reported, kept only when it is the run this attempt
+            // started (the socket's path is the profile's, whichever process runs there): the helper still runs that
+            // process, so no other could have served the socket.
+            if p.type == .openvpn, progress.lastKnownAddress == nil, let server = result.server,
+                LastKnownAddress.host(of: p, store: store) != nil
+            {
+                if let pid = response.pid, (await currentStatus())?.running?[id] == pid {
+                    progress.reachedAddress = Self.plainAddress(server)
+                } else {
+                    progress.keepKnownAddress = true
+                }
+            }
             let since = result.since ?? clock.now()
             // What the helper wrote at the start, before the tool ran: once per connect, however many tries it took.
             recordDNSNotes(id)
@@ -1167,7 +1231,7 @@ public final class ConnectionManager: ObservableObject {
             ProfileNetwork.record(p, store: store, tunnelRoutes: tunnelRoutes)
             // The date is when a connection by the name last confirmed the address: one made at the address leaves the
             // entry as it is; one by the name keeps what it used, or forgets an entry it could not confirm.
-            if progress.lastKnownAddress == nil {
+            if progress.lastKnownAddress == nil, !progress.keepKnownAddress {
                 if let address = progress.reachedAddress {
                     LastKnownAddress.save(address, for: p, destination: destination, store: store, at: since)
                 } else {
@@ -1184,6 +1248,11 @@ public final class ConnectionManager: ObservableObject {
             var error = thrown
             if let known = progress.lastKnownAddress, progress.credentialsSent == false {
                 error = Self.explaining(thrown, triedAt: known, server: serverAddress(of: progress.profile))
+            } else if let known = progress.lastKnownAddress, progress.profile?.type == .openvpn, progress.toolRan {
+                // OpenVPN's run at the address: its whole log says whether anything reached a server there.
+                if let log = VPNLog.readWhole(store.logURL(id)), !VPNLog.credentialsSent(log) {
+                    error = Self.explainingOpenVPN(thrown, triedAt: known, server: serverAddress(of: progress.profile), log: log)
+                }
             }
             let cancelled = actionToken[id] != token
             if !(error is NothingToFollow) { noteFailure(id, cancelled ? PTError.connectCancelled : error, progress) }
@@ -1841,6 +1910,12 @@ public final class ConnectionManager: ObservableObject {
         var reachedAddress: String?
         /// This try goes to the address the server's name had at the last connection by name, the name not found.
         var lastKnownAddress: LastKnownAddress.Entry?
+        /// A try at the last known address was set up (even if, with an older helper, it ran by the name): no other.
+        var triedKnownAddress = false
+        /// OpenVPN: the connection's server address could not be tied to this attempt's run: the entry stays as it is.
+        var keepKnownAddress = false
+        /// OpenVPN: whether the run at the last known address was told the address is settled (`settleOpenVPNTry`).
+        var openVPNTrySettled = false
     }
 
     /// While a try at the last known address signs in: another process's stop (its user-stopped marker, which
@@ -1858,15 +1933,49 @@ public final class ConnectionManager: ObservableObject {
 
     /// The address to try after `error` (`LastKnownAddress`): only when the sign-in sent nothing and found no server by
     /// the profile's name (`hostNotFound`), when this attempt has not tried an address yet, when the profile can use
-    /// one (`LastKnownAddress.applies`), and when one is known for its destination as it is now. nil otherwise: the
+    /// one (`LastKnownAddress.host(of:store:)`), and when one is known for its destination as it is now. nil otherwise: the
     /// failure stands as it is (a sign-in by the name that ran into its time limit among them, as before #292).
+    /// OpenVPN (#298): the run's log shows that nothing reached a server (`VPNLog.credentialsSent`: no TLS session
+    /// came up) and that the only names it could not resolve are the profile's one server's
+    /// (`VPNLog.openVPNUnresolvedHosts`).
     private func lastKnownAddress(
         _ p: Profile, after error: Error, destination: ProfileDestination, progress: AttemptProgress
     ) -> LastKnownAddress.Entry? {
-        guard progress.lastKnownAddress == nil, progress.credentialsSent == false, LastKnownAddress.applies(to: p),
-            case .hostNotFound? = error as? PTError
+        guard !progress.triedKnownAddress, case .hostNotFound? = error as? PTError,
+            let host = LastKnownAddress.host(of: p, store: store)
         else { return nil }
+        if p.type == .openvpn {
+            // The whole log of the run (the helper starts every run with a new one), never only its end: a run whose
+            // log is too long to read whole never falls back.
+            guard let log = VPNLog.readWhole(store.logURL(p.id)) else { return nil }
+            let names = VPNLog.openVPNUnresolvedHosts(log)
+            guard !VPNLog.credentialsSent(log), !names.isEmpty, names.allSatisfy({ $0.lowercased() == host }) else { return nil }
+        } else if progress.credentialsSent != false {
+            return nil
+        }
         return LastKnownAddress.read(p, destination: destination, store: store, droppingStale: true)
+    }
+
+    /// OpenVPN's run at the last known address is one only once the profile's record says that it was told the
+    /// address (`OpenVPNRemoteAnswer`: `remote MOD`, recorded before it was sent): then the activity says so. Told
+    /// `remote ACCEPT`, or nothing, it went (or would have gone) by the name, and is treated as a run by the name:
+    /// not marked, not explained as a try at the address, and it may learn. Once per run.
+    private func settleOpenVPNTry(_ p: Profile, progress: inout AttemptProgress) {
+        guard p.type == .openvpn, let known = progress.lastKnownAddress, !progress.openVPNTrySettled else { return }
+        progress.openVPNTrySettled = true
+        if OpenVPNRemoteAnswer.recordedAddress(p.id, store: store) == known.address {
+            record(p.id, .tryingLastKnownAddress(host: known.host, address: known.address, confirmedAt: known.confirmedAt))
+        } else {
+            progress.lastKnownAddress = nil
+        }
+    }
+
+    /// An address as `LastKnownAddress` keeps it: an IPv4 address OpenVPN reports in IPv6 form (`::ffff:192.0.2.10`)
+    /// as itself.
+    nonisolated static func plainAddress(_ address: String) -> String {
+        let trimmed = address.trimmingCharacters(in: .whitespaces)
+        if trimmed.lowercased().hasPrefix("::ffff:"), trimmed.contains(".") { return String(trimmed.dropFirst(7)) }
+        return trimmed
     }
 
     /// The reasons of a sign-in that ended at another server or another key than the profile's
@@ -1895,9 +2004,28 @@ public final class ConnectionManager: ObservableObject {
         }
     }
 
+    /// `explaining` for OpenVPN's run at the last known address `known`, which sent nothing (the caller checks):
+    /// a server there that failed the config's certificate checks (`VPNLog.openVPNPeerCheckFailure`) ends the
+    /// connect like one that could not be reached, with `certificateRefused` (the address is then forgotten).
+    nonisolated static func explainingOpenVPN(_ error: Error, triedAt known: LastKnownAddress.Entry, server: String, log: String) -> Error {
+        switch error as? PTError {
+        case .connectFailed?, .connectTimeout?:
+            guard let reason = VPNLog.openVPNPeerCheckFailure(log) else { return error }
+            return PTError.knownAddressFailed(
+                server: server,
+                tried: KnownAddressTry(address: known.address, confirmedAt: known.confirmedAt, outcome: .certificateRefused, reason: reason),
+                log: VPNLog.tail(log))
+        default:
+            return explaining(error, triedAt: known, server: server)
+        }
+    }
+
     /// Readies the attempt's second try, at `known`: the code never reached a server, so it is given back as after
-    /// any such failure (`noteFailure`) and the try takes the code of its own time; the activity says why.
-    private func tryLastKnownAddress(_ known: LastKnownAddress.Entry, of p: Profile, progress: inout AttemptProgress) {
+    /// any such failure (`noteFailure`) and the try takes the code of its own time; the activity says why (`recording`;
+    /// OpenVPN records it once the helper confirmed the question that hands OpenVPN the address).
+    private func tryLastKnownAddress(
+        _ known: LastKnownAddress.Entry, of p: Profile, progress: inout AttemptProgress, recording: Bool = true
+    ) {
         if let used = progress.usedCode, usedCode(p.id) == used.written { restoreUsedCode(p.id, used.previous) }
         progress.usedCode = nil
         progress.handed = nil
@@ -1907,10 +2035,11 @@ public final class ConnectionManager: ObservableObject {
         progress.failureReason = nil
         progress.failureDetail = nil
         progress.lastKnownAddress = known
+        progress.triedKnownAddress = true
         // The name was not found: a VPN's DNS left on the service the Mac uses is the likely reason. Said once,
         // before the try, whatever it ends with (`recordDNSNotes` does not record it again for its failure).
         recordLeftBehindDNS(p.id)
-        record(p.id, .tryingLastKnownAddress(host: known.host, address: known.address, confirmedAt: known.confirmedAt))
+        if recording { record(p.id, .tryingLastKnownAddress(host: known.host, address: known.address, confirmedAt: known.confirmedAt)) }
     }
 
     /// Keeps why the attempt failed (`failures`), records it in the activity of a session this manager
@@ -2004,12 +2133,13 @@ public final class ConnectionManager: ObservableObject {
         return port.map { "\(name):\($0)" } ?? name
     }
 
-    /// Polls until `p` is connected. When `owned` is false (a session another process started), the
+    /// Polls until `p` is connected: its tunnel address, since when, and for OpenVPN the server address its management
+    /// interface reports (empty when it gives none). When `owned` is false (a session another process started), the
     /// session is never stopped here.
     private func waitUntilConnected(
         _ p: Profile, token: Int, socketPath: String, pid: Int32?,
         owned: Bool = true
-    ) async throws -> (ip: String, since: Date?) {
+    ) async throws -> (ip: String, since: Date?, server: String?) {
         let id = p.id
         let timeout: TimeInterval
         switch p.type {
@@ -2047,7 +2177,7 @@ public final class ConnectionManager: ObservableObject {
                         throw PTError.setupFailed(reason: tunnel?.reason ?? "", log: VPNLog.tail(VPNLog.read(logURL)))
                     }
                     if let tunnel, tunnel.isUp {
-                        return (VPNLog.openConnectAddress(VPNLog.read(logURL), interface: tunnel.interface), clock.now())
+                        return (VPNLog.openConnectAddress(VPNLog.read(logURL), interface: tunnel.interface), clock.now(), nil)
                     }
                 }
             } else {
@@ -2070,7 +2200,7 @@ public final class ConnectionManager: ObservableObject {
                         // Routes and DNS are set up before CONNECTED: their errors are in the log by now.
                         try await checkSetup(p, log: VPNLog.read(logURL), owned: owned)
                         noteAccepted()
-                        return (s.localIP.isEmpty ? s.localIPv6 : s.localIP, s.since)
+                        return (s.localIP.isEmpty ? s.localIPv6 : s.localIP, s.since, s.remoteIP)
                     }
                     if s.name == "RECONNECTING" && s.detail.lowercased().contains("auth") {
                         if owned { await stopQuietly(id) }
@@ -2083,7 +2213,7 @@ public final class ConnectionManager: ObservableObject {
             case .forti:
                 if fortiIsConnected(p, log: log) {
                     noteAccepted()
-                    return (VPNLog.fortiAddress(log) ?? "", clock.now())
+                    return (VPNLog.fortiAddress(log) ?? "", clock.now(), nil)
                 }
             case .anyconnect, .globalprotect:
                 break  // above

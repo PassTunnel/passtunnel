@@ -223,3 +223,79 @@ public enum OVPNAnalyzer {
         String(token.drop(while: { $0 == "-" })).lowercased()
     }
 }
+
+extension OVPNAnalyzer {
+    /// Whether an OpenVPN config can be connected at its server's last known address when the server's name cannot
+    /// be resolved (#298, `LastKnownAddress`), and if not, why. The address replaces the name only through OpenVPN's
+    /// remote query (`remote MOD`), so it must be clear which name it stands for, that OpenVPN asks before it looks
+    /// the name up, and that the server is checked as this one server, not merely as some server of the CA:
+    /// - exactly one `remote` (any `remote-random` is then moot), outside any `<connection>` block: with several
+    ///   servers or blocks a remembered address could stand for another name than the one that failed;
+    /// - no `http-proxy` or `socks-proxy` (the name goes to the proxy, and the address OpenVPN reports is the
+    ///   proxy's), no `remote-random-hostname` (OpenVPN looks up another name than the `remote`), no `preresolve`
+    ///   (OpenVPN resolves every name before it asks, and keeps trying while the name fails) and no
+    ///   `ip-remote-hint`;
+    /// - a port given as a number (a service name such as `https` is not answered with an address) and a host short
+    ///   enough that OpenVPN's question about it is never cut (`maxHostBytes`);
+    /// - an identity of this server that holds at any address: `verify-x509-name <name>` with type `subject` (the
+    ///   default) or `name`, or a pinned `peer-fingerprint` (a directive or an inline block). `remote-cert-tls` and
+    ///   `remote-cert-eku` only say that the peer is *a* server of the CA, which another server of that CA at an
+    ///   address that has moved on would be too, and `name-prefix` matches other names; without such an identity
+    ///   the config keeps failing with the name.
+    /// The identity and the `remote` are read as OpenVPN applies them (`OVPNSanitizer.appliedOptions`: exact,
+    /// case-sensitive names), so a spelling OpenVPN ignores or refuses never counts; the exclusions are also matched
+    /// loosely (lowercased, any leading dashes), so a doubtful spelling only ever excludes. Whether the host is a name
+    /// and not an IP address is the caller's to check (`LastKnownAddress`).
+    public enum KnownAddressFit: Equatable, Sendable {
+        /// The one server, as `servers` reads it.
+        case fits(Server)
+        case noRemote
+        case severalRemotes
+        case connectionBlocks
+        case proxy
+        case randomHostname
+        case resolvesFirst
+        case portNotNumeric
+        case hostTooLong
+        case noPeerIdentity
+    }
+
+    /// The longest host for which OpenVPN's question (`>REMOTE:<host>,<port>,<proto>`, written into a 256-byte
+    /// buffer) is never cut: 8 + host + 1 + 5 + 1 + 11 (`tcp6-client`) bytes leave 229; kept well below.
+    public static let maxHostBytes = 200
+
+    /// See `KnownAddressFit`.
+    public static func knownAddressFit(_ text: String) -> KnownAddressFit {
+        let applied = OVPNSanitizer.appliedOptions(of: text)
+        var identity = applied.blockTags.contains("peer-fingerprint")
+        var exactRemotes: [[String]] = []
+        for (words, _) in applied.options {
+            switch words[0] {
+            case "remote" where (2...4).contains(words.count): exactRemotes.append(words)
+            case "verify-x509-name" where words.count == 2 || (words.count == 3 && ["subject", "name"].contains(words[2])):
+                identity = true
+            case "peer-fingerprint" where words.count >= 2: identity = true
+            default: break
+            }
+        }
+        var loose: Set<String> = []
+        var blocks = false
+        for line in scan(text) {
+            switch line.item {
+            case .block(let tag): if tag == "connection" { blocks = true }
+            case .directive(let words, _): loose.insert(words[0])
+            }
+        }
+        let all = servers(text)
+        guard let server = all.first, let remote = exactRemotes.first else { return .noRemote }
+        if blocks || applied.options.contains(where: \.inConnection) { return .connectionBlocks }
+        if all.count > 1 || exactRemotes.count > 1 || remote[1] != server.host { return .severalRemotes }
+        if !loose.isDisjoint(with: ["http-proxy", "socks-proxy"]) { return .proxy }
+        if loose.contains("remote-random-hostname") { return .randomHostname }
+        if !loose.isDisjoint(with: ["preresolve", "ip-remote-hint"]) { return .resolvesFirst }
+        guard let port = Int(server.port), (1...65535).contains(port), String(port) == server.port else { return .portNotNumeric }
+        if server.host.utf8.count > maxHostBytes { return .hostTooLong }
+        if !identity { return .noPeerIdentity }
+        return .fits(server)
+    }
+}

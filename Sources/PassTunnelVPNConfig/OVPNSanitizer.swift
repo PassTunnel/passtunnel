@@ -341,6 +341,44 @@ public enum OVPNSanitizer {
 
     /// Calls `body` with the tokens of every directive line outside verbatim inline blocks (lines in a
     /// `<connection>` block count), without a `setenv opt` prefix (in any case) unless `keepSetenvOpt`.
+    /// What OpenVPN 2.7 applies from a config, read as it reads it: each option line as `openVPNOption` gives it
+    /// (one leading `--` removed, one exact `setenv opt` removed, names case-sensitive, so a misspelt name, which
+    /// OpenVPN refuses or, after `setenv opt` or when `ignore-unknown-option` lists it, ignores, never matches a
+    /// real option name), with whether it is inside a `<connection>` block; and the tags of the inline blocks
+    /// (`peer-fingerprint` for `<peer-fingerprint>`), exactly as written after one leading `--`.
+    public struct AppliedOptions: Equatable, Sendable {
+        public var options: [(words: [String], inConnection: Bool)]
+        public var blockTags: [String]
+
+        public static func == (a: AppliedOptions, b: AppliedOptions) -> Bool {
+            a.blockTags == b.blockTags && a.options.map(\.words) == b.options.map(\.words)
+                && a.options.map(\.inConnection) == b.options.map(\.inConnection)
+        }
+    }
+
+    /// See `AppliedOptions`.
+    public static func appliedOptions(of text: String) -> AppliedOptions {
+        var result = AppliedOptions(options: [], blockTags: [])
+        var block: (tag: String, verbatim: Bool)?
+        for (index, line) in splitLines(text).enumerated() {
+            var content = line.content
+            if index == 0, content.hasPrefix("\u{FEFF}") { content.removeFirst() }
+            if let b = block {
+                if isBlockEnd(content, tag: b.tag) { block = nil; continue }
+                if b.verbatim { continue }
+            }
+            guard case .success(let tokens) = tokenize(content), !tokens.isEmpty else { continue }
+            if tokens.count == 1, let tag = blockTag(tokens[0]) {
+                block = (tag: tag, verbatim: normalize(tag) != "connection")
+                result.blockTags.append(tag)
+                continue
+            }
+            guard let option = openVPNOption(tokens) else { continue }
+            result.options.append((words: option, inConnection: block != nil))
+        }
+        return result
+    }
+
     static func forEachDirective(in text: String, keepSetenvOpt: Bool = false, _ body: ([String]) -> Void) {
         var block: (tag: String, verbatim: Bool)?
         for (index, line) in splitLines(text).enumerated() {

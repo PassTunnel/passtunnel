@@ -7,6 +7,10 @@ import PassTunnelVPNConfig
 /// only kept so protocol-1 payloads decode. `configSHA256` is the hex SHA-256 of the exact config.ovpn
 /// the app checked (`ProfileDestination`): the helper refuses to start any other file
 /// (`HelperResponse.ErrorCode.configChanged`). Optional, so requests of older apps still decode.
+/// `queryRemote` (#298): OpenVPN is started with `--management-query-remote`, so a management client chooses the
+/// server address of each try (`ConnectionManager`: the server's last known address, after its name was not found).
+/// A flag only: no text of the request reaches OpenVPN's command line. Optional; a helper that does not know it
+/// ignores it and does not confirm it (`HelperResponse.remoteQuery`).
 public struct OpenVPNStart: Codable, Equatable, CustomStringConvertible, CustomDebugStringConvertible,
     CustomReflectable
 {
@@ -17,10 +21,12 @@ public struct OpenVPNStart: Codable, Equatable, CustomStringConvertible, CustomD
     public var secret: String?
     public var logPath: String
     public var configSHA256: String?
+    public var queryRemote: Bool?
 
     public init(
         profileID: String, profileDir: String, mgmtPort: Int? = nil,
-        username: String? = nil, secret: String? = nil, logPath: String, configSHA256: String? = nil
+        username: String? = nil, secret: String? = nil, logPath: String, configSHA256: String? = nil,
+        queryRemote: Bool? = nil
     ) {
         self.profileID = profileID
         self.profileDir = profileDir
@@ -29,17 +35,18 @@ public struct OpenVPNStart: Codable, Equatable, CustomStringConvertible, CustomD
         self.secret = secret
         self.logPath = logPath
         self.configSHA256 = configSHA256
+        self.queryRemote = queryRemote
     }
 
     enum CodingKeys: String, CodingKey {
         case profileID = "profile_id", profileDir = "profile_dir", mgmtPort = "mgmt_port"
-        case username, secret, logPath = "log_path", configSHA256 = "config_sha256"
+        case username, secret, logPath = "log_path", configSHA256 = "config_sha256", queryRemote = "query_remote"
     }
 
     public var description: String {
         "OpenVPNStart(profileID: \(profileID), profileDir: \(profileDir), "
             + "username: \(username ?? "nil"), secret: \(secret == nil ? "nil" : "<redacted>"), logPath: \(logPath), "
-            + "configSHA256: \(configSHA256 ?? "nil"))"
+            + "configSHA256: \(configSHA256 ?? "nil"), queryRemote: \(queryRemote.map(String.init) ?? "nil"))"
     }
     public var debugDescription: String { description }
 
@@ -50,7 +57,7 @@ public struct OpenVPNStart: Codable, Equatable, CustomStringConvertible, CustomD
             children: [
                 "profileID": profileID, "profileDir": profileDir, "username": username as Any,
                 "secret": secret == nil ? "nil" : "<redacted>", "logPath": logPath,
-                "configSHA256": configSHA256 as Any
+                "configSHA256": configSHA256 as Any, "queryRemote": queryRemote as Any
             ])
     }
 }
@@ -326,6 +333,9 @@ public struct HelperResponse: Codable, Equatable {
     public var helperBuild: Int?
     /// `status`: profile ID → the network of the caller's own openconnect sessions (`TunnelStatus`).
     public var tunnels: [String: TunnelStatus]?
+    /// `startOpenVPN` with `query_remote` (#298): true when OpenVPN was started with `--management-query-remote`.
+    /// A helper that predates the flag leaves it out (and started OpenVPN without it).
+    public var remoteQuery: Bool?
 
     public enum ErrorCode {
         /// config.ovpn is not the file the app checked (`OpenVPNStart.configSHA256`). Not retryable:
@@ -335,7 +345,7 @@ public struct HelperResponse: Codable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case ok, error, errorCode = "error_code", pid, running, mgmtSocket = "mgmt_socket", mgmtSockets = "mgmt_sockets"
-        case helperBuild = "helper_build", tunnels
+        case helperBuild = "helper_build", tunnels, remoteQuery = "remote_query"
     }
 
     public init(
@@ -356,6 +366,14 @@ public struct HelperResponse: Codable, Equatable {
     ) -> HelperResponse {
         var response = HelperResponse(ok: true, pid: pid, running: running, mgmtSocket: mgmtSocket, mgmtSockets: mgmtSockets)
         response.tunnels = tunnels
+        return response
+    }
+
+    /// The reply to a start that launched `pid`: its management socket (OpenVPN) and whether OpenVPN asks for
+    /// each try's server (`remoteQuery`, left out when it does not).
+    public static func started(pid: Int32, mgmtSocket: String?, remoteQuery: Bool) -> HelperResponse {
+        var response = success(pid: pid, mgmtSocket: mgmtSocket)
+        if remoteQuery { response.remoteQuery = true }
         return response
     }
 

@@ -64,7 +64,13 @@ One binary, two modes:
      name stays a timeout with its code spent. A name not found after the sign-in went out is
      `hostNotFoundAfterSignIn`, shown with its own message (sign-in sent, code used up, the name), never a rejection,
      never retried.
-     FortiGate and OpenVPN have no such fallback.
+     OpenVPN (#298), for a config with one `remote` host name, no `<connection>` block or proxy, and an explicit
+     identity of that server (`verify-x509-name` with a name or subject, or `peer-fingerprint`; `remote-cert-tls`
+     alone is not one), a numeric port and no `preresolve`: a run
+     whose log shows only that name not resolved and no TLS session is followed by one run the helper starts with
+     `--management-query-remote` (`OpenVPNStart.queryRemote`); every management client answers `remote MOD <address>
+     <port>` for that name (`OpenVPNRemoteAnswer`), and the config's checks stay as they are. FortiGate has no such
+     fallback.
   5. any failure is kept typed in `failures[id]` (`ConnectionFailure`: kind, the server's reply, the tool's
      reason, whether the sign-in reached the server — the TLS session came up — and whether a code went
      with it and with how many seconds left, tries); a cancelled attempt too, though it sets no
@@ -383,7 +389,7 @@ The main window (`MainSplitView`, decision D-23) is a `NavigationSplitView`, abo
   experimental" and the same link (`ExperimentalReportRow`). A connected profile whose gateway asked for a host
   information report shows the notice under the status line (`StatusNoticeRow`, `ConnectionManager.notices`, read
   again only when the log or the activity changes): "The gateway asked for a host information report, which PassTunnel
-  does not send. Access may be limited." A Cisco AnyConnect or Palo Alto GlobalProtect connection made at the server's
+  does not send. Access may be limited." A Cisco AnyConnect, Palo Alto GlobalProtect or OpenVPN connection made at the server's
   last known address shows "The server’s name could not be found when connecting, so its last known address was used.
   This network’s DNS may not be working." the same way; a failed try there shows, on the `host_not_found` card, which
   address, confirmed when, was tried and what happened (`KnownAddressTry.addressSentences`; the status line says that
