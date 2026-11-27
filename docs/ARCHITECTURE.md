@@ -36,7 +36,10 @@ signed code (`PinnedTools`, below). The tools are not signed again afterwards (t
 cdhashes); the script checks that each bundled tool's and dylib's cdhashes are in the pins and in the
 `PassTunnelHelper` binary, and a signed (non-ad-hoc) build fails when `openvpn`, `openfortivpn`,
 `openconnect` or any bundled dylib has no pin (or there is no dylib at all).
-A bundle without `dns-updown` pins an empty set for it, so the helper refuses any `dns-updown`.
+A bundle without `dns-updown` pins an empty set for it, so the helper refuses any `dns-updown`, and with no
+script to stage every OpenVPN start fails ("DNS script (macOS)" below). So only an ad-hoc build may lack it
+(`bundle-tools.sh` warns): a signed build (`build-app.sh --sign`) fails without it, and `release.sh` checks the
+built app again.
 
 **Minimum macOS of the tools.** Homebrew's bottles are built for the release runner's macOS
 (`minos 26.0`), above the app's minimum (`LSMinimumSystemVersion`, 13.0). dyld does not refuse a binary
@@ -1197,6 +1200,22 @@ Security rules (helper):
     the same log (openfortivpn a gateway's prompts; OpenVPN starts each of its lines with a timestamp, but a
     message that holds a line break could start a line), so a line in between that reads like a note never
     counts.
+  - *Where it is copied from (#309).* At every OpenVPN start, `HelperCore.stageDNSScript` asks
+    `dnsUpdownSource` for the script's path; the helper answers with `HelperBundle.currentDNSUpdownPath`, built
+    from the kernel's current path of its own executable (`proc_pidpath`, which follows a rename of the
+    bundle). It used to be worked out once when the helper started: an app moved while its helper ran (from
+    Downloads into Applications) left the helper with a path where nothing was, and the copy's `open` failed
+    with `ENOENT`, which was taken for "no script bundled": OpenVPN ran with `--dns-updown disable`, so a
+    server's pushed `dhcp-option DNS`/`DOMAIN` were never applied (with `redirect-gateway` every lookup stayed
+    with the Mac's own servers). Now a script that is not there (`ENOENT`, `ENOTDIR`) fails the start with
+    `Failure.dnsScriptMissing` ("OpenVPN's DNS script is missing (…), so the VPN's DNS servers could not be
+    set; OpenVPN was not started. …"), as does a path the helper cannot tell or that is not absolute; the
+    session directory is removed and the app shows the message as the failed connect. Failing was chosen over
+    connecting without DNS: such a session looks connected while names on the VPN do not resolve and lookups
+    leave outside the tunnel. Only a `HelperCore` given no `dnsUpdownSource` at all runs OpenVPN without a
+    script (`--script-security 1 --dns-updown disable`): `swift test`, and the Linux daemon, which is its own
+    hook (`linkDNSHook`). The tools are staged from the bundle's current place too
+    (`Supervisor`, `HelperBundle.currentContentsDir`; the path from the helper's start when that cannot be told).
   - *For OpenVPN upstream:* a fixed `PATH` in the script; keeping `updown` across a `PUSH_UPDATE` and
     running the dns-down of the old values before replacing them; the lock in `/var/lock`, which the script
     creates mode 1777 (29–33), so any local user can hold `openvpn-dns-updown.lock` with the pid of a live
@@ -3457,6 +3476,31 @@ In dependency order, mirroring Phase 1's #179–#189; nothing replaces #179 (the
   job, the cases above; the manual check against a real gateway. Needs G4, G7.
 - **G9** `docs: Palo Alto GlobalProtect support (experimental)`: README, APP.md, the website's feature list, each
   marked experimental with the request for reports, and the issue template `globalprotect_report.md`. Last.
+
+## Code-only profiles
+
+A profile of type `code` (`VPNType.code`, "Code only") has no VPN: it only shows the one-time code of its TOTP
+secret, as an authenticator app does, in the window, the menu bar panel, Copy Code and Type Code, and with
+`passtunnel code`. It is an ordinary profile in every other way: stored in `profile.json`, its secret in the Keychain
+item `<id>/totp` (encrypted with "Require Touch ID before showing the code", `require_auth` `always`), listed,
+shared (`.passtunnel` version 2, so a reader that does not know the type refuses it instead of misreading it) and
+deleted like the others.
+
+- **Settings.** `Profile.normalizeCodeOnly` gives it the only settings it has: `otp_mode` `totp`, `password_mode`
+  `none`, no user name, `require_auth` `connect` turned off (there is nothing to confirm before connecting; `always`
+  stays), and no session limit, auto-reconnect, connect at login or health check. `ProfileStore.create`, `save` and
+  `update` apply it, so a hand-edited file or an older editor cannot give it a password. `ProfileFields` takes only
+  `name`, `badge`, `icon`, `badge_style`, `pinned`, `order`, `digits`, `period`, `algorithm` and `require_auth` (not
+  `connect`) for it; every other key is `wrong_profile_type`.
+- **Never connected.** `ConnectionManager.checkConnectable` throws `PTError.codeOnlyProfile` for it, on every system,
+  before any secret is read, any confirmation is asked or the helper is asked anything: the app, the CLI and the MCP
+  server all go through it. `connectRefusal(.code)` is nil on purpose, because the front ends read a refusal as "this
+  system cannot use the profile" and would hide its code. `VPNType.connectable` leaves the type out; the app's
+  `editableTypes` is every type. The switches over `VPNType` in the connect path (`resolveCredentials`, the start
+  request, the wait, `observe`) throw the same error or report it disconnected, as a second guard;
+  `ProfileDestination` has no host and `ProfileNetwork` no claims for it.
+- **Status.** `DisplayStatus.codeOnly` ("Code only"; the detail's line "Code only · no VPN to connect") wins over every
+  other fact; `allowsAction` is false, so ⌘↩ and a double click do nothing, and the detail has no Connect button.
 
 ## Rules for all code
 

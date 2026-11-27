@@ -34,11 +34,12 @@ public struct ShareFile: Codable {
     }
 
     /// The version a file with a profile of `type` is written as: the first one whose readers do not misread it.
-    /// Palo Alto GlobalProtect is version 2 too: every reader of version 2 refuses a type it does not know.
+    /// Palo Alto GlobalProtect and code-only profiles are version 2 too: every reader of version 2 refuses a type it
+    /// does not know.
     public static func version(for type: VPNType) -> Int {
         switch type {
         case .openvpn, .forti: return 1
-        case .anyconnect, .globalprotect: return 2
+        case .anyconnect, .globalprotect, .code: return 2
         }
     }
 

@@ -247,7 +247,7 @@ public enum CLICommand: Equatable {
         case "add":
             let json = a.flag("--json")
             guard let typeText = try a.option("--type", "-t") else {
-                throw CLIUsageError(String(localized: "Missing --type openvpn|forti|anyconnect|globalprotect."), command: name)
+                throw CLIUsageError(String(localized: "Missing --type openvpn|forti|anyconnect|globalprotect|code."), command: name)
             }
             let type: VPNType
             switch typeText.lowercased() {
@@ -255,9 +255,11 @@ public enum CLICommand: Equatable {
             case "forti", "fortigate": type = .forti
             case "anyconnect": type = .anyconnect
             case "globalprotect": type = .globalprotect
+            case "code": type = .code
             default:
                 throw CLIUsageError(
-                    String(localized: "Unknown VPN type “\(typeText)” (use openvpn, forti, anyconnect or globalprotect)."), command: name)
+                    String(localized: "Unknown profile type “\(typeText)” (use openvpn, forti, anyconnect, globalprotect or code)."),
+                    command: name)
             }
             let serverText = try a.option("--server")
             try a.rejectUnknownOptions()
@@ -284,7 +286,7 @@ public enum CLICommand: Equatable {
                             ), command: name)
                     }
                     server = AnyConnectServer(host: parsed.host, port: parsed.port)
-                case .openvpn, .forti:
+                case .openvpn, .forti, .code:
                     throw CLIUsageError(
                         String(
                             localized: "--server is for Cisco AnyConnect and Palo Alto GlobalProtect profiles (--type anyconnect or globalprotect)."),

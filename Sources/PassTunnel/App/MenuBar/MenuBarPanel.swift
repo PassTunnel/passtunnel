@@ -191,20 +191,27 @@ struct MenuBarPanel: View {
                     PanelStatusText(status: status, now: now)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                if on || status.allowsAction { PanelCode(profile: p, now: now) }
-                PanelSwitch(isOn: on, enabled: on || status.allowsAction)
+                if on || status.allowsAction || p.type.isCodeOnly { PanelCode(profile: p, now: now) }
+                // A code-only profile has nothing to switch on: a click copies its code instead.
+                if !p.type.isCodeOnly { PanelSwitch(isOn: on, enabled: on || status.allowsAction) }
             }
             .padding(.vertical, 5)
         }
         .id(PanelItem.profile(p.id))
         .accessibilityRepresentation {
-            Toggle(isOn: Binding(get: { on }, set: { _ in toggle(p) })) {
-                Text(on ? String(localized: "Disconnect \(p.name)") : String(localized: "Connect \(p.name)"))
+            if p.type.isCodeOnly {
+                Button(String(localized: "Copy code of \(p.name)")) { toggle(p) }
+                    .accessibilityHint(Text(hint(p, status)))
+                    .accessibilityIdentifier(PanelItem.profile(p.id).identifier)
+            } else {
+                Toggle(isOn: Binding(get: { on }, set: { _ in toggle(p) })) {
+                    Text(on ? String(localized: "Disconnect \(p.name)") : String(localized: "Connect \(p.name)"))
+                }
+                .toggleStyle(.switch)
+                .disabled(!on && !status.allowsAction)
+                .accessibilityHint(Text(hint(p, status)))
+                .accessibilityIdentifier(PanelItem.profile(p.id).identifier)
             }
-            .toggleStyle(.switch)
-            .disabled(!on && !status.allowsAction)
-            .accessibilityHint(Text(hint(p, status)))
-            .accessibilityIdentifier(PanelItem.profile(p.id).identifier)
         }
     }
 
@@ -283,6 +290,11 @@ struct MenuBarPanel: View {
     }
 
     private func toggle(_ p: Profile) {
+        if p.type.isCodeOnly {
+            window.dismiss()
+            model.copyCode(p)
+            return
+        }
         if isOn(p) {
             model.disconnect(p)
             return

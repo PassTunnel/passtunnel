@@ -66,7 +66,7 @@ human confirmation, and a script cannot answer it.
 
 | Code | When |
 |---|---|
-| `invalid_argument` | Bad command line, invalid profile id or value, no default profile and no id given, `secret` with an empty value |
+| `invalid_argument` | Bad command line, invalid profile id or value, no default profile and no id given, `secret` with an empty value, `connect` or `toggle` of a code-only profile |
 | `profile_not_found` | No such profile, or no profiles at all |
 | `not_connected` | The profile is not connected (test hooks) |
 | `input_required` | No terminal or `--no-input`, and the profile asks for a user name, password or code on every connect, or `rm` without `--yes`; `secret` with `--no-input` |
@@ -112,8 +112,8 @@ From `list`, `add`, `import`, `pin`, `unpin` and the MCP tool `list_profiles`.
 }
 ```
 
-`protected`: connecting asks for Touch ID or the Mac password. `type`: `openvpn`, `forti`, `anyconnect` or
-`globalprotect`.
+`protected`: connecting asks for Touch ID or the Mac password. `type`: `openvpn`, `forti`, `anyconnect`,
+`globalprotect` or `code`.
 `password_mode`: `keychain`, `ask` or `none`; `otp_mode`: `none`, `totp` or `ask`; `require_auth`:
 `off`, `connect` or `always`. `connect_at_login`: the app connects the profile when it opens at login
 (one that asks first gets a notification instead). The MCP tool adds `state` (as in ProfileStatus); `list` does not ask
@@ -153,6 +153,13 @@ later.` on an older macOS, and on Linux, until `passtunneld` runs it, the `confi
 newer PassTunnel. `set` and `show` take its keys (`gateway`, `skip_portal`, `server_cert`, `gateway_server_cert`,
 `tls_only`, and the keys every type has), and `add --type globalprotect [--server URL]` creates one
 ([GlobalProtect profiles](#palo-alto-globalprotect-profiles)).
+
+A code-only profile (`"type" : "code"`) has no VPN, only the one-time code of a TOTP secret: `password_mode`
+`none`, `otp_mode` `totp`, `state` always `disconnected`, and no `connect_refusal` (its code works). `code` prints its
+code; `connect`, `toggle` and the MCP server's `connect` refuse it with `invalid_argument` ("Profile “github” only shows
+a one-time code. It has no VPN to connect.") before anything is asked or read. `set` and `show` take only `name`,
+`badge`, `icon`, `badge_style`, `pinned`, `order`, `digits`, `period`, `algorithm` and `require_auth` (`off` or
+`always`); any other key is `wrong_profile_type`. `add --type code` creates one.
 
 GlobalProtect ships labelled experimental, and its profile objects say so: `"experimental" : true` in ProfileSummary,
 [ProfileStatus](#profilestatus), the `profile` object of `show` (and `set --json`) and the per-profile objects of
@@ -564,7 +571,7 @@ the ones you do not know.
 | `list` | array of ProfileSummary |
 | `show ID` | `{"profile": {…settings…}, "is_default", "password_saved", "totp_saved", "password_encrypted", "totp_encrypted", "config_file", "remote", "connect_refusal"}` (a Cisco AnyConnect profile's settings also have `usergroup`, `authgroup`, `server_cert` and `tls_only`, a Palo Alto GlobalProtect profile's `gateway`, `skip_portal`, `server_cert`, `gateway_server_cert` and `tls_only`, and `experimental` : true; `connect_refusal` only where this system cannot connect it) |
 | `set ID key=value…` | the `show` object after the change |
-| `add NAME --type T [--server URL]` | ProfileSummary of the new profile. `T`: `openvpn`, `forti`, `anyconnect` or `globalprotect`; `--server https://vpn.example.com[:port][/usergroup]` (Cisco AnyConnect) sets `host`, `port` and `usergroup`, and `--server [https://]vpn.example.com[:port]` (Palo Alto GlobalProtect, no path) sets `host` and `port`; an address that is not one (another scheme, user info, a query or fragment, a bad port, a path that is not a user group, any path for GlobalProtect) is a usage error that never repeats the value. Where the type cannot connect (Cisco AnyConnect and Palo Alto GlobalProtect on a macOS older than 15.4) it fails with its `config_invalid` error and creates nothing. For GlobalProtect the summary has `experimental` : true, and (human output only) one line on standard error asks for reports |
+| `add NAME --type T [--server URL]` | ProfileSummary of the new profile. `T`: `openvpn`, `forti`, `anyconnect`, `globalprotect` or `code` (a code-only profile: no VPN, only its one-time code); `--server https://vpn.example.com[:port][/usergroup]` (Cisco AnyConnect) sets `host`, `port` and `usergroup`, and `--server [https://]vpn.example.com[:port]` (Palo Alto GlobalProtect, no path) sets `host` and `port`; an address that is not one (another scheme, user info, a query or fragment, a bad port, a path that is not a user group, any path for GlobalProtect) is a usage error that never repeats the value. Where the type cannot connect (Cisco AnyConnect and Palo Alto GlobalProtect on a macOS older than 15.4) it fails with its `config_invalid` error and creates nothing. For GlobalProtect the summary has `experimental` : true, and (human output only) one line on standard error asks for reports |
 | `import FILE` | ProfileSummary of the new profile with `skipped` (below) |
 | `export ID [-o FILE]` | `{"id": "work", "path": "/Users/alice/work.passtunnel"}` |
 | `rm ID --yes` | `{"id": "work", "deleted": true}` |

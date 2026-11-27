@@ -148,7 +148,7 @@ final class GlobalProtectCLITests: CoreTestCase {
 
     func testUsageAndCompletionNameTheType() {
         let usage = CLIHelp.usage(for: "add")
-        XCTAssertTrue(usage.contains("--type openvpn|forti|anyconnect|globalprotect [--server URL]"), usage)
+        XCTAssertTrue(usage.contains("--type openvpn|forti|anyconnect|globalprotect|code [--server URL]"), usage)
         XCTAssertTrue(usage.contains("Palo Alto GlobalProtect"), usage)
         for shell in CLICommand.Shell.allCases {
             XCTAssertTrue(CLICompletions.script(for: shell).contains("globalprotect"), "\(shell)")

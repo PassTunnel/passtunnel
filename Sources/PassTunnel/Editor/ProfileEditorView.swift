@@ -210,6 +210,7 @@ struct ProfileEditorView: View {
             case .forti: fortiRows
             case .anyconnect: anyConnectRows
             case .globalprotect: globalProtectRows
+            case .code: EmptyView()  // no server: the code card below is the whole profile
             }
 
             if model.usesCredentials {
@@ -225,8 +226,10 @@ struct ProfileEditorView: View {
                 .id(Self.anchor(.username))
             }
 
-            EditorRow(Text("Password")) { passwordContent }
-                .id(Self.anchor(.password))
+            if !p.type.isCodeOnly {
+                EditorRow(Text("Password")) { passwordContent }
+                    .id(Self.anchor(.password))
+            }
         }
     }
 
@@ -546,7 +549,7 @@ struct ProfileEditorView: View {
     private var codeCard: some View {
         EditorCard(spacing: 6) {
             EditorRow(Text("One-time code")) { codeSummary }
-            if model.usesCredentials {
+            if model.usesCode {
                 EditorRow(nil) {
                     // One row when the three fit (they do not in every language), else the scan on a row of its own.
                     ViewThatFits(in: .horizontal) {
@@ -581,8 +584,8 @@ struct ProfileEditorView: View {
                     .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [5, 4]))
             }
         }
-        .onDrop(of: [.fileURL, .image], isTargeted: model.usesCredentials ? $dropTargeted : .constant(false)) { providers in
-            guard model.usesCredentials else { return false }
+        .onDrop(of: [.fileURL, .image], isTargeted: model.usesCode ? $dropTargeted : .constant(false)) { providers in
+            guard model.usesCode else { return false }
             return ImportActions.loadImages(from: providers) { result in
                 switch result {
                 case .file(let url): model.scanImage(at: url)
@@ -612,7 +615,7 @@ struct ProfileEditorView: View {
 
     /// The secret's summary and live code, or what the profile does instead (asks, none, empty).
     @ViewBuilder private var codeSummary: some View {
-        if !model.usesCredentials {
+        if !model.usesCode {
             EditorHint("Certificate-only profiles do not use a one-time code.")
         } else if p.otpMode == .totp && (model.effectiveTOTPSecret != nil || model.storedCodeNeedsConfirmation) {
             HStack(alignment: .center, spacing: 10) {
@@ -645,7 +648,11 @@ struct ProfileEditorView: View {
             VStack(alignment: .leading, spacing: 1) {
                 switch p.otpMode {
                 case .totp:
-                    Text("Scan the QR code your VPN provider gave you").typography(.body).foregroundStyle(Palette.fg)
+                    if p.type.isCodeOnly {
+                        Text("Scan the QR code the service gave you").typography(.body).foregroundStyle(Palette.fg)
+                    } else {
+                        Text("Scan the QR code your VPN provider gave you").typography(.body).foregroundStyle(Palette.fg)
+                    }
                     if #available(macOS 14, *) {
                         EditorHint("Scan it on screen, drop a screenshot here, choose the image, or paste the secret.")
                     } else {
@@ -742,6 +749,8 @@ struct ProfileEditorView: View {
             return String(localized: "The code is sent in the gateway’s own one-time code field, after the password.")
         case .anyconnect, .globalprotect:
             return String(localized: "The code is sent as the answer to the server’s next prompt, after the password.")
+        case .code:
+            return ""  // never sent: the format card is not shown
         }
     }
 
@@ -755,25 +764,28 @@ struct ProfileEditorView: View {
                     identifier: "editor.requireAuth"
                 )
                 .disabled(p.requireAuth == .off && !model.isPreview && !model.vault.isAvailable)
-                switchDivider
+                if !p.type.isCodeOnly { switchDivider }
             }
-            EditorSwitchRow(
-                title: String(localized: "Connect at login"), isOn: $model.draft.connectAtLogin,
-                footnote: connectAtLoginFootnote, identifier: "editor.connectAtLogin")
-            switchDivider
-            EditorSwitchRow(
-                title: String(localized: "Reconnect automatically if the link drops"),
-                isOn: Binding(
-                    get: { p.autoReconnect && model.normalized.unattended },
-                    set: { model.draft.autoReconnect = $0 }),
-                footnote: model.normalized.unattended
-                    ? nil
-                    : String(
-                        localized:
-                            "Available only when PassTunnel can connect without asking you: a saved username, the password in the Keychain, and a generated code (or none)."
-                    )
-            )
-            .disabled(!model.normalized.unattended)
+            // A code-only profile never connects: only the confirmation above applies to it.
+            if !p.type.isCodeOnly {
+                EditorSwitchRow(
+                    title: String(localized: "Connect at login"), isOn: $model.draft.connectAtLogin,
+                    footnote: connectAtLoginFootnote, identifier: "editor.connectAtLogin")
+                switchDivider
+                EditorSwitchRow(
+                    title: String(localized: "Reconnect automatically if the link drops"),
+                    isOn: Binding(
+                        get: { p.autoReconnect && model.normalized.unattended },
+                        set: { model.draft.autoReconnect = $0 }),
+                    footnote: model.normalized.unattended
+                        ? nil
+                        : String(
+                            localized:
+                                "Available only when PassTunnel can connect without asking you: a saved username, the password in the Keychain, and a generated code (or none)."
+                        )
+                )
+                .disabled(!model.normalized.unattended)
+            }
         }
     }
 
@@ -797,7 +809,12 @@ struct ProfileEditorView: View {
 
     /// "Require Touch ID before connecting", or the Mac password on a Mac without Touch ID.
     private var requireAuthTitle: String {
-        ConfirmationWording.hasTouchID
+        if p.type.isCodeOnly {
+            return ConfirmationWording.hasTouchID
+                ? String(localized: "Require Touch ID before showing the code")
+                : String(localized: "Require your Mac password before showing the code")
+        }
+        return ConfirmationWording.hasTouchID
             ? String(localized: "Require Touch ID before connecting")
             : String(localized: "Require your Mac password before connecting")
     }
@@ -819,6 +836,11 @@ struct ProfileEditorView: View {
                 localized:
                     "The TOTP secret is encrypted with a key in this Mac’s Secure Enclave. PassTunnel asks for Touch ID or your Mac password before it connects or shows the code."
             )
+        case .always where p.type.isCodeOnly:
+            return String(
+                localized:
+                    "The TOTP secret is encrypted. PassTunnel asks for Touch ID or your Mac password before it shows, copies or types the code; codes stay hidden until you confirm."
+            )
         case .always:
             return String(
                 localized:
@@ -832,8 +854,9 @@ struct ProfileEditorView: View {
     private var advanced: some View {
         DisclosureGroup(isExpanded: $showAdvanced) {
             VStack(alignment: .leading, spacing: Spacing.s) {
-                advancedSection(String(localized: "Sign-in")) { advancedSignIn }
-                advancedSection(String(localized: "Connection")) { advancedConnection }
+                advancedSection(p.type.isCodeOnly ? String(localized: "One-time code") : String(localized: "Sign-in")) { advancedSignIn }
+                // A code-only profile has no session, health check or configuration.
+                if !p.type.isCodeOnly { advancedSection(String(localized: "Connection")) { advancedConnection } }
                 advancedSection(String(localized: "Menu bar")) { advancedMenuBar }
             }
             .padding(.top, Spacing.xs)
@@ -881,15 +904,17 @@ struct ProfileEditorView: View {
             }
         }
 
-        EditorRow(Text("Password")) {
-            Picker("Password", selection: $model.draft.passwordMode) {
-                ForEach(model.passwordModes, id: \.self) { mode in
-                    Text(Self.passwordModeName(mode)).tag(mode)
+        if !p.type.isCodeOnly {
+            EditorRow(Text("Password")) {
+                Picker("Password", selection: $model.draft.passwordMode) {
+                    ForEach(model.passwordModes, id: \.self) { mode in
+                        Text(Self.passwordModeName(mode)).tag(mode)
+                    }
                 }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .fixedSize()
             }
-            .pickerStyle(.menu)
-            .labelsHidden()
-            .fixedSize()
         }
 
         if model.usesCredentials {
@@ -905,7 +930,7 @@ struct ProfileEditorView: View {
             }
         }
 
-        if model.usesCredentials && p.otpMode == .totp {
+        if model.usesCode && p.otpMode == .totp {
             EditorRow(Text("Secret")) {
                 TextField("Secret", text: $model.totpInput, prompt: Text("Paste the secret or an otpauth:// link"))
                     .focused($focus, equals: .totpSecret)
@@ -1088,7 +1113,7 @@ struct ProfileEditorView: View {
         switch type {
         case .openvpn: return "OpenVPN"  // product names stay untranslated
         case .forti: return "FortiGate SSL VPN"
-        case .anyconnect, .globalprotect: return type.displayName
+        case .anyconnect, .globalprotect, .code: return type.displayName
         }
     }
 

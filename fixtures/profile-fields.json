@@ -1199,6 +1199,90 @@
         "kind": "wrong_profile_type",
         "detail": "acme"
       }
+    },
+    {
+      "type": "code",
+      "key": "digits",
+      "value": "8",
+      "canonical_key": "digits",
+      "stored": "8"
+    },
+    {
+      "type": "code",
+      "key": "totp.algorithm",
+      "value": "SHA-256",
+      "canonical_key": "algorithm",
+      "stored": "sha256"
+    },
+    {
+      "type": "code",
+      "key": "require_auth",
+      "value": "always",
+      "canonical_key": "require_auth",
+      "stored": "always"
+    },
+    {
+      "note": "a code-only profile never connects: nothing to confirm before connecting",
+      "type": "code",
+      "key": "require_auth",
+      "value": "connect",
+      "error": {
+        "kind": "invalid_field",
+        "detail": "require_auth"
+      }
+    },
+    {
+      "type": "code",
+      "key": "name",
+      "value": "GitHub",
+      "canonical_key": "name",
+      "stored": "GitHub"
+    },
+    {
+      "note": "a code-only profile has no user name, password or server",
+      "type": "code",
+      "key": "username",
+      "value": "alice",
+      "error": {
+        "kind": "wrong_profile_type",
+        "detail": "acme"
+      }
+    },
+    {
+      "type": "code",
+      "key": "password_mode",
+      "value": "keychain",
+      "error": {
+        "kind": "wrong_profile_type",
+        "detail": "acme"
+      }
+    },
+    {
+      "type": "code",
+      "key": "otp_mode",
+      "value": "ask",
+      "error": {
+        "kind": "wrong_profile_type",
+        "detail": "acme"
+      }
+    },
+    {
+      "type": "code",
+      "key": "auto_reconnect",
+      "value": "true",
+      "error": {
+        "kind": "wrong_profile_type",
+        "detail": "acme"
+      }
+    },
+    {
+      "type": "code",
+      "key": "host",
+      "value": "vpn.example.com",
+      "error": {
+        "kind": "wrong_profile_type",
+        "detail": "acme"
+      }
     }
   ]
 }

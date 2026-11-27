@@ -733,6 +733,56 @@
         }
       }
     },
+    "Choose Code Only to just show the code, without a VPN." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VPN olmadan yalnızca kodu göstermek için Yalnızca kod’u seçin."
+          }
+        }
+      }
+    },
+    "Code only" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yalnızca kod"
+          }
+        }
+      }
+    },
+    "Code only · no VPN to connect" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yalnızca kod · bağlanacak VPN yok"
+          }
+        }
+      }
+    },
+    "Copy code of %@" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kodu kopyala: %@"
+          }
+        }
+      }
+    },
+    "Create an empty profile. --type code makes one that only shows a one-time code, without a VPN. --server https://vpn.example.com[:port][/group] fills in the server of a Cisco AnyConnect or Palo Alto GlobalProtect profile (no /group for GlobalProtect)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Boş bir profil oluşturur. --type code, VPN olmadan yalnızca tek kullanımlık kod gösteren bir profil oluşturur. --server https://vpn.example.com[:port][/grup] bir Cisco AnyConnect veya Palo Alto GlobalProtect profilinin sunucusunu doldurur (GlobalProtect için /grup yok)."
+          }
+        }
+      }
+    },
     "Gave the Mac its DNS back: %@ still had a VPN’s DNS settings" : {
       "localizations" : {
         "tr" : {
@@ -753,6 +803,96 @@
         }
       }
     },
+    "Missing --type openvpn|forti|anyconnect|globalprotect|code." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--type openvpn|forti|anyconnect|globalprotect|code eksik."
+          }
+        }
+      }
+    },
+    "New Code-Only Profile" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni Yalnızca Kod Profili"
+          }
+        }
+      }
+    },
+    "New Code-Only Profile…" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni Yalnızca Kod Profili…"
+          }
+        }
+      }
+    },
+    "Next: save the TOTP secret with “passtunnel secret %@ totp”, then “passtunnel code %@”." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sonraki adım: TOTP gizli anahtarını “passtunnel secret %@ totp” ile kaydedin, ardından “passtunnel code %@” kullanın."
+          }
+        }
+      }
+    },
+    "No TOTP secret is saved for this profile yet. Edit it to scan the QR code or paste the secret." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu profil için henüz kayıtlı bir TOTP gizli anahtarı yok. QR kodunu taramak veya gizli anahtarı yapıştırmak için profili düzenleyin."
+          }
+        }
+      }
+    },
+    "Profile “%@” only shows a one-time code. It has no VPN to connect." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” profili yalnızca tek kullanımlık kod gösterir. Bağlanacak bir VPN’i yok."
+          }
+        }
+      }
+    },
+    "Require Touch ID before showing the code" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kodu göstermeden önce Touch ID iste"
+          }
+        }
+      }
+    },
+    "Require your Mac password before showing the code" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kodu göstermeden önce Mac parolanızı iste"
+          }
+        }
+      }
+    },
+    "Scan the QR code the service gave you" : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Servisin verdiği QR kodunu tarayın"
+          }
+        }
+      }
+    },
     "The DNS of %@ still has settings OpenVPN’s DNS script left for a VPN that is not connected, without any DNS server. Restarting the Mac sets it back." : {
       "localizations" : {
         "tr" : {
@@ -763,12 +903,32 @@
         }
       }
     },
+    "The TOTP secret is encrypted. PassTunnel asks for Touch ID or your Mac password before it shows, copies or types the code; codes stay hidden until you confirm." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TOTP gizli anahtarı şifrelenir. PassTunnel kodu göstermeden, kopyalamadan veya yazmadan önce Touch ID ya da Mac parolanızla onay ister; siz onaylayana kadar kodlar gizli kalır."
+          }
+        }
+      }
+    },
     "This Mac’s DNS still points to a VPN’s DNS server (%@ on %@), which only that VPN can reach, so no name can be found. Restarting the Mac sets it back." : {
       "localizations" : {
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bu Mac’in DNS’i hâlâ bir VPN’in DNS sunucusunu gösteriyor (%2$@ üzerinde %1$@). Bu sunucuya yalnızca o VPN ulaşabildiği için hiçbir ad bulunamıyor. Mac’i yeniden başlatmak bunu eski hâline getirir."
+          }
+        }
+      }
+    },
+    "Unknown profile type “%@” (use openvpn, forti, anyconnect, globalprotect or code)." : {
+      "localizations" : {
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilinmeyen profil türü “%@” (openvpn, forti, anyconnect, globalprotect veya code kullanın)."
           }
         }
       }
@@ -1843,16 +2003,6 @@
         }
       }
     },
-    "Create an empty profile. --server https://vpn.example.com[:port][/group] fills in the server of a Cisco AnyConnect or Palo Alto GlobalProtect profile (no /group for GlobalProtect)." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Boş bir profil oluşturur. --server https://vpn.example.com[:port][/grup] bir Cisco AnyConnect veya Palo Alto GlobalProtect profilinin sunucusunu doldurur (GlobalProtect için /grup yok)."
-          }
-        }
-      }
-    },
     "DTLS" : {
       "localizations" : {
         "tr" : {
@@ -1969,16 +2119,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kullanıcı adını adrese yazmayın; Kullanıcı adı alanına girin."
-          }
-        }
-      }
-    },
-    "Missing --type openvpn|forti|anyconnect|globalprotect." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "--type openvpn|forti|anyconnect|globalprotect eksik."
           }
         }
       }
@@ -5099,16 +5239,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bilinmiyor"
-          }
-        }
-      }
-    },
-    "Unknown VPN type “%@” (use openvpn, forti, anyconnect or globalprotect)." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bilinmeyen VPN türü “%@” (openvpn, forti, anyconnect veya globalprotect kullanın)."
           }
         }
       }

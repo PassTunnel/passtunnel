@@ -39,8 +39,9 @@ A failure is the output `error`: `{"kind": "…", "detail": "…"}`, `detail` on
 Conventions: times are seconds since 1970 (fractions and negative values allowed); bytes are lower-case
 hex (`secret_hex`, `hex`) or Base64 (`binary_files`); profiles use the keys of `profile.json`
 (snake_case, see [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md), "Model"), and a profile in an output
-lists every field; `null` is "none". `type` is `openvpn`, `forti`, `anyconnect` (Cisco AnyConnect) or `globalprotect`
-(Palo Alto GlobalProtect); the keys `usergroup` and `authgroup` are a Cisco AnyConnect profile's alone, `gateway`,
+lists every field; `null` is "none". `type` is `openvpn`, `forti`, `anyconnect` (Cisco AnyConnect), `globalprotect`
+(Palo Alto GlobalProtect) or `code` (a code-only profile: no VPN, only its one-time code; it takes only `name`, `badge`,
+`icon`, `badge_style`, `pinned`, `order`, `digits`, `period`, `algorithm` and `require_auth`, never `connect`); the keys `usergroup` and `authgroup` are a Cisco AnyConnect profile's alone, `gateway`,
 `skip_portal` and `gateway_server_cert` a Palo Alto GlobalProtect profile's alone, and `server_cert` and `tls_only`
 belong to both; each is listed only for its types (a file of another type that has them decodes without them). Keys starting with `future_` stand for keys a
 newer version added ([docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md), "Keys of a newer version"): a profile in an output lists
@@ -69,7 +70,7 @@ and other control characters, line separator) are written as `\uXXXX` escapes. E
 | | `strip_credentials` | `config`, `blocks` (optional; default both) | `output`, `username`, `password`, `removed` (sorted) | `OVPNInliner.strippingCredentials` |
 | `ovpn-import.json` | `review` | `config`, `files`, `binary_files` (as `inline`) | `stored` (the config an import stores, `null` when a line blocks it), `skipped` and `blocking` (`line` of the file as given, `directive`, `text`, `reason`: a skip reason code or the sanitizer's words), `servers` (`host`, `port`, `tcp`), `certificates` (`name`, `file` or `null`), `password_mode`, `otp_mode`, `otp_delivery`, `username`, `password`, `needs`; or `error` | `OVPNImportReport.make` |
 | `share-files.json` | `decode` | `file` (the file's JSON; a string is the raw text) | `profile` (every field), `files` (name → text), or `error` | `ShareFile.decode` |
-| | `encode` | `profile` (missing fields take their defaults), `files` (name → text) | `file` (the JSON written; `files` in Base64; `passtunnel_profile` 2 for a Cisco AnyConnect or Palo Alto GlobalProtect profile, 1 otherwise) | `ShareFile.data` |
+| | `encode` | `profile` (missing fields take their defaults), `files` (name → text) | `file` (the JSON written; `files` in Base64; `passtunnel_profile` 2 for a Cisco AnyConnect, Palo Alto GlobalProtect or code-only profile, 1 otherwise) | `ShareFile.data` |
 | `slugs.json` | `make` | `profile_name`, `max_length` (optional, default 24) | `id` | `Slug.make` |
 | | `suffixed` | `base`, `n` | `id` | `Slug.suffixed` |
 | | `is_valid` | `id` | `valid` | `Slug.isValid` |

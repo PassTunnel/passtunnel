@@ -81,6 +81,7 @@ public struct ProfileStore {
             var p = Profile(id: id, name: trimmed, type: type)
             p.order = (existing.map(\.order).max() ?? -1) + 1
             p.otpDelivery = type.defaultOTPDelivery
+            p.normalizeCodeOnly()
             if let server {
                 p.host = server.host
                 p.port = server.port
@@ -91,8 +92,11 @@ public struct ProfileStore {
         }
     }
 
-    /// Writes `profile.json` (creating the directory if needed). Validates the editable fields.
-    public func save(_ p: Profile) throws {
+    /// Writes `profile.json` (creating the directory if needed). Validates the editable fields. A code-only
+    /// profile is saved with its type's settings (`Profile.normalizeCodeOnly`), whatever it was given.
+    public func save(_ profile: Profile) throws {
+        var p = profile
+        p.normalizeCodeOnly()
         try checkID(p.id)
         try checkSupported(p.id)
         guard !p.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw PTError.emptyName }
@@ -129,6 +133,7 @@ public struct ProfileStore {
             var p = try get(id)
             try change(&p)
             p.id = id
+            p.normalizeCodeOnly()  // as `save` stores it, so the caller sees what was saved
             try save(p)
             return p
         }

@@ -168,6 +168,8 @@ public struct ProfileDestination: Equatable, Sendable {
             field(OpenConnectPin.normalize(p.serverCert) ?? p.serverCert.trimmingCharacters(in: .whitespacesAndNewlines))
             field(
                 OpenConnectPin.normalize(p.gatewayServerCert) ?? p.gatewayServerCert.trimmingCharacters(in: .whitespacesAndNewlines))
+        case .code:
+            host = ""  // no server: never connected (`checkConnectable`)
         }
         return ProfileDestination(
             fingerprint: hash.finalize().map { String(format: "%02x", $0) }.joined(), host: host,
@@ -180,8 +182,9 @@ extension VPNType {
     /// `isExperimental`). Whether this system can connect one is `ConnectionManager.connectRefusal`: Cisco AnyConnect
     /// and Palo Alto GlobalProtect need macOS 15.4, and Palo Alto GlobalProtect is refused on Linux until
     /// `passtunneld` runs it (#234). The front ends offer a type to create once they edit it: the app's type lists
-    /// leave Palo Alto GlobalProtect out until its editor has the type's fields (#233).
-    public static let connectable = allCases
+    /// leave Palo Alto GlobalProtect out until its editor has the type's fields (#233). A code-only profile
+    /// (`code`) is no VPN and never connects (`ConnectionManager.checkConnectable`).
+    public static let connectable = allCases.filter { !$0.isCodeOnly }
 
     public var isConnectable: Bool { Self.connectable.contains(self) }
 }
@@ -759,6 +762,8 @@ public final class ConnectionManager: ObservableObject {
             guard let tunnel, tunnel.isUp else { return (.connecting(Phase.configuring), false) }
             let ip = VPNLog.openConnectAddress(VPNLog.read(store.logURL(p.id)), interface: tunnel.interface)
             return (.connected(ip: ip, since: connectedAt[p.id] ?? logCreated(p.id)), false)
+        case .code:
+            return (.disconnected, false)  // never connected
         }
     }
 
@@ -1001,6 +1006,7 @@ public final class ConnectionManager: ObservableObject {
         case .openvpn: return VPNLog.openVPNIsUp(log)
         case .forti: return VPNLog.fortiIsUp(log)
         case .anyconnect, .globalprotect: return VPNLog.openConnectIsUp(log)
+        case .code: return false
         }
     }
 
@@ -1137,6 +1143,8 @@ public final class ConnectionManager: ObservableObject {
                             started = try await globalProtectSignIn(
                                 p, username: creds.username ?? "", password: creds.password ?? "", otp: otp, totpSecret: creds.totpSecret,
                                 codeTime: codeTime, token: token, progress: &progress)
+                        case .code:
+                            throw PTError.codeOnlyProfile(id)  // refused before any secret was read (`checkConnectable`)
                         }
                     } catch {
                         guard actionToken[id] == token, let known = lastKnownAddress(p, after: error, destination: destination, progress: progress)
@@ -1566,7 +1574,7 @@ public final class ConnectionManager: ObservableObject {
     /// 9.11 before any code is used (`PTError.globalProtectToolUnavailable`), as `passtunneld` checks it again.
     public nonisolated static func connectRefusal(_ type: VPNType, macOS: OperatingSystemVersion? = currentMacOS) -> PTError? {
         switch type {
-        case .openvpn, .forti:
+        case .openvpn, .forti, .code:
             return nil
         case .anyconnect:
             return openConnectMinimum(macOS).map(PTError.anyConnectRequiresMacOS)
@@ -1588,7 +1596,10 @@ public final class ConnectionManager: ObservableObject {
 
     /// Throws `connectRefusal`'s error for a profile whose type cannot be connected on this system: before
     /// any secret is read, any confirmation is asked or the helper is asked anything.
+    /// A code-only profile throws `PTError.codeOnlyProfile`: it has nothing to connect, on any system (its code is
+    /// shown as any other profile's, so `connectRefusal` does not name it).
     public nonisolated static func checkConnectable(_ p: Profile, macOS: OperatingSystemVersion? = currentMacOS) throws {
+        if p.type.isCodeOnly { throw PTError.codeOnlyProfile(p.id) }
         if let refusal = connectRefusal(p.type, macOS: macOS) { throw refusal }
     }
 
@@ -1741,6 +1752,7 @@ public final class ConnectionManager: ObservableObject {
     func resolveCredentials(_ p: Profile, given: [CredentialField: String], stored: [SecretKind: String]) throws -> Credentials {
         let id = p.id
         switch p.type {
+        case .code: throw PTError.codeOnlyProfile(id)
         case .openvpn:
             guard FileManager.default.fileExists(atPath: store.ovpnURL(id).path) else { throw PTError.missingConfig(id) }
         case .forti:
@@ -2146,6 +2158,7 @@ public final class ConnectionManager: ObservableObject {
         case .openvpn: timeout = timing.openVPNTimeout
         case .forti: timeout = timing.fortiTimeout
         case .anyconnect, .globalprotect: timeout = timing.anyConnectTimeout
+        case .code: throw PTError.codeOnlyProfile(id)
         }
         let started = clock.now()
         var lastProcessCheck = started
@@ -2217,6 +2230,8 @@ public final class ConnectionManager: ObservableObject {
                 }
             case .anyconnect, .globalprotect:
                 break  // above
+            case .code:
+                throw PTError.codeOnlyProfile(id)  // never started (`checkConnectable`)
             }
 
             let now = clock.now()
@@ -2815,7 +2830,7 @@ public final class ConnectionManager: ObservableObject {
             let config = (try? FileIO.readText(store.ovpnURL(p.id), maxSize: ProfileStore.maxOVPNSize)) ?? ""
             guard let e = OVPNAnalyzer.endpoint(config) else { return .connecting(host: "", port: nil, transport: "udp") }
             return .connecting(host: ActivityEvent.clean(e.host, limit: 255), port: Int(e.port), transport: e.tcp ? "tcp" : "udp")
-        case .forti, .anyconnect, .globalprotect:
+        case .forti, .anyconnect, .globalprotect, .code:
             return .connecting(host: ActivityEvent.clean(p.host, limit: 255), port: p.port, transport: "tcp")
         }
     }

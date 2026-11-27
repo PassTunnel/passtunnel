@@ -540,6 +540,7 @@ final class CLIRunner {
         case .forti: return "FortiGate"
         case .anyconnect: return "Cisco AnyConnect"  // as the helper names it (`OpenConnectProtocol.displayName`)
         case .globalprotect: return "Palo Alto GlobalProtect"
+        case .code: return String(localized: "Code only")
         }
     }
 
@@ -616,7 +617,7 @@ final class CLIRunner {
         }
         var rows: [(String, String)] = [("id", p.id), ("type", p.type.rawValue + (p.type.isExperimental ? " " + Self.experimentalLabel : ""))]
         rows += ProfileFields.keys(for: p.type).map { ($0, ProfileFields.value(p, key: $0)) }
-        rows.append(("password", saved(.password)))
+        if !p.type.isCodeOnly { rows.append(("password", saved(.password))) }
         if p.otpMode == .totp { rows.append(("totp_secret", saved(.totp))) }
         if p.type == .openvpn {
             rows.append(("config", hasConfig ? store.ovpnURL(id).path : missing))
@@ -681,6 +682,10 @@ final class CLIRunner {
                 CLITerminal.err(CLITerminal.dim(String(localized: "Next: passtunnel set \(p.id) username=alice")))
             }
             CLITerminal.err(CLITerminal.dim(String(localized: "Save the password with: passtunnel secret \(p.id) password")))
+        case .code:
+            CLITerminal.err(
+                CLITerminal.dim(
+                    String(localized: "Next: save the TOTP secret with “passtunnel secret \(p.id) totp”, then “passtunnel code \(p.id)”.")))
         }
         if let line = Self.experimentalFeedbackLine(type) { CLITerminal.err(line) }
         return Exit.ok

@@ -76,6 +76,8 @@ struct AppCommands: Commands {
             Button(Self.newProfileTitle(.globalprotect)) { model.newProfile(.globalprotect) }
                 .disabled(model.connectRefusal(.globalprotect) != nil)
                 .help(model.connectRefusal(.globalprotect)?.unavailableNote ?? "")
+            // No VPN: only a one-time code, as an authenticator app shows it.
+            Button(String(localized: "New Code-Only Profile…")) { model.newProfile(.code) }
             Divider()
             Button(String(localized: "Import .ovpn…")) { ImportActions.importOVPN() }
                 .keyboardShortcut("i")

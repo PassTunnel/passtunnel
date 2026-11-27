@@ -39,6 +39,7 @@ extension VPNType {
         case .forti: return "FortiGate"
         case .anyconnect: return OpenConnectProtocol.anyconnect.displayName  // as the helper names it
         case .globalprotect: return OpenConnectProtocol.gp.displayName
+        case .code: return String(localized: "Code only")
         }
     }
 }

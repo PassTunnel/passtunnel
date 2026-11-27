@@ -61,6 +61,9 @@ your TOTP secret in the Keychain and fills in the current code (and your passwor
 - **Auto-type (optional, off by default).** With global shortcuts on, ⌃⌥C types the current code into
   the focused field (also in the menu bar panel), for web portals and other places that still ask for it. Needs Accessibility
   permission, which is only requested when you turn the feature on.
+- **Codes without a VPN.** A code-only profile (**File → New Code-Only Profile…**, or **Code only** when
+  you add a QR code) has no server and no Connect: PassTunnel shows, copies and types its code like an
+  authenticator app, in the window, the menu bar panel and with `passtunnel code`.
 - **Confirm with Touch ID (optional, per profile).** Touch ID or your Mac password before connecting
   and before showing codes (the command line can also set it to ask before connecting only); the saved
   secrets are then encrypted with a key in the Mac's Secure Enclave, so a one-click connect needs you,
@@ -401,6 +404,10 @@ passtunnel set corp server_cert=pin-sha256:…    # trust the server's key (comp
 
 passtunnel add Gp --type globalprotect --server vpn.example.com   # Palo Alto GlobalProtect (experimental), macOS 15.4 or later
 passtunnel set gp username=sam gateway=Gateway1
+
+passtunnel add GitHub --type code             # only a one-time code, no VPN
+pbpaste | passtunnel secret github totp
+passtunnel code github -c
 
 passtunnel log work -f
 passtunnel log work --activity                # what PassTunnel did: connecting, codes, sign-in, drops

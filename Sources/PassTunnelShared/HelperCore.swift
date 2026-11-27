@@ -37,6 +37,8 @@ public struct HelperCore {
         /// The tool needs a later macOS than this one (`Tool.minimumMacOS`; "15.4"): the VPN type's name ("Cisco
         /// AnyConnect", "Palo Alto GlobalProtect") and that version.
         case requiresNewerMacOS(String, String)
+        /// OpenVPN's DNS script is not where the helper looked for it (`stageDNSScript`): that path.
+        case dnsScriptMissing(String)
         case system(String, Int32)
 
         public var description: String {
@@ -66,6 +68,10 @@ public struct HelperCore {
                     + "device has."
             case .unsafeFile(let name): return "Refusing to write \(name): its contents failed the final check."
             case .requiresNewerMacOS(let vpn, let version): return "\(vpn) requires macOS \(version) or later."
+            case .dnsScriptMissing(let p):
+                return "OpenVPN's DNS script is missing (\(p)), so the VPN's DNS servers could not be set; "
+                    + "OpenVPN was not started. Restart the PassTunnel helper (or the Mac), or reinstall PassTunnel, "
+                    + "and connect again."
             case .system(let what, let err): return "\(what): \(String(cString: strerror(err)))"
             }
         }
@@ -184,7 +190,11 @@ public struct HelperCore {
     #endif
 
     public var runRoot: String
-    public var dnsUpdownSource: String?
+    /// Where the bundled DNS script is (`stageDNSScript`), asked again at every OpenVPN start: the Mac's
+    /// helper resolves it from its own executable's current path each time (`HelperBundle`), so an app that
+    /// was moved while the helper ran is still found (#309). It throws when it cannot tell. Nil: this core
+    /// runs OpenVPN without a DNS script by design (`swift test`; the Linux daemon has its own hook).
+    public var dnsUpdownSource: (() throws -> String)?
     /// Whether the OpenVPN that will run knows `--dns-updown` (2.7 and later, as the Mac's bundled
     /// build). OpenVPN 2.6, which Linux distributions ship, does not: its DNS hook runs as
     /// `--route-up` and `--down` instead (`openVPNArguments`), and without a hook it gets no DNS option.
@@ -226,7 +236,7 @@ public struct HelperCore {
     #endif
 
     public init(
-        runRoot: String = PT.helperRunRoot, dnsUpdownSource: String? = nil,
+        runRoot: String = PT.helperRunRoot, dnsUpdownSource: (() throws -> String)? = nil,
         homeDirectory: @escaping (uid_t) -> String? = HelperCore.passwdHome,
         userName: @escaping (uid_t) -> String? = HelperCore.passwdName
     ) {
@@ -620,14 +630,20 @@ public struct HelperCore {
     #endif
 
     /// Copies the bundled DNS script (with its extended-attribute signature) into the run directory.
-    /// Returns nil when no script is bundled. macOS only (`fcopyfile`): elsewhere a script fails to stage,
-    /// and the Linux daemon is its own hook (`linkDNSHook`).
+    /// Returns nil only for a core without `dnsUpdownSource`. A script that is not there is a failed start
+    /// (`Failure.dnsScriptMissing`), never a session without DNS (#309): OpenVPN would connect, take the
+    /// default route when the server redirects it, and leave every lookup with the Mac's own servers.
+    /// macOS only (`fcopyfile`): elsewhere a script fails to stage, and the Linux daemon is its own hook
+    /// (`linkDNSHook`).
     func stageDNSScript(in runDir: String) throws -> String? {
-        guard let src = dnsUpdownSource else { return nil }
+        guard let locate = dnsUpdownSource else { return nil }
+        let src = try locate()
+        guard src.hasPrefix("/"), !Self.containsNUL(src) else { throw Failure.notAbsolute(src) }
         let sfd = open(src, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
         guard sfd >= 0 else {
-            if errno == ENOENT { return nil }
-            throw Failure.system("open \(src)", errno)
+            let err = errno
+            if err == ENOENT || err == ENOTDIR { throw Failure.dnsScriptMissing(src) }
+            throw Failure.system("open \(src)", err)
         }
         defer { close(sfd) }
         var st = stat()
