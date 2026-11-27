@@ -282,7 +282,7 @@ enum ImportActions {
         var info: String
         if let uri {
             alert.messageText = String(localized: "What kind of VPN is this code for?")
-            info = codeNote(uri)
+            info = codeNote(uri) + "\n\n" + String(localized: "Choose Code Only to just show the code, without a VPN.")
         } else {
             alert.messageText = String(localized: "What kind of VPN is it?")
             info = String(localized: "You enter the server, user name, password and code secret next.")

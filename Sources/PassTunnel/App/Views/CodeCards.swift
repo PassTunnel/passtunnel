@@ -21,11 +21,22 @@ struct DetailCodeCards: View {
                 if codes.hasSecret {
                     CurrentCodeCard(profile: profile, codes: codes, date: date)
                 }
-                ServerReceivesCard(
-                    profile: profile,
-                    receives: ServerReceives(
-                        profile, codes: codes.receives, waitingForCode: codes.waiting,
-                        sentAt: sentAt))
+                if !profile.type.isCodeOnly {
+                    ServerReceivesCard(
+                        profile: profile,
+                        receives: ServerReceives(
+                            profile, codes: codes.receives, waitingForCode: codes.waiting,
+                            sentAt: sentAt))
+                } else if !codes.hasSecret {
+                    // A code-only profile is its code: without a secret there is nothing else to show.
+                    Card(style: .compact) {
+                        Text(String(localized: "No TOTP secret is saved for this profile yet. Edit it to scan the QR code or paste the secret."))
+                            .typography(.body)
+                            .foregroundStyle(Palette.fg)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .accessibilityIdentifier("profile.\(profile.id).noSecret")
+                }
             }
         }
     }

@@ -135,7 +135,7 @@ final class OTPComposerEdgeTests: CoreTestCase {
                     XCTAssertNil(separate.1)
                     XCTAssertEqual(scrv1Parts(separate.0)?.0, "pw")
                     XCTAssertEqual(scrv1Parts(separate.0)?.1, "123456")
-                case .forti, .anyconnect, .globalprotect:
+                case .forti, .anyconnect, .globalprotect, .code:
                     XCTAssertEqual(separate.0, "pw", "the template is not used when separate")
                     XCTAssertEqual(separate.1, "123456")
                 }

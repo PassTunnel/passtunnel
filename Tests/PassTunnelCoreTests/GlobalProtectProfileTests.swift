@@ -45,7 +45,7 @@ final class GlobalProtectProfileTests: CoreTestCase {
         XCTAssertEqual(try store.get(p.id), p)
         XCTAssertEqual(VPNType(rawValue: "globalprotect"), .globalprotect)
         XCTAssertEqual(VPNType.globalprotect.defaultOTPDelivery, .separate)
-        XCTAssertEqual(VPNType.allCases, [.openvpn, .forti, .anyconnect, .globalprotect])
+        XCTAssertEqual(VPNType.allCases, [.openvpn, .forti, .anyconnect, .globalprotect, .code])
     }
 
     /// The one source of the label: only Palo Alto GlobalProtect, and nothing stores it.

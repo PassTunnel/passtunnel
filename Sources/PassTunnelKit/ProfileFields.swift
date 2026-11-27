@@ -22,6 +22,12 @@ public enum ProfileFields {
         "gateway": [.globalprotect], "skip_portal": [.globalprotect], "gateway_server_cert": [.globalprotect]
     ]
 
+    /// The only keys of a code-only profile (`VPNType.code`): its name and look, its code and the confirmation
+    /// before the code is shown. Everything about connecting is `.wrongProfileType` there.
+    static let codeOnlyKeys: Set<String> = [
+        "name", "badge", "icon", "badge_style", "pinned", "order", "digits", "period", "algorithm", "require_auth"
+    ]
+
     static let aliases = [
         "totp.digits": "digits", "totp_digits": "digits", "totp.period": "period", "totp_period": "period",
         "totp.algorithm": "algorithm", "totp_algorithm": "algorithm", "session_limit": "session_limit_min",
@@ -42,7 +48,10 @@ public enum ProfileFields {
         keys.filter { applies($0, to: type) }
     }
 
-    static func applies(_ key: String, to type: VPNType) -> Bool { typeKeys[key]?.contains(type) ?? true }
+    static func applies(_ key: String, to type: VPNType) -> Bool {
+        if type.isCodeOnly { return codeOnlyKeys.contains(key) }
+        return typeKeys[key]?.contains(type) ?? true
+    }
 
     /// Sets one field from text. Throws `PTError.invalidField(key)` for unknown keys or bad values and
     /// `.wrongProfileType` for a key of another VPN type (`host` on an OpenVPN profile, `server_cert` on a
@@ -94,7 +103,11 @@ public enum ProfileFields {
             try OTPComposer.validate(template: template)
             if p.type.usesOpenConnect && !Profile.isValidAnyConnectTemplate(template) { throw bad() }
             p.otpTemplate = template
-        case "require_auth": p.requireAuth = try choice(AuthRequirement.self)
+        case "require_auth":
+            let requirement = try choice(AuthRequirement.self)
+            // A code-only profile never connects: only off or always (before showing the code).
+            if p.type.isCodeOnly && requirement == .connect { throw bad() }
+            p.requireAuth = requirement
         case "session_limit_min":
             let v = try int()
             guard v >= 0 else { throw bad() }

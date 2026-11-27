@@ -367,6 +367,20 @@ The main window (`MainSplitView`, decision D-23) is a `NavigationSplitView`, abo
   code in the window, the menu bar or the copy items, Copy Code and Copy Password + Code disabled and refused); an imported one is selected instead of opened in the editor, and scanned
   codes never go to it. The type question of the add view shows Cisco AnyConnect disabled, with the sentence under
   the question, and File → New Cisco AnyConnect Profile… is disabled with the note as its tooltip.
+- **Code-only profiles** (`VPNType.code`, "Code only"; the design is in
+  [ARCHITECTURE.md](ARCHITECTURE.md#code-only-profiles)): a profile with no VPN, only the one-time code of a TOTP
+  secret, as an authenticator app shows it. Made with File → New Code-Only Profile…, **Code only** in the type
+  question of the add view and of a scanned QR code ("Choose Code Only to just show the code, without a VPN."), or
+  `passtunnel add NAME --type code`. The editor has the name, the code card (scan, image, paste) and, under Advanced,
+  the secret, digits, period and algorithm, the menu bar settings and "Require Touch ID before showing the code"
+  (`always`; there is nothing to confirm before connecting); no server, user name, password, code format, Connect
+  at login, auto-reconnect, session limit or health check. The detail shows the code card alone (no Connect
+  button, no "Server receives"; without a secret, a card that says to edit the profile), the status line "Code only ·
+  no VPN to connect" (`DisplayStatus.codeOnly`), and its row "Code only". In the menu bar panel its row has the
+  live code and no switch: a click copies the code. Copy Code, Type Code, the default profile's copy target and
+  `passtunnel code` work as for any profile; connecting it from anywhere (⌘↩, the default profile's shortcut, the
+  CLI, the MCP server) is refused with `PTError.codeOnlyProfile` ("Profile “github” only shows a one-time code. It has
+  no VPN to connect.", `invalid_argument`) before Touch ID, the Keychain or the helper is asked anything.
 - **Palo Alto GlobalProtect** (user-facing summary; experimental: please
   [report how it works](https://github.com/PassTunnel/passtunnel/issues/new?template=globalprotect_report.md), whether it worked or not; the design is in
   [ARCHITECTURE.md](ARCHITECTURE.md#palo-alto-globalprotect-backend), the threat model in
@@ -525,8 +539,8 @@ the sheet closes and `AppModel.delete` runs), Cancel, Save (Add Profile for a ne
    drops" (`autoReconnect`), disabled with the reason when the profile is not `unattended`.
 
 **Advanced** (closed when the sheet opens; Save opens it when the first problem is there), in three cards:
-Sign-in — type (read-only after creation, with the Experimental badge for Palo Alto GlobalProtect; a menu of the
-four, Palo Alto GlobalProtect named "(Experimental)", Cisco AnyConnect and Palo Alto GlobalProtect disabled with their note below macOS
+Sign-in (One-time code for a code-only profile) — type (read-only after creation, with the Experimental badge for
+Palo Alto GlobalProtect; a menu of the five, Code only last, Palo Alto GlobalProtect named "(Experimental)", Cisco AnyConnect and Palo Alto GlobalProtect disabled with their note below macOS
 15.4), Password: Save in Keychain / Ask each time / None — certificate only
 (OpenVPN only), One-time code: None / Generate / Ask each time, and for Generate the Secret field (a secret or an
 `otpauth://` link, typed or pasted; its errors show under it), digits, period, algorithm. Connection — the
@@ -856,7 +870,7 @@ passtunnel connect [ID] --force              even if another VPN already takes a
 passtunnel connect|disconnect … --wait [--timeout S]   bound the wait (default 60 s; --timeout implies --wait)
 passtunnel code [ID] [-c|--copy]             live code + seconds left
 passtunnel list / show ID / set ID key=value…   (keys as in the editor)
-passtunnel add NAME --type openvpn|forti|anyconnect|globalprotect [--server URL] / import FILE [--name N] / export ID [-o FILE] / rm ID
+passtunnel add NAME --type openvpn|forti|anyconnect|globalprotect|code [--server URL] / import FILE [--name N] / export ID [-o FILE] / rm ID
 passtunnel secret ID password|totp           reads from TTY (no echo) or stdin; totp accepts base32 or otpauth://
 passtunnel secret-store [STORE]              Linux only: the secret store in use; STORE sets it (below)
 passtunnel default ID / pin ID / unpin ID

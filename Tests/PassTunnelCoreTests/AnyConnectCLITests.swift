@@ -188,7 +188,7 @@ final class AnyConnectCLITests: CoreTestCase {
 
     func testUsageAndCompletionNameTheType() {
         let usage = CLIHelp.usage(for: "add")
-        XCTAssertTrue(usage.contains("--type openvpn|forti|anyconnect|globalprotect [--server URL]"), usage)
+        XCTAssertTrue(usage.contains("--type openvpn|forti|anyconnect|globalprotect|code [--server URL]"), usage)
         XCTAssertTrue(usage.contains("Cisco AnyConnect"), usage)
         XCTAssertTrue(
             CLIHelp.usage(for: "set").contains(
