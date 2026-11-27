@@ -37,7 +37,9 @@ cdhashes); the script checks that each bundled tool's and dylib's cdhashes are i
 `PassTunnelHelper` binary, and a signed (non-ad-hoc) build fails when `openvpn`, `openfortivpn`,
 `openconnect` or any bundled dylib has no pin (or there is no dylib at all).
 A bundle without `dns-updown` pins an empty set for it, so the helper refuses any `dns-updown`, and with no
-script to stage every OpenVPN start fails ("DNS script (macOS)" below).
+script to stage every OpenVPN start fails ("DNS script (macOS)" below). So only an ad-hoc build may lack it
+(`bundle-tools.sh` warns): a signed build (`build-app.sh --sign`) fails without it, and `release.sh` checks the
+built app again.
 
 **Minimum macOS of the tools.** Homebrew's bottles are built for the release runner's macOS
 (`minos 26.0`), above the app's minimum (`LSMinimumSystemVersion`, 13.0). dyld does not refuse a binary

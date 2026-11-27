@@ -65,6 +65,7 @@ if [[ -f "$DNS_UPDOWN" ]]; then
     cp "$DNS_UPDOWN" "$BIN/dns-updown"
     chmod 755 "$BIN/dns-updown"
 else
+    # A signed build (build-app.sh --sign, release.sh) fails on this; an ad-hoc one only warns.
     echo "warning: dns-updown not found; the helper will refuse to start OpenVPN without it" >&2
 fi
 
