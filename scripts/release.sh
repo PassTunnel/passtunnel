@@ -307,6 +307,8 @@ BUILD="$(plutil -extract CFBundleVersion raw "$APP/Contents/Info.plist")"
 [[ "$SHORT" == "$VERSION" ]] || die "the app says version $SHORT, expected $VERSION"
 echo "version $SHORT, build $BUILD"
 codesign --verify --deep --strict "$APP" || die "codesign --verify --deep --strict failed"
+# Without OpenVPN's DNS script the helper refuses every OpenVPN start (#309); build-app.sh checks it too.
+[[ -f "$APP/Contents/Resources/bin/dns-updown" ]] || die "the app has no Resources/bin/dns-updown"
 
 # Submits a file and waits; fails with the notarization log unless Apple accepted it.
 notarize() {

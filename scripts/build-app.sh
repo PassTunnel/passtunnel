@@ -54,6 +54,12 @@ mkdir -p "$C/MacOS" "$C/Resources" "$C/Library/LaunchDaemons" "$C/Frameworks"
 
 echo "==> bundling VPN tools"
 "$ROOT/scripts/bundle-tools.sh" "$APP"
+# The helper refuses every OpenVPN start without OpenVPN's DNS script (#309), so a signed build must have it.
+# An ad-hoc build only warns (bundle-tools.sh): it cannot talk to the helper anyway.
+if [[ "$IDENTITY" != "-" && ! -f "$C/Resources/bin/dns-updown" ]]; then
+    echo "error: $C/Resources/bin/dns-updown missing; a signed build needs OpenVPN's DNS script" >&2
+    exit 1
+fi
 
 if [[ -n "$TOOLS_FROM" ]]; then
     echo "==> taking the signed VPN tools from $TOOLS_FROM"
@@ -129,7 +135,8 @@ trap 'rm -f "$PINS"' EXIT
             [[ "$h" =~ ^[0-9a-f]{40}$ ]] || { echo "error: unexpected cdhash for $tool: $h" >&2; exit 1; }
             list+="${list:+, }\"$h\""
         done
-        # A bundle without dns-updown pins an empty set: the helper then refuses any dns-updown.
+        # A bundle without dns-updown (ad-hoc builds only, checked above) pins an empty set: the helper then
+        # refuses any dns-updown, and so every OpenVPN start.
         echo "        \"$tool\": [$list],"
         echo "  $tool: ${hashes:-none (not bundled)}" | tr '\n' ' ' >&2; echo >&2
     done

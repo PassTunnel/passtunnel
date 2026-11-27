@@ -36,7 +36,10 @@ signed code (`PinnedTools`, below). The tools are not signed again afterwards (t
 cdhashes); the script checks that each bundled tool's and dylib's cdhashes are in the pins and in the
 `PassTunnelHelper` binary, and a signed (non-ad-hoc) build fails when `openvpn`, `openfortivpn`,
 `openconnect` or any bundled dylib has no pin (or there is no dylib at all).
-A bundle without `dns-updown` pins an empty set for it, so the helper refuses any `dns-updown`.
+A bundle without `dns-updown` pins an empty set for it, so the helper refuses any `dns-updown`, and with no
+script to stage every OpenVPN start fails ("DNS script (macOS)" below). So only an ad-hoc build may lack it
+(`bundle-tools.sh` warns): a signed build (`build-app.sh --sign`) fails without it, and `release.sh` checks the
+built app again.
 
 **Minimum macOS of the tools.** Homebrew's bottles are built for the release runner's macOS
 (`minos 26.0`), above the app's minimum (`LSMinimumSystemVersion`, 13.0). dyld does not refuse a binary
@@ -1197,6 +1200,22 @@ Security rules (helper):
     the same log (openfortivpn a gateway's prompts; OpenVPN starts each of its lines with a timestamp, but a
     message that holds a line break could start a line), so a line in between that reads like a note never
     counts.
+  - *Where it is copied from (#309).* At every OpenVPN start, `HelperCore.stageDNSScript` asks
+    `dnsUpdownSource` for the script's path; the helper answers with `HelperBundle.currentDNSUpdownPath`, built
+    from the kernel's current path of its own executable (`proc_pidpath`, which follows a rename of the
+    bundle). It used to be worked out once when the helper started: an app moved while its helper ran (from
+    Downloads into Applications) left the helper with a path where nothing was, and the copy's `open` failed
+    with `ENOENT`, which was taken for "no script bundled": OpenVPN ran with `--dns-updown disable`, so a
+    server's pushed `dhcp-option DNS`/`DOMAIN` were never applied (with `redirect-gateway` every lookup stayed
+    with the Mac's own servers). Now a script that is not there (`ENOENT`, `ENOTDIR`) fails the start with
+    `Failure.dnsScriptMissing` ("OpenVPN's DNS script is missing (…), so the VPN's DNS servers could not be
+    set; OpenVPN was not started. …"), as does a path the helper cannot tell or that is not absolute; the
+    session directory is removed and the app shows the message as the failed connect. Failing was chosen over
+    connecting without DNS: such a session looks connected while names on the VPN do not resolve and lookups
+    leave outside the tunnel. Only a `HelperCore` given no `dnsUpdownSource` at all runs OpenVPN without a
+    script (`--script-security 1 --dns-updown disable`): `swift test`, and the Linux daemon, which is its own
+    hook (`linkDNSHook`). The tools are staged from the bundle's current place too
+    (`Supervisor`, `HelperBundle.currentContentsDir`; the path from the helper's start when that cannot be told).
   - *For OpenVPN upstream:* a fixed `PATH` in the script; keeping `updown` across a `PUSH_UPDATE` and
     running the dns-down of the old values before replacing them; the lock in `/var/lock`, which the script
     creates mode 1777 (29–33), so any local user can hold `openvpn-dns-updown.lock` with the pid of a live
