@@ -37,7 +37,7 @@ public enum OTPComposer {
             return (render(t, password: password, otp: code), nil)
         case .separate:
             switch type {
-            case .forti, .anyconnect, .globalprotect:
+            case .forti, .anyconnect, .globalprotect, .code:
                 return (password, code)
             case .openvpn:
                 guard let code else { return (password, nil) }

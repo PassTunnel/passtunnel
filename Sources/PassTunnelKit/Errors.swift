@@ -12,6 +12,7 @@ public enum PTError: Error, Equatable, LocalizedError {
     case invalidField(String)  // field name, e.g. "totp.digits"
     case wrongProfileType(String)  // profile id
     case unsupportedProfileType(String)  // the `type` of a profile written by a newer version
+    case codeOnlyProfile(String)  // profile id: a code-only profile (`VPNType.code`) has nothing to connect
     case fileError(String)  // path or short reason
     case fileTooLarge(String)
     case invalidFile(String)  // unreadable / malformed JSON or text
@@ -93,6 +94,8 @@ public enum PTError: Error, Equatable, LocalizedError {
                 localized:
                     "This profile uses the VPN type “\(type)”, which needs a newer PassTunnel. Update PassTunnel to use it. It can still be deleted."
             )
+        case .codeOnlyProfile(let id):
+            return String(localized: "Profile “\(id)” only shows a one-time code. It has no VPN to connect.")
         case .fileError(let detail):
             return String(localized: "A file operation failed: \(detail)")
         case .fileTooLarge(let name):

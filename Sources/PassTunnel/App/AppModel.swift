@@ -282,8 +282,8 @@ final class AppModel: ObservableObject {
     }
 
     /// The types the editor has the fields for, and the type lists offer (Add VPN, the editor's type picker, the File
-    /// menu), in `VPNType.connectable`'s order: every type, Palo Alto GlobalProtect (#233) included.
-    static let editableTypes = VPNType.connectable
+    /// menu), in `VPNType`'s order: every type, Palo Alto GlobalProtect (#233) and code-only profiles included.
+    static let editableTypes = VPNType.allCases
 
     /// Nothing to show in the sidebar: the first-run view takes the window.
     var hasNoProfiles: Bool { profiles.isEmpty && unsupported.isEmpty }

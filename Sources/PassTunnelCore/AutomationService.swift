@@ -336,6 +336,8 @@ public final class AutomationService {
             do { try Profile.checkUsername(p.username, type: p.type) } catch { problems.append(error) }
             do { try p.checkAnyConnectFields() } catch { problems.append(error) }
             do { try p.checkGlobalProtectFields() } catch { problems.append(error) }
+        case .code:
+            break  // no server or configuration: only its TOTP secret, below
         }
         /// Whether `kind` is saved; nil, and the store's error once, when the store cannot be read.
         func saved(_ kind: SecretKind, missing: PTError) -> Bool? {

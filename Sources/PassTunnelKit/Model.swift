@@ -3,8 +3,14 @@ import PassTunnelVPNConfig
 
 /// `anyconnect`: Cisco AnyConnect through openconnect (docs/ARCHITECTURE.md, "Cisco AnyConnect backend").
 /// `globalprotect`: Palo Alto GlobalProtect through the same openconnect ("Palo Alto GlobalProtect backend").
+/// `code`: no VPN at all, only the one-time code of a TOTP secret, as an authenticator app shows it
+/// (docs/ARCHITECTURE.md, "Code-only profiles"). It never connects (`isCodeOnly`).
 public enum VPNType: String, Codable, CaseIterable, Sendable {
-    case openvpn, forti, anyconnect, globalprotect
+    case openvpn, forti, anyconnect, globalprotect, code
+
+    /// A profile that only shows its code: it has no server, no password and nothing to connect, and every
+    /// path that connects refuses it (`PTError.codeOnlyProfile`) before any secret is read.
+    public var isCodeOnly: Bool { self == .code }
 
     /// How a new profile of this type sends the code: on its own for FortiGate (the `otp` field), Cisco
     /// AnyConnect and Palo Alto GlobalProtect (a second answer), with the password (`otpTemplate`) for OpenVPN.
@@ -174,7 +180,7 @@ public struct Profile: Codable, Identifiable, Equatable {
     public static func checkUsername(_ username: String, type: VPNType) throws {
         let sent = username.trimmingCharacters(in: .whitespacesAndNewlines)
         switch type {
-        case .openvpn: return
+        case .openvpn, .code: return
         case .forti:
             guard sent.utf8.count <= FortiConfig.maxUsernameBytes else {
                 throw PTError.usernameTooLong(maxBytes: FortiConfig.maxUsernameBytes)
@@ -249,6 +255,22 @@ public struct Profile: Codable, Identifiable, Equatable {
         if passwordMode == .ask { out.append(.password) }
         if otpMode == .ask { out.append(.otp) }
         return out
+    }
+
+    /// Brings a code-only profile (`VPNType.code`) to the only settings it has: a TOTP secret's code
+    /// (`otpMode` totp), no password or user name, and nothing about connecting. A confirmation "before
+    /// connecting" (`requireAuth` connect) means nothing there and becomes off. Nothing for other types.
+    public mutating func normalizeCodeOnly() {
+        guard type.isCodeOnly else { return }
+        username = ""
+        lastUsername = ""
+        passwordMode = .none
+        otpMode = .totp
+        if requireAuth == .connect { requireAuth = .off }
+        sessionLimitMin = 0
+        autoReconnect = false
+        connectAtLogin = false
+        healthHost = ""
     }
 
     /// True when the profile can connect without asking anything (required for auto-reconnect).

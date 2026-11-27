@@ -172,9 +172,16 @@ final class EditorModel: ObservableObject {
 
     func changeType(_ type: VPNType) {
         guard allowsTypeChange, type != draft.type, typeRefusal(type) == nil else { return }
+        let wasCodeOnly = draft.type.isCodeOnly
         draft.type = type
         draft.otpDelivery = type.defaultOTPDelivery
+        if wasCodeOnly {
+            // Back to a VPN: it signs in with a password again (a code-only profile has none).
+            draft.passwordMode = .keychain
+            draft.otpMode = .totp
+        }
         if type != .openvpn && draft.passwordMode == .none { draft.passwordMode = .keychain }
+        draft.normalizeCodeOnly()
         configURL = nil
         configError = nil
         configServer = ""
@@ -187,7 +194,7 @@ final class EditorModel: ObservableObject {
         switch p.type {
         case .anyconnect: return AnyConnectEditing.serverText(host: p.host, port: p.port, usergroup: p.usergroup)
         case .globalprotect: return GlobalProtectEditing.serverText(host: p.host, port: p.port)
-        case .openvpn, .forti: return ""
+        case .openvpn, .forti, .code: return ""
         }
     }
 
@@ -223,6 +230,7 @@ final class EditorModel: ObservableObject {
     static func blank(_ type: VPNType) -> Profile {
         var p = Profile(id: "new-profile", name: "", type: type)
         p.otpDelivery = type.defaultOTPDelivery
+        p.normalizeCodeOnly()
         return p
     }
 
@@ -237,6 +245,7 @@ final class EditorModel: ObservableObject {
             case .forti: return String(localized: "New FortiGate Profile")
             case .anyconnect: return String(localized: "New Cisco AnyConnect Profile")
             case .globalprotect: return String(localized: "New Palo Alto GlobalProtect Profile")
+            case .code: return String(localized: "New Code-Only Profile")
             }
         }
         return String(localized: "Edit “\(draft.name)”")
@@ -252,6 +261,10 @@ final class EditorModel: ObservableObject {
     }
 
     var usesCredentials: Bool { draft.passwordMode != .none }
+
+    /// The profile has a one-time code to set up: one that signs in with a password, or a code-only profile
+    /// (`VPNType.code`), which has nothing else.
+    var usesCode: Bool { usesCredentials || draft.type.isCodeOnly }
 
     /// The saved TOTP secret is encrypted: its code shows only after a confirmation (a secret entered in
     /// this sheet is the user's own input and always shown).
@@ -302,6 +315,10 @@ final class EditorModel: ObservableObject {
             p.serverCert = AnyConnectEditing.normalizedPin(p.serverCert)
             p.gatewayServerCert = AnyConnectEditing.normalizedPin(p.gatewayServerCert)
             p.gateway = GlobalProtectEditing.normalizedGateway(p.gateway)
+        }
+        if p.type.isCodeOnly {
+            p.normalizeCodeOnly()  // its TOTP code alone
+            return p
         }
         if p.type != .openvpn && p.passwordMode == .none { p.passwordMode = .keychain }
         if p.passwordMode == .none { p.otpMode = .none }
@@ -377,6 +394,8 @@ final class EditorModel: ObservableObject {
             if let message = GlobalProtectEditing.gatewayProblem(p.gateway) { e[.gateway] = message }
             if let message = AnyConnectEditing.pinProblem(p.serverCert) { e[.serverCert] = message }
             if let message = AnyConnectEditing.pinProblem(p.gatewayServerCert) { e[.gatewayServerCert] = message }
+        case .code:
+            break  // a name and the TOTP secret, below
         }
 
         if p.sessionLimitMin < 0 { e[.sessionLimit] = String(localized: "The session limit cannot be negative.") }

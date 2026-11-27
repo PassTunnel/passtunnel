@@ -56,7 +56,8 @@ private struct DetailPage: View {
                         DetailSubtitle(profile: profile, subtitle: server.subtitle)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    DetailActionButton(profile: profile, action: status.action)
+                    // A code-only profile has nothing to connect: no button.
+                    if !profile.type.isCodeOnly { DetailActionButton(profile: profile, action: status.action) }
                 }
                 ProfileStatusLine(status: status, server: server.address, now: model.previewNow)
                 ForEach(model.notices(profile), id: \.self) { StatusNoticeRow(notice: $0) }
@@ -242,6 +243,8 @@ extension AppModel {
     /// the VPN type alone when the server is unknown) and the server alone ("" when unknown).
     func serverSummary(_ p: Profile) -> (address: String, subtitle: String) {
         switch p.type {
+        case .code:
+            return ("", p.type.displayName)  // no server
         case .openvpn:
             guard let e = ConfigEndpoints.endpoint(store.ovpnURL(p.id)) else { return ("", p.type.displayName) }
             // Protocol names stay untranslated.

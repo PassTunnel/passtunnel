@@ -93,7 +93,7 @@ public enum AutomationErrorCode: String, Codable, CaseIterable, Sendable {
     static func of(_ e: PTError) -> AutomationErrorCode {
         switch e {
         case .profileNotFound: return .profileNotFound
-        case .invalidProfileID, .emptyName, .invalidField, .wrongProfileType, .invalidSecret, .invalidOTPAuthURI,
+        case .invalidProfileID, .emptyName, .invalidField, .wrongProfileType, .codeOnlyProfile, .invalidSecret, .invalidOTPAuthURI,
             .hotpNotSupported, .invalidTemplate, .usernameTooLong:
             return .invalidArgument
         case .fileError, .fileTooLarge: return .fileError

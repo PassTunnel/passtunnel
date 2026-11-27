@@ -3458,6 +3458,31 @@ In dependency order, mirroring Phase 1's #179–#189; nothing replaces #179 (the
 - **G9** `docs: Palo Alto GlobalProtect support (experimental)`: README, APP.md, the website's feature list, each
   marked experimental with the request for reports, and the issue template `globalprotect_report.md`. Last.
 
+## Code-only profiles
+
+A profile of type `code` (`VPNType.code`, "Code only") has no VPN: it only shows the one-time code of its TOTP
+secret, as an authenticator app does, in the window, the menu bar panel, Copy Code and Type Code, and with
+`passtunnel code`. It is an ordinary profile in every other way: stored in `profile.json`, its secret in the Keychain
+item `<id>/totp` (encrypted with "Require Touch ID before showing the code", `require_auth` `always`), listed,
+shared (`.passtunnel` version 2, so a reader that does not know the type refuses it instead of misreading it) and
+deleted like the others.
+
+- **Settings.** `Profile.normalizeCodeOnly` gives it the only settings it has: `otp_mode` `totp`, `password_mode`
+  `none`, no user name, `require_auth` `connect` turned off (there is nothing to confirm before connecting; `always`
+  stays), and no session limit, auto-reconnect, connect at login or health check. `ProfileStore.create`, `save` and
+  `update` apply it, so a hand-edited file or an older editor cannot give it a password. `ProfileFields` takes only
+  `name`, `badge`, `icon`, `badge_style`, `pinned`, `order`, `digits`, `period`, `algorithm` and `require_auth` (not
+  `connect`) for it; every other key is `wrong_profile_type`.
+- **Never connected.** `ConnectionManager.checkConnectable` throws `PTError.codeOnlyProfile` for it, on every system,
+  before any secret is read, any confirmation is asked or the helper is asked anything: the app, the CLI and the MCP
+  server all go through it. `connectRefusal(.code)` is nil on purpose, because the front ends read a refusal as "this
+  system cannot use the profile" and would hide its code. `VPNType.connectable` leaves the type out; the app's
+  `editableTypes` is every type. The switches over `VPNType` in the connect path (`resolveCredentials`, the start
+  request, the wait, `observe`) throw the same error or report it disconnected, as a second guard;
+  `ProfileDestination` has no host and `ProfileNetwork` no claims for it.
+- **Status.** `DisplayStatus.codeOnly` ("Code only"; the detail's line "Code only · no VPN to connect") wins over every
+  other fact; `allowsAction` is false, so ⌘↩ and a double click do nothing, and the detail has no Connect button.
+
 ## Rules for all code
 
 - English identifiers, English comments (sparse). User-facing strings via `String(localized:)` with

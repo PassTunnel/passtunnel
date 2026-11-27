@@ -33,6 +33,8 @@ public enum DisplayStatus: Equatable, Sendable {
     /// macOS 15.4). `note`: the short form ("Requires macOS 15.4 or later", `PTError.unavailableNote`); `reason`:
     /// the error's sentence. Connect is not offered.
     case unavailable(note: String, reason: String)
+    /// A code-only profile (`VPNType.code`): no VPN, only its one-time code. Never connects; no action is offered.
+    case codeOnly
 
     /// A connection that is up.
     public struct Connection: Equatable, Sendable {
@@ -121,13 +123,16 @@ public enum DisplayStatus: Equatable, Sendable {
         public var retry: UnreachableRetry?
         /// `ConnectionManager.connectRefusal`: why this system cannot connect the profile's type.
         public var refusal: PTError?
+        /// The profile is code-only (`VPNType.code`): it has nothing to connect.
+        public var codeOnly: Bool
         public init(
             state: ConnectionState = .disconnected, reconnect: ReconnectInfo? = nil, codeWaitUntil: Date? = nil,
             lastError: String? = nil, warning: String? = nil, notResponding: Bool = false,
             statusUnavailable: Bool = false, droppedUnseen: Bool = false, asksToConnect: Bool = false,
             usesCode: Bool = false, failure: ConnectionFailure? = nil, retry: UnreachableRetry? = nil,
-            refusal: PTError? = nil
+            refusal: PTError? = nil, codeOnly: Bool = false
         ) {
+            self.codeOnly = codeOnly
             self.state = state
             self.reconnect = reconnect
             self.codeWaitUntil = codeWaitUntil
@@ -154,7 +159,7 @@ public enum DisplayStatus: Equatable, Sendable {
                 state: state, reconnect: reconnect, codeWaitUntil: codeWaitUntil, lastError: lastError,
                 warning: warning, notResponding: notResponding, statusUnavailable: statusUnavailable,
                 droppedUnseen: droppedUnseen, asksToConnect: Facts.asksToConnect(p), usesCode: p.otpMode == .totp,
-                failure: failure, retry: retry, refusal: refusal)
+                failure: failure, retry: retry, refusal: refusal, codeOnly: p.type.isCodeOnly)
         }
 
         /// What `m` reports about `p` now. `droppedUnseen` is the app's to tell.
@@ -179,8 +184,11 @@ public enum DisplayStatus: Equatable, Sendable {
     /// problem, the worst one shown); then an automatic reconnect, which covers its own attempts and their
     /// failures until it ends; then a connect under way; then a type this system cannot connect, the last
     /// failure, an unseen drop, and the state at rest. A server that does not answer is shown as such while its tries go on, also during one.
+    /// A code-only profile is always `codeOnly`: nothing else can happen to it.
     public init(_ f: Facts) {
-        if case .connected(let ip, let since) = f.state {
+        if f.codeOnly {
+            self = .codeOnly
+        } else if case .connected(let ip, let since) = f.state {
             let c = Connection(since: since, address: ip)
             if f.notResponding {
                 self = .notResponding(c)
@@ -235,7 +243,7 @@ public enum DisplayStatus: Equatable, Sendable {
     /// while it reconnects on its own or tries an unreachable server again, Try again after a failure.
     public var action: Action {
         switch self {
-        case .off, .protected, .dropped, .unavailable: return .connect
+        case .off, .protected, .dropped, .unavailable, .codeOnly: return .connect
         case .connecting, .waitingForCode: return .cancel
         case .connected, .setupIncomplete, .notResponding, .statusUnavailable: return .disconnect
         case .reconnecting, .failed(.unreachable(retry: .some)): return .stop
@@ -244,10 +252,12 @@ public enum DisplayStatus: Equatable, Sendable {
     }
 
     /// The main button can be used: not for a type this system cannot connect (`unavailable`), whose Connect
-    /// is shown disabled.
+    /// is shown disabled, nor for a code-only profile (`codeOnly`), which shows no button.
     public var allowsAction: Bool {
-        if case .unavailable = self { return false }
-        return true
+        switch self {
+        case .unavailable, .codeOnly: return false
+        default: return true
+        }
     }
 
     // MARK: wording
@@ -278,6 +288,7 @@ public enum DisplayStatus: Equatable, Sendable {
         case .failed(.gatewayRequired): return String(localized: "Choose a gateway")
         case .failed(.notGlobalProtectServer): return String(localized: "Not a GlobalProtect server")
         case .unavailable(let note, _): return note
+        case .codeOnly: return String(localized: "Code only")
         }
     }
 
@@ -314,6 +325,7 @@ public enum DisplayStatus: Equatable, Sendable {
         case .failed(.gatewayRequired): return String(localized: "The portal lists more than one gateway")
         case .failed(.notGlobalProtectServer): return VPNLog.notGlobalProtectServer
         case .unavailable(_, let reason): return reason
+        case .codeOnly: return String(localized: "Code only · no VPN to connect")
         case .failed(.unreachable(let retry)):
             let words = String(localized: "Can’t reach the server")
             guard let retry else { return words }

@@ -17,7 +17,7 @@ extension AppModel {
             DisplayStatus.Facts(
                 p, state: state(id), reconnect: reconnectInfo(id), codeWaitUntil: previewCodeWaits[id], lastError: error(id),
                 notResponding: isUnreachable(id), droppedUnseen: dropped, failure: failure(id), retry: unreachableRetry(id),
-                refusal: connectRefusal(p.type)))
+                refusal: connectRefusal(p.type)))  // a code-only profile's `codeOnly` comes from `p`
     }
 }
 
@@ -25,7 +25,7 @@ extension DisplayStatus {
     /// The glyph in the status line; rows show the same symbol's dot.
     var symbol: StatusSymbol {
         switch self {
-        case .off, .protected: return .off
+        case .off, .protected, .codeOnly: return .off
         case .connecting: return .connecting
         case .waitingForCode: return .waiting
         case .connected, .statusUnavailable: return .connected
@@ -45,7 +45,7 @@ extension DisplayStatus {
     /// it dropped or failed.
     var textColor: Color {
         switch self {
-        case .off, .protected: return Palette.fg2
+        case .off, .protected, .codeOnly: return Palette.fg2
         case .connecting: return Palette.fg
         case .waitingForCode, .setupIncomplete, .notResponding, .unavailable: return Palette.amber
         case .connected, .statusUnavailable: return Palette.green
@@ -75,7 +75,7 @@ extension DisplayStatus {
         case .failed(.unreachable(let retry)): return retry?.nextTryAt == nil ? nil : 0.25
         case .connected(let c), .setupIncomplete(let c, _), .notResponding(let c), .statusUnavailable(let c):
             return c.since == nil ? nil : 1
-        case .off, .protected, .connecting, .dropped, .failed, .unavailable: return nil
+        case .off, .protected, .connecting, .dropped, .failed, .unavailable, .codeOnly: return nil
         }
     }
 }
@@ -259,7 +259,8 @@ struct ProfileStatusGallery: View {
                 .unavailable(
                     note: PTError.anyConnectRequiresMacOS("15.4").unavailableNote ?? "",
                     reason: PTError.anyConnectRequiresMacOS("15.4").localizedDescription)
-            )
+            ),
+            ("code only", .codeOnly)
         ]
     }
 
