@@ -36,6 +36,9 @@ final class Supervisor {
     let queue = DispatchQueue(label: "com.furkanprlk.passtunnel.helper.supervisor")
     private let core: HelperCore
     private let stager: ToolStager
+    /// The app's `Contents` where it is now (`HelperBundle.currentContentsDir`), for staging the tools: the
+    /// app may have been moved since the helper started (#309).
+    private let bundleContents: () throws -> String
     private let log = Logger(subsystem: PT.helperLabel, category: "supervisor")
     private var jobs: [Key: Job] = [:]
     private var logTimer: DispatchSourceTimer?
@@ -56,9 +59,10 @@ final class Supervisor {
         }
     }
 
-    init(core: HelperCore, stager: ToolStager) {
+    init(core: HelperCore, stager: ToolStager, bundleContents: @escaping () throws -> String) {
         self.core = core
         self.stager = stager
+        self.bundleContents = bundleContents
         let dnsLog = Logger(subsystem: PT.helperLabel, category: "dns")
         dns = OpenVPNDNSKeeper(
             runRoot: core.runRoot, system: MacOpenVPNDNSSystem(name: "PassTunnel helper"),
@@ -165,7 +169,11 @@ final class Supervisor {
         let stage: () throws -> ToolStager.Staged = {
             if let staged { return staged }
             let inUse = Set(self.jobs.values.compactMap { self.stager.buildDirectory(ofExecutable: $0.executable) })
-            let copy = try self.stager.stage(inUse: inUse)
+            // From where the bundle is now; when that cannot be told, the path from the start (a valid copy
+            // staged earlier needs no bundle at all).
+            var stager = self.stager
+            if let contents = try? self.bundleContents() { stager.bundleContents = contents }
+            let copy = try stager.stage(inUse: inUse)
             staged = copy
             return copy
         }

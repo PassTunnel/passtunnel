@@ -555,10 +555,14 @@ final class HelperCoreTests: XCTestCase {
     }
 
     func core(dns: String? = nil) -> HelperCore {
+        core(locateDNS: dns.map { path in { path } })
+    }
+
+    func core(locateDNS: (() throws -> String)?) -> HelperCore {
         let homePath = home.path
         let me = self.me, stranger = self.stranger
         return HelperCore(
-            runRoot: runRoot.path, dnsUpdownSource: dns,
+            runRoot: runRoot.path, dnsUpdownSource: locateDNS,
             homeDirectory: { uid in uid == me || uid == stranger ? homePath : nil },
             userName: { uid in uid == me ? "alice" : nil })
     }
@@ -653,8 +657,66 @@ final class HelperCoreTests: XCTestCase {
         XCTAssertEqual((attrs[.posixPermissions] as? NSNumber)?.intValue, 0o700)
     }
 
-    func testPrepareOpenVPNWithoutDNSScriptWritesNoWrapper() throws {
-        let plan = try core(dns: base.appendingPathComponent("missing").path).prepareOpenVPN(openVPNStart(), uid: me)
+    /// #309: a DNS script that is not where the helper looks (the app was moved while the helper ran) used to
+    /// start OpenVPN with `--dns-updown disable`, so pushed DNS servers and search domains were never set. It is
+    /// a failed start now, and nothing of the session is left.
+    func testPrepareOpenVPNWithMissingDNSScriptFails() throws {
+        let missing = base.appendingPathComponent("missing").path
+        assertFails(try core(dns: missing).prepareOpenVPN(openVPNStart(), uid: me)) { $0 == .dnsScriptMissing(missing) }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: acmeRunDir), "the session directory is removed")
+        let inMissingDir = base.appendingPathComponent("missing/dns-updown").path
+        assertFails(try core(dns: inMissingDir).prepareOpenVPN(openVPNStart(), uid: me)) { $0 == .dnsScriptMissing(inMissingDir) }
+        XCTAssertTrue(
+            HelperCore.Failure.dnsScriptMissing(missing).description.contains("OpenVPN was not started"),
+            "the message says why nothing connected")
+    }
+
+    /// The script is located at every start, not once when the helper started: after the app moved, the next
+    /// start finds it where it is now (#309).
+    func testPrepareOpenVPNLocatesDNSScriptAtEveryStart() throws {
+        let first = base.appendingPathComponent("Downloads/PassTunnel.app/Contents/Resources/bin")
+        let second = base.appendingPathComponent("Applications/PassTunnel.app/Contents/Resources/bin")
+        try FileManager.default.createDirectory(at: first, withIntermediateDirectories: true)
+        try "#!/bin/sh\nexit 0\n".write(to: first.appendingPathComponent("dns-updown"), atomically: true, encoding: .utf8)
+        var current = first
+        var asked = 0
+        let helper = core(locateDNS: {
+            asked += 1
+            return current.appendingPathComponent("dns-updown").path
+        })
+        let plan = try helper.prepareOpenVPN(openVPNStart(), uid: me)
+        close(plan.logFD)
+        XCTAssertEqual(Array(plan.arguments.suffix(2)), ["--dns-updown", plan.runDir + "/dns-hook"])
+        helper.removeRunDir(profileID: "acme", uid: me)
+
+        // The app is moved: the old path is gone.
+        try FileManager.default.createDirectory(at: second.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: first, to: second)
+        current = second
+        let moved = try helper.prepareOpenVPN(openVPNStart(), uid: me)
+        defer { close(moved.logFD) }
+        XCTAssertEqual(asked, 2, "asked once per start")
+        XCTAssertEqual(moved.dnsUpdownPath, moved.runDir + "/dns-updown")
+        XCTAssertEqual(Array(moved.arguments.suffix(4)), ["--script-security", "2", "--dns-updown", moved.runDir + "/dns-hook"])
+        XCTAssertEqual(try String(contentsOfFile: moved.runDir + "/dns-updown", encoding: .utf8), "#!/bin/sh\nexit 0\n")
+    }
+
+    /// When the helper cannot tell where its bundle is, or is told a relative path, OpenVPN does not start.
+    func testPrepareOpenVPNFailsWhenDNSScriptCannotBeLocated() throws {
+        struct Lost: Error {}
+        XCTAssertThrowsError(try core(locateDNS: { throw Lost() }).prepareOpenVPN(openVPNStart(), uid: me)) {
+            XCTAssertTrue($0 is Lost, "\($0)")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: acmeRunDir))
+        assertFails(try core(dns: "Contents/Resources/bin/dns-updown").prepareOpenVPN(openVPNStart(), uid: me)) {
+            $0 == .notAbsolute("Contents/Resources/bin/dns-updown")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: acmeRunDir))
+    }
+
+    /// Only a core given no script at all (tests; the Linux daemon has its own hook) runs OpenVPN without one.
+    func testPrepareOpenVPNWithoutDNSSourceWritesNoWrapper() throws {
+        let plan = try core().prepareOpenVPN(openVPNStart(), uid: me)
         defer { close(plan.logFD) }
         XCTAssertNil(plan.dnsUpdownPath)
         XCTAssertEqual(Array(plan.arguments.suffix(4)), ["--script-security", "1", "--dns-updown", "disable"])

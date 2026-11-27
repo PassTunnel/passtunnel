@@ -39,11 +39,12 @@ let buildID = image?.digest ?? HelperImage.fallbackBuildID() ?? "unknown"
 // Read now for the same reason; the app only replaces a helper with a lower number on its own.
 let buildNumber = image == nil ? nil : HelperBuild.buildNumber(ofBundleContaining: HelperBundle.executablePath)
 
-let core = HelperCore(runRoot: PT.helperRunRoot, dnsUpdownSource: HelperBundle.dnsUpdownPath)
+// The bundle's files are located again at every start (`HelperBundle`): the app may have been moved since.
+let core = HelperCore(runRoot: PT.helperRunRoot, dnsUpdownSource: { try HelperBundle.currentDNSUpdownPath() })
 let stager = ToolStager(
-    bundleContents: HelperBundle.contentsDir, runRoot: PT.helperRunRoot, buildID: buildID,
-    hookSource: image?.descriptor)
-let supervisor = Supervisor(core: core, stager: stager)
+    bundleContents: HelperBundle.contentsDir(ofExecutable: HelperBundle.executablePath), runRoot: PT.helperRunRoot,
+    buildID: buildID, hookSource: image?.descriptor)
+let supervisor = Supervisor(core: core, stager: stager, bundleContents: { try HelperBundle.currentContentsDir() })
 supervisor.adoptOrphans()
 
 // Stop all tools and clean up when launchd stops the helper.
