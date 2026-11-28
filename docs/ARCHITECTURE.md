@@ -1439,7 +1439,7 @@ still verified against its name, or the profile's pin, exactly as strictly as by
   the portal may send the sign-in on to a gateway of another name, which a network without DNS could not find either,
   after the portal already had the password and the code; so a portal profile never learns or uses an address, and a
   connection by its name forgets one that is there.
-- *FortiGate* has no fallback. openfortivpn 1.24.1 accepts the gateway when the system's trust store verifies its
+- *FortiGate* has no fallback. openfortivpn 1.24.2 accepts the gateway when the system's trust store verifies its
   chain **and** `X509_check_host` matches the host it connects to, or else when its SHA-256 is a `trusted-cert`
   (tunnel.c 877–905); the system store is always loaded (`SSL_CTX_set_default_verify_paths`, 1025), and the name check
   runs against `gateway_host`, which is also what it resolves (622). Its `sni` option (1308) changes only the name
