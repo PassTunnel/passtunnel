@@ -1744,6 +1744,16 @@ kbd {
   white-space: nowrap;
 }
 
+/* Beside a horizontal arrow, a label longer than the arrow (Turkish) wraps above it instead of
+   running into the boxes. */
+@media (min-width: 900px) {
+  .flow-label {
+    width: 104px;
+    white-space: normal;
+    text-align: center;
+  }
+}
+
 @media (max-width: 899.98px) {
   .flow {
     flex-direction: column;
