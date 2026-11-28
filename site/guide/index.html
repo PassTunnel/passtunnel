@@ -8,24 +8,208 @@
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
-<title>User guide · PassTunnel</title>
-<meta name="description" content="Step-by-step guide to PassTunnel: install it, approve the helper, add a VPN profile and its one-time code, connect, stay connected, share profiles, use the command line and the MCP server, update and uninstall.">
+<title>PassTunnel user guide: set up a macOS VPN with TOTP codes</title>
+<meta name="description" content="Install PassTunnel, approve the helper, add an OpenVPN, FortiGate, Cisco AnyConnect or GlobalProtect profile with its TOTP code and connect.">
 <link rel="canonical" href="https://passtunnel.github.io/guide/">
 <link rel="icon" type="image/png" sizes="64x64" href="/assets/img/favicon.png">
 <link rel="apple-touch-icon" href="/assets/img/apple-touch-icon.png">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="PassTunnel">
-<meta property="og:title" content="User guide · PassTunnel">
-<meta property="og:description" content="How to install PassTunnel, add a VPN profile with its one-time code, connect and stay connected.">
+<meta property="og:title" content="PassTunnel user guide: set up a macOS VPN with TOTP codes">
+<meta property="og:description" content="Install PassTunnel, approve the helper, add an OpenVPN, FortiGate, Cisco AnyConnect or GlobalProtect profile with its TOTP code and connect.">
 <meta property="og:url" content="https://passtunnel.github.io/guide/">
 <meta property="og:image" content="https://passtunnel.github.io/assets/img/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="PassTunnel: Connect your VPN without ever typing a one-time code again. The main window lists the VPN profiles and shows the selected one with its live code and what the server receives.">
 <meta property="og:locale" content="en_US">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="PassTunnel user guide: set up a macOS VPN with TOTP codes">
+<meta name="twitter:description" content="Install PassTunnel, approve the helper, add an OpenVPN, FortiGate, Cisco AnyConnect or GlobalProtect profile with its TOTP code and connect.">
+<meta name="twitter:image" content="https://passtunnel.github.io/assets/img/og.png">
+<meta name="twitter:image:alt" content="PassTunnel: Connect your VPN without ever typing a one-time code again. The main window lists the VPN profiles and shows the selected one with its live code and what the server receives.">
 <script src="/assets/theme.js"></script>
 <link rel="stylesheet" href="/assets/style.css">
 <script src="/assets/main.js" defer></script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "TechArticle",
+      "@id": "https://passtunnel.github.io/guide/#article",
+      "headline": "User guide",
+      "name": "PassTunnel user guide: set up a macOS VPN with TOTP codes",
+      "description": "How to install PassTunnel, add a VPN profile with its one-time code, connect and stay connected, from the first launch to uninstalling.",
+      "url": "https://passtunnel.github.io/guide/",
+      "mainEntityOfPage": "https://passtunnel.github.io/guide/",
+      "inLanguage": "en",
+      "image": "https://passtunnel.github.io/assets/img/og.png",
+      "isPartOf": {
+        "@type": "WebSite",
+        "@id": "https://passtunnel.github.io/#website",
+        "name": "PassTunnel",
+        "url": "https://passtunnel.github.io/"
+      },
+      "about": {
+        "@id": "https://passtunnel.github.io/#app",
+        "name": "PassTunnel"
+      },
+      "author": {
+        "@type": "Organization",
+        "@id": "https://passtunnel.github.io/#organization",
+        "name": "PassTunnel",
+        "url": "https://passtunnel.github.io/"
+      },
+      "publisher": {
+        "@type": "Organization",
+        "@id": "https://passtunnel.github.io/#organization",
+        "name": "PassTunnel",
+        "url": "https://passtunnel.github.io/"
+      },
+      "dependencies": "macOS 13 Ventura or later on a Mac with Apple silicon; Cisco AnyConnect and Palo Alto GlobalProtect profiles need macOS 15.4 or later",
+      "articleSection": [
+        "Install",
+        "Approve the helper",
+        "Add a profile",
+        "Add the one-time code",
+        "Choose how the code is sent",
+        "Connect and disconnect",
+        "Protect a profile with Touch ID",
+        "Stay connected",
+        "Share profiles",
+        "Command line",
+        "Use with AI assistants (MCP)",
+        "Updates",
+        "Troubleshooting",
+        "Uninstall"
+      ]
+    },
+    {
+      "@type": "HowTo",
+      "@id": "https://passtunnel.github.io/guide/#howto-install",
+      "name": "Install PassTunnel and approve the helper",
+      "description": "Install PassTunnel on a Mac with Apple silicon and macOS 13 or later, then approve its helper once in System Settings.",
+      "url": "https://passtunnel.github.io/guide/#install",
+      "inLanguage": "en",
+      "step": [
+        {
+          "@type": "HowToStep",
+          "position": 1,
+          "name": "Download the disk image",
+          "text": "Download the disk image and open it.",
+          "url": "https://passtunnel.github.io/guide/#install"
+        },
+        {
+          "@type": "HowToStep",
+          "position": 2,
+          "name": "Drag PassTunnel to Applications",
+          "text": "Drag PassTunnel to Applications.",
+          "url": "https://passtunnel.github.io/guide/#install"
+        },
+        {
+          "@type": "HowToStep",
+          "position": 3,
+          "name": "Open PassTunnel",
+          "text": "Open PassTunnel from the Applications folder. The helper can only be installed from there.",
+          "url": "https://passtunnel.github.io/guide/#install"
+        },
+        {
+          "@type": "HowToStep",
+          "position": 4,
+          "name": "Install the helper",
+          "text": "On the Add your first VPN screen, find the Install the helper card at the bottom and click Install Helper.",
+          "url": "https://passtunnel.github.io/guide/#helper"
+        },
+        {
+          "@type": "HowToStep",
+          "position": 5,
+          "name": "Approve it in Login Items",
+          "text": "Turn PassTunnel on in System Settings → General → Login Items. macOS asks once.",
+          "url": "https://passtunnel.github.io/guide/#helper"
+        },
+        {
+          "@type": "HowToStep",
+          "position": 6,
+          "name": "Check that it runs",
+          "text": "The card changes to “The helper is installed and running.” when it is done.",
+          "url": "https://passtunnel.github.io/guide/#helper"
+        }
+      ]
+    },
+    {
+      "@type": "HowTo",
+      "@id": "https://passtunnel.github.io/guide/#howto-uninstall",
+      "name": "Uninstall PassTunnel",
+      "description": "Remove PassTunnel, its helper, its data and its Keychain items from a Mac.",
+      "url": "https://passtunnel.github.io/guide/#uninstall",
+      "inLanguage": "en",
+      "step": [
+        {
+          "@type": "HowToStep",
+          "position": 1,
+          "name": "Disconnect",
+          "text": "Disconnect all profiles.",
+          "url": "https://passtunnel.github.io/guide/#uninstall"
+        },
+        {
+          "@type": "HowToStep",
+          "position": 2,
+          "name": "Remove the helper",
+          "text": "Remove the helper before deleting the app: Settings → Helper → Remove Helper…, or passtunnel helper uninstall.",
+          "url": "https://passtunnel.github.io/guide/#uninstall"
+        },
+        {
+          "@type": "HowToStep",
+          "position": 3,
+          "name": "Turn off launch at login",
+          "text": "Turn off launch at login: Settings → General → Open at login, in the menu bar. Check that nothing is left under System Settings → General → Login Items.",
+          "url": "https://passtunnel.github.io/guide/#uninstall"
+        },
+        {
+          "@type": "HowToStep",
+          "position": 4,
+          "name": "Quit and delete the app",
+          "text": "Quit PassTunnel and move PassTunnel.app to the Trash.",
+          "url": "https://passtunnel.github.io/guide/#uninstall"
+        },
+        {
+          "@type": "HowToStep",
+          "position": 5,
+          "name": "Delete your data",
+          "text": "Delete your data: rm -rf ~/Library/Application\\ Support/PassTunnel removes profiles, configurations, logs and preferences; defaults delete com.furkanprlk.passtunnel removes the open-at-login question; rm -f /usr/local/bin/passtunnel ~/.local/bin/passtunnel removes the command-line symlink, if you installed it.",
+          "url": "https://passtunnel.github.io/guide/#uninstall"
+        },
+        {
+          "@type": "HowToStep",
+          "position": 6,
+          "name": "Delete the Keychain items",
+          "text": "Delete the Keychain items: open Keychain Access and search for PassTunnel. Deleting a profile inside the app also removes its Keychain items.",
+          "url": "https://passtunnel.github.io/guide/#uninstall"
+        }
+      ]
+    },
+    {
+      "@type": "BreadcrumbList",
+      "@id": "https://passtunnel.github.io/guide/#breadcrumb",
+      "itemListElement": [
+        {
+          "@type": "ListItem",
+          "position": 1,
+          "name": "PassTunnel",
+          "item": "https://passtunnel.github.io/"
+        },
+        {
+          "@type": "ListItem",
+          "position": 2,
+          "name": "User guide",
+          "item": "https://passtunnel.github.io/guide/"
+        }
+      ]
+    }
+  ]
+}
+</script>
 </head>
 <body>
 
@@ -150,14 +334,14 @@
         <li><strong>An OpenVPN file (<code>.ovpn</code> or <code>.conf</code>).</strong> Drop it on the dashed area or use <strong>Choose File…</strong> (File → <strong>Import .ovpn…</strong>). You see a review of what is in the file before anything is saved. Files it references, such as <code>ca ca.crt</code>, are embedded automatically.</li>
         <li><strong>A FortiGate gateway.</strong> Choose <strong>Enter details by hand</strong>, then FortiGate (File → <strong>New FortiGate Profile…</strong>). Enter the <strong>Gateway</strong> host and the port, and use <strong>Fetch Fingerprint</strong> to pin the gateway’s certificate (SHA-256).</li>
         <li><strong>A Cisco AnyConnect server</strong> (macOS 15.4 or later). Choose <strong>Enter details by hand</strong>, then Cisco AnyConnect (File → <strong>New Cisco AnyConnect Profile…</strong>). Paste the address your IT team gave you in <strong>Server</strong>, for example <code>https://vpn.example.com/staff</code>; PassTunnel fills in the host, port and user group from it. <strong>Group</strong> is the group the server offers at sign-in; leave it empty for the server’s default.</li>
-        <li><strong>A Palo Alto GlobalProtect portal</strong> (experimental, macOS 15.4 or later). Choose <strong>Enter details by hand</strong>, then Palo Alto GlobalProtect (File → <strong>New Palo Alto GlobalProtect Profile (Experimental)…</strong>). Enter the portal’s address without a path, for example <code>vpn.example.com</code>. If the portal lists several gateways, the first connect stops at <strong>Choose a gateway</strong>, or you set <strong>Gateway</strong> in the profile. <strong>Skip the portal and sign in to the gateway directly</strong> signs in to one gateway; <strong>Server</strong> must then hold the gateway’s address.</li>
+        <li><strong>A Palo Alto GlobalProtect portal</strong> (macOS 15.4 or later). Choose <strong>Enter details by hand</strong>, then Palo Alto GlobalProtect. Enter the portal’s address without a path, for example <code>vpn.example.com</code>. If the portal lists several gateways, the first connect stops at <strong>Choose a gateway</strong>, or you set <strong>Gateway</strong> in the profile. <strong>Skip the portal and sign in to the gateway directly</strong> signs in to one gateway; <strong>Server</strong> must then hold the gateway’s address.</li>
         <li><strong>An authenticator QR code.</strong> Choose <strong>Scan a QR code on screen</strong> (macOS 14 and later) or <strong>Use a QR image</strong>. PassTunnel asks what kind of VPN the code is for, then opens a new profile with the code filled in.</li>
         <li><strong>A <code>.passtunnel</code> file from a colleague.</strong> See <a class="text-link" href="#share">Share profiles</a>.</li>
       </ul>
       <p>Then open the profile editor (<strong>Edit</strong> in the toolbar). In the first card, enter the <strong>User name</strong> (leave it empty to be asked each time) and the <strong>Password</strong>. Under <strong>Advanced → Sign-in</strong>, the password can also be asked each time, or not used (certificate-only OpenVPN). Secrets are written to the Keychain only when you press <strong>Save</strong> (<strong>Add Profile</strong> for a new profile).</p>
       <h3>Limits of Cisco AnyConnect and GlobalProtect</h3>
       <p>Both sign in with a user name, a password and, if the server asks for one, a one-time code. Neither supports sign-in through a web browser (SAML or single sign-on) or client certificates. Cisco AnyConnect also does not support host scan (Cisco Secure Desktop, HIP, TNCC) or RSA SecurID, and does not follow a server that sends you to another host after sign-in. For GlobalProtect, the host information report (HIP) is never sent: the connection goes on, and PassTunnel says access may be limited.</p>
-      <p>If the server’s certificate is signed by an authority your Mac trusts, there is nothing more to do. Otherwise, <strong>Fetch Fingerprint</strong> in the editor reads the server’s key and asks whether to trust it. Compare the fingerprint with the one your IT team published first. GlobalProtect has been tried against openconnect’s own test server and one real gateway, so please <a class="text-link" href="https://github.com/PassTunnel/passtunnel/issues/new?template=globalprotect_report.md">tell us how it works for you</a>.</p>
+      <p>If the server’s certificate is signed by an authority your Mac trusts, there is nothing more to do. Otherwise, <strong>Fetch Fingerprint</strong> in the editor reads the server’s key and asks whether to trust it. Compare the fingerprint with the one your IT team published first.</p>
     </section>
 
     <section id="code" aria-labelledby="code-title">
