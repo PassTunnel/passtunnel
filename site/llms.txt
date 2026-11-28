@@ -1,11 +1,11 @@
 # PassTunnel
 
-> PassTunnel is a free, open-source (MIT) macOS app for OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect (experimental), for Apple silicon Macs with macOS 13 or later (Cisco AnyConnect and GlobalProtect need macOS 15.4 or later). It keeps the TOTP secret in the macOS Keychain, computes the current one-time code and sends it with the password when you connect. It includes the `passtunnel` command-line tool and a built-in MCP server (`passtunnel mcp`).
+> PassTunnel is a free, open-source (MIT) macOS app for OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect, for Apple silicon Macs with macOS 13 or later (Cisco AnyConnect and GlobalProtect need macOS 15.4 or later). It keeps the TOTP secret in the macOS Keychain, computes the current one-time code and sends it with the password when you connect. It includes the `passtunnel` command-line tool and a built-in MCP server (`passtunnel mcp`).
 
 - Codes are sent in the format the server expects: appended or prepended to the password, `password:code`, `password,code`, a custom template with the placeholders `{password}` and `{otp}`, or separately (OpenVPN static challenge, FortiGate OTP field, Cisco AnyConnect's and GlobalProtect's second password field). With 5 seconds or less left in the code window, PassTunnel waits for a fresh code (a setting, on by default); a code already sent is never sent again.
 - Signed `openvpn`, `openfortivpn` and `openconnect` are bundled; nothing else to install. A small privileged helper, approved once in System Settings, only accepts the signed app and only runs those tools, with sanitized OpenVPN configurations.
 - Cisco AnyConnect signs in with a user name, password and one-time code. Not supported: sign-in through a web browser (SAML / single sign-on), host scan (Cisco Secure Desktop, HIP, TNCC), client certificates and RSA SecurID. A server's certificate is trusted through the system, or by pinning its key (Fetch Fingerprint, Trust This Server).
-- Palo Alto GlobalProtect (experimental, macOS 15.4 or later) signs in to the portal and the gateway with a user name, password and one-time code. Not supported: sign-in through a web browser (SAML / single sign-on), client certificates, and the host information report (HIP), which is never sent: the connection goes on and PassTunnel says access may be limited. Reports from real gateways are welcome: https://github.com/PassTunnel/passtunnel/issues/new?template=globalprotect_report.md . Pulse/Ivanti is on the roadmap, not supported yet.
+- Palo Alto GlobalProtect (macOS 15.4 or later) signs in to the portal and the gateway with a user name, password and one-time code. Not supported: sign-in through a web browser (SAML / single sign-on), client certificates, and the host information report (HIP), which is never sent: the connection goes on and PassTunnel says access may be limited. Pulse/Ivanti is on the roadmap, not supported yet.
 - Passwords and TOTP secrets stay in the login Keychain (no iCloud sync); nothing is sent anywhere except the VPN server. Optional Touch ID per profile encrypts the secrets with a Secure Enclave key.
 
 ## Install
@@ -26,7 +26,7 @@ passtunnel connect work           # connect a profile (IDs come from the name: W
 passtunnel code work -c           # print the live code and copy it
 passtunnel status --json          # every profile's state as JSON
 passtunnel add Corp --type anyconnect --server https://vpn.example.com/staff   # Cisco AnyConnect profile
-passtunnel add Gp --type globalprotect --server vpn.example.com   # Palo Alto GlobalProtect profile (experimental)
+passtunnel add Gp --type globalprotect --server vpn.example.com   # Palo Alto GlobalProtect profile
 ```
 
 Every command with a result takes `--json`; any command takes `--no-input` and `--no-auth-prompt`. Exit codes: 0 ok, 1 error, 2 usage, 3 not found or not connected, 4 confirmation or input cancelled or not possible, 5 helper missing, unapproved or outdated, 6 connection failed, 7 timeout, 130 interrupted (Ctrl-C).
@@ -50,7 +50,9 @@ Every command with a result takes `--json`; any command takes `--no-input` and `
 
 - [App and CLI behavior](https://raw.githubusercontent.com/PassTunnel/passtunnel/main/docs/APP.md)
 - [Architecture](https://raw.githubusercontent.com/PassTunnel/passtunnel/main/docs/ARCHITECTURE.md)
-- [Website](https://passtunnel.github.io/)
+- [Website](https://passtunnel.github.io/): what PassTunnel does, install, CLI and MCP, security model
+- [FAQ](https://passtunnel.github.io/#faq): what PassTunnel is, free and open source, supported Macs and VPN types, how the one-time code is sent, where secrets are stored, the helper, command line, MCP, install, uninstall, help
+- [Website in Turkish](https://passtunnel.github.io/tr/): the same home page and FAQ in Turkish (the user guide and the privacy policy are in English only)
 - [User guide](https://passtunnel.github.io/guide/): install, approve the helper, add a profile and its one-time code, connect, stay connected, share profiles, CLI, MCP, updates, troubleshooting, uninstall
 - [Privacy policy](https://passtunnel.github.io/privacy/): nothing is collected; what stays on the device and which connections the apps make
 - [Releases](https://github.com/PassTunnel/passtunnel/releases)
