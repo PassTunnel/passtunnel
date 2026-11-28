@@ -2,9 +2,9 @@
 
 TEST ONLY. openconnect's own GlobalProtect test server, `tests/fake-gp-server.py`, run unchanged in a container
 for PassTunnel's sign-in tests of Palo Alto GlobalProtect (issue #235; docs/ARCHITECTURE.md, "Tests (G8)"). No
-open-source server speaks GlobalProtect's tunnel, so this checks the sign-in only; that is one reason the type is
-labelled experimental. Every secret in the image is a throwaway: the CA and server key are made when the image is
-built (never committed), and the server accepts any password and code. Never publish it beyond the machine that
+open-source server speaks GlobalProtect's tunnel, so this checks the sign-in only. Every secret in the image is a
+throwaway: the CA and server key are made when the image is built (never committed), and the server accepts any
+password and code. Never publish it beyond the machine that
 runs the tests.
 
 ## Where it comes from
@@ -122,7 +122,7 @@ What the test server cannot show (a real gateway's forms, HIP, ESP, the tunnel) 
 an account on a GlobalProtect portal they may use, with a password and a code (or the password alone) and no single
 sign-on. Write down the portal's address and the gateway names the GlobalProtect app shows.
 
-1. Make the profile (the app: File → New Palo Alto GlobalProtect Profile (Experimental)…; or the command):
+1. Make the profile (the app: File → New Palo Alto GlobalProtect Profile…; or the command):
 
    ```sh
    passtunnel add "Acme GP" --type globalprotect --server https://vpn.example.com

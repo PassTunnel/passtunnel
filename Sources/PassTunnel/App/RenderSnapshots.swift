@@ -627,13 +627,12 @@ enum RenderSnapshots {
     }
 
     /// Palo Alto GlobalProtect in the main window, light and dark, on a profile made for them and deleted after (#233):
-    /// `globalprotect-detail` (connected, the gateway asked for a HIP report: the notice under the status, the
-    /// "Experimental" badge and "Report how it works…" in the header and the badge in the row), `error-gateway-required`
-    /// (the portal lists three gateways: Choose Gateway), `error-gateway-unreadable` (the list could not be read),
-    /// `error-sso-required` (the portal signs in with SAML), `error-not-globalprotect` (neither portal nor gateway),
-    /// `error-gateway-not-trusted` (the gateway's certificate: Trust This Gateway…), `trust-gateway-sheet` (its
-    /// confirmation with the portal's key read) and `-reading` (while it is read), and `globalprotect-unavailable`
-    /// (macOS older than 15.4).
+    /// `globalprotect-detail` (connected, the gateway asked for a HIP report: the notice under the status),
+    /// `error-gateway-required` (the portal lists three gateways: Choose Gateway), `error-gateway-unreadable` (the list
+    /// could not be read), `error-sso-required` (the portal signs in with SAML), `error-not-globalprotect` (neither
+    /// portal nor gateway), `error-gateway-not-trusted` (the gateway's certificate: Trust This Gateway…),
+    /// `trust-gateway-sheet` (its confirmation with the portal's key read) and `-reading` (while it is read), and
+    /// `globalprotect-unavailable` (macOS older than 15.4).
     private static func renderGlobalProtect(_ model: AppModel, store: ProfileStore, now: Date, to out: URL) throws {
         var p = try store.create(name: "Corp GlobalProtect", type: .globalprotect)
         p.host = "vpn.example.com"

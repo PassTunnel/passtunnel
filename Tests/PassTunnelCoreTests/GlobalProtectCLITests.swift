@@ -10,12 +10,11 @@ private let pin = "pin-sha256:z5GvjHUMCuD4zeB6PcpafVA6OZks+c8PGxSAuAx0Hgk="
 private let gatewayPin = "pin-sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 private let macOS154 = OperatingSystemVersion(majorVersion: 15, minorVersion: 4, patchVersion: 0)
 private let macOS153 = OperatingSystemVersion(majorVersion: 15, minorVersion: 3, patchVersion: 0)
-private let reportURL = "https://github.com/PassTunnel/passtunnel/issues/new?template=globalprotect_report.md"
-private let feedback = "Palo Alto GlobalProtect support is experimental. Please report how it works: \(reportURL)"
 
-/// The command line of Palo Alto GlobalProtect profiles (experimental): `add --type globalprotect`, `set`, `show`,
-/// `list`, `status`, `diagnose`, `import`, the label, and that every other type's output is untouched. Every test
-/// uses a temporary profile directory, a private secret store and a fake helper; nothing is connected.
+/// The command line of Palo Alto GlobalProtect profiles: `add --type globalprotect`, `set`, `show`, `list`, `status`,
+/// `diagnose`, `import`, that no output labels the type experimental any more (#314), and that every other type's
+/// output is untouched. Every test uses a temporary profile directory, a private secret store and a fake helper;
+/// nothing is connected.
 @MainActor
 final class GlobalProtectCLITests: CoreTestCase {
     var helper: FakeHelper!
@@ -157,14 +156,15 @@ final class GlobalProtectCLITests: CoreTestCase {
 
     // MARK: add
 
-    func testAddCreatesTheProfileAndAsksForReports() async throws {
+    func testAddCreatesTheProfile() async throws {
         let server = GlobalProtectServer.parse("https://VPN.example.com:8443").map { AnyConnectServer(host: $0.host, port: $0.port) }
         let result = try await run(.add(name: "Acme", type: .globalprotect, server: server))
         XCTAssertEqual(result.code, 0, result.err)
         XCTAssertEqual(result.out, "Created “Acme” (acme).\n")
         XCTAssertTrue(result.err.contains("passtunnel set acme username=alice"), result.err)
         XCTAssertTrue(result.err.contains("passtunnel secret acme password"), result.err)
-        XCTAssertEqual(result.err.components(separatedBy: feedback).count - 1, 1, "the report line, once: \(result.err)")
+        XCTAssertFalse(result.err.lowercased().contains("experimental"), result.err)
+        XCTAssertFalse(result.err.contains("globalprotect_report"), "no report line: \(result.err)")
         XCTAssertEqual(changesAnnounced, 1)
         let p = try store.get("acme")
         XCTAssertEqual(p.type, .globalprotect)
@@ -177,22 +177,23 @@ final class GlobalProtectCLITests: CoreTestCase {
         let without = try await run(.add(name: "Other", type: .globalprotect))
         XCTAssertEqual(without.code, 0, without.err)
         XCTAssertTrue(without.err.contains("passtunnel set other host=vpn.example.com username=alice"), without.err)
-        XCTAssertTrue(without.err.contains(feedback), without.err)
+        XCTAssertFalse(without.err.lowercased().contains("experimental"), without.err)
     }
 
-    func testAddJSONHasTheLabelAndNoLine() async throws {
+    func testAddJSONHasNoLabelAndNoLine() async throws {
         let result = try await run(.add(name: "Acme", type: .globalprotect, json: true, server: AnyConnectServer(host: "vpn.example.com")))
         XCTAssertEqual(result.code, 0, result.err)
         let json = try XCTUnwrap(result.json)
         XCTAssertEqual(json["type"] as? String, "globalprotect")
-        XCTAssertEqual(json["experimental"] as? Bool, true)
+        XCTAssertNil(json["experimental"])
         XCTAssertNil(json["connect_refusal"])
         XCTAssertEqual(result.err, "", "standard output is the JSON, standard error is quiet")
     }
 
-    func testAddOfOtherTypesPrintsNoReportLineAndNoLabel() async throws {
+    func testAddOfAnyTypePrintsNoReportLineAndNoLabel() async throws {
         for (type, server) in [
-            (VPNType.openvpn, nil), (.forti, nil), (.anyconnect, AnyConnectServer(host: "vpn.example.com"))
+            (VPNType.openvpn, nil), (.forti, nil), (.anyconnect, AnyConnectServer(host: "vpn.example.com")),
+            (.globalprotect, AnyConnectServer(host: "vpn.example.com"))
         ] as [(VPNType, AnyConnectServer?)] {
             let human = try await run(.add(name: "H \(type.rawValue)", type: type, server: server))
             XCTAssertEqual(human.code, 0, human.err)
@@ -251,7 +252,7 @@ final class GlobalProtectCLITests: CoreTestCase {
         XCTAssertEqual(json.code, 0, json.err)
         let profile = try XCTUnwrap(json.json?["profile"] as? [String: Any])
         XCTAssertEqual(profile["type"] as? String, "globalprotect")
-        XCTAssertEqual(profile["experimental"] as? Bool, true)
+        XCTAssertNil(profile["experimental"])
         XCTAssertEqual(profile["gateway"] as? String, "Gateway 1")
         XCTAssertEqual(profile["skip_portal"] as? Bool, false)
         XCTAssertEqual(profile["server_cert"] as? String, pin)
@@ -259,7 +260,7 @@ final class GlobalProtectCLITests: CoreTestCase {
         XCTAssertEqual(profile["tls_only"] as? Bool, true)
         XCTAssertNil(profile["usergroup"], "AnyConnect's alone")
         XCTAssertNil(profile["authgroup"], "AnyConnect's alone")
-        XCTAssertNil(json.json?["experimental"], "on the profile object, not beside it")
+        XCTAssertNil(json.json?["experimental"], "beside the profile object either")
 
         let text = try await run(.show(id: "acme", json: false))
         let rows = Dictionary(
@@ -267,7 +268,7 @@ final class GlobalProtectCLITests: CoreTestCase {
                 let parts = line.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
                 return parts.count == 2 ? (String(parts[0]), parts[1].trimmingCharacters(in: .whitespaces)) : nil
             })
-        XCTAssertEqual(rows["type"], "globalprotect (experimental)")
+        XCTAssertEqual(rows["type"], "globalprotect")
         XCTAssertEqual(rows["gateway"], "Gateway 1")
         XCTAssertEqual(rows["skip_portal"], "false")
         XCTAssertEqual(rows["gateway_server_cert"], gatewayPin)
@@ -309,7 +310,7 @@ final class GlobalProtectCLITests: CoreTestCase {
             let show = try await run(.show(id: "acme", json: true), macOS: macOS)
             XCTAssertEqual(show.code, 0, show.err)
             XCTAssertNotNil(show.json?["connect_refusal"])
-            XCTAssertEqual((show.json?["profile"] as? [String: Any])?["experimental"] as? Bool, true)
+            XCTAssertNil((show.json?["profile"] as? [String: Any])?["experimental"])
         }
         let old = try await run(.show(id: "acme", json: false), macOS: macOS153)
         XCTAssertTrue(old.out.contains("Requires macOS 15.4 or later"), old.out)
@@ -317,7 +318,7 @@ final class GlobalProtectCLITests: CoreTestCase {
 
     // MARK: list / status / diagnose
 
-    func testListLabelsOnlyTheExperimentalType() async throws {
+    func testListLabelsNoTypeExperimental() async throws {
         try makeProfile()
         _ = try store.create(name: "Lab", type: .forti)
         var corp = try store.create(name: "Corp", type: .anyconnect)
@@ -328,21 +329,14 @@ final class GlobalProtectCLITests: CoreTestCase {
         XCTAssertEqual(text.code, 0, text.err)
         let lines = text.out.split(separator: "\n").map(String.init)
         let gp = try XCTUnwrap(lines.first { $0.contains("acme") })
-        XCTAssertTrue(gp.contains("Palo Alto GlobalProtect (experimental)"), gp)
-        XCTAssertTrue(gp.contains("alice"), gp)
-        for line in lines where !line.contains("acme") { XCTAssertFalse(line.contains("experimental"), line) }
+        XCTAssertTrue(gp.contains("Palo Alto GlobalProtect · alice"), gp)
+        for line in lines { XCTAssertFalse(line.lowercased().contains("experimental"), line) }
         XCTAssertEqual(text.err, "")
 
         let json = try await run(.list(json: true, quiet: false))
         let profiles = try XCTUnwrap(json.jsonArray)
-        for entry in profiles {
-            if entry["id"] as? String == "acme" {
-                XCTAssertEqual(entry["experimental"] as? Bool, true)
-                XCTAssertEqual(entry["type"] as? String, "globalprotect")
-            } else {
-                XCTAssertNil(entry["experimental"], "\(entry["id"] ?? "")")
-            }
-        }
+        XCTAssertEqual(profiles.first { $0["id"] as? String == "acme" }?["type"] as? String, "globalprotect")
+        for entry in profiles { XCTAssertNil(entry["experimental"], "\(entry["id"] ?? "")") }
     }
 
     /// The other types' output is exactly what it was: no `experimental` key and the same bytes as the summary
@@ -377,27 +371,30 @@ final class GlobalProtectCLITests: CoreTestCase {
         XCTAssertFalse(diagnose.out.contains("experimental"), diagnose.out)
     }
 
-    func testStatusAndDiagnoseCarryTheLabel() async throws {
+    func testStatusAndDiagnoseCarryNoLabel() async throws {
         try makeProfile()
         _ = try store.create(name: "Lab", type: .forti)
         let table = try await run(.status(id: nil, json: false))
         let gp = try XCTUnwrap(table.out.split(separator: "\n").first { $0.contains("acme") })
-        XCTAssertTrue(gp.contains("(experimental)"), String(gp))
-        XCTAssertFalse(try XCTUnwrap(table.out.split(separator: "\n").first { $0.contains("lab") }).contains("experimental"))
+        XCTAssertFalse(gp.lowercased().contains("experimental"), String(gp))
+        XCTAssertFalse(table.out.lowercased().contains("experimental"), table.out)
 
         let json = try await run(.status(id: "acme", json: true))
-        XCTAssertEqual(json.json?["experimental"] as? Bool, true)
+        XCTAssertEqual(json.json?["type"] as? String, "globalprotect")
+        XCTAssertNil(json.json?["experimental"])
         XCTAssertNil(json.json?["notices"])
         let all = try await run(.status(id: nil, json: true))
-        XCTAssertEqual(all.jsonArray?.map { $0["experimental"] as? Bool }, [true, nil])
+        XCTAssertEqual(all.jsonArray?.map { $0["experimental"] as? Bool }, [nil, nil])
+        XCTAssertFalse(all.out.contains("experimental"), all.out)
 
         let human = try await run(.diagnose(checkClock: false, json: false))
         let line = try XCTUnwrap(human.out.split(separator: "\n").first { $0.contains("acme") })
-        XCTAssertTrue(line.contains("globalprotect (experimental)"), String(line))
+        XCTAssertTrue(line.contains("acme, globalprotect"), String(line))
+        XCTAssertFalse(human.out.lowercased().contains("experimental"), human.out)
         let report = try await run(.diagnose(checkClock: false, json: true))
         let profiles = try XCTUnwrap(report.json?["profiles"] as? [[String: Any]])
-        XCTAssertEqual(profiles.first { $0["id"] as? String == "acme" }?["experimental"] as? Bool, true)
-        XCTAssertNil(profiles.first { $0["id"] as? String == "lab" }?["experimental"])
+        XCTAssertEqual(profiles.first { $0["id"] as? String == "acme" }?["type"] as? String, "globalprotect")
+        XCTAssertFalse(report.out.contains("experimental"), report.out)
     }
 
     static let hipLog =
@@ -486,21 +483,23 @@ final class GlobalProtectCLITests: CoreTestCase {
 
     // MARK: import
 
-    func testImportingAGlobalProtectProfileAsksForReports() async throws {
+    func testImportingAGlobalProtectProfilePrintsNoReportLine() async throws {
         try makeProfile()
         let file = home.appendingPathComponent("acme.passtunnel")
         try store.exportShare("acme", to: file)
         let result = try await run(.importFile(path: file.path, name: "Copy"))
         XCTAssertEqual(result.code, 0, result.err)
         XCTAssertTrue(result.out.contains("Imported “Copy” as copy."), result.out)
-        XCTAssertEqual(result.err.components(separatedBy: feedback).count - 1, 1, result.err)
+        XCTAssertFalse(result.err.lowercased().contains("experimental"), result.err)
+        XCTAssertFalse(result.err.contains("globalprotect_report"), result.err)
         XCTAssertEqual(try store.get("copy").type, .globalprotect)
 
         let json = try await run(.importFile(path: file.path, name: "Third", json: true))
-        XCTAssertEqual(json.json?["experimental"] as? Bool, true)
+        XCTAssertNil(json.json?["experimental"])
+        XCTAssertFalse(json.out.contains("experimental"), json.out)
         XCTAssertEqual(json.err, "")
 
-        // Another type's import says nothing of the kind.
+        // Nor does another type's import.
         let forti = try store.create(name: "Lab", type: .forti)
         let other = home.appendingPathComponent("lab.passtunnel")
         try store.exportShare(forti.id, to: other)

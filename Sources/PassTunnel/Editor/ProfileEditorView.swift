@@ -48,22 +48,16 @@ struct ProfileEditorView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
-                Text(verbatim: model.title)
-                    .typography(.sheetTitle)
-                    .foregroundStyle(Palette.fg)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .accessibilityAddTraits(.isHeader)
-                // The type's header: an experimental type (`VPNType.isExperimental`) says so.
-                if p.type.isExperimental {
-                    ExperimentalBadge().foregroundStyle(Palette.fg2)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 26)
-            .padding(.top, 22)
-            .padding(.bottom, Spacing.s)
+            Text(verbatim: model.title)
+                .typography(.sheetTitle)
+                .foregroundStyle(Palette.fg)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .accessibilityAddTraits(.isHeader)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 26)
+                .padding(.top, 22)
+                .padding(.bottom, Spacing.s)
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: Spacing.s) {
@@ -881,9 +875,9 @@ struct ProfileEditorView: View {
                     ForEach(AppModel.editableTypes, id: \.self) { type in
                         // A type this Mac cannot connect is listed, disabled, with the reason (macOS 15.4).
                         if let note = model.typeRefusal(type)?.unavailableNote {
-                            Text(verbatim: "\(Self.typeMenuName(type)) – \(note)").tag(type).disabled(true)
+                            Text(verbatim: "\(Self.typeName(type)) – \(note)").tag(type).disabled(true)
                         } else {
-                            Text(verbatim: Self.typeMenuName(type)).tag(type)
+                            Text(verbatim: Self.typeName(type)).tag(type)
                         }
                     }
                 }
@@ -892,15 +886,11 @@ struct ProfileEditorView: View {
                 .fixedSize()
                 .accessibilityIdentifier("editor.type")
             } else {
-                HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
-                    Text(verbatim: Self.typeName(p.type))
-                        .typography(.body)
-                        .foregroundStyle(Palette.fg)
-                    if p.type.isExperimental { ExperimentalBadge().foregroundStyle(Palette.fg2) }
-                }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Text("Type"))
-                .accessibilityValue(Text(verbatim: Self.typeMenuName(p.type)))
+                Text(verbatim: Self.typeName(p.type))
+                    .typography(.body)
+                    .foregroundStyle(Palette.fg)
+                    .accessibilityLabel(Text("Type"))
+                    .accessibilityValue(Text(verbatim: Self.typeName(p.type)))
             }
         }
 
@@ -1115,11 +1105,6 @@ struct ProfileEditorView: View {
         case .forti: return "FortiGate SSL VPN"
         case .anyconnect, .globalprotect, .code: return type.displayName
         }
-    }
-
-    /// The type's name in a menu, where no badge fits: "Palo Alto GlobalProtect (Experimental)" for an experimental type.
-    static func typeMenuName(_ type: VPNType) -> String {
-        type.isExperimental ? "\(typeName(type)) (\(ExperimentalLabel.title))" : typeName(type)
     }
 
     static func passwordModeName(_ mode: PasswordMode) -> LocalizedStringKey {

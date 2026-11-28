@@ -235,10 +235,6 @@ final class GlobalProtectEditorTests: XCTestCase {
         XCTAssertNil(decoded.detail)
         XCTAssertEqual(decoded.gateways, ["US East"])
     }
-
-    func testOnlyGlobalProtectIsExperimental() {
-        XCTAssertEqual(VPNType.allCases.filter(\.isExperimental), [.globalprotect])
-    }
 }
 
 extension ConnectionManagerTests {

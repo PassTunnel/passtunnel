@@ -48,9 +48,8 @@ final class GlobalProtectProfileTests: CoreTestCase {
         XCTAssertEqual(VPNType.allCases, [.openvpn, .forti, .anyconnect, .globalprotect, .code])
     }
 
-    /// The one source of the label: only Palo Alto GlobalProtect, and nothing stores it.
-    func testOnlyGlobalProtectIsExperimental() throws {
-        XCTAssertEqual(VPNType.allCases.filter(\.isExperimental), [.globalprotect])
+    /// Neither the stored profile nor its share file says experimental (the label was never stored, #314).
+    func testNothingStoresALabel() throws {
         let p = try makeGlobalProtect()
         XCTAssertFalse(String(decoding: try Data(contentsOf: store.profileURL(p.id)), as: UTF8.self).contains("experimental"))
         XCTAssertFalse(String(decoding: try ShareFile(profile: p).data(), as: UTF8.self).contains("experimental"))

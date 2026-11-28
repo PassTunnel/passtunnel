@@ -6,9 +6,9 @@ import PassTunnelKit
 /// so it refuses protected profiles with `auth_unavailable`. The Mac's texts stay exactly as they are
 /// listed in MCP directories.
 enum MCPWording {
-    /// Palo Alto GlobalProtect ships labelled experimental (`VPNType.isExperimental`), the same on both systems.
-    static let instructionsExperimental =
-        "Palo Alto GlobalProtect is experimental: its profiles have experimental=true. A connected one can have notices (hip_report_not_sent: the gateway asked for a host information report, which PassTunnel does not send, so access may be limited); tell the user. A sign-in that needs single sign-on fails with sso_required."
+    /// What to tell the user about a Palo Alto GlobalProtect profile, the same on both systems.
+    static let instructionsGlobalProtect =
+        "A connected Palo Alto GlobalProtect profile can have notices (hip_report_not_sent: the gateway asked for a host information report, which PassTunnel does not send, so access may be limited); tell the user. A Palo Alto GlobalProtect sign-in that needs single sign-on fails with sso_required."
     #if os(Linux)
     static let thisMachines = "this computer's"
     static let theMachines = "this computer's"
@@ -113,7 +113,7 @@ final class MCPTools {
         Tool(
             name: "list_profiles", title: "List VPN profiles",
             description:
-                "Lists the VPN profiles configured in PassTunnel with their current state. Call it first: the id of each profile is the profile_id the other tools take. Use get_status instead for the tunnel address of a connected profile or why its last connect failed, and diagnose to check a profile's configuration and saved credentials. A profile with connect_refusal cannot be connected on this system, such as Cisco AnyConnect or Palo Alto GlobalProtect on an older macOS. connect would fail with that same code and message, so tell the user the message instead. needs_newer_version=true marks a profile saved by a newer PassTunnel: get_status leaves it out, and the tools that take a profile_id refuse it with config_invalid. experimental=true marks a profile of an experimental type (Palo Alto GlobalProtect). type code marks a code-only profile: it has no VPN and only shows a one-time code in PassTunnel (these tools never return codes), and connect refuses it with invalid_argument. \(MCPWording.listProtected)",
+                "Lists the VPN profiles configured in PassTunnel with their current state. Call it first: the id of each profile is the profile_id the other tools take. Use get_status instead for the tunnel address of a connected profile or why its last connect failed, and diagnose to check a profile's configuration and saved credentials. A profile with connect_refusal cannot be connected on this system, such as Cisco AnyConnect or Palo Alto GlobalProtect on an older macOS. connect would fail with that same code and message, so tell the user the message instead. needs_newer_version=true marks a profile saved by a newer PassTunnel: get_status leaves it out, and the tools that take a profile_id refuse it with config_invalid. type code marks a code-only profile: it has no VPN and only shows a one-time code in PassTunnel (these tools never return codes), and connect refuses it with invalid_argument. \(MCPWording.listProtected)",
             input: Schema.object([:]), output: Schema.object(["profiles": Schema.array(Schema.profileSummary)], required: ["profiles"]),
             readOnly: true),
         Tool(
@@ -413,8 +413,7 @@ enum Schema {
             "id": string, "name": string, "type": vpnType, "is_default": bool, "pinned": bool, "username": string,
             "password_mode": oneOf(PasswordMode.allCases.map(\.rawValue)), "otp_mode": oneOf(OTPMode.allCases.map(\.rawValue)),
             "require_auth": oneOf(AuthRequirement.allCases.map(\.rawValue)), "protected": bool, "auto_reconnect": bool,
-            "connect_at_login": bool, "state": state, "needs_newer_version": bool, "connect_refusal": connectRefusal,
-            "experimental": experimental
+            "connect_at_login": bool, "state": state, "needs_newer_version": bool, "connect_refusal": connectRefusal
         ],
         required: [
             "id", "name", "type", "is_default", "pinned", "username", "password_mode", "otp_mode", "require_auth",
@@ -485,7 +484,6 @@ enum Schema {
     /// `connect_refusal`, the same in every result that has it.
     static let connectRefusal = described(
         errorReport, "Present when this system cannot connect the profile at all: the code and message connect would fail with.")
-    static let experimental = described(bool, "true for a profile of an experimental type (Palo Alto GlobalProtect).")
 
     static let profileStatus = result(
         [
@@ -501,7 +499,7 @@ enum Schema {
                 "Only in the result of connect: connected or connecting profiles whose tunnels claim some of the same networks or DNS names."),
             "next_try_at": described(dateTime, "While the app tries again to reach a server that did not answer: when the next try is scheduled."),
             "tries": described(int, "While the app tries again to reach a server that did not answer: how many tries found it unreachable."),
-            "connect_refusal": connectRefusal, "experimental": experimental,
+            "connect_refusal": connectRefusal,
             "notices": described(array(notice), "While connected: what the user should know about the connection.")
         ], required: ["id", "name", "type", "state", "is_default", "protected", "auto_reconnect"])
 
@@ -543,7 +541,7 @@ enum Schema {
         [
             "id": string, "name": string, "type": vpnType, "ok": bool, "server": string, "protected": bool,
             "password_saved": bool, "totp_saved": bool, "asks_for": array(oneOf(["username", "password", "otp"])),
-            "problems": array(errorReport), "clock": clock, "experimental": experimental,
+            "problems": array(errorReport), "clock": clock,
             "last_known_address": described(
                 result(["host": string, "address": string, "confirmed_at": dateTime], required: ["host", "address", "confirmed_at"]),
                 "Cisco AnyConnect, Palo Alto GlobalProtect with skip_portal, and OpenVPN with one named server and an explicit server identity: the address the server's name had at the last connection by that name (confirmed_at), kept for when the name cannot be resolved. Read from this computer only; nothing is contacted."

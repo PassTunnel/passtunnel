@@ -178,12 +178,11 @@ public struct ProfileDestination: Equatable, Sendable {
 }
 
 extension VPNType {
-    /// The types this version connects (every type since #231; Palo Alto GlobalProtect labelled experimental,
-    /// `isExperimental`). Whether this system can connect one is `ConnectionManager.connectRefusal`: Cisco AnyConnect
-    /// and Palo Alto GlobalProtect need macOS 15.4, and Palo Alto GlobalProtect is refused on Linux until
-    /// `passtunneld` runs it (#234). The front ends offer a type to create once they edit it: the app's type lists
-    /// leave Palo Alto GlobalProtect out until its editor has the type's fields (#233). A code-only profile
-    /// (`code`) is no VPN and never connects (`ConnectionManager.checkConnectable`).
+    /// The types this version connects (every type since #231). Whether this system can connect one is
+    /// `ConnectionManager.connectRefusal`: Cisco AnyConnect and Palo Alto GlobalProtect need macOS 15.4, and Palo Alto
+    /// GlobalProtect is refused on Linux until `passtunneld` runs it (#234). The front ends offer a type to create once
+    /// they edit it: the app's type lists leave Palo Alto GlobalProtect out until its editor has the type's fields
+    /// (#233). A code-only profile (`code`) is no VPN and never connects (`ConnectionManager.checkConnectable`).
     public static let connectable = allCases.filter { !$0.isCodeOnly }
 
     public var isConnectable: Bool { Self.connectable.contains(self) }

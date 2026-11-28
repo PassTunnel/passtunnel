@@ -381,8 +381,7 @@ The main window (`MainSplitView`, decision D-23) is a `NavigationSplitView`, abo
   `passtunnel code` work as for any profile; connecting it from anywhere (⌘↩, the default profile's shortcut, the
   CLI, the MCP server) is refused with `PTError.codeOnlyProfile` ("Profile “github” only shows a one-time code. It has
   no VPN to connect.", `invalid_argument`) before Touch ID, the Keychain or the helper is asked anything.
-- **Palo Alto GlobalProtect** (user-facing summary; experimental: please
-  [report how it works](https://github.com/PassTunnel/passtunnel/issues/new?template=globalprotect_report.md), whether it worked or not; the design is in
+- **Palo Alto GlobalProtect** (user-facing summary; the design is in
   [ARCHITECTURE.md](ARCHITECTURE.md#palo-alto-globalprotect-backend), the threat model in
   [SECURITY.md](../SECURITY.md#palo-alto-globalprotect)): a profile has a portal (or, with Skip portal, one
   gateway), an optional gateway name, optional pinned keys for the portal and the gateway, the user name, the
@@ -392,17 +391,11 @@ The main window (`MainSplitView`, decision D-23) is a `NavigationSplitView`, abo
   ([LINUX.md](LINUX.md#palo-alto-globalprotect)). What it does not do: sign in through a web page (SAML / single
   sign-on), send a host information report (HIP; the connection goes on and a notice says access may be limited),
   or use client certificates. The details of the UI follow (#233): offered and refused below macOS 15.4 exactly
-  as Cisco AnyConnect (the type question, File → New Palo Alto GlobalProtect Profile (Experimental)…, the detail's
-  "Palo Alto GlobalProtect requires macOS 15.4 or later." card). The **"Experimental" badge** (`ExperimentalBadge`, a
-  small capsule in the foreground around it, from `VPNType.isExperimental` and nothing else) follows the type's name
-  in the type question (drawn into the button's title), the editor's title and its Advanced type row, the sidebar row
-  (after the name, or under it when the name needs the width) and the detail's header line, where **Report how it
-  works…** follows it (`AppInfo.globalProtectReportURL`: the repository's `issues/new?template=globalprotect_report.md`,
-  opened in the browser). Menus have no room for a capsule and say "(Experimental)" in words (File menu, the editor's
-  type picker); the menu bar shows none. Every failure card of the type ends with "Palo Alto GlobalProtect support is
-  experimental" and the same link (`ExperimentalReportRow`). A connected profile whose gateway asked for a host
-  information report shows the notice under the status line (`StatusNoticeRow`, `ConnectionManager.notices`, read
-  again only when the log or the activity changes): "The gateway asked for a host information report, which PassTunnel
+  as Cisco AnyConnect (the type question, File → New Palo Alto GlobalProtect Profile…, the detail's
+  "Palo Alto GlobalProtect requires macOS 15.4 or later." card). The type was labelled experimental until #314, which
+  removed its badge, the "(Experimental)" in menus and the "Report how it works…" links. A connected profile whose
+  gateway asked for a host information report shows the notice under the status line (`StatusNoticeRow`,
+  `ConnectionManager.notices`, read again only when the log or the activity changes): "The gateway asked for a host information report, which PassTunnel
   does not send. Access may be limited." A Cisco AnyConnect, Palo Alto GlobalProtect or OpenVPN connection made at the server's
   last known address shows "The server’s name could not be found when connecting, so its last known address was used.
   This network’s DNS may not be working." the same way; a failed try there shows, on the `host_not_found` card, which
@@ -539,8 +532,8 @@ the sheet closes and `AppModel.delete` runs), Cancel, Save (Add Profile for a ne
    drops" (`autoReconnect`), disabled with the reason when the profile is not `unattended`.
 
 **Advanced** (closed when the sheet opens; Save opens it when the first problem is there), in three cards:
-Sign-in (One-time code for a code-only profile) — type (read-only after creation, with the Experimental badge for
-Palo Alto GlobalProtect; a menu of the five, Code only last, Palo Alto GlobalProtect named "(Experimental)", Cisco AnyConnect and Palo Alto GlobalProtect disabled with their note below macOS
+Sign-in (One-time code for a code-only profile) — type (read-only after creation; a menu of the five, Code only
+last, Cisco AnyConnect and Palo Alto GlobalProtect disabled with their note below macOS
 15.4), Password: Save in Keychain / Ask each time / None — certificate only
 (OpenVPN only), One-time code: None / Generate / Ask each time, and for Generate the Secret field (a secret or an
 `otpauth://` link, typed or pasted; its errors show under it), digits, period, algorithm. Connection — the
