@@ -253,7 +253,6 @@ public enum VPNType: String, Codable, CaseIterable {
     case openvpn, forti, anyconnect   // anyconnect: Cisco AnyConnect (openconnect), macOS 15.4 and later (below)
     case globalprotect                // Palo Alto GlobalProtect (the same openconnect), "Profile (G2)" below
     var defaultOTPDelivery: OTPDelivery  // .combined for OpenVPN, .separate for the other types
-    var isExperimental: Bool             // .globalprotect only: the one source of the label ("Experimental")
 }
 public enum PasswordMode: String, Codable, CaseIterable { case keychain, ask, none }   // none = certificate only
 public enum OTPMode: String, Codable, CaseIterable { case none, totp, ask }
@@ -1439,7 +1438,7 @@ still verified against its name, or the profile's pin, exactly as strictly as by
   the portal may send the sign-in on to a gateway of another name, which a network without DNS could not find either,
   after the portal already had the password and the code; so a portal profile never learns or uses an address, and a
   connection by its name forgets one that is there.
-- *FortiGate* has no fallback. openfortivpn 1.24.1 accepts the gateway when the system's trust store verifies its
+- *FortiGate* has no fallback. openfortivpn 1.24.2 accepts the gateway when the system's trust store verifies its
   chain **and** `X509_check_host` matches the host it connects to, or else when its SHA-256 is a `trusted-cert`
   (tunnel.c 877–905); the system store is always loaded (`SSL_CTX_set_default_verify_paths`, 1025), and the name check
   runs against `gateway_host`, which is also what it resolves (622). Its `sni` option (1308) changes only the name
@@ -2732,7 +2731,7 @@ every CI run against openconnect's own test server (G8, #235, [As built (G8)](#a
 of #2: Palo Alto GlobalProtect
 through the same
 openconnect (`protocol gp`), with a password and a TOTP code, no SAML or other single sign-on, on macOS 15.4 and
-later and on Linux, shipped labelled experimental ([Experimental](#experimental-g2-g5-g6-g9)). It reuses the
+later and on Linux (labelled experimental until #314, [Experimental label](#experimental-label-until-314)). It reuses the
 [Cisco AnyConnect backend](#cisco-anyconnect-backend) wherever that holds, and this
 section says only where GlobalProtect differs. References like `auth-globalprotect.c 652–658` are to openconnect
 9.21, the bundled version (the Homebrew tarball, SHA-256 `5b323694…0944a58`); 9.01 and 9.12 are cited where the
@@ -3168,7 +3167,7 @@ CSD's `hostScanRequired` lines do not exist in this protocol (`auth.c` is AnyCon
   run's log too.
 - **Front ends until G6:** the app connects such a profile but its type lists and editor leave the type out
   (`AppModel.editableTypes`; the editor is refused with "needs a newer PassTunnel") until G6 adds the type's fields.
-  The CLI and MCP take the type since G5 ([Experimental](#experimental-g2-g5-g6-g9)).
+  The CLI and MCP take the type since G5.
 - The Mac helper's refusal while the last session's network is still being restored names the request's type
   (`HelperCore.stillRestoringMessage`); while the DNS of the last OpenVPN session is, it says so and that a restart
   of the Mac clears it (`OpenVPNDNSKeeper.stillRestoringMessage`).
@@ -3212,8 +3211,7 @@ Linux, as [LINUX.md](LINUX.md#palo-alto-globalprotect) describes it:
   `serverNotTrusted`. The manager keeps the gateway choice only for a failure with that detail, not for a stored
   `gateway` the profile check refused.
 - **App:** `AppModel.editableTypes` is every type; the rest is [APP.md](APP.md#main-window) (Palo Alto
-  GlobalProtect). The report link is the repository's `issues/new?template=globalprotect_report.md` (G9 adds the
-  template); menus, which cannot show the badge, say "(Experimental)" in words.
+  GlobalProtect).
 
 ### Helper protocol 5 (G3)
 
@@ -3311,9 +3309,8 @@ a sign-in whose cookie the daemon would refuse. Since G7 Linux refuses nothing u
 
 ### Tests (G8)
 
-No open-source server speaks GlobalProtect's tunnel, so no test runs a real GlobalProtect tunnel; that is why the
-type ships [experimental](#experimental-g2-g5-g6-g9). The sign-in is tested on every CI run against openconnect's own
-test portal and gateway, `tests/fake-gp-server.py` (owner decision, #226):
+No open-source server speaks GlobalProtect's tunnel, so no test runs a real GlobalProtect tunnel. The sign-in is
+tested on every CI run against openconnect's own test portal and gateway, `tests/fake-gp-server.py` (owner decision, #226):
 
 - **Where it comes from:** the openconnect release tarball
   `https://www.infradead.org/openconnect/download/openconnect-<version>.tar.gz`, at the version `release.env` pins as
@@ -3375,56 +3372,29 @@ suffixes, IPv6 includes, `0.0.0.0/0` includes).
   tunnel with IPv6 blocked; an IPv6 address with `access-routes-v6`); the hook's results are its Cisco AnyConnect ones.
 - **A real gateway** is checked by hand: [the README's checklist](../Tests/globalprotect/README.md#against-a-real-gateway-manual).
 
-### Experimental (G2, G5, G6, G9)
+### Experimental label (until #314)
 
-GlobalProtect ships marked **experimental** until reports from real gateways come in (owner decision, #226): openconnect's
-test server, unit tests and one connection to a real gateway by hand (#283) stand behind the tunnel path. That
-connection covered the sign-in with a password and a code, a split tunnel over HTTPS (ESP did not come up on that
-network) and the disconnect; single sign-on, a HIP request, ESP, a full tunnel and IPv6 were not tried.
-It is a label and nothing else: no feature flag, no opt-in, no setting; the type connects exactly as designed above.
-
-- **One source of truth:** `VPNType.isExperimental` in `PassTunnelKit` (`Model.swift`), `self == .globalprotect`.
-  Every place below reads it; dropping the label later is that one line (and the docs' sentences). Nothing stores it:
-  no profile key, no share-file field, no `config.json` value.
-- **Mac app** (G6): an "Experimental" badge (a small capsule beside the type's name, localized) in Add VPN's type
-  question and the File menu item's title, the editor's type header, the profile list row's type line and the detail
-  view's header. The detail view and the failure card add a link "Report how it works…" to the issue template below.
-  The menu bar shows no badge (it lists profiles by name only).
-- **CLI, human output** (G5): `(experimental)` after the type's name in `list`, `show`, `status` and `diagnose`, and one
-  line after `add --type globalprotect` and `import` of such a profile: "Palo Alto GlobalProtect support is
-  experimental. Please report how it works: <the template's URL>" (to standard error, so scripts reading standard
-  output are unaffected).
-- **`--json` and MCP** (G5): `"experimental": true` on every profile object of an experimental type
-  (`ProfileSummary`/`ProfileStatus`: `list`, `status`, `show`, MCP `list_profiles` and `get_status`), left out for the
-  other types, so their output stays byte for byte as it is; CLI-JSON.md documents the key (additive, as its stability
-  rules allow) and that it may disappear when the type stops being experimental.
-- **Docs and website** (G9): README's and APP.md's type lists and the website's feature list say "Palo Alto
-  GlobalProtect (experimental)" with one sentence asking for reports through the template. The release that first
-  makes the type usable says so in its notes: the notes are the commit subjects (RELEASING.md), so that pull request's
-  title ends in "(experimental)" (G4: `feat: connect Palo Alto GlobalProtect profiles (experimental)`), and so do
-  the other `feat` titles of this phase that can land in a release before it.
-- **Issue template** (G9): `.github/ISSUE_TEMPLATE/globalprotect_report.md` ("GlobalProtect report", label
-  `globalprotect`): worked or not; macOS or Linux and the openconnect version; portal and gateways (one host or
-  several, how many gateways); where the code is asked (portal, gateway, both) and whether an override cookie is used;
-  ESP or TLS only; HIP asked or not; and the profile's log with a reminder to replace host names, user names and
-  addresses (example hosts as in this repository) and that PassTunnel already masks cookies and codes. It links
-  SECURITY.md for anything security-related.
-- **Phones:** a port that shows the type names it with the same label, from the Kit's constant (iPhone) or its Kotlin
-  counterpart ([MOBILE.md](MOBILE.md#globalprotect-profiles)).
+GlobalProtect shipped labelled **experimental** (owner decision, #226) until it had been tested against real gateways.
+It was a label and nothing else: no feature flag, no opt-in, no setting, and nothing stored it. #314 removed it:
+`VPNType.isExperimental`, the app's "Experimental" badge and its "Report how it works…" links, `(experimental)` and
+the report line after `add` and `import` in the CLI's human output, the `experimental` key of the profile objects in
+`--json` and MCP (and in the MCP output schemas), and the sentence about it in the MCP server's instructions.
+[CLI-JSON.md](CLI-JSON.md#palo-alto-globalprotect-profiles) notes that the key is no longer written. The issue
+template `.github/ISSUE_TEMPLATE/globalprotect_report.md` ("GlobalProtect report", label `globalprotect`) stays for
+reports from real gateways: worked or not; macOS or Linux and the openconnect version; portal and gateways; where the
+code is asked and whether an override cookie is used; ESP or TLS only; HIP asked or not; and the profile's log with a
+reminder to replace host names, user names and addresses and that PassTunnel already masks cookies and codes. It
+links SECURITY.md for anything security-related.
 
 As built (G5, #232): `add --type globalprotect [--server]` (`--server [https://]host[:port]` by
 `GlobalProtectServer.parse`, carried in `CLICommand.add` as an `AnyConnectServer` with an empty `usergroup`, which
 `ProfileStore.create` accepts for this type only; a rejected value is never echoed, as for AnyConnect). `set` and `show`
-need no change: `ProfileFields` already has the keys. `experimental` is `ProfileSummary.experimental`,
-`ProfileStatus.experimental`, `ProfileCheck.experimental` (`diagnose`) and, in `show --json` and `set --json`, a key of the
-`profile` object; each is `true` or absent. The notices are `ProfileStatus.notices`, a list of `{kind, message}`
+need no change: `ProfileFields` already has the keys. The notices are `ProfileStatus.notices`, a list of `{kind, message}`
 (`NoticeReport`, from `ConnectionManager.notices(_:)`), set while connected, also in the result of `connect`; the human
-`status` prints them under the profile and `connect` to standard error. The human label is `(experimental)` after the type
-in `list`, `show` and `diagnose`, and after the state in `status` (which shows no type otherwise). The report line
-goes to standard error after `add` and `import` in human output only (`--json` keeps standard error quiet) and points at
-`https://github.com/PassTunnel/passtunnel/issues/new?template=globalprotect_report.md`, the template #236 adds. The MCP
-tools' output schemas gain `experimental`, `notices` and the failure's `server_cert` and `gateways`, their descriptions
-the `sso_required` kind, and the server's instructions one sentence on the label and the notice.
+`status` prints them under the profile and `connect` to standard error. The MCP tools' output schemas gain `notices`
+and the failure's `server_cert` and `gateways`, their descriptions the `sso_required` kind, and the server's
+instructions one sentence on the notice. (G5 also added the experimental label to the CLI and MCP; #314 removed it,
+[Experimental label](#experimental-label-until-314).)
 
 ### Decided (#226)
 
@@ -3440,8 +3410,8 @@ Owner decisions on what this design adds to, or changes in, #226's first list:
 6. **Helper protocol 5.**
 7. **The sign-in tests** run openconnect's `tests/fake-gp-server.py` unchanged, in CI only, never shipped, fetched from
    the pinned openconnect release and checked by its SHA-256 ([Tests](#tests-g8)).
-8. **Experimental:** the type ships labelled experimental until real gateways have been reported working; a label
-   only, from one constant ([Experimental](#experimental-g2-g5-g6-g9)).
+8. **Experimental:** the type shipped labelled experimental until it had been tested against real gateways; a label
+   only, removed in #314 ([Experimental label](#experimental-label-until-314)).
 
 ### Implementation issues
 
@@ -3454,7 +3424,8 @@ In dependency order, mirroring Phase 1's #179–#189; nothing replaces #179 (the
   table's changes and reasons; golden and fuzz tests.
 - **G2** `feat: GlobalProtect profiles in PassTunnelKit`: `VPNType.globalprotect`, the keys and their rules,
   `ProfileFields`, `ProfileStore` checks, `ProfileDestination`, share files (version 2), `GlobalProtectServer.parse`,
-  the fixtures, the macOS 15.4 availability, `VPNType.isExperimental` (the one source of the experimental label).
+  the fixtures, the macOS 15.4 availability, `VPNType.isExperimental` (the one source of the experimental label,
+  removed in #314).
   Needs G1 (the rules live in VPNConfig).
 - **G3** `feat: start GlobalProtect sessions in the helper (protocol 5)`: `OpenConnectStart.protocol` and
   `profileGatewayServerCert`, `prepareOpenConnect` per protocol, the 15.4 message, the cookie masks in
@@ -3465,17 +3436,18 @@ In dependency order, mirroring Phase 1's #179–#189; nothing replaces #179 (the
   override-cookie masks, the start request, the HIP notice, the time limits. Needs G1–G3.
 - **G5** `feat: GlobalProtect in the CLI and MCP`: `add --type globalprotect [--server]`, `set`/`show`, the failure
   kinds and the notice in `--json` and MCP, the experimental label (`(experimental)` and the report line in human
-  output, `"experimental": true` in `--json` and MCP), CLI-JSON.md. Needs G4.
+  output, `"experimental": true` in `--json` and MCP; removed in #314), CLI-JSON.md. Needs G4.
 - **G6** `feat: GlobalProtect in the Mac app`: the type in Add VPN and the File menu, the editor (Gateway with the
   portal's list after a failure, Skip portal, the two pins, "Trust This Gateway…"), the HIP notice, the
-  "Experimental" badge and the "Report how it works…" link. Needs G4.
+  "Experimental" badge and the "Report how it works…" link (both removed in #314). Needs G4.
 - **G7** `feat(linux): GlobalProtect in passtunneld`: the daemon accepts `gp`, the per-type minimum 9.11 (daemon and
   sign-in), `disable-ipv6` before 9.20, its tests. Needs G3, G4.
 - **G8** `test: GlobalProtect sign-in against openconnect's test server`: the container (Python and Flask from the
   distribution, image pinned by digest), fetching `fake-gp-server.py` from the pinned tarball with its SHA-256, the CI
   job, the cases above; the manual check against a real gateway. Needs G4, G7.
 - **G9** `docs: Palo Alto GlobalProtect support (experimental)`: README, APP.md, the website's feature list, each
-  marked experimental with the request for reports, and the issue template `globalprotect_report.md`. Last.
+  marked experimental with the request for reports (the label removed in #314), and the issue template
+  `globalprotect_report.md`. Last.
 
 ## Code-only profiles
 

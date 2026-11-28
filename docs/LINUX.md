@@ -12,7 +12,7 @@ error codes and the MCP tools. Background and the decisions behind this spec: is
 |---|---|
 | First release | `passtunnel` (the CLI and the stdio MCP server) and `passtunneld` (the root daemon). No GUI |
 | Later | A desktop app with tray, notifications and live codes, built from the macOS app's design for macOS, Windows and Linux; a password prompt for protected profiles |
-| VPN types | OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect (experimental), with the distribution's `openvpn` (2.6 or later), `openfortivpn` (1.21 or later) and `openconnect` (9.01 or later, not Ubuntu 22.04's 8.20; GlobalProtect 9.11 or later, not Debian 12's or EPEL 9's 9.01) |
+| VPN types | OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect, with the distribution's `openvpn` (2.6 or later), `openfortivpn` (1.21 or later) and `openconnect` (9.01 or later, not Ubuntu 22.04's 8.20; GlobalProtect 9.11 or later, not Debian 12's or EPEL 9's 9.01) |
 | Targets | systemd distributions on x86_64 and aarch64. Tested: Ubuntu 24.04 and 26.04, Debian 13, the current two Fedora releases. Best effort: Ubuntu 22.04, Debian 12, RHEL 9 and 10 |
 | Language | Swift (6.4 toolchain, language mode 5), the same packages as the Mac; English only at first |
 
@@ -619,8 +619,8 @@ and fakes for the system tools; the Mac's tests a Keychain service of their own)
 
 FortiGate IPsec/IKEv2 is out of scope: its one-time-code prompts use extensions only FortiClient
 implements. Cisco AnyConnect through OpenConnect (#2, Phase 1) runs on Linux since #187: see
-[Cisco AnyConnect](#cisco-anyconnect) below. Palo Alto GlobalProtect (Phase 2, designed in #226) runs since #234,
-labelled experimental: [Palo Alto GlobalProtect](#palo-alto-globalprotect).
+[Cisco AnyConnect](#cisco-anyconnect) below. Palo Alto GlobalProtect (Phase 2, designed in #226) runs since #234:
+[Palo Alto GlobalProtect](#palo-alto-globalprotect).
 
 ## Cisco AnyConnect
 
@@ -808,8 +808,7 @@ when asked.
 **Designed (#226); in place since #234** (protocol 5 since #230). The design is in [ARCHITECTURE.md](ARCHITECTURE.md#palo-alto-globalprotect-backend), as built in its "As built (G7)"; on Linux
 everything of [Cisco AnyConnect](#cisco-anyconnect) above applies (the tool's paths and checks, the sign-in as the user,
 `prepareOpenConnect`, `MaskingCopier`, the `vpn-hook` mode, `LinuxOpenConnectSystem`, DNS, supervision, the revert after
-a kill), with these differences (G7). The type is labelled experimental here too (`passtunnel`'s output, ARCHITECTURE.md,
-"Experimental").
+a kill), with these differences (G7).
 
 - **Minimum 9.11 for this type**, checked like AnyConnect's 9.01 (`ToolSpec.openconnect(for:)`: the same tool with the
   type's minimum, `ToolSpec.globalProtectOpenConnect`; the daemon before every start, and the sign-in,

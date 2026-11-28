@@ -327,22 +327,10 @@ struct SidebarRow: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 // `primary` rather than `fg`: it turns white on a selected row's accent color on macOS 13 too.
-                if profile.type.isExperimental {
-                    // An experimental type (`VPNType.isExperimental`) says so beside the name, or under it when the
-                    // name needs the row's width.
-                    ViewThatFits(in: .horizontal) {
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            name.fixedSize()
-                            ExperimentalBadge().rowForeground(Palette.fg2)
-                        }
-                        VStack(alignment: .leading, spacing: 2) {
-                            name
-                            ExperimentalBadge().rowForeground(Palette.fg2)
-                        }
-                    }
-                } else {
-                    name
-                }
+                Text(verbatim: profile.name)
+                    .typography(.bodyEmphasized)
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
                 ProfileStatusRow(status: status, now: model.previewNow)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -359,17 +347,9 @@ struct SidebarRow: View {
         .accessibilityIdentifier("profile.\(profile.id)")
     }
 
-    private var name: some View {
-        Text(verbatim: profile.name)
-            .typography(.bodyEmphasized)
-            .foregroundStyle(.primary)
-            .fixedSize(horizontal: false, vertical: true)
-    }
-
-    /// "Connected · 1h 12m, 4 8 2, 9 1 3" ("Experimental, …" for an experimental type).
+    /// "Connected · 1h 12m, 4 8 2, 9 1 3".
     private func accessibilityValue(_ status: DisplayStatus) -> String {
-        var parts = profile.type.isExperimental ? [ExperimentalLabel.title] : []
-        parts.append(status.summary(at: model.now))
+        var parts = [status.summary(at: model.now)]
         if model.hasCode(profile) {
             if model.codesMasked(profile, at: model.now) {
                 parts.append(String(localized: "Code hidden"))

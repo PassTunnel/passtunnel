@@ -238,7 +238,6 @@ struct RejectedCard: View {
                 )
                 .accessibilityIdentifier("profile.\(profile.id).failure.password")
             }
-            ExperimentalReportRow(profile: profile)
             ClockCheckButton(check: check)
         }
         .accessibilityElement(children: .contain)
@@ -312,7 +311,6 @@ struct UnreachableCard: View {
             DiagnosisRow(
                 symbol: .info, title: Text(String(localized: "On a guest or hotel network?")),
                 detail: Text(String(localized: "Some networks block VPN traffic. Try another network or ask your IT team.")))
-            ExperimentalReportRow(profile: profile)
             HStack(spacing: Spacing.xs) {
                 if let retry {
                     Button {
@@ -391,7 +389,7 @@ struct MessageCard: View {
 
     var body: some View {
         let lines = failure.map { Self.lines($0, shown: shown) } ?? []
-        if !lines.isEmpty || editsAddress || profile.type.isExperimental {
+        if !lines.isEmpty || editsAddress {
             Card(style: .compact) {
                 ForEach(lines, id: \.self) { Lead(text: Text(verbatim: $0)) }
                 if editsAddress {
@@ -399,7 +397,6 @@ struct MessageCard: View {
                         symbol: .info, title: Text(String(localized: "Is the server’s address right?")),
                         link: (String(localized: "Check it in PassTunnel"), { model.edit(profile) }))
                 }
-                ExperimentalReportRow(profile: profile)
             }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("profile.\(profile.id).failure")
@@ -507,7 +504,6 @@ struct ServerTrustCard: View {
                     symbol: .info, title: Text(String(localized: "Check the fingerprint first")),
                     detail: Text(String(localized: "Trust the server only if this fingerprint matches the one your IT team gave you.")))
             }
-            ExperimentalReportRow(profile: profile)
             HStack(spacing: Spacing.xs) {
                 if let offer, !trusted {
                     Button {
@@ -640,7 +636,6 @@ struct SingleSignOnCard: View {
                         localized:
                             "Your account may be allowed to sign in with a password and code, or there may be a gateway you can sign in to directly (Skip portal)."
                     )))
-            ExperimentalReportRow(profile: profile)
             CopyDetailsButton(profile: profile).padding(.top, 2)
         }
         .accessibilityElement(children: .contain)
@@ -677,7 +672,6 @@ struct GatewayChoiceCard: View {
                     title: Text(String(localized: "The portal lists \(labels.count) gateways")),
                     detail: Text(String(localized: "Choose the one your IT team told you to use, or the nearest one.")))
             }
-            ExperimentalReportRow(profile: profile)
             HStack(spacing: Spacing.xs) {
                 if let choice, !labels.isEmpty {
                     Menu {

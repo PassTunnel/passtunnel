@@ -67,9 +67,8 @@ Designed in #226; the Mac's side is G2 in [ARCHITECTURE.md](ARCHITECTURE.md#prof
   `separate`. They are written only for this type (`usergroup` and `authgroup` stay AnyConnect's), read for any type
   and dropped on another type's save; keys a newer version adds to the type are kept as for every known type. Share
   files of this type are written as version 2. A port that does not connect the type never renders openconnect files
-  or reads a cookie: the keys are stored, shown, edited and shared only. Where a port names the type it adds the same
-  "Experimental" label, from `VPNType.isExperimental` (iPhone, through the Kit) or a Kotlin constant that mirrors it,
-  dropped together when the Mac drops it.
+  or reads a cookie: the keys are stored, shown, edited and shared only. A port names the type without a label: the
+  "Experimental" label and `VPNType.isExperimental` were removed in #314.
 - **Golden cases** are in `fixtures/` since the Mac's G2, before any port changes: `share-files.json` (decode and
   encode, version 2, the type's keys dropped on another type and AnyConnect's on this one), `profile-json.json` (what a
   save writes back, a change of the type), `profile-fields.json` (setting `gateway`, `skip_portal`,

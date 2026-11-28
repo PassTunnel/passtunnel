@@ -4,7 +4,7 @@
 
 **Connect your VPN without ever typing a one-time code again.**
 
-PassTunnel is an open-source macOS app for OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect (experimental). It keeps
+PassTunnel is an open-source macOS app for OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect. It keeps
 your TOTP secret in the Keychain and fills in the current code (and your password) every time you connect.
 
 [![macOS 13+](https://img.shields.io/badge/macOS-13%2B-blue)](#install)
@@ -26,7 +26,7 @@ your TOTP secret in the Keychain and fills in the current code (and your passwor
 [Quick start](#quick-start) ·
 [Code format](#configuring-the-code-format) ·
 [Cisco AnyConnect](#cisco-anyconnect) ·
-[Palo Alto GlobalProtect](#palo-alto-globalprotect-experimental) ·
+[Palo Alto GlobalProtect](#palo-alto-globalprotect) ·
 [CLI](#command-line) ·
 [AI assistants](#use-with-ai-assistants-mcp) ·
 [FAQ](#faq) ·
@@ -71,10 +71,10 @@ your TOTP secret in the Keychain and fills in the current code (and your passwor
 
 **VPN client**
 
-- **OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect (experimental)**, using
+- **OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect**, using
   bundled, signed copies of `openvpn`, `openfortivpn` and `openconnect`. Nothing else to install. Cisco
   AnyConnect and Palo Alto GlobalProtect (password and one-time code) need macOS 15.4 or later; see
-  [Cisco AnyConnect](#cisco-anyconnect) and [Palo Alto GlobalProtect](#palo-alto-globalprotect-experimental).
+  [Cisco AnyConnect](#cisco-anyconnect) and [Palo Alto GlobalProtect](#palo-alto-globalprotect).
 - **Menu bar panel.** Every pinned or active profile with its state, live code and a switch to
   connect or disconnect, plus copy and type for the current code. A colored badge (five palettes)
   marks a profile that needs attention, with a red dot when a connection dropped unexpectedly.
@@ -203,7 +203,7 @@ the window. The File menu has the same items:
 | A FortiGate gateway | **Enter details by hand**, choose FortiGate (File → **New FortiGate Profile…**), then enter host and port and **Fetch fingerprint** to pin the gateway certificate (SHA-256). |
 | A `.passtunnel` file from a colleague | Double-click it (or open it from AirDrop), or drop it on the window. Then add your own user name, password and TOTP secret. |
 | A Cisco AnyConnect server | **Enter details by hand**, choose Cisco AnyConnect (File → **New Cisco AnyConnect Profile…**), then paste the address your IT team gave you, for example `https://vpn.example.com/staff`. See [Cisco AnyConnect](#cisco-anyconnect). |
-| A Palo Alto GlobalProtect portal (experimental) | **Enter details by hand**, choose Palo Alto GlobalProtect (File → **New Palo Alto GlobalProtect Profile (Experimental)…**), then enter the portal's address, for example `vpn.example.com`. See [Palo Alto GlobalProtect](#palo-alto-globalprotect-experimental). |
+| A Palo Alto GlobalProtect portal | **Enter details by hand**, choose Palo Alto GlobalProtect (File → **New Palo Alto GlobalProtect Profile…**), then enter the portal's address, for example `vpn.example.com`. See [Palo Alto GlobalProtect](#palo-alto-globalprotect). |
 | A QR code for your authenticator | **Scan a QR code on screen** (macOS 14 and later) or **Use a QR image**, or drop the screenshot onto the window or the editor. |
 
 Then open the profile editor (**Edit** in the toolbar):
@@ -323,20 +323,14 @@ deleted. On Linux, `passtunneld` uses the distribution's `openconnect` 9.01 or l
 
 The command line has the same: [`passtunnel add --type anyconnect`](#command-line) below.
 
-## Palo Alto GlobalProtect (experimental)
-
-> **Experimental.** Besides openconnect's own test server, GlobalProtect has connected to one real gateway
-> (password and one-time code, split tunnel, over HTTPS). Single sign-on, gateways that require a host
-> information report and the ESP tunnel have not been tried on a real gateway. Please
-> [tell us how it works for you](https://github.com/PassTunnel/passtunnel/issues/new?template=globalprotect_report.md),
-> whether it worked or not: that is how the label goes away.
+## Palo Alto GlobalProtect
 
 PassTunnel connects to Palo Alto GlobalProtect through the bundled `openconnect`, with a user name, a
 password and, if the portal or gateway asks for one, a one-time code. It needs **macOS 15.4 or later**; the
 rest of the app still runs on macOS 13.
 
 **Add a profile.** Click **+**, choose **Enter details by hand**, then **Palo Alto GlobalProtect** (or File →
-**New Palo Alto GlobalProtect Profile (Experimental)…**). In **Server**, enter the portal's address as your IT
+**New Palo Alto GlobalProtect Profile…**). In **Server**, enter the portal's address as your IT
 team gave it, `[https://]host[:port]` without a path (for example `vpn.example.com`). A portal usually
 names a gateway; if it lists several, the first connect stops at **Choose a gateway** and lists them, or set
 **Gateway** in the profile. **Skip the portal** signs in to one gateway directly. Add the user name and
@@ -402,7 +396,7 @@ passtunnel add Corp --type anyconnect --server https://vpn.example.com/staff   #
 passtunnel set corp username=sam authgroup=Employees
 passtunnel set corp server_cert=pin-sha256:…    # trust the server's key (compare it first)
 
-passtunnel add Gp --type globalprotect --server vpn.example.com   # Palo Alto GlobalProtect (experimental), macOS 15.4 or later
+passtunnel add Gp --type globalprotect --server vpn.example.com   # Palo Alto GlobalProtect, macOS 15.4 or later
 passtunnel set gp username=sam gateway=Gateway1
 
 passtunnel add GitHub --type code             # only a one-time code, no VPN
@@ -540,9 +534,8 @@ except to your VPN server.
 
 OpenVPN (OpenVPN 2.x client configurations: user/password, certificate-only and static-challenge
 setups), FortiGate SSL VPN (through openfortivpn) and Cisco AnyConnect (through openconnect, with a
-password and a one-time code; macOS 15.4 or later) and Palo Alto GlobalProtect (experimental, also
-through openconnect, with a password and a one-time code; macOS 15.4 or later; please
-[report how it works](https://github.com/PassTunnel/passtunnel/issues/new?template=globalprotect_report.md)).
+password and a one-time code; macOS 15.4 or later) and Palo Alto GlobalProtect (also through
+openconnect, with a password and a one-time code; macOS 15.4 or later).
 Pulse/Ivanti is on the [roadmap](ROADMAP.md). Other types can be added as new backends; see [Contributing](#contributing).
 </details>
 
@@ -571,8 +564,8 @@ PassTunnel signs in with a user name, password and one-time code only. A portal 
 through a web page (SAML / single sign-on) is refused before anything is sent (**Single sign-on required**).
 When the gateway asks for a host information report (HIP), PassTunnel never sends one: the connection goes
 on, the gateway may limit what you can reach, and the window says so. Ask your IT team whether your account
-can sign in with a password and code and without the report. GlobalProtect is experimental, so
-[a report](https://github.com/PassTunnel/passtunnel/issues/new?template=globalprotect_report.md) of what you saw helps.
+can sign in with a password and code and without the report.
+[A report](https://github.com/PassTunnel/passtunnel/issues/new?template=globalprotect_report.md) of what you saw helps.
 </details>
 
 <details>
@@ -730,7 +723,7 @@ Cisco AnyConnect and Palo Alto GlobalProtect are trademarks of their respective 
 ## Türkçe
 
 **PassTunnel**, Apple silicon Mac'lerde macOS 13 ve üzeri için açık kaynaklı bir VPN uygulamasıdır. OpenVPN, FortiGate SSL
-VPN, Cisco AnyConnect ve Palo Alto GlobalProtect (deneysel) bağlantılarını tek tıkla açar (Cisco AnyConnect ve GlobalProtect için macOS 15.4 ve üzeri gerekir; parola ve tek kullanımlık kod
+VPN, Cisco AnyConnect ve Palo Alto GlobalProtect bağlantılarını tek tıkla açar (Cisco AnyConnect ve GlobalProtect için macOS 15.4 ve üzeri gerekir; parola ve tek kullanımlık kod
 ile oturum açılır, tarayıcıyla (SAML) oturum açma desteklenmez; GlobalProtect sizin için nasıl çalıştığını [bildirirseniz](https://github.com/PassTunnel/passtunnel/issues/new?template=globalprotect_report.md) sevinirim). TOTP anahtarınız Anahtar Zinciri'nde (Keychain) durur; PassTunnel
 bağlanırken o anki tek kullanımlık kodu ve parolanızı sizin yerinize gönderir. Telefondan kod bakıp
 yazmanız gerekmez.

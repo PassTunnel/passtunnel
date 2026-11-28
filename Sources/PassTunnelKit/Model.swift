@@ -19,10 +19,6 @@ public enum VPNType: String, Codable, CaseIterable, Sendable {
     /// Signed in to through openconnect (Cisco AnyConnect, Palo Alto GlobalProtect): its rules for the host,
     /// the user name, the server pin and the code template.
     public var usesOpenConnect: Bool { self == .anyconnect || self == .globalprotect }
-
-    /// Shipped labelled experimental (docs/ARCHITECTURE.md, "Experimental"): the one place every front end
-    /// reads the label from. A label only: nothing stores it, and the type works as any other.
-    public var isExperimental: Bool { self == .globalprotect }
 }
 public enum PasswordMode: String, Codable, CaseIterable { case keychain, ask, none }  // none = certificate only
 public enum OTPMode: String, Codable, CaseIterable { case none, totp, ask }

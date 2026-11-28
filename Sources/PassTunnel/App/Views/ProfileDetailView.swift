@@ -53,7 +53,11 @@ private struct DetailPage: View {
                             .foregroundStyle(Palette.fg)
                             .fixedSize(horizontal: false, vertical: true)
                             .accessibilityAddTraits(.isHeader)
-                        DetailSubtitle(profile: profile, subtitle: server.subtitle)
+                        Text(verbatim: server.subtitle)
+                            .typography(.body)
+                            .foregroundStyle(Palette.fg2)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     // A code-only profile has nothing to connect: no button.
@@ -79,43 +83,6 @@ private struct DetailPage: View {
             if record.profileID == profile.id { activity.refresh(force: true) }
         }
         .task { await activity.follow() }
-    }
-}
-
-/// Where the profile connects and its type ("vpn.example.com:443 · Palo Alto GlobalProtect"); for an experimental type
-/// (`VPNType.isExperimental`) the "Experimental" badge and "Report how it works…" after it, under it when the line is
-/// too narrow.
-private struct DetailSubtitle: View {
-    let profile: Profile
-    let subtitle: String
-
-    var body: some View {
-        if profile.type.isExperimental {
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
-                    text.fixedSize()
-                    ExperimentalBadge().foregroundStyle(Palette.fg2)
-                    ExperimentalReportLink()
-                }
-                VStack(alignment: .leading, spacing: Spacing.xxs) {
-                    text
-                    HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
-                        ExperimentalBadge().foregroundStyle(Palette.fg2)
-                        ExperimentalReportLink()
-                    }
-                }
-            }
-        } else {
-            text
-        }
-    }
-
-    private var text: some View {
-        Text(verbatim: subtitle)
-            .typography(.body)
-            .foregroundStyle(Palette.fg2)
-            .fixedSize(horizontal: false, vertical: true)
-            .textSelection(.enabled)
     }
 }
 

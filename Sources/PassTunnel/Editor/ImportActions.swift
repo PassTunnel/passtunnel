@@ -289,11 +289,6 @@ enum ImportActions {
         }
         for type in AppModel.editableTypes {
             let button = alert.addButton(withTitle: type.displayName)
-            // An experimental type (`VPNType.isExperimental`) has the "Experimental" badge after its name.
-            if type.isExperimental {
-                button.attributedTitle = ExperimentalLabel.attributedTitle(type.displayName, enabled: refusal(type) == nil)
-                button.setAccessibilityLabel(type.displayName + ", " + ExperimentalLabel.title)
-            }
             if let refusal = refusal(type) {
                 button.isEnabled = false
                 button.toolTip = refusal.unavailableNote

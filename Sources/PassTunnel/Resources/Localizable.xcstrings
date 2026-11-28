@@ -201,16 +201,6 @@
         }
       }
     },
-    "%@ support is experimental" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ desteği deneyseldir"
-          }
-        }
-      }
-    },
     "%@ types the current code into the focused field instead of copying it." : {
       "localizations" : {
         "tr" : {
@@ -1253,16 +1243,6 @@
         }
       }
     },
-    "Experimental" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Deneysel"
-          }
-        }
-      }
-    },
     "Gateway %@" : {
       "localizations" : {
         "tr" : {
@@ -1363,16 +1343,6 @@
         }
       }
     },
-    "New %@ Profile (%@)…" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Yeni %1$@ Profili (%2$@)…"
-          }
-        }
-      }
-    },
     "New %@ Profile…" : {
       "localizations" : {
         "tr" : {
@@ -1399,16 +1369,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Doğrudan ağ geçidinde oturum açtığınızda kullanılmaz."
-          }
-        }
-      }
-    },
-    "Opens a report form on GitHub in your browser." : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tarayıcınızda GitHub’daki bir bildirim formunu açar."
           }
         }
       }
@@ -1529,16 +1489,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Şu an güvenilen ağ geçidi anahtarının yerini alır"
-          }
-        }
-      }
-    },
-    "Report how it works…" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nasıl çalıştığını bildirin…"
           }
         }
       }
@@ -11823,26 +11773,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "--server şu biçimde bir adres bekler: vpn.example.com[:port] veya https://vpn.example.com[:port]; yol, kullanıcı bilgisi, sorgu veya parça içermemeli."
-          }
-        }
-      }
-    },
-    "(experimental)" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "(deneysel)"
-          }
-        }
-      }
-    },
-    "%@ support is experimental. Please report how it works: %@" : {
-      "localizations" : {
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ desteği deneyseldir. Nasıl çalıştığını lütfen bildirin: %@"
           }
         }
       }
