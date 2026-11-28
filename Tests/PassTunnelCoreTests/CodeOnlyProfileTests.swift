@@ -18,7 +18,6 @@ final class CodeOnlyProfileTests: CoreTestCase {
     func testTheType() throws {
         XCTAssertEqual(VPNType(rawValue: "code"), .code)
         XCTAssertEqual(VPNType.allCases.filter(\.isCodeOnly), [.code])
-        XCTAssertFalse(VPNType.code.isExperimental)
         XCTAssertEqual(VPNType.connectable, [.openvpn, .forti, .anyconnect, .globalprotect], "a code-only profile never connects")
         XCTAssertFalse(VPNType.code.isConnectable)
         XCTAssertEqual(ShareFile.version(for: .code), 2, "older readers refuse the type instead of misreading it")

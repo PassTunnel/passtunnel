@@ -411,10 +411,10 @@ final class MCPServerTests: XCTestCase {
         let timeout = try XCTUnwrap((properties["timeout_seconds"] as? [String: Any])?["description"] as? String)
 
         let base =
-            "(OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect (experimental)). Profiles are identified by their id (from list_profiles). "
+            "(OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect). Profiles are identified by their id (from list_profiles). "
             + "The tools never return passwords, TOTP secrets, one-time codes, keys or configuration files, and they cannot create, change or delete profiles."
-        let experimental =
-            "Palo Alto GlobalProtect is experimental: its profiles have experimental=true. A connected one can have notices (hip_report_not_sent: the gateway asked for a host information report, which PassTunnel does not send, so access may be limited); tell the user. A sign-in that needs single sign-on fails with sso_required."
+        let globalProtect =
+            "A connected Palo Alto GlobalProtect profile can have notices (hip_report_not_sent: the gateway asked for a host information report, which PassTunnel does not send, so access may be limited); tell the user. A Palo Alto GlobalProtect sign-in that needs single sign-on fails with sso_required."
         let connectText = try XCTUnwrap(descriptions["connect"])
         let listText = try XCTUnwrap(descriptions["list_profiles"])
         #if os(Linux)
@@ -422,7 +422,7 @@ final class MCPServerTests: XCTestCase {
             instructions,
             "PassTunnel manages this computer's VPN connections " + base
                 + " Cisco AnyConnect needs the distribution's openconnect 9.01 or later, Palo Alto GlobalProtect 9.11 or later; connect says why when it is missing or too old."
-                + " " + experimental
+                + " " + globalProtect
                 + " connect and disconnect are enabled. A protected profile cannot be connected on Linux yet: connect refuses it with auth_unavailable."
         )
         XCTAssertTrue(
@@ -440,7 +440,7 @@ final class MCPServerTests: XCTestCase {
             instructions,
             "PassTunnel manages this Mac's VPN connections " + base
                 + " Cisco AnyConnect and Palo Alto GlobalProtect need macOS 15.4 or later; a profile that cannot be connected here says why in connect_refusal."
-                + " " + experimental
+                + " " + globalProtect
                 + " connect and disconnect are enabled. A protected profile shows a Touch ID prompt on the Mac that the user must confirm; tell the user to look for it."
         )
         XCTAssertTrue(listText.hasSuffix(" protected=true means connecting asks the user for Touch ID on the Mac."))
@@ -726,7 +726,7 @@ final class MCPServerTests: XCTestCase {
         helper = FakeHelper()
     }
 
-    // MARK: Palo Alto GlobalProtect (experimental)
+    // MARK: Palo Alto GlobalProtect
 
     @discardableResult
     func makeGlobalProtect(_ name: String = "Portal") throws -> Profile {
@@ -737,7 +737,7 @@ final class MCPServerTests: XCTestCase {
         return p
     }
 
-    func testGlobalProtectProfilesAreLabelledExperimentalAndOthersAreNot() async throws {
+    func testNoProfileIsLabelledExperimental() async throws {
         macOS = Self.macOS154
         try makeGlobalProtect()
         try makeAnyConnect()
@@ -747,27 +747,28 @@ final class MCPServerTests: XCTestCase {
         let list = try await structured(server, "list_profiles")
         let profiles = try XCTUnwrap(list["profiles"] as? [[String: Any]])
         XCTAssertEqual(profiles.first { $0["id"] as? String == "portal" }?["type"] as? String, "globalprotect")
-        XCTAssertEqual(profiles.first { $0["id"] as? String == "portal" }?["experimental"] as? Bool, true)
         XCTAssertNil(profiles.first { $0["id"] as? String == "portal" }?["connect_refusal"])
-        for other in ["corp", "acme"] { XCTAssertNil(profiles.first { $0["id"] as? String == other }?["experimental"], other) }
+        for id in ["portal", "corp", "acme"] { XCTAssertNil(profiles.first { $0["id"] as? String == id }?["experimental"], id) }
 
         let status = try await structured(server, "get_status")
         let all = try XCTUnwrap(status["profiles"] as? [[String: Any]])
-        XCTAssertEqual(all.first { $0["id"] as? String == "portal" }?["experimental"] as? Bool, true)
-        XCTAssertNil(all.first { $0["id"] as? String == "portal" }?["notices"])
-        for other in ["corp", "acme"] {
-            let entry = try XCTUnwrap(all.first { $0["id"] as? String == other })
-            XCTAssertNil(entry["experimental"], other)
-            XCTAssertNil(entry["notices"], other)
+        for id in ["portal", "corp", "acme"] {
+            let entry = try XCTUnwrap(all.first { $0["id"] as? String == id })
+            XCTAssertNil(entry["experimental"], id)
+            XCTAssertNil(entry["notices"], id)
         }
 
         let report = try await structured(server, "diagnose")
         let checks = try XCTUnwrap(report["profiles"] as? [[String: Any]])
-        XCTAssertEqual(checks.first { $0["id"] as? String == "portal" }?["experimental"] as? Bool, true)
-        XCTAssertNil(checks.first { $0["id"] as? String == "corp" }?["experimental"])
+        for id in ["portal", "corp", "acme"] {
+            let check = try XCTUnwrap(checks.first { $0["id"] as? String == id })
+            XCTAssertNil(check["experimental"], id)
+        }
+        let text = sent.map { String(decoding: $0, as: UTF8.self) }.joined()
+        XCTAssertFalse(text.lowercased().contains("experimental"), text)
     }
 
-    func testOutputSchemasDescribeTheLabelTheNoticesAndTheGlobalProtectFailure() async throws {
+    func testOutputSchemasDescribeTheNoticesAndTheGlobalProtectFailure() async throws {
         let server = makeServer(allowConnect: true)
         let list = try await self.reply(server, request(2, "tools/list"))
         let tools = try XCTUnwrap((list["result"] as? [String: Any])?["tools"] as? [[String: Any]])
@@ -779,20 +780,22 @@ final class MCPServerTests: XCTestCase {
             }
             return try XCTUnwrap(node["properties"] as? [String: Any])
         }
-        XCTAssertNotNil(try properties("list_profiles", path: ["profiles"])["experimental"])
+        XCTAssertNil(try properties("list_profiles", path: ["profiles"])["experimental"])
         let status = try properties("get_status", path: ["profiles"])
-        XCTAssertNotNil(status["experimental"])
+        XCTAssertNil(status["experimental"])
         XCTAssertNotNil(status["notices"])
         let failure = try XCTUnwrap(status["failure"] as? [String: Any])
         let failureProperties = try XCTUnwrap(failure["properties"] as? [String: Any])
         XCTAssertNotNil(failureProperties["server_cert"])
         XCTAssertNotNil(failureProperties["gateways"])
         XCTAssertTrue(((failureProperties["kind"] as? [String: Any])?["enum"] as? [String] ?? []).contains("sso_required"))
-        XCTAssertNotNil(try properties("diagnose", path: ["profiles"])["experimental"])
-        XCTAssertNotNil(try properties("connect", path: [])["experimental"])
+        XCTAssertNil(try properties("diagnose", path: ["profiles"])["experimental"])
+        XCTAssertNil(try properties("connect", path: [])["experimental"])
         let descriptions = tools.compactMap { $0["description"] as? String }.joined(separator: "\n")
         XCTAssertTrue(descriptions.contains("sso_required"))
         XCTAssertTrue(descriptions.contains("hip_report_not_sent"))
+        let listed = String(decoding: try JSONSerialization.data(withJSONObject: tools), as: UTF8.self)
+        XCTAssertFalse(listed.lowercased().contains("experimental"), "no tool, description or output schema has the label")
     }
 
     func testAConnectedGlobalProtectProfileHasTheHIPNoticeInGetStatus() async throws {
@@ -823,7 +826,7 @@ final class MCPServerTests: XCTestCase {
         let server = makeServer(allowConnect: true)
         let list = try await structured(server, "list_profiles")
         let entry = try XCTUnwrap((list["profiles"] as? [[String: Any]])?.first)
-        XCTAssertEqual(entry["experimental"] as? Bool, true)
+        XCTAssertNil(entry["experimental"])
         XCTAssertEqual((entry["connect_refusal"] as? [String: Any])?["message"] as? String, "Palo Alto GlobalProtect requires macOS 15.4 or later.")
         let refused = try await callTool(server, "connect", ["profile_id": "portal"])
         XCTAssertEqual(refused["isError"] as? Bool, true)
@@ -961,7 +964,7 @@ final class MCPServerTests: XCTestCase {
         let profiles = try XCTUnwrap((output["properties"] as? [String: Any])?["profiles"] as? [String: Any])
         let profile = try XCTUnwrap((profiles["items"] as? [String: Any])?["properties"] as? [String: Any])
         func description(_ node: Any?) -> String { (node as? [String: Any])?["description"] as? String ?? "" }
-        for field in ["ip", "since", "failure", "next_try_at", "tries", "connect_refusal", "experimental", "notices"] {
+        for field in ["ip", "since", "failure", "next_try_at", "tries", "connect_refusal", "notices"] {
             XCTAssertFalse(description(profile[field]).isEmpty, field)
         }
         let failure = try XCTUnwrap((profile["failure"] as? [String: Any])?["properties"] as? [String: Any])

@@ -245,7 +245,6 @@ final class CLIRunner {
                     text += "  " + CLITerminal.dim(String(localized: "no answer, next try when the network is back"))
                 }
             }
-            if p.type.isExperimental { text += "  " + CLITerminal.dim(Self.typeLabel(p.type)) }
             let mark = p.id == def ? "*" : " "
             let dot = CLITerminal.colored("●", palette.color(tone))
             CLITerminal.out(
@@ -513,7 +512,7 @@ final class CLIRunner {
             let idWidth = (profiles.map(\.id.count) + unsupported.map(\.id.count)).max() ?? 0
             let nameWidth = (profiles.map(\.name.count) + unsupported.map(\.name.count)).max() ?? 0
             for p in profiles {
-                var flags: [String] = [Self.typeLabel(p.type)]
+                var flags: [String] = [Self.typeName(p.type)]
                 if let note = refusal(p.type)?.unavailableNote { flags.append(note) }  // Cisco AnyConnect on an older macOS
                 if !p.username.isEmpty { flags.append(p.username) }
                 if p.otpMode == .totp { flags.append("TOTP") }
@@ -544,39 +543,8 @@ final class CLIRunner {
         }
     }
 
-    /// The type's name for human output; an experimental type's carries the label (`VPNType.isExperimental`).
-    static func typeLabel(_ type: VPNType) -> String {
-        type.isExperimental ? typeName(type) + " " + experimentalLabel : typeName(type)
-    }
-
-    static var experimentalLabel: String { String(localized: "(experimental)") }
-
-    /// Where reports on an experimental type go: the issue template for GlobalProtect (docs/ARCHITECTURE.md,
-    /// "Experimental").
-    static let globalProtectReportURL = "https://github.com/PassTunnel/passtunnel/issues/new?template=globalprotect_report.md"
-
-    /// The one line after `add` or `import` of an experimental profile, to standard error.
-    static func experimentalFeedbackLine(_ type: VPNType) -> String? {
-        guard type.isExperimental else { return nil }
-        return String(localized: "\(typeName(type)) support is experimental. Please report how it works: \(globalProtectReportURL)")
-    }
-
-    /// A profile's `show --json` `profile` object: the stored settings, and `experimental` for an experimental type.
-    private struct LabelledProfile: Encodable {
-        var profile: Profile
-
-        enum CodingKeys: String, CodingKey { case experimental }
-
-        func encode(to encoder: Encoder) throws {
-            try profile.encode(to: encoder)
-            guard profile.type.isExperimental else { return }
-            var container = encoder.container(keyedBy: CodingKeys.self)
-            try container.encode(true, forKey: .experimental)
-        }
-    }
-
     private struct ShowJSON: Encodable {
-        var profile: LabelledProfile
+        var profile: Profile
         var isDefault: Bool
         var passwordSaved: Bool
         var totpSaved: Bool
@@ -595,7 +563,7 @@ final class CLIRunner {
         if json {
             try printJSON(
                 ShowJSON(
-                    profile: LabelledProfile(profile: p), isDefault: store.defaultID == id, passwordSaved: Secrets.has(id, .password),
+                    profile: p, isDefault: store.defaultID == id, passwordSaved: Secrets.has(id, .password),
                     totpSaved: Secrets.has(id, .totp), passwordEncrypted: Secrets.isProtected(id, .password),
                     totpEncrypted: Secrets.isProtected(id, .totp),
                     configFile: hasConfig ? store.ovpnURL(id).path : nil,
@@ -615,7 +583,7 @@ final class CLIRunner {
                 : String(localized: "saved in Keychain")
             #endif
         }
-        var rows: [(String, String)] = [("id", p.id), ("type", p.type.rawValue + (p.type.isExperimental ? " " + Self.experimentalLabel : ""))]
+        var rows: [(String, String)] = [("id", p.id), ("type", p.type.rawValue)]
         rows += ProfileFields.keys(for: p.type).map { ($0, ProfileFields.value(p, key: $0)) }
         if !p.type.isCodeOnly { rows.append(("password", saved(.password))) }
         if p.otpMode == .totp { rows.append(("totp_secret", saved(.totp))) }
@@ -687,7 +655,6 @@ final class CLIRunner {
                 CLITerminal.dim(
                     String(localized: "Next: save the TOTP secret with “passtunnel secret \(p.id) totp”, then “passtunnel code \(p.id)”.")))
         }
-        if let line = Self.experimentalFeedbackLine(type) { CLITerminal.err(line) }
         return Exit.ok
     }
 
@@ -708,7 +675,6 @@ final class CLIRunner {
             return Exit.ok
         }
         CLITerminal.out(String(localized: "Imported “\(p.name)” as \(p.id)."))
-        if let line = Self.experimentalFeedbackLine(p.type) { CLITerminal.err(line) }
         if !skipped.isEmpty {
             CLITerminal.err(String(localized: "Skipped lines (kept as comments in the stored configuration):"))
             for s in skipped {
@@ -1341,9 +1307,7 @@ final class CLIRunner {
         for check in report.profiles {
             let mark = check.ok ? CLITerminal.colored("✓", palette.color(.connected)) : CLITerminal.bold("✗")
             let server = check.server.isEmpty ? "" : ", " + check.server
-            CLITerminal.out(
-                "\(mark) \(check.name)  "
-                    + CLITerminal.dim(check.id + ", " + check.type + (check.experimental == true ? " " + Self.experimentalLabel : "") + server))
+            CLITerminal.out("\(mark) \(check.name)  " + CLITerminal.dim(check.id + ", " + check.type + server))
             for problem in check.problems { CLITerminal.out("    " + problem.message) }
             if !check.asksFor.isEmpty {
                 let list = check.asksFor.compactMap { CredentialField(rawValue: $0)?.displayName }.joined(separator: ", ")

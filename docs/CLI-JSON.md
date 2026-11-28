@@ -161,11 +161,8 @@ a one-time code. It has no VPN to connect.") before anything is asked or read. `
 `badge`, `icon`, `badge_style`, `pinned`, `order`, `digits`, `period`, `algorithm` and `require_auth` (`off` or
 `always`); any other key is `wrong_profile_type`. `add --type code` creates one.
 
-GlobalProtect ships labelled experimental, and its profile objects say so: `"experimental" : true` in ProfileSummary,
-[ProfileStatus](#profilestatus), the `profile` object of `show` (and `set --json`) and the per-profile objects of
-[DiagnoseReport](#diagnosereport). The key is left out for every other type, so their output is unchanged byte for
-byte. It is additive and may disappear again when the type stops being experimental: read it as "present and true" or
-"absent".
+The `experimental` key that Palo Alto GlobalProtect profile objects carried while the type was labelled experimental
+is no longer written.
 
 ### ProfileStatus
 
@@ -188,9 +185,8 @@ From `status`, `connect`, `disconnect`, `toggle` and the MCP tools `get_status`,
 ```
 
 `state` is `disconnected`, `connecting` or `connected`. Present only when they apply: `connect_refusal` (this system
-cannot connect the profile: an error object, see [ProfileSummary](#profilesummary)), `experimental` (`true` for a
-profile of an experimental type, Palo Alto GlobalProtect), `notices` (while connected: what the user should know about
-the connection, a list of `{"kind", "message"}`: `hip_report_not_sent`, Palo Alto GlobalProtect:
+cannot connect the profile: an error object, see [ProfileSummary](#profilesummary)), `notices` (while connected: what
+the user should know about the connection, a list of `{"kind", "message"}`: `hip_report_not_sent`, Palo Alto GlobalProtect:
 the gateway asked for a host information report, which PassTunnel never sends, so the gateway may limit what the tunnel
 reaches; `connected_through_last_known_address`, Cisco AnyConnect, Palo Alto GlobalProtect with `skip_portal`, and OpenVPN with one named server and an explicit server identity: the server's name could
 not be resolved when the connection was made, so it was reached at the address it had at its last successful
@@ -468,7 +464,7 @@ again. PassTunnel gives back what its own sessions set (the helper checks after 
 these are settings nothing shows it set, so it leaves them, and restarting the Mac sets them back. Per profile: `ok` (nothing found that would stop a
 connect; the server can still refuse it), `server`, `protected`, `password_saved` / `totp_saved`
 (whether, never the value), `asks_for` (fields asked on every connect: `username`, `password`, `otp`),
-`problems` (error objects), `experimental` (`true` for Palo Alto GlobalProtect, otherwise left out), `clock`, the profile's last [ClockOffset](#clockoffset) when there is
+`problems` (error objects), `clock`, the profile's last [ClockOffset](#clockoffset) when there is
 one (any process's; a FortiGate gateway's after a rejected sign-in), and `last_known_address` (Cisco AnyConnect, Palo
 Alto GlobalProtect with `skip_portal`, and OpenVPN with one named server and an explicit server identity: `{"host", "address", "confirmed_at"}`, the address the server's name had at the
 last connection by that name, which a connect tries when the name fails, and when that connection was; read from the
@@ -569,9 +565,9 @@ the ones you do not know.
 | `toggle [ID]` | ProfileStatus |
 | `code [ID] [-c]` | `{"profile": "work", "code": "123456", "remaining": 17, "period": 30}` |
 | `list` | array of ProfileSummary |
-| `show ID` | `{"profile": {…settings…}, "is_default", "password_saved", "totp_saved", "password_encrypted", "totp_encrypted", "config_file", "remote", "connect_refusal"}` (a Cisco AnyConnect profile's settings also have `usergroup`, `authgroup`, `server_cert` and `tls_only`, a Palo Alto GlobalProtect profile's `gateway`, `skip_portal`, `server_cert`, `gateway_server_cert` and `tls_only`, and `experimental` : true; `connect_refusal` only where this system cannot connect it) |
+| `show ID` | `{"profile": {…settings…}, "is_default", "password_saved", "totp_saved", "password_encrypted", "totp_encrypted", "config_file", "remote", "connect_refusal"}` (a Cisco AnyConnect profile's settings also have `usergroup`, `authgroup`, `server_cert` and `tls_only`, a Palo Alto GlobalProtect profile's `gateway`, `skip_portal`, `server_cert`, `gateway_server_cert` and `tls_only`; `connect_refusal` only where this system cannot connect it) |
 | `set ID key=value…` | the `show` object after the change |
-| `add NAME --type T [--server URL]` | ProfileSummary of the new profile. `T`: `openvpn`, `forti`, `anyconnect`, `globalprotect` or `code` (a code-only profile: no VPN, only its one-time code); `--server https://vpn.example.com[:port][/usergroup]` (Cisco AnyConnect) sets `host`, `port` and `usergroup`, and `--server [https://]vpn.example.com[:port]` (Palo Alto GlobalProtect, no path) sets `host` and `port`; an address that is not one (another scheme, user info, a query or fragment, a bad port, a path that is not a user group, any path for GlobalProtect) is a usage error that never repeats the value. Where the type cannot connect (Cisco AnyConnect and Palo Alto GlobalProtect on a macOS older than 15.4) it fails with its `config_invalid` error and creates nothing. For GlobalProtect the summary has `experimental` : true, and (human output only) one line on standard error asks for reports |
+| `add NAME --type T [--server URL]` | ProfileSummary of the new profile. `T`: `openvpn`, `forti`, `anyconnect`, `globalprotect` or `code` (a code-only profile: no VPN, only its one-time code); `--server https://vpn.example.com[:port][/usergroup]` (Cisco AnyConnect) sets `host`, `port` and `usergroup`, and `--server [https://]vpn.example.com[:port]` (Palo Alto GlobalProtect, no path) sets `host` and `port`; an address that is not one (another scheme, user info, a query or fragment, a bad port, a path that is not a user group, any path for GlobalProtect) is a usage error that never repeats the value. Where the type cannot connect (Cisco AnyConnect and Palo Alto GlobalProtect on a macOS older than 15.4) it fails with its `config_invalid` error and creates nothing. |
 | `import FILE` | ProfileSummary of the new profile with `skipped` (below) |
 | `export ID [-o FILE]` | `{"id": "work", "path": "/Users/alice/work.passtunnel"}` |
 | `rm ID --yes` | `{"id": "work", "deleted": true}` |
@@ -634,8 +630,6 @@ and `auth_group` work too. Nothing prints a password, a code or a session cookie
 
 ### Palo Alto GlobalProtect profiles
 
-Experimental: see `experimental` above.
-
 ```sh
 passtunnel add Corp --type globalprotect --server https://vpn.example.com
 passtunnel set corp username=sam gateway="Gateway 1" tls_only=true
@@ -651,9 +645,8 @@ portal's), `tls_only` (no ESP), `set_dns`, `set_routes`, `otp_delivery` (`separa
 password keys. `usergroup`, `authgroup` and `trusted_cert` belong to other types (`invalid_argument`). Single sign-on
 (SAML) is not supported: the connect fails with `failure.kind` `sso_required`. The gateway's request for a host
 information report is never answered and is reported as the `hip_report_not_sent` notice of
-[ProfileStatus](#profilestatus), also in the result of `connect --json` and the MCP tools. Human output marks the type
-`(experimental)` in `list`, `show`, `status` and `diagnose`. A rejected `--server` or `set` value is never repeated in an
-error.
+[ProfileStatus](#profilestatus), also in the result of `connect --json` and the MCP tools. A rejected `--server` or
+`set` value is never repeated in an error.
 
 ### Examples
 
