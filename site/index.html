@@ -8,30 +8,282 @@
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
-<title>PassTunnel: connect your VPN without typing one-time codes</title>
-<meta name="description" content="PassTunnel is a free, open-source macOS app for OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect (experimental). It keeps your TOTP secret in the Keychain and sends the current one-time code with your password when you click Connect.">
+<title>PassTunnel: macOS VPN client that fills in your TOTP code</title>
+<meta name="description" content="Free, open-source macOS VPN client for OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect. Sends your TOTP code when you connect.">
 <link rel="canonical" href="https://passtunnel.github.io/">
+<link rel="alternate" hreflang="en" href="https://passtunnel.github.io/">
+<link rel="alternate" hreflang="tr" href="https://passtunnel.github.io/tr/">
+<link rel="alternate" hreflang="x-default" href="https://passtunnel.github.io/">
 <link rel="icon" type="image/png" sizes="64x64" href="assets/img/favicon.png">
 <link rel="apple-touch-icon" href="assets/img/apple-touch-icon.png">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="PassTunnel">
-<meta property="og:title" content="PassTunnel: connect your VPN without typing one-time codes">
-<meta property="og:description" content="Free, open-source macOS app for OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect (experimental). Your TOTP secret stays in the Keychain; PassTunnel sends the current code with your password.">
+<meta property="og:title" content="PassTunnel: macOS VPN client that fills in your TOTP code">
+<meta property="og:description" content="Free, open-source macOS VPN client for OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect. Sends your TOTP code when you connect.">
 <meta property="og:url" content="https://passtunnel.github.io/">
 <meta property="og:image" content="https://passtunnel.github.io/assets/img/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="PassTunnel: Connect your VPN without ever typing a one-time code again. The main window lists the VPN profiles and shows the selected one with its live code and what the server receives.">
 <meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="tr_TR">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="PassTunnel: connect your VPN without typing one-time codes">
-<meta name="twitter:description" content="Free, open-source macOS app for OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect (experimental). Your TOTP secret stays in the Keychain; PassTunnel sends the current code with your password.">
+<meta name="twitter:title" content="PassTunnel: macOS VPN client that fills in your TOTP code">
+<meta name="twitter:description" content="Free, open-source macOS VPN client for OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect. Sends your TOTP code when you connect.">
 <meta name="twitter:image" content="https://passtunnel.github.io/assets/img/og.png">
 <meta name="twitter:image:alt" content="PassTunnel: Connect your VPN without ever typing a one-time code again. The main window lists the VPN profiles and shows the selected one with its live code and what the server receives.">
 <link rel="alternate" type="text/plain" href="llms.txt" title="llms.txt">
 <script src="assets/theme.js"></script>
 <link rel="stylesheet" href="assets/style.css">
 <script src="assets/main.js" defer></script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://passtunnel.github.io/#organization",
+      "name": "PassTunnel",
+      "url": "https://passtunnel.github.io/",
+      "logo": {
+        "@type": "ImageObject",
+        "url": "https://passtunnel.github.io/assets/img/apple-touch-icon.png",
+        "width": 180,
+        "height": 180
+      },
+      "sameAs": [
+        "https://github.com/PassTunnel"
+      ]
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://passtunnel.github.io/#website",
+      "url": "https://passtunnel.github.io/",
+      "name": "PassTunnel",
+      "description": "Free, open-source macOS VPN client for OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect. Sends your TOTP code when you connect.",
+      "inLanguage": [
+        "en",
+        "tr"
+      ],
+      "publisher": {
+        "@id": "https://passtunnel.github.io/#organization"
+      }
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://passtunnel.github.io/#app",
+      "name": "PassTunnel",
+      "description": "PassTunnel is a free, open-source VPN client for macOS that connects to OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect servers. It keeps your TOTP secret in the macOS Keychain, computes the current one-time code and sends it with your password when you click Connect, so you do not have to type a two-factor code from your authenticator app. It runs on Apple silicon Macs with macOS 13 or later and comes with the passtunnel command-line tool and a built-in MCP server.",
+      "url": "https://passtunnel.github.io/",
+      "applicationCategory": "UtilitiesApplication",
+      "applicationSubCategory": "VPN client",
+      "operatingSystem": "macOS 13 Ventura or later",
+      "processorRequirements": "Apple silicon",
+      "softwareRequirements": "macOS 13 Ventura or later on a Mac with Apple silicon; Cisco AnyConnect and Palo Alto GlobalProtect need macOS 15.4 or later",
+      "isAccessibleForFree": true,
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "license": "https://github.com/PassTunnel/passtunnel/blob/main/LICENSE",
+      "downloadUrl": "https://github.com/PassTunnel/passtunnel/releases/latest/download/PassTunnel.dmg",
+      "releaseNotes": "https://github.com/PassTunnel/passtunnel/releases/latest",
+      "softwareHelp": {
+        "@type": "TechArticle",
+        "@id": "https://passtunnel.github.io/guide/#article",
+        "url": "https://passtunnel.github.io/guide/",
+        "headline": "User guide"
+      },
+      "featureList": [
+        "Keeps the TOTP secret in the macOS Keychain and sends the current one-time code with the password when you click Connect",
+        "OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect, with signed openvpn, openfortivpn and openconnect bundled",
+        "Code formats per profile: Append, Prepend, password:code, password,code, Custom template or Sent separately",
+        "Waits for a fresh code when 5 seconds or less are left, and never sends the same code twice",
+        "Authenticator-style window with live codes, a countdown ring and click to copy; the clipboard is cleared after a minute, or the time you choose",
+        "QR import: scan it on screen, drop a screenshot, choose an image or paste",
+        "Optional Touch ID per profile, with the secrets then encrypted with a Secure Enclave key",
+        "Optional auto-type shortcut ⌃⌥C for web portals",
+        "Menu bar panel with each pinned or active profile (all profiles while none is pinned), its state, live code and a switch to connect or disconnect",
+        "Auto-reconnect with backoff, a health check, reconnect after wake and a session limit reminder",
+        "Several VPNs at once",
+        "Shareable .passtunnel profiles that never contain passwords, TOTP secrets or user names",
+        "The passtunnel command-line tool, with --json output and stable exit codes",
+        "Built-in MCP server (passtunnel mcp), read-only by default",
+        "Passwords and TOTP secrets in the login Keychain, with no iCloud sync",
+        "A small privileged helper approved once in System Settings: no sudoers rule and no admin password at every connect",
+        "English and Turkish interface"
+      ],
+      "screenshot": [
+        {
+          "@type": "ImageObject",
+          "url": "https://passtunnel.github.io/assets/img/hero-light@2x.webp",
+          "caption": "The PassTunnel main window with two VPN profiles and the live one-time code of the connected one."
+        },
+        {
+          "@type": "ImageObject",
+          "url": "https://passtunnel.github.io/assets/img/menubar-panel-light@2x.webp",
+          "caption": "The PassTunnel menu bar panel."
+        }
+      ],
+      "image": "https://passtunnel.github.io/assets/img/og.png",
+      "inLanguage": [
+        "en",
+        "tr"
+      ],
+      "author": {
+        "@id": "https://passtunnel.github.io/#organization"
+      },
+      "publisher": {
+        "@id": "https://passtunnel.github.io/#organization"
+      },
+      "sameAs": [
+        "https://github.com/PassTunnel/passtunnel"
+      ]
+    },
+    {
+      "@type": "SoftwareSourceCode",
+      "@id": "https://passtunnel.github.io/#source",
+      "name": "PassTunnel",
+      "codeRepository": "https://github.com/PassTunnel/passtunnel",
+      "license": "https://github.com/PassTunnel/passtunnel/blob/main/LICENSE",
+      "targetProduct": {
+        "@id": "https://passtunnel.github.io/#app"
+      }
+    },
+    {
+      "@type": "FAQPage",
+      "@id": "https://passtunnel.github.io/#webpage",
+      "url": "https://passtunnel.github.io/",
+      "name": "PassTunnel: macOS VPN client that fills in your TOTP code",
+      "description": "Free, open-source macOS VPN client for OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect. Sends your TOTP code when you connect.",
+      "inLanguage": "en",
+      "isPartOf": {
+        "@id": "https://passtunnel.github.io/#website"
+      },
+      "about": {
+        "@id": "https://passtunnel.github.io/#app"
+      },
+      "primaryImageOfPage": {
+        "@type": "ImageObject",
+        "url": "https://passtunnel.github.io/assets/img/og.png"
+      },
+      "workTranslation": {
+        "@type": "FAQPage",
+        "@id": "https://passtunnel.github.io/tr/#webpage",
+        "url": "https://passtunnel.github.io/tr/",
+        "inLanguage": "tr"
+      },
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "What is PassTunnel?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "PassTunnel is a free, open-source VPN client for macOS that connects to OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect servers. It keeps your TOTP secret in the macOS Keychain, computes the current one-time code and sends it with your password when you click Connect, so you do not have to type a two-factor code from your authenticator app. It runs on Apple silicon Macs with macOS 13 or later and comes with the passtunnel command-line tool and a built-in MCP server."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Is PassTunnel free and open source?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. PassTunnel is free and open source under the MIT license, with its source code, releases and issues on GitHub. It has no accounts, ads, analytics, tracking or crash reporting (see the privacy policy)."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Which Macs and macOS versions does PassTunnel support?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "PassTunnel needs macOS 13 Ventura or later on a Mac with Apple silicon. Cisco AnyConnect and Palo Alto GlobalProtect profiles need macOS 15.4 or later; on an older macOS, OpenVPN and FortiGate profiles and the rest of the app work as usual. Scanning a QR code on screen needs macOS 14 or later."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Which VPN types does PassTunnel support?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect. Signed openvpn, openfortivpn and openconnect are bundled, so there is nothing else to install, and you can connect several VPNs at once. Cisco AnyConnect signs in with a password and a one-time code and needs macOS 15.4 or later; sign-in through a web browser (SAML), host scan, client certificates and RSA SecurID are not supported. Palo Alto GlobalProtect signs in to the portal and the gateway with a password and a one-time code and needs macOS 15.4 or later; single sign-on and client certificates are not supported, and the host information report (HIP) is never sent, so the gateway may limit access."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "How does PassTunnel send the one-time code?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "When you click Connect, PassTunnel computes the current TOTP code and sends it with your password in the format your server expects, chosen per profile: appended or prepended to the password, as password:code or password,code, through a custom template with {password} and {otp}, or sent separately (the OpenVPN static challenge, the FortiGate OTP field or the second password field of Cisco AnyConnect and Palo Alto GlobalProtect). With 5 seconds or less left in the code window, it waits for a fresh code (a setting, on by default), and it never sends the same code twice. The user guide shows each format."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Does PassTunnel work without TOTP?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. Set the one-time code to “None” for a plain user name and password or a certificate-only VPN, or to “Ask each time” if you use a hardware token or SMS: a small sheet then asks for the code when you connect. The user guide shows where."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Where are my passwords and TOTP secrets stored?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "PassTunnel keeps them in your login Keychain on the Mac, with no iCloud sync. With Touch ID turned on for a profile, its secrets are encrypted with a Secure Enclave key. Profile settings are files readable only by your user account, shared .passtunnel profiles never contain passwords, TOTP secrets or user names, and your credentials go only to the VPN servers in your profiles."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Why does PassTunnel need a privileged helper?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Creating a tunnel interface and changing routes and DNS requires root. Instead of a sudoers rule or an admin password at every connect, PassTunnel uses a small helper that you approve once in System Settings (step by step). It only accepts the signed app and only runs the signed openvpn, openfortivpn and openconnect bundled inside it, with sanitized OpenVPN configurations."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Can I connect a VPN from the command line?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. The passtunnel command does everything the app does, for example passtunnel connect work, passtunnel code work -c to print and copy the live code, and passtunnel status --json. It can also add and change profiles, such as passtunnel add Corp --type anyconnect --server https://vpn.example.com/staff. Every command with a result takes --json, and exit codes are stable. The command comes with the Homebrew cask, or install it from Settings → General → Other → Command-line tool (more in the guide)."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Does PassTunnel have an MCP server?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. passtunnel mcp is a built-in MCP server for the Mac’s VPN connections, so AI assistants such as Claude Code, Claude Desktop, Cursor and VS Code can check VPN status, read logs and diagnose problems. It is read-only by default: connecting and disconnecting need --allow-connect, Touch ID-protected profiles still ask on the Mac, and it never hands out passwords, TOTP secrets or one-time codes. For Claude Code, run claude mcp add passtunnel -- passtunnel mcp; for Claude Desktop, double-click the .mcpb bundle from the latest release. The user guide covers other clients."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "How do I install PassTunnel?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Download the disk image, open it and drag PassTunnel to Applications, or install it with Homebrew: brew trust passtunnel/tap, then brew install --cask passtunnel/tap/passtunnel. Open PassTunnel from the Applications folder and approve its helper once in System Settings → General → Login Items. The app is signed with a Developer ID, notarized by Apple and keeps itself up to date. The user guide walks through the first launch."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "How do I uninstall PassTunnel?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Disconnect all profiles, remove the helper before deleting the app (Settings → Helper → Remove Helper…, or passtunnel helper uninstall), turn off “Open at login, in the menu bar”, then quit PassTunnel and move it to the Trash. Profiles, configurations and logs stay in ~/Library/Application Support/PassTunnel, and passwords and secrets in the Keychain, until you delete them; the user guide has the commands. With Homebrew, brew uninstall --zap --cask passtunnel also deletes your data and the Keychain items."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Where can I get help with PassTunnel?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Start with the troubleshooting section of the user guide and passtunnel diagnose, which reports the installation, the helper, the VPN tools and each profile’s problems. For questions and bugs, open an issue on GitHub. Report security problems privately, as the security policy describes."
+          }
+        }
+      ]
+    }
+  ]
+}
+</script>
 </head>
 <body>
 
@@ -271,14 +523,14 @@
         <p class="eyebrow">VPN client</p>
         <h2 class="h2" id="client-title">A complete VPN client. Nothing else to install.</h2>
       </div>
-      <p class="lead">OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect (experimental), with signed <code>openvpn</code>, <code>openfortivpn</code> and <code>openconnect</code> bundled inside the app.</p>
+      <p class="lead">OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect, with signed <code>openvpn</code>, <code>openfortivpn</code> and <code>openconnect</code> bundled inside the app.</p>
     </div>
 
     <article class="card card-soft mb-card">
       <div class="mb-text">
         <div class="card-icon" aria-hidden="true"><svg class="icon" width="20" height="20"><use href="#i-menubar"/></svg></div>
         <h3>Your VPNs, one click away</h3>
-        <p>PassTunnel lives in the menu bar. Its panel shows every profile with its state and live code and a switch to connect or disconnect. Copy the current code, or type it when auto-type is on, without opening the window.</p>
+        <p>PassTunnel lives in the menu bar. Its panel lists each pinned or active profile (all profiles while none is pinned) with its state, live code and a switch to connect or disconnect. Copy the current code, or type it when auto-type is on, without opening the window.</p>
       </div>
       <figure class="mb-shot">
         <img class="shot only-light" src="assets/img/menubar-panel-light.webp" srcset="assets/img/menubar-panel-light.webp 360w, assets/img/menubar-panel-light@1.5x.webp 540w, assets/img/menubar-panel-light@2x.webp 720w" sizes="(max-width: 479.98px) calc(92vw - 50px), 360px" width="360" height="364" loading="lazy" decoding="async" alt="The PassTunnel menu bar panel, opened from the menu bar: Work connected with its live code and a switch, Staging asking for Touch ID, Travel with a dropped connection, then Copy Work code, Copy Work password + code, Type Work code, Open PassTunnel, Settings and Quit.">
@@ -496,21 +748,57 @@
       <h2 class="h2" id="faq-title">Questions</h2>
     </div>
     <div class="faq-list">
+      <details class="faq-item" open>
+        <summary><span>What is PassTunnel?</span><span class="faq-toggle" aria-hidden="true"><svg class="icon icon-bold" width="16" height="16"><use href="#i-plus"/></svg></span></summary>
+        <p class="faq-body">PassTunnel is a free, open-source VPN client for macOS that connects to OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect servers. It keeps your TOTP secret in the macOS Keychain, computes the current one-time code and sends it with your password when you click Connect, so you do not have to type a two-factor code from your authenticator app. It runs on Apple silicon Macs with macOS 13 or later and comes with the <code>passtunnel</code> command-line tool and a built-in MCP server.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span>Is PassTunnel free and open source?</span><span class="faq-toggle" aria-hidden="true"><svg class="icon icon-bold" width="16" height="16"><use href="#i-plus"/></svg></span></summary>
+        <p class="faq-body">Yes. PassTunnel is free and open source under the MIT license, with its source code, releases and issues on <a class="text-link" href="https://github.com/PassTunnel/passtunnel">GitHub</a>. It has no accounts, ads, analytics, tracking or crash reporting (see the <a class="text-link" href="privacy/">privacy policy</a>).</p>
+      </details>
+      <details class="faq-item">
+        <summary><span>Which Macs and macOS versions does PassTunnel support?</span><span class="faq-toggle" aria-hidden="true"><svg class="icon icon-bold" width="16" height="16"><use href="#i-plus"/></svg></span></summary>
+        <p class="faq-body">PassTunnel needs macOS 13 Ventura or later on a Mac with Apple silicon. Cisco AnyConnect and Palo Alto GlobalProtect profiles need macOS 15.4 or later; on an older macOS, OpenVPN and FortiGate profiles and the rest of the app work as usual. Scanning a QR code on screen needs macOS 14 or later.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span>Which VPN types does PassTunnel support?</span><span class="faq-toggle" aria-hidden="true"><svg class="icon icon-bold" width="16" height="16"><use href="#i-plus"/></svg></span></summary>
+        <p class="faq-body">OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect. Signed <code>openvpn</code>, <code>openfortivpn</code> and <code>openconnect</code> are bundled, so there is nothing else to install, and you can connect several VPNs at once. Cisco AnyConnect signs in with a password and a one-time code and needs macOS 15.4 or later; sign-in through a web browser (SAML), host scan, client certificates and RSA SecurID are not supported. Palo Alto GlobalProtect signs in to the portal and the gateway with a password and a one-time code and needs macOS 15.4 or later; single sign-on and client certificates are not supported, and the host information report (HIP) is never sent, so the gateway may limit access.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span>How does PassTunnel send the one-time code?</span><span class="faq-toggle" aria-hidden="true"><svg class="icon icon-bold" width="16" height="16"><use href="#i-plus"/></svg></span></summary>
+        <p class="faq-body">When you click Connect, PassTunnel computes the current TOTP code and sends it with your password in the format your server expects, chosen per profile: appended or prepended to the password, as <code>password:code</code> or <code>password,code</code>, through a custom template with <code>{password}</code> and <code>{otp}</code>, or sent separately (the OpenVPN static challenge, the FortiGate OTP field or the second password field of Cisco AnyConnect and Palo Alto GlobalProtect). With 5 seconds or less left in the code window, it waits for a fresh code (a setting, on by default), and it never sends the same code twice. The <a class="text-link" href="guide/#format">user guide</a> shows each format.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span>Does PassTunnel work without TOTP?</span><span class="faq-toggle" aria-hidden="true"><svg class="icon icon-bold" width="16" height="16"><use href="#i-plus"/></svg></span></summary>
+        <p class="faq-body">Yes. Set the one-time code to “None” for a plain user name and password or a certificate-only VPN, or to “Ask each time” if you use a hardware token or SMS: a small sheet then asks for the code when you connect. The <a class="text-link" href="guide/#code">user guide</a> shows where.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span>Where are my passwords and TOTP secrets stored?</span><span class="faq-toggle" aria-hidden="true"><svg class="icon icon-bold" width="16" height="16"><use href="#i-plus"/></svg></span></summary>
+        <p class="faq-body">PassTunnel keeps them in your login Keychain on the Mac, with no iCloud sync. With Touch ID turned on for a profile, its secrets are encrypted with a Secure Enclave key. Profile settings are files readable only by your user account, shared <code>.passtunnel</code> profiles never contain passwords, TOTP secrets or user names, and your credentials go only to the VPN servers in your profiles.</p>
+      </details>
       <details class="faq-item">
         <summary><span>Why does PassTunnel need a privileged helper?</span><span class="faq-toggle" aria-hidden="true"><svg class="icon icon-bold" width="16" height="16"><use href="#i-plus"/></svg></span></summary>
-        <p class="faq-body">Creating a tunnel interface and changing routes and DNS requires root. Instead of a sudoers rule or an admin password at every connect, PassTunnel uses a small helper that you approve once in System Settings (<a href="guide/#helper">step by step</a>). It only accepts the signed app and only runs the signed <code>openvpn</code>, <code>openfortivpn</code> and <code>openconnect</code> bundled inside it, with sanitized OpenVPN configurations.</p>
+        <p class="faq-body">Creating a tunnel interface and changing routes and DNS requires root. Instead of a sudoers rule or an admin password at every connect, PassTunnel uses a small helper that you approve once in System Settings (<a class="text-link" href="guide/#helper">step by step</a>). It only accepts the signed app and only runs the signed <code>openvpn</code>, <code>openfortivpn</code> and <code>openconnect</code> bundled inside it, with sanitized OpenVPN configurations.</p>
       </details>
       <details class="faq-item">
-        <summary><span>Where are my secrets stored?</span><span class="faq-toggle" aria-hidden="true"><svg class="icon icon-bold" width="16" height="16"><use href="#i-plus"/></svg></span></summary>
-        <p class="faq-body">In your login Keychain, with no iCloud sync. With Touch ID turned on for a profile, its secrets are encrypted with a Secure Enclave key.</p>
+        <summary><span>Can I connect a VPN from the command line?</span><span class="faq-toggle" aria-hidden="true"><svg class="icon icon-bold" width="16" height="16"><use href="#i-plus"/></svg></span></summary>
+        <p class="faq-body">Yes. The <code>passtunnel</code> command does everything the app does, for example <code>passtunnel connect work</code>, <code>passtunnel code work -c</code> to print and copy the live code, and <code>passtunnel status --json</code>. It can also add and change profiles, such as <code>passtunnel add Corp --type anyconnect --server https://vpn.example.com/staff</code>. Every command with a result takes <code>--json</code>, and exit codes are stable. The command comes with the Homebrew cask, or install it from Settings → General → Other → Command-line tool (<a class="text-link" href="guide/#cli">more in the guide</a>).</p>
       </details>
       <details class="faq-item">
-        <summary><span>Which VPN types does it support?</span><span class="faq-toggle" aria-hidden="true"><svg class="icon icon-bold" width="16" height="16"><use href="#i-plus"/></svg></span></summary>
-        <p class="faq-body">OpenVPN, FortiGate SSL VPN, Cisco AnyConnect and Palo Alto GlobalProtect. Signed <code>openvpn</code>, <code>openfortivpn</code> and <code>openconnect</code> are bundled, so there is nothing else to install, and you can connect several VPNs at once. Cisco AnyConnect signs in with a password and a one-time code and needs macOS 15.4 or later; sign-in through a web browser (SAML), host scan, client certificates and RSA SecurID are not supported. Palo Alto GlobalProtect is experimental: it signs in to the portal and the gateway with a password and a one-time code (macOS 15.4 or later), without single sign-on, client certificates or the host information report (HIP, which is never sent), and has been tried against openconnect’s own test server and one real gateway. If you use it, please <a href="https://github.com/PassTunnel/passtunnel/issues/new?template=globalprotect_report.md">tell us how it works</a>.</p>
+        <summary><span>Does PassTunnel have an MCP server?</span><span class="faq-toggle" aria-hidden="true"><svg class="icon icon-bold" width="16" height="16"><use href="#i-plus"/></svg></span></summary>
+        <p class="faq-body">Yes. <code>passtunnel mcp</code> is a built-in MCP server for the Mac’s VPN connections, so AI assistants such as Claude Code, Claude Desktop, Cursor and VS Code can check VPN status, read logs and diagnose problems. It is read-only by default: connecting and disconnecting need <code>--allow-connect</code>, Touch ID-protected profiles still ask on the Mac, and it never hands out passwords, TOTP secrets or one-time codes. For Claude Code, run <code>claude mcp add passtunnel -- passtunnel mcp</code>; for Claude Desktop, double-click the <code>.mcpb</code> bundle from the <a class="text-link" href="https://github.com/PassTunnel/passtunnel/releases/latest">latest release</a>. The <a class="text-link" href="guide/#mcp">user guide</a> covers other clients.</p>
       </details>
       <details class="faq-item">
-        <summary><span>Does it work without TOTP?</span><span class="faq-toggle" aria-hidden="true"><svg class="icon icon-bold" width="16" height="16"><use href="#i-plus"/></svg></span></summary>
-        <p class="faq-body">Yes. Set the one-time code to “None” for a plain user name and password or a certificate-only VPN, or to “Ask each time” if you use a hardware token or SMS. The <a href="guide/#code">user guide</a> shows where.</p>
+        <summary><span>How do I install PassTunnel?</span><span class="faq-toggle" aria-hidden="true"><svg class="icon icon-bold" width="16" height="16"><use href="#i-plus"/></svg></span></summary>
+        <p class="faq-body">Download the <a class="text-link" href="https://github.com/PassTunnel/passtunnel/releases/latest/download/PassTunnel.dmg">disk image</a>, open it and drag PassTunnel to Applications, or install it with Homebrew: <code>brew trust passtunnel/tap</code>, then <code>brew install --cask passtunnel/tap/passtunnel</code>. Open PassTunnel from the Applications folder and approve its helper once in System Settings → General → Login Items. The app is signed with a Developer ID, notarized by Apple and keeps itself up to date. The <a class="text-link" href="guide/#install">user guide</a> walks through the first launch.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span>How do I uninstall PassTunnel?</span><span class="faq-toggle" aria-hidden="true"><svg class="icon icon-bold" width="16" height="16"><use href="#i-plus"/></svg></span></summary>
+        <p class="faq-body">Disconnect all profiles, remove the helper before deleting the app (Settings → Helper → Remove Helper…, or <code>passtunnel helper uninstall</code>), turn off “Open at login, in the menu bar”, then quit PassTunnel and move it to the Trash. Profiles, configurations and logs stay in <code>~/Library/Application Support/PassTunnel</code>, and passwords and secrets in the Keychain, until you delete them; the <a class="text-link" href="guide/#uninstall">user guide</a> has the commands. With Homebrew, <code>brew uninstall --zap --cask passtunnel</code> also deletes your data and the Keychain items.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span>Where can I get help with PassTunnel?</span><span class="faq-toggle" aria-hidden="true"><svg class="icon icon-bold" width="16" height="16"><use href="#i-plus"/></svg></span></summary>
+        <p class="faq-body">Start with the <a class="text-link" href="guide/#troubleshooting">troubleshooting section</a> of the user guide and <code>passtunnel diagnose</code>, which reports the installation, the helper, the VPN tools and each profile’s problems. For questions and bugs, open an issue on <a class="text-link" href="https://github.com/PassTunnel/passtunnel/issues">GitHub</a>. Report security problems privately, as the <a class="text-link" href="https://github.com/PassTunnel/passtunnel/blob/main/SECURITY.md#reporting-a-vulnerability">security policy</a> describes.</p>
       </details>
     </div>
   </div>
@@ -557,6 +845,7 @@
           <li><a class="nav-link" href="guide/">Guide</a></li>
           <li><a class="nav-link" href="privacy/">Privacy</a></li>
           <li><a class="nav-link" href="https://github.com/PassTunnel/passtunnel/blob/main/LICENSE">License (MIT)</a></li>
+          <li><a class="nav-link" href="tr/" hreflang="tr" lang="tr">Türkçe</a></li>
         </ul>
       </nav>
     </div>

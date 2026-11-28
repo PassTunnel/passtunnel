@@ -1,9 +1,12 @@
 /* PassTunnel website: theme button, mobile menu, copy buttons, format picker, and the
-   live code demo. No dependencies. Everything the scripts show is in STRINGS (for translations). */
+   live code demo. No dependencies. Everything the scripts show is in STRINGS, one set per page
+   language (<html lang>); a page in a language without a set uses English. */
 (function () {
   'use strict';
 
-  var STRINGS = {
+  var ALL_STRINGS = {};
+
+  ALL_STRINGS.en = {
     themeNames: { auto: 'Auto', light: 'Light', dark: 'Dark' },
     themeLabel: 'Color theme: {current}. Switch to {next}.',
     copy: 'Copy',
@@ -42,6 +45,48 @@
       mask: '••••••••'
     }
   };
+
+  ALL_STRINGS.tr = {
+    themeNames: { auto: 'Otomatik', light: 'Açık', dark: 'Koyu' },
+    themeLabel: 'Renk teması: {current}. {next} temaya geç.',
+    copy: 'Kopyala',
+    copied: 'Kopyalandı',
+    copyFailed: 'Kopyalanamadı',
+    copiedAnnounce: 'Panoya kopyalandı.',
+    copyFailedAnnounce: 'Panoya kopyalanamadı.',
+    demo: {
+      idle: {
+        state: 'Bağlı değil',
+        button: 'Bağlan',
+        status: 'Bağlan’a tıklayın: parolanız ve bu kod birlikte gönderilir.',
+        statusLow: '5 saniye ya da daha az kaldı. Şimdi bağlanırsanız bir sonraki kod beklenir.'
+      },
+      waiting: {
+        state: 'Bekliyor',
+        button: 'Yeni kod bekleniyor · {secs} sn',
+        status: '5 saniye ya da daha az kaldı, bu yüzden PassTunnel yeni kodu bekliyor.',
+        announce: 'Bağlanmadan önce yeni kod bekleniyor.'
+      },
+      sending: {
+        state: 'Bağlanıyor',
+        button: 'Bağlanıyor…',
+        status: 'Parolanız ve kod vpn.example.com adresine gönderiliyor…',
+        announce: 'Bağlanıyor.'
+      },
+      connected: {
+        state: 'Bağlı',
+        button: 'Bağlantıyı Kes',
+        status: 'Work bağlandı. Tek bir şey bile yazmadınız.',
+        announce: 'Work bağlandı.'
+      },
+      disconnected: 'Bağlantı kesildi.',
+      sentNothing: 'henüz yok',
+      sentWaiting: 'bekleniyor…',
+      mask: '••••••••'
+    }
+  };
+
+  var STRINGS = ALL_STRINGS[document.documentElement.lang] || ALL_STRINGS.en;
 
   var root = document.documentElement;
   var announcer = document.querySelector('[data-announce]');
